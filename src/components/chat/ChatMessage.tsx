@@ -27,6 +27,11 @@ function FormattedText({ content }: { content: string }) {
     <div className="space-y-1.5">
       {content.split('\n').map((line, i) => {
         if (!line.trim()) return <div key={i} className="h-2" />;
+        // Hide leaked artifact syntax
+        if (line.includes(':::artifact') || line.includes(':::') && line.trim() === ':::') return null;
+        if (line.trim().startsWith('{"type"') || line.trim().startsWith('{"prompt"') || line.trim().startsWith('{"title"')) {
+          try { JSON.parse(line.trim()); return null; } catch { /* not JSON, render normally */ }
+        }
         if (line.startsWith('# ')) return <h2 key={i} className="text-base font-bold text-white mt-3 mb-1">{renderInline(line.slice(2))}</h2>;
         if (line.startsWith('## ')) return <h3 key={i} className="text-sm font-semibold text-zinc-100 mt-2 mb-0.5">{renderInline(line.slice(3))}</h3>;
         if (line.startsWith('### ')) return <h4 key={i} className="text-sm font-medium text-zinc-200 mt-1.5">{renderInline(line.slice(4))}</h4>;

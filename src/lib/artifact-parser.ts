@@ -51,8 +51,8 @@ export function parseMessageContent(content: string): MessageSegment[] {
       } else {
         // Might be incomplete (streaming) or malformed
         if (part.endsWith(':::') || part.includes('\n:::')) {
-          // Has closing but failed to parse — show as text
-          segments.push({ type: 'text', content: part });
+          // Has closing but failed to parse — hide malformed artifacts
+          // Don't show raw JSON/artifact syntax to user
         } else {
           // No closing — still streaming
           segments.push({ type: 'artifact-pending', raw: part });
