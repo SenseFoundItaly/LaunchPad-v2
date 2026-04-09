@@ -1,11 +1,13 @@
 import { NextRequest } from 'next/server';
-import { query, run, get } from '@/lib/db';
-import { json, error, generateId } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, error, unauthorized } from '@/lib/api-helpers';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  let user;
+  try { user = await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
 
   let body;
@@ -24,21 +26,37 @@ export async function POST(
     return json({ id: 'skipped', source: body.source_node_id, target: body.target_node_id, relation: body.relation, label: '', weight: 1.0 });
   }
 
-  const rows = query('SELECT id FROM projects WHERE id = ?', projectId);
-  if (rows.length === 0) {return error('Project not found', 404);}
+  const supabase = await createServerSupabase();
+
+  // Verify project belongs to user
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('id', projectId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (!project) return error('Project not found', 404);
 
   // Verify both nodes exist
-  const srcNode = get('SELECT id FROM graph_nodes WHERE id = ?', body.source_node_id);
-  const tgtNode = get('SELECT id FROM graph_nodes WHERE id = ?', body.target_node_id);
-  if (!srcNode || !tgtNode) {
+  const [srcResult, tgtResult] = await Promise.all([
+    supabase.from('graph_nodes').select('id').eq('id', body.source_node_id).maybeSingle(),
+    supabase.from('graph_nodes').select('id').eq('id', body.target_node_id).maybeSingle(),
+  ]);
+
+  if (!srcResult.data || !tgtResult.data) {
     return json({ id: 'skipped', source: body.source_node_id, target: body.target_node_id, relation: body.relation, label: '', weight: 1.0 });
   }
 
-  // Check for duplicate
-  const existing = get(
-    'SELECT * FROM graph_edges WHERE project_id = ? AND source_node_id = ? AND target_node_id = ? AND relation = ?',
-    projectId, body.source_node_id, body.target_node_id, body.relation,
-  );
+  // Check for duplicate edge
+  const { data: existing } = await supabase
+    .from('graph_edges')
+    .select('*')
+    .eq('project_id', projectId)
+    .eq('source_node_id', body.source_node_id)
+    .eq('target_node_id', body.target_node_id)
+    .eq('relation', body.relation)
+    .maybeSingle();
 
   if (existing) {
     return json({
@@ -47,22 +65,26 @@ export async function POST(
     });
   }
 
-  try {
-    const id = generateId('ge');
-    run(
-      `INSERT INTO graph_edges (id, project_id, source_node_id, target_node_id, relation, label, weight, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      id, projectId, body.source_node_id, body.target_node_id,
-      body.relation, body.label || '', body.weight ?? 1.0, new Date().toISOString(),
-    );
+  const { data: created, error: dbErr } = await supabase
+    .from('graph_edges')
+    .insert({
+      project_id: projectId,
+      source_node_id: body.source_node_id,
+      target_node_id: body.target_node_id,
+      relation: body.relation,
+      label: body.label || '',
+      weight: body.weight ?? 1.0,
+    })
+    .select()
+    .single();
 
-    const created = get('SELECT * FROM graph_edges WHERE id = ?', id);
-    return json({
-      id: created!.id, source: created!.source_node_id, target: created!.target_node_id,
-      relation: created!.relation, label: created!.label, weight: created!.weight,
-    }, 201);
-  } catch (err) {
-    console.error('Edge creation error:', err);
+  if (dbErr) {
+    console.error('Edge creation error:', dbErr.message);
     return json({ id: 'error', source: body.source_node_id, target: body.target_node_id, relation: body.relation, label: '', weight: 1.0 });
   }
+
+  return json({
+    id: created.id, source: created.source_node_id, target: created.target_node_id,
+    relation: created.relation, label: created.label, weight: created.weight,
+  }, 201);
 }

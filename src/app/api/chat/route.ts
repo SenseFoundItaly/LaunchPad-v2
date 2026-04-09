@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { spawn } from 'child_process';
-import { query } from '@/lib/db';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
 import { chatStream } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
 
@@ -39,6 +39,14 @@ RULES:
 `;
 
 export async function POST(request: NextRequest) {
+  let user;
+  try { user = await requireUser(); } catch {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Unauthorized' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   const body = await request.json();
   if (!body) {
     return new Response(
@@ -56,10 +64,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const projects = query<{ id: string; name: string; description: string }>(
-    'SELECT id, name, description FROM projects WHERE id = ?', project_id
-  );
-  if (projects.length === 0) {
+  const supabase = await createServerSupabase();
+
+  // Verify project exists and belongs to user
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id, name, description')
+    .eq('id', project_id)
+    .eq('user_id', user.id)
+    .single();
+
+  if (!project) {
     return new Response(
       JSON.stringify({ success: false, error: 'Project not found' }),
       { status: 404, headers: { 'Content-Type': 'application/json' } },
@@ -67,10 +82,10 @@ export async function POST(request: NextRequest) {
   }
 
   const lastMessage = messages[messages.length - 1]?.content || '';
-  const projectContext = `[PROJECT: "${projects[0].name}"${projects[0].description ? ` — ${projects[0].description}` : ''}]\n`;
+  const projectContext = `[PROJECT: "${project.name}"${project.description ? ` — ${project.description}` : ''}]\n`;
 
   // Inject completed skill data when running a skill kickoff
-  const skillContext = buildCompletedSkillContext(project_id, lastMessage);
+  const skillContext = await buildCompletedSkillContext(supabase, project_id, lastMessage);
   const enrichedMessage = `${ARTIFACT_INSTRUCTIONS}${projectContext}${skillContext}${lastMessage}`;
   const encoder = new TextEncoder();
 
@@ -101,7 +116,6 @@ export async function POST(request: NextRequest) {
         });
 
         proc.stderr.on('data', (chunk: Buffer) => {
-          // stderr may have progress info — ignore unless it's an error
           const text = chunk.toString();
           if (text.includes('Error') || text.includes('error')) {
             console.error('openclaw agent stderr:', text);
@@ -135,7 +149,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Fallback: direct LLM (no tools, but works without OpenClaw)
-  const fullMessages = buildDirectMessages(project_id, step, messages);
+  const fullMessages = await buildDirectMessages(supabase, project_id, step, messages);
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -177,40 +191,51 @@ async function isOpenClawAvailable(): Promise<boolean> {
   });
 }
 
-function buildDirectMessages(projectId: string, step: string, messages: { role: string; content: string }[]) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function buildDirectMessages(supabase: any, projectId: string, step: string, messages: { role: string; content: string }[]) {
   let systemPrompt = STEP_SYSTEM_PROMPTS[step] || STEP_SYSTEM_PROMPTS['chat'];
 
-  const projectRows = query<{ name: string; description: string }>(
-    'SELECT name, description FROM projects WHERE id = ?', projectId
-  );
-  if (projectRows.length > 0) {
-    systemPrompt += `\n\nProject: "${projectRows[0].name}"${projectRows[0].description ? ` — ${projectRows[0].description}` : ''}`;
+  const { data: project } = await supabase
+    .from('projects')
+    .select('name, description')
+    .eq('id', projectId)
+    .single();
+
+  if (project) {
+    systemPrompt += `\n\nProject: "${project.name}"${project.description ? ` — ${project.description}` : ''}`;
   }
 
-  const ideaRows = query('SELECT * FROM idea_canvas WHERE project_id = ?', projectId);
-  if (ideaRows.length > 0) {
-    systemPrompt += `\n\nCurrent Idea Canvas:\n${JSON.stringify(ideaRows[0], null, 2)}`;
+  const { data: ideaCanvas } = await supabase
+    .from('idea_canvas')
+    .select('*')
+    .eq('project_id', projectId)
+    .maybeSingle();
+
+  if (ideaCanvas) {
+    systemPrompt += `\n\nCurrent Idea Canvas:\n${JSON.stringify(ideaCanvas, null, 2)}`;
   }
 
   return [
     { role: 'system' as const, content: systemPrompt },
-    ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+    ...messages.map((m: { role: string; content: string }) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
   ];
 }
 
 /** Build context from completed skills to inject into skill kickoff prompts */
-function buildCompletedSkillContext(projectId: string, message: string): string {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function buildCompletedSkillContext(supabase: any, projectId: string, message: string): Promise<string> {
   // Only inject for skill kickoff messages
   const { SKILL_KICKOFFS } = require('@/lib/stages');
-  const isKickoff = Object.values(SKILL_KICKOFFS).some((k: string) => message.includes(k));
+  const isKickoff = Object.values(SKILL_KICKOFFS).some((k: unknown) => typeof k === 'string' && message.includes(k));
   if (!isKickoff) return '';
 
-  const completions = query<{ skill_id: string; summary: string; completed_at: string }>(
-    'SELECT skill_id, summary, completed_at FROM skill_completions WHERE project_id = ? AND status = ?',
-    projectId, 'completed',
-  );
+  const { data: completions } = await supabase
+    .from('skill_completions')
+    .select('skill_id, summary, completed_at')
+    .eq('project_id', projectId)
+    .eq('status', 'completed');
 
-  if (completions.length === 0) return '';
+  if (!completions || completions.length === 0) return '';
 
   const TOTAL_BUDGET = 8000;
   const perSkillBudget = Math.min(2000, Math.floor(TOTAL_BUDGET / completions.length));

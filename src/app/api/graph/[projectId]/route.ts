@@ -1,27 +1,46 @@
 import { NextRequest } from 'next/server';
-import { query } from '@/lib/db';
-import { json, error } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, error, unauthorized } from '@/lib/api-helpers';
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  let user;
+  try { user = await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
 
-  const rows = query('SELECT id FROM projects WHERE id = ?', projectId);
-  if (rows.length === 0) {return error('Project not found', 404);}
+  const supabase = await createServerSupabase();
 
-  const nodes = query('SELECT * FROM graph_nodes WHERE project_id = ? ORDER BY created_at', projectId);
-  const edges = query('SELECT * FROM graph_edges WHERE project_id = ? ORDER BY created_at', projectId);
+  // Verify project belongs to user
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('id', projectId)
+    .eq('user_id', user.id)
+    .single();
 
-  // Parse JSON attributes for each node
-  const parsedNodes = nodes.map((n: Record<string, unknown>) => ({
+  if (!project) return error('Project not found', 404);
+
+  const [nodesResult, edgesResult] = await Promise.all([
+    supabase
+      .from('graph_nodes')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('graph_edges')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true }),
+  ]);
+
+  const nodes = (nodesResult.data || []).map((n: Record<string, unknown>) => ({
     ...n,
-    attributes: typeof n.attributes === 'string' ? JSON.parse(n.attributes) : (n.attributes || {}),
+    attributes: typeof n.attributes === 'string' ? JSON.parse(n.attributes as string) : (n.attributes || {}),
   }));
 
-  // Map edge fields to match GraphEdge interface (source/target instead of source_node_id/target_node_id)
-  const parsedEdges = edges.map((e: Record<string, unknown>) => ({
+  const edges = (edgesResult.data || []).map((e: Record<string, unknown>) => ({
     id: e.id,
     source: e.source_node_id,
     target: e.target_node_id,
@@ -30,5 +49,5 @@ export async function GET(
     weight: e.weight,
   }));
 
-  return json({ nodes: parsedNodes, edges: parsedEdges });
+  return json({ nodes, edges });
 }

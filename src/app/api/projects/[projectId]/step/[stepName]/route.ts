@@ -1,99 +1,64 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
-import { json, error } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, error, unauthorized } from '@/lib/api-helpers';
 
-// Maps step names to their table and JSON column structures
-const STEP_TABLES: Record<string, { table: string; jsonColumns: string[] }> = {
-  idea_canvas: {
-    table: 'idea_canvas',
-    jsonColumns: ['key_metrics', 'revenue_streams', 'cost_structure'],
-  },
-  scores: {
-    table: 'scores',
-    jsonColumns: ['dimensions'],
-  },
-  research: {
-    table: 'research',
-    jsonColumns: ['market_size', 'competitors', 'trends', 'case_studies', 'key_insights'],
-  },
-  simulation: {
-    table: 'simulation',
-    jsonColumns: ['personas', 'risk_scenarios'],
-  },
-  workflow: {
-    table: 'workflow',
-    jsonColumns: ['gtm_strategy', 'pitch_deck', 'financial_model', 'roadmap', 'action_items'],
-  },
+// Maps step names to their Supabase table
+const STEP_TABLES: Record<string, string> = {
+  idea_canvas: 'idea_canvas',
+  scores: 'scores',
+  research: 'research',
+  simulation: 'simulation',
+  workflow: 'workflow',
 };
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string; stepName: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId, stepName } = await params;
-  const stepConfig = STEP_TABLES[stepName];
-  if (!stepConfig) {return error(`Unknown step: ${stepName}`, 400);}
 
-  const rows = await query(
-    `SELECT * FROM ${stepConfig.table} WHERE project_id = ?`,
-    projectId,
-  );
-  return json(rows.length > 0 ? rows[0] : null);
+  const table = STEP_TABLES[stepName];
+  if (!table) return error(`Unknown step: ${stepName}`, 400);
+
+  const supabase = await createServerSupabase();
+  const { data, error: dbErr } = await supabase
+    .from(table)
+    .select('*')
+    .eq('project_id', projectId)
+    .maybeSingle();
+
+  if (dbErr) return error(dbErr.message, 500);
+  return json(data);
 }
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string; stepName: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId, stepName } = await params;
   const body = await request.json();
-  if (!body) {return error('Request body required');}
+  if (!body) return error('Request body required');
 
-  const stepConfig = STEP_TABLES[stepName];
-  if (!stepConfig) {return error(`Unknown step: ${stepName}`, 400);}
+  const table = STEP_TABLES[stepName];
+  if (!table) return error(`Unknown step: ${stepName}`, 400);
 
-  // Check if row exists
-  const existing = await query(
-    `SELECT project_id FROM ${stepConfig.table} WHERE project_id = ?`,
-    projectId,
-  );
+  // Strip project_id from the payload — we set it explicitly
+  const { project_id: _pid, ...fields } = body;
 
-  if (existing.length > 0) {
-    // Update
-    const fields: string[] = [];
-    const values: unknown[] = [];
-    for (const [key, value] of Object.entries(body)) {
-      if (key === 'project_id') {continue;}
-      fields.push(`${key} = ?`);
-      values.push(stepConfig.jsonColumns.includes(key) ? JSON.stringify(value) : value);
-    }
-    if (fields.length > 0) {
-      values.push(projectId);
-      await run(
-        `UPDATE ${stepConfig.table} SET ${fields.join(', ')} WHERE project_id = ?`,
-        ...values,
-      );
-    }
-  } else {
-    // Insert
-    const columns = ['project_id'];
-    const placeholders = ['?'];
-    const values: unknown[] = [projectId];
-    for (const [key, value] of Object.entries(body)) {
-      if (key === 'project_id') {continue;}
-      columns.push(key);
-      placeholders.push('?');
-      values.push(stepConfig.jsonColumns.includes(key) ? JSON.stringify(value) : value);
-    }
-    await run(
-      `INSERT INTO ${stepConfig.table} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`,
-      ...values,
-    );
-  }
+  const supabase = await createServerSupabase();
 
-  const [row] = await query(
-    `SELECT * FROM ${stepConfig.table} WHERE project_id = ?`,
-    projectId,
-  );
-  return json(row);
+  // Upsert keyed on project_id (primary key of each step table)
+  const { data, error: dbErr } = await supabase
+    .from(table)
+    .upsert(
+      { project_id: projectId, ...fields },
+      { onConflict: 'project_id' },
+    )
+    .select()
+    .single();
+
+  if (dbErr) return error(dbErr.message, 500);
+  return json(data);
 }

@@ -1,14 +1,15 @@
 import { NextRequest } from 'next/server';
-import { query } from '@/lib/db';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
 import { chatJSON } from '@/lib/llm';
 import { TERM_SHEET_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
-import { json } from '@/lib/api-helpers';
+import { json, unauthorized } from '@/lib/api-helpers';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string; tsId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId, tsId } = await params;
   const body = await request.json().catch(() => ({}));
   const provider = body?.provider || 'openai';
@@ -17,19 +18,21 @@ export async function POST(
 
   setTimeout(async () => {
     try {
+      const supabase = await createServerSupabase();
+
       setProgress(task.task_id, 10, 'Loading term sheet...');
-      const tsRows = await query('SELECT * FROM term_sheets WHERE id = ?', tsId);
-      if (tsRows.length === 0) {
+      const { data: termSheet } = await supabase.from('term_sheets').select('*').eq('id', tsId).maybeSingle();
+      if (!termSheet) {
         failTask(task.task_id, 'Term sheet not found.');
         return;
       }
 
       setProgress(task.task_id, 20, 'Loading round context...');
-      const roundRows = await query('SELECT * FROM fundraising_rounds WHERE project_id = ?', projectId);
+      const { data: round } = await supabase.from('fundraising_rounds').select('*').eq('project_id', projectId).maybeSingle();
 
       const context = {
-        term_sheet: tsRows[0],
-        round: roundRows.length > 0 ? roundRows[0] : null,
+        term_sheet: termSheet,
+        round,
       };
 
       setProgress(task.task_id, 40, 'Analyzing terms...');

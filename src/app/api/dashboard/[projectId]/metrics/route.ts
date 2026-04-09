@@ -1,50 +1,60 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
-import { json, error, generateId } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, error, unauthorized } from '@/lib/api-helpers';
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
-  const metrics = await query(
-    'SELECT * FROM metrics WHERE project_id = ? ORDER BY created_at',
-    projectId,
-  );
+
+  const supabase = await createServerSupabase();
+  const { data: metrics, error: dbErr } = await supabase
+    .from('metrics')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true });
+
+  if (dbErr) return error(dbErr.message, 500);
 
   // Attach entries to each metric
-  for (const metric of metrics) {
-    const entries = await query(
-      'SELECT * FROM metric_entries WHERE metric_id = ? ORDER BY date',
-      metric.id,
-    );
-    metric.entries = entries;
-  }
+  const metricsWithEntries = await Promise.all(
+    (metrics || []).map(async (metric: Record<string, unknown>) => {
+      const { data: entries } = await supabase
+        .from('metric_entries')
+        .select('*')
+        .eq('metric_id', metric.id)
+        .order('date', { ascending: true });
+      return { ...metric, entries: entries || [] };
+    }),
+  );
 
-  return json(metrics);
+  return json(metricsWithEntries);
 }
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
   const body = await request.json();
 
-  if (!body?.name || !body?.type) {return error('name and type are required');}
+  if (!body?.name || !body?.type) return error('name and type are required');
 
-  const id = generateId('met');
-  await run(
-    `INSERT INTO metrics (id, project_id, name, type, target_growth_rate, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    id,
-    projectId,
-    body.name,
-    body.type,
-    body.target_growth_rate ?? 0.07,
-    new Date().toISOString(),
-  );
+  const supabase = await createServerSupabase();
+  const { data, error: dbErr } = await supabase
+    .from('metrics')
+    .insert({
+      project_id: projectId,
+      name: body.name,
+      type: body.type,
+      target_growth_rate: body.target_growth_rate ?? 0.07,
+    })
+    .select()
+    .single();
 
-  const [metric] = await query('SELECT * FROM metrics WHERE id = ?', id);
-  return json(metric, 201);
+  if (dbErr) return error(dbErr.message, 500);
+  return json(data, 201);
 }

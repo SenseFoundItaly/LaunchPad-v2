@@ -1,23 +1,30 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
-import { json, error, generateId } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, error, unauthorized } from '@/lib/api-helpers';
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
-  const loops = await query(
-    'SELECT * FROM growth_loops WHERE project_id = ? ORDER BY created_at',
-    projectId,
-  );
-  return json(loops);
+
+  const supabase = await createServerSupabase();
+  const { data, error: dbErr } = await supabase
+    .from('growth_loops')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true });
+
+  if (dbErr) return error(dbErr.message, 500);
+  return json(data || []);
 }
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
   const body = await request.json();
 
@@ -25,18 +32,19 @@ export async function POST(
     return error('metric_name and optimization_target are required');
   }
 
-  const id = generateId('loop');
-  await run(
-    `INSERT INTO growth_loops (id, project_id, metric_name, optimization_target, status, baseline_value, created_at)
-     VALUES (?, ?, ?, ?, 'active', ?, ?)`,
-    id,
-    projectId,
-    body.metric_name,
-    body.optimization_target,
-    body.baseline_value ?? null,
-    new Date().toISOString(),
-  );
+  const supabase = await createServerSupabase();
+  const { data, error: dbErr } = await supabase
+    .from('growth_loops')
+    .insert({
+      project_id: projectId,
+      metric_name: body.metric_name,
+      optimization_target: body.optimization_target,
+      status: 'active',
+      baseline_value: body.baseline_value ?? null,
+    })
+    .select()
+    .single();
 
-  const [loop] = await query('SELECT * FROM growth_loops WHERE id = ?', id);
-  return json(loop, 201);
+  if (dbErr) return error(dbErr.message, 500);
+  return json(data, 201);
 }

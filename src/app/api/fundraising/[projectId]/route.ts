@@ -1,37 +1,56 @@
 import { NextRequest } from 'next/server';
-import { query } from '@/lib/db';
-import { json } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, error, unauthorized } from '@/lib/api-helpers';
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
 
-  const roundRows = await query('SELECT * FROM fundraising_rounds WHERE project_id = ?', projectId);
-  const investors = await query('SELECT * FROM investors WHERE project_id = ? ORDER BY created_at', projectId);
+  const supabase = await createServerSupabase();
+
+  const [roundResult, investorsResult, pitchResult, termResult] = await Promise.all([
+    supabase
+      .from('fundraising_rounds')
+      .select('*')
+      .eq('project_id', projectId)
+      .maybeSingle(),
+    supabase
+      .from('investors')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('pitch_versions')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('term_sheets')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('received_at', { ascending: true }),
+  ]);
 
   // Attach interactions to each investor
-  for (const inv of investors) {
-    inv.interactions = await query(
-      'SELECT * FROM investor_interactions WHERE investor_id = ? ORDER BY date',
-      inv.id,
-    );
-  }
-
-  const pitchVersions = await query(
-    'SELECT * FROM pitch_versions WHERE project_id = ? ORDER BY created_at',
-    projectId,
-  );
-  const termSheets = await query(
-    'SELECT * FROM term_sheets WHERE project_id = ? ORDER BY received_at',
-    projectId,
+  const investors = investorsResult.data || [];
+  const investorsWithInteractions = await Promise.all(
+    investors.map(async (inv: Record<string, unknown>) => {
+      const { data: interactions } = await supabase
+        .from('investor_interactions')
+        .select('*')
+        .eq('investor_id', inv.id)
+        .order('date', { ascending: true });
+      return { ...inv, interactions: interactions || [] };
+    }),
   );
 
   return json({
-    round: roundRows.length > 0 ? roundRows[0] : null,
-    investors,
-    pitch_versions: pitchVersions,
-    term_sheets: termSheets,
+    round: roundResult.data || null,
+    investors: investorsWithInteractions,
+    pitch_versions: pitchResult.data || [],
+    term_sheets: termResult.data || [],
   });
 }

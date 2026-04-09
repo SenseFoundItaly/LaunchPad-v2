@@ -1,12 +1,20 @@
 import { NextRequest } from 'next/server';
-import { query } from '@/lib/db';
-import { json } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, unauthorized } from '@/lib/api-helpers';
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
-  const rows = await query('SELECT * FROM scores WHERE project_id = ?', projectId);
-  return json(rows.length > 0 ? rows[0] : null);
+
+  const supabase = await createServerSupabase();
+  const { data } = await supabase
+    .from('scores')
+    .select('*')
+    .eq('project_id', projectId)
+    .maybeSingle();
+
+  return json(data);
 }

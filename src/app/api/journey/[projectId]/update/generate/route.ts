@@ -1,14 +1,15 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
 import { chatJSON } from '@/lib/llm';
 import { UPDATE_GENERATE_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
-import { json, generateId } from '@/lib/api-helpers';
+import { json, unauthorized } from '@/lib/api-helpers';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
   const body = await request.json().catch(() => ({}));
   const provider = body?.provider || 'openai';
@@ -17,37 +18,47 @@ export async function POST(
 
   setTimeout(async () => {
     try {
-      setProgress(task.task_id, 10, 'Loading metrics...');
-      const metricsRows = await query('SELECT * FROM metrics WHERE project_id = ?', projectId);
-      for (const m of metricsRows) {
-        m.entries = await query('SELECT * FROM metric_entries WHERE metric_id = ? ORDER BY date', m.id);
-      }
+      const supabase = await createServerSupabase();
 
-      setProgress(task.task_id, 20, 'Loading context...');
-      const ideaRows = await query('SELECT * FROM idea_canvas WHERE project_id = ?', projectId);
-      const projects = await query('SELECT * FROM projects WHERE id = ?', projectId);
-      const milestones = await query('SELECT * FROM milestones WHERE project_id = ?', projectId);
-      const prevUpdates = await query(
-        'SELECT * FROM startup_updates WHERE project_id = ? ORDER BY date DESC LIMIT 3',
-        projectId,
+      setProgress(task.task_id, 10, 'Loading metrics...');
+      const { data: metricsRows } = await supabase.from('metrics').select('*').eq('project_id', projectId);
+      const metricsWithEntries = await Promise.all(
+        (metricsRows || []).map(async (m: Record<string, unknown>) => {
+          const { data: entries } = await supabase
+            .from('metric_entries')
+            .select('*')
+            .eq('metric_id', m.id)
+            .order('date', { ascending: true });
+          return { ...m, entries: entries || [] };
+        }),
       );
 
-      const project = projects.length > 0 ? (projects[0]) : null;
+      setProgress(task.task_id, 20, 'Loading context...');
+      const { data: ideaCanvas } = await supabase.from('idea_canvas').select('*').eq('project_id', projectId).maybeSingle();
+      const { data: project } = await supabase.from('projects').select('*').eq('id', projectId).maybeSingle();
+      const { data: milestones } = await supabase.from('milestones').select('*').eq('project_id', projectId);
+      const { data: prevUpdates } = await supabase
+        .from('startup_updates')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('date', { ascending: false })
+        .limit(3);
+
       let currentStage = 'idea';
       if (project) {
         const step = project.current_step as number;
-        if (step >= 5) {currentStage = 'scale';}
-        else if (step >= 4) {currentStage = 'growth';}
-        else if (step >= 3) {currentStage = 'pmf';}
-        else if (step >= 2) {currentStage = 'mvp';}
+        if (step >= 5) currentStage = 'scale';
+        else if (step >= 4) currentStage = 'growth';
+        else if (step >= 3) currentStage = 'pmf';
+        else if (step >= 2) currentStage = 'mvp';
       }
 
       const context = {
-        idea_canvas: ideaRows.length > 0 ? ideaRows[0] : null,
-        metrics: metricsRows,
+        idea_canvas: ideaCanvas,
+        metrics: metricsWithEntries,
         current_stage: currentStage,
-        milestones,
-        previous_updates: prevUpdates,
+        milestones: milestones || [],
+        previous_updates: prevUpdates || [],
       };
 
       setProgress(task.task_id, 40, 'Generating update...');
@@ -61,23 +72,23 @@ export async function POST(
       const r = result;
 
       setProgress(task.task_id, 80, 'Saving update...');
-      const updId = generateId('upd');
-      await run(
-        `INSERT INTO startup_updates (id, project_id, period, metrics_snapshot, highlights, challenges, asks, morale, generated_summary, date)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        updId,
-        projectId,
-        (r.period as string) || '',
-        JSON.stringify(r.metrics_snapshot || []),
-        JSON.stringify(r.highlights || []),
-        JSON.stringify(r.challenges || []),
-        JSON.stringify(r.asks || []),
-        r.morale || null,
-        r.lesson_learned || null,
-        new Date().toISOString().split('T')[0],
-      );
+      const { data: savedUpdate } = await supabase
+        .from('startup_updates')
+        .insert({
+          project_id: projectId,
+          period: (r.period as string) || '',
+          metrics_snapshot: r.metrics_snapshot || [],
+          highlights: r.highlights || [],
+          challenges: r.challenges || [],
+          asks: r.asks || [],
+          morale: r.morale || null,
+          generated_summary: r.lesson_learned || null,
+          date: new Date().toISOString().split('T')[0],
+        })
+        .select()
+        .single();
 
-      const update = { id: updId, generated: true, ...r };
+      const update = { ...(savedUpdate || {}), generated: true, ...r };
       setProgress(task.task_id, 90, 'Done.');
       completeTask(task.task_id, update as Record<string, unknown>);
     } catch (err) {

@@ -1,16 +1,27 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
-import { json, error } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, error, unauthorized } from '@/lib/api-helpers';
 
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string; alertId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { alertId } = await params;
 
-  const rows = await query('SELECT id FROM alerts WHERE id = ?', alertId);
-  if (rows.length === 0) {return error('Alert not found', 404);}
+  const supabase = await createServerSupabase();
+  const { data: alert } = await supabase
+    .from('alerts')
+    .select('id')
+    .eq('id', alertId)
+    .maybeSingle();
 
-  await run('UPDATE alerts SET dismissed = true WHERE id = ?', alertId);
+  if (!alert) return error('Alert not found', 404);
+
+  await supabase
+    .from('alerts')
+    .update({ dismissed: true })
+    .eq('id', alertId);
+
   return json(null);
 }

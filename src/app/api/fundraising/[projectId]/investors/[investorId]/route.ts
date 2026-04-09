@@ -1,59 +1,70 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
-import { json, error } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, error, unauthorized } from '@/lib/api-helpers';
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string; investorId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { investorId } = await params;
   const body = await request.json();
-  if (!body) {return error('Request body required');}
+  if (!body) return error('Request body required');
 
-  const rows = await query('SELECT id FROM investors WHERE id = ?', investorId);
-  if (rows.length === 0) {return error('Investor not found', 404);}
+  const supabase = await createServerSupabase();
 
-  const fields: string[] = [];
-  const values: unknown[] = [];
+  const { data: existing } = await supabase
+    .from('investors')
+    .select('id')
+    .eq('id', investorId)
+    .maybeSingle();
+
+  if (!existing) return error('Investor not found', 404);
+
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const key of ['name', 'type', 'contact_name', 'contact_email', 'stage', 'check_size', 'notes']) {
-    if (key in body) {
-      fields.push(`${key} = ?`);
-      values.push(body[key]);
-    }
+    if (key in body) updates[key] = body[key];
   }
   // Handle firm -> contact_name mapping from v1
   if ('firm' in body && !('contact_name' in body)) {
-    fields.push('contact_name = ?');
-    values.push(body.firm);
+    updates.contact_name = body.firm;
   }
   if ('email' in body && !('contact_email' in body)) {
-    fields.push('contact_email = ?');
-    values.push(body.email);
+    updates.contact_email = body.email;
   }
 
-  if (fields.length > 0) {
-    fields.push('updated_at = ?');
-    values.push(new Date().toISOString());
-    values.push(investorId);
-    await run(`UPDATE investors SET ${fields.join(', ')} WHERE id = ?`, ...values);
-  }
+  const { data, error: dbErr } = await supabase
+    .from('investors')
+    .update(updates)
+    .eq('id', investorId)
+    .select()
+    .single();
 
-  const [investor] = await query('SELECT * FROM investors WHERE id = ?', investorId);
-  return json(investor);
+  if (dbErr) return error(dbErr.message, 500);
+  return json(data);
 }
 
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string; investorId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { investorId } = await params;
 
-  const rows = await query('SELECT id FROM investors WHERE id = ?', investorId);
-  if (rows.length === 0) {return error('Investor not found', 404);}
+  const supabase = await createServerSupabase();
 
-  await run('DELETE FROM investor_interactions WHERE investor_id = ?', investorId);
-  await run('DELETE FROM term_sheets WHERE investor_id = ?', investorId);
-  await run('DELETE FROM investors WHERE id = ?', investorId);
+  const { data: existing } = await supabase
+    .from('investors')
+    .select('id')
+    .eq('id', investorId)
+    .maybeSingle();
+
+  if (!existing) return error('Investor not found', 404);
+
+  // Delete children first
+  await supabase.from('investor_interactions').delete().eq('investor_id', investorId);
+  await supabase.from('term_sheets').delete().eq('investor_id', investorId);
+  await supabase.from('investors').delete().eq('id', investorId);
 
   return json(null);
 }

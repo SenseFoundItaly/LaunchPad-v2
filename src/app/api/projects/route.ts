@@ -1,31 +1,43 @@
 import { NextRequest } from 'next/server';
-import { v4 as uuid } from 'uuid';
-import { query, run } from '@/lib/db';
-import { json, error, mapProject } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, error, unauthorized, mapProject } from '@/lib/api-helpers';
 
 export async function GET() {
-  const rows = query('SELECT * FROM projects ORDER BY created_at DESC');
-  return json(rows.map(mapProject));
+  let user;
+  try { user = await requireUser(); } catch { return unauthorized(); }
+
+  const supabase = await createServerSupabase();
+  const { data, error: dbErr } = await supabase
+    .from('projects')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
+
+  if (dbErr) return error(dbErr.message, 500);
+  return json((data || []).map(mapProject));
 }
 
 export async function POST(request: NextRequest) {
+  let user;
+  try { user = await requireUser(); } catch { return unauthorized(); }
+
   const body = await request.json();
-  if (!body?.name) {return error('Name is required');}
+  if (!body?.name) return error('Name is required');
 
-  const id = `proj_${uuid().slice(0, 12)}`;
-  const now = new Date().toISOString();
+  const supabase = await createServerSupabase();
+  const { data, error: dbErr } = await supabase
+    .from('projects')
+    .insert({
+      user_id: user.id,
+      name: body.name,
+      description: body.description || '',
+      status: 'created',
+      current_step: 1,
+      llm_provider: body.llm_provider || 'openai',
+    })
+    .select()
+    .single();
 
-  run(
-    `INSERT INTO projects (id, name, description, status, current_step, llm_provider, created_at, updated_at)
-     VALUES (?, ?, ?, 'created', 1, ?, ?, ?)`,
-    id,
-    body.name,
-    body.description || '',
-    body.llm_provider || 'openai',
-    now,
-    now,
-  );
-
-  const row = query('SELECT * FROM projects WHERE id = ?', id);
-  return json(mapProject(row[0]), 201);
+  if (dbErr) return error(dbErr.message, 500);
+  return json(mapProject(data), 201);
 }

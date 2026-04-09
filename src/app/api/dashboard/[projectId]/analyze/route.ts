@@ -1,14 +1,15 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
 import { chatJSON } from '@/lib/llm';
 import { ANALYZE_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
-import { json, generateId } from '@/lib/api-helpers';
+import { json, unauthorized } from '@/lib/api-helpers';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
   const body = await request.json().catch(() => ({}));
   const provider = body?.provider || 'openai';
@@ -17,24 +18,34 @@ export async function POST(
 
   setTimeout(async () => {
     try {
+      const supabase = await createServerSupabase();
+
       setProgress(task.task_id, 10, 'Loading metrics data...');
-      const metrics = await query('SELECT * FROM metrics WHERE project_id = ?', projectId);
-      for (const m of metrics) {
-        m.entries = await query('SELECT * FROM metric_entries WHERE metric_id = ? ORDER BY date', m.id);
-      }
-      const burnRateRows = await query('SELECT * FROM burn_rate WHERE project_id = ?', projectId);
+      const { data: metrics } = await supabase.from('metrics').select('*').eq('project_id', projectId);
+      const metricsWithEntries = await Promise.all(
+        (metrics || []).map(async (m: Record<string, unknown>) => {
+          const { data: entries } = await supabase
+            .from('metric_entries')
+            .select('*')
+            .eq('metric_id', m.id)
+            .order('date', { ascending: true });
+          return { ...m, entries: entries || [] };
+        }),
+      );
+
+      const { data: burnRate } = await supabase.from('burn_rate').select('*').eq('project_id', projectId).maybeSingle();
 
       setProgress(task.task_id, 20, 'Loading idea canvas...');
-      const ideaRows = await query('SELECT * FROM idea_canvas WHERE project_id = ?', projectId);
+      const { data: ideaCanvas } = await supabase.from('idea_canvas').select('*').eq('project_id', projectId).maybeSingle();
 
       setProgress(task.task_id, 30, 'Loading scores...');
-      const scoreRows = await query('SELECT * FROM scores WHERE project_id = ?', projectId);
+      const { data: scores } = await supabase.from('scores').select('*').eq('project_id', projectId).maybeSingle();
 
       const context = {
-        metrics,
-        burn_rate: burnRateRows.length > 0 ? burnRateRows[0] : null,
-        idea_canvas: ideaRows.length > 0 ? ideaRows[0] : null,
-        scores: scoreRows.length > 0 ? scoreRows[0] : null,
+        metrics: metricsWithEntries,
+        burn_rate: burnRate,
+        idea_canvas: ideaCanvas,
+        scores,
       };
 
       setProgress(task.task_id, 40, 'Analyzing startup health...');
@@ -49,18 +60,15 @@ export async function POST(
 
       setProgress(task.task_id, 80, 'Updating alerts...');
       if (Array.isArray(r.alerts)) {
-        for (const alert of r.alerts as Record<string, unknown>[]) {
-          const alertId = generateId('alt');
-          await run(
-            `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at)
-             VALUES (?, ?, ?, ?, ?, false, ?)`,
-            alertId,
-            projectId,
-            (alert.category as string) || 'other',
-            (alert.severity as string) || 'info',
-            `${alert.title}: ${alert.message}`,
-            new Date().toISOString(),
-          );
+        const alertRows = (r.alerts as Record<string, unknown>[]).map((alert) => ({
+          project_id: projectId,
+          type: (alert.category as string) || 'other',
+          severity: (alert.severity as string) || 'info',
+          message: `${alert.title}: ${alert.message}`,
+          dismissed: false,
+        }));
+        if (alertRows.length > 0) {
+          await supabase.from('alerts').insert(alertRows);
         }
       }
 

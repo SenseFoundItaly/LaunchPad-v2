@@ -1,81 +1,124 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
-import { json, error, mapProject } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, error, unauthorized, mapProject } from '@/lib/api-helpers';
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  let user;
+  try { user = await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
-  const rows = query('SELECT * FROM projects WHERE id = ?', projectId);
-  if (rows.length === 0) {return error('Project not found', 404);}
-  return json(mapProject(rows[0]));
+
+  const supabase = await createServerSupabase();
+  const { data, error: dbErr } = await supabase
+    .from('projects')
+    .select('*')
+    .eq('id', projectId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (dbErr || !data) return error('Project not found', 404);
+  return json(mapProject(data));
 }
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  let user;
+  try { user = await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
   const body = await request.json();
-  if (!body) {return error('Request body required');}
+  if (!body) return error('Request body required');
 
-  const fields: string[] = [];
-  const values: unknown[] = [];
-  for (const key of ['name', 'description', 'status', 'current_step', 'llm_provider']) {
-    if (key in body) {
-      fields.push(`${key} = ?`);
-      values.push(body[key]);
-    }
+  const allowedFields = ['name', 'description', 'status', 'current_step', 'llm_provider'];
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  for (const key of allowedFields) {
+    if (key in body) updates[key] = body[key];
   }
-  if (fields.length === 0) {return error('No fields to update');}
 
-  fields.push('updated_at = ?');
-  values.push(new Date().toISOString());
-  values.push(projectId);
+  if (Object.keys(updates).length === 1) return error('No fields to update');
 
-  run(`UPDATE projects SET ${fields.join(', ')} WHERE id = ?`, ...values);
-  const rows = query('SELECT * FROM projects WHERE id = ?', projectId);
-  if (rows.length === 0) {return error('Project not found', 404);}
-  return json(mapProject(rows[0]));
+  const supabase = await createServerSupabase();
+  const { data, error: dbErr } = await supabase
+    .from('projects')
+    .update(updates)
+    .eq('id', projectId)
+    .eq('user_id', user.id)
+    .select()
+    .single();
+
+  if (dbErr || !data) return error('Project not found', 404);
+  return json(mapProject(data));
 }
 
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  let user;
+  try { user = await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
-  const rows = query('SELECT id FROM projects WHERE id = ?', projectId);
-  if (rows.length === 0) {return error('Project not found', 404);}
 
-  const tables = [
-    'idea_canvas', 'scores', 'research', 'simulation', 'workflow',
-    'burn_rate', 'chat_messages', 'startup_updates', 'milestones',
-    'pitch_versions', 'alerts', 'fundraising_rounds',
+  const supabase = await createServerSupabase();
+
+  // Verify ownership
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('id', projectId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (!project) return error('Project not found', 404);
+
+  // Delete child records (order matters for foreign keys)
+  // Metric entries need metric IDs first
+  const { data: metrics } = await supabase
+    .from('metrics')
+    .select('id')
+    .eq('project_id', projectId);
+  if (metrics && metrics.length > 0) {
+    const metricIds = metrics.map((m: { id: string }) => m.id);
+    await supabase.from('metric_entries').delete().in('metric_id', metricIds);
+  }
+
+  // Investor children
+  const { data: investors } = await supabase
+    .from('investors')
+    .select('id')
+    .eq('project_id', projectId);
+  if (investors && investors.length > 0) {
+    const investorIds = investors.map((i: { id: string }) => i.id);
+    await supabase.from('investor_interactions').delete().in('investor_id', investorIds);
+    await supabase.from('term_sheets').delete().in('investor_id', investorIds);
+  }
+
+  // Growth loop children
+  const { data: loops } = await supabase
+    .from('growth_loops')
+    .select('id')
+    .eq('project_id', projectId);
+  if (loops && loops.length > 0) {
+    const loopIds = loops.map((l: { id: string }) => l.id);
+    await supabase.from('growth_iterations').delete().in('loop_id', loopIds);
+  }
+
+  // Direct project children (order: leaf tables first)
+  const childTables = [
+    'graph_edges', 'graph_nodes', 'skill_completions', 'chat_messages',
+    'monitor_runs', 'monitors', 'startup_updates', 'milestones',
+    'pitch_versions', 'alerts', 'term_sheets', 'fundraising_rounds',
+    'burn_rate', 'metrics', 'investors', 'growth_loops',
+    'workflow', 'simulation', 'research', 'scores', 'idea_canvas',
   ];
-  for (const table of tables) {
-    run(`DELETE FROM ${table} WHERE project_id = ?`, projectId);
+  for (const table of childTables) {
+    await supabase.from(table).delete().eq('project_id', projectId);
   }
-  const metrics = query<{ id: string }>('SELECT id FROM metrics WHERE project_id = ?', projectId);
-  for (const m of metrics) {
-    run('DELETE FROM metric_entries WHERE metric_id = ?', m.id);
-  }
-  run('DELETE FROM metrics WHERE project_id = ?', projectId);
 
-  const investors = query<{ id: string }>('SELECT id FROM investors WHERE project_id = ?', projectId);
-  for (const inv of investors) {
-    run('DELETE FROM investor_interactions WHERE investor_id = ?', inv.id);
-    run('DELETE FROM term_sheets WHERE investor_id = ?', inv.id);
-  }
-  run('DELETE FROM investors WHERE project_id = ?', projectId);
-
-  const loops = query<{ id: string }>('SELECT id FROM growth_loops WHERE project_id = ?', projectId);
-  for (const l of loops) {
-    run('DELETE FROM growth_iterations WHERE loop_id = ?', l.id);
-  }
-  run('DELETE FROM growth_loops WHERE project_id = ?', projectId);
-  run('DELETE FROM term_sheets WHERE project_id = ?', projectId);
-  run('DELETE FROM projects WHERE id = ?', projectId);
+  // Finally delete the project itself
+  await supabase.from('projects').delete().eq('id', projectId).eq('user_id', user.id);
 
   return json(null);
 }

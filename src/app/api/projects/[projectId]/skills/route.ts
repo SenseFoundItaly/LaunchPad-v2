@@ -1,44 +1,52 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
-import { json, error, generateId } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, error, unauthorized } from '@/lib/api-helpers';
 
 /** GET: list all skill completions for a project */
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
-  const rows = query(
-    'SELECT * FROM skill_completions WHERE project_id = ? ORDER BY completed_at DESC',
-    projectId,
-  );
-  return json(rows);
+
+  const supabase = await createServerSupabase();
+  const { data, error: dbErr } = await supabase
+    .from('skill_completions')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('completed_at', { ascending: false });
+
+  if (dbErr) return error(dbErr.message, 500);
+  return json(data || []);
 }
 
-/** POST: mark a skill as completed */
+/** POST: mark a skill as completed (upsert on project_id + skill_id) */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
   const body = await request.json();
   if (!body?.skill_id) return error('skill_id required');
 
-  const id = generateId('skc');
-  run(
-    `INSERT INTO skill_completions (id, project_id, skill_id, status, summary, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(project_id, skill_id) DO UPDATE SET
-       status = excluded.status,
-       summary = excluded.summary,
-       completed_at = excluded.completed_at`,
-    id,
-    projectId,
-    body.skill_id,
-    body.status || 'completed',
-    body.summary || null,
-    new Date().toISOString(),
-  );
+  const supabase = await createServerSupabase();
+  const { data, error: dbErr } = await supabase
+    .from('skill_completions')
+    .upsert(
+      {
+        project_id: projectId,
+        skill_id: body.skill_id,
+        status: body.status || 'completed',
+        summary: body.summary || null,
+        completed_at: new Date().toISOString(),
+      },
+      { onConflict: 'project_id,skill_id' },
+    )
+    .select()
+    .single();
 
-  return json({ id, skill_id: body.skill_id, status: 'completed' }, 201);
+  if (dbErr) return error(dbErr.message, 500);
+  return json(data, 201);
 }

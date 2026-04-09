@@ -1,14 +1,15 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
 import { chatJSON } from '@/lib/llm';
 import { ITERATE_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
-import { json, generateId } from '@/lib/api-helpers';
+import { json, unauthorized } from '@/lib/api-helpers';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string; loopId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId, loopId } = await params;
   const body = await request.json().catch(() => ({}));
   const provider = body?.provider || 'openai';
@@ -17,31 +18,33 @@ export async function POST(
 
   setTimeout(async () => {
     try {
+      const supabase = await createServerSupabase();
+
       setProgress(task.task_id, 10, 'Loading growth loop data...');
-      const loops = await query('SELECT * FROM growth_loops WHERE id = ?', loopId);
-      if (loops.length === 0) {
+      const { data: loop } = await supabase.from('growth_loops').select('*').eq('id', loopId).maybeSingle();
+      if (!loop) {
         failTask(task.task_id, 'Growth loop not found.');
         return;
       }
 
-      const iterations = await query(
-        'SELECT * FROM growth_iterations WHERE loop_id = ? ORDER BY created_at',
-        loopId,
-      );
+      const { data: iterations } = await supabase
+        .from('growth_iterations')
+        .select('*')
+        .eq('loop_id', loopId)
+        .order('created_at', { ascending: true });
 
       setProgress(task.task_id, 20, 'Loading startup context...');
-      const ideaRows = await query('SELECT * FROM idea_canvas WHERE project_id = ?', projectId);
-      const scoreRows = await query('SELECT * FROM scores WHERE project_id = ?', projectId);
-      const metricsRows = await query('SELECT * FROM metrics WHERE project_id = ?', projectId);
+      const { data: ideaCanvas } = await supabase.from('idea_canvas').select('*').eq('project_id', projectId).maybeSingle();
+      const { data: scores } = await supabase.from('scores').select('*').eq('project_id', projectId).maybeSingle();
+      const { data: metrics } = await supabase.from('metrics').select('*').eq('project_id', projectId);
 
-      const loop = loops[0];
-      loop.iterations = iterations;
+      const loopWithIter = { ...loop, iterations: iterations || [] };
 
       const context = {
-        idea_canvas: ideaRows.length > 0 ? ideaRows[0] : null,
-        scores: scoreRows.length > 0 ? scoreRows[0] : null,
-        metrics: metricsRows,
-        loop,
+        idea_canvas: ideaCanvas,
+        scores,
+        metrics: metrics || [],
+        loop: loopWithIter,
       };
 
       setProgress(task.task_id, 40, 'Analyzing prior iterations...');
@@ -55,19 +58,18 @@ export async function POST(
       const r = result;
 
       setProgress(task.task_id, 80, 'Saving iteration...');
-      const iterId = generateId('iter');
-      await run(
-        `INSERT INTO growth_iterations (id, loop_id, hypothesis, proposed_changes, status, created_at)
-         VALUES (?, ?, ?, ?, 'proposed', ?)`,
-        iterId,
-        loopId,
-        r.hypothesis,
-        JSON.stringify(r.proposed_changes),
-        new Date().toISOString(),
-      );
+      const { data: iteration } = await supabase
+        .from('growth_iterations')
+        .insert({
+          loop_id: loopId,
+          hypothesis: r.hypothesis,
+          proposed_changes: r.proposed_changes,
+          status: 'proposed',
+        })
+        .select()
+        .single();
 
-      const [iteration] = await query('SELECT * FROM growth_iterations WHERE id = ?', iterId);
-      const iterWithLLM = { ...(iteration), ...r };
+      const iterWithLLM = { ...(iteration || {}), ...r };
 
       setProgress(task.task_id, 90, 'Done.');
       completeTask(task.task_id, iterWithLLM as Record<string, unknown>);

@@ -1,33 +1,43 @@
 import { NextRequest } from 'next/server';
-import { query } from '@/lib/db';
-import { json } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, unauthorized } from '@/lib/api-helpers';
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
 
-  const milestones = await query(
-    'SELECT * FROM milestones WHERE project_id = ? ORDER BY week, id',
-    projectId,
-  );
-  const updates = await query(
-    'SELECT * FROM startup_updates WHERE project_id = ? ORDER BY date DESC',
-    projectId,
-  );
+  const supabase = await createServerSupabase();
 
-  // Determine current stage from the project or default
-  const projects = await query('SELECT * FROM projects WHERE id = ?', projectId);
-  const project = projects.length > 0 ? (projects[0]) : null;
+  const [milestonesResult, updatesResult, projectResult] = await Promise.all([
+    supabase
+      .from('milestones')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('week', { ascending: true }),
+    supabase
+      .from('startup_updates')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('date', { ascending: false }),
+    supabase
+      .from('projects')
+      .select('*')
+      .eq('id', projectId)
+      .maybeSingle(),
+  ]);
+
+  const project = projectResult.data;
 
   // Infer stage from project status
   let currentStage = 'idea';
   if (project) {
     const step = project.current_step as number;
-    if (step >= 5) {currentStage = 'growth';}
-    else if (step >= 4) {currentStage = 'pmf';}
-    else if (step >= 3) {currentStage = 'mvp';}
+    if (step >= 5) currentStage = 'growth';
+    else if (step >= 4) currentStage = 'pmf';
+    else if (step >= 3) currentStage = 'mvp';
   }
 
   return json({
@@ -35,8 +45,8 @@ export async function GET(
       current_stage: currentStage,
       started_at: project?.created_at || null,
     },
-    milestones,
-    updates,
+    milestones: milestonesResult.data || [],
+    updates: updatesResult.data || [],
     scaling_plan: null,
   });
 }

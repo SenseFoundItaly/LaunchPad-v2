@@ -1,14 +1,15 @@
 import { NextRequest } from 'next/server';
-import { query } from '@/lib/db';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
 import { chatJSON } from '@/lib/llm';
 import { SCALING_PLAN_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
-import { json } from '@/lib/api-helpers';
+import { json, unauthorized } from '@/lib/api-helpers';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
   const body = await request.json().catch(() => ({}));
   const provider = body?.provider || 'openai';
@@ -17,33 +18,38 @@ export async function POST(
 
   setTimeout(async () => {
     try {
-      setProgress(task.task_id, 10, 'Loading startup data...');
-      const ideaRows = await query('SELECT * FROM idea_canvas WHERE project_id = ?', projectId);
-      const scoreRows = await query('SELECT * FROM scores WHERE project_id = ?', projectId);
-      const metricsRows = await query('SELECT * FROM metrics WHERE project_id = ?', projectId);
-      const growthLoops = await query('SELECT * FROM growth_loops WHERE project_id = ?', projectId);
-      const milestones = await query('SELECT * FROM milestones WHERE project_id = ?', projectId);
-      const roundRows = await query('SELECT * FROM fundraising_rounds WHERE project_id = ?', projectId);
+      const supabase = await createServerSupabase();
 
-      const projects = await query('SELECT * FROM projects WHERE id = ?', projectId);
-      const project = projects.length > 0 ? (projects[0]) : null;
+      setProgress(task.task_id, 10, 'Loading startup data...');
+      const [ideaResult, scoreResult, metricsResult, loopsResult, msResult, roundResult, projectResult] =
+        await Promise.all([
+          supabase.from('idea_canvas').select('*').eq('project_id', projectId).maybeSingle(),
+          supabase.from('scores').select('*').eq('project_id', projectId).maybeSingle(),
+          supabase.from('metrics').select('*').eq('project_id', projectId),
+          supabase.from('growth_loops').select('*').eq('project_id', projectId),
+          supabase.from('milestones').select('*').eq('project_id', projectId),
+          supabase.from('fundraising_rounds').select('*').eq('project_id', projectId).maybeSingle(),
+          supabase.from('projects').select('*').eq('id', projectId).maybeSingle(),
+        ]);
+
+      const project = projectResult.data;
       let currentStage = 'idea';
       if (project) {
         const step = project.current_step as number;
-        if (step >= 5) {currentStage = 'scale';}
-        else if (step >= 4) {currentStage = 'growth';}
-        else if (step >= 3) {currentStage = 'pmf';}
-        else if (step >= 2) {currentStage = 'mvp';}
+        if (step >= 5) currentStage = 'scale';
+        else if (step >= 4) currentStage = 'growth';
+        else if (step >= 3) currentStage = 'pmf';
+        else if (step >= 2) currentStage = 'mvp';
       }
 
       const context = {
-        idea_canvas: ideaRows.length > 0 ? ideaRows[0] : null,
-        scores: scoreRows.length > 0 ? scoreRows[0] : null,
-        metrics: metricsRows,
-        growth_loops: growthLoops,
+        idea_canvas: ideaResult.data,
+        scores: scoreResult.data,
+        metrics: metricsResult.data || [],
+        growth_loops: loopsResult.data || [],
         current_stage: currentStage,
-        milestones,
-        fundraising: roundRows.length > 0 ? roundRows[0] : null,
+        milestones: msResult.data || [],
+        fundraising: roundResult.data,
       };
 
       setProgress(task.task_id, 30, 'Analyzing growth trajectory...');

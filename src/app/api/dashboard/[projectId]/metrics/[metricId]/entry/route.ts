@@ -1,11 +1,12 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
-import { json, error, generateId } from '@/lib/api-helpers';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
+import { json, error, unauthorized } from '@/lib/api-helpers';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string; metricId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { metricId } = await params;
   const body = await request.json();
 
@@ -13,22 +14,28 @@ export async function POST(
     return error('value is required');
   }
 
+  const supabase = await createServerSupabase();
+
   // Verify metric exists
-  const metrics = await query('SELECT id FROM metrics WHERE id = ?', metricId);
-  if (metrics.length === 0) {return error('Metric not found', 404);}
+  const { data: metric } = await supabase
+    .from('metrics')
+    .select('id')
+    .eq('id', metricId)
+    .maybeSingle();
 
-  const id = generateId('ent');
-  await run(
-    `INSERT INTO metric_entries (id, metric_id, date, value, notes, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    id,
-    metricId,
-    body.date || new Date().toISOString().split('T')[0],
-    body.value,
-    body.notes || '',
-    new Date().toISOString(),
-  );
+  if (!metric) return error('Metric not found', 404);
 
-  const [entry] = await query('SELECT * FROM metric_entries WHERE id = ?', id);
-  return json(entry, 201);
+  const { data, error: dbErr } = await supabase
+    .from('metric_entries')
+    .insert({
+      metric_id: metricId,
+      date: body.date || new Date().toISOString().split('T')[0],
+      value: body.value,
+      notes: body.notes || '',
+    })
+    .select()
+    .single();
+
+  if (dbErr) return error(dbErr.message, 500);
+  return json(data, 201);
 }

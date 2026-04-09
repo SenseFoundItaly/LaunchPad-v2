@@ -1,14 +1,15 @@
 import { NextRequest } from 'next/server';
-import { query } from '@/lib/db';
+import { createServerSupabase, requireUser } from '@/lib/supabase/server';
 import { chatJSON } from '@/lib/llm';
 import { INVESTOR_UPDATE_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
-import { json } from '@/lib/api-helpers';
+import { json, unauthorized } from '@/lib/api-helpers';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try { await requireUser(); } catch { return unauthorized(); }
   const { projectId } = await params;
   const body = await request.json().catch(() => ({}));
   const provider = body?.provider || 'openai';
@@ -17,24 +18,37 @@ export async function POST(
 
   setTimeout(async () => {
     try {
+      const supabase = await createServerSupabase();
+
       setProgress(task.task_id, 10, 'Loading metrics...');
-      const metricsRows = await query('SELECT * FROM metrics WHERE project_id = ?', projectId);
-      for (const m of metricsRows) {
-        m.entries = await query('SELECT * FROM metric_entries WHERE metric_id = ? ORDER BY date', m.id);
-      }
-      const burnRateRows = await query('SELECT * FROM burn_rate WHERE project_id = ?', projectId);
+      const { data: metricsRows } = await supabase.from('metrics').select('*').eq('project_id', projectId);
+      const metricsWithEntries = await Promise.all(
+        (metricsRows || []).map(async (m: Record<string, unknown>) => {
+          const { data: entries } = await supabase
+            .from('metric_entries')
+            .select('*')
+            .eq('metric_id', m.id)
+            .order('date', { ascending: true });
+          return { ...m, entries: entries || [] };
+        }),
+      );
+
+      const { data: burnRate } = await supabase.from('burn_rate').select('*').eq('project_id', projectId).maybeSingle();
 
       setProgress(task.task_id, 20, 'Loading startup context...');
-      const ideaRows = await query('SELECT * FROM idea_canvas WHERE project_id = ?', projectId);
-      const roundRows = await query('SELECT * FROM fundraising_rounds WHERE project_id = ?', projectId);
-      const investorCount = await query('SELECT COUNT(*) as cnt FROM investors WHERE project_id = ?', projectId);
+      const { data: ideaCanvas } = await supabase.from('idea_canvas').select('*').eq('project_id', projectId).maybeSingle();
+      const { data: round } = await supabase.from('fundraising_rounds').select('*').eq('project_id', projectId).maybeSingle();
+      const { data: investors, count } = await supabase
+        .from('investors')
+        .select('*', { count: 'exact', head: true })
+        .eq('project_id', projectId);
 
       const context = {
-        idea_canvas: ideaRows.length > 0 ? ideaRows[0] : null,
-        metrics: metricsRows,
-        burn_rate: burnRateRows.length > 0 ? burnRateRows[0] : null,
-        round: roundRows.length > 0 ? roundRows[0] : null,
-        investor_count: (investorCount[0])?.cnt || 0,
+        idea_canvas: ideaCanvas,
+        metrics: metricsWithEntries,
+        burn_rate: burnRate,
+        round,
+        investor_count: count || 0,
       };
 
       setProgress(task.task_id, 40, 'Generating investor update...');
