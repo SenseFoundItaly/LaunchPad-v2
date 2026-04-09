@@ -276,6 +276,104 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 
 -- =============================================================================
+-- Tools (registry of available tool definitions)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS tools (
+  id VARCHAR PRIMARY KEY,
+  name VARCHAR NOT NULL UNIQUE,
+  display_name VARCHAR NOT NULL,
+  description TEXT,
+  category VARCHAR NOT NULL,
+  input_schema JSON,
+  handler_type VARCHAR NOT NULL,
+  handler_config JSON,
+  enabled BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
+-- Drafts (versioned artifacts)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS drafts (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR REFERENCES projects(id),
+  name VARCHAR NOT NULL,
+  draft_type VARCHAR NOT NULL,
+  status VARCHAR DEFAULT 'draft',
+  current_version INTEGER DEFAULT 1,
+  published_url VARCHAR,
+  published_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS draft_versions (
+  id VARCHAR PRIMARY KEY,
+  draft_id VARCHAR REFERENCES drafts(id),
+  version_number INTEGER NOT NULL,
+  content JSON NOT NULL,
+  content_type VARCHAR NOT NULL,
+  rendered_html TEXT,
+  changelog TEXT,
+  created_by VARCHAR,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(draft_id, version_number)
+);
+
+-- =============================================================================
+-- Tool Executions (persistent task queue)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS tool_executions (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR REFERENCES projects(id),
+  tool_id VARCHAR,
+  draft_id VARCHAR,
+  workflow_run_id VARCHAR,
+  step_index INTEGER,
+  status VARCHAR DEFAULT 'pending',
+  input_params JSON,
+  output JSON,
+  error TEXT,
+  sandbox_id VARCHAR,
+  logs TEXT,
+  started_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
+-- Workflow Plans (executable multi-step chains)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS workflow_plans (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR REFERENCES projects(id),
+  name VARCHAR NOT NULL,
+  description TEXT,
+  steps JSON NOT NULL,
+  status VARCHAR DEFAULT 'planned',
+  current_step INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
+-- Published Assets
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS published_assets (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR REFERENCES projects(id),
+  draft_id VARCHAR,
+  draft_version_id VARCHAR,
+  asset_type VARCHAR NOT NULL,
+  slug VARCHAR NOT NULL UNIQUE,
+  daytona_workspace_id VARCHAR,
+  daytona_url VARCHAR,
+  metadata JSON,
+  is_active BOOLEAN DEFAULT true,
+  published_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
 -- Knowledge Graph
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS graph_nodes (
