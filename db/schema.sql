@@ -251,6 +251,37 @@ CREATE TABLE IF NOT EXISTS startup_updates (
 );
 
 -- =============================================================================
+-- Monitors (scheduled background checks per project)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS monitors (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR REFERENCES projects(id),
+  type VARCHAR NOT NULL,
+  name VARCHAR NOT NULL,
+  schedule VARCHAR DEFAULT 'weekly',
+  config JSON,
+  prompt TEXT,
+  status VARCHAR DEFAULT 'active',
+  last_run TIMESTAMP,
+  last_result TEXT,
+  next_run TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
+-- Monitor Runs (history of monitor executions)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS monitor_runs (
+  id VARCHAR PRIMARY KEY,
+  monitor_id VARCHAR REFERENCES monitors(id),
+  project_id VARCHAR REFERENCES projects(id),
+  status VARCHAR DEFAULT 'completed',
+  summary TEXT,
+  alerts_generated INTEGER DEFAULT 0,
+  run_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
 -- Skill Completions (tracks which skills have been run per project)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS skill_completions (
