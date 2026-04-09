@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server';
-import { spawn } from 'child_process';
 import { query } from '@/lib/db';
 import { chatStream } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
+import { runAgent } from '@/lib/agent';
 
 // Artifact instructions prepended to every message
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { project_id, step = 'chat', messages = [], provider = 'openai' } = body;
+  const { project_id, step = 'chat', messages = [], provider = 'anthropic' } = body;
 
   if (!project_id) {
     return new Response(
@@ -71,56 +71,77 @@ export async function POST(request: NextRequest) {
 
   // Inject completed skill data when running a skill kickoff
   const skillContext = buildCompletedSkillContext(project_id, lastMessage);
-  const enrichedMessage = `${ARTIFACT_INSTRUCTIONS}${projectContext}${skillContext}${lastMessage}`;
+  const enrichedMessage = `${projectContext}${skillContext}${lastMessage}`;
+  const systemPrompt = ARTIFACT_INSTRUCTIONS + (STEP_SYSTEM_PROMPTS[step] || STEP_SYSTEM_PROMPTS['chat'] || '');
   const encoder = new TextEncoder();
 
-  // Try OpenClaw Gateway via CLI (has tools, skills, memory, web access)
-  const useGateway = await isOpenClawAvailable();
-
-  if (useGateway) {
+  // Primary: Claude Agent SDK
+  try {
     const sessionId = `launchpad-${project_id}-${step}`;
 
     const stream = new ReadableStream({
-      start(controller) {
-        const proc = spawn('openclaw', [
-          'agent',
-          '--agent', 'sonnet',
-          '--session-id', sessionId,
-          '--message', enrichedMessage,
-          '--timeout', '120',
-        ], {
-          env: { ...process.env },
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
+      async start(controller) {
+        try {
+          for await (const chunk of runAgent({
+            message: enrichedMessage,
+            systemPrompt,
+            sessionId: undefined, // Fresh session each time for now
+          })) {
+            if (chunk.type === 'text' && chunk.content) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: chunk.content })}\n\n`));
+            }
+            if (chunk.type === 'error') {
+              console.error('Agent SDK error:', chunk.error);
+              // Fall through to done
+            }
+            if (chunk.type === 'done') {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
+            }
+          }
+        } catch (err) {
+          console.error('Agent SDK stream error:', err);
+          // Fallback to direct LLM
+          try {
+            const fallbackMessages = buildDirectMessages(project_id, step, messages);
+            for await (const text of chatStream(fallbackMessages, provider === 'openai' ? 'openai' : 'anthropic')) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: text })}\n\n`));
+            }
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
+          } catch (fallbackErr) {
+            const msg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
+          }
+        } finally {
+          controller.close();
+        }
+      },
+    });
 
-        proc.stdout.on('data', (chunk: Buffer) => {
-          const text = chunk.toString();
-          if (text.trim()) {
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      },
+    });
+  } catch (err) {
+    // Complete fallback: direct LLM streaming
+    const fullMessages = buildDirectMessages(project_id, step, messages);
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const text of chatStream(fullMessages, provider === 'openai' ? 'openai' : 'anthropic')) {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: text })}\n\n`));
           }
-        });
-
-        proc.stderr.on('data', (chunk: Buffer) => {
-          // stderr may have progress info — ignore unless it's an error
-          const text = chunk.toString();
-          if (text.includes('Error') || text.includes('error')) {
-            console.error('openclaw agent stderr:', text);
-          }
-        });
-
-        proc.on('close', (code) => {
-          if (code !== 0) {
-            console.error(`openclaw agent exited with code ${code}`);
-          }
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
+        } catch (streamErr) {
+          const msg = streamErr instanceof Error ? streamErr.message : String(streamErr);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
+        } finally {
           controller.close();
-        });
-
-        proc.on('error', (err) => {
-          console.error('openclaw agent spawn error:', err);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err.message })}\n\n`));
-          controller.close();
-        });
+        }
       },
     });
 
@@ -133,48 +154,6 @@ export async function POST(request: NextRequest) {
       },
     });
   }
-
-  // Fallback: direct LLM (no tools, but works without OpenClaw)
-  const fullMessages = buildDirectMessages(project_id, step, messages);
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      try {
-        for await (const chunk of chatStream(fullMessages, provider)) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: chunk })}\n\n`));
-        }
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
-      } finally {
-        controller.close();
-      }
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    },
-  });
-}
-
-/** Check if openclaw CLI is available */
-async function isOpenClawAvailable(): Promise<boolean> {
-  return new Promise((resolve) => {
-    try {
-      const proc = spawn('openclaw', ['--version'], { stdio: 'pipe' });
-      proc.on('close', (code) => resolve(code === 0));
-      proc.on('error', () => resolve(false));
-      setTimeout(() => { proc.kill(); resolve(false); }, 2000);
-    } catch {
-      resolve(false);
-    }
-  });
 }
 
 function buildDirectMessages(projectId: string, step: string, messages: { role: string; content: string }[]) {
@@ -193,14 +172,13 @@ function buildDirectMessages(projectId: string, step: string, messages: { role: 
   }
 
   return [
-    { role: 'system' as const, content: systemPrompt },
+    { role: 'system' as const, content: ARTIFACT_INSTRUCTIONS + systemPrompt },
     ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
   ];
 }
 
 /** Build context from completed skills to inject into skill kickoff prompts */
 function buildCompletedSkillContext(projectId: string, message: string): string {
-  // Only inject for skill kickoff messages
   const { SKILL_KICKOFFS } = require('@/lib/stages');
   const isKickoff = Object.values(SKILL_KICKOFFS).some((k: string) => message.includes(k));
   if (!isKickoff) return '';
