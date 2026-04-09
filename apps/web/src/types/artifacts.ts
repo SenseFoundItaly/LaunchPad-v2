@@ -5,7 +5,8 @@ export type ArtifactType =
   | 'action-suggestion'
   | 'score-badge'
   | 'entity-card'
-  | 'workflow-card';
+  | 'workflow-card'
+  | 'tool-trigger';
 
 export interface ArtifactBase {
   type: ArtifactType;
@@ -67,6 +68,14 @@ export interface WorkflowCard extends ArtifactBase {
   steps: string[];
 }
 
+export interface ToolTrigger extends ArtifactBase {
+  type: 'tool-trigger';
+  tool_name: string;
+  params: Record<string, unknown>;
+  label: string;
+  description: string;
+}
+
 export type Artifact =
   | OptionSet
   | InsightCard
@@ -74,4 +83,5 @@ export type Artifact =
   | ActionSuggestion
   | ScoreBadge
   | EntityCard
-  | WorkflowCard;
+  | WorkflowCard
+  | ToolTrigger;

@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { v4 as uuid } from 'uuid';
 import { query, run } from '@/lib/db';
 import { chatJSON } from '@/lib/llm';
 import { WORKFLOW_PROMPT } from '@/lib/llm/prompts';
@@ -76,7 +77,60 @@ export async function POST(request: NextRequest) {
         projectId,
       );
 
-      completeTask(task.task_id, r);
+      // Auto-create drafts from workflow outputs
+      const projectRows = query<{ name: string }>('SELECT name FROM projects WHERE id = ?', projectId);
+      const projectName = projectRows[0]?.name || 'Startup';
+      const draftsCreated: string[] = [];
+
+      if (r.pitch_deck) {
+        const draftId = `draft_${uuid().slice(0, 12)}`;
+        const versionId = `dv_${uuid().slice(0, 12)}`;
+        run(
+          `INSERT INTO drafts (id, project_id, name, draft_type, status, current_version, created_at, updated_at)
+           VALUES (?, ?, ?, 'pitch-deck', 'draft', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          draftId, projectId, `${projectName} Pitch Deck`,
+        );
+        run(
+          `INSERT INTO draft_versions (id, draft_id, version_number, content, content_type, changelog, created_by, created_at)
+           VALUES (?, ?, 1, ?, 'slides-json', 'Generated from workflow', 'ai', CURRENT_TIMESTAMP)`,
+          versionId, draftId, JSON.stringify(r.pitch_deck),
+        );
+        draftsCreated.push(draftId);
+      }
+
+      if (r.gtm_strategy) {
+        const draftId = `draft_${uuid().slice(0, 12)}`;
+        const versionId = `dv_${uuid().slice(0, 12)}`;
+        run(
+          `INSERT INTO drafts (id, project_id, name, draft_type, status, current_version, created_at, updated_at)
+           VALUES (?, ?, ?, 'document', 'draft', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          draftId, projectId, `${projectName} GTM Strategy`,
+        );
+        run(
+          `INSERT INTO draft_versions (id, draft_id, version_number, content, content_type, changelog, created_by, created_at)
+           VALUES (?, ?, 1, ?, 'markdown', 'Generated from workflow', 'ai', CURRENT_TIMESTAMP)`,
+          versionId, draftId, JSON.stringify(r.gtm_strategy),
+        );
+        draftsCreated.push(draftId);
+      }
+
+      if (r.financial_model) {
+        const draftId = `draft_${uuid().slice(0, 12)}`;
+        const versionId = `dv_${uuid().slice(0, 12)}`;
+        run(
+          `INSERT INTO drafts (id, project_id, name, draft_type, status, current_version, created_at, updated_at)
+           VALUES (?, ?, ?, 'document', 'draft', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          draftId, projectId, `${projectName} Financial Model`,
+        );
+        run(
+          `INSERT INTO draft_versions (id, draft_id, version_number, content, content_type, changelog, created_by, created_at)
+           VALUES (?, ?, 1, ?, 'markdown', 'Generated from workflow', 'ai', CURRENT_TIMESTAMP)`,
+          versionId, draftId, JSON.stringify(r.financial_model),
+        );
+        draftsCreated.push(draftId);
+      }
+
+      completeTask(task.task_id, { ...r, drafts_created: draftsCreated });
     } catch (err) {
       failTask(task.task_id, err instanceof Error ? err.message : String(err));
     }

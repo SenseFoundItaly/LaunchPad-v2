@@ -8,12 +8,14 @@ import ActionSuggestionCard from './ActionSuggestionCard';
 import ScoreBadge from './ScoreBadge';
 import EntityCardInline from './EntityCardInline';
 import WorkflowCardInline from './WorkflowCardInline';
+import ToolTriggerCard from './ToolTriggerCard';
 
 interface ArtifactRendererProps {
   artifact: Artifact;
   onAction: (action: string, payload: Record<string, unknown>) => void;
   onEntityDiscovered: (entity: EntityCard) => void;
   onWorkflowDiscovered?: (workflow: WorkflowCard) => void;
+  projectId?: string;
 }
 
 export default function ArtifactRenderer({
@@ -21,6 +23,7 @@ export default function ArtifactRenderer({
   onAction,
   onEntityDiscovered,
   onWorkflowDiscovered,
+  projectId,
 }: ArtifactRendererProps) {
   switch (artifact.type) {
     case 'option-set':
@@ -43,6 +46,8 @@ export default function ArtifactRenderer({
           onAction={onAction}
         />
       );
+    case 'tool-trigger':
+      return <ToolTriggerCard artifact={artifact} onAction={onAction} projectId={projectId} />;
     default:
       return null;
   }

@@ -12,8 +12,11 @@ option-set for choices: :::artifact{"type":"option-set","id":"opt_ID"}\n{"prompt
 insight-card for findings: :::artifact{"type":"insight-card","id":"ins_ID"}\n{"category":"market","title":"...","body":"...","confidence":"high"}\n:::
 action-suggestion for next steps: :::artifact{"type":"action-suggestion","id":"act_ID"}\n{"title":"...","description":"...","action_label":"Go","action_type":"research"}\n:::
 workflow-card for multi-step tasks: :::artifact{"type":"workflow-card","id":"wf_ID"}\n{"title":"...","category":"marketing","description":"...","priority":"high","steps":["1","2","3"]}\n:::
+tool-trigger for tool invocations: :::artifact{"type":"tool-trigger","id":"tt_ID"}\n{"tool_name":"generate-landing-page","params":{"style":"modern"},"label":"Generate Landing Page","description":"Create a professional landing page from your startup data"}\n:::
 
-RULES: 1) ALWAYS end with option-set or action-suggestion 2) entity-card for EVERY entity 3) workflow-card for concrete multi-step actions 4) Be proactive — use your tools to research, browse web, challenge assumptions]
+Available tools: generate-landing-page, generate-pitch-deck, generate-one-pager, iterate-draft, publish-to-daytona, claude-code-execute
+
+RULES: 1) ALWAYS end with option-set or action-suggestion 2) entity-card for EVERY entity 3) workflow-card for concrete multi-step actions 4) tool-trigger when the user needs to generate, publish, or execute something 5) Be proactive — use your tools to research, browse web, challenge assumptions]
 
 `;
 
