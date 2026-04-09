@@ -62,7 +62,7 @@ async function bootstrap() {
     mkdirSync(join(PROFILE_DIR, 'memory'), { recursive: true });
 
     // Copy default config
-    const configSrc = join(__dirname, 'launchpad', 'config', 'openclaw.json');
+    const configSrc = join(__dirname, 'agents', 'openclaw.json');
     if (existsSync(configSrc)) {
       copyFileSync(configSrc, join(PROFILE_DIR, 'openclaw.json'));
     }
@@ -72,7 +72,7 @@ async function bootstrap() {
   }
 
   // 4. Copy/update skills
-  const skillsSource = join(__dirname, 'launchpad-skills');
+  const skillsSource = join(__dirname, 'agents', 'skills');
   const skillsDest = join(PROFILE_DIR, 'skills');
   if (existsSync(skillsSource)) {
     for (const skill of readdirSync(skillsSource)) {
@@ -84,14 +84,17 @@ async function bootstrap() {
         copyFileSync(src, join(dest, 'SKILL.md'));
       }
     }
-    console.log('  [ok] Skills installed (8 skills)');
+    console.log('  [ok] Skills installed (20 skills)');
   }
 
   // 5. Copy/update agent files
-  const agentsSource = join(__dirname, 'launchpad-agents');
+  const agentsSource = join(__dirname, 'agents');
   if (existsSync(agentsSource)) {
-    for (const file of readdirSync(agentsSource)) {
-      copyFileSync(join(agentsSource, file), join(PROFILE_DIR, file));
+    for (const file of ['AGENTS.md', 'SOUL.md', 'HEARTBEAT.md']) {
+      const src = join(agentsSource, file);
+      if (existsSync(src)) {
+        copyFileSync(src, join(PROFILE_DIR, file));
+      }
     }
     console.log('  [ok] Agent configured (SOUL.md + AGENTS.md + HEARTBEAT.md)');
   }
