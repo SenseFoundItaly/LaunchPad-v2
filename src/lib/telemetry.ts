@@ -135,6 +135,81 @@ export function estimateCost(
 }
 
 // ---------------------------------------------------------------------------
+// logToLangfuse — standalone Langfuse trace with full cost/model/token tracking
+// ---------------------------------------------------------------------------
+export function logToLangfuse(
+  ctx: TelemetryContext,
+  usage: TokenUsage,
+  cost: number,
+  latencyMs: number,
+  input?: string,
+  output?: string,
+): void {
+  try {
+    const lf = getLangfuse();
+    if (!lf) return;
+
+    const now = new Date();
+    const startTime = new Date(now.getTime() - latencyMs);
+
+    // Map model names to Langfuse-recognized names for auto-pricing
+    const modelMap: Record<string, string> = {
+      'sonnet': 'claude-sonnet-4-20250514',
+      'claude-sonnet-4': 'claude-sonnet-4-20250514',
+      'claude-sonnet-4-6': 'claude-sonnet-4-20250514',
+    };
+    const langfuseModel = modelMap[ctx.model || ''] || ctx.model || 'unknown';
+
+    const promptTokens = usage.input_tokens || 0;
+    const completionTokens = usage.output_tokens || 0;
+    const totalTokens = promptTokens + completionTokens;
+
+    const trace = lf.trace({
+      name: `${ctx.provider}/${ctx.step || 'chat'}`,
+      userId: ctx.projectId,
+      sessionId: `${ctx.projectId}-${ctx.step || 'chat'}`,
+      input: input?.slice(0, 2000),
+      output: output?.slice(0, 2000),
+      metadata: {
+        projectId: ctx.projectId,
+        skillId: ctx.skillId,
+        provider: ctx.provider,
+      },
+    });
+
+    // Generation — this is what Langfuse uses for cost/token/model display
+    trace.generation({
+      name: `${ctx.provider} generation`,
+      model: langfuseModel,
+      modelParameters: {
+        temperature: 0.7,
+        maxTokens: 4096,
+        provider: ctx.provider,
+      },
+      input: input?.slice(0, 2000) || ctx.step || 'chat',
+      output: output?.slice(0, 2000) || '',
+      startTime,
+      endTime: now,
+      usage: {
+        promptTokens,
+        completionTokens,
+        totalTokens,
+      },
+      calculatedTotalCost: cost > 0 ? cost : undefined,
+      metadata: {
+        latencyMs,
+        cacheCreationTokens: usage.cache_creation_input_tokens || 0,
+        cacheReadTokens: usage.cache_read_input_tokens || 0,
+      },
+    });
+
+    lf.flush();
+  } catch (err) {
+    console.error('Langfuse logging failed:', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // logUsageToSQLite — persist to llm_usage_logs table
 // ---------------------------------------------------------------------------
 export function logUsageToSQLite(

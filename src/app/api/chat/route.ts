@@ -3,7 +3,7 @@ import { spawn } from 'child_process';
 import { query } from '@/lib/db';
 import { chatStream } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
-import { logUsageToSQLite } from '@/lib/telemetry';
+import { logUsageToSQLite, logToLangfuse } from '@/lib/telemetry';
 
 // Artifact instructions prepended to every message
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
@@ -83,6 +83,7 @@ export async function POST(request: NextRequest) {
 
     const gatewayStart = Date.now();
     let gatewayResponseLen = 0;
+    let gatewayResponseText = '';
 
     const stream = new ReadableStream({
       start(controller) {
@@ -101,6 +102,7 @@ export async function POST(request: NextRequest) {
           const text = chunk.toString();
           if (text.trim()) {
             gatewayResponseLen += text.length;
+            gatewayResponseText += text;
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: text })}\n\n`));
           }
         });
@@ -119,15 +121,13 @@ export async function POST(request: NextRequest) {
           }
           // Log gateway call (no token counts from CLI, just latency)
           const latencyMs = Date.now() - gatewayStart;
-          logUsageToSQLite(
-            project_id,
-            null,
-            step,
-            'openclaw',
-            'sonnet',
-            { output_tokens: Math.round(gatewayResponseLen / 4) },
-            0,
-            latencyMs,
+          const usage = { output_tokens: Math.round(gatewayResponseLen / 4) };
+          logUsageToSQLite(project_id, null, step, 'openclaw', 'sonnet', usage, 0, latencyMs);
+          logToLangfuse(
+            { projectId: project_id, step, provider: 'openclaw', model: 'sonnet' },
+            usage, 0, latencyMs,
+            lastMessage.slice(0, 1000),
+            gatewayResponseText.slice(0, 2000),
           );
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
           controller.close();
@@ -155,28 +155,27 @@ export async function POST(request: NextRequest) {
   const fullMessages = buildDirectMessages(project_id, step, messages);
   const directStart = Date.now();
   let directResponseLen = 0;
+  let directResponseText = '';
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
         for await (const chunk of chatStream(fullMessages, provider)) {
           directResponseLen += chunk.length;
+          directResponseText += chunk;
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: chunk })}\n\n`));
         }
-        // Log direct LLM call (approximate tokens from response length)
         const latencyMs = Date.now() - directStart;
         const model = provider === 'anthropic'
           ? (process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514')
           : (process.env.OPENAI_MODEL || 'gpt-4o');
-        logUsageToSQLite(
-          project_id,
-          null,
-          step,
-          provider,
-          model,
-          { output_tokens: Math.round(directResponseLen / 4) },
-          0,
-          latencyMs,
+        const dUsage = { output_tokens: Math.round(directResponseLen / 4) };
+        logUsageToSQLite(project_id, null, step, provider, model, dUsage, 0, latencyMs);
+        logToLangfuse(
+          { projectId: project_id, step, provider: provider as 'anthropic' | 'openai', model },
+          dUsage, 0, latencyMs,
+          lastMessage.slice(0, 1000),
+          directResponseText.slice(0, 2000),
         );
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
       } catch (err) {
