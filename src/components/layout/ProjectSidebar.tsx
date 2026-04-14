@@ -102,6 +102,17 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
             <span className="w-4 text-center text-xs">D</span>
             <span>Drafts</span>
           </Link>
+          <Link
+            href={`/project/${projectId}/usage`}
+            className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
+              isActive('usage')
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+            }`}
+          >
+            <span className="w-4 text-center text-xs">U</span>
+            <span>Usage</span>
+          </Link>
         </div>
 
         {/* 7 Stages */}

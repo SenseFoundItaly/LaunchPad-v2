@@ -64,6 +64,64 @@ export async function chatJSON<T = Record<string, unknown>>(
   return JSON.parse(cleaned.trim());
 }
 
+export interface LLMUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+}
+
+export async function chatWithUsage(
+  messages: Message[],
+  provider = 'openai',
+  temperature = 0.7,
+  maxTokens = 4096,
+): Promise<{ text: string; usage: LLMUsage }> {
+  if (provider === 'anthropic') {
+    const system = messages
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content)
+      .join('\n');
+    const msgs = messages.filter((m) => m.role !== 'system');
+    const response = await getAnthropic().messages.create({
+      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+      system,
+      messages: msgs as Anthropic.MessageParam[],
+      temperature,
+      max_tokens: maxTokens,
+    });
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const u = response.usage;
+    return {
+      text,
+      usage: {
+        input_tokens: u.input_tokens ?? 0,
+        output_tokens: u.output_tokens ?? 0,
+        cache_creation_input_tokens: (u as Record<string, number>).cache_creation_input_tokens ?? 0,
+        cache_read_input_tokens: (u as Record<string, number>).cache_read_input_tokens ?? 0,
+      },
+    };
+  }
+
+  const response = await getOpenAI().chat.completions.create({
+    model: process.env.OPENAI_MODEL || 'gpt-4o',
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+  });
+  const text = response.choices[0].message.content || '';
+  const u = response.usage;
+  return {
+    text,
+    usage: {
+      input_tokens: u?.prompt_tokens ?? 0,
+      output_tokens: u?.completion_tokens ?? 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+  };
+}
+
 export async function* chatStream(
   messages: Message[],
   provider = 'openai',

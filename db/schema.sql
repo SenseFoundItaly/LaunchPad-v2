@@ -374,6 +374,25 @@ CREATE TABLE IF NOT EXISTS published_assets (
 );
 
 -- =============================================================================
+-- LLM Usage Logs (telemetry / cost tracking)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS llm_usage_logs (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR REFERENCES projects(id),
+  skill_id VARCHAR,
+  step VARCHAR,
+  provider VARCHAR,
+  model VARCHAR,
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  cache_creation_tokens INTEGER DEFAULT 0,
+  cache_read_tokens INTEGER DEFAULT 0,
+  total_cost_usd REAL DEFAULT 0,
+  latency_ms INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
 -- Knowledge Graph
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS graph_nodes (
