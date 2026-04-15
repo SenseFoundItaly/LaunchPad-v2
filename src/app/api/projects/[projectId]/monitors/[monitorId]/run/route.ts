@@ -32,7 +32,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
       let fullResponse = '';
 
       const proc = spawn('openclaw', [
-        'agent', '--agent', 'sonnet',
+        'agent', '--agent', 'sonnet', '--local',
         '--message', prompt,
         '--timeout', '120',
       ], { env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] });

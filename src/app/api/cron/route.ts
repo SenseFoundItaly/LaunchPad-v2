@@ -13,7 +13,7 @@ function deriveSeverity(text: string): 'critical' | 'warning' | 'info' {
 function execAgent(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const proc = spawn('openclaw', [
-      'agent', '--agent', 'sonnet', '--message', prompt, '--timeout', '120',
+      'agent', '--agent', 'sonnet', '--local', '--message', prompt, '--timeout', '120',
     ], { env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     proc.stdout.on('data', (d: Buffer) => { out += d.toString(); });

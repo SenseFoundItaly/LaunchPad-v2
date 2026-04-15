@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
         const proc = spawn('openclaw', [
           'agent',
           '--agent', 'sonnet',
+          '--local',
           '--session-id', sessionId,
           '--message', enrichedMessage,
           '--timeout', '120',
