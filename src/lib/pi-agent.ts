@@ -1,6 +1,7 @@
 import { Agent } from '@mariozechner/pi-agent-core';
 import { streamSimple, getModel, getEnvApiKey } from '@mariozechner/pi-ai';
-import type { AssistantMessageEvent, Usage } from '@mariozechner/pi-ai';
+import type { Usage } from '@mariozechner/pi-ai';
+import { getTools } from './pi-tools';
 
 const DEFAULT_PROVIDER = (process.env.PI_PROVIDER || 'anthropic') as 'anthropic' | 'openai';
 const DEFAULT_MODEL_ID = process.env.PI_MODEL || (DEFAULT_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
@@ -13,6 +14,7 @@ export interface RunAgentOptions {
   sessionId?: string;
   systemPrompt?: string;
   timeout?: number;
+  tools?: boolean;
 }
 
 export interface RunAgentResult {
@@ -32,6 +34,9 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
   agent.state.model = model;
   if (options.systemPrompt) {
     agent.state.systemPrompt = options.systemPrompt;
+  }
+  if (options.tools !== false) {
+    agent.state.tools = getTools();
   }
 
   let fullText = '';
@@ -65,6 +70,13 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
 /**
  * Run Pi Agent with SSE streaming. Returns a ReadableStream suitable for
  * Response(stream, { headers: { 'Content-Type': 'text/event-stream' } }).
+ *
+ * SSE events:
+ * - { content: "..." }                    — text delta
+ * - { tool_start: { name, args } }        — tool execution started
+ * - { tool_end: { name, result } }        — tool execution finished
+ * - { done: true, usage: {...} }          — agent finished
+ * - { error: "..." }                      — error
  */
 export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
   stream: ReadableStream;
@@ -89,6 +101,9 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
       if (options.systemPrompt) {
         agent.state.systemPrompt = options.systemPrompt;
       }
+      if (options.tools !== false) {
+        agent.state.tools = getTools();
+      }
 
       timer = setTimeout(() => agent.abort(), timeout);
 
@@ -96,33 +111,68 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
       let lastUsage: Usage | undefined;
 
       agent.subscribe((event) => {
-        if (event.type === 'message_update') {
-          const evt = event.assistantMessageEvent;
-          if (evt.type === 'text_delta' && evt.delta) {
-            fullText += evt.delta;
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ content: evt.delta })}\n\n`)
-            );
+        switch (event.type) {
+          case 'message_update': {
+            const evt = event.assistantMessageEvent;
+            if (evt.type === 'text_delta' && evt.delta) {
+              fullText += evt.delta;
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ content: evt.delta })}\n\n`)
+              );
+            }
+            break;
           }
-        }
-        if (event.type === 'message_end' && event.message && 'usage' in event.message) {
-          lastUsage = (event.message as any).usage;
-        }
-        if (event.type === 'agent_end') {
-          clearTimeout(timer);
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({
-              done: true,
-              fullText,
-              usage: lastUsage ? {
-                input_tokens: lastUsage.input,
-                output_tokens: lastUsage.output,
-                total_tokens: lastUsage.totalTokens,
-                cost: lastUsage.cost?.total,
-              } : undefined,
-            })}\n\n`)
-          );
-          controller.close();
+
+          case 'tool_execution_start': {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({
+                tool_start: {
+                  id: event.toolCallId,
+                  name: event.toolName,
+                  args: event.args,
+                },
+              })}\n\n`)
+            );
+            break;
+          }
+
+          case 'tool_execution_end': {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({
+                tool_end: {
+                  id: event.toolCallId,
+                  name: event.toolName,
+                  error: event.isError,
+                },
+              })}\n\n`)
+            );
+            break;
+          }
+
+          case 'message_end': {
+            if (event.message && 'usage' in event.message) {
+              lastUsage = (event.message as any).usage;
+            }
+            break;
+          }
+
+          case 'agent_end': {
+            clearTimeout(timer);
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({
+                done: true,
+                fullText,
+                usage: lastUsage ? {
+                  input_tokens: lastUsage.input,
+                  output_tokens: lastUsage.output,
+                  total_tokens: lastUsage.totalTokens,
+                  cost: lastUsage.cost?.total,
+                } : undefined,
+              })}\n\n`)
+            );
+            controller.close();
+            break;
+          }
         }
       });
 
