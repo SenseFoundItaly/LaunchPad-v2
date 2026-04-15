@@ -70,18 +70,19 @@ export async function POST(request: NextRequest) {
   const lastMessage = messages[messages.length - 1]?.content || '';
   const projectContext = `[PROJECT: "${projects[0].name}"${projects[0].description ? ` — ${projects[0].description}` : ''}]\n`;
 
-  // Inject completed skill data when running a skill kickoff
+  // Build system prompt (agent remembers conversation via session persistence)
   const skillContext = buildCompletedSkillContext(project_id, lastMessage);
-  const enrichedMessage = `${ARTIFACT_INSTRUCTIONS}${projectContext}${skillContext}${lastMessage}`;
+  const systemPrompt = `${ARTIFACT_INSTRUCTIONS}${projectContext}${skillContext}`;
   const encoder = new TextEncoder();
 
-  // Primary: Pi Agent SDK (embedded, no CLI spawn)
+  // Primary: Pi Agent SDK with session persistence
   const sessionId = `launchpad-${project_id}-${step}`;
   const piStart = Date.now();
 
   try {
-    const { stream: piStream } = runAgentStream(enrichedMessage, {
+    const { stream: piStream } = runAgentStream(lastMessage, {
       sessionId,
+      systemPrompt,
       timeout: 120000,
     });
 

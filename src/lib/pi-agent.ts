@@ -1,13 +1,57 @@
 import { Agent } from '@mariozechner/pi-agent-core';
+import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { streamSimple, getModel, getEnvApiKey } from '@mariozechner/pi-ai';
-import type { Usage } from '@mariozechner/pi-ai';
+import type { Message, Usage } from '@mariozechner/pi-ai';
+import { join } from 'path';
+import { mkdirSync, readFileSync, appendFileSync, existsSync } from 'fs';
 import { getTools } from './pi-tools';
 
 const DEFAULT_PROVIDER = (process.env.PI_PROVIDER || 'anthropic') as 'anthropic' | 'openai';
 const DEFAULT_MODEL_ID = process.env.PI_MODEL || (DEFAULT_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
+const SESSIONS_DIR = process.env.LAUNCHPAD_SESSIONS_DIR || join(process.env.HOME || '/tmp', '.launchpad', 'sessions');
 
 function resolveModel() {
   return getModel(DEFAULT_PROVIDER as any, DEFAULT_MODEL_ID as any);
+}
+
+// ─── Lightweight JSONL session persistence ───
+// Compatible with Pi's session format but no heavy deps
+
+interface SessionEntry {
+  role: string;
+  content: unknown;
+  timestamp: number;
+  usage?: unknown;
+}
+
+function sessionPath(sessionId: string): string {
+  const dir = join(SESSIONS_DIR, sessionId);
+  mkdirSync(dir, { recursive: true });
+  return join(dir, 'session.jsonl');
+}
+
+function loadSession(sessionId: string): AgentMessage[] {
+  const path = sessionPath(sessionId);
+  if (!existsSync(path)) return [];
+
+  try {
+    const lines = readFileSync(path, 'utf-8').split('\n').filter(Boolean);
+    const messages: AgentMessage[] = [];
+    for (const line of lines) {
+      const entry: SessionEntry = JSON.parse(line);
+      if (entry.role === 'user' || entry.role === 'assistant' || entry.role === 'toolResult') {
+        messages.push(entry as unknown as AgentMessage);
+      }
+    }
+    return messages;
+  } catch {
+    return [];
+  }
+}
+
+function appendToSession(sessionId: string, message: AgentMessage) {
+  const path = sessionPath(sessionId);
+  appendFileSync(path, JSON.stringify(message) + '\n');
 }
 
 export interface RunAgentOptions {
@@ -39,11 +83,23 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
     agent.state.tools = getTools();
   }
 
+  // Restore conversation history
+  if (options.sessionId) {
+    const prior = loadSession(options.sessionId);
+    if (prior.length > 0) {
+      agent.state.messages = prior;
+    }
+  }
+
   let fullText = '';
   let lastUsage: Usage | undefined;
 
   const timeout = options.timeout || 120000;
   const timer = setTimeout(() => agent.abort(), timeout);
+
+  // Persist user message
+  const userMsg: Message = { role: 'user', content: prompt, timestamp: Date.now() };
+  if (options.sessionId) appendToSession(options.sessionId, userMsg as AgentMessage);
 
   agent.subscribe((event) => {
     if (event.type === 'message_update') {
@@ -52,8 +108,14 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
         fullText += evt.delta;
       }
     }
-    if (event.type === 'message_end' && event.message && 'usage' in event.message) {
-      lastUsage = (event.message as any).usage;
+    if (event.type === 'message_end' && event.message) {
+      if ('usage' in event.message) lastUsage = (event.message as any).usage;
+      if (options.sessionId) appendToSession(options.sessionId, event.message);
+    }
+    if (event.type === 'turn_end' && event.toolResults && options.sessionId) {
+      for (const tr of event.toolResults) {
+        appendToSession(options.sessionId, tr as AgentMessage);
+      }
     }
   });
 
@@ -68,8 +130,7 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
 }
 
 /**
- * Run Pi Agent with SSE streaming. Returns a ReadableStream suitable for
- * Response(stream, { headers: { 'Content-Type': 'text/event-stream' } }).
+ * Run Pi Agent with SSE streaming + session persistence.
  *
  * SSE events:
  * - { content: "..." }                    — text delta
@@ -103,6 +164,17 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
       }
       if (options.tools !== false) {
         agent.state.tools = getTools();
+      }
+
+      // Restore conversation history
+      if (options.sessionId) {
+        const prior = loadSession(options.sessionId);
+        if (prior.length > 0) {
+          agent.state.messages = prior;
+        }
+        // Persist user message
+        const userMsg: Message = { role: 'user', content: prompt, timestamp: Date.now() };
+        appendToSession(options.sessionId, userMsg as AgentMessage);
       }
 
       timer = setTimeout(() => agent.abort(), timeout);
@@ -152,6 +224,20 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
           case 'message_end': {
             if (event.message && 'usage' in event.message) {
               lastUsage = (event.message as any).usage;
+            }
+            // Persist assistant message to session
+            if (options.sessionId && event.message) {
+              appendToSession(options.sessionId, event.message);
+            }
+            break;
+          }
+
+          case 'turn_end': {
+            // Persist tool result messages
+            if (options.sessionId && event.toolResults) {
+              for (const tr of event.toolResults) {
+                appendToSession(options.sessionId, tr as AgentMessage);
+              }
             }
             break;
           }
