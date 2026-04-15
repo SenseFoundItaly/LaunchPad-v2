@@ -27,14 +27,17 @@ function execAgent(prompt: string): Promise<string> {
 export async function GET() {
   const now = new Date().toISOString();
 
-  // Find monitors that are due
+  // Find monitors that are due (skip if ran in last 5 minutes to prevent loops)
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const due = query<Record<string, unknown>>(
     `SELECT * FROM monitors WHERE status = 'active'
+     AND schedule != 'manual'
+     AND (last_run IS NULL OR last_run < ?)
      AND (
        (next_run IS NOT NULL AND next_run <= ?)
-       OR (next_run IS NULL AND schedule != 'manual' AND last_run IS NULL)
+       OR (next_run IS NULL AND last_run IS NULL)
      )`,
-    now,
+    fiveMinAgo, now,
   );
 
   if (due.length === 0) {
@@ -69,10 +72,12 @@ export async function GET() {
         runAt, result.slice(0, 2000), nextRun, monitorId,
       );
 
+      // Strip artifact blocks from alert message for clean display
+      const cleanMessage = result.replace(/:::artifact[\s\S]*?:::/g, '').trim().slice(0, 500);
       run(
         `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at)
          VALUES (?, ?, ?, ?, ?, 0, ?)`,
-        alertId, projectId, monitorType, severity, result.slice(0, 500), runAt,
+        alertId, projectId, monitorType, severity, cleanMessage || 'Monitor completed', runAt,
       );
 
       results.push({ monitor_id: monitorId, name: monitor.name as string, status: 'completed' });

@@ -68,12 +68,13 @@ export async function POST(_request: NextRequest, { params }: Params) {
           now, fullResponse.slice(0, 2000), nextRun, monitorId,
         );
 
-        // Create alert
+        // Create alert — strip artifact blocks for clean display
+        const cleanMessage = fullResponse.replace(/:::artifact[\s\S]*?:::/g, '').trim().slice(0, 500);
         run(
           `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at)
            VALUES (?, ?, ?, ?, ?, 0, ?)`,
           alertId, projectId, (monitor.type as string) || 'monitor', severity,
-          fullResponse.slice(0, 500), now,
+          cleanMessage || 'Monitor completed', now,
         );
 
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({
