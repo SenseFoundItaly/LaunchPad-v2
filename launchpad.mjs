@@ -102,30 +102,8 @@ async function bootstrap() {
 async function startServices() {
   console.log('\n  Starting services...\n');
 
-  // Start OpenClaw Gateway with LaunchPad profile
-  console.log(`  [..] Gateway starting on ws://localhost:${GATEWAY_PORT}`);
-  const gateway = spawn('openclaw', [
-    '--profile', PROFILE,
-    'gateway', 'run',
-    '--bind', 'loopback',
-    '--port', String(GATEWAY_PORT),
-    '--force',
-  ], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: false,
-  });
-
-  gateway.stdout.on('data', (data) => {
-    const line = data.toString().trim();
-    if (line) {console.log(`  [gateway] ${line}`);}
-  });
-  gateway.stderr.on('data', (data) => {
-    const line = data.toString().trim();
-    if (line) {console.log(`  [gateway] ${line}`);}
-  });
-
-  // Wait a moment for gateway to start
-  await new Promise((resolve) => setTimeout(resolve, 3000));
+  // No gateway needed — Pi Agent SDK runs embedded
+  console.log('  [ok] Using Pi Agent SDK (no gateway needed)');
 
   // Start Next.js web app
   console.log(`  [..] Web UI starting on http://localhost:${WEB_PORT}`);
@@ -154,7 +132,7 @@ async function startServices() {
 
   console.log(`\n  LaunchPad is running!`);
   console.log(`  Web UI:  http://localhost:${WEB_PORT}`);
-  console.log(`  Gateway: ws://localhost:${GATEWAY_PORT}`);
+  console.log(`  Engine:  Pi Agent SDK (embedded)`);
   console.log(`\n  Press Ctrl+C to stop.\n`);
 
   // Handle shutdown

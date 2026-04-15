@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server';
-import { spawn } from 'child_process';
 import { query, run } from '@/lib/db';
 import { error, generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
+import { runAgentStream } from '@/lib/pi-agent';
 
 function deriveSeverity(text: string): 'critical' | 'warning' | 'info' {
   const lower = text.toLowerCase();
@@ -27,66 +27,74 @@ export async function POST(_request: NextRequest, { params }: Params) {
   const schedule = (monitor.schedule as string) || 'weekly';
   const encoder = new TextEncoder();
 
+  const { stream: piStream, cleanup } = runAgentStream(prompt, { timeout: 120000 });
+  const reader = piStream.getReader();
+
+  let fullResponse = '';
+
   const stream = new ReadableStream({
-    start(controller) {
-      let fullResponse = '';
+    async start(controller) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-      const proc = spawn('openclaw', [
-        'agent', '--agent', 'sonnet', '--local',
-        '--message', prompt,
-        '--timeout', '120',
-      ], { env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] });
+          // Forward SSE chunks and collect text
+          const text = new TextDecoder().decode(value);
+          controller.enqueue(value);
 
-      proc.stdout.on('data', (chunk: Buffer) => {
-        const text = chunk.toString();
-        if (text.trim()) {
-          fullResponse += text;
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: text })}\n\n`));
+          // Extract content from SSE data lines
+          for (const line of text.split('\n')) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.content) fullResponse += data.content;
+                if (data.done) {
+                  // Save results to DB
+                  const now = new Date().toISOString();
+                  const severity = deriveSeverity(fullResponse);
+                  const runId = generateId('mrun');
+                  const alertId = generateId('alrt');
+
+                  run(
+                    `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
+                     VALUES (?, ?, ?, 'completed', ?, 1, ?)`,
+                    runId, monitorId, projectId, fullResponse, now,
+                  );
+
+                  const nextRun = calculateNextRun(schedule);
+                  run(
+                    'UPDATE monitors SET last_run = ?, last_result = ?, next_run = ? WHERE id = ?',
+                    now, fullResponse.slice(0, 2000), nextRun, monitorId,
+                  );
+
+                  const cleanMessage = fullResponse.replace(/:::artifact[\s\S]*?:::/g, '').trim().slice(0, 500);
+                  run(
+                    `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at)
+                     VALUES (?, ?, ?, ?, ?, 0, ?)`,
+                    alertId, projectId, (monitor.type as string) || 'monitor', severity,
+                    cleanMessage || 'Monitor completed', now,
+                  );
+
+                  // Replace the done event with one that includes DB IDs
+                  // The piStream already sent done, so send our enriched version
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    done: true, run_id: runId, severity, alert_id: alertId,
+                  })}\n\n`));
+                }
+              } catch { /* ignore parse errors */ }
+            }
+          }
         }
-      });
-
-      proc.stderr.on('data', () => { /* ignore stderr */ });
-
-      proc.on('close', (code) => {
-        const now = new Date().toISOString();
-        const status = code === 0 ? 'completed' : 'failed';
-        const severity = deriveSeverity(fullResponse);
-        const runId = generateId('mrun');
-        const alertId = generateId('alrt');
-
-        // Save run
-        run(
-          `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
-           VALUES (?, ?, ?, ?, ?, 1, ?)`,
-          runId, monitorId, projectId, status, fullResponse, now,
-        );
-
-        // Update monitor
-        const nextRun = calculateNextRun(schedule);
-        run(
-          'UPDATE monitors SET last_run = ?, last_result = ?, next_run = ? WHERE id = ?',
-          now, fullResponse.slice(0, 2000), nextRun, monitorId,
-        );
-
-        // Create alert — strip artifact blocks for clean display
-        const cleanMessage = fullResponse.replace(/:::artifact[\s\S]*?:::/g, '').trim().slice(0, 500);
-        run(
-          `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at)
-           VALUES (?, ?, ?, ?, ?, 0, ?)`,
-          alertId, projectId, (monitor.type as string) || 'monitor', severity,
-          cleanMessage || 'Monitor completed', now,
-        );
-
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-          done: true, run_id: runId, severity, alert_id: alertId,
-        })}\n\n`));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
+      } finally {
         controller.close();
-      });
-
-      proc.on('error', (err) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err.message })}\n\n`));
-        controller.close();
-      });
+      }
+    },
+    cancel() {
+      cleanup();
     },
   });
 
