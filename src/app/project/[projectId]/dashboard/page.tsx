@@ -3,6 +3,8 @@
 import { use, useEffect, useState, useCallback } from 'react';
 import api from '@/api';
 import { useTaskPolling } from '@/hooks/useTaskPolling';
+import MonitorCard from '@/components/dashboard/MonitorCard';
+import SignalTimeline from '@/components/dashboard/SignalTimeline';
 import type {
   MetricDefinition,
   BurnRate,
@@ -11,6 +13,16 @@ import type {
   HealthAnalysis,
   ApiResponse,
 } from '@/types';
+
+interface Monitor {
+  id: string;
+  type: string;
+  name: string;
+  schedule: string;
+  status: string;
+  last_run: string | null;
+  last_result: string | null;
+}
 
 export default function DashboardPage({
   params,
@@ -22,6 +34,7 @@ export default function DashboardPage({
   const [metrics, setMetrics] = useState<MetricDefinition[]>([]);
   const [burnRate, setBurnRate] = useState<BurnRate | null>(null);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [analysis, setAnalysis] = useState<HealthAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -57,10 +70,40 @@ export default function DashboardPage({
     }
   }, [projectId]);
 
+  const fetchMonitors = useCallback(async () => {
+    try {
+      const { data } = await api.get<ApiResponse<Monitor[]>>(`/api/projects/${projectId}/monitors`);
+      if (data.data) {setMonitors(data.data);}
+    } catch {
+      // No monitors yet
+    }
+  }, [projectId]);
+
+  const [lastCronCheck, setLastCronCheck] = useState<Date | null>(null);
+
   useEffect(() => {
     fetchDashboard();
     fetchAnalysis();
-  }, [fetchDashboard, fetchAnalysis]);
+    fetchMonitors();
+  }, [fetchDashboard, fetchAnalysis, fetchMonitors]);
+
+  // Auto-poll cron every 60 seconds to run due monitors
+  useEffect(() => {
+    async function checkCron() {
+      try {
+        const { data } = await api.get('/api/cron');
+        setLastCronCheck(new Date());
+        if (data.data?.ran > 0) {
+          // Monitors ran — refresh dashboard data
+          fetchDashboard();
+          fetchMonitors();
+        }
+      } catch { /* ignore */ }
+    }
+    checkCron(); // Run immediately on mount
+    const interval = setInterval(checkCron, 60000);
+    return () => clearInterval(interval);
+  }, [fetchDashboard, fetchMonitors]);
 
   useEffect(() => {
     if (task?.status === 'completed' && task.result) {
@@ -452,8 +495,51 @@ export default function DashboardPage({
           </div>
         )}
 
+        {/* Monitors */}
+        {monitors.length > 0 && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-medium text-white">Monitors</h4>
+              {lastCronCheck && (
+                <span className="text-[10px] text-zinc-600">
+                  Auto-check: {Math.floor((Date.now() - lastCronCheck.getTime()) / 60000)}m ago
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {monitors.map((m) => (
+                <MonitorCard
+                  key={m.id}
+                  monitor={m}
+                  projectId={projectId}
+                  onRunComplete={() => {
+                    fetchMonitors();
+                    fetchDashboard();
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Signal Timeline */}
+        {alerts.length > 0 && (
+          <div className="mb-6">
+            <h4 className="text-sm font-medium text-white mb-3">Signal Timeline</h4>
+            <SignalTimeline
+              alerts={alerts}
+              projectId={projectId}
+              onDismiss={(alertId) => {
+                setAlerts((prev) =>
+                  prev.map((a) => (a.alert_id === alertId ? { ...a, dismissed: true } : a)),
+                );
+              }}
+            />
+          </div>
+        )}
+
         {/* Empty State */}
-        {metrics.length === 0 && !burnRate && !analysis && (
+        {metrics.length === 0 && !burnRate && !analysis && monitors.length === 0 && (
           <div className="text-center py-20 text-zinc-500">
             <p>Your command center is empty.</p>
             <p className="text-sm mt-1">
