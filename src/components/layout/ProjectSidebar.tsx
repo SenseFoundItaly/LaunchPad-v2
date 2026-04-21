@@ -225,13 +225,9 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
           })}
         </nav>
 
-        {/* Readiness footer — links to the skill-scoring overview.
-            Note: the URL is still /intelligence for backward compatibility,
-            but the label is Readiness (matches what the page actually shows:
-            stage completion + radar score, NOT ecosystem intelligence which
-            lives on Dashboard + Brief). Renaming the route is a separate
-            follow-up that touches existing deep-links. */}
-        <Link href={`/project/${projectId}/intelligence`} className="block px-4 py-3 border-t border-zinc-800 hover:bg-zinc-900 transition-colors">
+        {/* Readiness footer — skill-scoring radar (moved from /intelligence
+            so /intelligence can host the new knowledge-graph view). */}
+        <Link href={`/project/${projectId}/readiness`} className="block px-4 py-3 border-t border-zinc-800 hover:bg-zinc-900 transition-colors">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Readiness</span>
             <div className="flex items-center gap-1.5">
