@@ -12,7 +12,7 @@ function getProjectName(pathname: string): string | null {
 // NavRail) and therefore don't need the legacy AppHeader. Add entries here
 // as more pages migrate to the "Founder OS" design.
 function isFullBleedRoute(pathname: string): boolean {
-  return /^\/project\/[^/]+\/dashboard/.test(pathname);
+  return /^\/project\/[^/]+\/(dashboard|actions|chat|intelligence|workflow|org)/.test(pathname);
 }
 
 export default function AppHeader() {

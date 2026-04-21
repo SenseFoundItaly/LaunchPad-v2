@@ -1,615 +1,785 @@
 'use client';
 
+/**
+ * Co-pilot + Canvas — ported from screen-chat.jsx.
+ *
+ * Two-pane: 440px chat left, flex artifact canvas right.
+ *
+ * Replaces the previous multi-mode sidebar chat. The new chrome is simpler:
+ *   - Messages in left column, tool activity + streaming cursor inline
+ *   - Canvas on right renders artifacts parsed from the latest assistant
+ *     message (via src/lib/artifact-parser.ts)
+ *
+ * Data flows from useChat (project-scoped tools already wired via PR #8/#9).
+ * The agent can list_ecosystem_alerts, get_project_metrics, queue_draft_for_approval, etc.
+ * without changing this component.
+ */
+
 import { use, useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import ChatPanel from '@/components/chat/ChatPanel';
-import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
-import NodeDetailPanel from '@/components/graph/NodeDetailPanel';
-// GraphLegend is now built into KnowledgeGraph
-import { useChat } from '@/hooks/useChat';
-import { useKnowledgeGraph } from '@/hooks/useKnowledgeGraph';
-import { useProject } from '@/hooks/useProject';
-import { SKILL_KICKOFFS, STAGES } from '@/lib/stages';
-import { useSkillStatus } from '@/hooks/useSkillStatus';
-import SkillOutputRenderer from '@/components/skill/SkillOutputRenderer';
-import { openPrintPreview } from '@/lib/print-utils';
 import api from '@/api';
-import type { GraphNode } from '@/types/graph';
-import type { EntityCard, WorkflowCard } from '@/types/artifacts';
+import { useChat } from '@/hooks/useChat';
+import { useProject } from '@/hooks/useProject';
+import { parseMessageContent } from '@/lib/artifact-parser';
+import type { Artifact } from '@/types/artifacts';
+import { TopBar, NavRail } from '@/components/design/chrome';
+import {
+  Pill,
+  StatusBar,
+  Icon,
+  I,
+  IconBtn,
+} from '@/components/design/primitives';
 
-type SidebarMode = 'graph' | 'metrics' | 'pipeline' | 'workflows' | 'assets';
+interface HistoryResp {
+  success: boolean;
+  data?: Array<{ role: string; content: string; timestamp: string }>;
+}
 
-export default function IdeaPage({
+export default function CopilotChatPage({
   params,
 }: {
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
-  const searchParams = useSearchParams();
-  const router = useRouter();
   const { project } = useProject(projectId);
   const { messages, isStreaming, sendMessage, setMessages } = useChat(projectId, 'chat');
-  const lastSkillTriggered = useRef<string | null>(null);
-  const { graph, addNode, addEdge } = useKnowledgeGraph(projectId);
-  const { skills: skillsData } = useSkillStatus(projectId);
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  const [sidebarMode, setSidebarMode] = useState<SidebarMode>('graph');
-  const [metrics, setMetrics] = useState<{ name: string; value: number; growth: string }[]>([]);
-  const [investors, setInvestors] = useState<{ name: string; stage: string; check_size: number }[]>([]);
-  const [workflows, setWorkflows] = useState<WorkflowCard[]>([]);
-  const [autoStarted, setAutoStarted] = useState(false);
+  const [input, setInput] = useState('');
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const locale = (project as unknown as { locale?: string })?.locale === 'it' ? 'it' : 'en';
 
   // Load existing chat history
   useEffect(() => {
-    api.get(`/api/chat/history?project_id=${projectId}&step=chat`).then(({ data }) => {
-      if (data.success && data.data && data.data.length > 0) {
-        setMessages(
-          data.data.map((m: { role: string; content: string; timestamp: string }, i: number) => ({
-            id: `restored_${i}`,
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-            timestamp: m.timestamp,
-          }))
-        );
-        setAutoStarted(true); // has history, don't auto-send
-      }
-      setHistoryLoaded(true);
-    }).catch(() => {
-      setHistoryLoaded(true);
-    });
-
-    // Load metrics for sidebar
-    api.get(`/api/dashboard/${projectId}/metrics`).then(({ data }) => {
-      if (data.success && data.data?.metrics) {
-        setMetrics(data.data.metrics.map((m: { name: string; entries: { value: number }[] }) => ({
-          name: m.name,
-          value: m.entries?.[m.entries.length - 1]?.value || 0,
-          growth: m.entries?.length > 1 ? `${(((m.entries[m.entries.length - 1]?.value || 0) / (m.entries[m.entries.length - 2]?.value || 1) - 1) * 100).toFixed(1)}%` : '-',
-        })));
-      }
-    }).catch(() => {});
-
-    // Load investors for sidebar
-    api.get(`/api/fundraising/${projectId}`).then(({ data }) => {
-      if (data.success && data.data?.investors) {
-        setInvestors(data.data.investors);
-      }
-    }).catch(() => {});
+    api.get<HistoryResp>(`/api/chat/history?project_id=${projectId}&step=chat`)
+      .then(({ data }) => {
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+          setMessages(
+            data.data.map((m, i) => ({
+              id: `restored_${i}`,
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+              timestamp: m.timestamp,
+            })),
+          );
+        }
+      })
+      .catch(() => {})
+      .finally(() => setHistoryLoaded(true));
   }, [projectId, setMessages]);
 
-  // Skill deep-link: ?skill=risk-scoring triggers that skill's conversation
-  // Capture skill param immediately on mount/navigation, before any re-renders strip it
-  const pendingSkill = useRef<string | null>(searchParams?.get('skill') || null);
-  const skillFired = useRef(false);
-
-  // When searchParams change (new navigation), capture the new skill
+  // Auto-scroll to newest
   useEffect(() => {
-    const skill = searchParams?.get('skill');
-    if (skill) {
-      pendingSkill.current = skill;
-      skillFired.current = false;
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+
+  // Parse artifacts from the most recent assistant message
+  const canvasArtifacts = useMemo<Artifact[]>(() => {
+    const assistantMessages = messages.filter(m => m.role === 'assistant' && m.content);
+    if (assistantMessages.length === 0) return [];
+    const latest = assistantMessages[assistantMessages.length - 1];
+    const segments = parseMessageContent(latest.content);
+    return segments
+      .filter(s => s.type === 'artifact')
+      .map(s => (s as { type: 'artifact'; artifact: Artifact }).artifact);
+  }, [messages]);
+
+  function handleSend() {
+    const v = input.trim();
+    if (!v || isStreaming) return;
+    sendMessage(v);
+    setInput('');
+  }
+
+  function handleKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
     }
-  }, [searchParams]);
-
-  // Fire the skill once history is loaded and project is available
-  useEffect(() => {
-    if (!historyLoaded || !project?.name || isStreaming || skillFired.current) return;
-    const skill = pendingSkill.current;
-    if (!skill) return;
-    const kickoff = SKILL_KICKOFFS[skill];
-    if (!kickoff) return;
-
-    skillFired.current = true;
-    lastSkillTriggered.current = skill;
-    setAutoStarted(true);
-    pendingSkill.current = null;
-
-    const completedNames = STAGES.flatMap((s) => s.skills)
-      .filter((s) => skillsData[s.id]?.status === 'completed')
-      .map((s) => s.label);
-    const hint = completedNames.length > 0
-      ? `\n\nReference my existing data from completed skills: ${completedNames.join(', ')}.`
-      : '';
-    sendMessage(kickoff + hint);
-
-    // Clean URL without triggering navigation
-    window.history.replaceState(null, '', `/project/${projectId}/chat`);
-  }, [historyLoaded, project, isStreaming, projectId, sendMessage]);
-
-  // Auto-start: when new project loads with no chat history, immediately analyze the idea
-  useEffect(() => {
-    if (!historyLoaded) return;
-    if (!autoStarted && !lastSkillTriggered.current && !isStreaming && messages.length === 0 && project?.name) {
-      setAutoStarted(true);
-      const kickoff = project.description
-        ? `Analyze this startup idea and map the competitive landscape: "${project.name}" — ${project.description}`
-        : `Analyze this startup idea and map the competitive landscape: "${project.name}"`;
-      sendMessage(kickoff);
-    }
-  }, [historyLoaded, autoStarted, isStreaming, messages.length, project, sendMessage]);
-
-  // Mark skill as completed when streaming finishes after a skill deep-link
-  const prevStreamingForSkill = useRef(false);
-  useEffect(() => {
-    const wasStreaming = prevStreamingForSkill.current;
-    prevStreamingForSkill.current = isStreaming;
-
-    if (wasStreaming && !isStreaming && lastSkillTriggered.current) {
-      const skillId = lastSkillTriggered.current;
-      const assistantMsgs = messages.filter((m) => m.role === 'assistant');
-      const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
-      let summary = lastAssistant?.content || '';
-      // Strip trailing option-set and action-suggestion artifacts (panel has its own next steps)
-      summary = summary.replace(/:::artifact\s*\{"type"\s*:\s*"(option-set|action-suggestion)"[\s\S]*?:::/g, '').trimEnd();
-      api.post(`/api/projects/${projectId}/skills`, {
-        skill_id: skillId,
-        summary: summary.slice(0, 50000),
-      }).catch(() => {});
-    }
-  }, [isStreaming, messages, projectId]);
-
-  // Only switch sidebar when that tab has actual data — don't switch to empty tabs
-  useEffect(() => {
-    if (graph.nodes.length > 0) {
-      setSidebarMode('graph');
-    }
-  }, [graph.nodes.length]);
-
-  // Save chat history (debounced — only after streaming completes, not during)
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (!historyLoaded || isStreaming || messages.length === 0) return;
-    // Debounce: wait 2s after last change to save
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      api.post('/api/chat/history', {
-        project_id: projectId,
-        step: 'chat',
-        messages: messages.map((m) => ({ role: m.role, content: m.content, timestamp: m.timestamp })),
-      }).catch(() => {});
-    }, 2000);
-  }, [isStreaming, messages, projectId]);
-
-  // Relation map: how each entity type connects to Your Startup
-  const TYPE_RELATIONS: Record<string, string> = {
-    competitor: 'competes_with',
-    technology: 'relevant_to',
-    market_segment: 'targets',
-    persona: 'serves',
-    risk: 'threatens',
-    trend: 'affects',
-    company: 'related_to',
-    compliance: 'must_comply_with',
-    regulation: 'regulated_by',
-    partner: 'partners_with',
-    funding_source: 'funded_by',
-    feature: 'offers',
-    metric: 'tracks',
-  };
-
-  // Ensure "Your Startup" node exists — created once on mount
-  const startupCreatedRef = useRef(false);
-  useEffect(() => {
-    if (project?.name && !startupCreatedRef.current) {
-      startupCreatedRef.current = true;
-      // Check if it already exists in loaded graph
-      if (!graph.nodes.some(n => n.node_type === 'your_startup')) {
-        addNode({
-          name: project.name,
-          node_type: 'your_startup' as GraphNode['node_type'],
-          summary: project.description || 'Your startup',
-          attributes: {},
-        });
-      }
-    }
-  }, [project, graph.nodes, addNode]);
-
-  // Handle entity discovered — ONLY add nodes (no edges during streaming)
-  const handleEntityDiscovered = useCallback(async (entity: EntityCard) => {
-    await addNode({
-      name: entity.name,
-      node_type: entity.entity_type as GraphNode['node_type'],
-      summary: entity.summary,
-      attributes: entity.attributes,
-    });
-    setSidebarMode('graph');
-  }, [addNode]);
-
-  // After streaming stops → connect all unconnected nodes to startup
-  const prevStreamingRef = useRef(false);
-  useEffect(() => {
-    const wasStreaming = prevStreamingRef.current;
-    prevStreamingRef.current = isStreaming;
-
-    // Only run when streaming just stopped (true → false)
-    if (wasStreaming && !isStreaming && graph.nodes.length > 1) {
-      const startup = graph.nodes.find(n => n.node_type === 'your_startup');
-      if (!startup) {return;}
-
-      for (const node of graph.nodes) {
-        if (node.id === startup.id) {continue;}
-        // Skip if edge already exists (check both directions)
-        const hasEdge = graph.edges.some(e => {
-          const srcId = typeof e.source === 'string' ? e.source : e.source?.id;
-          const tgtId = typeof e.target === 'string' ? e.target : e.target?.id;
-          return (srcId === node.id && tgtId === startup.id) ||
-                 (srcId === startup.id && tgtId === node.id);
-        });
-        if (!hasEdge) {
-          const relation = TYPE_RELATIONS[node.node_type] || 'related_to';
-          addEdge({ source: node.id, target: startup.id, relation, weight: 1.0 });
-        }
-      }
-    }
-  }, [isStreaming, graph.nodes, graph.edges, addEdge]);
-
-  // Handle workflow discovered → add to workflows list
-  const handleWorkflowDiscovered = useCallback((workflow: WorkflowCard) => {
-    setWorkflows(prev => {
-      if (prev.some(w => w.title === workflow.title)) {return prev;}
-      return [...prev, workflow];
-    });
-  }, []);
-
-  // Handle artifact actions
-  const handleArtifactAction = useCallback((action: string, payload: Record<string, unknown>) => {
-    if (action === 'select-option') {
-      sendMessage(`I choose: ${payload.label}`);
-    } else if (action === 'trigger-action') {
-      const title = (payload.title || payload.action_label || '') as string;
-      const desc = (payload.description || '') as string;
-      // Send specific action request to AI
-      sendMessage(`${title}${desc ? ': ' + desc : ''}. Give me a detailed step-by-step plan.`);
-      // Also add to workflows sidebar
-      setWorkflows(prev => {
-        if (prev.some(w => w.title === title)) {return prev;}
-        return [...prev, {
-          type: 'workflow-card' as const,
-          id: `wf_auto_${Date.now()}`,
-          title,
-          category: 'operations' as const,
-          description: desc,
-          priority: 'medium' as const,
-          steps: [],
-        }];
-      });
-    } else if (action === 'trigger-workflow') {
-      const steps = (payload.steps as string[]) || [];
-      sendMessage(`Execute this workflow: "${payload.title}"\nSteps: ${steps.join(', ')}\n\nPlease walk me through each step with specific details and deliverables.`);
-    }
-  }, [sendMessage]);
-
-  const [sidebarWidth, setSidebarWidth] = useState(420);
-  const isResizingRef = useRef(false);
-
-  // Resize handler
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isResizingRef.current = true;
-    const startX = e.clientX;
-    const startWidth = sidebarWidth;
-
-    const onMove = (ev: MouseEvent) => {
-      if (!isResizingRef.current) {return;}
-      const delta = startX - ev.clientX;
-      const newWidth = Math.max(280, Math.min(800, startWidth + delta));
-      setSidebarWidth(newWidth);
-    };
-
-    const onUp = () => {
-      isResizingRef.current = false;
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, [sidebarWidth]);
-
-  const assetsCount = Object.values(skillsData).filter((s) => s.status === 'completed' && s.summary).length;
-
-  const sidebarTabs: { key: SidebarMode; label: string; count?: number }[] = useMemo(() => [
-    { key: 'graph', label: 'Intelligence', count: graph.nodes.length },
-    { key: 'workflows', label: 'Workflows', count: workflows.length },
-    { key: 'assets', label: 'Assets', count: assetsCount },
-  ], [graph.nodes.length, workflows.length, assetsCount]);
+  }
 
   return (
-    <div className="flex h-full">
-      {/* Chat — main area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-950/50 flex items-center gap-3">
-          <h2 className="text-sm font-medium text-white truncate">{project?.name}</h2>
-          <span className="text-xs text-zinc-500">Workspace</span>
-        </div>
-        <div className="flex-1 overflow-hidden">
-          <ChatPanel
-            messages={messages}
-            onSend={sendMessage}
-            isStreaming={isStreaming}
-            placeholder="What are you building?"
-            emptyMessage="Tell me about your startup. I'll map the landscape, find competitors, and help you build your strategy."
-            onArtifactAction={handleArtifactAction}
-            onEntityDiscovered={handleEntityDiscovered}
-            onWorkflowDiscovered={handleWorkflowDiscovered}
+    <div className="lp-frame">
+      <TopBar
+        breadcrumb={[project?.name || 'Project', 'Co-pilot']}
+        right={
+          <>
+            {isStreaming && <Pill kind="live" dot>streaming</Pill>}
+            <span className="lp-mono" style={{ fontSize: 10 }}>
+              ctx · {messages.length} msgs
+            </span>
+          </>
+        }
+      />
+
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <NavRail projectId={projectId} current="chat" />
+
+        {/* Chat column */}
+        <div
+          style={{
+            width: 440,
+            flexShrink: 0,
+            borderRight: '1px solid var(--line)',
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'var(--paper)',
+          }}
+        >
+          <ChatHeader project={project} locale={locale} />
+
+          <div
+            ref={scrollRef}
+            className="lp-scroll"
+            style={{ flex: 1, overflow: 'auto', padding: '16px 20px 20px' }}
+          >
+            {!historyLoaded && messages.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--ink-5)', padding: 20, textAlign: 'center' }}>
+                Loading history…
+              </div>
+            ) : messages.length === 0 ? (
+              <ChatEmptyState
+                locale={locale}
+                onPick={(s) => setInput(s)}
+              />
+            ) : (
+              messages.map((m) => (
+                <Msg
+                  key={m.id}
+                  who={m.role === 'user' ? 'user' : 'ai'}
+                  agent="Chief"
+                  streaming={m.role === 'assistant' && isStreaming && m === messages[messages.length - 1]}
+                  tools={m.tools}
+                >
+                  {stripArtifacts(m.content)}
+                </Msg>
+              ))
+            )}
+          </div>
+
+          <ChatComposer
+            value={input}
+            onChange={setInput}
+            onSend={handleSend}
+            onKeyDown={handleKey}
+            disabled={isStreaming}
+            locale={locale}
           />
+        </div>
+
+        {/* Canvas */}
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            minWidth: 0,
+            background: 'var(--paper-2)',
+          }}
+        >
+          <CanvasHeader count={canvasArtifacts.length} locale={locale} />
+          <div
+            className="lp-scroll"
+            style={{
+              flex: 1,
+              overflow: 'auto',
+              padding: 20,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(6, 1fr)',
+              gap: 14,
+              alignContent: 'start',
+            }}
+          >
+            {canvasArtifacts.length === 0 ? (
+              <CanvasEmptyState locale={locale} />
+            ) : (
+              canvasArtifacts.map((a, i) => <ArtifactCard key={i} artifact={a} />)
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Resize handle */}
-      <div
-        className="w-1 hover:w-1.5 bg-zinc-800 hover:bg-blue-500/50 cursor-col-resize shrink-0 transition-colors"
-        onMouseDown={handleResizeStart}
+      <StatusBar
+        heartbeatLabel={isStreaming ? 'streaming' : 'heartbeat · idle'}
+        gateway="pi-agent · anthropic"
+        ctxLabel={`ctx · ${messages.length} msgs`}
+        budget={`${canvasArtifacts.length} artifact${canvasArtifacts.length === 1 ? '' : 's'}`}
       />
+    </div>
+  );
+}
 
-      {/* Intelligent Sidebar */}
-      <div className="flex flex-col bg-zinc-950 shrink-0" style={{ width: sidebarWidth }}>
-        {/* Sidebar tabs */}
-        <div className="flex border-b border-zinc-800 px-2 pt-2">
-          {sidebarTabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setSidebarMode(tab.key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t-lg transition-colors ${
-                sidebarMode === tab.key
-                  ? 'bg-zinc-900 text-white border border-zinc-800 border-b-zinc-900 -mb-px'
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
+// =============================================================================
+// Chat header + empty + composer + message
+// =============================================================================
+
+function ChatHeader({
+  project,
+  locale,
+}: {
+  project: unknown;
+  locale: 'en' | 'it';
+}) {
+  const p = project as { name?: string; description?: string } | null;
+  return (
+    <div style={{ padding: '14px 20px 12px', borderBottom: '1px solid var(--line)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Pill kind="live" dot>
+          {locale === 'it' ? 'loop · discovery clienti' : 'loop · customer discovery'}
+        </Pill>
+      </div>
+      <h2
+        className="lp-serif"
+        style={{ fontSize: 20, fontWeight: 400, letterSpacing: -0.3, margin: 0 }}
+      >
+        {p?.name || 'Your project'}
+      </h2>
+      <div
+        style={{
+          fontSize: 11,
+          color: 'var(--ink-4)',
+          marginTop: 4,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <span className="lp-mono">
+          {locale === 'it' ? 'obiettivo · validare ICP' : 'goal · validate ICP'}
+        </span>
+        <span>·</span>
+        <span>chief · scout · analyst · outreach</span>
+      </div>
+    </div>
+  );
+}
+
+function ChatEmptyState({
+  locale,
+  onPick,
+}: {
+  locale: 'en' | 'it';
+  onPick: (s: string) => void;
+}) {
+  const prompts = locale === 'it'
+    ? [
+      'Cosa si è mosso nel mio ecosistema questa settimana?',
+      'Riassumi i miei numeri e la mia runway',
+      'Cosa ho nell\'inbox da approvare?',
+      'Quali competitor ho tracciato finora?',
+    ]
+    : [
+      'What moved in my ecosystem this week?',
+      'Summarize my numbers and runway',
+      'What do I have in my inbox?',
+      'Which competitors am I tracking?',
+    ];
+
+  return (
+    <div style={{ padding: '10px 0' }}>
+      <p style={{ fontSize: 13, color: 'var(--ink-4)', marginTop: 0, marginBottom: 14, lineHeight: 1.5 }}>
+        {locale === 'it'
+          ? 'Chiedi al co-pilot qualsiasi cosa sul tuo progetto. Ho accesso a metriche, ecosystem alert, inbox e knowledge graph.'
+          : 'Ask your co-pilot anything about your project. I have access to metrics, ecosystem alerts, inbox, and the knowledge graph.'}
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {prompts.map((p) => (
+          <button
+            key={p}
+            onClick={() => onPick(p)}
+            style={{
+              textAlign: 'left',
+              padding: '10px 12px',
+              borderRadius: 'var(--r-m)',
+              border: '1px solid var(--line-2)',
+              background: 'var(--surface)',
+              color: 'var(--ink-2)',
+              fontSize: 12.5,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Msg({
+  who,
+  agent,
+  streaming,
+  tools,
+  children,
+}: {
+  who: 'user' | 'ai';
+  agent: string;
+  streaming?: boolean;
+  tools?: Array<{ id: string; name: string; status: string }>;
+  children: React.ReactNode;
+}) {
+  if (who === 'user') {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <div
+          style={{
+            maxWidth: '82%',
+            padding: '9px 12px',
+            borderRadius: 12,
+            background: 'var(--ink)',
+            color: 'var(--paper)',
+            fontSize: 13,
+            lineHeight: 1.5,
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {children}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <span
+          style={{
+            width: 18,
+            height: 18,
+            borderRadius: 4,
+            background: '#4a5a7a',
+            color: '#fff',
+            fontSize: 9,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontFamily: 'var(--f-mono)',
+          }}
+        >
+          {agent.slice(0, 2).toUpperCase()}
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 600 }}>{agent}</span>
+        {streaming && <Pill kind="live" dot>streaming</Pill>}
+      </div>
+      {tools && tools.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+          {tools.map((t) => (
+            <span
+              key={t.id}
+              className="lp-chip"
+              style={{
+                background: t.status === 'running'
+                  ? 'var(--accent-wash)'
+                  : t.status === 'error'
+                    ? 'oklch(0.94 0.05 40)'
+                    : 'var(--paper-2)',
+                color: t.status === 'running'
+                  ? 'var(--accent-ink)'
+                  : t.status === 'error'
+                    ? 'var(--clay)'
+                    : 'var(--ink-4)',
+              }}
             >
-              {tab.label}
-              {tab.count !== undefined && tab.count > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                  sidebarMode === tab.key ? 'bg-blue-500/20 text-blue-400' : 'bg-zinc-800 text-zinc-500'
-                }`}>
-                  {tab.count}
-                </span>
+              {t.status === 'running' && (
+                <span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />
               )}
-            </button>
+              {t.name}
+            </span>
           ))}
         </div>
+      )}
+      <div
+        style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 
-        {/* Sidebar content */}
-        <div className="flex-1 overflow-hidden relative">
-          {/* Graph view */}
-          {sidebarMode === 'graph' && (
-            <div className="h-full relative">
-              <KnowledgeGraph
-                nodes={graph.nodes}
-                edges={graph.edges}
-                onNodeClick={setSelectedNode}
-              />
-              {/* Legend is now built into KnowledgeGraph */}
-              {selectedNode && (
-                <NodeDetailPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
-              )}
-            </div>
-          )}
-
-          {/* Metrics view */}
-          {sidebarMode === 'metrics' && (
-            <div className="p-4 overflow-y-auto h-full">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-white">Key Metrics</h3>
-                <button
-                  onClick={() => sendMessage('Show me my current metrics and runway analysis.')}
-                  className="text-xs text-blue-400 hover:text-blue-300"
-                >
-                  Analyze
-                </button>
-              </div>
-              {metrics.length > 0 ? (
-                <div className="space-y-2">
-                  {metrics.map((m, i) => (
-                    <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 flex items-center justify-between">
-                      <span className="text-sm text-zinc-300">{m.name}</span>
-                      <div className="text-right">
-                        <div className="text-sm font-medium text-white">{m.value.toLocaleString()}</div>
-                        <div className={`text-xs ${m.growth.startsWith('-') ? 'text-red-400' : 'text-green-400'}`}>{m.growth}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <p className="text-zinc-500 text-sm mb-2">No metrics tracked yet</p>
-                  <button
-                    onClick={() => sendMessage('Help me define the key metrics I should track for my startup.')}
-                    className="text-xs text-blue-400 hover:text-blue-300"
-                  >
-                    Ask AI to suggest metrics
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Workflows view */}
-          {sidebarMode === 'workflows' && (
-            <div className="p-4 overflow-y-auto h-full">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-white">Workflows</h3>
-              </div>
-              {workflows.length > 0 ? (
-                <div className="space-y-3">
-                  {['high', 'medium', 'low'].map(priority => {
-                    const filtered = workflows.filter(w => w.priority === priority);
-                    if (filtered.length === 0) {return null;}
-                    return (
-                      <div key={priority}>
-                        <div className={`text-xs font-medium mb-2 ${
-                          priority === 'high' ? 'text-red-400' : priority === 'medium' ? 'text-yellow-400' : 'text-zinc-500'
-                        }`}>
-                          {priority.toUpperCase()} PRIORITY
-                        </div>
-                        {filtered.map((wf, i) => (
-                          <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 mb-2">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-sm font-medium text-white flex-1">{wf.title}</span>
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                                { hiring: 'bg-amber-500/20 text-amber-400', marketing: 'bg-blue-500/20 text-blue-400',
-                                  fundraising: 'bg-green-500/20 text-green-400', product: 'bg-violet-500/20 text-violet-400',
-                                  legal: 'bg-rose-500/20 text-rose-400', operations: 'bg-cyan-500/20 text-cyan-400',
-                                  sales: 'bg-orange-500/20 text-orange-400' }[wf.category] || 'bg-zinc-700 text-zinc-400'
-                              }`}>{wf.category}</span>
-                            </div>
-                            <p className="text-xs text-zinc-400 mb-2">{wf.description}</p>
-                            {wf.steps && wf.steps.length > 0 && (
-                              <div className="space-y-1 mb-2">
-                                {wf.steps.slice(0, 4).map((step, j) => (
-                                  <div key={j} className="flex items-center gap-1.5 text-[11px] text-zinc-500">
-                                    <span className="w-3 h-3 rounded border border-zinc-700 shrink-0" />
-                                    {step}
-                                  </div>
-                                ))}
-                                {wf.steps.length > 4 && (
-                                  <div className="text-[11px] text-zinc-600">+{wf.steps.length - 4} more steps</div>
-                                )}
-                              </div>
-                            )}
-                            <button
-                              onClick={() => {
-                                sendMessage(`Execute workflow: "${wf.title}"\nSteps: ${wf.steps.join(', ')}\n\nWalk me through each step with specifics.`);
-                              }}
-                              className="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors"
-                            >
-                              Execute
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <p className="text-zinc-500 text-sm mb-2">No workflows yet</p>
-                  <p className="text-zinc-600 text-xs">The AI will suggest actionable workflows as you chat</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Pipeline view */}
-          {sidebarMode === 'pipeline' && (
-            <div className="p-4 overflow-y-auto h-full">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-white">Investor Pipeline</h3>
-                <button
-                  onClick={() => sendMessage('Help me build my fundraising strategy and target investor list.')}
-                  className="text-xs text-blue-400 hover:text-blue-300"
-                >
-                  Build List
-                </button>
-              </div>
-              {investors.length > 0 ? (
-                <div className="space-y-2">
-                  {investors.map((inv, i) => (
-                    <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-white">{inv.name}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          inv.stage === 'committed' ? 'bg-green-500/20 text-green-400' :
-                          inv.stage === 'term_sheet' ? 'bg-blue-500/20 text-blue-400' :
-                          inv.stage === 'passed' ? 'bg-red-500/20 text-red-400' :
-                          'bg-zinc-700 text-zinc-400'
-                        }`}>{inv.stage}</span>
-                      </div>
-                      {inv.check_size > 0 && (
-                        <div className="text-xs text-zinc-500 mt-1">${(inv.check_size / 1000).toFixed(0)}K</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <p className="text-zinc-500 text-sm mb-2">No investors tracked yet</p>
-                  <button
-                    onClick={() => sendMessage('I want to start fundraising. Help me identify the right investors for my startup.')}
-                    className="text-xs text-blue-400 hover:text-blue-300"
-                  >
-                    Start fundraising discussion
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Assets view */}
-          {sidebarMode === 'assets' && (
-            <div className="p-4 overflow-y-auto h-full">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-white">Generated Assets</h3>
-                <span className="text-xs text-zinc-500">{assetsCount} docs</span>
-              </div>
-              {assetsCount > 0 ? (
-                <div className="space-y-2">
-                  {STAGES.flatMap((stage) =>
-                    stage.skills
-                      .filter((s) => skillsData[s.id]?.status === 'completed' && skillsData[s.id]?.summary)
-                      .map((skill) => {
-                        const data = skillsData[skill.id];
-                        const preview = data.summary?.replace(/:::artifact[\s\S]*?:::/g, '').slice(0, 120).trim();
-                        return (
-                          <div key={skill.id} className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-sm font-medium text-zinc-200">{skill.label}</span>
-                              {data.completedAt && (
-                                <span className="text-[10px] text-zinc-600">{new Date(data.completedAt).toLocaleDateString()}</span>
-                              )}
-                            </div>
-                            {preview && (
-                              <p className="text-xs text-zinc-500 mb-2 line-clamp-2">{preview}...</p>
-                            )}
-                            <div className="flex gap-1.5">
-                              <button
-                                onClick={() => {
-                                  navigator.clipboard.writeText(data.summary || '');
-                                }}
-                                className="text-[10px] px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded transition-colors"
-                              >
-                                Copy
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const blob = new Blob([data.summary || ''], { type: 'text/markdown' });
-                                  const url = URL.createObjectURL(blob);
-                                  const a = document.createElement('a');
-                                  a.href = url;
-                                  a.download = `${skill.id}.md`;
-                                  a.click();
-                                  URL.revokeObjectURL(url);
-                                }}
-                                className="text-[10px] px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded transition-colors"
-                              >
-                                Export .md
-                              </button>
-                              <button
-                                onClick={() => openPrintPreview(skill.label, data.summary || '')}
-                                className="text-[10px] px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded transition-colors"
-                              >
-                                PDF
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })
-                  )}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <p className="text-zinc-500 text-sm mb-2">No assets yet</p>
-                  <p className="text-zinc-600 text-xs">Run skills from the sidebar to generate documents</p>
-                </div>
-              )}
-            </div>
-          )}
+function ChatComposer({
+  value,
+  onChange,
+  onSend,
+  onKeyDown,
+  disabled,
+  locale,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSend: () => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  disabled: boolean;
+  locale: 'en' | 'it';
+}) {
+  return (
+    <div style={{ borderTop: '1px solid var(--line)', padding: 14, background: 'var(--surface)' }}>
+      <div
+        style={{
+          border: '1px solid var(--line-2)',
+          borderRadius: 'var(--r-m)',
+          padding: 10,
+          background: 'var(--paper)',
+        }}
+      >
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={locale === 'it' ? 'Chiedi al co-pilot…' : 'Ask the co-pilot…'}
+          rows={2}
+          disabled={disabled}
+          style={{
+            width: '100%',
+            border: 'none',
+            background: 'transparent',
+            outline: 'none',
+            resize: 'none',
+            fontSize: 13,
+            color: 'var(--ink-2)',
+            fontFamily: 'inherit',
+            lineHeight: 1.5,
+            padding: 0,
+            minHeight: 40,
+          }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+          <IconBtn d={I.plus} size={24} title="attach" />
+          <IconBtn d={I.sparkles} size={24} title="suggest" />
+          <IconBtn d={I.terminal} size={24} title="cmd" />
+          <span style={{ flex: 1 }} />
+          <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
+            claude-sonnet-4
+          </span>
+          <button
+            onClick={onSend}
+            disabled={disabled || !value.trim()}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '6px 10px',
+              borderRadius: 'var(--r-m)',
+              background: 'var(--ink)',
+              color: 'var(--paper)',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontFamily: 'var(--f-sans)',
+              fontWeight: 500,
+              opacity: disabled || !value.trim() ? 0.5 : 1,
+            }}
+          >
+            <Icon d={I.send} size={12} /> {disabled ? '…' : 'send'}
+            <span
+              className="lp-kbd"
+              style={{
+                background: 'rgba(255,255,255,.12)',
+                borderColor: 'rgba(255,255,255,.2)',
+                color: 'var(--paper)',
+              }}
+            >
+              ⌘↵
+            </span>
+          </button>
         </div>
       </div>
     </div>
   );
+}
+
+// =============================================================================
+// Canvas
+// =============================================================================
+
+function CanvasHeader({ count, locale }: { count: number; locale: 'en' | 'it' }) {
+  return (
+    <div
+      style={{
+        height: 40,
+        flexShrink: 0,
+        borderBottom: '1px solid var(--line)',
+        background: 'var(--surface)',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 16px',
+        gap: 12,
+      }}
+    >
+      <span style={{ fontSize: 12, fontWeight: 600 }}>Canvas</span>
+      <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+        {count === 0
+          ? (locale === 'it' ? 'nessun artefatto ancora' : 'no artifacts yet')
+          : `${count} artifact${count === 1 ? '' : 's'}`}
+      </span>
+      <span style={{ flex: 1 }} />
+      <Pill kind="n">view · grid</Pill>
+      <IconBtn d={I.filter} title="filter" />
+      <IconBtn d={I.more} title="more" />
+    </div>
+  );
+}
+
+function CanvasEmptyState({ locale }: { locale: 'en' | 'it' }) {
+  return (
+    <div
+      style={{
+        gridColumn: 'span 6',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        padding: 60,
+        color: 'var(--ink-4)',
+        fontSize: 13,
+        textAlign: 'center',
+      }}
+    >
+      <Icon d={I.layers} size={32} style={{ opacity: 0.4 }} />
+      <h3 className="lp-serif" style={{ fontSize: 18, fontWeight: 400, margin: 0, color: 'var(--ink-3)' }}>
+        {locale === 'it' ? 'Il canvas è vuoto.' : 'Canvas is empty.'}
+      </h3>
+      <p style={{ margin: 0, maxWidth: 400, lineHeight: 1.5 }}>
+        {locale === 'it'
+          ? 'Gli artefatti del co-pilot (entity card, tabelle, grafici, insight, opzioni) appariranno qui man mano che rispondo alle tue domande.'
+          : 'Co-pilot artifacts (entity cards, tables, charts, insights, options) appear here as I respond to your questions.'}
+      </p>
+    </div>
+  );
+}
+
+// =============================================================================
+// Artifact card — unified renderer for ALL artifact types
+// =============================================================================
+
+function ArtifactCard({ artifact }: { artifact: Artifact }) {
+  // Each artifact takes 2 cols by default, 6 for wide tables/workflows
+  const wide = artifact.type === 'comparison-table' || artifact.type === 'workflow-card';
+  const span = wide ? 6 : 2;
+
+  const name = (() => {
+    const a = artifact as unknown as { name?: string; title?: string; category?: string };
+    return a.name || a.title || a.category || humanizeType(artifact.type);
+  })();
+
+  const iconMap: Record<string, string> = {
+    'entity-card': I.users,
+    'comparison-table': I.layers,
+    'insight-card': I.bolt,
+    'option-set': I.layers,
+    'workflow-card': I.pipe,
+    'score-card': I.shield,
+    'radar-chart': I.graph,
+    'bar-chart': I.fund,
+    'pie-chart': I.fund,
+    'gauge-chart': I.globe,
+    'metric-grid': I.sliders,
+    'sensitivity-slider': I.sliders,
+    'action-suggestion': I.sparkles,
+  };
+
+  return (
+    <div className="lp-card" style={{ gridColumn: `span ${span}` }}>
+      <div
+        style={{
+          padding: '10px 14px',
+          borderBottom: '1px solid var(--line)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+        }}
+      >
+        <Icon
+          d={iconMap[artifact.type] || I.file}
+          size={13}
+          style={{ color: 'var(--accent)' }}
+        />
+        <span style={{ fontSize: 12, fontWeight: 600 }}>{name}</span>
+        <span style={{ fontSize: 11, color: 'var(--ink-5)' }}>
+          {humanizeType(artifact.type)}
+        </span>
+        <span style={{ flex: 1 }} />
+        <Icon d={I.more} size={13} style={{ color: 'var(--ink-5)' }} />
+      </div>
+      <div style={{ padding: 14, fontSize: 12, color: 'var(--ink-3)' }}>
+        <ArtifactBody artifact={artifact} />
+      </div>
+    </div>
+  );
+}
+
+function ArtifactBody({ artifact }: { artifact: Artifact }) {
+  const a = artifact as unknown as Record<string, unknown>;
+
+  if (artifact.type === 'entity-card') {
+    return (
+      <div>
+        {typeof a.summary === 'string' ? (
+          <p style={{ margin: 0, color: 'var(--ink-2)', lineHeight: 1.5 }}>{a.summary}</p>
+        ) : null}
+        {a.entity_type ? (
+          <div style={{ marginTop: 8 }}>
+            <Pill kind="warn">{String(a.entity_type)}</Pill>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (artifact.type === 'insight-card') {
+    return (
+      <div>
+        <p
+          className="lp-serif"
+          style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: 'var(--ink)' }}
+        >
+          &ldquo;{String(a.body || a.insight || '—')}&rdquo;
+        </p>
+        {a.category ? (
+          <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-5)' }}>
+            — {String(a.category)}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (artifact.type === 'score-card' || artifact.type === 'gauge-chart') {
+    return (
+      <div style={{ textAlign: 'center' }}>
+        <div className="lp-serif" style={{ fontSize: 32, fontWeight: 400, color: 'var(--ink)' }}>
+          {String(a.score ?? a.value ?? '—')}
+          <span style={{ fontSize: 14, color: 'var(--ink-5)' }}>/{String(a.maxScore ?? 10)}</span>
+        </div>
+        {a.verdict ? (
+          <Pill kind={a.verdict === 'GO' || a.verdict === 'STRONG GO' ? 'ok' : 'warn'}>
+            {String(a.verdict)}
+          </Pill>
+        ) : null}
+        {a.description ? (
+          <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8 }}>
+            {String(a.description)}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (artifact.type === 'comparison-table' && Array.isArray(a.rows) && Array.isArray(a.columns)) {
+    const cols = a.columns as string[];
+    const rows = a.rows as Array<{ label?: string; values?: unknown[] }>;
+    return (
+      <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse' }}>
+        <thead>
+          <tr
+            style={{
+              color: 'var(--ink-5)',
+              textAlign: 'left',
+              fontFamily: 'var(--f-mono)',
+              fontSize: 10,
+              textTransform: 'uppercase',
+            }}
+          >
+            <th style={{ padding: '6px 10px' }}></th>
+            {cols.map((c) => (
+              <th key={c} style={{ padding: '6px 10px' }}>{c}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} style={{ borderTop: '1px solid var(--line)' }}>
+              <td style={{ padding: '6px 10px', fontWeight: 500 }}>{r.label || '—'}</td>
+              {(r.values || []).map((v, j) => (
+                <td key={j} style={{ padding: '6px 10px', color: 'var(--ink-2)' }}>
+                  {String(v ?? '')}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
+
+  if (artifact.type === 'option-set' && Array.isArray(a.options)) {
+    const options = a.options as Array<{ label?: string; description?: string; id?: string }>;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {options.map((o, i) => (
+          <div
+            key={o.id || i}
+            style={{
+              padding: 10,
+              border: '1px solid var(--line-2)',
+              borderRadius: 'var(--r-m)',
+              cursor: 'pointer',
+            }}
+          >
+            <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink-2)' }}>
+              {o.label || `Option ${i + 1}`}
+            </div>
+            {o.description && (
+              <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>
+                {o.description}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (artifact.type === 'workflow-card' && Array.isArray(a.steps)) {
+    const steps = a.steps as string[];
+    return (
+      <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.7 }}>
+        {steps.map((s, i) => <li key={i}>{s}</li>)}
+      </ol>
+    );
+  }
+
+  if (artifact.type === 'action-suggestion') {
+    return (
+      <div>
+        <div style={{ fontSize: 12.5, fontWeight: 500 }}>{String(a.title || '—')}</div>
+        {a.description ? (
+          <div style={{ fontSize: 11.5, color: 'var(--ink-4)', marginTop: 4 }}>
+            {String(a.description)}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  // Fallback: raw JSON
+  return (
+    <pre
+      style={{
+        margin: 0,
+        fontSize: 10.5,
+        color: 'var(--ink-4)',
+        overflow: 'auto',
+        maxHeight: 200,
+        fontFamily: 'var(--f-mono)',
+      }}
+    >
+      {JSON.stringify(artifact, null, 2)}
+    </pre>
+  );
+}
+
+function humanizeType(t: string): string {
+  return t.replace(/-/g, ' ');
+}
+
+// =============================================================================
+// Strip artifact blocks from message text so the chat column shows only prose
+// =============================================================================
+
+function stripArtifacts(content: string): string {
+  return content.replace(/:::artifact[\s\S]*?:::/g, '').trim();
 }

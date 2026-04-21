@@ -16,11 +16,14 @@ export default function ProjectLayout({
   const { project, loading, error } = useProject(projectId);
   const pathname = usePathname() || '';
 
-  // The "Founder OS" dashboard renders its own NavRail (left icon rail) as
-  // part of the design-system chrome. Skip the legacy ProjectSidebar on that
-  // route so we don't double-stack navigation. All other routes continue to
-  // use ProjectSidebar until they're individually ported to the new design.
-  const fullBleed = pathname.includes(`/project/${projectId}/dashboard`);
+  // Routes that render their own full-bleed design-system chrome (TopBar +
+  // NavRail + StatusBar) — skip the legacy ProjectSidebar for these so we
+  // don't double-stack navigation. Extend this list as more pages port to
+  // the new design.
+  const fullBleedRoutes = ['dashboard', 'actions', 'chat', 'intelligence', 'workflow', 'org'];
+  const fullBleed = fullBleedRoutes.some((r) =>
+    pathname.includes(`/project/${projectId}/${r}`),
+  );
 
   if (loading) {
     return (
