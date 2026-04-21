@@ -3,11 +3,15 @@ import { query, run } from '@/lib/db';
 import { json, generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 import { runAgent } from '@/lib/pi-agent';
+import { recordUsage } from '@/lib/cost-meter';
 import {
   extractEcosystemAlerts,
   persistEcosystemAlerts,
   type PersistResult,
 } from '@/lib/ecosystem-alert-parser';
+
+const PI_PROVIDER = (process.env.PI_PROVIDER || 'anthropic');
+const PI_MODEL = process.env.PI_MODEL || (PI_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
 
 function deriveSeverity(text: string): 'critical' | 'warning' | 'info' {
   const lower = text.toLowerCase();
@@ -40,7 +44,25 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
   const runAt = new Date().toISOString();
 
   try {
-    const { text: result } = await runAgent(prompt, { timeout: 130000 });
+    const startedAt = Date.now();
+    const { text: result, usage } = await runAgent(prompt, { timeout: 130000 });
+    const latencyMs = Date.now() - startedAt;
+
+    // Observe-mode cost meter — logs to llm_usage_logs + upserts monthly
+    // project_budgets. No hard-stop in Phase 0; crossed_warn surfaces as an
+    // alerts row that the Monday Brief can include in its operational section.
+    try {
+      recordUsage({
+        project_id: monitor.project_id,
+        step: `cron.${monitor.type}`,
+        provider: PI_PROVIDER,
+        model: PI_MODEL,
+        usage,
+        latency_ms: latencyMs,
+      });
+    } catch (err) {
+      console.warn('[cron] recordUsage failed:', (err as Error).message);
+    }
 
     run(
       `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
