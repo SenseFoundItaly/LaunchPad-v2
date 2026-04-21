@@ -10,6 +10,25 @@ const DEFAULT_PROVIDER = (process.env.PI_PROVIDER || 'anthropic') as 'anthropic'
 const DEFAULT_MODEL_ID = process.env.PI_MODEL || (DEFAULT_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
 const SESSIONS_DIR = process.env.LAUNCHPAD_SESSIONS_DIR || join(process.env.HOME || '/tmp', '.launchpad', 'sessions');
 
+/**
+ * Prompt caching note (Anthropic only):
+ *
+ * pi-ai automatically attaches `cache_control: {type: "ephemeral"}` to the
+ * system prompt and the last user message. The TTL is controlled via the
+ * `PI_CACHE_RETENTION` env var:
+ *   - "short" (default) — 5 min TTL
+ *   - "long" — 1 h TTL (recommended for cron contexts where multiple monitors
+ *     run back-to-back for the same project against the same static prefix)
+ *   - "none" — disables caching
+ *
+ * Observability: `llm_usage_logs.cache_read_tokens` is populated automatically
+ * on cache hits. A healthy cache hit rate for the Monday cron is > 70% of
+ * input tokens after the first monitor per founder.
+ *
+ * Source: node_modules/@mariozechner/pi-ai/dist/providers/anthropic.js
+ * (`resolveCacheRetention` + `getCacheControl`).
+ */
+
 function resolveModel() {
   return getModel(DEFAULT_PROVIDER as any, DEFAULT_MODEL_ID as any);
 }
