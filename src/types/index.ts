@@ -341,7 +341,8 @@ export type PendingActionType =
   | 'proposed_interview_question'
   | 'proposed_landing_copy'
   | 'proposed_investor_followup'
-  | 'proposed_graph_update';
+  | 'proposed_graph_update'
+  | 'workflow_step';                // chat-proposed workflow step, one row per step
 
 export type PendingActionStatus =
   | 'pending'

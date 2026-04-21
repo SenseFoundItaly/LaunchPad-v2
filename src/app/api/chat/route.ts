@@ -11,9 +11,10 @@ import { buildMemoryContext } from '@/lib/memory/context';
 import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent } from '@/lib/artifact-parser';
-import type { FactArtifact } from '@/types/artifacts';
+import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
 import { isProjectCapped } from '@/lib/cost-meter';
 import { getSkillTools } from '@/lib/skill-tools';
+import { captureWorkflow } from '@/lib/workflow-capture';
 
 // Artifact instructions prepended to every message
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
@@ -227,7 +228,8 @@ export async function POST(request: NextRequest) {
 
           const segments = parseMessageContent(fullResponse);
           for (const seg of segments) {
-            if (seg.type === 'artifact' && seg.artifact.type === 'fact') {
+            if (seg.type !== 'artifact') continue;
+            if (seg.artifact.type === 'fact') {
               const f = seg.artifact as FactArtifact;
               if (f.fact && typeof f.fact === 'string') {
                 recordFact({
@@ -239,6 +241,15 @@ export async function POST(request: NextRequest) {
                   confidence: f.confidence ?? 0.8,
                 });
               }
+            } else if (seg.artifact.type === 'workflow-card') {
+              // Persist the proposed workflow + expand into pending_actions
+              // so the founder can approve/edit each step from the inbox.
+              captureWorkflow({
+                userId,
+                projectId: project_id,
+                artifact: seg.artifact as WorkflowCard,
+                chatTurnPreview: lastMessage.slice(0, 200),
+              });
             }
           }
         } catch (err) {

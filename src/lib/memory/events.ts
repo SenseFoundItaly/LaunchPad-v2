@@ -23,7 +23,8 @@ export type EventType =
   | 'heartbeat_reflection'
   | 'action_approved'
   | 'action_rejected'
-  | 'action_dismissed';
+  | 'action_dismissed'
+  | 'workflow_proposed';
 
 export interface MemoryEvent {
   id: string;
