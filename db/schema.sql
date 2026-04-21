@@ -544,3 +544,85 @@ CREATE TABLE IF NOT EXISTS project_budgets (
 
 CREATE INDEX IF NOT EXISTS idx_project_budgets_project_period
   ON project_budgets(project_id, period_month);
+
+-- =============================================================================
+-- Auth: shadow users + organizations + memberships
+-- Supabase Auth owns the primary user record. We mirror the UUID here so our
+-- SQLite data has a stable FK target without cross-DB joins.
+-- NOTE: no semicolons in comments — db.ts splits on semicolons.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS organizations (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS memberships (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  org_id TEXT NOT NULL REFERENCES organizations(id),
+  role TEXT NOT NULL DEFAULT 'owner',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, org_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
+CREATE INDEX IF NOT EXISTS idx_memberships_org ON memberships(org_id);
+
+-- Add ownership columns to projects. ALTER statements below are idempotent on
+-- fresh DBs. On re-runs SQLite errors on duplicate columns and the loader in
+-- src/lib/db/index.ts swallows them.
+ALTER TABLE projects ADD COLUMN owner_user_id TEXT REFERENCES users(id);
+ALTER TABLE projects ADD COLUMN org_id TEXT REFERENCES organizations(id);
+CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_projects_org ON projects(org_id);
+
+-- Attribute chat messages + LLM usage to a user (enables per-user KPIs).
+ALTER TABLE chat_messages ADD COLUMN user_id TEXT REFERENCES users(id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id);
+
+ALTER TABLE llm_usage_logs ADD COLUMN user_id TEXT REFERENCES users(id);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_logs_user ON llm_usage_logs(user_id);
+
+-- =============================================================================
+-- Memory layer (roadmap 1.1.3)
+-- memory_facts: curated, durable facts per (user, project). Source-traceable.
+-- memory_events: append-only timeline of everything that happened.
+-- embedding BLOB is stub-only for v1. Populated later for semantic retrieval.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS memory_facts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  project_id VARCHAR NOT NULL REFERENCES projects(id),
+  fact TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'fact',
+  source_type TEXT,
+  source_id TEXT,
+  confidence REAL DEFAULT 1.0,
+  dismissed INTEGER DEFAULT 0,
+  embedding BLOB,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_facts_user_project
+  ON memory_facts(user_id, project_id, dismissed, updated_at);
+
+CREATE TABLE IF NOT EXISTS memory_events (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  project_id VARCHAR NOT NULL REFERENCES projects(id),
+  event_type TEXT NOT NULL,
+  payload TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_events_user_project
+  ON memory_events(user_id, project_id, created_at);
