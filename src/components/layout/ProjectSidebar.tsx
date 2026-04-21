@@ -81,6 +81,28 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
         {/* Chat — always pinned */}
         <div className="px-2 pt-3 pb-1 space-y-0.5">
           <Link
+            href={`/project/${projectId}/brief`}
+            className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
+              isActive('brief')
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+            }`}
+          >
+            <span className="w-4 text-center text-xs">B</span>
+            <span>Monday Brief</span>
+          </Link>
+          <Link
+            href={`/project/${projectId}/actions`}
+            className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
+              isActive('actions')
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+            }`}
+          >
+            <span className="w-4 text-center text-xs">I</span>
+            <span>Inbox</span>
+          </Link>
+          <Link
             href={`/project/${projectId}/chat`}
             className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
               isActive('chat')
