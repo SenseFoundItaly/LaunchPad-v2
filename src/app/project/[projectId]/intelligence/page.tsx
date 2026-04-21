@@ -1,238 +1,682 @@
 'use client';
 
-import { use, useState, useMemo } from 'react';
-import Link from 'next/link';
-import { STAGES, stageColors, SKILL_KICKOFFS, SKILL_NEXT_STEPS, SKILL_SOURCES } from '@/lib/stages';
-import { useSkillStatus } from '@/hooks/useSkillStatus';
-import { scoreOverall } from '@/lib/scoring';
-import { extractSkillHighlights } from '@/lib/extract-summary';
-import { GaugeChart, RadarChart } from '@/components/charts';
+/**
+ * Intelligence Graph — ported from screen-graph.jsx.
+ *
+ * Full-canvas knowledge graph. Replaces the old skill-scoring radar which
+ * moved to /readiness in the prior commit.
+ *
+ * Three-column layout:
+ *   - 220px left: filters (node types with counts, edge types, recent nodes)
+ *   - flex center: SVG canvas (static polar layout — self node at center,
+ *                  others radiate by node_type sector)
+ *   - 320px right: NodeDetail for selected node (summary, attributes, edges)
+ */
 
-function verdictStyle(v: string) {
-  if (v === 'STRONG GO') return 'bg-green-500/20 text-green-400';
-  if (v === 'GO') return 'bg-emerald-500/20 text-emerald-400';
-  if (v === 'CAUTION') return 'bg-yellow-500/20 text-yellow-400';
-  return 'bg-red-500/20 text-red-400';
+import { use, useEffect, useState, useCallback, useMemo } from 'react';
+import { TopBar, NavRail } from '@/components/design/chrome';
+import { Pill, StatusBar, Icon, I, IconBtn } from '@/components/design/primitives';
+
+interface GraphNode {
+  id: string;
+  project_id: string;
+  name: string;
+  node_type: string;
+  summary: string | null;
+  attributes: Record<string, unknown>;
+  created_at: string;
 }
 
-export default function IntelligencePage({ params }: { params: Promise<{ projectId: string }> }) {
+interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  relation: string;
+  label: string | null;
+  weight: number;
+}
+
+interface GraphResponse {
+  success: boolean;
+  data?: { nodes: GraphNode[]; edges: GraphEdge[] };
+}
+
+const TYPE_COLOR: Record<string, string> = {
+  your_startup: 'var(--ink)',
+  competitor: 'var(--clay)',
+  market_segment: 'var(--sky)',
+  technology: 'var(--moss)',
+  trend: 'var(--moss)',
+  risk: 'oklch(0.60 0.14 20)',
+  persona: 'var(--plum)',
+  partner: 'var(--sky)',
+  ip_alert: 'var(--accent)',
+  insight: 'var(--accent)',
+  feature: 'var(--ink-3)',
+  metric: 'var(--ink-4)',
+  company: 'var(--ink-3)',
+  compliance: 'oklch(0.55 0.1 40)',
+  regulation: 'oklch(0.55 0.1 40)',
+  funding_source: 'var(--sky)',
+};
+
+const TYPE_LABEL: Record<string, string> = {
+  your_startup: 'you',
+  competitor: 'competitors',
+  market_segment: 'markets',
+  technology: 'tech',
+  trend: 'trends',
+  risk: 'risks',
+  persona: 'personas',
+  partner: 'partners',
+  ip_alert: 'IP alerts',
+  insight: 'insights',
+};
+
+export default function IntelligenceGraphPage({
+  params,
+}: {
+  params: Promise<{ projectId: string }>;
+}) {
   const { projectId } = use(params);
-  const { skills, skillStatus, stageCompletion, loading } = useSkillStatus(projectId);
-  const [openStage, setOpenStage] = useState<number | null>(null);
+  const [nodes, setNodes] = useState<GraphNode[]>([]);
+  const [edges, setEdges] = useState<GraphEdge[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const scoring = useMemo(() => scoreOverall(skills), [skills]);
+  const fetchAll = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/graph/${projectId}`);
+      const body: GraphResponse = await res.json();
+      if (body.success && body.data) {
+        setNodes(body.data.nodes || []);
+        setEdges(body.data.edges || []);
+      }
+    } catch { /* empty */ }
+    finally { setLoading(false); }
+  }, [projectId]);
 
-  const completedCount = STAGES.flatMap(s => s.skills).filter(s => skillStatus[s.id] === 'completed').length;
-  const totalCount = STAGES.flatMap(s => s.skills).length;
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const radarData = STAGES.map(s => ({
-    subject: s.name.replace(' & ', '/'),
-    value: scoring.stages[s.number]?.score || 0,
-  }));
+  // Type counts for filter panel
+  const typeCounts = useMemo(() => {
+    const acc: Record<string, number> = {};
+    for (const n of nodes) acc[n.node_type] = (acc[n.node_type] || 0) + 1;
+    return acc;
+  }, [nodes]);
 
-  if (loading) return <div className="flex items-center justify-center h-full text-zinc-500 text-sm">Loading...</div>;
+  // Selected node
+  const selected = nodes.find(n => n.id === selectedId) || null;
+  const selectedEdges = selected
+    ? edges.filter(e => e.source === selected.id || e.target === selected.id)
+    : [];
+
+  // Recent nodes (last 3)
+  const recent = [...nodes].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 3);
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <div className="max-w-4xl mx-auto">
-        {/* Compact header */}
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-4 mb-6">
-          {/* Score + recommendations */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-            <div className="flex items-center gap-4 mb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-3xl font-bold text-white">{scoring.score.toFixed(1)}</span>
-                <span className="text-sm text-zinc-500">/10</span>
-              </div>
-              <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${verdictStyle(scoring.verdict)}`}>
-                {scoring.verdict}
-              </span>
-              <span className="text-xs text-zinc-600 ml-auto">{completedCount}/{totalCount} steps</span>
-            </div>
+    <div className="lp-frame">
+      <TopBar
+        breadcrumb={['Project', 'Intelligence graph']}
+        right={<Pill kind="ok" dot>{nodes.length} nodes · {edges.length} edges</Pill>}
+      />
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <NavRail projectId={projectId} current="graph" />
 
-            {/* Top recommendations */}
-            {scoring.recommendations.length > 0 && (
-              <div className="space-y-1.5">
-                {scoring.recommendations.slice(0, 3).map((rec, i) => (
-                  <div key={i} className="flex gap-2 text-sm text-zinc-400">
-                    <span className="text-yellow-500 shrink-0">&rarr;</span>
-                    <span>{rec}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Compact radar */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
-            <RadarChart data={radarData} height={200} />
-          </div>
+        {/* Filters */}
+        <div
+          style={{
+            width: 220,
+            flexShrink: 0,
+            borderRight: '1px solid var(--line)',
+            background: 'var(--surface)',
+            overflow: 'auto',
+          }}
+        >
+          <GraphFilters typeCounts={typeCounts} recent={recent} onSelectRecent={setSelectedId} />
         </div>
 
-        {/* Stage cards */}
-        <div className="space-y-3">
-          {STAGES.map((stage) => {
-            const colors = stageColors(stage.color);
-            const ss = scoring.stages[stage.number];
-            const comp = stageCompletion[stage.number] || { completed: 0, total: stage.skills.length };
-            const isOpen = openStage === stage.number;
-            const hasCompleted = comp.completed > 0;
+        {/* Canvas */}
+        <div
+          style={{
+            flex: 1,
+            position: 'relative',
+            background: 'var(--paper)',
+            overflow: 'hidden',
+          }}
+        >
+          {nodes.length === 0 ? (
+            <GraphEmpty loading={loading} />
+          ) : (
+            <>
+              <GraphCanvas
+                nodes={nodes}
+                edges={edges}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+              />
+              <GraphToolbar />
+            </>
+          )}
+        </div>
 
+        {/* Detail */}
+        <div
+          style={{
+            width: 320,
+            flexShrink: 0,
+            borderLeft: '1px solid var(--line)',
+            background: 'var(--surface)',
+            overflow: 'auto',
+          }}
+        >
+          {selected ? (
+            <NodeDetailPanel node={selected} edges={selectedEdges} allNodes={nodes} />
+          ) : (
+            <div
+              style={{
+                padding: 32,
+                fontSize: 12,
+                color: 'var(--ink-5)',
+                textAlign: 'center',
+              }}
+            >
+              Click a node to inspect it.
+            </div>
+          )}
+        </div>
+      </div>
+      <StatusBar
+        heartbeatLabel={`graph · ${nodes.length} nodes`}
+        gateway="pi-agent · anthropic"
+        ctxLabel={`ctx · ${edges.length} edges`}
+        hints={['scroll canvas to pan · click a node']}
+      />
+    </div>
+  );
+}
+
+// =============================================================================
+// Filters
+// =============================================================================
+
+function GraphFilters({
+  typeCounts,
+  recent,
+  onSelectRecent,
+}: {
+  typeCounts: Record<string, number>;
+  recent: GraphNode[];
+  onSelectRecent: (id: string) => void;
+}) {
+  return (
+    <div style={{ padding: 14 }}>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 600,
+          color: 'var(--ink-3)',
+          textTransform: 'uppercase',
+          letterSpacing: 0.5,
+          marginBottom: 8,
+        }}
+      >
+        Node types
+      </div>
+      {Object.entries(typeCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => (
+          <label
+            key={k}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '6px 4px',
+              fontSize: 12,
+              cursor: 'pointer',
+              borderRadius: 4,
+            }}
+          >
+            <span
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: 3,
+                border: '1px solid var(--line-2)',
+                background: 'var(--paper-2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Icon d={I.check} size={8} style={{ color: 'var(--ink)' }} />
+            </span>
+            <span
+              className="lp-dot"
+              style={{ background: TYPE_COLOR[k] || 'var(--ink-5)', width: 8, height: 8 }}
+            />
+            <span style={{ flex: 1, textTransform: 'capitalize' }}>
+              {TYPE_LABEL[k] || k.replace(/_/g, ' ')}
+            </span>
+            <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
+              {n}
+            </span>
+          </label>
+        ))}
+
+      {Object.keys(typeCounts).length === 0 && (
+        <div style={{ fontSize: 11, color: 'var(--ink-5)', padding: 8 }}>
+          No node types yet.
+        </div>
+      )}
+
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 600,
+          color: 'var(--ink-3)',
+          textTransform: 'uppercase',
+          letterSpacing: 0.5,
+          marginTop: 18,
+          marginBottom: 8,
+        }}
+      >
+        Recent
+      </div>
+      {recent.length === 0 ? (
+        <div style={{ fontSize: 11, color: 'var(--ink-5)', padding: 4 }}>No nodes yet.</div>
+      ) : (
+        recent.map((r, i) => {
+          const ageHours = (Date.now() - new Date(r.created_at).getTime()) / 3600000;
+          const isLive = ageHours < 1;
+          return (
+            <div
+              key={r.id}
+              onClick={() => onSelectRecent(r.id)}
+              style={{
+                padding: 8,
+                borderRadius: 6,
+                background: isLive ? 'var(--accent-wash)' : 'transparent',
+                marginBottom: 4,
+                cursor: 'pointer',
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {r.name}
+                {isLive && <span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />}
+              </div>
+              <div className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
+                {r.node_type} · {humanAge(r.created_at)}
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Canvas (static polar layout)
+// =============================================================================
+
+function GraphCanvas({
+  nodes,
+  edges,
+  selectedId,
+  onSelect,
+}: {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const W = 840;
+  const H = 600;
+  const cx = W / 2;
+  const cy = H / 2;
+
+  // Layout: self nodes at center, others on concentric rings grouped by type
+  const positioned = useMemo(() => {
+    const selfNodes = nodes.filter(n => n.node_type === 'your_startup');
+    const others = nodes.filter(n => n.node_type !== 'your_startup').slice(0, 30);
+    const result: Record<string, { x: number; y: number; r: number; node: GraphNode }> = {};
+
+    selfNodes.forEach((n, i) => {
+      result[n.id] = { x: cx, y: cy, r: 22, node: n };
+    });
+
+    // Group by type for visual clustering
+    const byType: Record<string, GraphNode[]> = {};
+    others.forEach(n => { (byType[n.node_type] ||= []).push(n); });
+
+    const types = Object.keys(byType);
+    const typeAngles: Record<string, number> = {};
+    types.forEach((t, i) => { typeAngles[t] = (i / types.length) * 2 * Math.PI; });
+
+    for (const [type, typeNodes] of Object.entries(byType)) {
+      const baseAngle = typeAngles[type];
+      const spread = 0.8;
+      typeNodes.forEach((n, i) => {
+        const ring = i < 4 ? 190 : 260; // 2 rings per type
+        const local = typeNodes.length > 1 ? ((i % 4) - 1.5) / 1.5 : 0;
+        const angle = baseAngle + (local * spread) / Math.max(1, typeNodes.length * 0.5);
+        result[n.id] = {
+          x: cx + Math.cos(angle) * ring,
+          y: cy + Math.sin(angle) * ring,
+          r: 10,
+          node: n,
+        };
+      });
+    }
+
+    return result;
+  }, [nodes, cx, cy]);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: '100%', display: 'block' }}>
+      <defs>
+        <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.6" fill="var(--ink-6)" opacity="0.4" />
+        </pattern>
+      </defs>
+      <rect width={W} height={H} fill="url(#dots)" />
+
+      {/* Edges */}
+      {edges.map((e) => {
+        const a = positioned[e.source];
+        const b = positioned[e.target];
+        if (!a || !b) return null;
+        return (
+          <line
+            key={e.id}
+            x1={a.x}
+            y1={a.y}
+            x2={b.x}
+            y2={b.y}
+            stroke="var(--ink-5)"
+            strokeWidth={0.6}
+            opacity={0.5}
+          />
+        );
+      })}
+
+      {/* Nodes */}
+      {Object.entries(positioned).map(([id, p]) => {
+        const n = p.node;
+        const sel = id === selectedId;
+        const color = TYPE_COLOR[n.node_type] || 'var(--ink-5)';
+        const isSelf = n.node_type === 'your_startup';
+        return (
+          <g
+            key={id}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onSelect(id)}
+          >
+            {isSelf && (
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={p.r + 6}
+                fill="none"
+                stroke="var(--ink)"
+                strokeWidth="0.8"
+                opacity="0.3"
+                strokeDasharray="2 2"
+              />
+            )}
+            <circle cx={p.x} cy={p.y} r={p.r} fill={color} opacity={isSelf ? 1 : 0.9} />
+            {sel && (
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={p.r + 3}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth="1.5"
+              />
+            )}
+            <text
+              x={p.x}
+              y={p.y + p.r + 14}
+              fontSize="11"
+              fill="var(--ink-2)"
+              textAnchor="middle"
+              fontWeight={isSelf ? 600 : 400}
+              style={{ pointerEvents: 'none' }}
+            >
+              {n.name.slice(0, 22)}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function GraphToolbar() {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 12,
+        left: 12,
+        display: 'flex',
+        gap: 6,
+        padding: 4,
+        background: 'var(--surface)',
+        border: '1px solid var(--line)',
+        borderRadius: 6,
+        boxShadow: 'var(--shadow-card)',
+      }}
+    >
+      <IconBtn d={I.search} title="Search" />
+      <IconBtn d={I.filter} title="Filter" />
+      <IconBtn d={I.layers} title="Layout" />
+      <span style={{ width: 1, background: 'var(--line)' }} />
+      <span
+        className="lp-mono"
+        style={{ padding: '0 8px', fontSize: 11, color: 'var(--ink-4)', alignSelf: 'center' }}
+      >
+        −
+      </span>
+      <span
+        className="lp-mono"
+        style={{ padding: '0 8px', fontSize: 11, color: 'var(--ink-2)', alignSelf: 'center' }}
+      >
+        100%
+      </span>
+      <span
+        className="lp-mono"
+        style={{ padding: '0 8px', fontSize: 11, color: 'var(--ink-4)', alignSelf: 'center' }}
+      >
+        +
+      </span>
+    </div>
+  );
+}
+
+function GraphEmpty({ loading }: { loading: boolean }) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        padding: 40,
+        textAlign: 'center',
+      }}
+    >
+      <Icon d={I.graph} size={40} style={{ color: 'var(--ink-5)', opacity: 0.4 }} />
+      <h2 className="lp-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: -0.4, margin: 0 }}>
+        {loading ? 'Loading graph…' : 'No nodes yet.'}
+      </h2>
+      {!loading && (
+        <p style={{ fontSize: 13, color: 'var(--ink-4)', maxWidth: 420, margin: 0, lineHeight: 1.5 }}>
+          The graph fills as the co-founder runs ecosystem scans. Every competitor,
+          IP filing, and partnership opportunity above relevance cutoff becomes a node.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Node detail panel
+// =============================================================================
+
+function NodeDetailPanel({
+  node,
+  edges,
+  allNodes,
+}: {
+  node: GraphNode;
+  edges: GraphEdge[];
+  allNodes: GraphNode[];
+}) {
+  const attrs = Object.entries(node.attributes || {})
+    .filter(([k, v]) => typeof v !== 'object' || v === null)
+    .slice(0, 8);
+
+  return (
+    <div>
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+          <Pill kind="warn" dot>
+            {node.node_type.replace(/_/g, ' ')}
+          </Pill>
+          {humanAge(node.created_at).endsWith('m') && (
+            <Pill kind="live" dot>just added</Pill>
+          )}
+        </div>
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: -0.3 }}>
+          {node.name}
+        </h3>
+        <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)', marginTop: 2 }}>
+          {humanAge(node.created_at)} · id {node.id.slice(0, 10)}
+        </div>
+      </div>
+
+      {node.summary && (
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)' }}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--ink-3)',
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+              marginBottom: 8,
+            }}
+          >
+            Summary
+          </div>
+          <p style={{ fontSize: 12.5, color: 'var(--ink-2)', margin: 0, lineHeight: 1.5 }}>
+            {node.summary}
+          </p>
+        </div>
+      )}
+
+      {attrs.length > 0 && (
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)' }}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--ink-3)',
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+              marginBottom: 8,
+            }}
+          >
+            Attributes
+          </div>
+          {attrs.map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', padding: '4px 0', fontSize: 12 }}>
+              <span
+                className="lp-mono"
+                style={{
+                  fontSize: 10.5,
+                  color: 'var(--ink-5)',
+                  width: 100,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.3,
+                }}
+              >
+                {k}
+              </span>
+              <span style={{ color: 'var(--ink-2)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {String(v ?? '—')}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)' }}>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: 'var(--ink-3)',
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+            marginBottom: 8,
+          }}
+        >
+          Edges · {edges.length}
+        </div>
+        {edges.length === 0 ? (
+          <div style={{ fontSize: 11, color: 'var(--ink-5)' }}>No edges connected.</div>
+        ) : (
+          edges.slice(0, 8).map((e, i) => {
+            const other = e.source === node.id ? e.target : e.source;
+            const otherNode = allNodes.find(n => n.id === other);
             return (
-              <div key={stage.number} className={`border ${colors.border} rounded-xl overflow-hidden`}>
-                {/* Stage header — always visible */}
-                <button
-                  onClick={() => setOpenStage(isOpen ? null : stage.number)}
-                  className={`w-full px-5 py-3 flex items-center gap-3 text-left transition ${hasCompleted ? colors.bg : 'bg-zinc-900/30'} hover:brightness-110`}
-                >
-                  <span className={`text-sm font-bold ${hasCompleted ? colors.text : 'text-zinc-600'}`}>{stage.number}</span>
-                  <span className={`text-sm font-semibold flex-1 ${hasCompleted ? colors.text : 'text-zinc-600'}`}>{stage.name}</span>
-                  <span className="text-lg font-bold text-white">{(ss?.score || 0).toFixed(1)}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${verdictStyle(ss?.verdict || 'NOT READY')}`}>
-                    {ss?.verdict || 'NOT READY'}
+              <div
+                key={e.id}
+                style={{
+                  padding: '6px 0',
+                  fontSize: 12,
+                  borderTop: i > 0 ? '1px solid var(--line)' : 'none',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
+                    {e.relation}
                   </span>
-                  <span className="text-[10px] text-zinc-600">{comp.completed}/{comp.total}</span>
-                  <span className="text-xs text-zinc-600">{isOpen ? 'v' : '>'}</span>
-                </button>
-
-                {/* Expanded content */}
-                {isOpen && (
-                  <div className="px-5 py-4 bg-zinc-950/50 space-y-4">
-                    {/* Stage recommendations */}
-                    {ss.recommendations.length > 0 && (
-                      <div className="space-y-1">
-                        {ss.recommendations.map((r, i) => (
-                          <div key={i} className="flex gap-2 text-xs text-yellow-500/80">
-                            <span>&rarr;</span><span>{r}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Per-skill cards */}
-                    {stage.skills.map((skill) => {
-                      const data = skills[skill.id];
-                      const isCompleted = data?.status === 'completed';
-                      const highlights = isCompleted ? extractSkillHighlights(data?.summary) : null;
-                      const sources = SKILL_SOURCES[skill.id];
-                      const nextSteps = SKILL_NEXT_STEPS[skill.id] || [];
-
-                      if (!isCompleted) {
-                        return (
-                          <div key={skill.id} className="border border-zinc-800 rounded-lg p-4 bg-zinc-900/30">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-zinc-500">{skill.label}</span>
-                              <Link
-                                href={`/project/${projectId}/${skill.route}`}
-                                className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
-                              >
-                                Run {skill.label}
-                              </Link>
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      const skillScore = ss?.skills[skill.id];
-                      return (
-                        <div key={skill.id} className="border border-zinc-800 rounded-lg p-4 bg-zinc-900/30 space-y-3">
-                          {/* Skill header */}
-                          <div className="flex items-center gap-3">
-                            <span className="text-sm font-semibold text-zinc-200 flex-1">{skill.label}</span>
-                            <span className="text-sm font-bold text-white">{(skillScore?.total || 0).toFixed(1)}/10</span>
-                          </div>
-
-                          {/* Key take */}
-                          {highlights?.keyTake && (
-                            <p className="text-sm text-zinc-400 leading-relaxed">{highlights.keyTake}</p>
-                          )}
-
-                          {/* Metrics */}
-                          {highlights && highlights.metrics.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
-                              {highlights.metrics.map((m, mi) => (
-                                <span key={mi} className="text-[10px] px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded-full border border-blue-500/20">
-                                  {m}
-                                </span>
-                              ))}
-                              {highlights.verdict && (
-                                <span className="text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20">
-                                  {highlights.verdict}
-                                </span>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Strengths + Weaknesses */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {highlights && highlights.strengths.length > 0 && (
-                              <div>
-                                <div className="text-[10px] text-green-500 font-semibold uppercase tracking-wider mb-1">Strengths</div>
-                                {highlights.strengths.map((s, si) => (
-                                  <div key={si} className="flex gap-1.5 text-xs text-zinc-400 mb-0.5">
-                                    <span className="text-green-500 shrink-0">+</span>
-                                    <span>{s}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            {highlights && highlights.weaknesses.length > 0 && (
-                              <div>
-                                <div className="text-[10px] text-red-400 font-semibold uppercase tracking-wider mb-1">Risks / Gaps</div>
-                                {highlights.weaknesses.map((w, wi) => (
-                                  <div key={wi} className="flex gap-1.5 text-xs text-zinc-400 mb-0.5">
-                                    <span className="text-red-400 shrink-0">-</span>
-                                    <span>{w}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Sources */}
-                          {sources && sources.length > 0 && (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-[10px] text-zinc-600">Sources:</span>
-                              {sources.map(srcId => {
-                                const done = skillStatus[srcId] === 'completed';
-                                const label = STAGES.flatMap(s => s.skills).find(s => s.id === srcId)?.label || srcId;
-                                return (
-                                  <span key={srcId} className={`text-[10px] px-1.5 py-0.5 rounded-full ${done ? 'bg-green-500/20 text-green-400' : 'bg-zinc-700/50 text-zinc-500'}`}>
-                                    {label} {done ? '+' : '-'}
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {/* Action buttons */}
-                          <div className="flex flex-wrap gap-2 pt-1">
-                            <Link
-                              href={`/project/${projectId}/${skill.route}`}
-                              className="text-[11px] px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
-                            >
-                              Re-run
-                            </Link>
-                            {nextSteps.slice(0, 2).map(ns => (
-                              <Link
-                                key={ns.skillId}
-                                href={`/project/${projectId}/chat?skill=${ns.skillId}&t=${Date.now()}`}
-                                className="text-[11px] px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg transition-colors border border-blue-500/20"
-                              >
-                                {ns.label}
-                              </Link>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                  <Icon d={I.arrow} size={10} style={{ color: 'var(--ink-5)' }} />
+                  <span style={{ fontWeight: 500 }}>{otherNode?.name || other.slice(0, 12)}</span>
+                </div>
               </div>
             );
-          })}
-        </div>
+          })
+        )}
       </div>
     </div>
   );
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+function humanAge(iso: string): string {
+  try {
+    const ms = Date.now() - new Date(iso).getTime();
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return `${s}s ago`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  } catch {
+    return iso;
+  }
 }
