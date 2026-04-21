@@ -5,6 +5,7 @@ import { calculateNextRun } from '@/lib/monitor-schedule';
 import { runAgent } from '@/lib/pi-agent';
 import { recordUsage } from '@/lib/cost-meter';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
+import { recordEvent } from '@/lib/memory/events';
 import {
   extractEcosystemAlerts,
   persistEcosystemAlerts,
@@ -141,6 +142,34 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
        VALUES (?, ?, ?, ?, ?, 0, ?)`,
       alertId, monitor.project_id, monitor.type, severity, cleanMessage || 'Monitor completed', runAt,
     );
+
+    // Memory: surface this monitor outcome to the per-user timeline so
+    // buildMemoryContext() + the HEARTBEAT reflection include it automatically.
+    // Non-fatal on failure.
+    try {
+      const owner = query<{ owner_user_id: string | null }>(
+        'SELECT owner_user_id FROM projects WHERE id = ?',
+        monitor.project_id,
+      )[0];
+      if (owner?.owner_user_id) {
+        recordEvent({
+          userId: owner.owner_user_id,
+          projectId: monitor.project_id,
+          eventType: 'monitor_alert',
+          payload: {
+            monitor_id: monitor.id,
+            monitor_name: monitor.name,
+            monitor_type: monitor.type,
+            severity,
+            summary: cleanMessage.slice(0, 300),
+            alerts_inserted: persistResult?.alerts_inserted ?? 0,
+            pending_actions_created: persistResult?.pending_actions_created ?? 0,
+          },
+        });
+      }
+    } catch (err) {
+      console.warn('[cron] recordEvent monitor_alert failed:', (err as Error).message);
+    }
 
     return {
       monitor_id: monitor.id,

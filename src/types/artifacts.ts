@@ -12,7 +12,8 @@ export type ArtifactType =
   | 'gauge-chart'
   | 'score-card'
   | 'metric-grid'
-  | 'sensitivity-slider';
+  | 'sensitivity-slider'
+  | 'fact';
 
 export interface ArtifactBase {
   type: ArtifactType;
@@ -121,6 +122,18 @@ export interface MetricGrid extends ArtifactBase {
   metrics: { label: string; value: string; change?: string }[];
 }
 
+/**
+ * `fact` — an agent-extracted durable fact to persist in memory_facts.
+ * Not rendered as a visible artifact; the chat route intercepts these and
+ * calls recordFact() before sending the message to the client.
+ */
+export interface FactArtifact extends ArtifactBase {
+  type: 'fact';
+  fact: string;
+  kind?: 'fact' | 'decision' | 'observation' | 'note' | 'preference';
+  confidence?: number;
+}
+
 export type Artifact =
   | OptionSet
   | InsightCard
@@ -135,4 +148,5 @@ export type Artifact =
   | GaugeChartArtifact
   | ScoreCardArtifact
   | MetricGrid
-  | SensitivitySlider;
+  | SensitivitySlider
+  | FactArtifact;

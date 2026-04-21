@@ -6,6 +6,12 @@ import { logUsageToSQLite, logToLangfuse } from '@/lib/telemetry';
 import { runAgentStream } from '@/lib/pi-agent';
 import { buildSystemPromptString, resolveProjectLocale } from '@/lib/agent-prompt';
 import { makeProjectTools } from '@/lib/project-tools';
+import { AuthError, requireUser } from '@/lib/auth/require-user';
+import { buildMemoryContext } from '@/lib/memory/context';
+import { recordEvent } from '@/lib/memory/events';
+import { recordFact } from '@/lib/memory/facts';
+import { parseMessageContent } from '@/lib/artifact-parser';
+import type { FactArtifact } from '@/types/artifacts';
 
 // Artifact instructions prepended to every message
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
@@ -27,6 +33,11 @@ score-card: :::artifact{"type":"score-card","id":"sc_ID"}\n{"title":"Market Oppo
 metric-grid: :::artifact{"type":"metric-grid","id":"mg_ID"}\n{"title":"Key Metrics","metrics":[{"label":"MRR","value":"$12K","change":"+15%"},{"label":"CAC","value":"$200"}]}\n:::
 sensitivity-slider: :::artifact{"type":"sensitivity-slider","id":"ss_ID"}\n{"title":"Revenue Sensitivity","variables":[{"name":"retainer","min":4000,"max":15000,"value":8000,"unit":"$"},{"name":"takeRate","min":5,"max":25,"value":15,"unit":"%"}],"output":{"label":"Monthly Revenue per Engagement","formula":"retainer * takeRate / 100"}}\n:::
 
+MEMORY ARTIFACT (invisible to user; writes to long-term memory):
+fact: :::artifact{"type":"fact","id":"fact_ID"}\n{"fact":"Founder committed to Bohm pilot by May 31","kind":"decision","confidence":0.9}\n:::
+- kind options: fact | decision | observation | note | preference
+- Use when the user states a commitment, pivots, names a new target, expresses a preference, or reveals a durable constraint. Do NOT emit a fact for small chit-chat.
+
 RULES:
 1) Use gauge-chart for overall scores with GO/NO-GO/CAUTION verdict
 2) Use radar-chart when scoring across multiple dimensions (scoring, risk audit, business model)
@@ -42,6 +53,22 @@ RULES:
 `;
 
 export async function POST(request: NextRequest) {
+  // Auth gate: the chat route always runs for a real user. Memory scoping
+  // requires a userId; without it we can't build per-user context or log
+  // chat_turn events.
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch (e) {
+    if (e instanceof AuthError) {
+      return new Response(
+        JSON.stringify({ success: false, error: e.message }),
+        { status: e.status, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw e;
+  }
+
   const body = await request.json();
   if (!body) {
     return new Response(
@@ -72,23 +99,30 @@ export async function POST(request: NextRequest) {
   const lastMessage = messages[messages.length - 1]?.content || '';
   const projectContext = `[PROJECT: "${projects[0].name}"${projects[0].description ? ` — ${projects[0].description}` : ''}]\n`;
 
+  // Memory context — curated facts + recent events + graph summary + completed
+  // skills — lets the agent remember across sessions AND across chat "steps"
+  // within a project (see sessionId change below).
+  const memoryContext = buildMemoryContext(userId, project_id);
+
   // Build system prompt: SOUL + AGENTS personality first (locale-aware),
-  // then ARTIFACT_INSTRUCTIONS, then per-project context + recently-completed
-  // skill summaries. SOUL/AGENTS were previously missing from the chat path —
-  // this is why the agent felt generic. They're now loaded from agents/*.md
-  // (or agents/*.it.md when the project is Italian).
+  // then ARTIFACT_INSTRUCTIONS, then per-project context + memory + recently-
+  // completed skill summaries. SOUL/AGENTS were previously missing from the
+  // chat path — they're now loaded from agents/*.md (or .it.md).
   const locale = resolveProjectLocale(project_id, query);
   const skillContext = buildCompletedSkillContext(project_id, lastMessage);
   const systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
     tail: ARTIFACT_INSTRUCTIONS,
-    projectContext: `${projectContext}${skillContext}`,
+    projectContext: `${projectContext}${memoryContext}\n${skillContext}`,
   });
   const encoder = new TextEncoder();
 
-  // Primary: Pi Agent SDK with session persistence
-  const sessionId = `launchpad-${project_id}-${step}`;
+  // Session key: per (user, project) rather than per (project, step).
+  // This unifies memory across the "chat" / "research" / "simulation" steps
+  // within a single project — if the user asked about competitor X under
+  // research, the agent remembers that when they switch to chat.
+  const sessionId = `user-${userId}-project-${project_id}`;
   const piStart = Date.now();
 
   try {
@@ -107,9 +141,35 @@ export async function POST(request: NextRequest) {
       task: 'chat',
     });
 
-    // Wrap to add telemetry on completion
+    // Accumulate response text so we can: (1) extract agent-emitted facts via
+    // :::artifact{type="fact"} blocks, (2) write a chat_turn memory_event with
+    // a meaningful preview, (3) fuel later telemetry.
+    let fullResponse = '';
+    const decoder = new TextDecoder();
+
+    // Wrap to add telemetry + memory hooks on completion
     const telemetryStream = piStream.pipeThrough(new TransformStream({
       transform(chunk, controller) {
+        // chunk is the raw SSE event buffer; decode + peek at JSON deltas
+        try {
+          const text = decoder.decode(chunk, { stream: true });
+          // Look for content deltas: `data: {"content":"..."}`
+          const lines = text.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const payload = JSON.parse(line.slice(6));
+                if (typeof payload.content === 'string') {
+                  fullResponse += payload.content;
+                }
+              } catch {
+                // non-JSON SSE line; ignore
+              }
+            }
+          }
+        } catch {
+          // ignore decode errors; chunk still forwards
+        }
         controller.enqueue(chunk);
       },
       flush() {
@@ -123,6 +183,40 @@ export async function POST(request: NextRequest) {
           usage, 0, latencyMs,
           lastMessage.slice(0, 1000), '',
         );
+
+        // Memory: chat_turn event + fact artifact extraction.
+        // Wrapped in try so memory failures never break the stream response.
+        try {
+          recordEvent({
+            userId,
+            projectId: project_id,
+            eventType: 'chat_turn',
+            payload: {
+              preview: lastMessage.slice(0, 200),
+              response_preview: fullResponse.slice(0, 200),
+              step,
+            },
+          });
+
+          const segments = parseMessageContent(fullResponse);
+          for (const seg of segments) {
+            if (seg.type === 'artifact' && seg.artifact.type === 'fact') {
+              const f = seg.artifact as FactArtifact;
+              if (f.fact && typeof f.fact === 'string') {
+                recordFact({
+                  userId,
+                  projectId: project_id,
+                  fact: f.fact,
+                  kind: f.kind ?? 'fact',
+                  sourceType: 'chat',
+                  confidence: f.confidence ?? 0.8,
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[chat] memory write failed (non-fatal):', err);
+        }
       },
     }));
 

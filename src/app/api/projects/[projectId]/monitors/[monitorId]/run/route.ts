@@ -5,6 +5,7 @@ import { calculateNextRun } from '@/lib/monitor-schedule';
 import { runAgentStream } from '@/lib/pi-agent';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { recordUsage } from '@/lib/cost-meter';
+import { recordEvent } from '@/lib/memory/events';
 import { extractEcosystemAlerts, persistEcosystemAlerts } from '@/lib/ecosystem-alert-parser';
 
 const PI_PROVIDER = process.env.PI_PROVIDER || 'anthropic';
@@ -171,6 +172,33 @@ export async function POST(_request: NextRequest, { params }: Params) {
                VALUES (?, ?, ?, ?, ?, 0, ?)`,
               alertId, projectId, monitorType, severity, cleanMessage || 'Monitor completed', now,
             );
+
+            // Memory: record monitor outcome for the project owner's timeline.
+            // Non-fatal on failure.
+            try {
+              const owner = query<{ owner_user_id: string | null }>(
+                'SELECT owner_user_id FROM projects WHERE id = ?',
+                projectId,
+              )[0];
+              if (owner?.owner_user_id) {
+                recordEvent({
+                  userId: owner.owner_user_id,
+                  projectId,
+                  eventType: 'monitor_alert',
+                  payload: {
+                    monitor_id: monitorId,
+                    monitor_type: monitorType,
+                    severity,
+                    summary: cleanMessage.slice(0, 300),
+                    alerts_inserted: ecosystemAlertsInserted,
+                    pending_actions_created: pendingActionsCreated,
+                    triggered_by: 'manual',
+                  },
+                });
+              }
+            } catch (err) {
+              console.warn('[monitor/run] recordEvent monitor_alert failed:', (err as Error).message);
+            }
 
             // 5. Emit enriched done frame so the UI can link to the run
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({
