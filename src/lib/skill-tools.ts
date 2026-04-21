@@ -2,9 +2,8 @@ import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
-import { streamSimple, getModel, getEnvApiKey } from '@mariozechner/pi-ai';
-import type { Message } from '@mariozechner/pi-ai';
-import { Agent } from '@mariozechner/pi-agent-core';
+import { completeSimple, getModel, getEnvApiKey } from '@mariozechner/pi-ai';
+import type { TextContent } from '@mariozechner/pi-ai';
 import { pickModel, type TaskLabel } from './llm/router';
 import { recordEvent } from './memory/events';
 
@@ -138,48 +137,57 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
         },
       });
 
-      try {
-        const tier: TaskLabel = 'skill-invoke';
-        const { provider, model } = pickModel(
-          skill.frontmatter.model_tier
-            ? (`skill-${skill.frontmatter.model_tier}` as string)
-            : tier,
+      const tier: TaskLabel = 'skill-invoke';
+      const { provider, model } = pickModel(
+        skill.frontmatter.model_tier
+          ? (`skill-${skill.frontmatter.model_tier}` as string)
+          : tier,
+      );
+
+      // One-shot LLM call via pi-ai's completeSimple — NOT a nested Agent
+      // instance. The Agent class is designed for multi-turn tool-using
+      // loops; a skill invocation is a single "run this prompt, return
+      // text" round-trip and doesn't need that machinery. Using a nested
+      // Agent here previously caused stalled chat streams because the
+      // outer Agent's subscribe pattern and the inner Agent's subscribe
+      // pattern could race in ways pi-agent-core doesn't guarantee safe.
+      //
+      // Per the AgentTool contract (node_modules/@mariozechner/pi-agent-
+      // core/dist/types.d.ts): "Throw on failure instead of encoding
+      // errors in content." We throw on missing output or timeout so the
+      // outer agent sees a proper error tool_result.
+      const userMsg = context || `Run the ${skill.frontmatter.name} skill for the current project.`;
+      const apiKey = getEnvApiKey(provider as 'anthropic' | 'openrouter');
+
+      const assistantMessage = await completeSimple(
+        getModel(provider as any, model as any),
+        {
+          systemPrompt: skill.body,
+          messages: [{ role: 'user', content: userMsg, timestamp: Date.now() }],
+        },
+        {
+          apiKey,
+          signal: AbortSignal.timeout(60_000),
+        },
+      );
+
+      // Extract text content blocks from the assistant message.
+      const output = assistantMessage.content
+        .filter((c): c is TextContent => c.type === 'text')
+        .map((c) => c.text)
+        .join('\n')
+        .trim();
+
+      if (!output) {
+        throw new Error(
+          `Skill ${skill.id} produced no output (stopReason=${assistantMessage.stopReason ?? 'unknown'})`,
         );
-
-        // Run an isolated inner agent. No skill tools = no recursion.
-        const innerAgent = new Agent({
-          streamFn: streamSimple,
-          getApiKey: (p) => getEnvApiKey(p),
-        });
-        innerAgent.state.model = getModel(provider as any, model as any);
-        innerAgent.state.systemPrompt = skill.body;
-        innerAgent.state.tools = []; // one-level-deep invariant
-
-        const userMsg = context || `Run the ${skill.frontmatter.name} skill for the current project.`;
-        let output = '';
-        innerAgent.subscribe((event) => {
-          if (
-            event.type === 'message_update' &&
-            event.assistantMessageEvent.type === 'text_delta'
-          ) {
-            output += event.assistantMessageEvent.delta;
-          }
-        });
-
-        await innerAgent.prompt(userMsg);
-        await innerAgent.waitForIdle();
-
-        return {
-          content: [{ type: 'text', text: output || '(skill produced no output)' }],
-          details: { skill_id: skill.id, tier: skill.frontmatter.model_tier ?? 'balanced' },
-        };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          content: [{ type: 'text', text: `Skill ${skill.id} failed: ${msg}` }],
-          details: { skill_id: skill.id, error: true },
-        };
       }
+
+      return {
+        content: [{ type: 'text', text: output }],
+        details: { skill_id: skill.id, tier: skill.frontmatter.model_tier ?? 'balanced' },
+      };
     },
   };
 }
