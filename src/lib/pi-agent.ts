@@ -75,6 +75,36 @@ function loadSession(sessionId: string): AgentMessage[] {
         messages.push(entry as unknown as AgentMessage);
       }
     }
+
+    // Anthropic's API rejects (or silently returns empty) when conversation
+    // history ends with an incomplete assistant turn:
+    //   - tool_use block with no matching tool_result follow-up
+    //   - empty content array (turn killed before any text/tool was produced)
+    // Both happen when a stream is killed mid-turn. Prevent the next turn
+    // from failing by trimming any trailing incomplete-assistant and its
+    // preceding user message, so the agent retries from the last complete
+    // (user, assistant) pair.
+    while (messages.length > 0) {
+      const last = messages[messages.length - 1] as { role?: string; content?: unknown };
+      if (last.role !== 'assistant') break;
+
+      const content = last.content;
+      const isEmpty =
+        content === undefined ||
+        content === null ||
+        (Array.isArray(content) && content.length === 0) ||
+        (typeof content === 'string' && content.trim() === '');
+      const contentStr = JSON.stringify(content ?? '');
+      const hasUnpairedToolUse = contentStr.includes('tool_use');
+
+      if (!isEmpty && !hasUnpairedToolUse) break;
+
+      messages.pop();
+      if (messages.length > 0 && (messages[messages.length - 1] as { role?: string }).role === 'user') {
+        messages.pop();
+      }
+    }
+
     return messages;
   } catch {
     return [];
