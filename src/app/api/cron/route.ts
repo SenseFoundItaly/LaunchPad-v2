@@ -7,6 +7,7 @@ import { recordUsage, isProjectCapped } from '@/lib/cost-meter';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { recordEvent } from '@/lib/memory/events';
 import { buildMemoryContext } from '@/lib/memory/context';
+import { sendBrief } from '@/lib/email';
 import {
   extractEcosystemAlerts,
   persistEcosystemAlerts,
@@ -361,6 +362,28 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
           latency_ms: latencyMs,
         },
       });
+
+      // Send (or stub) the Monday Brief. Stubbed when RESEND_API_KEY is
+      // unset — logs "would have emailed X" without a network call. Real
+      // delivery is a one-env-var flip away. Non-fatal on failure.
+      try {
+        const briefResult = await sendBrief({
+          userId: project.owner_user_id,
+          projectId: project.id,
+          projectName: project.name,
+          pendingActions: pending.map((p) => ({ id: p.id, title: p.title })),
+          ecosystemAlerts: alerts.map((a) => ({
+            headline: a.headline,
+            relevance_score: a.relevance_score,
+          })),
+          heartbeatSummary: reflection.slice(0, 500),
+        });
+        if (!briefResult.ok && !briefResult.stubbed) {
+          console.warn(`[heartbeat] email delivery failed for ${project.id}: ${briefResult.error}`);
+        }
+      } catch (err) {
+        console.warn('[heartbeat] sendBrief failed (non-fatal):', (err as Error).message);
+      }
 
       results.push({
         project_id: project.id,

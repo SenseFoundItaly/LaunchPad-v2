@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
+import { query } from '@/lib/db';
 import {
   getPendingAction,
   approvePendingAction,
@@ -10,6 +11,8 @@ import {
   InvalidTransitionError,
 } from '@/lib/pending-actions';
 import { executeApprovedAction } from '@/lib/action-executors';
+import { recordEvent } from '@/lib/memory/events';
+import { recordFact } from '@/lib/memory/facts';
 
 /**
  * GET /api/projects/{projectId}/actions/{actionId}
@@ -86,9 +89,45 @@ export async function POST(
         }
         updated = editPendingAction(actionId, body.edited_payload);
         break;
-      case 'reject':
+      case 'reject': {
         updated = rejectPendingAction(actionId, body.reason);
+        // Preference learning: the agent proposed something the founder
+        // didn't want. Record a low-confidence 'preference' fact so future
+        // buildMemoryContext calls include "user rejected X" in the prompt,
+        // steering the agent away from similar proposals. Non-fatal.
+        try {
+          const owner = query<{ owner_user_id: string | null }>(
+            'SELECT owner_user_id FROM projects WHERE id = ?', projectId,
+          )[0];
+          if (owner?.owner_user_id) {
+            const reasonSuffix = body.reason ? `. Reason: ${String(body.reason).slice(0, 200)}` : '';
+            const factText = `User rejected agent-proposed action "${existing.title}" (type: ${existing.action_type})${reasonSuffix}`;
+            recordFact({
+              userId: owner.owner_user_id,
+              projectId,
+              fact: factText,
+              kind: 'preference',
+              sourceType: 'approval_inbox',
+              sourceId: actionId,
+              confidence: 0.6,
+            });
+            recordEvent({
+              userId: owner.owner_user_id,
+              projectId,
+              eventType: 'action_rejected',
+              payload: {
+                action_id: actionId,
+                title: existing.title,
+                action_type: existing.action_type,
+                reason: body.reason ?? null,
+              },
+            });
+          }
+        } catch (err) {
+          console.warn('[actions] preference-learning hook failed (non-fatal):', err);
+        }
         break;
+      }
       case 'mark_sent':
         updated = markActionSent(actionId, body.result || {});
         break;
