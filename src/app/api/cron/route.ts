@@ -4,6 +4,7 @@ import { json, generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 import { runAgent } from '@/lib/pi-agent';
 import { recordUsage } from '@/lib/cost-meter';
+import { buildSystemPromptString } from '@/lib/agent-prompt';
 import {
   extractEcosystemAlerts,
   persistEcosystemAlerts,
@@ -43,9 +44,24 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
   const runId = generateId('mrun');
   const runAt = new Date().toISOString();
 
+  // Resolve the project's locale so monitors running for Italian projects
+  // get the Italian SOUL + AGENTS + HEARTBEAT in their system prompt.
+  const localeRow = query<{ locale: string | null }>(
+    'SELECT locale FROM projects WHERE id = ?',
+    monitor.project_id,
+  )[0];
+  const locale = localeRow?.locale === 'it' ? 'it' : 'en';
+  const systemPrompt = buildSystemPromptString({
+    locale,
+    context: 'cron',
+  });
+
   try {
     const startedAt = Date.now();
-    const { text: result, usage } = await runAgent(prompt, { timeout: 130000 });
+    const { text: result, usage } = await runAgent(prompt, {
+      systemPrompt,
+      timeout: 130000,
+    });
     const latencyMs = Date.now() - startedAt;
 
     // Observe-mode cost meter — logs to llm_usage_logs + upserts monthly

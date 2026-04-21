@@ -4,6 +4,7 @@ import { chatStream } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
 import { logUsageToSQLite, logToLangfuse } from '@/lib/telemetry';
 import { runAgentStream } from '@/lib/pi-agent';
+import { buildSystemPromptString, resolveProjectLocale } from '@/lib/agent-prompt';
 
 // Artifact instructions prepended to every message
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
@@ -70,9 +71,19 @@ export async function POST(request: NextRequest) {
   const lastMessage = messages[messages.length - 1]?.content || '';
   const projectContext = `[PROJECT: "${projects[0].name}"${projects[0].description ? ` — ${projects[0].description}` : ''}]\n`;
 
-  // Build system prompt (agent remembers conversation via session persistence)
+  // Build system prompt: SOUL + AGENTS personality first (locale-aware),
+  // then ARTIFACT_INSTRUCTIONS, then per-project context + recently-completed
+  // skill summaries. SOUL/AGENTS were previously missing from the chat path —
+  // this is why the agent felt generic. They're now loaded from agents/*.md
+  // (or agents/*.it.md when the project is Italian).
+  const locale = resolveProjectLocale(project_id, query);
   const skillContext = buildCompletedSkillContext(project_id, lastMessage);
-  const systemPrompt = `${ARTIFACT_INSTRUCTIONS}${projectContext}${skillContext}`;
+  const systemPrompt = buildSystemPromptString({
+    locale,
+    context: 'chat',
+    tail: ARTIFACT_INSTRUCTIONS,
+    projectContext: `${projectContext}${skillContext}`,
+  });
   const encoder = new TextEncoder();
 
   // Primary: Pi Agent SDK with session persistence
