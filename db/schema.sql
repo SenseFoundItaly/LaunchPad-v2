@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS projects (
   status VARCHAR DEFAULT 'created',
   current_step INTEGER DEFAULT 1,
   llm_provider VARCHAR DEFAULT 'openai',
+  partner_slug VARCHAR,
+  locale VARCHAR DEFAULT 'en',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -443,3 +445,101 @@ CREATE TABLE IF NOT EXISTS graph_edges (
   weight FLOAT DEFAULT 1.0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- =============================================================================
+-- Ecosystem Alerts (Layer 1 autonomous intelligence feed)
+-- Populated by weekly ecosystem_* monitors. Feeds the Monday Brief and the
+-- 2028+ Investment Intelligence layer. Relevance_score gates Brief surfacing.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS ecosystem_alerts (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR REFERENCES projects(id),
+  monitor_id VARCHAR REFERENCES monitors(id),
+  monitor_run_id VARCHAR REFERENCES monitor_runs(id),
+  alert_type VARCHAR NOT NULL,
+  source VARCHAR,
+  source_url VARCHAR,
+  headline TEXT NOT NULL,
+  body TEXT,
+  relevance_score FLOAT DEFAULT 0.5,
+  confidence FLOAT DEFAULT 0.5,
+  graph_node_id VARCHAR REFERENCES graph_nodes(id),
+  reviewed_state VARCHAR DEFAULT 'pending',
+  reviewed_at TIMESTAMP,
+  founder_action_taken VARCHAR,
+  dedupe_hash VARCHAR,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(project_id, dedupe_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ecosystem_alerts_project_created
+  ON ecosystem_alerts(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ecosystem_alerts_project_relevance
+  ON ecosystem_alerts(project_id, relevance_score DESC)
+  WHERE reviewed_state = 'pending';
+
+-- =============================================================================
+-- Pending Actions (approval inbox)
+-- Proposed autonomous drafts queued for founder approval. Approve -> Composio
+-- execution (or outbox write while Composio is still behind a feature flag).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS pending_actions (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR REFERENCES projects(id),
+  monitor_run_id VARCHAR REFERENCES monitor_runs(id),
+  ecosystem_alert_id VARCHAR REFERENCES ecosystem_alerts(id),
+  action_type VARCHAR NOT NULL,
+  title TEXT NOT NULL,
+  rationale TEXT,
+  payload JSON NOT NULL,
+  estimated_impact VARCHAR,
+  status VARCHAR DEFAULT 'pending',
+  edited_payload JSON,
+  execution_target VARCHAR,
+  executed_at TIMESTAMP,
+  execution_result JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_actions_project_status
+  ON pending_actions(project_id, status, created_at DESC);
+
+-- =============================================================================
+-- Partner Configs (Add-on 1/3 prerequisite: partner-slug onboarding)
+-- Per-partner defaults: knowledge seed, preferred skills, brand, Brief template.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS partner_configs (
+  slug VARCHAR PRIMARY KEY,
+  display_name VARCHAR NOT NULL,
+  locale VARCHAR DEFAULT 'en',
+  knowledge_seed JSON,
+  preferred_skills JSON,
+  brief_template VARCHAR DEFAULT 'default',
+  brand JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
+-- Project Budgets (cost governance for the <€0.25/user/month L1 promise)
+-- One row per project per month. Actual spend is computed from llm_usage_logs.
+-- cap_* fields are hard ceilings; warn_* fields trigger notices at 80%.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS project_budgets (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR REFERENCES projects(id),
+  period_month VARCHAR NOT NULL,
+  cap_llm_usd REAL DEFAULT 0.30,
+  cap_external_actions INTEGER DEFAULT 20,
+  warn_llm_usd REAL DEFAULT 0.24,
+  warn_external_actions INTEGER DEFAULT 16,
+  current_llm_usd REAL DEFAULT 0,
+  current_external_actions INTEGER DEFAULT 0,
+  status VARCHAR DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(project_id, period_month)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_budgets_project_period
+  ON project_budgets(project_id, period_month);
