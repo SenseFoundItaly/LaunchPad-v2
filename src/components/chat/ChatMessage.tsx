@@ -5,12 +5,15 @@ import type { EntityCard, WorkflowCard } from '@/types/artifacts';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import ArtifactRenderer from './artifacts/ArtifactRenderer';
 import ToolActivityBar from './ToolActivityBar';
+import MessageActions from './MessageActions';
 
 interface ChatMessageProps {
   message: ChatMessageType;
   onArtifactAction?: (action: string, payload: Record<string, unknown>) => void;
   onEntityDiscovered?: (entity: EntityCard) => void;
   onWorkflowDiscovered?: (workflow: WorkflowCard) => void;
+  /** When provided on a user message, shows a Retry button that resubmits. */
+  onRetry?: (content: string) => void;
 }
 
 function ArtifactPendingShimmer() {
@@ -104,12 +107,27 @@ export default function ChatMessage({
   onArtifactAction,
   onEntityDiscovered,
   onWorkflowDiscovered,
+  onRetry,
 }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const segments = isUser ? null : parseMessageContent(message.content);
 
+  // For assistant messages, the "copy" clipboard content strips artifact blocks
+  // and leaves the readable text — what the user sees, not the raw markdown.
+  const copyableText = isUser
+    ? message.content
+    : (segments || [])
+        .filter((s): s is { type: 'text'; content: string } => s.type === 'text')
+        .map((s) => s.content)
+        .join('\n\n')
+        .trim() || message.content;
+
+  // Retry only for user messages with non-empty content — assistant messages
+  // can't "retry" themselves; the founder would retry the preceding user msg.
+  const canRetry = isUser && onRetry && message.content.trim().length > 0;
+
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
+    <div className={`group flex flex-col ${isUser ? 'items-end' : 'items-start'} mb-4`}>
       <div
         className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
@@ -145,6 +163,16 @@ export default function ChatMessage({
           })
         )}
       </div>
+      {/* Skip action row for empty assistant messages (still streaming) */}
+      {(isUser || message.content.trim().length > 0) && (
+        <div className={`${isUser ? 'pr-2' : 'pl-2'} w-full max-w-[80%]`}>
+          <MessageActions
+            content={copyableText}
+            onRetry={canRetry ? () => onRetry!(message.content) : undefined}
+            align={isUser ? 'right' : 'left'}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -48,6 +48,11 @@ export default function ChatPanel({
               onArtifactAction={onArtifactAction}
               onEntityDiscovered={onEntityDiscovered}
               onWorkflowDiscovered={onWorkflowDiscovered}
+              // Retry routes through the same onSend path the input box uses —
+              // the user message is re-appended (with a new id) and a fresh
+              // assistant response is generated. Disabled while streaming so
+              // the UI can't queue a double-fire.
+              onRetry={isStreaming ? undefined : (content) => onSend(content)}
             />
           ))
         )}
