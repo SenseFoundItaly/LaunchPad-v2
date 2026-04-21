@@ -523,7 +523,8 @@ CREATE TABLE IF NOT EXISTS partner_configs (
 -- =============================================================================
 -- Project Budgets (cost governance for the <€0.25/user/month L1 promise)
 -- One row per project per month. Actual spend is computed from llm_usage_logs.
--- cap_* fields are hard ceilings; warn_* fields trigger notices at 80%.
+-- cap_* fields are hard ceilings. warn_* fields trigger notices at 80 percent.
+-- NOTE: no semicolons in comments — db.ts splits on semicolons.
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS project_budgets (
   id VARCHAR PRIMARY KEY,
