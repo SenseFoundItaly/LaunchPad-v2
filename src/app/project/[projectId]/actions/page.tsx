@@ -1,7 +1,34 @@
 'use client';
 
-import { use, useEffect, useState, useCallback } from 'react';
-import type { PendingAction, PendingActionStatus } from '@/types';
+/**
+ * Tickets & Audit — ported from screen-tickets.jsx.
+ *
+ * Linear-style table on the left, selected-ticket detail panel on the right.
+ * Every pending_action is a ticket — inspectable, approvable, rejectable.
+ *
+ * Data shape is derived client-side from /api/projects/{id}/actions:
+ *   - agent     ← derived from action_type (src/lib/agent-synthesis.ts)
+ *   - goal      ← first clause of rationale or —
+ *   - progress  ← status → [0, 30%, 60%, 100%, 0%, 50%]
+ *   - cost      ← "—" for now (per-ticket cost would need a new JOIN endpoint)
+ *   - ago       ← humanized created_at
+ */
+
+import { use, useEffect, useState, useCallback, useMemo } from 'react';
+import { TopBar, NavRail } from '@/components/design/chrome';
+import {
+  Pill,
+  StatusBar,
+  Icon,
+  I,
+  IconBtn,
+  type PillKind,
+} from '@/components/design/primitives';
+import type { PendingAction, PendingActionStatus, PendingActionType } from '@/types';
+
+// =============================================================================
+// Page
+// =============================================================================
 
 interface InboxSummary {
   pending: number;
@@ -13,67 +40,47 @@ interface InboxSummary {
 
 interface InboxResponse {
   success: boolean;
-  data: { actions: PendingAction[]; summary: InboxSummary };
+  data?: { actions: PendingAction[]; summary: InboxSummary };
   error?: string;
 }
 
-type Filter = 'all' | 'pending' | 'edited' | 'approved' | 'sent' | 'rejected';
-
-const FILTER_TO_STATUS: Record<Filter, PendingActionStatus[] | null> = {
-  all: null,
-  pending: ['pending'],
-  edited: ['edited'],
-  approved: ['approved'],
-  sent: ['sent'],
-  rejected: ['rejected'],
-};
-
-const FILTER_LABELS: Record<Filter, string> = {
-  all: 'Tutte',
-  pending: 'Da decidere',
-  edited: 'Modificate',
-  approved: 'Approvate',
-  sent: 'Inviate',
-  rejected: 'Rifiutate',
-};
-
-export default function ApprovalInboxPage({
+export default function TicketsPage({
   params,
 }: {
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
+
   const [actions, setActions] = useState<PendingAction[]>([]);
   const [summary, setSummary] = useState<InboxSummary | null>(null);
-  const [filter, setFilter] = useState<Filter>('pending');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Tracks click-to-send deliverables per action id so the row can render
-  // a persistent "Open again" / "Mark as sent" pair after approval.
-  const [clickToSend, setClickToSend] = useState<Record<string, { url?: string | null; narrative?: string }>>({});
-  const [lastNarrative, setLastNarrative] = useState<{ actionId: string; narrative: string } | null>(null);
 
-  const fetchInbox = useCallback(async () => {
-    setLoading(true);
+  const fetchAll = useCallback(async () => {
     setError(null);
     try {
-      const statuses = FILTER_TO_STATUS[filter];
-      const qs = statuses ? `?status=${statuses.join(',')}` : '';
-      const res = await fetch(`/api/projects/${projectId}/actions${qs}`);
+      const res = await fetch(`/api/projects/${projectId}/actions?status=pending,edited,approved,rejected,sent,failed&limit=200`);
       const body: InboxResponse = await res.json();
-      if (!body.success) throw new Error(body.error || 'Failed to load inbox');
+      if (!body.success || !body.data) throw new Error(body.error || 'Fetch failed');
       setActions(body.data.actions);
       setSummary(body.data.summary);
+      // Keep selection if still in list; else pick first
+      if (selectedId && !body.data.actions.find(a => a.id === selectedId)) {
+        setSelectedId(body.data.actions[0]?.id || null);
+      } else if (!selectedId && body.data.actions.length > 0) {
+        setSelectedId(body.data.actions[0].id);
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [projectId, filter]);
+  }, [projectId, selectedId]);
 
-  useEffect(() => { fetchInbox(); }, [fetchInbox]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  async function transition(actionId: string, verb: 'approve' | 'edit' | 'reject' | 'mark_sent', extras: Record<string, unknown> = {}) {
+  async function transition(actionId: string, verb: 'approve' | 'reject' | 'mark_sent', extras: Record<string, unknown> = {}) {
     try {
       const res = await fetch(`/api/projects/${projectId}/actions/${actionId}`, {
         method: 'POST',
@@ -82,299 +89,571 @@ export default function ApprovalInboxPage({
       });
       const body = await res.json();
       if (!body.success) throw new Error(body.error || `${verb} failed`);
-
-      // If approve returned a click-to-send deliverable, open the link in
-      // a new tab and stash it so the UI shows the Mark-as-sent confirmation.
       const deliverable = body.data?.deliverable;
       if (deliverable?.mode === 'click-to-send' && deliverable.url) {
-        setClickToSend(prev => ({ ...prev, [actionId]: { url: deliverable.url, narrative: deliverable.narrative } }));
         window.open(deliverable.url, '_blank', 'noopener,noreferrer');
-      } else if (deliverable?.narrative) {
-        // direct/outbox — show the narrative as a transient success toast
-        setLastNarrative({ actionId, narrative: deliverable.narrative });
       }
-      await fetchInbox();
+      await fetchAll();
     } catch (e) {
       setError((e as Error).message);
     }
   }
 
+  const selected = actions.find(a => a.id === selectedId) || null;
+  const openCount = (summary?.pending ?? 0) + (summary?.edited ?? 0);
+
   return (
-    <div className="h-full overflow-y-auto bg-zinc-950 text-zinc-100">
-      <div className="max-w-4xl mx-auto px-8 py-10">
-        <header className="mb-6">
-          <div className="text-xs uppercase tracking-widest text-zinc-500 mb-1">
-            Inbox di approvazione
-          </div>
-          <h1 className="text-2xl font-semibold text-zinc-100 mb-4">
-            Bozze dal tuo co-founder
-          </h1>
-          {summary && <SummaryBar summary={summary} />}
-        </header>
+    <div className="lp-frame">
+      <TopBar
+        breadcrumb={['Project', 'Tickets & audit']}
+        right={
+          <Pill kind="n">
+            {actions.length} · {openCount} open
+          </Pill>
+        }
+      />
 
-        <div className="flex gap-2 mb-6 border-b border-zinc-800 pb-3 overflow-x-auto">
-          {(Object.keys(FILTER_LABELS) as Filter[]).map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 text-xs rounded-lg transition-colors shrink-0 ${
-                filter === f
-                  ? 'bg-zinc-800 text-zinc-100'
-                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900'
-              }`}
-            >
-              {FILTER_LABELS[f]}
-              {summary && filterCount(f, summary) > 0 ? (
-                <span className="ml-1.5 text-zinc-500">· {filterCount(f, summary)}</span>
-              ) : null}
-            </button>
-          ))}
-        </div>
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <NavRail projectId={projectId} current="tickets" />
 
-        {error && (
-          <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-sm text-red-300">
-            {error}
-          </div>
-        )}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <TicketsToolbar total={actions.length} open={openCount} />
 
-        {loading && actions.length === 0 ? (
-          <div className="text-zinc-500 text-sm">Caricamento…</div>
-        ) : actions.length === 0 ? (
-          <EmptyInbox filter={filter} />
-        ) : (
-          <div className="space-y-3">
-            {actions.map(action => (
-              <ActionRow
-                key={action.id}
-                action={action}
+          <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
+            <TicketsTable
+              rows={actions}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              loading={loading}
+              error={error}
+            />
+            {selected && (
+              <TicketDetail
+                action={selected}
                 onTransition={transition}
-                clickToSend={clickToSend[action.id]}
-                lastNarrative={lastNarrative}
               />
-            ))}
+            )}
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SummaryBar({ summary }: { summary: InboxSummary }) {
-  const items: Array<{ label: string; value: number; color: string }> = [
-    { label: 'Da decidere', value: summary.pending, color: 'text-amber-400' },
-    { label: 'Modificate', value: summary.edited, color: 'text-blue-400' },
-    { label: 'In coda invio', value: summary.approved_awaiting_send, color: 'text-emerald-400' },
-    { label: 'Inviate 7gg', value: summary.sent_last_7d, color: 'text-zinc-400' },
-    { label: 'Rifiutate 7gg', value: summary.rejected_last_7d, color: 'text-zinc-500' },
-  ];
-  return (
-    <div className="flex gap-6 text-xs">
-      {items.map(item => (
-        <div key={item.label}>
-          <div className={`text-lg font-mono ${item.color}`}>{item.value}</div>
-          <div className="text-zinc-500">{item.label}</div>
         </div>
-      ))}
+      </div>
+
+      <StatusBar
+        heartbeatLabel="heartbeat · idle"
+        gateway="pi-agent · anthropic"
+        ctxLabel={`ctx · ${actions.length} tickets`}
+        budget={`${openCount} open`}
+      />
     </div>
   );
 }
 
-function filterCount(filter: Filter, summary: InboxSummary): number {
-  switch (filter) {
-    case 'pending': return summary.pending;
-    case 'edited': return summary.edited;
-    case 'approved': return summary.approved_awaiting_send;
-    case 'sent': return summary.sent_last_7d;
-    case 'rejected': return summary.rejected_last_7d;
-    default: return 0;
-  }
+// =============================================================================
+// Toolbar
+// =============================================================================
+
+function TicketsToolbar({ total, open }: { total: number; open: number }) {
+  return (
+    <div
+      style={{
+        padding: '12px 20px',
+        borderBottom: '1px solid var(--line)',
+        background: 'var(--surface)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '6px 10px',
+          border: '1px solid var(--line-2)',
+          borderRadius: 6,
+          minWidth: 260,
+          background: 'var(--paper)',
+        }}
+      >
+        <Icon d={I.search} size={12} style={{ color: 'var(--ink-5)' }} />
+        <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>Filter tickets · agent:scout status:open …</span>
+        <span style={{ flex: 1 }} />
+        <span className="lp-kbd">/</span>
+      </div>
+      <Pill kind="n">status · any</Pill>
+      <Pill kind="n">agent · any</Pill>
+      <Pill kind="n">type · any</Pill>
+      <span style={{ flex: 1 }} />
+      <span style={{ fontSize: 11, color: 'var(--ink-5)' }}>
+        {total} total · {open} open
+      </span>
+      <IconBtn d={I.download} title="export" />
+    </div>
+  );
 }
 
-function ActionRow({
+// =============================================================================
+// Table
+// =============================================================================
+
+const STATUS_PILL: Record<PendingActionStatus, PillKind> = {
+  pending: 'live',
+  edited: 'info',
+  approved: 'ok',
+  sent: 'ok',
+  rejected: 'n',
+  failed: 'warn',
+};
+
+function TicketsTable({
+  rows,
+  selectedId,
+  onSelect,
+  loading,
+  error,
+}: {
+  rows: PendingAction[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  loading: boolean;
+  error: string | null;
+}) {
+  if (error) {
+    return (
+      <div style={{ padding: 20, color: 'var(--clay)', fontSize: 12 }}>
+        {error}
+      </div>
+    );
+  }
+  if (loading && rows.length === 0) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
+        Caricamento tickets…
+      </div>
+    );
+  }
+  if (rows.length === 0) {
+    return (
+      <div style={{ padding: 60, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
+        Nessun ticket ancora. Il co-founder accoda bozze quando esegue uno scan o quando gli chiedi di preparare qualcosa.
+      </div>
+    );
+  }
+
+  return (
+    <div className="lp-scroll" style={{ overflow: 'auto', background: 'var(--surface)' }}>
+      <div
+        className="lp-mono"
+        style={{
+          fontSize: 10,
+          color: 'var(--ink-5)',
+          padding: '9px 16px',
+          display: 'grid',
+          gridTemplateColumns: '64px 1fr 170px 110px 90px 110px 70px 50px',
+          gap: 10,
+          textTransform: 'uppercase',
+          letterSpacing: 0.4,
+          borderBottom: '1px solid var(--line)',
+          background: 'var(--paper-2)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 1,
+        }}
+      >
+        <span>id</span>
+        <span>title</span>
+        <span>type</span>
+        <span>agent</span>
+        <span>status</span>
+        <span>progress</span>
+        <span>impact</span>
+        <span style={{ textAlign: 'right' }}>ago</span>
+      </div>
+      {rows.map((r) => {
+        const sel = r.id === selectedId;
+        const agent = agentFromType(r.action_type);
+        const prog = progressFromStatus(r.status);
+        return (
+          <div
+            key={r.id}
+            onClick={() => onSelect(r.id)}
+            style={{
+              padding: '10px 16px',
+              display: 'grid',
+              gridTemplateColumns: '64px 1fr 170px 110px 90px 110px 70px 50px',
+              gap: 10,
+              alignItems: 'center',
+              fontSize: 12,
+              borderBottom: '1px solid var(--line)',
+              background: sel ? 'var(--accent-wash)' : 'transparent',
+              cursor: 'pointer',
+            }}
+          >
+            <span
+              className="lp-mono"
+              style={{
+                fontSize: 11,
+                color: sel ? 'var(--accent-ink)' : 'var(--ink-4)',
+                fontWeight: sel ? 600 : 400,
+              }}
+            >
+              T-{r.id.slice(-6)}
+            </span>
+            <span style={{ color: 'var(--ink-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {r.title}
+            </span>
+            <span style={{ color: 'var(--ink-4)', fontSize: 11.5 }}>
+              {humanizeActionType(r.action_type)}
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 3,
+                  background: agentColor(agent),
+                  color: '#fff',
+                  fontSize: 8,
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontFamily: 'var(--f-mono)',
+                }}
+              >
+                {agent.slice(0, 2).toUpperCase()}
+              </span>
+              <span style={{ fontSize: 11 }}>{agent}</span>
+            </span>
+            <Pill
+              kind={STATUS_PILL[r.status] || 'n'}
+              dot={r.status === 'pending' || r.status === 'approved' || r.status === 'sent'}
+            >
+              {r.status}
+            </Pill>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 60, height: 3, background: 'var(--line-2)', borderRadius: 2, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    width: `${prog * 100}%`,
+                    height: '100%',
+                    background:
+                      r.status === 'failed' || r.status === 'rejected'
+                        ? 'var(--clay)'
+                        : prog === 1
+                          ? 'var(--moss)'
+                          : 'var(--accent)',
+                  }}
+                />
+              </div>
+              <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
+                {Math.round(prog * 100)}%
+              </span>
+            </div>
+            <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+              {r.estimated_impact || '—'}
+            </span>
+            <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)', textAlign: 'right' }}>
+              {timeAgo(r.created_at)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// =============================================================================
+// Detail panel
+// =============================================================================
+
+function TicketDetail({
   action,
   onTransition,
-  clickToSend,
-  lastNarrative,
 }: {
   action: PendingAction;
-  onTransition: (id: string, verb: 'approve' | 'edit' | 'reject' | 'mark_sent', extras?: Record<string, unknown>) => Promise<void>;
-  clickToSend?: { url?: string | null; narrative?: string };
-  lastNarrative?: { actionId: string; narrative: string } | null;
+  onTransition: (id: string, verb: 'approve' | 'reject' | 'mark_sent') => Promise<void>;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [editedPayloadText, setEditedPayloadText] = useState(
-    JSON.stringify(action.payload, null, 2),
-  );
-
-  const statusColor: Record<string, string> = {
-    pending: 'text-amber-400',
-    edited: 'text-blue-400',
-    approved: 'text-emerald-400',
-    rejected: 'text-zinc-500',
-    sent: 'text-emerald-300',
-    failed: 'text-red-400',
-  };
-
+  const agent = agentFromType(action.action_type);
   const canAct = action.status === 'pending' || action.status === 'edited';
-  const awaitingClick = action.status === 'approved' && clickToSend?.url;
-  const narrativeForRow = lastNarrative?.actionId === action.id ? lastNarrative.narrative : null;
-
-  async function handleEdit() {
-    try {
-      const parsed = JSON.parse(editedPayloadText);
-      await onTransition(action.id, 'edit', { edited_payload: parsed });
-      setEditMode(false);
-    } catch (e) {
-      alert(`Payload JSON non valido: ${(e as Error).message}`);
-    }
-  }
+  const awaitingClick = action.status === 'approved';
 
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="text-xs text-zinc-500 uppercase tracking-wider">
-              {action.action_type}
-            </span>
-            <span className={`text-xs ${statusColor[action.status] || 'text-zinc-400'}`}>
-              · {action.status}
-            </span>
-            {action.estimated_impact && (
-              <span className="text-xs text-zinc-500">· impatto {action.estimated_impact}</span>
-            )}
-            <span className="text-xs text-zinc-600">· {formatTs(action.created_at)}</span>
-          </div>
-          <div className="text-sm text-zinc-100 mb-1">{action.title}</div>
-          {action.rationale && (
-            <div className="text-xs text-zinc-400">{action.rationale}</div>
+    <div
+      className="lp-scroll"
+      style={{ borderLeft: '1px solid var(--line)', overflow: 'auto', background: 'var(--surface)' }}
+    >
+      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <Pill kind={STATUS_PILL[action.status] || 'n'} dot>
+            {action.status}
+          </Pill>
+          <Pill kind="n">{agent}</Pill>
+          {action.estimated_impact && (
+            <Pill kind="n">impact · {action.estimated_impact}</Pill>
           )}
         </div>
-        {canAct && !editMode && (
-          <div className="flex gap-2 shrink-0">
-            <button
-              onClick={() => onTransition(action.id, 'approve')}
-              className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"
-              aria-label={`Approva ${action.title}`}
-            >
-              Approva
-            </button>
-            <button
-              onClick={() => setEditMode(true)}
-              className="px-3 py-1.5 text-xs rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
-              aria-label={`Modifica ${action.title}`}
-            >
-              Modifica
-            </button>
-            <button
-              onClick={() => onTransition(action.id, 'reject')}
-              className="px-3 py-1.5 text-xs rounded-lg bg-zinc-900 hover:bg-red-900/40 text-zinc-500 hover:text-red-300 border border-zinc-800"
-              aria-label={`Rifiuta ${action.title}`}
-            >
-              Rifiuta
-            </button>
-          </div>
-        )}
+        <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-4)', marginBottom: 2 }}>
+          T-{action.id.slice(-6)} · {timeAgo(action.created_at)}
+        </div>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, lineHeight: 1.3, letterSpacing: -0.2 }}>
+          {action.title}
+        </h3>
       </div>
 
-      {editMode ? (
-        <div className="mt-3">
-          <textarea
-            value={editedPayloadText}
-            onChange={e => setEditedPayloadText(e.target.value)}
-            rows={10}
-            className="w-full px-3 py-2 text-xs font-mono bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-200 outline-none focus:border-zinc-600 resize-y"
-          />
-          <div className="flex gap-2 mt-2 justify-end">
-            <button
-              onClick={handleEdit}
-              className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
-            >
-              Salva modifica
-            </button>
-            <button
-              onClick={() => { setEditMode(false); setEditedPayloadText(JSON.stringify(action.payload, null, 2)); }}
-              className="px-3 py-1.5 text-xs rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
-            >
-              Annulla
-            </button>
+      {action.rationale && (
+        <SideSection title="Brief">
+          <div style={{ padding: 14, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+            {action.rationale}
           </div>
-        </div>
-      ) : (
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className="mt-3 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-        >
-          {expanded ? '⌃ Nascondi payload' : '⌄ Mostra payload'}
-        </button>
+        </SideSection>
       )}
 
-      {expanded && !editMode && (
-        <pre className="mt-2 text-xs font-mono text-zinc-400 bg-zinc-950 rounded p-3 overflow-x-auto border border-zinc-800">
+      <SideSection title={`Activity · ${buildActivity(action).length} event${buildActivity(action).length === 1 ? '' : 's'}`}>
+        {buildActivity(action).map((e, i) => {
+          const c = { tool: 'var(--sky)', think: 'var(--ink-5)', msg: 'var(--ink-2)', human: 'var(--accent)' }[e.k] || 'var(--ink-3)';
+          return (
+            <div
+              key={i}
+              style={{
+                padding: '9px 14px',
+                borderTop: '1px solid var(--line)',
+                display: 'grid',
+                gridTemplateColumns: '50px 60px 1fr',
+                gap: 8,
+                fontSize: 11.5,
+              }}
+            >
+              <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>{e.t}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 6, height: 6, borderRadius: 3, background: c }} />
+                <span style={{ fontSize: 11 }}>{e.who}</span>
+              </span>
+              <span
+                style={{
+                  color: e.k === 'think' ? 'var(--ink-4)' : 'var(--ink-2)',
+                  fontStyle: e.k === 'think' ? 'italic' : 'normal',
+                  fontFamily: e.k === 'tool' ? 'var(--f-mono)' : 'inherit',
+                }}
+              >
+                {e.m}
+              </span>
+            </div>
+          );
+        })}
+      </SideSection>
+
+      <SideSection title="Payload · preview">
+        <pre
+          style={{
+            margin: 0,
+            padding: 14,
+            fontSize: 10.5,
+            background: 'var(--paper-2)',
+            color: 'var(--ink-3)',
+            fontFamily: 'var(--f-mono)',
+            maxHeight: 300,
+            overflow: 'auto',
+            borderTop: '1px solid var(--line)',
+          }}
+        >
           {JSON.stringify(action.edited_payload || action.payload, null, 2)}
         </pre>
-      )}
+      </SideSection>
 
-      {awaitingClick && (
-        <div className="mt-3 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
-          <div className="text-xs text-blue-300 mb-2">
-            {clickToSend?.narrative || 'Pronto per l\'invio.'}
-          </div>
-          <div className="flex gap-2">
-            <a
-              href={clickToSend!.url!}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
-            >
-              Apri di nuovo ↗
-            </a>
+      <SideSection title="Human actions">
+        <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {canAct && (
             <button
-              onClick={() => onTransition(action.id, 'mark_sent', { result: { target: 'click-to-send', acknowledged_at: new Date().toISOString() } })}
-              className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"
-              aria-label={`Segna come inviato: ${action.title}`}
+              onClick={() => onTransition(action.id, 'approve')}
+              style={{ ...btnGhost, justifyContent: 'flex-start' }}
             >
-              ✓ Segna come inviato
+              <Icon d={I.check} size={12} /> Approve output
             </button>
-          </div>
+          )}
+          {awaitingClick && (
+            <button
+              onClick={() => onTransition(action.id, 'mark_sent')}
+              style={{ ...btnGhost, justifyContent: 'flex-start', color: 'var(--moss)' }}
+            >
+              <Icon d={I.check} size={12} /> Mark as sent
+            </button>
+          )}
+          {canAct && (
+            <button
+              onClick={() => onTransition(action.id, 'reject')}
+              style={{ ...btnGhost, justifyContent: 'flex-start', color: 'oklch(0.55 0.14 20)' }}
+            >
+              <Icon d={I.stop} size={12} /> Cancel
+            </button>
+          )}
+          {!canAct && !awaitingClick && (
+            <div style={{ fontSize: 11, color: 'var(--ink-5)', padding: 8 }}>
+              Terminal state. Nothing to do here.
+            </div>
+          )}
         </div>
-      )}
-
-      {narrativeForRow && (
-        <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-300">
-          {narrativeForRow}
-        </div>
-      )}
+      </SideSection>
     </div>
   );
 }
 
-function EmptyInbox({ filter }: { filter: Filter }) {
-  const messages: Record<Filter, string> = {
-    all: 'Il tuo co-founder non ha ancora niente in coda. Torna dopo le 9 di lunedì.',
-    pending: 'Nessuna decisione in attesa. Il tuo co-founder ha fatto un buon lavoro a restare silente.',
-    edited: 'Nessuna bozza in modifica.',
-    approved: 'Nessuna bozza in coda di invio.',
-    sent: 'Nessuna azione inviata negli ultimi 7 giorni.',
-    rejected: 'Nessuna bozza rifiutata recentemente.',
-  };
+function SideSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-10 text-center">
-      <div className="text-zinc-400 text-sm">{messages[filter]}</div>
+    <div style={{ borderBottom: '1px solid var(--line)' }}>
+      <div
+        style={{
+          padding: '10px 14px',
+          fontSize: 11,
+          fontWeight: 600,
+          color: 'var(--ink-3)',
+          textTransform: 'uppercase',
+          letterSpacing: 0.4,
+          background: 'var(--paper-2)',
+        }}
+      >
+        {title}
+      </div>
+      {children}
     </div>
   );
 }
 
-function formatTs(iso: string): string {
+// =============================================================================
+// Derivation helpers (client-side)
+// =============================================================================
+
+function agentFromType(type: PendingActionType): string {
+  const map: Record<PendingActionType, string> = {
+    draft_email: 'Outreach',
+    draft_linkedin_post: 'Outreach',
+    draft_linkedin_dm: 'Outreach',
+    proposed_hypothesis: 'Analyst',
+    proposed_interview_question: 'Analyst',
+    proposed_landing_copy: 'Designer',
+    proposed_investor_followup: 'Chief',
+    proposed_graph_update: 'Scout',
+  };
+  return map[type] || 'Agent';
+}
+
+function humanizeActionType(type: PendingActionType): string {
+  return type.replace(/_/g, ' ');
+}
+
+function progressFromStatus(status: PendingActionStatus): number {
+  const map: Record<PendingActionStatus, number> = {
+    pending: 0,
+    edited: 0.3,
+    approved: 0.6,
+    sent: 1,
+    rejected: 0,
+    failed: 0.5,
+  };
+  return map[status] ?? 0;
+}
+
+function agentColor(name: string): string {
+  const map: Record<string, string> = {
+    Scout: '#7a8b4a',
+    Chief: '#4a5a7a',
+    Analyst: '#7a5a4a',
+    Outreach: '#7a4a6a',
+    Designer: '#4a7a7a',
+    Agent: '#6b6558',
+  };
+  return map[name] || '#555';
+}
+
+function timeAgo(iso: string): string {
   try {
-    const d = new Date(iso);
-    const now = Date.now();
-    const ageHours = (now - d.getTime()) / (1000 * 60 * 60);
-    if (ageHours < 24) return `${Math.floor(ageHours)}h fa`;
-    if (ageHours < 24 * 7) return `${Math.floor(ageHours / 24)}g fa`;
-    return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+    const ms = Date.now() - new Date(iso).getTime();
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h`;
+    const d = Math.floor(h / 24);
+    return `${d}d`;
   } catch {
-    return iso;
+    return '—';
   }
 }
+
+interface ActivityEvent {
+  t: string;
+  who: string;
+  k: 'tool' | 'think' | 'msg' | 'human';
+  m: string;
+}
+
+function buildActivity(a: PendingAction): ActivityEvent[] {
+  // Synthesize an activity log from what we know about the action. Real
+  // per-event timeline would require a separate audit table (Phase 1).
+  const events: ActivityEvent[] = [];
+  const agent = agentFromType(a.action_type);
+
+  events.push({
+    t: timeAgo(a.created_at),
+    who: agent,
+    k: 'msg',
+    m: `Queued ${humanizeActionType(a.action_type)}`,
+  });
+
+  if (a.edited_payload) {
+    events.push({
+      t: timeAgo(a.updated_at),
+      who: 'Luca',
+      k: 'human',
+      m: 'Edited payload before approval',
+    });
+  }
+
+  if (a.status === 'approved' || a.status === 'sent') {
+    events.push({
+      t: a.executed_at ? timeAgo(a.executed_at) : timeAgo(a.updated_at),
+      who: 'Luca',
+      k: 'human',
+      m: 'Approved',
+    });
+  }
+
+  if (a.status === 'sent') {
+    events.push({
+      t: a.executed_at ? timeAgo(a.executed_at) : timeAgo(a.updated_at),
+      who: agent,
+      k: 'tool',
+      m: 'Executed delivery',
+    });
+  }
+
+  if (a.status === 'rejected') {
+    events.push({
+      t: timeAgo(a.updated_at),
+      who: 'Luca',
+      k: 'human',
+      m: 'Rejected',
+    });
+  }
+
+  return events.reverse();
+}
+
+// =============================================================================
+// Local styles
+// =============================================================================
+
+const btnGhost: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '7px 12px',
+  borderRadius: 'var(--r-m)',
+  background: 'transparent',
+  color: 'var(--ink-2)',
+  border: '1px solid var(--line-2)',
+  cursor: 'pointer',
+  fontSize: 12,
+  fontFamily: 'var(--f-sans)',
+};
