@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
-import { chatJSON } from '@/lib/llm';
+import { chatJSONByTask } from '@/lib/llm';
 import { MILESTONES_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
 import { json, generateId } from '@/lib/api-helpers';
@@ -47,7 +47,7 @@ export async function POST(
       ];
 
       setProgress(task.task_id, 60, 'Processing milestones...');
-      const result = await chatJSON(messages, provider);
+      const result = await chatJSONByTask(messages, 'milestones');
       const r = result;
 
       setProgress(task.task_id, 80, 'Saving milestones...');

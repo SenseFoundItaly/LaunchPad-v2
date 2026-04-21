@@ -59,6 +59,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
   const { stream: piStream, cleanup } = runAgentStream(prompt, {
     systemPrompt,
     timeout: 120000,
+    task: 'monitor-agent',
   });
   const reader = piStream.getReader();
 

@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
-import { chatJSON } from '@/lib/llm';
+import { chatJSONByTask } from '@/lib/llm';
 import { SYNTHESIZE_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
 import { json } from '@/lib/api-helpers';
@@ -38,7 +38,7 @@ export async function POST(
       ];
 
       setProgress(task.task_id, 50, 'Synthesizing learnings...');
-      const result = await chatJSON(messages, provider);
+      const result = await chatJSONByTask(messages, 'growth-synthesize');
       const r = result;
 
       setProgress(task.task_id, 80, 'Saving synthesis...');

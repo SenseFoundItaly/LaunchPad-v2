@@ -61,6 +61,7 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
     const { text: result, usage } = await runAgent(prompt, {
       systemPrompt,
       timeout: 130000,
+      task: 'monitor-agent',
     });
     const latencyMs = Date.now() - startedAt;
 

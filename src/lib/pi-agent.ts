@@ -5,6 +5,7 @@ import type { Message, Usage } from '@mariozechner/pi-ai';
 import { join } from 'path';
 import { mkdirSync, readFileSync, appendFileSync, existsSync } from 'fs';
 import { getTools } from './pi-tools';
+import { pickModel, type TaskLabel } from './llm/router';
 
 const DEFAULT_PROVIDER = (process.env.PI_PROVIDER || 'anthropic') as 'anthropic' | 'openai';
 const DEFAULT_MODEL_ID = process.env.PI_MODEL || (DEFAULT_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
@@ -29,7 +30,19 @@ const SESSIONS_DIR = process.env.LAUNCHPAD_SESSIONS_DIR || join(process.env.HOME
  * (`resolveCacheRetention` + `getCacheControl`).
  */
 
-function resolveModel() {
+/**
+ * Resolve the concrete pi-ai Model object for this call.
+ *
+ * If a `task` label is provided, the router selects the model based on
+ * task-complexity tier (see src/lib/llm/router.ts). Otherwise we fall back
+ * to the globals `PI_PROVIDER` + `PI_MODEL` — preserving the pre-router
+ * behavior for callers that haven't been retrofitted yet.
+ */
+function resolveModel(task?: TaskLabel) {
+  if (task) {
+    const { provider, model } = pickModel(task);
+    return getModel(provider as any, model as any);
+  }
   return getModel(DEFAULT_PROVIDER as any, DEFAULT_MODEL_ID as any);
 }
 
@@ -81,6 +94,12 @@ export interface RunAgentOptions {
   tools?: boolean;
   /** Additional tools to merge in, e.g. project-scoped tools from makeProjectTools(projectId). */
   extraTools?: AgentTool[];
+  /**
+   * Task-complexity label. When set, the router selects the model tier
+   * (cheap/balanced/premium) based on this task rather than reading
+   * PI_PROVIDER + PI_MODEL globals. See src/lib/llm/router.ts.
+   */
+  task?: TaskLabel;
 }
 
 export interface RunAgentResult {
@@ -90,7 +109,7 @@ export interface RunAgentResult {
 
 /** Run Pi Agent and collect full response (non-streaming). */
 export async function runAgent(prompt: string, options: RunAgentOptions = {}): Promise<RunAgentResult> {
-  const model = resolveModel();
+  const model = resolveModel(options.task);
   const agent = new Agent({
     streamFn: streamSimple,
     sessionId: options.sessionId,
@@ -169,7 +188,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
   stream: ReadableStream;
   cleanup: () => void;
 } {
-  const model = resolveModel();
+  const model = resolveModel(options.task);
   const encoder = new TextEncoder();
   let agent: Agent;
 

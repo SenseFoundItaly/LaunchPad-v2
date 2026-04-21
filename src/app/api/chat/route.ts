@@ -104,6 +104,7 @@ export async function POST(request: NextRequest) {
       systemPrompt,
       extraTools: projectTools,
       timeout: 120000,
+      task: 'chat',
     });
 
     // Wrap to add telemetry on completion

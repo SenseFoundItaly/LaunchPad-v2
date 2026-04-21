@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { chatJSON } from '@/lib/llm';
+import { chatJSONByTask } from '@/lib/llm';
 import { SCALING_PLAN_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
 import { json } from '@/lib/api-helpers';
@@ -53,7 +53,7 @@ export async function POST(
       ];
 
       setProgress(task.task_id, 50, 'Building scaling plan...');
-      const result = await chatJSON(messages, provider);
+      const result = await chatJSONByTask(messages, 'scaling-plan');
       const r = result;
 
       setProgress(task.task_id, 90, 'Done.');

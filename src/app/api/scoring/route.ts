@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
-import { chatJSON } from '@/lib/llm';
+import { chatJSONByTask } from '@/lib/llm';
 import { SCORING_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
 import { json, error } from '@/lib/api-helpers';
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       ];
 
       setProgress(task.task_id, 50, 'Running multi-dimensional scoring...');
-      const result = await chatJSON(messages, provider);
+      const result = await chatJSONByTask(messages, 'scoring');
 
       setProgress(task.task_id, 90, 'Saving results...');
       // Upsert scores

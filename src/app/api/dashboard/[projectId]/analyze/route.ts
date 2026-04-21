@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
-import { chatJSON } from '@/lib/llm';
+import { chatJSONByTask } from '@/lib/llm';
 import { ANALYZE_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
 import { json, generateId } from '@/lib/api-helpers';
@@ -44,7 +44,7 @@ export async function POST(
       ];
 
       setProgress(task.task_id, 60, 'Generating health assessment...');
-      const result = await chatJSON(messages, provider);
+      const result = await chatJSONByTask(messages, 'summarize');
       const r = result;
 
       setProgress(task.task_id, 80, 'Updating alerts...');
