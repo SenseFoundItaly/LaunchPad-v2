@@ -4,6 +4,7 @@ import type { ChatMessage as ChatMessageType } from '@/types';
 import type { EntityCard, WorkflowCard } from '@/types/artifacts';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import ArtifactRenderer from './artifacts/ArtifactRenderer';
+import ToolActivityBar from './ToolActivityBar';
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -116,6 +117,9 @@ export default function ChatMessage({
             : 'bg-zinc-800 text-zinc-200 rounded-bl-md'
         }`}
       >
+        {!isUser && message.tools && message.tools.length > 0 && (
+          <ToolActivityBar tools={message.tools} />
+        )}
         {isUser || !segments ? (
           <div className="whitespace-pre-wrap">{message.content}</div>
         ) : (

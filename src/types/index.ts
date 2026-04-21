@@ -106,11 +106,19 @@ export interface WorkflowResult {
   action_items: { task: string; priority: string; timeline: string; owner: string }[];
 }
 
+export interface ToolActivity {
+  id: string;
+  name: string;
+  args?: Record<string, unknown>;
+  status: 'running' | 'done' | 'error';
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  tools?: ToolActivity[];
 }
 
 export interface Task {

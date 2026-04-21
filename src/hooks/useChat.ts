@@ -1,9 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import type { ChatMessage } from '@/types';
-
-// Uses Next.js proxy (rewrites /api/* -> Flask backend)
+import type { ChatMessage, ToolActivity } from '@/types';
 
 export function useChat(projectId: string, step: string = 'chat') {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -32,6 +30,7 @@ export function useChat(projectId: string, step: string = 'chat') {
         role: 'assistant',
         content: '',
         timestamp: new Date().toISOString(),
+        tools: [],
       };
 
       const withAssistant = [...updatedMessages, assistantMsg];
@@ -71,6 +70,7 @@ export function useChat(projectId: string, step: string = 'chat') {
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
         let fullContent = '';
+        let toolsList: ToolActivity[] = [];
 
         if (reader) {
           while (true) {
@@ -84,6 +84,7 @@ export function useChat(projectId: string, step: string = 'chat') {
               if (line.startsWith('data: ')) {
                 try {
                   const parsed = JSON.parse(line.slice(6));
+
                   if (parsed.content) {
                     fullContent += parsed.content;
                     setMessages((prev) => {
@@ -91,10 +92,50 @@ export function useChat(projectId: string, step: string = 'chat') {
                       updated[updated.length - 1] = {
                         ...updated[updated.length - 1],
                         content: fullContent,
+                        tools: toolsList.length > 0 ? [...toolsList] : undefined,
                       };
                       return updated;
                     });
                   }
+
+                  if (parsed.tool_start) {
+                    toolsList = [
+                      ...toolsList.map(t => t.status === 'running' ? { ...t, status: 'done' as const } : t),
+                      {
+                        id: parsed.tool_start.id,
+                        name: parsed.tool_start.name,
+                        args: parsed.tool_start.args,
+                        status: 'running',
+                      },
+                    ];
+                    setMessages((prev) => {
+                      const updated = [...prev];
+                      updated[updated.length - 1] = {
+                        ...updated[updated.length - 1],
+                        content: fullContent,
+                        tools: [...toolsList],
+                      };
+                      return updated;
+                    });
+                  }
+
+                  if (parsed.tool_end) {
+                    toolsList = toolsList.map(t =>
+                      t.id === parsed.tool_end.id
+                        ? { ...t, status: parsed.tool_end.error ? 'error' as const : 'done' as const }
+                        : t
+                    );
+                    setMessages((prev) => {
+                      const updated = [...prev];
+                      updated[updated.length - 1] = {
+                        ...updated[updated.length - 1],
+                        content: fullContent,
+                        tools: [...toolsList],
+                      };
+                      return updated;
+                    });
+                  }
+
                   if (parsed.error) {
                     console.error('Stream error:', parsed.error);
                     setMessages((prev) => {

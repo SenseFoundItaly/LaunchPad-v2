@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server';
-import { spawn } from 'child_process';
 import { query } from '@/lib/db';
 import { chatStream } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
 import { logUsageToSQLite, logToLangfuse } from '@/lib/telemetry';
+import { runAgentStream } from '@/lib/pi-agent';
 
 // Artifact instructions prepended to every message
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
@@ -70,78 +70,42 @@ export async function POST(request: NextRequest) {
   const lastMessage = messages[messages.length - 1]?.content || '';
   const projectContext = `[PROJECT: "${projects[0].name}"${projects[0].description ? ` — ${projects[0].description}` : ''}]\n`;
 
-  // Inject completed skill data when running a skill kickoff
+  // Build system prompt (agent remembers conversation via session persistence)
   const skillContext = buildCompletedSkillContext(project_id, lastMessage);
-  const enrichedMessage = `${ARTIFACT_INSTRUCTIONS}${projectContext}${skillContext}${lastMessage}`;
+  const systemPrompt = `${ARTIFACT_INSTRUCTIONS}${projectContext}${skillContext}`;
   const encoder = new TextEncoder();
 
-  // Try OpenClaw Gateway via CLI (has tools, skills, memory, web access)
-  const useGateway = await isOpenClawAvailable();
+  // Primary: Pi Agent SDK with session persistence
+  const sessionId = `launchpad-${project_id}-${step}`;
+  const piStart = Date.now();
 
-  if (useGateway) {
-    const sessionId = `launchpad-${project_id}-${step}`;
-
-    const gatewayStart = Date.now();
-    let gatewayResponseLen = 0;
-    let gatewayResponseText = '';
-
-    const stream = new ReadableStream({
-      start(controller) {
-        const proc = spawn('openclaw', [
-          'agent',
-          '--agent', 'sonnet',
-          '--session-id', sessionId,
-          '--message', enrichedMessage,
-          '--timeout', '120',
-        ], {
-          env: { ...process.env },
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        proc.stdout.on('data', (chunk: Buffer) => {
-          const text = chunk.toString();
-          if (text.trim()) {
-            gatewayResponseLen += text.length;
-            gatewayResponseText += text;
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: text })}\n\n`));
-          }
-        });
-
-        proc.stderr.on('data', (chunk: Buffer) => {
-          // stderr may have progress info — ignore unless it's an error
-          const text = chunk.toString();
-          if (text.includes('Error') || text.includes('error')) {
-            console.error('openclaw agent stderr:', text);
-          }
-        });
-
-        proc.on('close', (code) => {
-          if (code !== 0) {
-            console.error(`openclaw agent exited with code ${code}`);
-          }
-          // Log gateway call (no token counts from CLI, just latency)
-          const latencyMs = Date.now() - gatewayStart;
-          const usage = { output_tokens: Math.round(gatewayResponseLen / 4) };
-          logUsageToSQLite(project_id, null, step, 'openclaw', 'sonnet', usage, 0, latencyMs);
-          logToLangfuse(
-            { projectId: project_id, step, provider: 'openclaw', model: 'sonnet' },
-            usage, 0, latencyMs,
-            lastMessage.slice(0, 1000),
-            gatewayResponseText.slice(0, 2000),
-          );
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
-          controller.close();
-        });
-
-        proc.on('error', (err) => {
-          console.error('openclaw agent spawn error:', err);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err.message })}\n\n`));
-          controller.close();
-        });
-      },
+  try {
+    const { stream: piStream } = runAgentStream(lastMessage, {
+      sessionId,
+      systemPrompt,
+      timeout: 120000,
     });
 
-    return new Response(stream, {
+    // Wrap to add telemetry on completion
+    const telemetryStream = piStream.pipeThrough(new TransformStream({
+      transform(chunk, controller) {
+        controller.enqueue(chunk);
+      },
+      flush() {
+        const latencyMs = Date.now() - piStart;
+        const piProvider = process.env.PI_PROVIDER || 'anthropic';
+        const piModel = process.env.PI_MODEL || 'claude-sonnet-4-20250514';
+        const usage = { output_tokens: 0 };
+        logUsageToSQLite(project_id, null, step, piProvider, piModel, usage, 0, latencyMs);
+        logToLangfuse(
+          { projectId: project_id, step, provider: piProvider as 'anthropic' | 'openai', model: piModel },
+          usage, 0, latencyMs,
+          lastMessage.slice(0, 1000), '',
+        );
+      },
+    }));
+
+    return new Response(telemetryStream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -149,9 +113,11 @@ export async function POST(request: NextRequest) {
         'X-Accel-Buffering': 'no',
       },
     });
+  } catch (err) {
+    console.error('Pi Agent SDK error, falling back to direct LLM:', err);
   }
 
-  // Fallback: direct LLM (no tools, but works without OpenClaw)
+  // Fallback: direct LLM (works without Pi Agent SDK)
   const fullMessages = buildDirectMessages(project_id, step, messages);
   const directStart = Date.now();
   let directResponseLen = 0;
@@ -194,20 +160,6 @@ export async function POST(request: NextRequest) {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     },
-  });
-}
-
-/** Check if openclaw CLI is available */
-async function isOpenClawAvailable(): Promise<boolean> {
-  return new Promise((resolve) => {
-    try {
-      const proc = spawn('openclaw', ['--version'], { stdio: 'pipe' });
-      proc.on('close', (code) => resolve(code === 0));
-      proc.on('error', () => resolve(false));
-      setTimeout(() => { proc.kill(); resolve(false); }, 2000);
-    } catch {
-      resolve(false);
-    }
   });
 }
 

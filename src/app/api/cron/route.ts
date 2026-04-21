@@ -1,26 +1,13 @@
-import { spawn } from 'child_process';
 import { query, run } from '@/lib/db';
 import { json, generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
+import { runAgent } from '@/lib/pi-agent';
 
 function deriveSeverity(text: string): 'critical' | 'warning' | 'info' {
   const lower = text.toLowerCase();
   if (lower.includes('critical') || lower.includes('urgent') || lower.includes('severe')) return 'critical';
   if (lower.includes('warning') || lower.includes('concern') || lower.includes('risk')) return 'warning';
   return 'info';
-}
-
-function execAgent(prompt: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('openclaw', [
-      'agent', '--agent', 'sonnet', '--message', prompt, '--timeout', '120',
-    ], { env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
-    proc.stdout.on('data', (d: Buffer) => { out += d.toString(); });
-    proc.on('close', () => resolve(out.trim()));
-    proc.on('error', reject);
-    setTimeout(() => { proc.kill(); resolve(out.trim() || 'Timeout'); }, 130000);
-  });
 }
 
 /** GET /api/cron — check and run due monitors */
@@ -54,7 +41,7 @@ export async function GET() {
     const monitorType = (monitor.type as string) || 'monitor';
 
     try {
-      const result = await execAgent(prompt);
+      const { text: result } = await runAgent(prompt, { timeout: 130000 });
       const severity = deriveSeverity(result);
       const runId = generateId('mrun');
       const alertId = generateId('alrt');
