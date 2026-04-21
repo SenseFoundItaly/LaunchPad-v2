@@ -3,10 +3,20 @@ import { v4 as uuid } from 'uuid';
 import { query, run } from '@/lib/db';
 import { json, error, mapProject, generateId } from '@/lib/api-helpers';
 import { seedEcosystemMonitorsForProject } from '@/lib/ecosystem-monitors';
+import { AuthError, requireUser } from '@/lib/auth/require-user';
 
 export async function GET() {
-  const rows = query('SELECT * FROM projects ORDER BY created_at DESC');
-  return json(rows.map(mapProject));
+  try {
+    const { orgId } = await requireUser();
+    const rows = query(
+      'SELECT * FROM projects WHERE org_id = ? ORDER BY created_at DESC',
+      orgId,
+    );
+    return json(rows.map(mapProject));
+  } catch (e) {
+    if (e instanceof AuthError) return json({ error: e.message }, e.status);
+    throw e;
+  }
 }
 
 /**
@@ -39,6 +49,14 @@ function createHealthMonitor(projectId: string, projectName: string) {
 }
 
 export async function POST(request: NextRequest) {
+  let user;
+  try {
+    user = await requireUser();
+  } catch (e) {
+    if (e instanceof AuthError) return json({ error: e.message }, e.status);
+    throw e;
+  }
+
   const body = await request.json();
   if (!body?.name) {return error('Name is required');}
 
@@ -48,14 +66,16 @@ export async function POST(request: NextRequest) {
   const partnerSlug = typeof body.partner_slug === 'string' ? body.partner_slug : null;
 
   run(
-    `INSERT INTO projects (id, name, description, status, current_step, llm_provider, partner_slug, locale, created_at, updated_at)
-     VALUES (?, ?, ?, 'created', 1, ?, ?, ?, ?, ?)`,
+    `INSERT INTO projects (id, name, description, status, current_step, llm_provider, partner_slug, locale, owner_user_id, org_id, created_at, updated_at)
+     VALUES (?, ?, ?, 'created', 1, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     body.name,
     body.description || '',
     body.llm_provider || 'openai',
     partnerSlug,
     locale,
+    user.userId,
+    user.orgId,
     now,
     now,
   );
