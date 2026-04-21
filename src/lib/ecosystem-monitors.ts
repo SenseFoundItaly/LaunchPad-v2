@@ -50,41 +50,67 @@ export interface MonitorPromptContext {
 
 // =============================================================================
 // Prompt templates (EN + IT)
-// The prompt asks the agent to emit a :::artifact{type=ecosystem_alert json}
-// block per finding, so the cron route can parse structured output into
-// ecosystem_alerts rows. The free-text section feeds the Brief narrative.
+// The prompt asks the agent to emit a :::artifact{"type":"ecosystem_alert"}
+// block per finding. The header MUST be valid JSON (not key=value) because
+// src/lib/artifact-parser.ts uses JSON.parse on it. The cron route parses
+// the body JSON into ecosystem_alerts rows; the free-text section feeds the
+// Brief narrative.
 // =============================================================================
 
 const OUTPUT_INSTRUCTIONS_EN = `
 OUTPUT CONTRACT — do not deviate:
 1. Start with a 2-3 sentence narrative summary of what moved this week.
-2. Then emit one :::artifact{type=ecosystem_alert} block per distinct finding.
-   Each block MUST be valid JSON with these fields:
+2. Then emit one artifact block per distinct finding, EXACTLY in this format:
+   :::artifact{"type":"ecosystem_alert"}
+   {
+     "alert_type": "...",
+     "headline": "...",
+     "body": "...",
+     "source_url": "...",
+     "relevance_score": 0.0,
+     "confidence": 0.0,
+     "suggested_action": null
+   }
+   :::
+3. Field rules:
    - alert_type: one of "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event"
    - headline: 1 line, <=120 chars
    - body: 2-4 sentences, factual
    - source_url: direct URL (not a search page)
    - relevance_score: float 0.0-1.0 — how relevant to THIS founder's problem/solution/ICP
    - confidence: float 0.0-1.0 — how confident you are in the finding
-   - suggested_action: one of "draft_email" | "draft_linkedin_post" | "proposed_hypothesis" | "proposed_graph_update" | null
-3. If nothing materially moved, say so explicitly and emit zero artifacts. Do not pad.
-4. Never fabricate URLs. If you cannot verify, omit the finding.
+   - suggested_action: one of "draft_email" | "draft_linkedin_post" | "proposed_hypothesis" | "proposed_graph_update" or null
+4. Both header {"type":"ecosystem_alert"} and body must be VALID JSON — double quotes, no trailing commas.
+5. If nothing materially moved, say so explicitly and emit zero artifacts. Do not pad.
+6. Never fabricate URLs. If you cannot verify, omit the finding.
 `.trim();
 
 const OUTPUT_INSTRUCTIONS_IT = `
 CONTRATTO DI OUTPUT — non deviare:
 1. Inizia con un riassunto narrativo di 2-3 frasi su cosa si è mosso questa settimana.
-2. Poi emetti un blocco :::artifact{type=ecosystem_alert} per ogni finding distinto.
-   Ogni blocco DEVE essere JSON valido con questi campi:
+2. Poi emetti un blocco artifact per ogni finding distinto, ESATTAMENTE in questo formato:
+   :::artifact{"type":"ecosystem_alert"}
+   {
+     "alert_type": "...",
+     "headline": "...",
+     "body": "...",
+     "source_url": "...",
+     "relevance_score": 0.0,
+     "confidence": 0.0,
+     "suggested_action": null
+   }
+   :::
+3. Regole dei campi:
    - alert_type: uno tra "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event"
    - headline: 1 riga, <=120 caratteri
    - body: 2-4 frasi, fattuale
    - source_url: URL diretto (non una pagina di ricerca)
    - relevance_score: float 0.0-1.0 — quanto rilevante per problema/soluzione/ICP di QUESTO founder
    - confidence: float 0.0-1.0 — quanto sei confidente nel finding
-   - suggested_action: uno tra "draft_email" | "draft_linkedin_post" | "proposed_hypothesis" | "proposed_graph_update" | null
-3. Se nulla si è mosso in modo rilevante, dillo esplicitamente ed emetti zero artifact. Non riempire.
-4. Non inventare mai URL. Se non puoi verificare, ometti il finding.
+   - suggested_action: uno tra "draft_email" | "draft_linkedin_post" | "proposed_hypothesis" | "proposed_graph_update" o null
+4. Sia l'header {"type":"ecosystem_alert"} sia il body devono essere JSON VALIDO — virgolette doppie, niente virgole finali.
+5. Se nulla si è mosso in modo rilevante, dillo esplicitamente ed emetti zero artifact. Non riempire.
+6. Non inventare mai URL. Se non puoi verificare, ometti il finding.
 `.trim();
 
 function outputInstructions(locale: 'en' | 'it'): string {

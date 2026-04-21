@@ -1,7 +1,13 @@
+import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
 import { json, generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 import { runAgent } from '@/lib/pi-agent';
+import {
+  extractEcosystemAlerts,
+  persistEcosystemAlerts,
+  type PersistResult,
+} from '@/lib/ecosystem-alert-parser';
 
 function deriveSeverity(text: string): 'critical' | 'warning' | 'info' {
   const lower = text.toLowerCase();
@@ -10,14 +16,130 @@ function deriveSeverity(text: string): 'critical' | 'warning' | 'info' {
   return 'info';
 }
 
+interface MonitorRow {
+  id: string;
+  project_id: string;
+  type: string;
+  name: string;
+  schedule: string;
+  prompt: string | null;
+}
+
+interface MonitorRunOutcome {
+  monitor_id: string;
+  name: string;
+  status: 'completed' | 'failed';
+  alerts_inserted?: number;
+  pending_actions_created?: number;
+  parse_errors?: number;
+}
+
+async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
+  const prompt = monitor.prompt || '';
+  const runId = generateId('mrun');
+  const runAt = new Date().toISOString();
+
+  try {
+    const { text: result } = await runAgent(prompt, { timeout: 130000 });
+
+    run(
+      `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
+       VALUES (?, ?, ?, 'completed', ?, ?, ?)`,
+      runId, monitor.id, monitor.project_id, result, 0, runAt,
+    );
+
+    const nextRun = calculateNextRun(monitor.schedule);
+    run(
+      'UPDATE monitors SET last_run = ?, last_result = ?, next_run = ? WHERE id = ?',
+      runAt, result.slice(0, 2000), nextRun, monitor.id,
+    );
+
+    // Ecosystem monitors emit structured :::artifact{"type":"ecosystem_alert"}
+    // blocks that must be persisted into ecosystem_alerts (not just the alerts
+    // table). Generic monitors fall through to the free-text alert path.
+    let persistResult: PersistResult | null = null;
+    let parseErrors = 0;
+
+    if (monitor.type.startsWith('ecosystem.')) {
+      const { parsed, errors } = extractEcosystemAlerts(result);
+      parseErrors = errors.length;
+      if (errors.length > 0) {
+        console.warn(`[cron] ${monitor.type} produced ${errors.length} unparseable artifact(s) — first reason:`, errors[0].reason);
+      }
+      if (parsed.length > 0) {
+        persistResult = persistEcosystemAlerts(parsed, {
+          projectId: monitor.project_id,
+          monitorId: monitor.id,
+          monitorRunId: runId,
+          autoQueueRelevanceThreshold: 0.8,
+          maxPendingActionsPerRun: 5,
+        });
+        // Update monitor_runs.alerts_generated to reflect structured alerts
+        run(
+          'UPDATE monitor_runs SET alerts_generated = ? WHERE id = ?',
+          persistResult.alerts_inserted, runId,
+        );
+      }
+    }
+
+    // Always produce a founder-facing `alerts` row for dashboard surfacing.
+    // For ecosystem monitors, the severity is derived from whether any
+    // high-relevance findings were surfaced. For generic monitors, fall back
+    // to text-based severity heuristic.
+    const alertId = generateId('alrt');
+    const cleanMessage = result.replace(/:::artifact[\s\S]*?:::/g, '').trim().slice(0, 500);
+    let severity: 'critical' | 'warning' | 'info';
+    if (persistResult && persistResult.pending_actions_created > 0) {
+      severity = 'warning';
+    } else if (persistResult && persistResult.alerts_inserted > 0) {
+      severity = 'info';
+    } else {
+      severity = deriveSeverity(result);
+    }
+
+    run(
+      `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at)
+       VALUES (?, ?, ?, ?, ?, 0, ?)`,
+      alertId, monitor.project_id, monitor.type, severity, cleanMessage || 'Monitor completed', runAt,
+    );
+
+    return {
+      monitor_id: monitor.id,
+      name: monitor.name,
+      status: 'completed',
+      alerts_inserted: persistResult?.alerts_inserted ?? 0,
+      pending_actions_created: persistResult?.pending_actions_created ?? 0,
+      parse_errors: parseErrors,
+    };
+  } catch (err) {
+    run(
+      `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
+       VALUES (?, ?, ?, 'failed', ?, 0, ?)`,
+      runId, monitor.id, monitor.project_id, (err as Error).message.slice(0, 2000), runAt,
+    );
+    return { monitor_id: monitor.id, name: monitor.name, status: 'failed' };
+  }
+}
+
+async function processMonitors(monitors: MonitorRow[]): Promise<MonitorRunOutcome[]> {
+  // Sequential processing keeps ordering deterministic and avoids a thundering
+  // herd against the LLM provider / DB. Phase 1 may parallelize with a worker
+  // pool if throughput becomes an issue at >100 active projects.
+  const results: MonitorRunOutcome[] = [];
+  for (const monitor of monitors) {
+    results.push(await runMonitor(monitor));
+  }
+  return results;
+}
+
 /** GET /api/cron — check and run due monitors */
 export async function GET() {
   const now = new Date().toISOString();
 
   // Find monitors that are due (skip if ran in last 5 minutes to prevent loops)
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-  const due = query<Record<string, unknown>>(
-    `SELECT * FROM monitors WHERE status = 'active'
+  const due = query<MonitorRow>(
+    `SELECT id, project_id, type, name, schedule, prompt FROM monitors WHERE status = 'active'
      AND schedule != 'manual'
      AND (last_run IS NULL OR last_run < ?)
      AND (
@@ -31,47 +153,51 @@ export async function GET() {
     return json({ ran: 0, message: 'No monitors due' });
   }
 
-  const results: { monitor_id: string; name: string; status: string }[] = [];
+  const results = await processMonitors(due);
+  return json({ ran: results.length, results });
+}
 
-  for (const monitor of due) {
-    const monitorId = monitor.id as string;
-    const projectId = monitor.project_id as string;
-    const prompt = (monitor.prompt as string) || '';
-    const schedule = (monitor.schedule as string) || 'weekly';
-    const monitorType = (monitor.type as string) || 'monitor';
+/**
+ * POST /api/cron?force=true
+ * Manual trigger for the Monday scan. Optional body:
+ *   { project_id?: string, type_prefix?: string }
+ * If project_id is given, run only that project's monitors; otherwise all
+ * active monitors regardless of schedule. If type_prefix is "ecosystem.",
+ * run only the ecosystem scan.
+ */
+export async function POST(request: NextRequest) {
+  const url = new URL(request.url);
+  const force = url.searchParams.get('force') === 'true';
 
-    try {
-      const { text: result } = await runAgent(prompt, { timeout: 130000 });
-      const severity = deriveSeverity(result);
-      const runId = generateId('mrun');
-      const alertId = generateId('alrt');
-      const runAt = new Date().toISOString();
+  let body: { project_id?: string; type_prefix?: string } = {};
+  try { body = await request.json(); } catch { /* body is optional */ }
 
-      run(
-        `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
-         VALUES (?, ?, ?, 'completed', ?, 1, ?)`,
-        runId, monitorId, projectId, result, runAt,
-      );
+  const conditions: string[] = [`status = 'active'`];
+  const params: unknown[] = [];
 
-      const nextRun = calculateNextRun(schedule);
-      run(
-        'UPDATE monitors SET last_run = ?, last_result = ?, next_run = ? WHERE id = ?',
-        runAt, result.slice(0, 2000), nextRun, monitorId,
-      );
-
-      // Strip artifact blocks from alert message for clean display
-      const cleanMessage = result.replace(/:::artifact[\s\S]*?:::/g, '').trim().slice(0, 500);
-      run(
-        `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at)
-         VALUES (?, ?, ?, ?, ?, 0, ?)`,
-        alertId, projectId, monitorType, severity, cleanMessage || 'Monitor completed', runAt,
-      );
-
-      results.push({ monitor_id: monitorId, name: monitor.name as string, status: 'completed' });
-    } catch (err) {
-      results.push({ monitor_id: monitorId, name: monitor.name as string, status: 'failed' });
-    }
+  if (body.project_id) {
+    conditions.push('project_id = ?');
+    params.push(body.project_id);
+  }
+  if (body.type_prefix) {
+    conditions.push('type LIKE ?');
+    params.push(`${body.type_prefix}%`);
+  }
+  if (!force) {
+    // Without force, respect the 5-min guard
+    conditions.push(`(last_run IS NULL OR last_run < ?)`);
+    params.push(new Date(Date.now() - 5 * 60 * 1000).toISOString());
   }
 
-  return json({ ran: results.length, results });
+  const monitors = query<MonitorRow>(
+    `SELECT id, project_id, type, name, schedule, prompt FROM monitors WHERE ${conditions.join(' AND ')}`,
+    ...params,
+  );
+
+  if (monitors.length === 0) {
+    return json({ ran: 0, message: 'No monitors matched', forced: force });
+  }
+
+  const results = await processMonitors(monitors);
+  return json({ ran: results.length, forced: force, results });
 }
