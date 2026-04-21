@@ -15,6 +15,7 @@
 import type { Usage } from '@mariozechner/pi-ai';
 import { query, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
+import { logToLangfuse } from '@/lib/telemetry';
 
 export interface RecordUsageInput {
   project_id: string;
@@ -83,6 +84,37 @@ export function recordUsage(input: RecordUsageInput): RecordUsageResult | null {
   const crossedWarn = didCrossWarn(input.project_id, periodMonth, budget, costUsd);
   if (crossedWarn) {
     maybeEmitBudgetWarning(input.project_id, periodMonth, budget);
+  }
+
+  // Mirror the call into Langfuse so cron/manual monitor runs appear in the
+  // same dashboard as chat traces. logToLangfuse lazy-inits the Langfuse
+  // client and silently no-ops when LANGFUSE_SECRET_KEY is absent, so this
+  // is safe to call unconditionally from local-dev or prod.
+  const provider = (input.provider === 'anthropic' || input.provider === 'openai')
+    ? input.provider
+    : 'anthropic';
+  try {
+    logToLangfuse(
+      {
+        projectId: input.project_id,
+        skillId: input.skill_id,
+        step: input.step || 'monitor',
+        provider,
+        model: input.model,
+      },
+      {
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        cache_creation_input_tokens: cacheCreation,
+        cache_read_input_tokens: cacheRead,
+      },
+      costUsd,
+      input.latency_ms ?? 0,
+    );
+  } catch (err) {
+    // Langfuse is best-effort observability; failure must not affect the
+    // primary cost-tracking path.
+    console.warn('cost-meter → Langfuse failed (non-fatal):', (err as Error).message);
   }
 
   return {
