@@ -84,6 +84,13 @@
 .lp-scroll::-webkit-scrollbar-track { background: transparent; }
 .lp-scroll::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }
 
+/* Message hover-reveal action row (Copy, Retry). Parent gets .lp-msg-row,
+ * child pill row gets .lp-msg-actions. Focus-within kept so keyboard users
+ * can tab in and see the actions without a hover. */
+.lp-msg-row:hover .lp-msg-actions,
+.lp-msg-row:focus-within .lp-msg-actions { opacity: 1 !important; }
+.lp-msg-action-btn:hover { background: var(--paper-2) !important; color: var(--ink-2) !important; }
+
 /* tiny icons */
 .lp-ic { width: 14px; height: 14px; stroke: currentColor; stroke-width: 1.25; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 .lp-ic-lg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.25; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }

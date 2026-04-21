@@ -150,6 +150,14 @@ export default function CopilotChatPage({
                   agent="Chief"
                   streaming={m.role === 'assistant' && isStreaming && m === messages[messages.length - 1]}
                   tools={m.tools}
+                  rawContent={m.content}
+                  // Retry only for user messages; disabled while streaming
+                  // to prevent double-sends. Reuses sendMessage so the
+                  // retried turn goes through the same memory-context +
+                  // cost-throttle + skill-tools pipeline as a fresh send.
+                  onRetry={
+                    m.role === 'user' && !isStreaming ? sendMessage : undefined
+                  }
                 >
                   {stripArtifacts(m.content)}
                 </Msg>
@@ -313,16 +321,26 @@ function Msg({
   streaming,
   tools,
   children,
+  rawContent,
+  onRetry,
 }: {
   who: 'user' | 'ai';
   agent: string;
   streaming?: boolean;
   tools?: Array<{ id: string; name: string; status: string }>;
   children: React.ReactNode;
+  /** Raw text for clipboard + retry. User sees `children` (stripped);
+   *  clipboard + retry use the original `rawContent`. */
+  rawContent: string;
+  /** Provided only for user messages to resubmit. Undefined while streaming. */
+  onRetry?: (content: string) => void;
 }) {
   if (who === 'user') {
     return (
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+      <div
+        className="lp-msg-row"
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginBottom: 16 }}
+      >
         <div
           style={{
             maxWidth: '82%',
@@ -337,6 +355,7 @@ function Msg({
         >
           {children}
         </div>
+        <MsgActions content={rawContent} onRetry={onRetry} align="right" />
       </div>
     );
   }
@@ -391,10 +410,114 @@ function Msg({
         </div>
       )}
       <div
+        className="lp-msg-row"
         style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}
       >
         {children}
       </div>
+      {!streaming && <MsgActions content={rawContent} align="left" />}
+    </div>
+  );
+}
+
+/**
+ * Small copy/retry pill row shown under a message bubble.
+ * Hover-reveal only (parent div must have `lp-msg-row` class alongside the
+ * actions — see the .lp-msg-row:hover CSS below).
+ *
+ * - Copy: writes `content` to clipboard, 1.3s "Copied" confirmation.
+ * - Retry: only when onRetry is provided (user messages, not streaming).
+ */
+function MsgActions({
+  content,
+  onRetry,
+  align,
+}: {
+  content: string;
+  onRetry?: (content: string) => void;
+  align: 'left' | 'right';
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1300);
+    } catch {
+      // Older browsers / insecure context — fail silently.
+    }
+  }
+
+  return (
+    <div
+      className="lp-msg-actions"
+      style={{
+        display: 'flex',
+        gap: 4,
+        marginTop: 4,
+        justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
+        opacity: 0,
+        transition: 'opacity 120ms ease',
+      }}
+    >
+      <button
+        type="button"
+        onClick={handleCopy}
+        title={copied ? 'Copied' : 'Copy message'}
+        className="lp-msg-action-btn"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '3px 7px',
+          fontSize: 11,
+          lineHeight: 1,
+          color: 'var(--ink-5)',
+          background: 'transparent',
+          border: '1px solid var(--line)',
+          borderRadius: 6,
+          cursor: 'pointer',
+          fontFamily: 'inherit',
+        }}
+      >
+        {copied ? (
+          <>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            Copied
+          </>
+        ) : (
+          <>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+            Copy
+          </>
+        )}
+      </button>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={() => onRetry(content)}
+          title="Resend this message"
+          className="lp-msg-action-btn"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '3px 7px',
+            fontSize: 11,
+            lineHeight: 1,
+            color: 'var(--ink-5)',
+            background: 'transparent',
+            border: '1px solid var(--line)',
+            borderRadius: 6,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+          }}
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7" /><polyline points="21 3 21 9 15 9" /></svg>
+          Retry
+        </button>
+      )}
     </div>
   );
 }
