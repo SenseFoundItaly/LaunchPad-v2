@@ -1,5 +1,5 @@
 import { Agent } from '@mariozechner/pi-agent-core';
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 import { streamSimple, getModel, getEnvApiKey } from '@mariozechner/pi-ai';
 import type { Message, Usage } from '@mariozechner/pi-ai';
 import { join } from 'path';
@@ -77,7 +77,10 @@ export interface RunAgentOptions {
   sessionId?: string;
   systemPrompt?: string;
   timeout?: number;
+  /** Include the default generic tools (web_search, read_url, calculate). Default true. */
   tools?: boolean;
+  /** Additional tools to merge in, e.g. project-scoped tools from makeProjectTools(projectId). */
+  extraTools?: AgentTool[];
 }
 
 export interface RunAgentResult {
@@ -98,8 +101,12 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
   if (options.systemPrompt) {
     agent.state.systemPrompt = options.systemPrompt;
   }
-  if (options.tools !== false) {
-    agent.state.tools = getTools();
+  // Compose tool set: base generic tools (web_search, read_url, calculate)
+  // plus any project-scoped tools from makeProjectTools(projectId).
+  const baseTools = options.tools !== false ? getTools() : [];
+  const extraTools = options.extraTools || [];
+  if (baseTools.length > 0 || extraTools.length > 0) {
+    agent.state.tools = [...baseTools, ...extraTools];
   }
 
   // Restore conversation history
@@ -181,8 +188,10 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
       if (options.systemPrompt) {
         agent.state.systemPrompt = options.systemPrompt;
       }
-      if (options.tools !== false) {
-        agent.state.tools = getTools();
+      const baseToolsS = options.tools !== false ? getTools() : [];
+      const extraToolsS = options.extraTools || [];
+      if (baseToolsS.length > 0 || extraToolsS.length > 0) {
+        agent.state.tools = [...baseToolsS, ...extraToolsS];
       }
 
       // Restore conversation history

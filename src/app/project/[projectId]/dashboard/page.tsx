@@ -5,6 +5,8 @@ import api from '@/api';
 import { useTaskPolling } from '@/hooks/useTaskPolling';
 import MonitorCard from '@/components/dashboard/MonitorCard';
 import SignalTimeline from '@/components/dashboard/SignalTimeline';
+import DashboardOverviewStrip, { type DashboardOverviewData } from '@/components/dashboard/DashboardOverviewStrip';
+import ProjectChatDrawer from '@/components/chat/ProjectChatDrawer';
 import type {
   MetricDefinition,
   BurnRate,
@@ -39,6 +41,8 @@ export default function DashboardPage({
   const [loading, setLoading] = useState(true);
   const [taskId, setTaskId] = useState<string | null>(null);
   const { task } = useTaskPolling(taskId);
+  // Overview data (ecosystem alerts + pending decisions + budget)
+  const [overview, setOverview] = useState<DashboardOverviewData | null>(null);
 
   // Forms
   const [showMetricForm, setShowMetricForm] = useState(false);
@@ -48,11 +52,24 @@ export default function DashboardPage({
 
   const fetchDashboard = useCallback(async () => {
     try {
-      const { data } = await api.get<ApiResponse<DashboardData>>(`/api/dashboard/${projectId}`);
+      // The dashboard endpoint now returns operational data (metrics/burn/alerts/
+      // monitors) AND the new ecosystem + inbox + budget overview. Typed loosely
+      // here since the server payload is a superset of DashboardData.
+      const { data } = await api.get<ApiResponse<DashboardData & Partial<DashboardOverviewData>>>(`/api/dashboard/${projectId}`);
       if (data.data) {
         setMetrics(data.data.metrics || []);
         setBurnRate(data.data.burn_rate || null);
         setAlerts(data.data.alerts || []);
+        // Populate the overview strip if the payload includes it
+        if (data.data.top_ecosystem_alerts !== undefined) {
+          setOverview({
+            top_ecosystem_alerts: data.data.top_ecosystem_alerts || [],
+            pending_decisions: data.data.pending_decisions || [],
+            pending_summary: data.data.pending_summary || { pending: 0, edited: 0, approved: 0, sent_7d: 0 },
+            budget: data.data.budget || { current_llm_usd: 0, warn_llm_usd: 0.24, cap_llm_usd: 0.30, status: 'active' },
+            period_month: data.data.period_month || new Date().toISOString().slice(0, 7),
+          });
+        }
       }
     } catch {
       // Dashboard may not exist yet
@@ -60,6 +77,30 @@ export default function DashboardPage({
       setLoading(false);
     }
   }, [projectId]);
+
+  // Approve a pending action directly from the dashboard strip. Delegates to
+  // the transition endpoint which runs the executor and (for click-to-send)
+  // returns a URL we open in a new tab.
+  const handleApproveFromStrip = useCallback(async (actionId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/actions/${actionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transition: 'approve' }),
+      });
+      const body = await res.json();
+      if (!body.success) throw new Error(body.error || 'approve failed');
+      const deliverable = body.data?.deliverable;
+      if (deliverable?.mode === 'click-to-send' && deliverable.url) {
+        window.open(deliverable.url, '_blank', 'noopener,noreferrer');
+      }
+      // Refresh the dashboard so the approved action disappears from the
+      // strip (or shifts to "awaiting click" for click-to-send types).
+      await fetchDashboard();
+    } catch (err) {
+      console.error('Approve failed:', err);
+    }
+  }, [projectId, fetchDashboard]);
 
   const fetchAnalysis = useCallback(async () => {
     try {
@@ -217,6 +258,18 @@ export default function DashboardPage({
             </button>
           </div>
         </div>
+
+        {/* Ecosystem + Pending Decisions + Budget strip
+            Sits above the operational metrics so the founder sees autonomous
+            co-founder output (what moved, what needs approval, spend) before
+            the manual metric-entry block. */}
+        {overview && (
+          <DashboardOverviewStrip
+            projectId={projectId}
+            data={overview}
+            onApprove={handleApproveFromStrip}
+          />
+        )}
 
         {/* Task Progress */}
         {isRunning && (
@@ -548,6 +601,9 @@ export default function DashboardPage({
           </div>
         )}
       </div>
+
+      {/* Floating chat drawer — "Ask your co-founder" with project-scoped tools */}
+      <ProjectChatDrawer projectId={projectId} />
     </div>
   );
 }

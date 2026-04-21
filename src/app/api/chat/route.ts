@@ -5,6 +5,7 @@ import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
 import { logUsageToSQLite, logToLangfuse } from '@/lib/telemetry';
 import { runAgentStream } from '@/lib/pi-agent';
 import { buildSystemPromptString, resolveProjectLocale } from '@/lib/agent-prompt';
+import { makeProjectTools } from '@/lib/project-tools';
 
 // Artifact instructions prepended to every message
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
@@ -91,9 +92,17 @@ export async function POST(request: NextRequest) {
   const piStart = Date.now();
 
   try {
+    // Project-scoped tools let the chat agent answer from THIS project's data
+    // (ecosystem_alerts, pending_actions, graph_nodes, metrics, idea_canvas)
+    // and queue its own drafts into the approval inbox. The factory closes
+    // over project_id so the agent cannot accidentally read or write another
+    // project's rows.
+    const projectTools = makeProjectTools(project_id);
+
     const { stream: piStream } = runAgentStream(lastMessage, {
       sessionId,
       systemPrompt,
+      extraTools: projectTools,
       timeout: 120000,
     });
 
