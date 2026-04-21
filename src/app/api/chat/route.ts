@@ -12,6 +12,8 @@ import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import type { FactArtifact } from '@/types/artifacts';
+import { isProjectCapped } from '@/lib/cost-meter';
+import { getSkillTools } from '@/lib/skill-tools';
 
 // Artifact instructions prepended to every message
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
@@ -96,6 +98,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Cost-aware throttle: if this project has hit its monthly LLM cap
+  // (or an admin has flipped status=capped), refuse before spending.
+  // Critical safety rail because skills auto-invocation (below) can fan
+  // out a single chat turn into multiple LLM calls.
+  const capStatus = isProjectCapped(project_id);
+  if (capStatus.capped) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: 'budget_exceeded',
+        current_usd: capStatus.currentUsd,
+        cap_usd: capStatus.capUsd,
+        period_month: capStatus.periodMonth,
+      }),
+      { status: 429, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   const lastMessage = messages[messages.length - 1]?.content || '';
   const projectContext = `[PROJECT: "${projects[0].name}"${projects[0].description ? ` — ${projects[0].description}` : ''}]\n`;
 
@@ -133,10 +153,17 @@ export async function POST(request: NextRequest) {
     // project's rows.
     const projectTools = makeProjectTools(project_id);
 
+    // Skill tools — auto-invocation enabled per plan decision. The agent
+    // can decide mid-turn to invoke e.g. skill_market_research when the user
+    // asks about competitors. One-level-deep (skills can't invoke skills).
+    // Cost safety rail: the throttle above refuses if the project crosses
+    // its monthly cap, so runaway chains cap themselves.
+    const skillTools = getSkillTools({ userId, projectId: project_id });
+
     const { stream: piStream } = runAgentStream(lastMessage, {
       sessionId,
       systemPrompt,
-      extraTools: projectTools,
+      extraTools: [...projectTools, ...skillTools],
       timeout: 120000,
       task: 'chat',
     });

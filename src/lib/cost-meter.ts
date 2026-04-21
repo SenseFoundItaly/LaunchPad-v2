@@ -136,6 +136,88 @@ function currentPeriodMonth(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/**
+ * Structured error thrown when a project has exceeded its monthly LLM budget.
+ * Callers should catch and return HTTP 429 with the cost snapshot so the UI
+ * can render a friendly "over budget" state instead of an opaque 500.
+ */
+export class BudgetExceededError extends Error {
+  constructor(
+    public readonly projectId: string,
+    public readonly currentUsd: number,
+    public readonly capUsd: number,
+    public readonly periodMonth: string,
+  ) {
+    super(
+      `Project ${projectId} exceeded monthly LLM budget: $${currentUsd.toFixed(4)} >= $${capUsd.toFixed(2)} for ${periodMonth}`,
+    );
+    this.name = 'BudgetExceededError';
+  }
+}
+
+/**
+ * Is this project over its monthly LLM cap, or manually set to 'capped' status?
+ *
+ * Returns an object with the cap state so callers can render an informative
+ * error. Returns {capped: false} if no budget row exists yet (first-ever call
+ * for this project this month — cap not binding).
+ *
+ * This is the Phase-1 hard-block gate. Phase 0 used only observe + warn.
+ */
+export function isProjectCapped(projectId: string): {
+  capped: boolean;
+  currentUsd: number;
+  capUsd: number;
+  periodMonth: string;
+} {
+  const periodMonth = currentPeriodMonth();
+  const row = query<{
+    current_llm_usd: number;
+    cap_llm_usd: number;
+    status: string;
+  }>(
+    `SELECT current_llm_usd, cap_llm_usd, status
+     FROM project_budgets
+     WHERE project_id = ? AND period_month = ?`,
+    projectId,
+    periodMonth,
+  )[0];
+
+  if (!row) {
+    // No budget row yet this month — not capped.
+    return { capped: false, currentUsd: 0, capUsd: 0, periodMonth };
+  }
+
+  const capped = row.status === 'capped' || row.current_llm_usd >= row.cap_llm_usd;
+  return {
+    capped,
+    currentUsd: row.current_llm_usd,
+    capUsd: row.cap_llm_usd,
+    periodMonth,
+  };
+}
+
+/**
+ * Throws BudgetExceededError if the project is capped. Convenience wrapper
+ * for call sites that want a single-line guard. Pass bypassBudget=true to
+ * skip the check (admin / system tasks).
+ */
+export function enforceBudget(
+  projectId: string,
+  bypassBudget = false,
+): void {
+  if (bypassBudget) return;
+  const status = isProjectCapped(projectId);
+  if (status.capped) {
+    throw new BudgetExceededError(
+      projectId,
+      status.currentUsd,
+      status.capUsd,
+      status.periodMonth,
+    );
+  }
+}
+
 interface BudgetSnapshot {
   id: string;
   current_llm_usd: number;

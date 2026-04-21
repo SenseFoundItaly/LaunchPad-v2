@@ -3,9 +3,10 @@ import { query, run } from '@/lib/db';
 import { json, generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 import { runAgent } from '@/lib/pi-agent';
-import { recordUsage } from '@/lib/cost-meter';
+import { recordUsage, isProjectCapped } from '@/lib/cost-meter';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { recordEvent } from '@/lib/memory/events';
+import { buildMemoryContext } from '@/lib/memory/context';
 import {
   extractEcosystemAlerts,
   persistEcosystemAlerts,
@@ -34,7 +35,7 @@ interface MonitorRow {
 interface MonitorRunOutcome {
   monitor_id: string;
   name: string;
-  status: 'completed' | 'failed';
+  status: 'completed' | 'failed' | 'skipped_budget';
   alerts_inserted?: number;
   pending_actions_created?: number;
   parse_errors?: number;
@@ -44,6 +45,24 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
   const prompt = monitor.prompt || '';
   const runId = generateId('mrun');
   const runAt = new Date().toISOString();
+
+  // Cost gate: autonomous cron runs are the #1 way a runaway project chews
+  // through its monthly budget. Skip the monitor when the project is over
+  // its cap so the overage doesn't grow unboundedly.
+  const capStatus = isProjectCapped(monitor.project_id);
+  if (capStatus.capped) {
+    run(
+      `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
+       VALUES (?, ?, ?, 'skipped_budget', ?, 0, ?)`,
+      runId, monitor.id, monitor.project_id,
+      `Skipped: project at $${capStatus.currentUsd.toFixed(4)} / $${capStatus.capUsd.toFixed(2)} for ${capStatus.periodMonth}`,
+      runAt,
+    );
+    // Bump next_run so we don't just immediately retry on the next cron tick.
+    const nextRun = calculateNextRun(monitor.schedule);
+    run('UPDATE monitors SET last_run = ?, next_run = ? WHERE id = ?', runAt, nextRun, monitor.id);
+    return { monitor_id: monitor.id, name: monitor.name, status: 'skipped_budget' };
+  }
 
   // Resolve the project's locale so monitors running for Italian projects
   // get the Italian SOUL + AGENTS + HEARTBEAT in their system prompt.
@@ -200,7 +219,7 @@ async function processMonitors(monitors: MonitorRow[]): Promise<MonitorRunOutcom
   return results;
 }
 
-/** GET /api/cron — check and run due monitors */
+/** GET /api/cron — check and run due monitors, then heartbeat reflections. */
 export async function GET() {
   const now = new Date().toISOString();
 
@@ -217,12 +236,145 @@ export async function GET() {
     fiveMinAgo, now,
   );
 
-  if (due.length === 0) {
-    return json({ ran: 0, message: 'No monitors due' });
+  const monitorResults = due.length > 0 ? await processMonitors(due) : [];
+
+  // Heartbeat reflections — once per project per 24h. Piggybacks on the same
+  // cron endpoint; cheap to poll because the "has reflected today" check is
+  // a single indexed query on memory_events.
+  const heartbeatResults = await processHeartbeats();
+
+  return json({
+    monitors_ran: monitorResults.length,
+    monitor_results: monitorResults,
+    heartbeats_ran: heartbeatResults.length,
+    heartbeat_results: heartbeatResults,
+  });
+}
+
+interface HeartbeatResult {
+  project_id: string;
+  project_name: string;
+  status: 'completed' | 'failed' | 'skipped_budget' | 'skipped_already_ran';
+  summary_preview?: string;
+}
+
+/**
+ * For each active project with an owner_user_id, run a HEARTBEAT reflection
+ * unless one was already recorded in the last 24 hours. The agent loads the
+ * project's memory context + pending actions + ecosystem alerts and produces
+ * a short reflection that gets written as a memory_event. Cost-gated.
+ */
+async function processHeartbeats(): Promise<HeartbeatResult[]> {
+  const results: HeartbeatResult[] = [];
+
+  const projects = query<{
+    id: string; name: string; owner_user_id: string | null; locale: string | null;
+  }>(
+    `SELECT p.id, p.name, p.owner_user_id, p.locale
+     FROM projects p
+     WHERE p.owner_user_id IS NOT NULL
+       AND p.status != 'archived'`,
+  );
+
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  for (const project of projects) {
+    if (!project.owner_user_id) continue;
+
+    // Skip if a heartbeat has already fired in the last 24h.
+    const recent = query<{ id: string }>(
+      `SELECT id FROM memory_events
+       WHERE user_id = ? AND project_id = ?
+         AND event_type = 'heartbeat_reflection'
+         AND created_at >= ?
+       LIMIT 1`,
+      project.owner_user_id, project.id, twentyFourHoursAgo,
+    );
+    if (recent.length > 0) {
+      results.push({ project_id: project.id, project_name: project.name, status: 'skipped_already_ran' });
+      continue;
+    }
+
+    // Cost gate.
+    const capStatus = isProjectCapped(project.id);
+    if (capStatus.capped) {
+      results.push({ project_id: project.id, project_name: project.name, status: 'skipped_budget' });
+      continue;
+    }
+
+    try {
+      // Compose the heartbeat prompt: HEARTBEAT.md describes the 6-step
+      // reflection. Memory context + pending + alerts give the agent the
+      // facts it needs without burning tokens on re-fetching everything.
+      const memCtx = buildMemoryContext(project.owner_user_id, project.id, { maxEvents: 30 });
+      const pending = query<{ id: string; title: string; status: string; created_at: string }>(
+        `SELECT id, title, status, created_at FROM pending_actions
+         WHERE project_id = ? AND status = 'pending'
+         ORDER BY created_at DESC LIMIT 10`,
+        project.id,
+      );
+      const alerts = query<{ headline: string; relevance_score: number; created_at: string }>(
+        `SELECT headline, relevance_score, created_at FROM ecosystem_alerts
+         WHERE project_id = ? AND reviewed_state = 'pending'
+         ORDER BY relevance_score DESC LIMIT 10`,
+        project.id,
+      );
+
+      const locale = project.locale === 'it' ? 'it' : 'en';
+      const systemPrompt = buildSystemPromptString({
+        locale,
+        context: 'cron',
+        tail: 'You are running the daily HEARTBEAT reflection. Produce a concise (120-250 word) summary of: (1) what changed in the last 24h, (2) what the founder should prioritize today, (3) any risks the approval inbox is surfacing. NO emoji. Plain text. End with one explicit "next action" suggestion.',
+        projectContext: `${memCtx}\n\n## Pending actions\n${pending.map((p) => `- [${p.status}] ${p.title}`).join('\n') || '(none)'}\n\n## Ecosystem alerts (unreviewed)\n${alerts.map((a) => `- ${a.relevance_score.toFixed(2)}  ${a.headline}`).join('\n') || '(none)'}`,
+      });
+
+      const startedAt = Date.now();
+      const { text: reflection, usage } = await runAgent(
+        'Run the heartbeat reflection for this project.',
+        { systemPrompt, timeout: 90000, task: 'heartbeat-reflect' },
+      );
+      const latencyMs = Date.now() - startedAt;
+
+      // Record usage so the reflection cost counts toward budget.
+      try {
+        recordUsage({
+          project_id: project.id,
+          skill_id: 'heartbeat',
+          step: 'daily_reflection',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-6',
+          usage,
+          latency_ms: latencyMs,
+        });
+      } catch (err) {
+        console.warn('[heartbeat] recordUsage failed:', (err as Error).message);
+      }
+
+      recordEvent({
+        userId: project.owner_user_id,
+        projectId: project.id,
+        eventType: 'heartbeat_reflection',
+        payload: {
+          summary: reflection.slice(0, 800),
+          pending_count: pending.length,
+          alerts_count: alerts.length,
+          latency_ms: latencyMs,
+        },
+      });
+
+      results.push({
+        project_id: project.id,
+        project_name: project.name,
+        status: 'completed',
+        summary_preview: reflection.slice(0, 140),
+      });
+    } catch (err) {
+      console.warn(`[heartbeat] project ${project.id} failed:`, (err as Error).message);
+      results.push({ project_id: project.id, project_name: project.name, status: 'failed' });
+    }
   }
 
-  const results = await processMonitors(due);
-  return json({ ran: results.length, results });
+  return results;
 }
 
 /**
