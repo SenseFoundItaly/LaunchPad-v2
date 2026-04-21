@@ -8,6 +8,7 @@ import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { recordEvent } from '@/lib/memory/events';
 import { buildMemoryContext } from '@/lib/memory/context';
 import { sendBrief } from '@/lib/email';
+import { pickModel } from '@/lib/llm/router';
 import {
   extractEcosystemAlerts,
   persistEcosystemAlerts,
@@ -337,13 +338,16 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
       const latencyMs = Date.now() - startedAt;
 
       // Record usage so the reflection cost counts toward budget.
+      // Resolve the real provider+model from the router so the logged slug
+      // matches what was actually called (Anthropic direct or OpenRouter).
       try {
+        const { provider, model } = pickModel('heartbeat-reflect');
         recordUsage({
           project_id: project.id,
           skill_id: 'heartbeat',
           step: 'daily_reflection',
-          provider: 'anthropic',
-          model: 'claude-sonnet-4-6',
+          provider,
+          model,
           usage,
           latency_ms: latencyMs,
         });

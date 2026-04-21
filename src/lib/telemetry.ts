@@ -26,7 +26,8 @@ export interface TelemetryContext {
   projectId: string;
   skillId?: string;
   step?: string;
-  provider: 'anthropic' | 'openai' | 'openclaw';
+  // 'openclaw' kept for backward compat with any legacy rows.
+  provider: 'anthropic' | 'openai' | 'openclaw' | 'openrouter';
   model?: string;
 }
 
@@ -113,11 +114,18 @@ const PRICING: Record<string, {
   'claude-sonnet-4-20250514': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
   'claude-sonnet-4': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
 
-  // Claude 4.X — tier models selected by router.ts
+  // Claude 4.X via direct Anthropic — tier models selected by router.ts
   'claude-haiku-4-5-20251001':  { input: 0.80, output: 4,  cacheWrite: 1.00, cacheRead: 0.08 },
   'claude-haiku-4-5':           { input: 0.80, output: 4,  cacheWrite: 1.00, cacheRead: 0.08 },
   'claude-sonnet-4-6':          { input: 3,    output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
   'claude-opus-4-7':            { input: 5,    output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
+
+  // Same models via OpenRouter — slugs are namespaced. Passthrough pricing
+  // at provider cost; any OpenRouter markup shows up on the invoice, not
+  // in these per-call numbers.
+  'anthropic/claude-haiku-4.5':  { input: 0.80, output: 4,  cacheWrite: 1.00, cacheRead: 0.08 },
+  'anthropic/claude-sonnet-4.6': { input: 3,    output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
+  'anthropic/claude-opus-4.7':   { input: 5,    output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
 
   // OpenAI fallback models
   'gpt-4o':      { input: 2.50, output: 10 },

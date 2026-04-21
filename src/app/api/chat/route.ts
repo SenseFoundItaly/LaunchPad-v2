@@ -15,6 +15,7 @@ import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
 import { isProjectCapped } from '@/lib/cost-meter';
 import { getSkillTools } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
+import { pickModel } from '@/lib/llm/router';
 
 // Artifact instructions prepended to every message
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
@@ -202,12 +203,16 @@ export async function POST(request: NextRequest) {
       },
       flush() {
         const latencyMs = Date.now() - piStart;
-        const piProvider = process.env.PI_PROVIDER || 'anthropic';
-        const piModel = process.env.PI_MODEL || 'claude-sonnet-4-20250514';
+        // Pull the actual provider+model from the router so the logged slug
+        // reflects reality (direct Anthropic vs OpenRouter). Falls back to
+        // PI_PROVIDER/PI_MODEL env vars for call sites without a task label.
+        const picked = pickModel('chat');
+        const piProvider = picked.provider;
+        const piModel = picked.model;
         const usage = { output_tokens: 0 };
         logUsageToSQLite(project_id, null, step, piProvider, piModel, usage, 0, latencyMs);
         logToLangfuse(
-          { projectId: project_id, step, provider: piProvider as 'anthropic' | 'openai', model: piModel },
+          { projectId: project_id, step, provider: piProvider as 'anthropic' | 'openai' | 'openrouter', model: piModel },
           usage, 0, latencyMs,
           lastMessage.slice(0, 1000), '',
         );

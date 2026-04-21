@@ -38,18 +38,33 @@ export type TaskLabel =
   | 'skill-invoke';      // agent invoking a registered skill as a tool
 
 type ResolvedModel = {
-  provider: 'anthropic';
+  provider: 'anthropic' | 'openrouter';
   model: string;
   tier: ModelTier;
 };
 
-// Concrete model IDs per tier. Kept in one place so they're easy to swap
-// when new Claude generations ship.
-const TIER_MODELS: Record<ModelTier, { provider: 'anthropic'; model: string }> = {
-  cheap:    { provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
-  balanced: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
-  premium:  { provider: 'anthropic', model: 'claude-opus-4-7' },
-};
+// Provider selection:
+//   - OPENROUTER_API_KEY set → route via OpenRouter (single gateway, single
+//     invoice, fallback between providers). Model slugs use OpenRouter's
+//     namespaced format (e.g. "anthropic/claude-sonnet-4.6").
+//   - otherwise → direct Anthropic. Requires ANTHROPIC_API_KEY.
+//
+// The tier map is flipped at module load time, not per-call. Swapping
+// providers is a server restart, not a hot path decision.
+const USE_OPENROUTER = Boolean(process.env.OPENROUTER_API_KEY);
+
+const TIER_MODELS: Record<ModelTier, { provider: 'anthropic' | 'openrouter'; model: string }> =
+  USE_OPENROUTER
+    ? {
+        cheap:    { provider: 'openrouter', model: 'anthropic/claude-haiku-4.5' },
+        balanced: { provider: 'openrouter', model: 'anthropic/claude-sonnet-4.6' },
+        premium:  { provider: 'openrouter', model: 'anthropic/claude-opus-4.7' },
+      }
+    : {
+        cheap:    { provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
+        balanced: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+        premium:  { provider: 'anthropic', model: 'claude-opus-4-7' },
+      };
 
 // Default task -> tier. Anything not listed falls through to `balanced`.
 // Conservative routing confirmed with user: only obvious wins move off balanced.
