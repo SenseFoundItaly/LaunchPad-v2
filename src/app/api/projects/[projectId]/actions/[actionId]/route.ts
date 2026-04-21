@@ -9,6 +9,7 @@ import {
   markActionFailed,
   InvalidTransitionError,
 } from '@/lib/pending-actions';
+import { executeApprovedAction } from '@/lib/action-executors';
 
 /**
  * GET /api/projects/{projectId}/actions/{actionId}
@@ -50,9 +51,35 @@ export async function POST(
   try {
     let updated;
     switch (transition) {
-      case 'approve':
+      case 'approve': {
+        // 1. Transition pending/edited → approved
         updated = approvePendingAction(actionId);
-        break;
+
+        // 2. Dispatch to the type-specific handler. Structured handlers
+        //    ("direct") write a row to a domain table and we chain straight
+        //    to 'sent'. Click-to-send handlers return a URL and we stay at
+        //    'approved' until the founder confirms the click via a
+        //    follow-up mark_sent call. Outbox handlers (no URL, no direct
+        //    write) we also chain to 'sent' since the founder's
+        //    "approve" click IS the acknowledgment.
+        const result = await executeApprovedAction(updated);
+        if (!result.ok) {
+          updated = markActionFailed(actionId, result.error || 'Handler returned not-ok');
+          return json({ ...updated, deliverable: null, execution_error: result.error });
+        }
+
+        const mode = result.deliverable?.mode;
+        if (mode === 'direct' || mode === 'outbox') {
+          updated = markActionSent(actionId, {
+            target: mode,
+            external_id: result.deliverable?.created_row_id,
+            response: result.deliverable?.narrative,
+          });
+        }
+        // For 'click-to-send', status stays 'approved' — UI shows the URL
+        // and a "Mark as sent" button the founder hits after clicking.
+        return json({ ...updated, deliverable: result.deliverable });
+      }
       case 'edit':
         if (!body.edited_payload || typeof body.edited_payload !== 'object') {
           return error('edited_payload must be an object');

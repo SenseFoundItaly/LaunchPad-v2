@@ -48,6 +48,10 @@ export default function ApprovalInboxPage({
   const [filter, setFilter] = useState<Filter>('pending');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Tracks click-to-send deliverables per action id so the row can render
+  // a persistent "Open again" / "Mark as sent" pair after approval.
+  const [clickToSend, setClickToSend] = useState<Record<string, { url?: string | null; narrative?: string }>>({});
+  const [lastNarrative, setLastNarrative] = useState<{ actionId: string; narrative: string } | null>(null);
 
   const fetchInbox = useCallback(async () => {
     setLoading(true);
@@ -69,7 +73,7 @@ export default function ApprovalInboxPage({
 
   useEffect(() => { fetchInbox(); }, [fetchInbox]);
 
-  async function transition(actionId: string, verb: 'approve' | 'edit' | 'reject', extras: Record<string, unknown> = {}) {
+  async function transition(actionId: string, verb: 'approve' | 'edit' | 'reject' | 'mark_sent', extras: Record<string, unknown> = {}) {
     try {
       const res = await fetch(`/api/projects/${projectId}/actions/${actionId}`, {
         method: 'POST',
@@ -78,6 +82,17 @@ export default function ApprovalInboxPage({
       });
       const body = await res.json();
       if (!body.success) throw new Error(body.error || `${verb} failed`);
+
+      // If approve returned a click-to-send deliverable, open the link in
+      // a new tab and stash it so the UI shows the Mark-as-sent confirmation.
+      const deliverable = body.data?.deliverable;
+      if (deliverable?.mode === 'click-to-send' && deliverable.url) {
+        setClickToSend(prev => ({ ...prev, [actionId]: { url: deliverable.url, narrative: deliverable.narrative } }));
+        window.open(deliverable.url, '_blank', 'noopener,noreferrer');
+      } else if (deliverable?.narrative) {
+        // direct/outbox — show the narrative as a transient success toast
+        setLastNarrative({ actionId, narrative: deliverable.narrative });
+      }
       await fetchInbox();
     } catch (e) {
       setError((e as Error).message);
@@ -129,7 +144,13 @@ export default function ApprovalInboxPage({
         ) : (
           <div className="space-y-3">
             {actions.map(action => (
-              <ActionRow key={action.id} action={action} onTransition={transition} />
+              <ActionRow
+                key={action.id}
+                action={action}
+                onTransition={transition}
+                clickToSend={clickToSend[action.id]}
+                lastNarrative={lastNarrative}
+              />
             ))}
           </div>
         )}
@@ -172,9 +193,13 @@ function filterCount(filter: Filter, summary: InboxSummary): number {
 function ActionRow({
   action,
   onTransition,
+  clickToSend,
+  lastNarrative,
 }: {
   action: PendingAction;
-  onTransition: (id: string, verb: 'approve' | 'edit' | 'reject', extras?: Record<string, unknown>) => Promise<void>;
+  onTransition: (id: string, verb: 'approve' | 'edit' | 'reject' | 'mark_sent', extras?: Record<string, unknown>) => Promise<void>;
+  clickToSend?: { url?: string | null; narrative?: string };
+  lastNarrative?: { actionId: string; narrative: string } | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -192,6 +217,8 @@ function ActionRow({
   };
 
   const canAct = action.status === 'pending' || action.status === 'edited';
+  const awaitingClick = action.status === 'approved' && clickToSend?.url;
+  const narrativeForRow = lastNarrative?.actionId === action.id ? lastNarrative.narrative : null;
 
   async function handleEdit() {
     try {
@@ -287,6 +314,37 @@ function ActionRow({
         <pre className="mt-2 text-xs font-mono text-zinc-400 bg-zinc-950 rounded p-3 overflow-x-auto border border-zinc-800">
           {JSON.stringify(action.edited_payload || action.payload, null, 2)}
         </pre>
+      )}
+
+      {awaitingClick && (
+        <div className="mt-3 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+          <div className="text-xs text-blue-300 mb-2">
+            {clickToSend?.narrative || 'Pronto per l\'invio.'}
+          </div>
+          <div className="flex gap-2">
+            <a
+              href={clickToSend!.url!}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+            >
+              Apri di nuovo ↗
+            </a>
+            <button
+              onClick={() => onTransition(action.id, 'mark_sent', { result: { target: 'click-to-send', acknowledged_at: new Date().toISOString() } })}
+              className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"
+              aria-label={`Segna come inviato: ${action.title}`}
+            >
+              ✓ Segna come inviato
+            </button>
+          </div>
+        </div>
+      )}
+
+      {narrativeForRow && (
+        <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-300">
+          {narrativeForRow}
+        </div>
       )}
     </div>
   );
