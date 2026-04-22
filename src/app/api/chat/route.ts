@@ -18,6 +18,7 @@ import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
 import { pickModel } from '@/lib/llm/router';
 import { rankSkillsForQuery } from '@/lib/skill-relevance';
+import { persistArtifact } from '@/lib/artifact-persistence';
 
 // Artifact instructions prepended to every message
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
@@ -318,6 +319,15 @@ export async function POST(request: NextRequest) {
                 artifact: seg.artifact as WorkflowCard,
                 chatTurnPreview: lastMessage.slice(0, 200),
               });
+            } else {
+              // All other artifact types — entity-card, insight-card, gauge-
+              // chart, radar-chart, score-card, metric-grid, comparison-table,
+              // action-suggestion — get dispatched to their type-specific
+              // persister in src/lib/artifact-persistence.ts. Each handler
+              // upserts to graph_nodes / scores / research / pending_actions
+              // as appropriate so the canvas data survives page refreshes
+              // and populates the graph + dashboard views.
+              persistArtifact({ userId, projectId: project_id }, seg.artifact);
             }
           }
         } catch (err) {
