@@ -52,7 +52,18 @@ RULES:
 7) ALWAYS end with option-set or action-suggestion for next steps
 8) entity-card for EVERY entity mentioned
 9) workflow-card for concrete multi-step action plans
-10) Be proactive — use tools to research, browse web, challenge assumptions]
+10) Be proactive — use tools to research, browse web, challenge assumptions
+
+CRITICAL SYNTHESIS RULE:
+- Every turn MUST end with a visible text response to the founder summarizing
+  what you learned and recommending next steps. Tool calls alone are NOT a
+  valid final turn — the founder needs prose.
+- Budget your tool use. After 3-4 rounds of tool calls on a topic, stop
+  researching and synthesize. You can always make more tool calls in a
+  follow-up turn if the founder asks.
+- If you find yourself wanting to call more tools, ask yourself: "Would
+  the founder prefer a partial answer now, or a perfect answer that never
+  arrives?" Ship the partial answer.]
 
 `;
 
@@ -166,7 +177,11 @@ export async function POST(request: NextRequest) {
       sessionId,
       systemPrompt,
       extraTools: [...projectTools, ...skillTools],
-      timeout: 120000,
+      // 300s — research-heavy chat turns (web_search + read_url + skill
+      // invocation + tam/sam calculations) can legitimately take 2-3 min.
+      // 120s was cutting the agent off mid-tool-loop, leaving an empty
+      // final assistant message and no visible response in the UI.
+      timeout: 300000,
       task: 'chat',
     });
 
