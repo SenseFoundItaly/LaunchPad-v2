@@ -35,7 +35,8 @@ export type TaskLabel =
   | 'summarize'          // generic summarization
   | 'classify'           // generic classification
   | 'heartbeat-reflect'  // daily agent self-reflection
-  | 'skill-invoke';      // agent invoking a registered skill as a tool
+  | 'skill-invoke'       // agent invoking a registered skill as a tool
+  | 'risk-analysis';     // structured risk audit (roadmap 1.1)
 
 type ResolvedModel = {
   provider: 'anthropic' | 'openrouter';

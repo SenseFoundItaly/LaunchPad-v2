@@ -1,12 +1,172 @@
 'use client';
 
-import { use, useState, useMemo } from 'react';
+import { use, useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { STAGES, stageColors, SKILL_KICKOFFS, SKILL_NEXT_STEPS, SKILL_SOURCES } from '@/lib/stages';
 import { useSkillStatus } from '@/hooks/useSkillStatus';
 import { scoreOverall } from '@/lib/scoring';
 import { extractSkillHighlights } from '@/lib/extract-summary';
 import { GaugeChart, RadarChart } from '@/components/charts';
+
+// ─── Risk audit widget (roadmap 1.1) ─────────────────────────────────────────
+
+interface Risk {
+  id: string;
+  dimension: string;
+  risk: string;
+  probability?: number;
+  impact?: number;
+  risk_score?: number;
+  severity?: string;
+  narrative?: string;
+  mitigation?: string;
+  mitigation_owner?: string;
+  mitigation_due?: string;
+}
+
+interface RiskAudit {
+  risks?: Risk[];
+  risk_scenarios?: Risk[]; // skill variants
+  critical_count?: number;
+  high_count?: number;
+  overall_assessment?: string;
+  watch_list?: string[];
+  next_review_date?: string;
+  dimension_summary?: Record<string, { risk_count: number; max_score: number }>;
+}
+
+function severityStyle(sev?: string) {
+  const s = (sev ?? '').toLowerCase();
+  if (s === 'critical') return 'bg-red-500/20 text-red-400';
+  if (s === 'high') return 'bg-orange-500/20 text-orange-400';
+  if (s === 'medium') return 'bg-yellow-500/20 text-yellow-400';
+  return 'bg-zinc-500/20 text-zinc-400';
+}
+
+function RiskAuditCard({ projectId }: { projectId: string }) {
+  const [audit, setAudit] = useState<RiskAudit | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Load any existing audit on mount.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/risk-analysis/${projectId}`).then(async (res) => {
+      if (cancelled) return;
+      if (res.status === 404) return; // no audit yet
+      if (!res.ok) return;
+      const body = await res.json();
+      const data = body?.data ?? body;
+      if (data?.audit) {
+        setAudit(data.audit);
+        setGeneratedAt(data.generated_at ?? null);
+      }
+    }).catch(() => { /* non-fatal */ });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  async function runAudit() {
+    setRunning(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch(`/api/risk-analysis/${projectId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error ?? `HTTP ${res.status}`);
+      }
+      const body = await res.json();
+      const data = body?.data ?? body;
+      setAudit(data);
+      setGeneratedAt(new Date().toISOString());
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  // Skill output can come back under either `risks` or `risk_scenarios`
+  // depending on the LLM's interpretation of the schema. Accept both.
+  const risks: Risk[] = audit?.risks ?? audit?.risk_scenarios ?? [];
+  const topRisks = [...risks]
+    .sort((a, b) => (b.risk_score ?? 0) - (a.risk_score ?? 0))
+    .slice(0, 6);
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Risk Audit</h3>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            {risks.length > 0
+              ? `${risks.length} risks identified${generatedAt ? ` · ${new Date(generatedAt).toLocaleString()}` : ''}`
+              : 'Run a structured audit across market, technical, regulatory, team, financial dimensions.'}
+          </p>
+        </div>
+        <button
+          onClick={runAudit}
+          disabled={running}
+          className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-md transition-colors"
+        >
+          {running ? 'Auditing...' : risks.length > 0 ? 'Re-run' : 'Run audit'}
+        </button>
+      </div>
+
+      {errorMsg && <div className="text-xs text-red-400 mb-2">Error: {errorMsg}</div>}
+
+      {audit?.overall_assessment && (
+        <p className="text-xs text-zinc-400 mb-3 italic">{audit.overall_assessment}</p>
+      )}
+
+      {topRisks.length > 0 && (
+        <div className="space-y-1.5">
+          {topRisks.map((r) => (
+            <div
+              key={r.id ?? r.risk}
+              className="flex items-start gap-2 p-2 rounded bg-zinc-800/50 border border-zinc-800"
+            >
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono uppercase shrink-0 ${severityStyle(r.severity)}`}>
+                {r.severity ?? '—'}
+              </span>
+              <span className="text-[10px] text-zinc-500 uppercase shrink-0 w-20 pt-0.5">{r.dimension}</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs text-zinc-100">{r.risk}</div>
+                {r.mitigation && (
+                  <div className="text-[11px] text-zinc-400 mt-0.5">
+                    <span className="text-zinc-500">mitigate:</span> {r.mitigation}
+                    {r.mitigation_owner && <span className="text-zinc-500"> · {r.mitigation_owner}</span>}
+                  </div>
+                )}
+              </div>
+              {typeof r.risk_score === 'number' && (
+                <span className="text-[11px] text-zinc-500 font-mono shrink-0">{r.risk_score}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {audit?.watch_list && audit.watch_list.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-zinc-800">
+          <div className="text-[11px] text-zinc-500 uppercase mb-1">Watch list</div>
+          <ul className="space-y-0.5">
+            {audit.watch_list.slice(0, 3).map((w, i) => (
+              <li key={i} className="text-xs text-zinc-400 flex gap-2">
+                <span className="text-zinc-600 shrink-0">·</span>
+                <span>{w}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function verdictStyle(v: string) {
   if (v === 'STRONG GO') return 'bg-green-500/20 text-green-400';
@@ -68,6 +228,9 @@ export default function IntelligencePage({ params }: { params: Promise<{ project
             <RadarChart data={radarData} height={200} />
           </div>
         </div>
+
+        {/* Risk audit (roadmap 1.1) */}
+        <RiskAuditCard projectId={projectId} />
 
         {/* Stage cards */}
         <div className="space-y-3">
