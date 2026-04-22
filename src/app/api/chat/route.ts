@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { query } from '@/lib/db';
+import { query, run } from '@/lib/db';
+import crypto from 'crypto';
 import { chatStream } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
 import { logUsageToSQLite, logToLangfuse } from '@/lib/telemetry';
@@ -250,6 +251,34 @@ export async function POST(request: NextRequest) {
           usage, 0, latencyMs,
           lastMessage.slice(0, 1000), '',
         );
+
+        // Persist the turn to chat_messages so that on page refresh,
+        // GET /api/chat/history can rebuild the thread. The JSONL pi-agent
+        // session is the source of truth for agent memory, but the UI
+        // reads from chat_messages (SQLite, user-scoped). Two rows per
+        // turn: user prompt + assistant response. We persist the plain
+        // text from fullResponse — artifact blocks stay in fullResponse
+        // for the parser downstream, but the UI's copy/paste + rehydrate
+        // works on the visible prose too. Non-fatal on failure.
+        try {
+          const now = new Date().toISOString();
+          run(
+            `INSERT INTO chat_messages (id, project_id, step, role, content, timestamp, user_id)
+             VALUES (?, ?, ?, 'user', ?, ?, ?)`,
+            `msg_${crypto.randomUUID().slice(0, 12)}`,
+            project_id, step, lastMessage, now, userId,
+          );
+          if (fullResponse.trim().length > 0) {
+            run(
+              `INSERT INTO chat_messages (id, project_id, step, role, content, timestamp, user_id)
+               VALUES (?, ?, ?, 'assistant', ?, ?, ?)`,
+              `msg_${crypto.randomUUID().slice(0, 12)}`,
+              project_id, step, fullResponse, now, userId,
+            );
+          }
+        } catch (err) {
+          console.warn('[chat] chat_messages persist failed (non-fatal):', err);
+        }
 
         // Memory: chat_turn event + fact artifact extraction.
         // Wrapped in try so memory failures never break the stream response.
