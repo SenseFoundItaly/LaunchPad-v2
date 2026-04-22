@@ -13,9 +13,10 @@ import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
 import { isProjectCapped } from '@/lib/cost-meter';
-import { getSkillTools } from '@/lib/skill-tools';
+import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
 import { pickModel } from '@/lib/llm/router';
+import { rankSkillsForQuery } from '@/lib/skill-relevance';
 
 // Artifact instructions prepended to every message
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
@@ -54,16 +55,16 @@ RULES:
 9) workflow-card for concrete multi-step action plans
 10) Be proactive — use tools to research, browse web, challenge assumptions
 
-CRITICAL SYNTHESIS RULE:
-- Every turn MUST end with a visible text response to the founder summarizing
-  what you learned and recommending next steps. Tool calls alone are NOT a
-  valid final turn — the founder needs prose.
-- Budget your tool use. After 3-4 rounds of tool calls on a topic, stop
-  researching and synthesize. You can always make more tool calls in a
-  follow-up turn if the founder asks.
-- If you find yourself wanting to call more tools, ask yourself: "Would
-  the founder prefer a partial answer now, or a perfect answer that never
-  arrives?" Ship the partial answer.]
+CRITICAL SYNTHESIS RULE — HARD BUDGET:
+- Every turn MUST end with visible text prose for the founder. A turn that
+  ends with only tool calls is a BROKEN turn. Founder sees nothing.
+- **Maximum 4 tool calls per turn.** After the 4th tool result, you MUST
+  stop calling tools and write a text synthesis. Follow-up tool work
+  happens in the NEXT turn if the founder asks.
+- Prefer parallel tool calls over sequential (e.g. 2 web_searches at once
+  instead of 1 → wait → another 1).
+- Ship partial answers. "Would the founder prefer a partial answer now,
+  or a perfect answer that never arrives?" — ship the partial.]
 
 `;
 
@@ -166,12 +167,30 @@ export async function POST(request: NextRequest) {
     // project's rows.
     const projectTools = makeProjectTools(project_id);
 
-    // Skill tools — auto-invocation enabled per plan decision. The agent
-    // can decide mid-turn to invoke e.g. skill_market_research when the user
-    // asks about competitors. One-level-deep (skills can't invoke skills).
-    // Cost safety rail: the throttle above refuses if the project crosses
-    // its monthly cap, so runaway chains cap themselves.
-    const skillTools = getSkillTools({ userId, projectId: project_id });
+    // Skills-as-tools with per-turn Haiku relevance filtering. Keeps all
+    // 11 skills auto-invokable but only exposes the top-3 most relevant
+    // to the agent on each turn, preventing the "20-tool drowning" that
+    // previously caused timeouts. Classifier cost ~$0.0003 + 300-500ms,
+    // saves more in reduced tool-description tokens.
+    const skillManifest = listSkillManifest();
+    const relevantManifest = await rankSkillsForQuery(
+      lastMessage,
+      {
+        id: project_id,
+        name: projects[0].name,
+        description: projects[0].description || '',
+        current_step: (projects[0] as { current_step?: number }).current_step ?? 1,
+      },
+      skillManifest,
+      { topN: 3 },
+    );
+    const relevantIds = new Set(relevantManifest.map((s) => s.id));
+    const allSkillTools = getSkillTools({ userId, projectId: project_id });
+    const skillTools = allSkillTools.filter((t) => {
+      // Tool name format is `skill_<id-with-underscores>` — recover the id.
+      const id = t.name.replace(/^skill_/, '').replace(/_/g, '-');
+      return relevantIds.has(id);
+    });
 
     const { stream: piStream } = runAgentStream(lastMessage, {
       sessionId,

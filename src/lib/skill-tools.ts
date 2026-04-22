@@ -105,9 +105,24 @@ export function getSkillTools(opts: SkillToolOptions): AgentTool[] {
   return skills.map((skill) => buildSkillTool(skill, opts));
 }
 
+/**
+ * Compact a skill's frontmatter.description into a prompt-efficient
+ * tool description. Full frontmatter descriptions are often 100-200
+ * tokens each — at 11 skills that's 1,100-2,200 tokens of prompt
+ * overhead on every chat turn. The first-sentence version keeps the
+ * agent informed enough to decide without drowning it.
+ */
+function compactDescription(fm: SkillFrontmatter): string {
+  const raw = fm.description.trim();
+  // First sentence (up to period, question, exclamation) OR first 120 chars.
+  const firstSentence = raw.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? raw;
+  const short = firstSentence.length > 120 ? firstSentence.slice(0, 117) + '...' : firstSentence;
+  return short;
+}
+
 function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
   const toolName = `skill_${skill.id.replace(/-/g, '_')}`;
-  const description = `${skill.frontmatter.description} (Skill: ${skill.frontmatter.name})`;
+  const description = compactDescription(skill.frontmatter);
 
   return {
     name: toolName,

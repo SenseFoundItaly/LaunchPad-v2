@@ -144,6 +144,11 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
     streamFn: streamSimple,
     sessionId: options.sessionId,
     getApiKey: (provider) => getEnvApiKey(provider),
+    // Explicitly request parallel tool execution. With 3-4 web_search +
+    // read_url calls in a research turn, sequential execution dominates
+    // latency — parallel lets them all run concurrently and finalizes
+    // results in source order.
+    toolExecution: 'parallel',
   });
 
   agent.state.model = model;
