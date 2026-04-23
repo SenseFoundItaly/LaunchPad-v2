@@ -1,5 +1,6 @@
 import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
+import type { Source } from '@/types/artifacts';
 
 /**
  * Web search + URL read tools.
@@ -11,6 +12,13 @@ import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
  *
  * With JINA_API_KEY: higher rate limits + priority. Without: basic per-IP
  * limits, still works for dev.
+ *
+ * SOURCE PROVENANCE (Phase B of mandatory-sources):
+ * Every tool result also carries a structured `sources: Source[]` array in
+ * `details`. The agent already sees URLs + titles in the text body for
+ * reasoning, but the structured array is the authoritative form it should
+ * quote verbatim into artifact `sources` fields. This closes the "agent
+ * paraphrased the URL wrong" failure mode.
  */
 
 const JINA_API_KEY = process.env.JINA_API_KEY;
@@ -34,6 +42,24 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + `\n\n[…truncated, ${s.length - max} chars omitted]` : s;
 }
 
+/**
+ * Build a Source[] from a list of search hits. Kept separate so both the
+ * Jina and DDG paths produce the same shape — the agent doesn't need to
+ * know which backend served the result to cite it.
+ */
+function buildWebSources(
+  hits: Array<{ title?: string; url: string; snippet?: string }>,
+): Source[] {
+  const now = new Date().toISOString();
+  return hits.map((h) => ({
+    type: 'web' as const,
+    title: h.title?.trim() || h.url,
+    url: h.url,
+    accessed_at: now,
+    ...(h.snippet ? { quote: h.snippet.slice(0, 300) } : {}),
+  }));
+}
+
 async function jinaSearch(query: string): Promise<
   { ok: true; out: AgentToolResult<unknown> } | { ok: false; error: string }
 > {
@@ -48,6 +74,9 @@ async function jinaSearch(query: string): Promise<
   const ct = res.headers.get('content-type') || '';
   let text: string;
   let resultCount = 0;
+  // Collect structured hits for the sources array. JSON path populates
+  // directly; text-path parses URLs back out of the markdown (best-effort).
+  let hits: Array<{ title?: string; url: string; snippet?: string }> = [];
 
   if (ct.includes('json')) {
     const body = (await res.json()) as {
@@ -55,6 +84,11 @@ async function jinaSearch(query: string): Promise<
     };
     const items = body.data || [];
     resultCount = items.length;
+    hits = items.slice(0, 5).map((r) => ({
+      title: r.title,
+      url: r.url,
+      snippet: r.content || r.description,
+    }));
     text = items
       .slice(0, 5)
       .map((r, i) => {
@@ -67,6 +101,15 @@ async function jinaSearch(query: string): Promise<
   } else {
     text = await res.text();
     resultCount = (text.match(/^\[\d+\]/gm) || []).length;
+    // Best-effort URL extraction from the text body so even the non-JSON
+    // path contributes to the structured sources array.
+    const urlRegex = /\bhttps?:\/\/[^\s)\]]+/g;
+    const found = new Set<string>();
+    let m: RegExpExecArray | null;
+    while ((m = urlRegex.exec(text)) !== null && found.size < 5) {
+      found.add(m[0]);
+    }
+    hits = Array.from(found).map((u) => ({ url: u }));
   }
 
   return {
@@ -75,10 +118,15 @@ async function jinaSearch(query: string): Promise<
       content: [
         {
           type: 'text',
-          text: `Search results for "${query}" (via Jina, ${resultCount} results):\n\n${truncate(text, MAX_TOTAL_CHARS)}`,
+          text: `Search results for "${query}" (via Jina, ${resultCount} results):\n\n${truncate(text, MAX_TOTAL_CHARS)}\n\nSOURCES (cite verbatim when using these results in artifacts):\n${hits.map((h, i) => `[${i + 1}] ${h.title ?? h.url} — ${h.url}`).join('\n')}`,
         },
       ],
-      details: { query, resultCount, source: 'jina' },
+      details: {
+        query,
+        resultCount,
+        source: 'jina',
+        sources: buildWebSources(hits),
+      },
     },
   };
 }
@@ -105,13 +153,24 @@ async function ddgSearchFallback(query: string, reason: string): Promise<AgentTo
       ? results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.snippet}\n   ${r.url}`).join('\n\n')
       : 'No results found. Try a different query.';
     return {
-      content: [{ type: 'text', text: `Search results for "${query}" (fallback, Jina unavailable: ${reason}):\n\n${text}` }],
-      details: { query, resultCount: results.length, source: 'ddg-fallback', jinaError: reason },
+      content: [
+        {
+          type: 'text',
+          text: `Search results for "${query}" (fallback, Jina unavailable: ${reason}):\n\n${text}\n\nSOURCES (cite verbatim when using these results in artifacts):\n${results.map((r, i) => `[${i + 1}] ${r.title} — ${r.url}`).join('\n')}`,
+        },
+      ],
+      details: {
+        query,
+        resultCount: results.length,
+        source: 'ddg-fallback',
+        jinaError: reason,
+        sources: buildWebSources(results),
+      },
     };
   } catch (err) {
     return {
       content: [{ type: 'text', text: `Search failed. Jina: ${reason}. Fallback: ${err instanceof Error ? err.message : String(err)}` }],
-      details: { query, error: true, jinaError: reason },
+      details: { query, error: true, jinaError: reason, sources: [] satisfies Source[] },
     };
   }
 }
@@ -120,7 +179,7 @@ const webSearchTool: AgentTool = {
   name: 'web_search',
   label: 'Web Search',
   description:
-    'Search the web for current information about markets, competitors, trends, companies, and technologies. Returns top results pre-scraped as markdown — you usually won\'t need a follow-up read_url because the content is already inlined.',
+    'Search the web for current information about markets, competitors, trends, companies, and technologies. Returns top results pre-scraped as markdown PLUS a structured sources list. When citing these results in an artifact or inline [N] marker, copy the URL verbatim from the SOURCES section — do not paraphrase.',
   parameters: Type.Object({
     query: Type.String({ description: 'Search query' }),
   }),
@@ -159,11 +218,32 @@ async function jinaRead(target: string): Promise<
   }
 
   const truncated = truncate(body.trim(), MAX_TOTAL_CHARS);
+  // First ~300 chars of the page as the source "quote" — lets the agent
+  // cite a short verbatim snippet without re-parsing the full body.
+  const quote = body.trim().slice(0, 300);
+  const source: Source = {
+    type: 'web',
+    title: title?.trim() || target,
+    url: target,
+    accessed_at: new Date().toISOString(),
+    ...(quote ? { quote } : {}),
+  };
   return {
     ok: true,
     out: {
-      content: [{ type: 'text', text: `${title}\n${target}\n\n${truncated}` }],
-      details: { url: target, length: body.length, truncated: body.length > MAX_TOTAL_CHARS, source: 'jina' },
+      content: [
+        {
+          type: 'text',
+          text: `${title}\n${target}\n\n${truncated}\n\nSOURCE (cite verbatim when quoting this page):\n[1] ${title?.trim() || target} — ${target}`,
+        },
+      ],
+      details: {
+        url: target,
+        length: body.length,
+        truncated: body.length > MAX_TOTAL_CHARS,
+        source: 'jina',
+        sources: [source] satisfies Source[],
+      },
     },
   };
 }
@@ -199,16 +279,34 @@ async function rawFetchFallback(target: string, reason: string): Promise<AgentTo
         .trim();
     }
     const trimmed = truncate(text, MAX_TOTAL_CHARS);
+    const source: Source = {
+      type: 'web',
+      title: target,
+      url: target,
+      accessed_at: new Date().toISOString(),
+      ...(text ? { quote: text.slice(0, 300) } : {}),
+    };
     return {
-      content: [{ type: 'text', text: `Content from ${target} (fallback, Jina unavailable: ${reason}):\n\n${trimmed}` }],
-      details: { url: target, length: text.length, source: 'raw-fallback', jinaError: reason },
+      content: [
+        {
+          type: 'text',
+          text: `Content from ${target} (fallback, Jina unavailable: ${reason}):\n\n${trimmed}\n\nSOURCE (cite verbatim when quoting this page):\n[1] ${target} — ${target}`,
+        },
+      ],
+      details: {
+        url: target,
+        length: text.length,
+        source: 'raw-fallback',
+        jinaError: reason,
+        sources: [source] satisfies Source[],
+      },
     };
   } catch (err) {
     return {
       content: [
         { type: 'text', text: `Failed to fetch ${target}. Jina: ${reason}. Fallback: ${err instanceof Error ? err.message : String(err)}` },
       ],
-      details: { url: target, error: true, jinaError: reason },
+      details: { url: target, error: true, jinaError: reason, sources: [] satisfies Source[] },
     };
   }
 }
@@ -217,7 +315,7 @@ const urlFetchTool: AgentTool = {
   name: 'read_url',
   label: 'Read URL',
   description:
-    'Fetch and read a web page as clean markdown. Chrome-stripped (no nav/footer/ads), truncated to ~4K tokens. Use for articles, company pages, docs, or any URL.',
+    'Fetch and read a web page as clean markdown. Chrome-stripped (no nav/footer/ads), truncated to ~4K tokens. Returns the page content PLUS a structured source entry. Cite the URL verbatim from the SOURCE section when referencing this page.',
   parameters: Type.Object({
     url: Type.String({ description: 'URL to fetch' }),
   }),
@@ -262,6 +360,9 @@ const calculatorTool: AgentTool = {
 
       return {
         content: [{ type: 'text', text }],
+        // Math is self-evidenced — no web URL to cite. When the agent uses
+        // a calc result in an artifact, the source should be an `inference`
+        // citing the inputs (which themselves came from web/internal sources).
         details: { expression, result, label },
       };
     } catch (err) {

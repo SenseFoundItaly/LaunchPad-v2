@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
-import { json, generateId } from '@/lib/api-helpers';
+import { json, generateId, error } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 import { runAgent } from '@/lib/pi-agent';
 import { recordUsage, isProjectCapped } from '@/lib/cost-meter';
@@ -17,6 +17,38 @@ import {
 
 const PI_PROVIDER = (process.env.PI_PROVIDER || 'anthropic');
 const PI_MODEL = process.env.PI_MODEL || (PI_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
+
+/**
+ * Cron endpoint bearer auth.
+ *
+ * Policy:
+ *   - If CRON_SECRET is NOT set in env → auth is disabled (dev-friendly
+ *     default; deployments that forget to configure it still work locally).
+ *   - If CRON_SECRET IS set → every request MUST carry
+ *     `Authorization: Bearer <secret>` or it's rejected with 401.
+ *
+ * Vercel Cron automatically forwards the bearer when the project env var
+ * is configured — no code change required on the Vercel side. For local
+ * manual invocation:
+ *     curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
+ *
+ * Why this matters: the endpoint fans out to runAgent() per active monitor,
+ * burning Sonnet tokens across every active project. Without a gate, any
+ * public caller can trigger a full cost cycle on demand.
+ */
+function requireCronAuth(request: NextRequest): { ok: true } | { ok: false; response: Response } {
+  const expected = process.env.CRON_SECRET;
+  if (!expected) {
+    // Dev mode: no secret configured, allow all traffic.
+    return { ok: true };
+  }
+  const header = request.headers.get('authorization') || request.headers.get('Authorization');
+  const expectedHeader = `Bearer ${expected}`;
+  if (header !== expectedHeader) {
+    return { ok: false, response: error('Unauthorized cron invocation', 401) };
+  }
+  return { ok: true };
+}
 
 function deriveSeverity(text: string): 'critical' | 'warning' | 'info' {
   const lower = text.toLowerCase();
@@ -221,8 +253,15 @@ async function processMonitors(monitors: MonitorRow[]): Promise<MonitorRunOutcom
   return results;
 }
 
-/** GET /api/cron — check and run due monitors, then heartbeat reflections. */
-export async function GET() {
+/** GET /api/cron — check and run due monitors, then heartbeat reflections.
+ *
+ * Gated by CRON_SECRET bearer when set. Vercel Cron (configured in
+ * vercel.json with a 15-min schedule) auto-includes the bearer.
+ */
+export async function GET(request: NextRequest) {
+  const auth = requireCronAuth(request);
+  if (!auth.ok) return auth.response;
+
   const now = new Date().toISOString();
 
   // Find monitors that are due (skip if ran in last 5 minutes to prevent loops)
@@ -413,6 +452,9 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
  * run only the ecosystem scan.
  */
 export async function POST(request: NextRequest) {
+  const auth = requireCronAuth(request);
+  if (!auth.ok) return auth.response;
+
   const url = new URL(request.url);
   const force = url.searchParams.get('force') === 'true';
 

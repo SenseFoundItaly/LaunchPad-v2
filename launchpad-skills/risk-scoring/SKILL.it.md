@@ -3,6 +3,37 @@ name: risk-scoring
 description: Esegue un audit dei rischi completo su dimensioni tecniche, di mercato, regolatorie, team e finanziarie
 ---
 
+<!-- sources-required-block -->
+## Requisiti delle Fonti (OBBLIGATORIO)
+
+Ogni affermazione fattuale nell'output di questa skill DEVE citare almeno una fonte. Si applica a:
+
+- Numeri (dimensioni di mercato, percentuali, tempistiche, costi, benchmark)
+- Entità nominate (concorrenti, regolamenti, strumenti, aziende, persone)
+- Affermazioni sul mondo esterno (tendenze, date, eventi, opinioni di esperti)
+- Ogni rischio, dimensione di punteggio, raccomandazione e passo di workflow
+
+**Schema della fonte** (includere come campo `sources: Source[]` a ogni livello fattuale del JSON di output, non solo al top):
+
+```ts
+type Source =
+  | { type: 'web'; title: string; url: string; accessed_at?: string; quote?: string }
+  | { type: 'skill'; title: string; skill_id: string; run_id?: string; quote?: string }
+  | { type: 'internal'; title: string; ref: 'graph_node'|'score'|'research'|'memory_fact'|'chat_turn'; ref_id: string; quote?: string }
+  | { type: 'user'; title: string; chat_turn_id?: string; quote: string }
+  | { type: 'inference'; title: string; based_on: Source[]; reasoning: string };
+```
+
+**Regole:**
+1. Nessun numero, URL o nome di azienda inventato. Se non hai una fonte, dillo apertamente — non inventare mai.
+2. Le fonti web devono riportare l'URL verbatim — non parafrasare.
+3. Usa `type: 'internal'` quando citi dati del progetto del founder (punteggi, righe di ricerca, fatti in memoria).
+4. Usa `type: 'user'` quando citi il founder verbatim dalla chat.
+5. `type: 'inference'` è consentito SOLO quando `based_on` è non vuoto; `reasoning` deve spiegare la catena di sintesi.
+6. Allega le fonti sia al livello principale (provenienza della skill) sia a ogni elemento fattuale annidato (per rischio, per dimensione, per concorrente).
+7. Un'affermazione senza fonte è un'affermazione rifiutata. La UI la mostrerà come "SENZA FONTE — scartato" e il parser la rimuoverà dalla persistenza.
+
+
 # Risk Scoring
 
 Produci un audit dei rischi strutturato che fa emergere le 5-10 cose con più probabilità di uccidere la startup, ordinate per probabilità × impatto, ognuna abbinata a una mitigazione concreta. A differenza di una SWOT generica, questo audit è pronto per decidere: ogni rischio ha un trigger falsificabile e un owner nominato.
@@ -105,7 +136,15 @@ Ogni rischio Critico o Alto DEVE avere:
         "mitigation": "Azione concreta con owner nominato, scadenza entro N settimane",
         "mitigation_owner": "Nome",
         "mitigation_due": "ISO date",
-        "status": "new | in_progress | mitigated | accepted"
+        "status": "new | in_progress | mitigated | accepted",
+        "sources": [
+          {
+            "type": "web",
+            "title": "es. EU AI Act (Regolamento 2024/1689)",
+            "url": "https://eur-lex.europa.eu/...",
+            "accessed_at": "2026-04-22"
+          }
+        ]
       }
     ],
     "dimension_summary": {
@@ -120,12 +159,25 @@ Ogni rischio Critico o Alto DEVE avere:
     "high_count": 0,
     "overall_assessment": "2-3 frasi sulla postura di rischio aggregata e se è compatibile con lo stage attuale e il piano di funding",
     "watch_list": [
-      "Segnale esterno da monitorare mensilmente che potrebbe spostare uno o più rischi"
+      {
+        "signal": "Segnale esterno da monitorare mensilmente che potrebbe spostare uno o più rischi",
+        "sources": [{ "type": "web", "title": "...", "url": "https://..." }]
+      }
     ],
-    "next_review_date": "ISO date — default 90 giorni dopo"
+    "next_review_date": "ISO date — default 90 giorni dopo",
+    "sources": [
+      {
+        "type": "internal",
+        "title": "Score correnti del progetto",
+        "ref": "score",
+        "ref_id": "score_xyz"
+      }
+    ]
   }
 }
 ```
+
+**CRITICO**: ogni voce in `top_risks[]` DEVE avere un array `sources` non vuoto — un rischio senza fonte è un rischio allucinato e verrà scartato. Le fonti web sono più forti (siti dei regolatori, articoli di giornale, report di settore); `type: "internal"` è accettabile per rischi derivati dai dati di progetto del founder. `type: "inference"` è consentito quando il rischio emerge dalla sintesi di più fonti — cita le fonti base in `based_on`.
 
 ## Esempi
 

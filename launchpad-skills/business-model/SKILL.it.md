@@ -3,6 +3,37 @@ name: business-model
 description: Valuta e assegna punteggio alle opzioni di business model su meccaniche di revenue, unit economics e difendibilità
 ---
 
+<!-- sources-required-block -->
+## Requisiti delle Fonti (OBBLIGATORIO)
+
+Ogni affermazione fattuale nell'output di questa skill DEVE citare almeno una fonte. Si applica a:
+
+- Numeri (dimensioni di mercato, percentuali, tempistiche, costi, benchmark)
+- Entità nominate (concorrenti, regolamenti, strumenti, aziende, persone)
+- Affermazioni sul mondo esterno (tendenze, date, eventi, opinioni di esperti)
+- Ogni rischio, dimensione di punteggio, raccomandazione e passo di workflow
+
+**Schema della fonte** (includere come campo `sources: Source[]` a ogni livello fattuale del JSON di output, non solo al top):
+
+```ts
+type Source =
+  | { type: 'web'; title: string; url: string; accessed_at?: string; quote?: string }
+  | { type: 'skill'; title: string; skill_id: string; run_id?: string; quote?: string }
+  | { type: 'internal'; title: string; ref: 'graph_node'|'score'|'research'|'memory_fact'|'chat_turn'; ref_id: string; quote?: string }
+  | { type: 'user'; title: string; chat_turn_id?: string; quote: string }
+  | { type: 'inference'; title: string; based_on: Source[]; reasoning: string };
+```
+
+**Regole:**
+1. Nessun numero, URL o nome di azienda inventato. Se non hai una fonte, dillo apertamente — non inventare mai.
+2. Le fonti web devono riportare l'URL verbatim — non parafrasare.
+3. Usa `type: 'internal'` quando citi dati del progetto del founder (punteggi, righe di ricerca, fatti in memoria).
+4. Usa `type: 'user'` quando citi il founder verbatim dalla chat.
+5. `type: 'inference'` è consentito SOLO quando `based_on` è non vuoto; `reasoning` deve spiegare la catena di sintesi.
+6. Allega le fonti sia al livello principale (provenienza della skill) sia a ogni elemento fattuale annidato (per rischio, per dimensione, per concorrente).
+7. Un'affermazione senza fonte è un'affermazione rifiutata. La UI la mostrerà come "SENZA FONTE — scartato" e il parser la rimuoverà dalla persistenza.
+
+
 # Business Model
 
 Valuta e confronta le opzioni di business model per la startup, producendo una raccomandazione con punteggi. Non è un esercizio di brainstorming — è un confronto pronto per decidere che risponde a: **dato questo prodotto e questo ICP, quali meccaniche di revenue funzioneranno, quali falliranno, e perché.**

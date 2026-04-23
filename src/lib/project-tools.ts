@@ -24,7 +24,9 @@ import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import { query } from '@/lib/db';
 import { createPendingAction } from '@/lib/pending-actions';
+import { checkDedup } from '@/lib/monitor-dedup';
 import type { PendingActionType } from '@/types';
+import type { Source } from '@/types/artifacts';
 
 interface ToolContext {
   projectId: string;
@@ -349,6 +351,247 @@ const createPendingActionTool = (ctx: ToolContext): AgentTool => ({
 });
 
 // =============================================================================
+// propose_monitor — in-chat monitor proposal with derisking linkage + dedup.
+//
+// When the founder expresses a specific concern tied to a named risk, this
+// tool creates:
+//   1. A pending_actions row (action_type='configure_monitor') — the
+//      persistent inbox entry.
+//   2. An artifact response that the chat stream renders inline as a
+//      MonitorProposalCard with Approve/Edit/Dismiss controls.
+//
+// Dedup runs before creation:
+//   - L1 (SQL) — hard rules, always enforced: (risk_id, kind) uniqueness,
+//     URL overlap, cap of 10 active monitors per project.
+//   - L2 (Haiku semantic classifier) — overridable with explicit reason,
+//     which surfaces as a warning banner on the founder's approval card.
+//
+// On L1 rejection: the tool returns a plain error text to the agent (no
+// artifact emitted) — the agent should surface the existing monitor to the
+// founder instead of re-proposing.
+//
+// On L2 rejection with no override: same as L1 — plain error, no artifact.
+// With override: artifact is emitted with overlap_warning populated.
+//
+// The breadcrumb to derisking is structural: linked_risk_id or a verbatim
+// linked_quote is REQUIRED by the tool schema. An agent cannot silently
+// create a generic monitor.
+// =============================================================================
+
+const VALID_MONITOR_KINDS = [
+  'competitor', 'regulation', 'market', 'partner', 'technology', 'funding', 'custom',
+] as const;
+type MonitorKind = typeof VALID_MONITOR_KINDS[number];
+
+const SCHEDULE_TO_MONTHLY_RUNS: Record<'hourly' | 'daily' | 'weekly', number> = {
+  hourly: 24 * 30,  // ~720
+  daily: 30,
+  weekly: 4.3,
+};
+
+// Balanced-tier cost per run. Empirical from llm_usage_logs averages for
+// monitor-agent task — covers system prompt + web_search tool outputs +
+// alert parsing. Surfaces on the approval card as a plain-English cost.
+const BALANCED_COST_PER_RUN_EUR = 0.0055;
+
+function estimateMonthlyCostEur(schedule: 'hourly' | 'daily' | 'weekly'): number {
+  return +(SCHEDULE_TO_MONTHLY_RUNS[schedule] * BALANCED_COST_PER_RUN_EUR).toFixed(2);
+}
+
+const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
+  name: 'propose_monitor',
+  label: 'Propose Monitor',
+  description:
+    'Propose a recurring ecosystem monitor tied to a SPECIFIC named risk from the risk audit, or a specific founder decision captured verbatim in chat. Every monitor is a sensor on ONE named risk — not a generic watch. DO call when a risk_audit top_risk has an early_warning_signal not yet wired, or the founder explicitly says "watch X". DO NOT call for vague concerns ("competition in general") — push back first. The tool runs dedup automatically: duplicates return an error pointing at the existing monitor. Before calling, ALWAYS call list_ecosystem_alerts or inspect existing monitors via the project summary to avoid overlap. Pass the one-sentence test: "This monitor fires when <linked_risk_id> is materializing, because it detects <signal> at <threshold>." If you cannot complete that sentence, do not call this tool. The founder will see an inline approval card in chat with Approve/Edit/Dismiss.',
+  parameters: Type.Object({
+    name: Type.String({ description: 'Human-readable ≤60 chars. Example: "HubSpot free-tier launch watch"' }),
+    kind: Type.String({ description: `One of: ${VALID_MONITOR_KINDS.join(', ')}` }),
+    schedule: Type.String({ description: 'hourly | daily | weekly. Pick based on signal urgency — regulation changes weekly, competitor pricing daily, breaking news hourly.' }),
+    query: Type.Optional(Type.String({ description: 'Search query the monitor runs each cycle. Prefer urls_to_track when you have specific pages.' })),
+    urls_to_track: Type.Optional(Type.Array(Type.String(), { description: 'Specific URLs the monitor scrapes each cycle, ≤5. Preferred over query when you know the canonical source.' })),
+    alert_threshold: Type.String({ description: 'Plain-English trigger: "new delegated act mentioning GPAI", "pricing page shows free tier", "funding announcement > $50M".' }),
+    linked_risk_id: Type.String({ description: 'Required. risk_audit risk id (e.g., "risk_004") OR the literal string "ad_hoc" when the monitor comes from a founder chat quote rather than a formal risk entry.' }),
+    linked_quote: Type.Optional(Type.String({ description: 'Required when linked_risk_id="ad_hoc". Verbatim founder statement from chat, so the provenance is never broken.' })),
+    dedup_override: Type.Optional(Type.Boolean({ description: 'Set true to bypass the L2 semantic classifier after a previous call returned semantic_duplicate. Requires override_reason.' })),
+    override_reason: Type.Optional(Type.String({ description: 'Public justification for dedup_override. Shown on the founder\'s approval card — never a silent bypass.' })),
+    sources: Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] array per the mandatory-sources schema. Must contain at least one entry citing the risk or founder quote that motivated this monitor. Use type:"internal" with ref:"memory_fact" + ref_id for risk citations; type:"user" with quote for founder statements.' }),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as {
+      name: string;
+      kind: string;
+      schedule: string;
+      query?: string;
+      urls_to_track?: string[];
+      alert_threshold: string;
+      linked_risk_id: string;
+      linked_quote?: string;
+      dedup_override?: boolean;
+      override_reason?: string;
+      sources: unknown[];
+    };
+
+    // Schema validation — guard against freeform-string inputs from the agent.
+    if (!VALID_MONITOR_KINDS.includes(p.kind as MonitorKind)) {
+      return {
+        content: [{ type: 'text', text: `Invalid kind "${p.kind}". Must be one of: ${VALID_MONITOR_KINDS.join(', ')}` }],
+        details: { error: true },
+      };
+    }
+    if (p.schedule !== 'hourly' && p.schedule !== 'daily' && p.schedule !== 'weekly') {
+      return {
+        content: [{ type: 'text', text: `Invalid schedule "${p.schedule}". Must be hourly | daily | weekly.` }],
+        details: { error: true },
+      };
+    }
+    if (!Array.isArray(p.sources) || p.sources.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'propose_monitor requires at least one source. Cite the risk_audit risk or the founder quote motivating this monitor.' }],
+        details: { error: true },
+      };
+    }
+    if (p.linked_risk_id === 'ad_hoc' && (!p.linked_quote || p.linked_quote.trim().length === 0)) {
+      return {
+        content: [{ type: 'text', text: 'linked_risk_id="ad_hoc" requires a verbatim linked_quote from the founder\'s chat. Otherwise cite a real risk_audit risk id.' }],
+        details: { error: true },
+      };
+    }
+    if (p.dedup_override === true && (!p.override_reason || p.override_reason.trim().length === 0)) {
+      return {
+        content: [{ type: 'text', text: 'dedup_override=true requires a non-empty override_reason. Never bypass dedup silently.' }],
+        details: { error: true },
+      };
+    }
+
+    const schedule = p.schedule as 'hourly' | 'daily' | 'weekly';
+
+    // Dedup pipeline — L1 SQL rules + L2 semantic classifier. See
+    // src/lib/monitor-dedup.ts for the full contract.
+    const dedup = await checkDedup(ctx.projectId, {
+      name: p.name,
+      kind: p.kind,
+      schedule,
+      query: p.query,
+      urls_to_track: p.urls_to_track,
+      alert_threshold: p.alert_threshold,
+      linked_risk_id: p.linked_risk_id,
+      dedup_override: p.dedup_override,
+      override_reason: p.override_reason,
+    });
+
+    if (!dedup.ok) {
+      // Translate the verdict into concrete agent-facing guidance. The
+      // agent should reply to the founder referencing the existing monitor
+      // rather than re-proposing.
+      let msg: string;
+      switch (dedup.error) {
+        case 'cap_reached':
+          msg = `Monitor cap reached (${dedup.current}/${dedup.max} active). Before proposing a new one, recommend the founder pause an existing one. Candidates to pause: ${dedup.recommend_pause_candidates.map((c) => `${c.name} (${c.id})`).join(', ') || 'none'}.`;
+          break;
+        case 'duplicate_for_risk_kind':
+          msg = `A monitor already covers risk_id="${p.linked_risk_id}" with kind="${p.kind}": "${dedup.existing_name}" (${dedup.existing_monitor_id}). Reference the existing monitor in your reply instead of proposing a duplicate.`;
+          break;
+        case 'url_overlap':
+          msg = `URL overlap with existing monitor "${dedup.existing_name}" (${dedup.existing_monitor_id}): ${dedup.overlapping_urls.join(', ')}. Either cite the existing monitor OR propose different URLs.`;
+          break;
+        case 'semantic_duplicate':
+          msg = `Semantic overlap (score ${dedup.overlap_score.toFixed(2)}) with existing monitor "${dedup.existing_name}" (${dedup.existing_monitor_id}): ${dedup.reason}. If you believe this is a genuinely distinct angle, re-call propose_monitor with dedup_override=true AND override_reason explaining why. Otherwise, surface the existing monitor to the founder.`;
+          break;
+      }
+      return {
+        content: [{ type: 'text', text: msg }],
+        details: { error: true, dedup_rejection: dedup.error },
+      };
+    }
+
+    const estimatedMonthlyCost = estimateMonthlyCostEur(schedule);
+    const overlapWarning = p.dedup_override && p.override_reason
+      ? { override_reason: p.override_reason }
+      : undefined;
+
+    // Create the pending_actions row. The payload mirrors the artifact
+    // shape exactly so the configure_monitor executor can pull straight
+    // from it when the founder approves.
+    const pendingActionPayload = {
+      name: p.name,
+      kind: p.kind,
+      schedule,
+      query: p.query,
+      urls_to_track: p.urls_to_track ?? [],
+      alert_threshold: p.alert_threshold,
+      linked_risk_id: p.linked_risk_id,
+      linked_quote: p.linked_quote,
+      dedup_override_reason: p.override_reason,
+      sources: p.sources,
+      estimated_monthly_cost_eur: estimatedMonthlyCost,
+    };
+
+    let pendingAction;
+    try {
+      pendingAction = createPendingAction({
+        project_id: ctx.projectId,
+        action_type: 'configure_monitor',
+        title: `Configure monitor: ${p.name}`,
+        rationale: p.linked_risk_id === 'ad_hoc'
+          ? `Founder said in chat: "${p.linked_quote}"`
+          : `Derisking ${p.linked_risk_id} — alert threshold: ${p.alert_threshold}`,
+        payload: pendingActionPayload,
+        estimated_impact: 'medium',
+        sources: p.sources,
+      });
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to queue monitor proposal: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    // Emit the artifact. The chat route's artifact parser will extract
+    // this from the response text and persist it normally (with the
+    // sources requirement enforced by the parser). The MonitorProposalCard
+    // picks up pending_action_id so Approve / Dismiss round-trip properly.
+    const artifactId = `mon_prop_${pendingAction.id.slice(-12)}`;
+    const artifactBody: Record<string, unknown> = {
+      action: 'create',
+      name: p.name,
+      kind: p.kind,
+      schedule,
+      alert_threshold: p.alert_threshold,
+      linked_risk_id: p.linked_risk_id,
+      estimated_monthly_cost_eur: estimatedMonthlyCost,
+      pending_action_id: pendingAction.id,
+      sources: p.sources,
+    };
+    if (p.query) artifactBody.query = p.query;
+    if (p.urls_to_track) artifactBody.urls_to_track = p.urls_to_track;
+    if (p.linked_quote) artifactBody.linked_quote = p.linked_quote;
+    if (overlapWarning) artifactBody.overlap_warning = overlapWarning;
+
+    const artifactBlock = [
+      `:::artifact{"type":"monitor-proposal","id":"${artifactId}"}`,
+      JSON.stringify(artifactBody),
+      ':::',
+    ].join('\n');
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            `Monitor proposal queued (pending_action ${pendingAction.id}). ` +
+            `Emit the following artifact block VERBATIM in your reply to the founder so the inline Approve/Edit/Dismiss card renders:\n\n${artifactBlock}`,
+        },
+      ],
+      details: {
+        pending_action_id: pendingAction.id,
+        artifact_id: artifactId,
+        estimated_monthly_cost_eur: estimatedMonthlyCost,
+      },
+    };
+  },
+});
+
+// =============================================================================
 // Factory
 // =============================================================================
 
@@ -366,5 +609,6 @@ export function makeProjectTools(projectId: string): AgentTool[] {
     listPendingActions(ctx),
     listGraphNodes(ctx),
     createPendingActionTool(ctx),
+    proposeMonitorTool(ctx),
   ];
 }

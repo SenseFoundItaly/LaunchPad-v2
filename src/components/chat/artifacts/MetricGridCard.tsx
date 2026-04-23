@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { MetricGrid } from '@/types/artifacts';
+import SourcesFooter from './SourcesFooter';
 
 interface MetricGridCardProps {
   artifact: MetricGrid;
@@ -59,6 +60,7 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
           </div>
         ))}
       </div>
+      <SourcesFooter sources={artifact.sources} />
     </div>
   );
 }

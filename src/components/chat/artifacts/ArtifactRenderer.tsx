@@ -10,6 +10,8 @@ import EntityCardInline from './EntityCardInline';
 import WorkflowCardInline from './WorkflowCardInline';
 import MetricGridCard from './MetricGridCard';
 import SensitivitySliderCard from './SensitivitySliderCard';
+import MonitorProposalCard from './MonitorProposalCard';
+import SourcesFooter from './SourcesFooter';
 import { RadarChart, BarChart, PieChart, GaugeChart, ScoreCard } from '@/components/charts';
 
 interface ArtifactRendererProps {
@@ -46,20 +48,50 @@ export default function ArtifactRenderer({
           onAction={onAction}
         />
       );
+    // Charts don't own their own wrapper div, so we wrap each in a small
+    // container + SourcesFooter. Keeping the chart component untouched
+    // means the chart stays usable elsewhere without a forced sources prop.
     case 'radar-chart':
-      return <RadarChart data={artifact.data} title={artifact.title} />;
+      return (
+        <div>
+          <RadarChart data={artifact.data} title={artifact.title} />
+          <SourcesFooter sources={artifact.sources} />
+        </div>
+      );
     case 'bar-chart':
-      return <BarChart data={artifact.data} title={artifact.title} />;
+      return (
+        <div>
+          <BarChart data={artifact.data} title={artifact.title} />
+          <SourcesFooter sources={artifact.sources} />
+        </div>
+      );
     case 'pie-chart':
-      return <PieChart data={artifact.data} title={artifact.title} />;
+      return (
+        <div>
+          <PieChart data={artifact.data} title={artifact.title} />
+          <SourcesFooter sources={artifact.sources} />
+        </div>
+      );
     case 'gauge-chart':
-      return <GaugeChart score={artifact.score} maxScore={artifact.maxScore} label={artifact.title} verdict={artifact.verdict} />;
+      return (
+        <div>
+          <GaugeChart score={artifact.score} maxScore={artifact.maxScore} label={artifact.title} verdict={artifact.verdict} />
+          <SourcesFooter sources={artifact.sources} />
+        </div>
+      );
     case 'score-card':
-      return <ScoreCard title={artifact.title} score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />;
+      return (
+        <div>
+          <ScoreCard title={artifact.title} score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />
+          <SourcesFooter sources={artifact.sources} />
+        </div>
+      );
     case 'metric-grid':
       return <MetricGridCard artifact={artifact} onAction={onAction} />;
     case 'sensitivity-slider':
       return <SensitivitySliderCard artifact={artifact} onAction={onAction} />;
+    case 'monitor-proposal':
+      return <MonitorProposalCard artifact={artifact} onAction={onAction} />;
     default:
       return null;
   }

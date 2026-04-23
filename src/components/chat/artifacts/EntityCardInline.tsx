@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { EntityCard } from '@/types/artifacts';
+import SourcesFooter from './SourcesFooter';
 
 interface EntityCardInlineProps {
   artifact: EntityCard;
@@ -70,6 +71,7 @@ export default function EntityCardInline({
         </svg>
         Added to graph
       </div>
+      <SourcesFooter sources={artifact.sources} />
     </div>
   );
 }

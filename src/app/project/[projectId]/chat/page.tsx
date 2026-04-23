@@ -20,7 +20,8 @@ import api from '@/api';
 import { useChat } from '@/hooks/useChat';
 import { useProject } from '@/hooks/useProject';
 import { parseMessageContent } from '@/lib/artifact-parser';
-import type { Artifact } from '@/types/artifacts';
+import type { Artifact, MonitorProposalArtifact } from '@/types/artifacts';
+import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import {
   Pill,
@@ -90,6 +91,68 @@ export default function CopilotChatPage({
     sendMessage(v);
     setInput('');
   }
+
+  /**
+   * Page-level artifact action handler.
+   *
+   * Audit finding (2026-04-23): prior to this, `onArtifactAction` was
+   * threaded through ChatMessage → ArtifactRenderer but never connected to
+   * a real handler at the page level. This is the missing wire.
+   *
+   * Currently routes two monitor-proposal actions:
+   *   - 'monitor:approve' → POST /api/projects/{id}/actions/{actionId}
+   *     with transition='approve' (+ optional edited_payload for
+   *     Edit-before-approve flows). The configure_monitor executor fires
+   *     server-side and creates the monitors row.
+   *   - 'monitor:dismiss' → transition='reject' (marks pending_action as
+   *     rejected; records a preference fact so the agent learns).
+   *
+   * Throws on non-2xx so the calling card can flip to its error state.
+   * Returns void on success so MonitorProposalCard's resolved-approved /
+   * resolved-dismissed transitions fire.
+   *
+   * Other artifact actions (select-option, trigger-action, etc.) stay
+   * routed to sendMessage (legacy pattern) — TODO: migrate those to their
+   * own server routes in v2 for symmetry.
+   */
+  const handleArtifactAction = useCallback(
+    async (action: string, payload: Record<string, unknown>): Promise<void> => {
+      if (action === 'monitor:approve' || action === 'monitor:dismiss') {
+        const pendingActionId = String(payload.pending_action_id ?? '');
+        if (!pendingActionId) throw new Error('Missing pending_action_id on monitor action');
+        const transition = action === 'monitor:approve' ? 'approve' : 'reject';
+        const body: Record<string, unknown> = { transition };
+        if (action === 'monitor:approve' && payload.overrides) {
+          body.edited_payload = payload.overrides;
+        }
+        if (action === 'monitor:dismiss' && typeof payload.reason === 'string') {
+          body.reason = payload.reason;
+        }
+        const res = await fetch(
+          `/api/projects/${projectId}/actions/${pendingActionId}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `Action failed with status ${res.status}`);
+        }
+        return;
+      }
+      // Fallback for other artifact actions — re-send as chat so the agent
+      // can react. Matches legacy OptionSetCard / ActionSuggestionCard usage.
+      if (action === 'select-option' && typeof payload.label === 'string') {
+        sendMessage(`I choose: ${payload.label}`);
+      } else if (action === 'trigger-action' && typeof payload.title === 'string') {
+        const desc = typeof payload.description === 'string' ? payload.description : '';
+        sendMessage(`${payload.title}${desc ? ': ' + desc : ''}. Give me a detailed step-by-step plan.`);
+      }
+    },
+    [projectId, sendMessage],
+  );
 
   function handleKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -201,7 +264,9 @@ export default function CopilotChatPage({
             {canvasArtifacts.length === 0 ? (
               <CanvasEmptyState locale={locale} />
             ) : (
-              canvasArtifacts.map((a, i) => <ArtifactCard key={i} artifact={a} />)
+              canvasArtifacts.map((a, i) => (
+                <ArtifactCard key={i} artifact={a} onAction={handleArtifactAction} />
+              ))
             )}
           </div>
         </div>
@@ -678,7 +743,27 @@ function CanvasEmptyState({ locale }: { locale: 'en' | 'it' }) {
 // Artifact card — unified renderer for ALL artifact types
 // =============================================================================
 
-function ArtifactCard({ artifact }: { artifact: Artifact }) {
+function ArtifactCard({
+  artifact,
+  onAction,
+}: {
+  artifact: Artifact;
+  onAction: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
+}) {
+  // Special case — monitor-proposal has its own self-contained interactive
+  // card (Approve / Edit / Dismiss). Skip the generic canvas wrapper so
+  // the buttons + edit form render at full width without the border-stack.
+  if (artifact.type === 'monitor-proposal') {
+    return (
+      <div style={{ gridColumn: 'span 6' }}>
+        <MonitorProposalCard
+          artifact={artifact as MonitorProposalArtifact}
+          onAction={onAction}
+        />
+      </div>
+    );
+  }
+
   // Each artifact takes 2 cols by default, 6 for wide tables/workflows
   const wide = artifact.type === 'comparison-table' || artifact.type === 'workflow-card';
   const span = wide ? 6 : 2;

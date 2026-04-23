@@ -35,10 +35,21 @@ import type {
   MetricGrid,
   ComparisonTable,
   ActionSuggestion,
+  Source,
 } from '@/types/artifacts';
 import { recordFact } from './memory/facts';
 import { createPendingAction } from './pending-actions';
 import type { PendingActionType } from '@/types';
+
+/**
+ * Serialize a sources array to JSON for persistence, or null when empty.
+ * Parser-level validation guarantees sources[] is non-empty for factual
+ * artifacts by the time they reach here; this helper is defensive for the
+ * small number of call sites where sources are optional (synthesis types).
+ */
+function sourcesJson(sources: Source[] | undefined): string | null {
+  return Array.isArray(sources) && sources.length > 0 ? JSON.stringify(sources) : null;
+}
 
 export interface PersistContext {
   userId: string;
@@ -93,11 +104,17 @@ function persistEntityCard(ctx: PersistContext, a: EntityCard): PersistResult {
     a.name,
   );
 
+  const srcJson = sourcesJson(a.sources);
+
   if (existing) {
+    // COALESCE keeps prior sources when the update carries none — the parser
+    // guarantees factual artifacts arrive with sources, so this is mostly
+    // a safety net against future relaxation of the rule.
     run(
-      'UPDATE graph_nodes SET summary = ?, attributes = ? WHERE id = ?',
+      'UPDATE graph_nodes SET summary = ?, attributes = ?, sources = COALESCE(?, sources) WHERE id = ?',
       a.summary ?? '',
       JSON.stringify(a.attributes ?? {}),
+      srcJson,
       existing.id,
     );
     return { type: a.type, persisted: true, target: 'graph_nodes (update)' };
@@ -105,18 +122,21 @@ function persistEntityCard(ctx: PersistContext, a: EntityCard): PersistResult {
 
   const id = `node_${crypto.randomUUID().slice(0, 12)}`;
   run(
-    `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     id,
     ctx.projectId,
     a.name,
     a.entity_type ?? 'entity',
     a.summary ?? '',
     JSON.stringify(a.attributes ?? {}),
+    srcJson,
   );
 
   // Edge from project root (if it exists) to this new node. Relation name
   // is derived from entity_type for a little semantic colour on the graph.
+  // Edge inherits the entity-card's sources — same provenance justifies
+  // both the node's existence and the relationship claim.
   const root = get<{ id: string }>(
     "SELECT id FROM graph_nodes WHERE project_id = ? AND node_type = 'your_startup' LIMIT 1",
     ctx.projectId,
@@ -124,13 +144,14 @@ function persistEntityCard(ctx: PersistContext, a: EntityCard): PersistResult {
   if (root) {
     const relation = relationForEntityType(a.entity_type);
     run(
-      `INSERT INTO graph_edges (id, project_id, source_node_id, target_node_id, relation)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO graph_edges (id, project_id, source_node_id, target_node_id, relation, sources)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       `edge_${crypto.randomUUID().slice(0, 12)}`,
       ctx.projectId,
       root.id,
       id,
       relation,
+      srcJson,
     );
   }
 
@@ -170,6 +191,11 @@ function persistInsightCard(ctx: PersistContext, a: InsightCard): PersistResult 
     kind: 'observation',
     sourceType: 'chat',
     confidence,
+    // Thread through the insight-card's sources so the memory fact carries
+    // the same verifiable provenance as the original artifact. Future
+    // `buildMemoryContext` calls can surface the URL/quote alongside the
+    // fact text.
+    sources: a.sources,
   });
 
   return { type: a.type, persisted: true, target: 'memory_facts (observation)' };
@@ -182,6 +208,7 @@ function persistGaugeChart(ctx: PersistContext, a: GaugeChartArtifact): PersistR
 
   const normalizedScore = a.maxScore && a.maxScore > 0 ? (a.score * 10) / a.maxScore : a.score;
   const benchmark = a.verdict ?? null;
+  const srcJson = sourcesJson(a.sources);
 
   const existing = get<{ project_id: string }>(
     'SELECT project_id FROM scores WHERE project_id = ?',
@@ -190,18 +217,20 @@ function persistGaugeChart(ctx: PersistContext, a: GaugeChartArtifact): PersistR
 
   if (existing) {
     run(
-      'UPDATE scores SET overall_score = ?, benchmark = COALESCE(?, benchmark), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+      'UPDATE scores SET overall_score = ?, benchmark = COALESCE(?, benchmark), sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
       normalizedScore,
       benchmark,
+      srcJson,
       ctx.projectId,
     );
   } else {
     run(
-      'INSERT INTO scores (project_id, overall_score, benchmark, dimensions) VALUES (?, ?, ?, ?)',
+      'INSERT INTO scores (project_id, overall_score, benchmark, dimensions, sources) VALUES (?, ?, ?, ?, ?)',
       ctx.projectId,
       normalizedScore,
       benchmark,
       '{}',
+      srcJson,
     );
   }
 
@@ -230,19 +259,23 @@ function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): PersistR
     ctx.projectId,
   );
 
+  const srcJson = sourcesJson(a.sources);
+
   if (existing) {
     const prior = safeJson(existing.dimensions) || {};
     const merged = { ...prior, ...incoming };
     run(
-      'UPDATE scores SET dimensions = ?, scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+      'UPDATE scores SET dimensions = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
       JSON.stringify(merged),
+      srcJson,
       ctx.projectId,
     );
   } else {
     run(
-      'INSERT INTO scores (project_id, overall_score, dimensions) VALUES (?, 0, ?)',
+      'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, 0, ?, ?)',
       ctx.projectId,
       JSON.stringify(incoming),
+      srcJson,
     );
   }
 
@@ -262,18 +295,21 @@ function persistScoreCard(ctx: PersistContext, a: ScoreCardArtifact): PersistRes
   );
   const prior = existing ? (safeJson(existing.dimensions) || {}) : {};
   const merged = { ...prior, [a.title]: a.score };
+  const srcJson = sourcesJson(a.sources);
 
   if (existing) {
     run(
-      'UPDATE scores SET dimensions = ?, scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+      'UPDATE scores SET dimensions = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
       JSON.stringify(merged),
+      srcJson,
       ctx.projectId,
     );
   } else {
     run(
-      'INSERT INTO scores (project_id, overall_score, dimensions) VALUES (?, 0, ?)',
+      'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, 0, ?, ?)',
       ctx.projectId,
       JSON.stringify(merged),
+      srcJson,
     );
   }
 
@@ -306,17 +342,21 @@ function persistMetricGrid(ctx: PersistContext, a: MetricGrid): PersistResult {
     ctx.projectId,
   );
 
+  const srcJson = sourcesJson(a.sources);
+
   if (existing) {
     run(
-      'UPDATE research SET market_size = ?, researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+      'UPDATE research SET market_size = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
       JSON.stringify({ ...marketData, _title: a.title }),
+      srcJson,
       ctx.projectId,
     );
   } else {
     run(
-      'INSERT INTO research (project_id, market_size) VALUES (?, ?)',
+      'INSERT INTO research (project_id, market_size, sources) VALUES (?, ?, ?)',
       ctx.projectId,
       JSON.stringify({ ...marketData, _title: a.title }),
+      srcJson,
     );
   }
 
@@ -349,18 +389,21 @@ function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): Persis
     'SELECT project_id FROM research WHERE project_id = ?',
     ctx.projectId,
   );
+  const srcJson = sourcesJson(a.sources);
 
   if (existing) {
     run(
-      'UPDATE research SET competitors = ?, researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+      'UPDATE research SET competitors = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
       JSON.stringify(competitors),
+      srcJson,
       ctx.projectId,
     );
   } else {
     run(
-      'INSERT INTO research (project_id, competitors) VALUES (?, ?)',
+      'INSERT INTO research (project_id, competitors, sources) VALUES (?, ?, ?)',
       ctx.projectId,
       JSON.stringify(competitors),
+      srcJson,
     );
   }
 
@@ -386,6 +429,9 @@ function persistActionSuggestion(ctx: PersistContext, a: ActionSuggestion): Pers
       action_type_raw: a.action_type,
     },
     estimated_impact: 'medium',
+    // Propagate sources through to pending_actions.sources so the inbox UI
+    // can render why the agent proposed this action.
+    sources: a.sources,
   });
 
   return { type: a.type, persisted: true, target: `pending_actions (${actionType})` };

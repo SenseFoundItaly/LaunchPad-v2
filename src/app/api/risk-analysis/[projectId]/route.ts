@@ -110,20 +110,41 @@ export async function POST(
     return error(`Risk audit failed: ${(err as Error).message}`, 500);
   }
 
+  // Extract the top-level + per-risk sources into a flat array so the
+  // readiness UI can render them as a single source bar on the risk widget.
+  // The full structure stays in risk_scenarios JSON (including per-risk
+  // sources); scenario_sources is a flattened convenience copy for queries
+  // that don't want to parse the full audit blob.
+  const flatSources: unknown[] = [];
+  try {
+    const auditObj = (audit as { risk_audit?: { sources?: unknown[]; top_risks?: Array<{ sources?: unknown[] }> } })?.risk_audit;
+    if (auditObj?.sources) flatSources.push(...auditObj.sources);
+    if (Array.isArray(auditObj?.top_risks)) {
+      for (const r of auditObj.top_risks) {
+        if (Array.isArray(r?.sources)) flatSources.push(...r.sources);
+      }
+    }
+  } catch {
+    // best-effort — if the shape differs, we still persist risk_scenarios
+  }
+  const flatSourcesJson = flatSources.length > 0 ? JSON.stringify(flatSources) : null;
+
   // Upsert into simulation.risk_scenarios (preserves any existing personas).
   try {
     const existing = get<{ project_id: string }>('SELECT project_id FROM simulation WHERE project_id = ?', projectId);
     if (existing) {
       run(
-        'UPDATE simulation SET risk_scenarios = ?, simulated_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+        'UPDATE simulation SET risk_scenarios = ?, scenario_sources = COALESCE(?, scenario_sources), simulated_at = CURRENT_TIMESTAMP WHERE project_id = ?',
         JSON.stringify(audit),
+        flatSourcesJson,
         projectId,
       );
     } else {
       run(
-        'INSERT INTO simulation (project_id, risk_scenarios) VALUES (?, ?)',
+        'INSERT INTO simulation (project_id, risk_scenarios, scenario_sources) VALUES (?, ?, ?)',
         projectId,
         JSON.stringify(audit),
+        flatSourcesJson,
       );
     }
 

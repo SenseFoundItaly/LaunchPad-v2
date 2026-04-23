@@ -3,6 +3,37 @@ name: risk-scoring
 description: Runs a comprehensive risk audit across technical, market, regulatory, team, and financial dimensions
 ---
 
+<!-- sources-required-block -->
+## Source Requirements (MANDATORY)
+
+Every factual claim in the output of this skill MUST cite at least one source. This applies to:
+
+- Numbers (market sizes, percentages, timelines, costs, benchmarks)
+- Named entities (competitors, regulations, tools, companies, people)
+- External-world claims (trends, dates, events, expert opinions)
+- Every risk, score dimension, recommendation, and workflow step
+
+**Source schema** (include as a `sources: Source[]` field at every factual level of the output JSON, not just the top):
+
+```ts
+type Source =
+  | { type: 'web'; title: string; url: string; accessed_at?: string; quote?: string }
+  | { type: 'skill'; title: string; skill_id: string; run_id?: string; quote?: string }
+  | { type: 'internal'; title: string; ref: 'graph_node'|'score'|'research'|'memory_fact'|'chat_turn'; ref_id: string; quote?: string }
+  | { type: 'user'; title: string; chat_turn_id?: string; quote: string }
+  | { type: 'inference'; title: string; based_on: Source[]; reasoning: string };
+```
+
+**Rules:**
+1. No invented numbers, URLs, or company names. If you don't have a source, say so plainly — never fabricate.
+2. Web sources must carry the verbatim URL — don't paraphrase.
+3. Use `type: 'internal'` when citing the founder's own project data (scores, research rows, memory facts).
+4. Use `type: 'user'` when quoting the founder verbatim from chat.
+5. `type: 'inference'` is allowed ONLY when `based_on` is non-empty; `reasoning` must explain the synthesis chain.
+6. Attach sources at BOTH the top level (skill-wide provenance) AND at each nested factual entry (per-risk, per-dimension, per-competitor).
+7. A claim without a source is a rejected claim. The UI will display it as "UNSOURCED — discarded" and the parser will drop it from persistence.
+
+
 # Risk Scoring
 
 Produce a structured risk audit that surfaces the 5-10 things most likely to kill the startup, ranked by probability × impact, each paired with a concrete mitigation. Unlike a generic SWOT, this audit is decision-ready: every risk has a falsifiable trigger and a named owner.
@@ -105,7 +136,15 @@ Each Critical or High risk MUST have:
         "mitigation": "Concrete action owned by a named person, due within N weeks",
         "mitigation_owner": "Name",
         "mitigation_due": "ISO date",
-        "status": "new | in_progress | mitigated | accepted"
+        "status": "new | in_progress | mitigated | accepted",
+        "sources": [
+          {
+            "type": "web",
+            "title": "e.g. EU AI Act (Regulation 2024/1689)",
+            "url": "https://eur-lex.europa.eu/...",
+            "accessed_at": "2026-04-22"
+          }
+        ]
       }
     ],
     "dimension_summary": {
@@ -120,12 +159,25 @@ Each Critical or High risk MUST have:
     "high_count": 0,
     "overall_assessment": "2-3 sentences on the aggregate risk posture and whether it is compatible with the current stage and funding plan",
     "watch_list": [
-      "External signal to monitor monthly that could shift one or more risks"
+      {
+        "signal": "External signal to monitor monthly that could shift one or more risks",
+        "sources": [{ "type": "web", "title": "...", "url": "https://..." }]
+      }
     ],
-    "next_review_date": "ISO date — default 90 days out"
+    "next_review_date": "ISO date — default 90 days out",
+    "sources": [
+      {
+        "type": "internal",
+        "title": "Current project scores",
+        "ref": "score",
+        "ref_id": "score_xyz"
+      }
+    ]
   }
 }
 ```
+
+**CRITICAL**: every entry in `top_risks[]` MUST have a non-empty `sources` array — a risk without a source is a hallucinated risk and will be dropped. Web sources are strongest (regulator websites, news articles, industry reports); `type: "internal"` is acceptable for risks derived from the founder's own project data (e.g., low score dimension). `type: "inference"` is allowed when the risk emerges from synthesizing multiple sources — cite the base sources in `based_on`.
 
 ## Examples
 

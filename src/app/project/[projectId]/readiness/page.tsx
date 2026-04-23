@@ -7,6 +7,8 @@ import { useSkillStatus } from '@/hooks/useSkillStatus';
 import { scoreOverall } from '@/lib/scoring';
 import { extractSkillHighlights } from '@/lib/extract-summary';
 import { GaugeChart, RadarChart } from '@/components/charts';
+import type { Source } from '@/types/artifacts';
+import SourcesFooter from '@/components/chat/artifacts/SourcesFooter';
 
 // ─── Risk audit widget (roadmap 1.1) ─────────────────────────────────────────
 
@@ -22,7 +24,14 @@ interface Risk {
   mitigation?: string;
   mitigation_owner?: string;
   mitigation_due?: string;
+  // Per-risk sources — required by the skill schema (Phase C) but may be
+  // absent in audits generated before the citation requirement landed.
+  sources?: Source[];
 }
+
+// Watch-list items: the old schema used `string[]`, the Phase-C schema uses
+// `{ signal, sources }[]`. Union to handle both — older audits still render.
+type WatchItem = string | { signal: string; sources?: Source[] };
 
 interface RiskAudit {
   risks?: Risk[];
@@ -30,9 +39,11 @@ interface RiskAudit {
   critical_count?: number;
   high_count?: number;
   overall_assessment?: string;
-  watch_list?: string[];
+  watch_list?: WatchItem[];
   next_review_date?: string;
   dimension_summary?: Record<string, { risk_count: number; max_score: number }>;
+  // Top-level sources — skill-wide provenance for the whole audit.
+  sources?: Source[];
 }
 
 function severityStyle(sev?: string) {
@@ -128,23 +139,29 @@ function RiskAuditCard({ projectId }: { projectId: string }) {
           {topRisks.map((r) => (
             <div
               key={r.id ?? r.risk}
-              className="flex items-start gap-2 p-2 rounded bg-zinc-800/50 border border-zinc-800"
+              className="p-2 rounded bg-zinc-800/50 border border-zinc-800"
             >
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono uppercase shrink-0 ${severityStyle(r.severity)}`}>
-                {r.severity ?? '—'}
-              </span>
-              <span className="text-[10px] text-zinc-500 uppercase shrink-0 w-20 pt-0.5">{r.dimension}</span>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs text-zinc-100">{r.risk}</div>
-                {r.mitigation && (
-                  <div className="text-[11px] text-zinc-400 mt-0.5">
-                    <span className="text-zinc-500">mitigate:</span> {r.mitigation}
-                    {r.mitigation_owner && <span className="text-zinc-500"> · {r.mitigation_owner}</span>}
-                  </div>
+              <div className="flex items-start gap-2">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono uppercase shrink-0 ${severityStyle(r.severity)}`}>
+                  {r.severity ?? '—'}
+                </span>
+                <span className="text-[10px] text-zinc-500 uppercase shrink-0 w-20 pt-0.5">{r.dimension}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-zinc-100">{r.risk}</div>
+                  {r.mitigation && (
+                    <div className="text-[11px] text-zinc-400 mt-0.5">
+                      <span className="text-zinc-500">mitigate:</span> {r.mitigation}
+                      {r.mitigation_owner && <span className="text-zinc-500"> · {r.mitigation_owner}</span>}
+                    </div>
+                  )}
+                </div>
+                {typeof r.risk_score === 'number' && (
+                  <span className="text-[11px] text-zinc-500 font-mono shrink-0">{r.risk_score}</span>
                 )}
               </div>
-              {typeof r.risk_score === 'number' && (
-                <span className="text-[11px] text-zinc-500 font-mono shrink-0">{r.risk_score}</span>
+              {/* Per-risk sources — compact mode to fit inside the tight row. */}
+              {r.sources && r.sources.length > 0 && (
+                <SourcesFooter sources={r.sources} compact />
               )}
             </div>
           ))}
@@ -155,14 +172,31 @@ function RiskAuditCard({ projectId }: { projectId: string }) {
         <div className="mt-3 pt-3 border-t border-zinc-800">
           <div className="text-[11px] text-zinc-500 uppercase mb-1">Watch list</div>
           <ul className="space-y-0.5">
-            {audit.watch_list.slice(0, 3).map((w, i) => (
-              <li key={i} className="text-xs text-zinc-400 flex gap-2">
-                <span className="text-zinc-600 shrink-0">·</span>
-                <span>{w}</span>
-              </li>
-            ))}
+            {audit.watch_list.slice(0, 3).map((w, i) => {
+              // Handle both old (string) and new ({signal, sources}) shapes.
+              const signal = typeof w === 'string' ? w : w.signal;
+              const sources = typeof w === 'string' ? undefined : w.sources;
+              return (
+                <li key={i} className="text-xs text-zinc-400">
+                  <div className="flex gap-2">
+                    <span className="text-zinc-600 shrink-0">·</span>
+                    <span>{signal}</span>
+                  </div>
+                  {sources && sources.length > 0 && (
+                    <div className="ml-4">
+                      <SourcesFooter sources={sources} compact />
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
+      )}
+
+      {/* Skill-wide sources (top-level provenance for the audit as a whole). */}
+      {audit?.sources && audit.sources.length > 0 && (
+        <SourcesFooter sources={audit.sources} label="Audit sources" />
       )}
     </div>
   );

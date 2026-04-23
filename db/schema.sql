@@ -626,3 +626,45 @@ CREATE TABLE IF NOT EXISTS memory_events (
 
 CREATE INDEX IF NOT EXISTS idx_memory_events_user_project
   ON memory_events(user_id, project_id, created_at);
+
+-- =============================================================================
+-- Mandatory source citations (Phase D of sources-required plan, 2026-04-22)
+-- Every factual row can now carry structured provenance as a JSON Source[].
+-- Same ALTER-as-migration pattern: errors on re-run are swallowed by the
+-- loader in src/lib/db/index.ts.
+--
+-- Columns are nullable (existing rows stay NULL) — the artifact-persistence
+-- dispatcher writes `JSON.stringify(artifact.sources)` only for artifacts
+-- that carried sources. The parser already guarantees factual artifacts
+-- have non-empty sources by the time they reach the persister, so new
+-- writes always populate.
+-- =============================================================================
+ALTER TABLE graph_nodes      ADD COLUMN sources TEXT;
+ALTER TABLE graph_edges      ADD COLUMN sources TEXT;
+ALTER TABLE scores           ADD COLUMN sources TEXT;
+ALTER TABLE research         ADD COLUMN sources TEXT;
+ALTER TABLE pending_actions  ADD COLUMN sources TEXT;
+ALTER TABLE memory_facts     ADD COLUMN sources TEXT;
+ALTER TABLE simulation       ADD COLUMN scenario_sources TEXT;
+ALTER TABLE workflow_plans   ADD COLUMN sources TEXT;
+
+-- =============================================================================
+-- Monitor derisking linkage + dedup layer (2026-04-23).
+-- Every monitor now traces back to a specific risk_audit risk OR a verbatim
+-- founder chat quote. L1 dedup = (project_id, linked_risk_id, kind) uniqueness
+-- for active monitors + URL-set intersection check via dedup_hash index.
+-- L2 is the Haiku semantic classifier in src/lib/monitor-dedup.ts.
+-- dedup_override_reason is populated when the agent explicitly bypassed L2;
+-- shown on the approval card so the founder sees the justification.
+-- =============================================================================
+ALTER TABLE monitors ADD COLUMN linked_risk_id TEXT;
+ALTER TABLE monitors ADD COLUMN linked_quote TEXT;
+ALTER TABLE monitors ADD COLUMN kind TEXT;
+ALTER TABLE monitors ADD COLUMN urls_to_track TEXT;
+ALTER TABLE monitors ADD COLUMN dedup_hash TEXT;
+ALTER TABLE monitors ADD COLUMN dedup_override_reason TEXT;
+ALTER TABLE monitors ADD COLUMN sources TEXT;
+CREATE INDEX IF NOT EXISTS idx_monitors_project_risk_kind
+  ON monitors(project_id, linked_risk_id, kind, status);
+CREATE INDEX IF NOT EXISTS idx_monitors_project_dedup
+  ON monitors(project_id, dedup_hash);

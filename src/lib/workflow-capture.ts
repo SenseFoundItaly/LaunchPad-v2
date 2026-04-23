@@ -49,15 +49,22 @@ export function captureWorkflow(input: {
 
   const planId = crypto.randomUUID();
 
+  // Serialize sources once — used on both the plan row and every pending_action.
+  const srcJson =
+    Array.isArray(artifact.sources) && artifact.sources.length > 0
+      ? JSON.stringify(artifact.sources)
+      : null;
+
   try {
     run(
-      `INSERT INTO workflow_plans (id, project_id, name, description, steps, status, current_step)
-       VALUES (?, ?, ?, ?, ?, 'proposed', 0)`,
+      `INSERT INTO workflow_plans (id, project_id, name, description, steps, status, current_step, sources)
+       VALUES (?, ?, ?, ?, ?, 'proposed', 0, ?)`,
       planId,
       projectId,
       artifact.title,
       artifact.description || '',
       JSON.stringify(artifact.steps),
+      srcJson,
     );
   } catch (err) {
     console.warn('[workflow-capture] workflow_plans INSERT failed:', (err as Error).message);
@@ -84,6 +91,10 @@ export function captureWorkflow(input: {
           priority: artifact.priority,
         },
         estimated_impact: artifact.priority === 'high' ? 'high' : 'medium',
+        // Inherit the workflow's sources on every step — one action, one
+        // provenance trail. The founder can see WHY each step was proposed
+        // without clicking back to the parent workflow.
+        sources: artifact.sources,
       });
       actionIds.push(created.id);
     } catch (err) {

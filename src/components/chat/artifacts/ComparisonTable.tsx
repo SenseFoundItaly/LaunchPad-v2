@@ -1,6 +1,7 @@
 'use client';
 
 import type { ComparisonTable as ComparisonTableType } from '@/types/artifacts';
+import SourcesFooter from './SourcesFooter';
 
 interface ComparisonTableProps {
   artifact: ComparisonTableType;
@@ -46,6 +47,7 @@ export default function ComparisonTable({ artifact }: ComparisonTableProps) {
           ))}
         </tbody>
       </table>
+      <SourcesFooter sources={artifact.sources} />
     </div>
   );
 }

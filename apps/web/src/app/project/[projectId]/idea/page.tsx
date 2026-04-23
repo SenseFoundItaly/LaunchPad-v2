@@ -195,6 +195,15 @@ export default function IdeaPage({
           description: desc,
           priority: 'medium' as const,
           steps: [],
+          // Source enforcement (Phase A): this is a UI-initiated workflow
+          // created from a user click on an action-suggestion, so we cite
+          // the user action as the source. When the chat agent proposes
+          // workflows, it supplies real sources via the artifact parser.
+          sources: [{
+            type: 'user' as const,
+            title: 'Founder triggered from action-suggestion',
+            quote: title,
+          }],
         }];
       });
     } else if (action === 'trigger-workflow') {

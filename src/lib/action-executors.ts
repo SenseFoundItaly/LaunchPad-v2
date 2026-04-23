@@ -29,6 +29,9 @@
 
 import { run, query } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
+import { checkDedup, computeDedupHash } from './monitor-dedup';
+import { recordEvent } from './memory/events';
+import { calculateNextRun } from './monitor-schedule';
 import type {
   PendingAction,
   PendingActionType,
@@ -295,7 +298,146 @@ const proposedLandingCopy: ActionHandler = async () => ({
   },
 });
 
-const REGISTRY: Record<PendingActionType, ActionHandler> = {
+/**
+ * `configure_monitor` executor — converts an approved monitor-proposal
+ * pending_action into an actual active row in the `monitors` table.
+ *
+ * Re-runs L1 dedup as a defence against races: between "founder saw the
+ * approval card" and "founder clicked Approve", another propose_monitor
+ * call could have landed a semantically-same monitor. L1 is cheap and
+ * always enforced so this second check costs ~5ms and prevents the
+ * occasional dupe.
+ *
+ * The payload shape mirrors MonitorProposalArtifact (see
+ * src/types/artifacts.ts). effected fields:
+ *   - monitors.type is set to "ecosystem.<kind>" to match the existing
+ *     execution pipeline's prefix filtering + SELECT shape.
+ *   - next_run is computed so the new monitor fires at the next due tick
+ *     instead of waiting for a full schedule period.
+ *   - linked_risk_id + linked_quote + kind + urls_to_track + sources all
+ *     flow to the new columns added in the Phase D monitor-dedup migration.
+ *   - dedup_hash is computed fresh here rather than trusting the
+ *     pending_action payload — the payload could be days old when approved.
+ */
+const configureMonitor: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+
+  // Extract + shape-check the monitor spec from the approved payload. If
+  // the founder edited fields via the chat artifact's Edit mode, those
+  // edits already landed in `edited_payload` via effectivePayload().
+  const name = String(payload.name ?? action.title);
+  const kind = String(payload.kind ?? 'custom');
+  const schedule = String(payload.schedule ?? 'weekly') as 'hourly' | 'daily' | 'weekly';
+  const q = typeof payload.query === 'string' ? payload.query : undefined;
+  const urls = Array.isArray(payload.urls_to_track)
+    ? payload.urls_to_track.filter((u): u is string => typeof u === 'string')
+    : [];
+  const alertThreshold = String(payload.alert_threshold ?? '');
+  const linkedRiskId = String(payload.linked_risk_id ?? 'ad_hoc');
+  const linkedQuote = typeof payload.linked_quote === 'string' ? payload.linked_quote : null;
+  const dedupOverrideReason = typeof payload.dedup_override_reason === 'string'
+    ? payload.dedup_override_reason
+    : null;
+  const sourcesJson = Array.isArray(payload.sources) && payload.sources.length > 0
+    ? JSON.stringify(payload.sources)
+    : null;
+  const prompt = typeof payload.prompt === 'string' ? payload.prompt : null;
+
+  // Race-guard: re-run L1 dedup. L2 semantic check is skipped here because
+  // the founder has already seen + approved the proposal (any semantic
+  // overlap warning was surfaced at propose time and either accepted or
+  // overridden). L1 rules remain hard — they catch the race where another
+  // approval landed concurrently for the same risk+kind.
+  const dedup = await checkDedup(action.project_id, {
+    name,
+    kind,
+    schedule,
+    query: q,
+    urls_to_track: urls,
+    alert_threshold: alertThreshold,
+    linked_risk_id: linkedRiskId,
+    dedup_override: true,  // skip L2 — agent already justified any overlap
+  });
+  if (!dedup.ok) {
+    return {
+      ok: false,
+      error: `Monitor dedup failed at approval time: ${dedup.error}`,
+    };
+  }
+
+  const monitorId = generateId('mon');
+  const now = new Date().toISOString();
+  // next_run starts "now" so the new monitor enters the cron eligibility
+  // set on the next /api/cron tick instead of waiting a full schedule
+  // period. last_run stays NULL until the first actual run lands.
+  const nextRun = calculateNextRun(schedule) ?? now;
+  const dedupHash = dedup.dedup_hash ?? computeDedupHash(urls, q);
+
+  run(
+    `INSERT INTO monitors (
+       id, project_id, type, name, schedule, config, prompt, status,
+       next_run, created_at,
+       linked_risk_id, linked_quote, kind, urls_to_track,
+       dedup_hash, dedup_override_reason, sources
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    monitorId,
+    action.project_id,
+    `ecosystem.${kind}`,
+    name,
+    schedule,
+    JSON.stringify({
+      alert_threshold: alertThreshold,
+      urls_to_track: urls,
+      query: q,
+      linked_risk_id: linkedRiskId,
+    }),
+    prompt,
+    nextRun,
+    now,
+    linkedRiskId,
+    linkedQuote,
+    kind,
+    JSON.stringify(urls),
+    dedupHash,
+    dedupOverrideReason,
+    sourcesJson,
+  );
+
+  // Audit trail — the approval chain (propose → pending_action → approve →
+  // monitor row) is now queryable across memory_events. Feeds into the
+  // founder's timeline + future HEARTBEAT portfolio review (B3).
+  try {
+    recordEvent({
+      // action.user_id isn't always on the PendingAction type; fall back to
+      // the project owner. Both values live on the action row itself as
+      // text in payload if the chat route recorded it; safest to skip here.
+      userId: (payload.approving_user_id as string) || 'system',
+      projectId: action.project_id,
+      eventType: 'monitor_approved',
+      payload: {
+        monitor_id: monitorId,
+        linked_risk_id: linkedRiskId,
+        kind,
+        schedule,
+        dedup_override: !!dedupOverrideReason,
+      },
+    });
+  } catch {
+    // non-fatal — observability only
+  }
+
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct',
+      created_row_id: monitorId,
+      narrative: `Monitor "${name}" attivato. Schedule: ${schedule}. Collegato al rischio: ${linkedRiskId}.`,
+    },
+  };
+};
+
+const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   draft_email: draftEmail,
   draft_linkedin_post: draftLinkedInPost,
   draft_linkedin_dm: draftLinkedInDM,
@@ -304,6 +446,10 @@ const REGISTRY: Record<PendingActionType, ActionHandler> = {
   proposed_investor_followup: proposedInvestorFollowup,
   proposed_interview_question: proposedInterviewQuestion,
   proposed_landing_copy: proposedLandingCopy,
+  configure_monitor: configureMonitor,
+  // workflow_step is intentionally unmapped — each step is a placeholder
+  // row, not an auto-executable action. Founder approval just flips status
+  // without a domain effect.
 };
 
 export async function executeApprovedAction(action: PendingAction): Promise<ExecutorResult> {

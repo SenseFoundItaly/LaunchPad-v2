@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { get, query, run } from '@/lib/db';
 import { recordEvent } from './events';
+import type { Source } from '@/types/artifacts';
 
 /**
  * memory_facts is the durable knowledge base per (user, project). Facts are
@@ -40,6 +41,13 @@ export interface RecordFactInput {
   sourceType?: FactSourceType;
   sourceId?: string;
   confidence?: number;
+  // Optional structured Source[] (Phase D). Coexists with sourceType/sourceId
+  // (which are compact back-pointers to the originating table row). When the
+  // agent emits a fact via :::artifact{type=fact} block, the parser ensures
+  // sources[] is non-empty before we ever reach this function — callers
+  // deriving facts from internal code (skill completions, workflow capture)
+  // may omit sources if they rely on sourceType+sourceId instead.
+  sources?: Source[];
 }
 
 /**
@@ -66,15 +74,23 @@ export function recordFact(input: RecordFactInput): string {
       trimmed,
     );
 
+    const sourcesJson =
+      input.sources && input.sources.length > 0 ? JSON.stringify(input.sources) : null;
+
     let id: string;
     if (existing) {
-      // Keep the higher confidence; bump updated_at.
+      // Keep the higher confidence; bump updated_at. If the new call carries
+      // sources, overwrite — newer provenance is generally richer (the agent
+      // may have run a web_search the first time and cited a verbatim URL
+      // the second time). A NULL-preserving merge would be possible but not
+      // worth the complexity for v1.
       const newConf = Math.max(existing.confidence, confidence);
       run(
         `UPDATE memory_facts
-         SET updated_at = CURRENT_TIMESTAMP, confidence = ?
+         SET updated_at = CURRENT_TIMESTAMP, confidence = ?, sources = COALESCE(?, sources)
          WHERE id = ?`,
         newConf,
+        sourcesJson,
         existing.id,
       );
       id = existing.id;
@@ -82,8 +98,8 @@ export function recordFact(input: RecordFactInput): string {
       id = crypto.randomUUID();
       run(
         `INSERT INTO memory_facts
-           (id, user_id, project_id, fact, kind, source_type, source_id, confidence)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, user_id, project_id, fact, kind, source_type, source_id, confidence, sources)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         input.userId,
         input.projectId,
@@ -92,6 +108,7 @@ export function recordFact(input: RecordFactInput): string {
         input.sourceType ?? null,
         input.sourceId ?? null,
         confidence,
+        sourcesJson,
       );
     }
 

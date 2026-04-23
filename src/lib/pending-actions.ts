@@ -105,16 +105,25 @@ export interface CreatePendingActionInput {
   monitor_run_id?: string;
   ecosystem_alert_id?: string;
   execution_target?: string;
+  // Optional Source[] JSON from the originating artifact (Phase D of the
+  // mandatory-sources plan). Kept as `unknown[]` at this layer so we don't
+  // pull in the full Source union — callers pass whatever the parser/artifact
+  // emitted. Persisted as JSON to pending_actions.sources.
+  sources?: unknown[];
 }
 
 export function createPendingAction(input: CreatePendingActionInput): PendingAction {
   const id = generateId('pa');
   const now = new Date().toISOString();
+  const sourcesJson =
+    Array.isArray(input.sources) && input.sources.length > 0
+      ? JSON.stringify(input.sources)
+      : null;
   run(
     `INSERT INTO pending_actions
        (id, project_id, monitor_run_id, ecosystem_alert_id, action_type, title, rationale,
-        payload, estimated_impact, status, execution_target, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+        payload, estimated_impact, status, execution_target, sources, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     id,
     input.project_id,
     input.monitor_run_id || null,
@@ -125,6 +134,7 @@ export function createPendingAction(input: CreatePendingActionInput): PendingAct
     JSON.stringify(input.payload),
     input.estimated_impact || null,
     input.execution_target || null,
+    sourcesJson,
     now,
     now,
   );

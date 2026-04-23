@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { WorkflowCard } from '@/types/artifacts';
+import SourcesFooter from './SourcesFooter';
 
 interface WorkflowCardInlineProps {
   artifact: WorkflowCard;
@@ -120,6 +121,7 @@ export default function WorkflowCardInline({
           Execute
         </button>
       </div>
+      <SourcesFooter sources={artifact.sources} />
     </div>
   );
 }

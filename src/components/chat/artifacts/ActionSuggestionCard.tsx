@@ -1,6 +1,7 @@
 'use client';
 
 import type { ActionSuggestion } from '@/types/artifacts';
+import SourcesFooter from './SourcesFooter';
 
 interface ActionSuggestionCardProps {
   artifact: ActionSuggestion;
@@ -30,6 +31,7 @@ export default function ActionSuggestionCard({
       >
         {artifact.action_label}
       </button>
+      <SourcesFooter sources={artifact.sources} />
     </div>
   );
 }

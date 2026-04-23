@@ -342,7 +342,8 @@ export type PendingActionType =
   | 'proposed_landing_copy'
   | 'proposed_investor_followup'
   | 'proposed_graph_update'
-  | 'workflow_step';                // chat-proposed workflow step, one row per step
+  | 'workflow_step'                 // chat-proposed workflow step, one row per step
+  | 'configure_monitor';            // chat-proposed ecosystem monitor awaiting founder approval
 
 export type PendingActionStatus =
   | 'pending'

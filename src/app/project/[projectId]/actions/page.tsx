@@ -533,6 +533,14 @@ function agentFromType(type: PendingActionType): string {
     proposed_landing_copy: 'Designer',
     proposed_investor_followup: 'Chief',
     proposed_graph_update: 'Scout',
+    // workflow_step: per-step row created when chat emits a workflow-card;
+    // approval just flips status (no executor). Treat as "Architect" agent —
+    // the chat agent proposed it as part of a multi-step plan.
+    workflow_step: 'Architect',
+    // configure_monitor: in-chat monitor proposal awaiting founder approval.
+    // Treat as "Scout" — same family as proposed_graph_update, both about
+    // populating the project's observation layer.
+    configure_monitor: 'Scout',
   };
   return map[type] || 'Agent';
 }

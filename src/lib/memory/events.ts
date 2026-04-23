@@ -24,7 +24,18 @@ export type EventType =
   | 'action_approved'
   | 'action_rejected'
   | 'action_dismissed'
-  | 'workflow_proposed';
+  | 'workflow_proposed'
+  // Emitted by the chat route when the parser rejects an artifact for
+  // failing source-requirement validation. Payload contains the artifact
+  // type and the failure reason — feeds a "how often is sourcing failing"
+  // dashboard so we can tune prompts.
+  | 'artifact_rejected_no_sources'
+  // Emitted by configure_monitor executor when a founder approves a
+  // monitor-proposal and it becomes an active row. Payload carries the
+  // monitor_id, linked_risk_id, kind, schedule, and whether the agent
+  // bypassed L2 semantic dedup. Feeds the HEARTBEAT monitor portfolio
+  // review (v3) + founder's audit timeline.
+  | 'monitor_approved';
 
 export interface MemoryEvent {
   id: string;
