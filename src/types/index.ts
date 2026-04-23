@@ -106,11 +106,19 @@ export interface WorkflowResult {
   action_items: { task: string; priority: string; timeline: string; owner: string }[];
 }
 
+export interface ToolActivity {
+  id: string;
+  name: string;
+  args?: Record<string, unknown>;
+  status: 'running' | 'done' | 'error';
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  tools?: ToolActivity[];
 }
 
 export interface Task {
@@ -287,4 +295,126 @@ export interface JourneyData {
   milestones: Milestone[];
   updates: StartupUpdate[];
   scaling_plan: ScalingPlan | null;
+}
+
+// === Ecosystem Intelligence (Layer 1 autonomous feed) ===
+export type EcosystemAlertType =
+  | 'competitor_activity'
+  | 'ip_filing'
+  | 'trend_signal'
+  | 'partnership_opportunity'
+  | 'regulatory_change'
+  | 'funding_event';
+
+export type EcosystemAlertState =
+  | 'pending'
+  | 'acknowledged'
+  | 'dismissed'
+  | 'promoted_to_action';
+
+export interface EcosystemAlert {
+  id: string;
+  project_id: string;
+  monitor_id: string | null;
+  monitor_run_id: string | null;
+  alert_type: EcosystemAlertType;
+  source: string | null;
+  source_url: string | null;
+  headline: string;
+  body: string | null;
+  relevance_score: number;
+  confidence: number;
+  graph_node_id: string | null;
+  reviewed_state: EcosystemAlertState;
+  reviewed_at: string | null;
+  founder_action_taken: string | null;
+  dedupe_hash: string | null;
+  created_at: string;
+}
+
+// === Pending Actions (approval inbox) ===
+export type PendingActionType =
+  | 'draft_email'
+  | 'draft_linkedin_post'
+  | 'draft_linkedin_dm'
+  | 'proposed_hypothesis'
+  | 'proposed_interview_question'
+  | 'proposed_landing_copy'
+  | 'proposed_investor_followup'
+  | 'proposed_graph_update'
+  | 'workflow_step'                 // chat-proposed workflow step, one row per step
+  | 'configure_monitor';            // chat-proposed ecosystem monitor awaiting founder approval
+
+export type PendingActionStatus =
+  | 'pending'
+  | 'approved'
+  | 'edited'
+  | 'rejected'
+  | 'sent'
+  | 'failed';
+
+export interface PendingAction {
+  id: string;
+  project_id: string;
+  monitor_run_id: string | null;
+  ecosystem_alert_id: string | null;
+  action_type: PendingActionType;
+  title: string;
+  rationale: string | null;
+  payload: Record<string, unknown>;
+  estimated_impact: 'low' | 'medium' | 'high' | null;
+  status: PendingActionStatus;
+  edited_payload: Record<string, unknown> | null;
+  execution_target: string | null;
+  executed_at: string | null;
+  execution_result: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// === Partner Configs (Add-on 1/3 onboarding) ===
+export interface PartnerConfig {
+  slug: string;
+  display_name: string;
+  locale: string;
+  knowledge_seed: Record<string, unknown> | null;
+  preferred_skills: string[] | null;
+  brief_template: string;
+  brand: Record<string, unknown> | null;
+  created_at: string;
+}
+
+// === Project Budgets (cost governance) ===
+export interface ProjectBudget {
+  id: string;
+  project_id: string;
+  period_month: string;
+  cap_llm_usd: number;
+  cap_external_actions: number;
+  warn_llm_usd: number;
+  warn_external_actions: number;
+  current_llm_usd: number;
+  current_external_actions: number;
+  status: 'active' | 'warned' | 'capped';
+  created_at: string;
+  updated_at: string;
+}
+
+// === Monday Brief (aggregated digest delivered by cron) ===
+export interface MondayBriefSection {
+  kind: 'movements' | 'actions_taken' | 'decisions_needed' | 'metrics' | 'fundraising';
+  heading: string;
+  narrative: string;
+  artifacts?: Array<Record<string, unknown>>;
+}
+
+export interface MondayBrief {
+  project_id: string;
+  period_week_start: string;
+  personality_intro: string;
+  sections: MondayBriefSection[];
+  ecosystem_alerts: EcosystemAlert[];
+  pending_actions: PendingAction[];
+  operational_alerts: Alert[];
+  generated_at: string;
 }

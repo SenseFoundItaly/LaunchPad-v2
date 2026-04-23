@@ -1,0 +1,100 @@
+/* LaunchPad — Founder OS
+   Design tokens. Paperclip-adjacent: warm paper light + ink-dark dark.
+   Single saturated accent (tangerine). Moss for ok, clay for warn/err.
+*/
+
+:root {
+  /* base — warm paper */
+  --paper: #F4F1EA;
+  --paper-2: #EBE6DB;
+  --paper-3: #DED8C9;
+  --ink: #16140F;
+  --ink-2: #2A2620;
+  --ink-3: #4A453C;
+  --ink-4: #6B6558;
+  --ink-5: #8F897A;
+  --ink-6: #B4AE9F;
+  --line: rgba(22, 20, 15, 0.09);
+  --line-2: rgba(22, 20, 15, 0.15);
+  --surface: #FFFFFF;
+  --surface-sunk: #EEE9DD;
+
+  /* accents (shared chroma, vary hue) */
+  --moss: oklch(0.58 0.08 145);       /* ok / running */
+  --moss-wash: oklch(0.94 0.03 140);
+  --clay: oklch(0.58 0.12 28);        /* warn */
+  --sky: oklch(0.60 0.09 235);        /* info */
+  --sky-wash: oklch(0.94 0.02 235);
+  --plum: oklch(0.52 0.11 325);       /* graph node */
+
+  /* type — uses next/font variables from src/app/layout.tsx */
+  --f-sans: var(--font-inter), -apple-system, system-ui, sans-serif;
+  --f-display: var(--font-inter), -apple-system, system-ui, sans-serif; /* all-sans */
+  --f-mono: var(--font-jetbrains-mono), 'SF Mono', ui-monospace, monospace;
+  --accent-h: 52; /* hue knob — driven by Tweaks */
+  --accent: oklch(0.72 0.18 var(--accent-h));
+  --accent-ink: oklch(0.36 0.12 var(--accent-h));
+  --accent-wash: oklch(0.94 0.05 var(--accent-h));
+
+  /* geometry */
+  --r-s: 4px;
+  --r-m: 6px;
+  --r-l: 10px;
+  --shadow-card: 0 1px 2px rgba(22,20,15,.04), 0 8px 24px rgba(22,20,15,.06);
+  --shadow-lift: 0 2px 8px rgba(22,20,15,.08), 0 20px 48px rgba(22,20,15,.10);
+}
+
+/* Dark theme (inverted paper) */
+.theme-ink {
+  --paper: #14130F;
+  --paper-2: #1C1B16;
+  --paper-3: #25231C;
+  --ink: #F2EEE4;
+  --ink-2: #DCD6C6;
+  --ink-3: #B4AE9F;
+  --ink-4: #8F897A;
+  --ink-5: #6B6558;
+  --ink-6: #4A453C;
+  --line: rgba(242, 238, 228, 0.08);
+  --line-2: rgba(242, 238, 228, 0.16);
+  --surface: #1A1813;
+  --surface-sunk: #0F0E0A;
+  --accent-wash: oklch(0.28 0.06 60);
+  --moss-wash: oklch(0.25 0.04 145);
+  --sky-wash: oklch(0.25 0.03 235);
+  --shadow-card: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.4);
+  --shadow-lift: 0 2px 8px rgba(0,0,0,.5), 0 20px 48px rgba(0,0,0,.6);
+}
+
+/* element primitives */
+.lp-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: var(--shadow-card); }
+.lp-mono { font-family: var(--f-mono); font-feature-settings: 'ss01','cv01','cv02'; }
+.lp-serif { font-family: var(--f-display); letter-spacing: -0.02em; font-weight: 600; }
+.lp-kbd { font-family: var(--f-mono); font-size: 11px; padding: 2px 5px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; color: var(--ink-3); background: var(--paper-2); }
+.lp-chip { display:inline-flex; align-items:center; gap:6px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-family: var(--f-mono); letter-spacing: .02em; }
+.lp-dot { width: 6px; height: 6px; border-radius: 50%; display:inline-block; }
+.lp-pulse { animation: lp-pulse 1.8s ease-in-out infinite; }
+@keyframes lp-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+.lp-scan { position: relative; overflow: hidden; }
+.lp-scan::after { content:''; position:absolute; inset:0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent); transform: translateX(-100%); animation: lp-scan 2.4s ease-in-out infinite; }
+@keyframes lp-scan { 0% { transform: translateX(-100%);} 60%,100% { transform: translateX(200%);} }
+
+/* custom scrollbar that doesn't distract */
+.lp-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.lp-scroll::-webkit-scrollbar-track { background: transparent; }
+.lp-scroll::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }
+
+/* Message hover-reveal action row (Copy, Retry). Parent gets .lp-msg-row,
+ * child pill row gets .lp-msg-actions. Focus-within kept so keyboard users
+ * can tab in and see the actions without a hover. */
+.lp-msg-row:hover .lp-msg-actions,
+.lp-msg-row:focus-within .lp-msg-actions { opacity: 1 !important; }
+.lp-msg-action-btn:hover { background: var(--paper-2) !important; color: var(--ink-2) !important; }
+
+/* tiny icons */
+.lp-ic { width: 14px; height: 14px; stroke: currentColor; stroke-width: 1.25; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.lp-ic-lg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.25; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+
+/* keep artboard contents from feeling cramped inside DCArtboard */
+.lp-frame { width: 100%; height: 100%; background: var(--paper); color: var(--ink); font-family: var(--f-sans); font-size: 13px; line-height: 1.45; display: flex; flex-direction: column; overflow: hidden; }
+.lp-frame * { box-sizing: border-box; }

@@ -3,6 +3,37 @@ name: growth-optimization
 description: Runs iterative growth optimization loops using the Hypothesis-Test-Evaluate-Ratchet cycle
 ---
 
+<!-- sources-required-block -->
+## Source Requirements (MANDATORY)
+
+Every factual claim in the output of this skill MUST cite at least one source. This applies to:
+
+- Numbers (market sizes, percentages, timelines, costs, benchmarks)
+- Named entities (competitors, regulations, tools, companies, people)
+- External-world claims (trends, dates, events, expert opinions)
+- Every risk, score dimension, recommendation, and workflow step
+
+**Source schema** (include as a `sources: Source[]` field at every factual level of the output JSON, not just the top):
+
+```ts
+type Source =
+  | { type: 'web'; title: string; url: string; accessed_at?: string; quote?: string }
+  | { type: 'skill'; title: string; skill_id: string; run_id?: string; quote?: string }
+  | { type: 'internal'; title: string; ref: 'graph_node'|'score'|'research'|'memory_fact'|'chat_turn'; ref_id: string; quote?: string }
+  | { type: 'user'; title: string; chat_turn_id?: string; quote: string }
+  | { type: 'inference'; title: string; based_on: Source[]; reasoning: string };
+```
+
+**Rules:**
+1. No invented numbers, URLs, or company names. If you don't have a source, say so plainly — never fabricate.
+2. Web sources must carry the verbatim URL — don't paraphrase.
+3. Use `type: 'internal'` when citing the founder's own project data (scores, research rows, memory facts).
+4. Use `type: 'user'` when quoting the founder verbatim from chat.
+5. `type: 'inference'` is allowed ONLY when `based_on` is non-empty; `reasoning` must explain the synthesis chain.
+6. Attach sources at BOTH the top level (skill-wide provenance) AND at each nested factual entry (per-risk, per-dimension, per-competitor).
+7. A claim without a source is a rejected claim. The UI will display it as "UNSOURCED — discarded" and the parser will drop it from persistence.
+
+
 # Growth Optimization
 
 Run structured optimization loops inspired by the AutoResearch pattern (Karpathy). Each loop follows a disciplined cycle: form a hypothesis, design a test, evaluate results, and ratchet forward by locking in what works. This skill tracks accumulated learnings across iterations and detects when a given optimization target has reached diminishing returns.

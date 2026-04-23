@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { InsightCard as InsightCardType } from '@/types/artifacts';
+import SourcesFooter from './SourcesFooter';
 
 interface InsightCardProps {
   artifact: InsightCardType;
@@ -68,6 +69,7 @@ export default function InsightCard({ artifact, onAction }: InsightCardProps) {
       </div>
       <h4 className="text-sm font-semibold text-zinc-100 mb-1">{artifact.title}</h4>
       <p className={`text-sm leading-relaxed ${dismissed ? 'text-zinc-600' : 'text-zinc-300'}`}>{artifact.body}</p>
+      <SourcesFooter sources={artifact.sources} />
     </div>
   );
 }

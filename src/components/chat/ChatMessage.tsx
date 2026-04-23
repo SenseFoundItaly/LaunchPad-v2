@@ -4,12 +4,16 @@ import type { ChatMessage as ChatMessageType } from '@/types';
 import type { EntityCard, WorkflowCard } from '@/types/artifacts';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import ArtifactRenderer from './artifacts/ArtifactRenderer';
+import ToolActivityBar from './ToolActivityBar';
+import MessageActions from './MessageActions';
 
 interface ChatMessageProps {
   message: ChatMessageType;
   onArtifactAction?: (action: string, payload: Record<string, unknown>) => void;
   onEntityDiscovered?: (entity: EntityCard) => void;
   onWorkflowDiscovered?: (workflow: WorkflowCard) => void;
+  /** When provided on a user message, shows a Retry button that resubmits. */
+  onRetry?: (content: string) => void;
 }
 
 function ArtifactPendingShimmer() {
@@ -85,15 +89,122 @@ function FormattedText({ content }: { content: string }) {
   );
 }
 
-/** Render inline bold/italic */
-function renderInline(text: string): React.ReactNode {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={i} className="font-semibold text-zinc-100">{part.slice(2, -2)}</strong>;
+/**
+ * Render inline bold/italic + citation markers.
+ *
+ * Citation markers: `[1]`, `[23]`, `[1,3]`, `[1-3]` → rendered as superscript
+ * chips linked to the matching SourcesFooter chip (which carries
+ * `data-source-index={N}` per entry — click scrolls + flashes it).
+ *
+ * Citation recognition is intentionally narrow: `\[\d[\d,\s-]*\]` — must
+ * start with a digit, allows commas/dashes for multi-refs. Won't false-
+ * positive on `[optional]`, `[TODO]`, markdown-style link labels, etc.
+ *
+ * Phase E of the mandatory-sources plan.
+ */
+const CITATION_REGEX = /\[(\d[\d,\s-]*)\]/g;
+
+function CitationChip({ raw }: { raw: string }) {
+  // Click handler: scroll the matching chip into view + flash a highlight.
+  // Picks the first referenced index (e.g. "[1,3]" → scrolls to [1]).
+  const first = raw.match(/\d+/)?.[0];
+  function handleClick(e: React.MouseEvent) {
+    e.preventDefault();
+    if (!first) return;
+    // Scope to the enclosing chat message so [1] on turn A doesn't jump
+    // to sources on turn B.
+    const chatMsg = (e.currentTarget as HTMLElement).closest('.group');
+    const scope: ParentNode = chatMsg || document;
+    const target = scope.querySelector(`[data-source-index="${first}"]`) as HTMLElement | null;
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.classList.add('ring-2', 'ring-blue-400');
+      setTimeout(() => target.classList.remove('ring-2', 'ring-blue-400'), 1500);
     }
-    return <span key={i}>{part}</span>;
+  }
+  return (
+    <sup>
+      <a
+        href={`#source-${first ?? '1'}`}
+        onClick={handleClick}
+        className="inline-block text-[10px] font-mono px-1 mx-0.5 rounded bg-blue-500/15 text-blue-300 hover:bg-blue-500/30 transition-colors cursor-pointer no-underline"
+      >
+        {raw}
+      </a>
+    </sup>
+  );
+}
+
+function renderInline(text: string): React.ReactNode {
+  // First pass: split on bold markers. Second pass (per non-bold chunk):
+  // split on citation markers. Order matters — bold is outer, citations
+  // can appear inside bold ranges.
+  const boldParts = text.split(/(\*\*[^*]+\*\*)/g);
+  return boldParts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      const inner = part.slice(2, -2);
+      return (
+        <strong key={i} className="font-semibold text-zinc-100">
+          {splitCitations(inner, `${i}-b`)}
+        </strong>
+      );
+    }
+    return <span key={i}>{splitCitations(part, `${i}-t`)}</span>;
   });
+}
+
+function splitCitations(text: string, keyPrefix: string): React.ReactNode[] {
+  // Use matchAll (not .exec) to avoid stateful regex + security-hook false
+  // positives on the word "exec". matchAll returns all matches in order
+  // with correct .index values.
+  const matches = Array.from(text.matchAll(CITATION_REGEX));
+  if (matches.length === 0) {
+    return [<span key={`${keyPrefix}-plain`}>{text}</span>];
+  }
+  const nodes: React.ReactNode[] = [];
+  let lastIdx = 0;
+  for (const m of matches) {
+    const idx = m.index ?? 0;
+    if (idx > lastIdx) {
+      nodes.push(<span key={`${keyPrefix}-${lastIdx}`}>{text.slice(lastIdx, idx)}</span>);
+    }
+    nodes.push(<CitationChip key={`${keyPrefix}-c-${idx}`} raw={m[0]} />);
+    lastIdx = idx + m[0].length;
+  }
+  if (lastIdx < text.length) {
+    nodes.push(<span key={`${keyPrefix}-${lastIdx}-end`}>{text.slice(lastIdx)}</span>);
+  }
+  return nodes;
+}
+
+/**
+ * Red warning card rendered for `artifact-error` segments — segments that
+ * parsed as valid JSON but failed source-requirement validation. Visible
+ * only in dev by default; in prod we still show a subtler one-liner so
+ * the founder knows something was attempted-and-discarded rather than
+ * silently missing. This replaces the silent-drop behavior of the old parser.
+ */
+function ArtifactErrorCard({ reason, artifact_type }: { reason: string; artifact_type?: string }) {
+  const isDev = process.env.NODE_ENV !== 'production';
+  if (isDev) {
+    return (
+      <div className="my-3 bg-red-950/30 border border-red-500/40 rounded-lg p-3 text-xs">
+        <div className="font-semibold text-red-400 mb-1">
+          Artifact rejected{artifact_type ? ` (${artifact_type})` : ''}
+        </div>
+        <div className="text-red-300/80">{reason}</div>
+        <div className="text-red-300/60 mt-1 text-[10px]">
+          The agent produced a card without citing sources. It was discarded to prevent unsourced
+          claims from entering your project data. Re-run if you need this analysis.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="my-2 text-xs text-red-400/70 italic">
+      (One unsourced {artifact_type ?? 'artifact'} discarded.)
+    </div>
+  );
 }
 
 const noop = () => {};
@@ -103,12 +214,27 @@ export default function ChatMessage({
   onArtifactAction,
   onEntityDiscovered,
   onWorkflowDiscovered,
+  onRetry,
 }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const segments = isUser ? null : parseMessageContent(message.content);
 
+  // For assistant messages, the "copy" clipboard content strips artifact blocks
+  // and leaves the readable text — what the user sees, not the raw markdown.
+  const copyableText = isUser
+    ? message.content
+    : (segments || [])
+        .filter((s): s is { type: 'text'; content: string } => s.type === 'text')
+        .map((s) => s.content)
+        .join('\n\n')
+        .trim() || message.content;
+
+  // Retry only for user messages with non-empty content — assistant messages
+  // can't "retry" themselves; the founder would retry the preceding user msg.
+  const canRetry = isUser && onRetry && message.content.trim().length > 0;
+
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
+    <div className={`group flex flex-col ${isUser ? 'items-end' : 'items-start'} mb-4`}>
       <div
         className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
@@ -116,6 +242,9 @@ export default function ChatMessage({
             : 'bg-zinc-800 text-zinc-200 rounded-bl-md'
         }`}
       >
+        {!isUser && message.tools && message.tools.length > 0 && (
+          <ToolActivityBar tools={message.tools} />
+        )}
         {isUser || !segments ? (
           <div className="whitespace-pre-wrap">{message.content}</div>
         ) : (
@@ -135,12 +264,30 @@ export default function ChatMessage({
                 );
               case 'artifact-pending':
                 return <ArtifactPendingShimmer key={`pending-${idx}`} />;
+              case 'artifact-error':
+                return (
+                  <ArtifactErrorCard
+                    key={`err-${idx}`}
+                    reason={segment.reason}
+                    artifact_type={segment.artifact_type}
+                  />
+                );
               default:
                 return null;
             }
           })
         )}
       </div>
+      {/* Skip action row for empty assistant messages (still streaming) */}
+      {(isUser || message.content.trim().length > 0) && (
+        <div className={`${isUser ? 'pr-2' : 'pl-2'} w-full max-w-[80%]`}>
+          <MessageActions
+            content={copyableText}
+            onRetry={canRetry ? () => onRetry!(message.content) : undefined}
+            align={isUser ? 'right' : 'left'}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -1,31 +1,93 @@
 import { NextRequest } from 'next/server';
-import { spawn } from 'child_process';
-import { query } from '@/lib/db';
+import { query, run } from '@/lib/db';
+import crypto from 'crypto';
 import { chatStream } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
 import { logUsageToSQLite, logToLangfuse } from '@/lib/telemetry';
+import { runAgentStream } from '@/lib/pi-agent';
+import { buildSystemPromptString, resolveProjectLocale } from '@/lib/agent-prompt';
+import { makeProjectTools } from '@/lib/project-tools';
+import { AuthError, requireUser } from '@/lib/auth/require-user';
+import { buildMemoryContext } from '@/lib/memory/context';
+import { recordEvent } from '@/lib/memory/events';
+import { recordFact } from '@/lib/memory/facts';
+import { parseMessageContent } from '@/lib/artifact-parser';
+import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
+import { isProjectCapped } from '@/lib/cost-meter';
+import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
+import { captureWorkflow } from '@/lib/workflow-capture';
+import { pickModel } from '@/lib/llm/router';
+import { rankSkillsForQuery } from '@/lib/skill-relevance';
+import { persistArtifact } from '@/lib/artifact-persistence';
 
 // Artifact instructions prepended to every message
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
 
-CARD ARTIFACTS:
-entity-card: :::artifact{"type":"entity-card","id":"ent_ID"}\n{"name":"X","entity_type":"competitor","summary":"...","attributes":{}}\n:::
-option-set: :::artifact{"type":"option-set","id":"opt_ID"}\n{"prompt":"?","options":[{"id":"a","label":"A","description":"..."}]}\n:::
-insight-card: :::artifact{"type":"insight-card","id":"ins_ID"}\n{"category":"market","title":"...","body":"...","confidence":"high"}\n:::
-action-suggestion: :::artifact{"type":"action-suggestion","id":"act_ID"}\n{"title":"...","description":"...","action_label":"Go","action_type":"research"}\n:::
-workflow-card: :::artifact{"type":"workflow-card","id":"wf_ID"}\n{"title":"...","category":"marketing","description":"...","priority":"high","steps":["1","2","3"]}\n:::
-comparison-table: :::artifact{"type":"comparison-table","id":"cmp_ID"}\n{"title":"...","columns":["A","B"],"rows":[{"label":"Row1","values":["val1","val2"]}]}\n:::
+=== SOURCES ARE MANDATORY ===
+Every factual artifact MUST include a "sources" array with at least one source. No sources = artifact REJECTED (not shown to the founder, not persisted). Every factual sentence in your prose MUST end with [1], [2]... markers that point to an entry in a nearby artifact's sources array.
 
-CHART ARTIFACTS (use for scores, data, analysis):
-radar-chart: :::artifact{"type":"radar-chart","id":"rdr_ID"}\n{"title":"Scoring Dimensions","data":[{"subject":"Market","value":8},{"subject":"Team","value":6}]}\n:::
-bar-chart: :::artifact{"type":"bar-chart","id":"bar_ID"}\n{"title":"Revenue Breakdown","data":[{"name":"Q1","value":50000},{"name":"Q2","value":80000}]}\n:::
-pie-chart: :::artifact{"type":"pie-chart","id":"pie_ID"}\n{"title":"Market Share","data":[{"name":"Us","value":30},{"name":"Competitor","value":70}]}\n:::
-gauge-chart: :::artifact{"type":"gauge-chart","id":"gau_ID"}\n{"title":"Overall Score","score":7.5,"maxScore":10,"verdict":"GO"}\n:::
-score-card: :::artifact{"type":"score-card","id":"sc_ID"}\n{"title":"Market Opportunity","score":8.5,"maxScore":10,"description":"Large TAM with strong tailwinds"}\n:::
-metric-grid: :::artifact{"type":"metric-grid","id":"mg_ID"}\n{"title":"Key Metrics","metrics":[{"label":"MRR","value":"$12K","change":"+15%"},{"label":"CAC","value":"$200"}]}\n:::
-sensitivity-slider: :::artifact{"type":"sensitivity-slider","id":"ss_ID"}\n{"title":"Revenue Sensitivity","variables":[{"name":"retainer","min":4000,"max":15000,"value":8000,"unit":"$"},{"name":"takeRate","min":5,"max":25,"value":15,"unit":"%"}],"output":{"label":"Monthly Revenue per Engagement","formula":"retainer * takeRate / 100"}}\n:::
+Source schema (pick one type per entry):
+- { "type": "web", "title": "Gartner 2026 Tech CMO Report", "url": "https://...", "accessed_at": "2026-04-22", "quote": "optional verbatim snippet" }
+- { "type": "skill", "title": "Market research run 2026-04-15", "skill_id": "market-research", "run_id": "optional" }
+- { "type": "internal", "title": "Founder's Q1 score", "ref": "score", "ref_id": "score_xyz" }  // ref: graph_node|score|research|memory_fact|chat_turn
+- { "type": "user", "title": "Founder stated in chat", "quote": "We committed to Bohm pilot by May 31" }
+- { "type": "inference", "title": "Derived TAM estimate", "based_on": [<Source>, <Source>], "reasoning": "combined [1] + [2] assuming 15% capture rate" }
 
 RULES:
+1) No invented numbers, company names, or URLs. If you don't have a source, say so plainly instead of making one up.
+2) When a web_search or read_url result gives you a URL + title, cite it verbatim — don't paraphrase.
+3) Prefer "type": "internal" when quoting the founder's own data (scores, research rows, metrics). Use "type": "user" when quoting the founder verbatim.
+4) "type": "inference" is allowed ONLY when based_on is non-empty; reasoning must explain the synthesis.
+5) Prose example: "Fractional CTO demand is growing ~22% YoY [1], and avg monthly retainer sits at €7K [2]. Based on those, the SOM for Italy is roughly €18M [3]." — where [1]/[2] reference sources in an adjacent insight-card or metric-grid; [3] is an inference artifact.
+
+CARD ARTIFACTS:
+entity-card: :::artifact{"type":"entity-card","id":"ent_ID"}\n{"name":"X","entity_type":"competitor","summary":"...","attributes":{},"sources":[{"type":"web","title":"Company site","url":"https://..."}]}\n:::
+option-set: :::artifact{"type":"option-set","id":"opt_ID"}\n{"prompt":"?","options":[{"id":"a","label":"A","description":"..."}]}\n:::  (sources optional)
+insight-card: :::artifact{"type":"insight-card","id":"ins_ID"}\n{"category":"market","title":"...","body":"...","confidence":"high","sources":[{"type":"web","title":"...","url":"https://..."}]}\n:::
+action-suggestion: :::artifact{"type":"action-suggestion","id":"act_ID"}\n{"title":"...","description":"...","action_label":"Go","action_type":"research","sources":[...]}\n:::
+workflow-card: :::artifact{"type":"workflow-card","id":"wf_ID"}\n{"title":"...","category":"marketing","description":"...","priority":"high","steps":["1","2","3"],"sources":[...]}\n:::
+comparison-table: :::artifact{"type":"comparison-table","id":"cmp_ID"}\n{"title":"...","columns":["A","B"],"rows":[{"label":"Row1","values":["val1","val2"]}],"sources":[...]}\n:::
+
+CHART ARTIFACTS (use for scores, data, analysis):
+radar-chart: :::artifact{"type":"radar-chart","id":"rdr_ID"}\n{"title":"Scoring Dimensions","data":[{"subject":"Market","value":8},{"subject":"Team","value":6}],"sources":[...]}\n:::
+bar-chart: :::artifact{"type":"bar-chart","id":"bar_ID"}\n{"title":"Revenue Breakdown","data":[{"name":"Q1","value":50000}],"sources":[...]}\n:::
+pie-chart: :::artifact{"type":"pie-chart","id":"pie_ID"}\n{"title":"Market Share","data":[{"name":"Us","value":30}],"sources":[...]}\n:::
+gauge-chart: :::artifact{"type":"gauge-chart","id":"gau_ID"}\n{"title":"Overall Score","score":7.5,"maxScore":10,"verdict":"GO","sources":[...]}\n:::
+score-card: :::artifact{"type":"score-card","id":"sc_ID"}\n{"title":"Market","score":8.5,"maxScore":10,"description":"...","sources":[...]}\n:::
+metric-grid: :::artifact{"type":"metric-grid","id":"mg_ID"}\n{"title":"Key Metrics","metrics":[{"label":"MRR","value":"$12K","change":"+15%"}],"sources":[...]}\n:::
+sensitivity-slider: :::artifact{"type":"sensitivity-slider","id":"ss_ID"}\n{"title":"Revenue Sensitivity","variables":[{"name":"retainer","min":4000,"max":15000,"value":8000,"unit":"$"}],"output":{"label":"Monthly","formula":"retainer * 0.15"}}\n:::  (sources optional)
+
+MEMORY ARTIFACT (invisible to user; writes to long-term memory):
+fact: :::artifact{"type":"fact","id":"fact_ID"}\n{"fact":"Founder committed to Bohm pilot by May 31","kind":"decision","confidence":0.9,"sources":[{"type":"user","title":"Founder chat quote","quote":"We are doing Bohm pilot by May 31"}]}\n:::
+- kind options: fact | decision | observation | note | preference
+- Facts MUST have sources — usually type "user" (founder said it) or "internal" (pulled from project data). A fact without a source is a hallucination waiting to happen.
+
+=== MONITOR PROPOSALS — DERISKING PROTOCOL ===
+A monitor is a SENSOR on ONE named risk. Never a generic watch.
+
+When founder expresses concern about a specific external force (competitor move, regulation, market shift, key customer/partner behavior):
+1. Is there a matching risk in risk_audit?
+   YES → call propose_monitor(linked_risk_id=<that risk id>, ...)
+   NO  → first suggest updating risk_audit, THEN propose the monitor
+2. Is the founder's concern vague ("I'm worried about competition")?
+   → PUSH BACK: "Which competitor? Which move? Which of your metrics does it threaten?" Do NOT propose a monitor until specificity exists.
+3. Does an existing monitor cover this?
+   → Inspect existing monitors first (via get_project_summary). If yes, reference it in your reply; do not duplicate. Server-side dedup will reject duplicates anyway — don't waste a tool call.
+4. Monitor cap (10 active per project) reached?
+   → The tool returns cap_reached with pause candidates. Surface these to the founder; do not silently retry.
+
+Monitor proposals go through propose_monitor (NOT queue_draft_for_approval). The tool:
+  - Validates dedup (risk+kind uniqueness, URL overlap, semantic overlap)
+  - Creates the pending_action row
+  - Returns an artifact block you MUST emit verbatim in your reply so the founder sees the inline Approve/Edit/Dismiss card
+
+Pass this one-sentence test before calling propose_monitor:
+"This monitor fires when <linked_risk_id> is materializing, because it detects <alert_threshold>."
+If you cannot complete that sentence, DO NOT call propose_monitor. Ask clarifying questions instead.
+
+A good monitor derisks ONE thing. A vague monitor derisks nothing and costs money every cycle. Prefer proposing ZERO monitors over a vague one.
+
+USAGE RULES:
 1) Use gauge-chart for overall scores with GO/NO-GO/CAUTION verdict
 2) Use radar-chart when scoring across multiple dimensions (scoring, risk audit, business model)
 3) Use bar-chart for comparisons and rankings
@@ -35,11 +97,38 @@ RULES:
 7) ALWAYS end with option-set or action-suggestion for next steps
 8) entity-card for EVERY entity mentioned
 9) workflow-card for concrete multi-step action plans
-10) Be proactive — use tools to research, browse web, challenge assumptions]
+10) Be proactive — use tools to research, browse web, challenge assumptions
+
+CRITICAL SYNTHESIS RULE — HARD BUDGET:
+- Every turn MUST end with visible text prose for the founder. A turn that
+  ends with only tool calls is a BROKEN turn. Founder sees nothing.
+- **Maximum 4 tool calls per turn.** After the 4th tool result, you MUST
+  stop calling tools and write a text synthesis. Follow-up tool work
+  happens in the NEXT turn if the founder asks.
+- Prefer parallel tool calls over sequential (e.g. 2 web_searches at once
+  instead of 1 → wait → another 1).
+- Ship partial answers. "Would the founder prefer a partial answer now,
+  or a perfect answer that never arrives?" — ship the partial.]
 
 `;
 
 export async function POST(request: NextRequest) {
+  // Auth gate: the chat route always runs for a real user. Memory scoping
+  // requires a userId; without it we can't build per-user context or log
+  // chat_turn events.
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch (e) {
+    if (e instanceof AuthError) {
+      return new Response(
+        JSON.stringify({ success: false, error: e.message }),
+        { status: e.status, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw e;
+  }
+
   const body = await request.json();
   if (!body) {
     return new Response(
@@ -67,81 +156,260 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Cost-aware throttle: if this project has hit its monthly LLM cap
+  // (or an admin has flipped status=capped), refuse before spending.
+  // Critical safety rail because skills auto-invocation (below) can fan
+  // out a single chat turn into multiple LLM calls.
+  const capStatus = isProjectCapped(project_id);
+  if (capStatus.capped) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: 'budget_exceeded',
+        current_usd: capStatus.currentUsd,
+        cap_usd: capStatus.capUsd,
+        period_month: capStatus.periodMonth,
+      }),
+      { status: 429, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   const lastMessage = messages[messages.length - 1]?.content || '';
   const projectContext = `[PROJECT: "${projects[0].name}"${projects[0].description ? ` — ${projects[0].description}` : ''}]\n`;
 
-  // Inject completed skill data when running a skill kickoff
+  // Memory context — curated facts + recent events + graph summary + completed
+  // skills — lets the agent remember across sessions AND across chat "steps"
+  // within a project (see sessionId change below).
+  const memoryContext = buildMemoryContext(userId, project_id);
+
+  // Build system prompt: SOUL + AGENTS personality first (locale-aware),
+  // then ARTIFACT_INSTRUCTIONS, then per-project context + memory + recently-
+  // completed skill summaries. SOUL/AGENTS were previously missing from the
+  // chat path — they're now loaded from agents/*.md (or .it.md).
+  const locale = resolveProjectLocale(project_id, query);
   const skillContext = buildCompletedSkillContext(project_id, lastMessage);
-  const enrichedMessage = `${ARTIFACT_INSTRUCTIONS}${projectContext}${skillContext}${lastMessage}`;
+  const systemPrompt = buildSystemPromptString({
+    locale,
+    context: 'chat',
+    tail: ARTIFACT_INSTRUCTIONS,
+    projectContext: `${projectContext}${memoryContext}\n${skillContext}`,
+  });
   const encoder = new TextEncoder();
 
-  // Try OpenClaw Gateway via CLI (has tools, skills, memory, web access)
-  const useGateway = await isOpenClawAvailable();
+  // Session key: per (user, project) rather than per (project, step).
+  // This unifies memory across the "chat" / "research" / "simulation" steps
+  // within a single project — if the user asked about competitor X under
+  // research, the agent remembers that when they switch to chat.
+  const sessionId = `user-${userId}-project-${project_id}`;
+  const piStart = Date.now();
 
-  if (useGateway) {
-    const sessionId = `launchpad-${project_id}-${step}`;
+  try {
+    // Project-scoped tools let the chat agent answer from THIS project's data
+    // (ecosystem_alerts, pending_actions, graph_nodes, metrics, idea_canvas)
+    // and queue its own drafts into the approval inbox. The factory closes
+    // over project_id so the agent cannot accidentally read or write another
+    // project's rows.
+    const projectTools = makeProjectTools(project_id);
 
-    const gatewayStart = Date.now();
-    let gatewayResponseLen = 0;
-    let gatewayResponseText = '';
-
-    const stream = new ReadableStream({
-      start(controller) {
-        const proc = spawn('openclaw', [
-          'agent',
-          '--agent', 'sonnet',
-          '--session-id', sessionId,
-          '--message', enrichedMessage,
-          '--timeout', '120',
-        ], {
-          env: { ...process.env },
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        proc.stdout.on('data', (chunk: Buffer) => {
-          const text = chunk.toString();
-          if (text.trim()) {
-            gatewayResponseLen += text.length;
-            gatewayResponseText += text;
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: text })}\n\n`));
-          }
-        });
-
-        proc.stderr.on('data', (chunk: Buffer) => {
-          // stderr may have progress info — ignore unless it's an error
-          const text = chunk.toString();
-          if (text.includes('Error') || text.includes('error')) {
-            console.error('openclaw agent stderr:', text);
-          }
-        });
-
-        proc.on('close', (code) => {
-          if (code !== 0) {
-            console.error(`openclaw agent exited with code ${code}`);
-          }
-          // Log gateway call (no token counts from CLI, just latency)
-          const latencyMs = Date.now() - gatewayStart;
-          const usage = { output_tokens: Math.round(gatewayResponseLen / 4) };
-          logUsageToSQLite(project_id, null, step, 'openclaw', 'sonnet', usage, 0, latencyMs);
-          logToLangfuse(
-            { projectId: project_id, step, provider: 'openclaw', model: 'sonnet' },
-            usage, 0, latencyMs,
-            lastMessage.slice(0, 1000),
-            gatewayResponseText.slice(0, 2000),
-          );
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
-          controller.close();
-        });
-
-        proc.on('error', (err) => {
-          console.error('openclaw agent spawn error:', err);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err.message })}\n\n`));
-          controller.close();
-        });
+    // Skills-as-tools with per-turn Haiku relevance filtering. Keeps all
+    // 11 skills auto-invokable but only exposes the top-3 most relevant
+    // to the agent on each turn, preventing the "20-tool drowning" that
+    // previously caused timeouts. Classifier cost ~$0.0003 + 300-500ms,
+    // saves more in reduced tool-description tokens.
+    const skillManifest = listSkillManifest();
+    const relevantManifest = await rankSkillsForQuery(
+      lastMessage,
+      {
+        id: project_id,
+        name: projects[0].name,
+        description: projects[0].description || '',
+        current_step: (projects[0] as { current_step?: number }).current_step ?? 1,
       },
+      skillManifest,
+      { topN: 3 },
+    );
+    const relevantIds = new Set(relevantManifest.map((s) => s.id));
+    const allSkillTools = getSkillTools({ userId, projectId: project_id });
+    const skillTools = allSkillTools.filter((t) => {
+      // Tool name format is `skill_<id-with-underscores>` — recover the id.
+      const id = t.name.replace(/^skill_/, '').replace(/_/g, '-');
+      return relevantIds.has(id);
     });
 
-    return new Response(stream, {
+    const { stream: piStream } = runAgentStream(lastMessage, {
+      sessionId,
+      systemPrompt,
+      extraTools: [...projectTools, ...skillTools],
+      // 300s — research-heavy chat turns (web_search + read_url + skill
+      // invocation + tam/sam calculations) can legitimately take 2-3 min.
+      // 120s was cutting the agent off mid-tool-loop, leaving an empty
+      // final assistant message and no visible response in the UI.
+      timeout: 300000,
+      task: 'chat',
+    });
+
+    // Accumulate response text so we can: (1) extract agent-emitted facts via
+    // :::artifact{type="fact"} blocks, (2) write a chat_turn memory_event with
+    // a meaningful preview, (3) fuel later telemetry.
+    let fullResponse = '';
+    const decoder = new TextDecoder();
+
+    // Wrap to add telemetry + memory hooks on completion
+    const telemetryStream = piStream.pipeThrough(new TransformStream({
+      transform(chunk, controller) {
+        // chunk is the raw SSE event buffer; decode + peek at JSON deltas
+        try {
+          const text = decoder.decode(chunk, { stream: true });
+          // Look for content deltas: `data: {"content":"..."}`
+          const lines = text.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const payload = JSON.parse(line.slice(6));
+                if (typeof payload.content === 'string') {
+                  fullResponse += payload.content;
+                }
+              } catch {
+                // non-JSON SSE line; ignore
+              }
+            }
+          }
+        } catch {
+          // ignore decode errors; chunk still forwards
+        }
+        controller.enqueue(chunk);
+      },
+      flush() {
+        const latencyMs = Date.now() - piStart;
+        // Pull the actual provider+model from the router so the logged slug
+        // reflects reality (direct Anthropic vs OpenRouter). Falls back to
+        // PI_PROVIDER/PI_MODEL env vars for call sites without a task label.
+        const picked = pickModel('chat');
+        const piProvider = picked.provider;
+        const piModel = picked.model;
+        const usage = { output_tokens: 0 };
+        logUsageToSQLite(project_id, null, step, piProvider, piModel, usage, 0, latencyMs);
+        logToLangfuse(
+          { projectId: project_id, step, provider: piProvider as 'anthropic' | 'openai' | 'openrouter', model: piModel },
+          usage, 0, latencyMs,
+          lastMessage.slice(0, 1000), '',
+        );
+
+        // Persist the turn to chat_messages so that on page refresh,
+        // GET /api/chat/history can rebuild the thread. The JSONL pi-agent
+        // session is the source of truth for agent memory, but the UI
+        // reads from chat_messages (SQLite, user-scoped). Two rows per
+        // turn: user prompt + assistant response. We persist the plain
+        // text from fullResponse — artifact blocks stay in fullResponse
+        // for the parser downstream, but the UI's copy/paste + rehydrate
+        // works on the visible prose too. Non-fatal on failure.
+        try {
+          const now = new Date().toISOString();
+          run(
+            `INSERT INTO chat_messages (id, project_id, step, role, content, timestamp, user_id)
+             VALUES (?, ?, ?, 'user', ?, ?, ?)`,
+            `msg_${crypto.randomUUID().slice(0, 12)}`,
+            project_id, step, lastMessage, now, userId,
+          );
+          if (fullResponse.trim().length > 0) {
+            run(
+              `INSERT INTO chat_messages (id, project_id, step, role, content, timestamp, user_id)
+               VALUES (?, ?, ?, 'assistant', ?, ?, ?)`,
+              `msg_${crypto.randomUUID().slice(0, 12)}`,
+              project_id, step, fullResponse, now, userId,
+            );
+          }
+        } catch (err) {
+          console.warn('[chat] chat_messages persist failed (non-fatal):', err);
+        }
+
+        // Memory: chat_turn event + fact artifact extraction.
+        // Wrapped in try so memory failures never break the stream response.
+        try {
+          recordEvent({
+            userId,
+            projectId: project_id,
+            eventType: 'chat_turn',
+            payload: {
+              preview: lastMessage.slice(0, 200),
+              response_preview: fullResponse.slice(0, 200),
+              step,
+            },
+          });
+
+          const segments = parseMessageContent(fullResponse);
+          // Track source-enforcement rejections so we can tune prompts if the
+          // agent repeatedly produces unsourced artifacts. Each rejection is
+          // a memory_event with the artifact type + reason — queryable later
+          // for "how often does Sonnet skip sources on entity-cards?"-style
+          // analysis. Does NOT throw — source enforcement is non-fatal to
+          // the stream; the founder just doesn't see the invalid card.
+          const rejected = segments.filter((s) => s.type === 'artifact-error');
+          if (rejected.length > 0) {
+            try {
+              recordEvent({
+                userId,
+                projectId: project_id,
+                eventType: 'artifact_rejected_no_sources',
+                payload: {
+                  count: rejected.length,
+                  rejections: rejected
+                    .filter((r): r is Extract<typeof r, { type: 'artifact-error' }> => r.type === 'artifact-error')
+                    .map((r) => ({ artifact_type: r.artifact_type, reason: r.reason })),
+                },
+              });
+              console.warn(
+                `[chat] ${rejected.length} artifact(s) rejected for missing sources:`,
+                rejected
+                  .filter((r): r is Extract<typeof r, { type: 'artifact-error' }> => r.type === 'artifact-error')
+                  .map((r) => `${r.artifact_type}: ${r.reason}`)
+                  .join('; '),
+              );
+            } catch {
+              // non-fatal — observability only
+            }
+          }
+          for (const seg of segments) {
+            if (seg.type !== 'artifact') continue;
+            if (seg.artifact.type === 'fact') {
+              const f = seg.artifact as FactArtifact;
+              if (f.fact && typeof f.fact === 'string') {
+                recordFact({
+                  userId,
+                  projectId: project_id,
+                  fact: f.fact,
+                  kind: f.kind ?? 'fact',
+                  sourceType: 'chat',
+                  confidence: f.confidence ?? 0.8,
+                });
+              }
+            } else if (seg.artifact.type === 'workflow-card') {
+              // Persist the proposed workflow + expand into pending_actions
+              // so the founder can approve/edit each step from the inbox.
+              captureWorkflow({
+                userId,
+                projectId: project_id,
+                artifact: seg.artifact as WorkflowCard,
+                chatTurnPreview: lastMessage.slice(0, 200),
+              });
+            } else {
+              // All other artifact types — entity-card, insight-card, gauge-
+              // chart, radar-chart, score-card, metric-grid, comparison-table,
+              // action-suggestion — get dispatched to their type-specific
+              // persister in src/lib/artifact-persistence.ts. Each handler
+              // upserts to graph_nodes / scores / research / pending_actions
+              // as appropriate so the canvas data survives page refreshes
+              // and populates the graph + dashboard views.
+              persistArtifact({ userId, projectId: project_id }, seg.artifact);
+            }
+          }
+        } catch (err) {
+          console.warn('[chat] memory write failed (non-fatal):', err);
+        }
+      },
+    }));
+
+    return new Response(telemetryStream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -149,9 +417,11 @@ export async function POST(request: NextRequest) {
         'X-Accel-Buffering': 'no',
       },
     });
+  } catch (err) {
+    console.error('Pi Agent SDK error, falling back to direct LLM:', err);
   }
 
-  // Fallback: direct LLM (no tools, but works without OpenClaw)
+  // Fallback: direct LLM (works without Pi Agent SDK)
   const fullMessages = buildDirectMessages(project_id, step, messages);
   const directStart = Date.now();
   let directResponseLen = 0;
@@ -194,20 +464,6 @@ export async function POST(request: NextRequest) {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     },
-  });
-}
-
-/** Check if openclaw CLI is available */
-async function isOpenClawAvailable(): Promise<boolean> {
-  return new Promise((resolve) => {
-    try {
-      const proc = spawn('openclaw', ['--version'], { stdio: 'pipe' });
-      proc.on('close', (code) => resolve(code === 0));
-      proc.on('error', () => resolve(false));
-      setTimeout(() => { proc.kill(); resolve(false); }, 2000);
-    } catch {
-      resolve(false);
-    }
   });
 }
 

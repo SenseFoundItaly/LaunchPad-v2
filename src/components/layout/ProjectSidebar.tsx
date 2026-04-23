@@ -78,8 +78,55 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
           )}
         </div>
 
-        {/* Chat — always pinned */}
+        {/* Primary nav — grouped. Dashboard is the default landing surface
+            (aggregates ecosystem + inbox + budget + metrics + the floating
+            chat drawer). Brief + Inbox are dedicated detail views for the
+            weekly cadence. Workspace is the full chat page. */}
         <div className="px-2 pt-3 pb-1 space-y-0.5">
+          {/* Group: the founder's home */}
+          <Link
+            href={`/project/${projectId}/dashboard`}
+            className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
+              isActive('dashboard')
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+            }`}
+          >
+            <span className="w-4 text-center text-xs">◇</span>
+            <span>Dashboard</span>
+          </Link>
+
+          {/* Group: this week (ecosystem cadence) */}
+          <div className="pt-2 pb-1 px-2.5 text-[10px] uppercase tracking-wider text-zinc-600">
+            Questa settimana
+          </div>
+          <Link
+            href={`/project/${projectId}/brief`}
+            className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
+              isActive('brief')
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+            }`}
+          >
+            <span className="w-4 text-center text-xs">B</span>
+            <span>Monday Brief</span>
+          </Link>
+          <Link
+            href={`/project/${projectId}/actions`}
+            className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
+              isActive('actions')
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+            }`}
+          >
+            <span className="w-4 text-center text-xs">I</span>
+            <span>Inbox</span>
+          </Link>
+
+          {/* Group: workspace + output */}
+          <div className="pt-2 pb-1 px-2.5 text-[10px] uppercase tracking-wider text-zinc-600">
+            Workspace
+          </div>
           <Link
             href={`/project/${projectId}/chat`}
             className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
@@ -89,7 +136,7 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
             }`}
           >
             <span className="w-4 text-center text-xs">/</span>
-            <span>Workspace</span>
+            <span>Chat</span>
           </Link>
           <Link
             href={`/project/${projectId}/drafts`}
@@ -178,8 +225,9 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
           })}
         </nav>
 
-        {/* Readiness footer — links to intelligence overview */}
-        <Link href={`/project/${projectId}/intelligence`} className="block px-4 py-3 border-t border-zinc-800 hover:bg-zinc-900 transition-colors">
+        {/* Readiness footer — skill-scoring radar (moved from /intelligence
+            so /intelligence can host the new knowledge-graph view). */}
+        <Link href={`/project/${projectId}/readiness`} className="block px-4 py-3 border-t border-zinc-800 hover:bg-zinc-900 transition-colors">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Readiness</span>
             <div className="flex items-center gap-1.5">

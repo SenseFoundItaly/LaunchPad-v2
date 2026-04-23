@@ -1,6 +1,7 @@
 'use client';
 
 import { use } from 'react';
+import { usePathname } from 'next/navigation';
 import { useProject } from '@/hooks/useProject';
 import ProjectSidebar from '@/components/layout/ProjectSidebar';
 
@@ -13,6 +14,16 @@ export default function ProjectLayout({
 }) {
   const { projectId } = use(params);
   const { project, loading, error } = useProject(projectId);
+  const pathname = usePathname() || '';
+
+  // Routes that render their own full-bleed design-system chrome (TopBar +
+  // NavRail + StatusBar) — skip the legacy ProjectSidebar for these so we
+  // don't double-stack navigation. Extend this list as more pages port to
+  // the new design.
+  const fullBleedRoutes = ['dashboard', 'actions', 'chat', 'intelligence', 'workflow', 'org'];
+  const fullBleed = fullBleedRoutes.some((r) =>
+    pathname.includes(`/project/${projectId}/${r}`),
+  );
 
   if (loading) {
     return (
@@ -28,6 +39,10 @@ export default function ProjectLayout({
         {error || 'Project not found'}
       </div>
     );
+  }
+
+  if (fullBleed) {
+    return <div className="h-full">{children}</div>;
   }
 
   return (

@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
+import { pickModel, type TaskLabel } from './router';
 
 // Lazy-init: avoid crashing at import time when keys aren't set (gateway mode)
 let _openai: OpenAI | null = null;
@@ -26,6 +27,7 @@ export async function chat(
   provider = 'openai',
   temperature = 0.7,
   maxTokens = 4096,
+  model?: string,
 ): Promise<string> {
   if (provider === 'anthropic') {
     const system = messages
@@ -34,7 +36,7 @@ export async function chat(
       .join('\n');
     const msgs = messages.filter((m) => m.role !== 'system');
     const response = await getAnthropic().messages.create({
-      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+      model: model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
       system,
       messages: msgs as Anthropic.MessageParam[],
       temperature,
@@ -44,7 +46,7 @@ export async function chat(
   }
 
   const response = await getOpenAI().chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-4o',
+    model: model || process.env.OPENAI_MODEL || 'gpt-4o',
     messages,
     temperature,
     max_tokens: maxTokens,
@@ -56,12 +58,31 @@ export async function chatJSON<T = Record<string, unknown>>(
   messages: Message[],
   provider = 'openai',
   temperature = 0.3,
+  model?: string,
 ): Promise<T> {
-  const raw = await chat(messages, provider, temperature);
+  const raw = await chat(messages, provider, temperature, 4096, model);
   let cleaned = raw.trim();
   cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
   cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/g, '');
   return JSON.parse(cleaned.trim());
+}
+
+/**
+ * Task-labeled chatJSON. The router picks provider + model based on the task's
+ * complexity tier (see src/lib/llm/router.ts). Use this for any new call site
+ * where you'd otherwise pass a hardcoded provider.
+ *
+ * Example:
+ *   const result = await chatJSONByTask<ScoreResult>(messages, 'scoring');
+ *   // routes to balanced tier (Sonnet 4.6) by default.
+ */
+export async function chatJSONByTask<T = Record<string, unknown>>(
+  messages: Message[],
+  task: TaskLabel | string,
+  temperature = 0.3,
+): Promise<T> {
+  const { provider, model } = pickModel(task);
+  return chatJSON<T>(messages, provider, temperature, model);
 }
 
 export interface LLMUsage {

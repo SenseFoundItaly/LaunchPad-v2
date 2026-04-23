@@ -1,12 +1,75 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
-import api from '@/api';
-import { getStepData } from '@/api/projects';
-import { useTaskPolling } from '@/hooks/useTaskPolling';
-import type { WorkflowResult } from '@/types';
+/**
+ * Workflow Run — ported from screen-pipeline.jsx.
+ *
+ * DAG on top, live log + sidebar split below. Reads from
+ * /api/projects/{id}/workflow-run which returns the most-recent
+ * workflow_plans row + tool_executions as a flat log.
+ */
 
-type Tab = 'gtm' | 'pitch' | 'financial' | 'roadmap' | 'actions';
+import { use, useEffect, useState, useCallback, useMemo } from 'react';
+import { TopBar, NavRail } from '@/components/design/chrome';
+import {
+  Pill,
+  StatusBar,
+  Icon,
+  I,
+  IconBtn,
+  type PillKind,
+} from '@/components/design/primitives';
+
+interface WorkflowStep {
+  title?: string;
+  name?: string;
+  agent?: string;
+  status?: string;
+  duration_est?: string;
+  cost_est?: string;
+  tools?: string[];
+  progress?: number;
+}
+
+interface Plan {
+  id: string;
+  name: string;
+  description: string | null;
+  steps: WorkflowStep[];
+  status: string;
+  current_step: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface Execution {
+  id: string;
+  workflow_run_id: string | null;
+  step_index: number | null;
+  tool_id: string | null;
+  status: string;
+  input_params: string | null;
+  output: string | null;
+  error: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+interface WorkflowResponse {
+  success: boolean;
+  data?: { plan: Plan | null; executions: Execution[] };
+}
+
+const STATUS_PILL: Record<string, PillKind> = {
+  done: 'ok',
+  completed: 'ok',
+  running: 'live',
+  queued: 'n',
+  pending: 'n',
+  failed: 'warn',
+  error: 'warn',
+  planned: 'n',
+};
 
 export default function WorkflowPage({
   params,
@@ -14,237 +77,598 @@ export default function WorkflowPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
-  const [workflow, setWorkflow] = useState<WorkflowResult | null>(null);
-  const [taskId, setTaskId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('gtm');
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(true);
-  const { task } = useTaskPolling(taskId);
 
-  useEffect(() => {
-    getStepData<WorkflowResult>(projectId, 'workflow').then((data) => {
-      if (data) {setWorkflow(data);}
-      setLoading(false);
-    });
+  const fetchAll = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/workflow-run`);
+      const body: WorkflowResponse = await res.json();
+      if (body.success && body.data) {
+        setPlan(body.data.plan);
+        setExecutions(body.data.executions);
+      }
+    } catch { /* empty state */ }
+    finally { setLoading(false); }
   }, [projectId]);
 
-  useEffect(() => {
-    if (task?.status === 'completed' && task.result) {
-      setWorkflow(task.result as unknown as WorkflowResult);
-      setTaskId(null);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const running = plan?.status === 'running';
+  const currentIdx = plan?.current_step ?? 0;
+  const totalSteps = plan?.steps?.length ?? 0;
+
+  const costByTool = useMemo(() => {
+    const acc: Record<string, { count: number }> = {};
+    for (const e of executions) {
+      const k = e.tool_id || 'unknown';
+      acc[k] = acc[k] || { count: 0 };
+      acc[k].count++;
     }
-  }, [task]);
-
-  async function generateWorkflow() {
-    setTaskId(null);
-    const { data } = await api.post('/api/workflow/generate', { project_id: projectId });
-    if (data.success) {setTaskId(data.data.task_id);}
-  }
-
-  const isRunning = task?.status === 'processing' || task?.status === 'pending';
-
-  const tabs: { key: Tab; label: string }[] = [
-    { key: 'gtm', label: 'GTM Strategy' },
-    { key: 'pitch', label: 'Pitch Deck' },
-    { key: 'financial', label: 'Financials' },
-    { key: 'roadmap', label: 'Roadmap' },
-    { key: 'actions', label: 'Action Items' },
-  ];
+    return Object.entries(acc)
+      .map(([k, v]) => ({
+        k,
+        v: `${v.count} call${v.count === 1 ? '' : 's'}`,
+        w: Math.min(1, v.count / Math.max(1, executions.length)),
+      }))
+      .sort((a, b) => b.w - a.w)
+      .slice(0, 6);
+  }, [executions]);
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-white">Launch Workflow</h3>
-          <button
-            onClick={generateWorkflow}
-            disabled={isRunning}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            {isRunning ? `Generating... ${task?.progress || 0}%` : workflow ? 'Regenerate' : 'Generate Plan'}
-          </button>
+    <div className="lp-frame">
+      <TopBar
+        breadcrumb={['Project', 'Workflows', plan?.name || 'No active workflow']}
+        right={
+          plan ? (
+            <>
+              <Pill kind={STATUS_PILL[plan.status] || 'n'} dot={running}>
+                {running ? `running · step ${currentIdx + 1}/${totalSteps}` : plan.status}
+              </Pill>
+              <span className="lp-mono" style={{ fontSize: 10 }}>
+                created · {timeAgo(plan.created_at)}
+              </span>
+            </>
+          ) : (
+            <Pill kind="n">no workflow</Pill>
+          )
+        }
+      />
+
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <NavRail projectId={projectId} current="pipe" />
+
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {plan ? (
+            <>
+              <PipelineHeader plan={plan} />
+              <PipelineDag plan={plan} />
+              <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 340px', minHeight: 0 }}>
+                <PipelineLog executions={executions} />
+                <PipelineSidebar plan={plan} costByTool={costByTool} />
+              </div>
+            </>
+          ) : (
+            <EmptyState loading={loading} />
+          )}
         </div>
+      </div>
 
-        {isRunning && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm text-zinc-300">{task?.message || 'Processing...'}</span>
-            </div>
-            <div className="w-full h-2 bg-zinc-800 rounded-full">
-              <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${task?.progress || 0}%` }} />
-            </div>
-          </div>
+      <StatusBar
+        heartbeatLabel={plan ? `workflow · ${plan.status}` : 'heartbeat · idle'}
+        gateway="pi-agent · anthropic"
+        ctxLabel={`ctx · ${executions.length} tool calls`}
+        budget={`${totalSteps} steps`}
+      />
+    </div>
+  );
+}
+
+function EmptyState({ loading }: { loading: boolean }) {
+  if (loading) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
+        Loading workflow…
+      </div>
+    );
+  }
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'column',
+        gap: 12,
+        background: 'var(--paper)',
+        padding: 40,
+        textAlign: 'center',
+      }}
+    >
+      <Icon d={I.pipe} size={40} style={{ color: 'var(--ink-5)', opacity: 0.4 }} />
+      <h2 className="lp-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: -0.4, margin: 0 }}>
+        No workflow running.
+      </h2>
+      <p
+        style={{
+          fontSize: 13,
+          color: 'var(--ink-4)',
+          maxWidth: 440,
+          margin: 0,
+          lineHeight: 1.5,
+        }}
+      >
+        Workflows are multi-step DAGs that the co-pilot runs on your behalf — scrape, cluster, interview,
+        score, draft. Trigger one from chat by asking the co-pilot to &quot;run a deep-dive&quot;.
+      </p>
+    </div>
+  );
+}
+
+function PipelineHeader({ plan }: { plan: Plan }) {
+  const running = plan.status === 'running';
+  return (
+    <div
+      style={{
+        padding: '16px 24px 14px',
+        borderBottom: '1px solid var(--line)',
+        background: 'var(--surface)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 20,
+      }}
+    >
+      <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+          <Pill kind={STATUS_PILL[plan.status] || 'n'} dot={running}>
+            {plan.status}
+          </Pill>
+          <Pill kind="n">{plan.steps.length} steps</Pill>
+        </div>
+        <h1 className="lp-serif" style={{ fontSize: 22, margin: 0, lineHeight: 1.15 }}>
+          {plan.name}
+        </h1>
+        {plan.description && (
+          <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 4 }}>{plan.description}</div>
         )}
-
-        {task?.status === 'failed' && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 text-red-400 text-sm">
-            {task.error}
-          </div>
-        )}
-
-        {workflow && (
-          <>
-            {/* Tab bar */}
-            <div className="flex gap-1 mb-6 bg-zinc-900 rounded-lg p-1">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    activeTab === tab.key ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* GTM Strategy */}
-            {activeTab === 'gtm' && workflow.gtm_strategy && (
-              <div className="space-y-4">
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                  <h4 className="text-sm font-medium text-zinc-400 mb-2">Target Segments</h4>
-                  <ul className="space-y-1">
-                    {workflow.gtm_strategy.target_segments.map((seg, i) => (
-                      <li key={i} className="text-sm text-zinc-200">{seg}</li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                  <h4 className="text-sm font-medium text-zinc-400 mb-2">Channels</h4>
-                  {workflow.gtm_strategy.channels.map((ch) => (
-                    <div key={ch.name} className="flex items-start gap-3 py-2 border-b border-zinc-800 last:border-0">
-                      <div className="flex-1">
-                        <div className="text-sm text-white font-medium">{ch.name}</div>
-                        <div className="text-xs text-zinc-400">{ch.strategy}</div>
-                      </div>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        ch.priority === 'high' ? 'bg-red-500/20 text-red-400' :
-                        ch.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                        'bg-green-500/20 text-green-400'
-                      }`}>{ch.priority}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                  <h4 className="text-sm font-medium text-zinc-400 mb-2">Pricing</h4>
-                  <p className="text-sm text-zinc-200">{workflow.gtm_strategy.pricing}</p>
-                </div>
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                  <h4 className="text-sm font-medium text-zinc-400 mb-2">Launch Plan</h4>
-                  <p className="text-sm text-zinc-200 whitespace-pre-wrap">{workflow.gtm_strategy.launch_plan}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Pitch Deck */}
-            {activeTab === 'pitch' && workflow.pitch_deck && (
-              <div className="space-y-4">
-                {workflow.pitch_deck.map((slide, i) => (
-                  <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                    <div className="text-xs text-blue-400 mb-1">Slide {i + 1}</div>
-                    <h4 className="text-white font-medium mb-2">{slide.slide}</h4>
-                    <p className="text-sm text-zinc-300 whitespace-pre-wrap">{slide.content}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Financial Model */}
-            {activeTab === 'financial' && workflow.financial_model && (
-              <div className="space-y-4">
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                  <h4 className="text-sm font-medium text-zinc-400 mb-2">Assumptions</h4>
-                  <ul className="space-y-1">
-                    {workflow.financial_model.assumptions.map((a, i) => (
-                      <li key={i} className="text-sm text-zinc-200">{a}</li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-zinc-800">
-                        <th className="text-left px-4 py-2 text-zinc-400 font-medium">Period</th>
-                        <th className="text-right px-4 py-2 text-zinc-400 font-medium">Revenue</th>
-                        <th className="text-right px-4 py-2 text-zinc-400 font-medium">Costs</th>
-                        <th className="text-right px-4 py-2 text-zinc-400 font-medium">Profit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {workflow.financial_model.projections.map((row) => (
-                        <tr key={row.period} className="border-t border-zinc-800">
-                          <td className="px-4 py-2 text-zinc-200">{row.period}</td>
-                          <td className="px-4 py-2 text-right text-green-400">{row.revenue}</td>
-                          <td className="px-4 py-2 text-right text-red-400">{row.costs}</td>
-                          <td className="px-4 py-2 text-right text-zinc-200">{row.profit}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
-                  <h4 className="text-sm font-medium text-blue-400 mb-1">Funding Needed</h4>
-                  <p className="text-sm text-zinc-200">{workflow.financial_model.funding_needed}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Roadmap */}
-            {activeTab === 'roadmap' && workflow.roadmap && (
-              <div className="space-y-3">
-                {workflow.roadmap.map((milestone, i) => (
-                  <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div className="w-3 h-3 rounded-full bg-blue-500" />
-                      {i < workflow.roadmap.length - 1 && <div className="w-px flex-1 bg-zinc-700 mt-1" />}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <h5 className="text-white font-medium text-sm">{milestone.milestone}</h5>
-                        <span className="text-xs text-zinc-500">{milestone.timeline}</span>
-                      </div>
-                      <ul className="space-y-1">
-                        {milestone.deliverables.map((d, j) => (
-                          <li key={j} className="text-xs text-zinc-400">- {d}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Action Items */}
-            {activeTab === 'actions' && workflow.action_items && (
-              <div className="space-y-2">
-                {workflow.action_items.map((item, i) => (
-                  <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-start justify-between">
-                    <div>
-                      <p className="text-sm text-zinc-200">{item.task}</p>
-                      <div className="flex gap-2 mt-1">
-                        <span className="text-xs text-zinc-500">{item.timeline}</span>
-                        <span className="text-xs text-zinc-500">{item.owner}</span>
-                      </div>
-                    </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${
-                      item.priority === 'high' ? 'bg-red-500/20 text-red-400' :
-                      item.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                      'bg-green-500/20 text-green-400'
-                    }`}>{item.priority}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {!workflow && !isRunning && !loading && (
-          <div className="text-center py-20 text-zinc-500">
-            <p>Generate a launch plan including GTM strategy, pitch deck, financials, and roadmap.</p>
-          </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button style={btnGhost}>
+          <Icon d={I.pause} size={12} /> pause
+        </button>
+        <button style={btnGhost}>
+          <Icon d={I.history} size={12} /> rerun
+        </button>
+        {running && (
+          <button style={{ ...btnPrimary, background: 'oklch(0.58 0.14 20)' }}>
+            <Icon d={I.stop} size={12} /> stop
+          </button>
         )}
       </div>
     </div>
   );
 }
+
+function PipelineDag({ plan }: { plan: Plan }) {
+  const currentIdx = plan.current_step;
+  return (
+    <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', background: 'var(--paper)' }}>
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
+        {plan.steps.map((s, i) => {
+          const isRunning = i === currentIdx && plan.status === 'running';
+          const isDone = i < currentIdx || (i === currentIdx && plan.status === 'completed');
+          const effStatus = isRunning ? 'running' : isDone ? 'done' : 'queued';
+          const kind = STATUS_PILL[effStatus] || 'n';
+          return (
+            <div key={i} style={{ display: 'contents' }}>
+              <div
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  border: '1px solid',
+                  borderColor: isRunning ? 'var(--accent)' : 'var(--line-2)',
+                  borderRadius: 'var(--r-m)',
+                  background: isRunning ? 'var(--accent-wash)' : isDone ? 'var(--surface)' : 'var(--paper-2)',
+                  boxShadow: isRunning ? '0 0 0 3px var(--accent-wash)' : 'none',
+                  position: 'relative',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
+                    0{i + 1}
+                  </span>
+                  <Pill kind={kind} dot={effStatus === 'running' || effStatus === 'done'}>
+                    {effStatus}
+                  </Pill>
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-2)', lineHeight: 1.3, minHeight: 34 }}>
+                  {s.title || s.name || `Step ${i + 1}`}
+                </div>
+                {s.agent && (
+                  <div className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', marginTop: 6 }}>
+                    {s.agent.toUpperCase()}
+                    {s.duration_est && ` · ${s.duration_est}`}
+                    {s.cost_est && ` · ${s.cost_est}`}
+                  </div>
+                )}
+                {s.tools && s.tools.length > 0 && (
+                  <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+                    {s.tools.map((t) => (
+                      <span
+                        key={t}
+                        className="lp-mono"
+                        style={{
+                          fontSize: 9,
+                          color: 'var(--ink-4)',
+                          padding: '1px 5px',
+                          background: 'var(--paper-2)',
+                          borderRadius: 3,
+                        }}
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {isRunning && s.progress !== undefined && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      height: 3,
+                      borderRadius: 2,
+                      background: 'rgba(255,255,255,0.6)',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${s.progress * 100}%`,
+                        height: '100%',
+                        background: 'var(--accent)',
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+              {i < plan.steps.length - 1 && (
+                <div
+                  style={{
+                    width: 14,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: isDone ? 'var(--moss)' : 'var(--ink-5)',
+                  }}
+                >
+                  <Icon d={I.arrow} size={14} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PipelineLog({ executions }: { executions: Execution[] }) {
+  if (executions.length === 0) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--ink-5)',
+          fontSize: 12,
+          padding: 40,
+          borderRight: '1px solid var(--line)',
+          background: 'var(--surface)',
+        }}
+      >
+        No tool executions yet. The log populates as steps run.
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, borderRight: '1px solid var(--line)' }}>
+      <div
+        style={{
+          padding: '10px 16px',
+          borderBottom: '1px solid var(--line)',
+          background: 'var(--surface)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+        }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
+          Live log · {executions.length} events
+        </span>
+        <Pill kind="n">all tools</Pill>
+        <Pill kind="n">all statuses</Pill>
+        <IconBtn d={I.download} title="export" />
+      </div>
+      <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', background: 'var(--surface)' }}>
+        {executions.map((e, i) => {
+          const lvlColor =
+            e.status === 'completed' ? 'var(--moss)'
+              : e.status === 'failed' || e.status === 'error' ? 'var(--clay)'
+              : e.status === 'running' ? 'var(--sky)'
+              : 'var(--ink-4)';
+          const toolName = e.tool_id || 'unknown';
+          const out = e.output ? summarizeOutput(e.output) : e.error || null;
+          return (
+            <div
+              key={e.id}
+              style={{
+                padding: '10px 16px',
+                borderBottom: i < executions.length - 1 ? '1px solid var(--line)' : 'none',
+                display: 'grid',
+                gridTemplateColumns: '78px 80px 54px 1fr',
+                gap: 10,
+                fontSize: 12,
+                alignItems: 'start',
+              }}
+            >
+              <span className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>
+                {formatTime(e.started_at || e.created_at)}
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: 3,
+                    background: 'var(--ink-4)',
+                    color: '#fff',
+                    fontSize: 8,
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontFamily: 'var(--f-mono)',
+                  }}
+                >
+                  {String(e.step_index ?? '—').padStart(2, '0')}
+                </span>
+                <span style={{ fontSize: 11 }}>step {e.step_index ?? '—'}</span>
+              </span>
+              <span
+                className="lp-mono"
+                style={{
+                  fontSize: 10,
+                  color: lvlColor,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                }}
+              >
+                {e.status}
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ color: 'var(--ink-2)', fontFamily: 'var(--f-mono)', fontSize: 11.5 }}>
+                  {toolName}
+                </div>
+                {out && (
+                  <div
+                    className="lp-mono"
+                    style={{ fontSize: 10.5, color: 'var(--ink-5)', marginTop: 2 }}
+                  >
+                    ↳ {out}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PipelineSidebar({
+  plan,
+  costByTool,
+}: {
+  plan: Plan;
+  costByTool: Array<{ k: string; v: string; w: number }>;
+}) {
+  const currentStep = plan.steps[plan.current_step];
+  const pct = plan.steps.length > 0 ? (plan.current_step / plan.steps.length) * 100 : 0;
+
+  return (
+    <div className="lp-scroll" style={{ overflow: 'auto', background: 'var(--surface)' }}>
+      <SideSection title="Current step">
+        <div style={{ padding: 14 }}>
+          <div
+            className="lp-mono"
+            style={{
+              fontSize: 10,
+              color: 'var(--ink-5)',
+              textTransform: 'uppercase',
+              letterSpacing: 0.4,
+              marginBottom: 4,
+            }}
+          >
+            Step {String(plan.current_step + 1).padStart(2, '0')}
+            {currentStep?.agent && ` · ${currentStep.agent}`}
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>
+            {currentStep?.title || currentStep?.name || '—'}
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: 11,
+                marginBottom: 4,
+              }}
+            >
+              <span style={{ color: 'var(--ink-4)' }}>
+                Progress · {plan.current_step}/{plan.steps.length} steps
+              </span>
+              <span className="lp-mono" style={{ color: 'var(--ink-3)' }}>
+                {pct.toFixed(0)}%
+              </span>
+            </div>
+            <div
+              style={{
+                height: 4,
+                borderRadius: 2,
+                background: 'var(--line-2)',
+                overflow: 'hidden',
+              }}
+            >
+              <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent)' }} />
+            </div>
+          </div>
+        </div>
+      </SideSection>
+
+      <SideSection title="Tool breakdown">
+        <div style={{ padding: 14 }}>
+          {costByTool.length === 0 ? (
+            <div style={{ fontSize: 11, color: 'var(--ink-5)' }}>No tool executions yet.</div>
+          ) : (
+            costByTool.map((r) => (
+              <div
+                key={r.k}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 11.5 }}
+              >
+                <span
+                  style={{
+                    flex: 1,
+                    color: 'var(--ink-3)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {r.k}
+                </span>
+                <div style={{ width: 40, height: 3, background: 'var(--line-2)', borderRadius: 2 }}>
+                  <div style={{ width: `${r.w * 100}%`, height: '100%', background: 'var(--ink-3)' }} />
+                </div>
+                <span
+                  className="lp-mono"
+                  style={{ fontSize: 10.5, color: 'var(--ink-4)', minWidth: 60, textAlign: 'right' }}
+                >
+                  {r.v}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </SideSection>
+
+      <SideSection title="Trigger">
+        <div style={{ padding: 14, fontSize: 11.5, color: 'var(--ink-3)' }}>
+          <div>Manual · {timeAgo(plan.created_at)} ago</div>
+          <div
+            className="lp-mono"
+            style={{ fontSize: 10.5, color: 'var(--ink-5)', marginTop: 4 }}
+          >
+            /workflow run {plan.name.toLowerCase().replace(/\s+/g, '-')}
+          </div>
+        </div>
+      </SideSection>
+    </div>
+  );
+}
+
+function SideSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ borderBottom: '1px solid var(--line)' }}>
+      <div
+        style={{
+          padding: '9px 14px',
+          borderBottom: '1px solid var(--line)',
+          background: 'var(--paper-2)',
+        }}
+      >
+        <span
+          className="lp-mono"
+          style={{
+            fontSize: 10,
+            color: 'var(--ink-4)',
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+            fontWeight: 600,
+          }}
+        >
+          {title}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function summarizeOutput(raw: string): string {
+  try {
+    const p = JSON.parse(raw);
+    if (typeof p === 'object' && p !== null) {
+      const keys = Object.keys(p as Record<string, unknown>).slice(0, 3);
+      return keys.length > 0
+        ? keys.map((k) => `${k}=${JSON.stringify((p as Record<string, unknown>)[k]).slice(0, 30)}`).join(' · ')
+        : '(empty)';
+    }
+    return String(p).slice(0, 80);
+  } catch {
+    return raw.slice(0, 80);
+  }
+}
+
+function formatTime(iso: string | null): string {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+  } catch {
+    return iso.slice(11, 19);
+  }
+}
+
+function timeAgo(iso: string): string {
+  try {
+    const ms = Date.now() - new Date(iso).getTime();
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h`;
+    return `${Math.floor(h / 24)}d`;
+  } catch {
+    return '—';
+  }
+}
+
+const btnPrimary: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '7px 12px',
+  borderRadius: 'var(--r-m)',
+  background: 'var(--ink)',
+  color: 'var(--paper)',
+  border: 'none',
+  cursor: 'pointer',
+  fontSize: 12,
+};
+
+const btnGhost: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '7px 12px',
+  borderRadius: 'var(--r-m)',
+  background: 'transparent',
+  color: 'var(--ink-2)',
+  border: '1px solid var(--line-2)',
+  cursor: 'pointer',
+  fontSize: 12,
+};

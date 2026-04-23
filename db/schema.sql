@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS projects (
   status VARCHAR DEFAULT 'created',
   current_step INTEGER DEFAULT 1,
   llm_provider VARCHAR DEFAULT 'openai',
+  partner_slug VARCHAR,
+  locale VARCHAR DEFAULT 'en',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -443,3 +445,226 @@ CREATE TABLE IF NOT EXISTS graph_edges (
   weight FLOAT DEFAULT 1.0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- =============================================================================
+-- Ecosystem Alerts (Layer 1 autonomous intelligence feed)
+-- Populated by weekly ecosystem_* monitors. Feeds the Monday Brief and the
+-- 2028+ Investment Intelligence layer. Relevance_score gates Brief surfacing.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS ecosystem_alerts (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR REFERENCES projects(id),
+  monitor_id VARCHAR REFERENCES monitors(id),
+  monitor_run_id VARCHAR REFERENCES monitor_runs(id),
+  alert_type VARCHAR NOT NULL,
+  source VARCHAR,
+  source_url VARCHAR,
+  headline TEXT NOT NULL,
+  body TEXT,
+  relevance_score FLOAT DEFAULT 0.5,
+  confidence FLOAT DEFAULT 0.5,
+  graph_node_id VARCHAR REFERENCES graph_nodes(id),
+  reviewed_state VARCHAR DEFAULT 'pending',
+  reviewed_at TIMESTAMP,
+  founder_action_taken VARCHAR,
+  dedupe_hash VARCHAR,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(project_id, dedupe_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ecosystem_alerts_project_created
+  ON ecosystem_alerts(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ecosystem_alerts_project_relevance
+  ON ecosystem_alerts(project_id, relevance_score DESC)
+  WHERE reviewed_state = 'pending';
+
+-- =============================================================================
+-- Pending Actions (approval inbox)
+-- Proposed autonomous drafts queued for founder approval. Approve -> Composio
+-- execution (or outbox write while Composio is still behind a feature flag).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS pending_actions (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR REFERENCES projects(id),
+  monitor_run_id VARCHAR REFERENCES monitor_runs(id),
+  ecosystem_alert_id VARCHAR REFERENCES ecosystem_alerts(id),
+  action_type VARCHAR NOT NULL,
+  title TEXT NOT NULL,
+  rationale TEXT,
+  payload JSON NOT NULL,
+  estimated_impact VARCHAR,
+  status VARCHAR DEFAULT 'pending',
+  edited_payload JSON,
+  execution_target VARCHAR,
+  executed_at TIMESTAMP,
+  execution_result JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_actions_project_status
+  ON pending_actions(project_id, status, created_at DESC);
+
+-- =============================================================================
+-- Partner Configs (Add-on 1/3 prerequisite: partner-slug onboarding)
+-- Per-partner defaults: knowledge seed, preferred skills, brand, Brief template.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS partner_configs (
+  slug VARCHAR PRIMARY KEY,
+  display_name VARCHAR NOT NULL,
+  locale VARCHAR DEFAULT 'en',
+  knowledge_seed JSON,
+  preferred_skills JSON,
+  brief_template VARCHAR DEFAULT 'default',
+  brand JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
+-- Project Budgets (cost governance for the <€0.25/user/month L1 promise)
+-- One row per project per month. Actual spend is computed from llm_usage_logs.
+-- cap_* fields are hard ceilings. warn_* fields trigger notices at 80 percent.
+-- NOTE: no semicolons in comments — db.ts splits on semicolons.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS project_budgets (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR REFERENCES projects(id),
+  period_month VARCHAR NOT NULL,
+  cap_llm_usd REAL DEFAULT 0.30,
+  cap_external_actions INTEGER DEFAULT 20,
+  warn_llm_usd REAL DEFAULT 0.24,
+  warn_external_actions INTEGER DEFAULT 16,
+  current_llm_usd REAL DEFAULT 0,
+  current_external_actions INTEGER DEFAULT 0,
+  status VARCHAR DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(project_id, period_month)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_budgets_project_period
+  ON project_budgets(project_id, period_month);
+
+-- =============================================================================
+-- Auth: shadow users + organizations + memberships
+-- Supabase Auth owns the primary user record. We mirror the UUID here so our
+-- SQLite data has a stable FK target without cross-DB joins.
+-- NOTE: no semicolons in comments — db.ts splits on semicolons.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS organizations (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS memberships (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  org_id TEXT NOT NULL REFERENCES organizations(id),
+  role TEXT NOT NULL DEFAULT 'owner',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, org_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
+CREATE INDEX IF NOT EXISTS idx_memberships_org ON memberships(org_id);
+
+-- Add ownership columns to projects. ALTER statements below are idempotent on
+-- fresh DBs. On re-runs SQLite errors on duplicate columns and the loader in
+-- src/lib/db/index.ts swallows them.
+ALTER TABLE projects ADD COLUMN owner_user_id TEXT REFERENCES users(id);
+ALTER TABLE projects ADD COLUMN org_id TEXT REFERENCES organizations(id);
+CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_projects_org ON projects(org_id);
+
+-- Attribute chat messages + LLM usage to a user (enables per-user KPIs).
+ALTER TABLE chat_messages ADD COLUMN user_id TEXT REFERENCES users(id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id);
+
+ALTER TABLE llm_usage_logs ADD COLUMN user_id TEXT REFERENCES users(id);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_logs_user ON llm_usage_logs(user_id);
+
+-- =============================================================================
+-- Memory layer (roadmap 1.1.3)
+-- memory_facts: curated, durable facts per (user, project). Source-traceable.
+-- memory_events: append-only timeline of everything that happened.
+-- embedding BLOB is stub-only for v1. Populated later for semantic retrieval.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS memory_facts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  project_id VARCHAR NOT NULL REFERENCES projects(id),
+  fact TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'fact',
+  source_type TEXT,
+  source_id TEXT,
+  confidence REAL DEFAULT 1.0,
+  dismissed INTEGER DEFAULT 0,
+  embedding BLOB,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_facts_user_project
+  ON memory_facts(user_id, project_id, dismissed, updated_at);
+
+CREATE TABLE IF NOT EXISTS memory_events (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  project_id VARCHAR NOT NULL REFERENCES projects(id),
+  event_type TEXT NOT NULL,
+  payload TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_events_user_project
+  ON memory_events(user_id, project_id, created_at);
+
+-- =============================================================================
+-- Mandatory source citations (Phase D of sources-required plan, 2026-04-22)
+-- Every factual row can now carry structured provenance as a JSON Source[].
+-- Same ALTER-as-migration pattern: errors on re-run are swallowed by the
+-- loader in src/lib/db/index.ts.
+--
+-- Columns are nullable (existing rows stay NULL) — the artifact-persistence
+-- dispatcher writes `JSON.stringify(artifact.sources)` only for artifacts
+-- that carried sources. The parser already guarantees factual artifacts
+-- have non-empty sources by the time they reach the persister, so new
+-- writes always populate.
+-- =============================================================================
+ALTER TABLE graph_nodes      ADD COLUMN sources TEXT;
+ALTER TABLE graph_edges      ADD COLUMN sources TEXT;
+ALTER TABLE scores           ADD COLUMN sources TEXT;
+ALTER TABLE research         ADD COLUMN sources TEXT;
+ALTER TABLE pending_actions  ADD COLUMN sources TEXT;
+ALTER TABLE memory_facts     ADD COLUMN sources TEXT;
+ALTER TABLE simulation       ADD COLUMN scenario_sources TEXT;
+ALTER TABLE workflow_plans   ADD COLUMN sources TEXT;
+
+-- =============================================================================
+-- Monitor derisking linkage + dedup layer (2026-04-23).
+-- Every monitor now traces back to a specific risk_audit risk OR a verbatim
+-- founder chat quote. L1 dedup = (project_id, linked_risk_id, kind) uniqueness
+-- for active monitors + URL-set intersection check via dedup_hash index.
+-- L2 is the Haiku semantic classifier in src/lib/monitor-dedup.ts.
+-- dedup_override_reason is populated when the agent explicitly bypassed L2;
+-- shown on the approval card so the founder sees the justification.
+-- =============================================================================
+ALTER TABLE monitors ADD COLUMN linked_risk_id TEXT;
+ALTER TABLE monitors ADD COLUMN linked_quote TEXT;
+ALTER TABLE monitors ADD COLUMN kind TEXT;
+ALTER TABLE monitors ADD COLUMN urls_to_track TEXT;
+ALTER TABLE monitors ADD COLUMN dedup_hash TEXT;
+ALTER TABLE monitors ADD COLUMN dedup_override_reason TEXT;
+ALTER TABLE monitors ADD COLUMN sources TEXT;
+CREATE INDEX IF NOT EXISTS idx_monitors_project_risk_kind
+  ON monitors(project_id, linked_risk_id, kind, status);
+CREATE INDEX IF NOT EXISTS idx_monitors_project_dedup
+  ON monitors(project_id, dedup_hash);

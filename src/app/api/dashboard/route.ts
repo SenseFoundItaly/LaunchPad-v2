@@ -1,13 +1,22 @@
 import { query } from '@/lib/db';
 import { json } from '@/lib/api-helpers';
+import { AuthError, requireUser } from '@/lib/auth/require-user';
 
 /** Cross-project dashboard data for the homepage command center */
 export async function GET() {
-  // All projects
+  let orgId: string;
+  try {
+    ({ orgId } = await requireUser());
+  } catch (e) {
+    if (e instanceof AuthError) return json({ error: e.message }, e.status);
+    throw e;
+  }
+
+  // Projects the user has access to (via org membership).
   const projects = query<{
     id: string; name: string; description: string; status: string;
     current_step: number; created_at: string;
-  }>('SELECT * FROM projects ORDER BY created_at DESC');
+  }>('SELECT * FROM projects WHERE org_id = ? ORDER BY created_at DESC', orgId);
 
   // Per-project skill counts
   const skillCounts = query<{ project_id: string; count: number }>(

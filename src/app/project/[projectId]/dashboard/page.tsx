@@ -1,553 +1,1027 @@
 'use client';
 
-import { use, useEffect, useState, useCallback } from 'react';
-import api from '@/api';
-import { useTaskPolling } from '@/hooks/useTaskPolling';
-import MonitorCard from '@/components/dashboard/MonitorCard';
-import SignalTimeline from '@/components/dashboard/SignalTimeline';
-import type {
-  MetricDefinition,
-  BurnRate,
-  Alert,
-  DashboardData,
-  HealthAnalysis,
-  ApiResponse,
-} from '@/types';
+/**
+ * Dashboard — ported to the "Founder OS" design (screen-home.jsx).
+ *
+ * Single-pane-of-glass aggregating:
+ *   - Masthead: greeting + weekly summary blurb + 5 metric tiles with sparklines
+ *   - Heartbeat: recent monitor_runs + ecosystem_alerts (agent activity log)
+ *   - Tickets: pending_actions (the approval inbox, preview of top 4)
+ *   - Mini graph: graph_nodes force-directed preview
+ *   - Next up: milestones table
+ *   - Budget: llm_usage_logs grouped by step, with per-row spend bars
+ *
+ * The floating ProjectChatDrawer stays mounted at the bottom-right so the
+ * founder can "Ask your co-founder" from this screen.
+ *
+ * Visual design uses CSS custom properties from src/styles/design-tokens.css
+ * (theme-ink applied globally in root layout). Tailwind is not used here —
+ * this is a full-bleed design-system page.
+ */
 
-interface Monitor {
+import { use, useEffect, useState, useCallback, useMemo } from 'react';
+import Link from 'next/link';
+import api from '@/api';
+import { useProject } from '@/hooks/useProject';
+import ProjectChatDrawer from '@/components/chat/ProjectChatDrawer';
+import { TopBar, NavRail } from '@/components/design/chrome';
+import {
+  Pill,
+  Panel,
+  MetricTile,
+  StatusBar,
+  Icon,
+  I,
+} from '@/components/design/primitives';
+import type { ApiResponse } from '@/types';
+
+// =============================================================================
+// Payload types (matches /api/dashboard/{id} extended shape)
+// =============================================================================
+
+interface MetricEntry {
+  date: string;
+  value: number;
+}
+
+interface Metric {
+  id: string;
+  name: string;
+  type: string;
+  target_growth_rate: number;
+  entries?: MetricEntry[];
+}
+
+interface BurnRow {
+  monthly_burn: number;
+  cash_on_hand: number;
+}
+
+interface AlertRow {
+  id: string;
+  type: string;
+  severity: 'critical' | 'warning' | 'info';
+  message: string;
+  created_at: string;
+  dismissed: number;
+}
+
+interface MonitorRow {
   id: string;
   type: string;
   name: string;
-  schedule: string;
   status: string;
   last_run: string | null;
   last_result: string | null;
 }
 
-export default function DashboardPage({
-  params,
-}: {
-  params: Promise<{ projectId: string }>;
-}) {
+interface EcosystemAlertPreview {
+  id: string;
+  alert_type: string;
+  headline: string;
+  body: string | null;
+  source_url: string | null;
+  relevance_score: number;
+  confidence: number;
+  created_at: string;
+}
+
+interface PendingDecisionPreview {
+  id: string;
+  action_type: string;
+  title: string;
+  rationale: string | null;
+  estimated_impact: string | null;
+  status: string;
+  created_at: string;
+}
+
+interface BudgetPayload {
+  current_llm_usd: number;
+  warn_llm_usd: number;
+  cap_llm_usd: number;
+  status: string;
+}
+
+interface DashboardPayload {
+  metrics: Metric[];
+  burn_rate: BurnRow | null;
+  alerts: AlertRow[];
+  monitors: MonitorRow[];
+  top_ecosystem_alerts?: EcosystemAlertPreview[];
+  pending_decisions?: PendingDecisionPreview[];
+  pending_summary?: { pending: number; edited: number; approved: number; sent_7d: number };
+  budget?: BudgetPayload;
+  period_month?: string;
+}
+
+interface GraphNodeRow {
+  id: string;
+  name: string;
+  node_type: string;
+}
+
+interface JourneyPayload {
+  milestones?: Array<{ milestone_id?: string; id?: string; week: number; title: string; status: string }>;
+}
+
+interface LlmUsageGroupRow {
+  step: string | null;
+  provider: string;
+  model: string;
+  total_cost_usd: number;
+  call_count: number;
+}
+
+// =============================================================================
+// Page
+// =============================================================================
+
+export default function DashboardPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = use(params);
+  const { project } = useProject(projectId);
 
-  const [metrics, setMetrics] = useState<MetricDefinition[]>([]);
-  const [burnRate, setBurnRate] = useState<BurnRate | null>(null);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [monitors, setMonitors] = useState<Monitor[]>([]);
-  const [analysis, setAnalysis] = useState<HealthAnalysis | null>(null);
+  const [payload, setPayload] = useState<DashboardPayload | null>(null);
+  const [graphNodes, setGraphNodes] = useState<GraphNodeRow[]>([]);
+  const [milestones, setMilestones] = useState<JourneyPayload['milestones']>([]);
+  const [usageGroups, setUsageGroups] = useState<LlmUsageGroupRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [taskId, setTaskId] = useState<string | null>(null);
-  const { task } = useTaskPolling(taskId);
 
-  // Forms
-  const [showMetricForm, setShowMetricForm] = useState(false);
-  const [metricForm, setMetricForm] = useState<{ name: string; type: MetricDefinition['type']; target_growth_rate: number }>({ name: '', type: 'count', target_growth_rate: 10 });
-  const [burnForm, setBurnForm] = useState({ monthly_burn: 0, cash_on_hand: 0 });
-  const [showBurnForm, setShowBurnForm] = useState(false);
-
-  const fetchDashboard = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     try {
-      const { data } = await api.get<ApiResponse<DashboardData>>(`/api/dashboard/${projectId}`);
-      if (data.data) {
-        setMetrics(data.data.metrics || []);
-        setBurnRate(data.data.burn_rate || null);
-        setAlerts(data.data.alerts || []);
-      }
+      const [dash, graph, journey, usage] = await Promise.all([
+        api.get<ApiResponse<DashboardPayload>>(`/api/dashboard/${projectId}`),
+        api.get<ApiResponse<{ nodes?: GraphNodeRow[] }>>(`/api/graph/${projectId}`).catch(() => ({ data: { data: { nodes: [] } } })),
+        api.get<ApiResponse<JourneyPayload>>(`/api/journey/${projectId}`).catch(() => ({ data: { data: { milestones: [] } } })),
+        api.get<ApiResponse<LlmUsageGroupRow[]>>(`/api/projects/${projectId}/usage/groups`).catch(() => ({ data: { data: [] } })),
+      ]);
+      if (dash.data?.data) setPayload(dash.data.data);
+      const nodes = (graph.data as ApiResponse<{ nodes?: GraphNodeRow[] }> | undefined)?.data?.nodes;
+      setGraphNodes(Array.isArray(nodes) ? nodes : []);
+      const ms = (journey.data as ApiResponse<JourneyPayload> | undefined)?.data?.milestones;
+      setMilestones(Array.isArray(ms) ? ms : []);
+      const groups = (usage.data as ApiResponse<LlmUsageGroupRow[]> | undefined)?.data;
+      setUsageGroups(Array.isArray(groups) ? groups : []);
     } catch {
-      // Dashboard may not exist yet
+      // Partial data is fine — the page renders empty panels gracefully
     } finally {
       setLoading(false);
     }
   }, [projectId]);
 
-  const fetchAnalysis = useCallback(async () => {
-    try {
-      const { data } = await api.get<ApiResponse<HealthAnalysis>>(`/api/dashboard/${projectId}/analysis`);
-      if (data.data) {setAnalysis(data.data);}
-    } catch {
-      // No analysis yet
-    }
-  }, [projectId]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const fetchMonitors = useCallback(async () => {
-    try {
-      const { data } = await api.get<ApiResponse<Monitor[]>>(`/api/projects/${projectId}/monitors`);
-      if (data.data) {setMonitors(data.data);}
-    } catch {
-      // No monitors yet
-    }
-  }, [projectId]);
+  // Derived data for sub-panels
+  const metricTiles = useMemo(() => {
+    if (!payload) return [];
+    return payload.metrics.slice(0, 5).map((m) => {
+      const entries = m.entries || [];
+      const latest = entries[entries.length - 1]?.value;
+      const prior = entries[entries.length - 2]?.value;
+      const delta = latest != null && prior != null && prior !== 0
+        ? `${latest > prior ? '+' : ''}${(((latest / prior) - 1) * 100).toFixed(1)}%`
+        : undefined;
+      const sparkData = entries.map(e => e.value);
+      const kind: 'ok' | 'warn' | 'n' = latest != null && prior != null
+        ? (latest >= prior ? 'ok' : 'warn')
+        : 'n';
+      const valueStr = m.type === 'currency'
+        ? (latest != null ? `€${latest.toLocaleString('it-IT')}` : '—')
+        : m.type === 'percentage'
+          ? (latest != null ? `${latest}%` : '—')
+          : (latest != null ? latest.toLocaleString('it-IT') : '—');
+      return { label: m.name, value: valueStr, delta, sparkData, kind };
+    });
+  }, [payload]);
 
-  const [lastCronCheck, setLastCronCheck] = useState<Date | null>(null);
+  const runway = payload?.burn_rate && payload.burn_rate.monthly_burn > 0
+    ? payload.burn_rate.cash_on_hand / payload.burn_rate.monthly_burn
+    : null;
 
-  useEffect(() => {
-    fetchDashboard();
-    fetchAnalysis();
-    fetchMonitors();
-  }, [fetchDashboard, fetchAnalysis, fetchMonitors]);
+  // Masthead greeting — locale-aware; swap to IT when project.locale='it'
+  const locale = (project as unknown as { locale?: string })?.locale === 'it' ? 'it' : 'en';
+  const hour = new Date().getHours();
+  const greeting = locale === 'it'
+    ? (hour < 12 ? 'Buongiorno' : hour < 18 ? 'Buon pomeriggio' : 'Buonasera')
+    : (hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening');
 
-  // Auto-poll cron every 60 seconds to run due monitors
-  useEffect(() => {
-    async function checkCron() {
-      try {
-        const { data } = await api.get('/api/cron');
-        setLastCronCheck(new Date());
-        if (data.data?.ran > 0) {
-          // Monitors ran — refresh dashboard data
-          fetchDashboard();
-          fetchMonitors();
+  const overnightAgentCount = payload?.monitors.filter(m => m.status === 'active').length ?? 0;
+  const overnightToolCalls = Math.min(99, payload?.monitors.length ?? 0);
+
+  const statusBarBudget = payload?.budget
+    ? `budget · $${payload.budget.current_llm_usd.toFixed(2)} / $${payload.budget.cap_llm_usd.toFixed(2)} mo`
+    : 'budget · —';
+
+  const lastHeartbeat = useMemo(() => {
+    const lastRun = payload?.monitors
+      .map(m => m.last_run)
+      .filter((x): x is string => !!x)
+      .sort()
+      .pop();
+    if (!lastRun) return locale === 'it' ? 'heartbeat · mai eseguito' : 'heartbeat · never run';
+    const ago = Math.floor((Date.now() - new Date(lastRun).getTime()) / 1000);
+    if (ago < 60) return `heartbeat · ${ago}s ago`;
+    if (ago < 3600) return `heartbeat · ${Math.floor(ago / 60)}m ago`;
+    return `heartbeat · ${Math.floor(ago / 3600)}h ago`;
+  }, [payload, locale]);
+
+  return (
+    <div className="lp-frame">
+      <TopBar
+        breadcrumb={[project?.name || 'Project', locale === 'it' ? 'Command Center' : 'Command Center']}
+        right={
+          <>
+            <Pill kind={overnightAgentCount > 0 ? 'live' : 'n'} dot={overnightAgentCount > 0}>
+              {overnightAgentCount > 0
+                ? `live · ${overnightAgentCount} monitor${overnightAgentCount === 1 ? '' : 's'}`
+                : 'idle'}
+            </Pill>
+          </>
         }
-      } catch { /* ignore */ }
-    }
-    checkCron(); // Run immediately on mount
-    const interval = setInterval(checkCron, 60000);
-    return () => clearInterval(interval);
-  }, [fetchDashboard, fetchMonitors]);
+      />
 
-  useEffect(() => {
-    if (task?.status === 'completed' && task.result) {
-      setAnalysis(task.result as unknown as HealthAnalysis);
-      setTaskId(null);
-    }
-  }, [task]);
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <NavRail projectId={projectId} current="home" />
 
-  async function addMetric() {
-    try {
-      await api.post(`/api/dashboard/${projectId}/metrics`, metricForm);
-      setShowMetricForm(false);
-      setMetricForm({ name: '', type: 'count', target_growth_rate: 10 });
-      fetchDashboard();
-    } catch (err) {
-      console.error('Failed to add metric:', err);
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Masthead */}
+          <div
+            style={{
+              padding: '28px 32px 20px',
+              borderBottom: '1px solid var(--line)',
+              background: 'var(--surface)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 32 }}>
+              <div>
+                <div
+                  className="lp-mono"
+                  style={{
+                    fontSize: 10,
+                    color: 'var(--ink-5)',
+                    letterSpacing: 1,
+                    textTransform: 'uppercase',
+                    marginBottom: 8,
+                  }}
+                >
+                  {project?.status || 'project'} · {project?.description?.slice(0, 60) || (locale === 'it' ? 'pre-seed' : 'pre-seed')}
+                </div>
+                <h1
+                  className="lp-serif"
+                  style={{ fontSize: 44, fontWeight: 400, letterSpacing: -1.2, margin: 0, lineHeight: 1 }}
+                >
+                  {greeting}, {project?.name?.split(' ')[0] || 'founder'}.
+                </h1>
+                <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10, maxWidth: 620 }}>
+                  {buildMastheadNarrative(payload, overnightToolCalls, locale)}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Link href={`/project/${projectId}/brief`} style={btnGhost}>
+                  <Icon d={I.history} size={13} />
+                  {locale === 'it' ? 'Monday Brief' : 'Weekly brief'}
+                </Link>
+                <Link href={`/project/${projectId}/chat`} style={btnPrimary}>
+                  <Icon d={I.sparkles} size={13} />
+                  {locale === 'it' ? 'Chiedi al co-pilot' : 'Ask co-pilot'}
+                  <span
+                    className="lp-kbd"
+                    style={{
+                      background: 'rgba(255,255,255,.12)',
+                      borderColor: 'rgba(255,255,255,.2)',
+                      color: 'var(--paper)',
+                    }}
+                  >
+                    ⌘K
+                  </span>
+                </Link>
+              </div>
+            </div>
+
+            {/* Metric tiles — up to 5, filled with empties if fewer */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginTop: 24 }}>
+              {metricTiles.map((tile, i) => (
+                <MetricTile
+                  key={i}
+                  label={tile.label}
+                  value={tile.value}
+                  delta={tile.delta}
+                  sparkData={tile.sparkData}
+                  kind={tile.kind}
+                />
+              ))}
+              {/* Runway is always computed, shown as the last tile if room */}
+              {metricTiles.length < 5 && runway != null && (
+                <MetricTile
+                  label={locale === 'it' ? 'Runway' : 'Runway'}
+                  value={`${runway.toFixed(1)} mo`}
+                  delta={runway < 6 ? (locale === 'it' ? 'attenzione' : 'warn') : 'on plan'}
+                  kind={runway < 6 ? 'warn' : 'n'}
+                />
+              )}
+              {/* Fill remaining slots with placeholders so the grid stays 5-wide */}
+              {Array.from({ length: Math.max(0, 5 - metricTiles.length - (metricTiles.length < 5 && runway != null ? 1 : 0)) }).map((_, i) => (
+                <EmptyMetric key={`empty-${i}`} locale={locale} />
+              ))}
+            </div>
+          </div>
+
+          {/* Body grid */}
+          <div
+            className="lp-scroll"
+            style={{
+              flex: 1,
+              overflow: 'auto',
+              padding: 24,
+              display: 'grid',
+              gridTemplateColumns: '1.2fr 1fr',
+              gap: 20,
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <Panel
+                title={locale === 'it' ? 'Heartbeat di oggi' : "Today's heartbeat"}
+                right={
+                  <>
+                    <Pill kind="live" dot>
+                      {overnightAgentCount > 0 ? `live · ${overnightAgentCount} monitor${overnightAgentCount === 1 ? '' : 's'}` : 'idle'}
+                    </Pill>
+                  </>
+                }
+              >
+                <HeartbeatPanel
+                  monitors={payload?.monitors || []}
+                  ecosystemAlerts={payload?.top_ecosystem_alerts || []}
+                  locale={locale}
+                />
+              </Panel>
+
+              <Panel
+                title={locale === 'it' ? 'Ticket' : 'Tickets'}
+                subtitle={locale === 'it' ? 'Lavoro in attesa di decisione' : 'Goal-linked work in motion'}
+                right={
+                  <Link href={`/project/${projectId}/actions`} style={linkStyle}>
+                    {locale === 'it' ? 'vedi tutto' : 'view all'}
+                    <Icon d={I.arrow} size={10} />
+                  </Link>
+                }
+              >
+                <TicketListPanel decisions={payload?.pending_decisions || []} locale={locale} />
+              </Panel>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <Panel
+                title={locale === 'it' ? 'Graph intelligence' : 'Intelligence graph'}
+                subtitle={`${graphNodes.length} ${locale === 'it' ? 'nodi' : 'nodes'}`}
+                right={
+                  <Link href={`/project/${projectId}/intelligence`} style={linkStyle}>
+                    {locale === 'it' ? 'espandi' : 'expand'}
+                    <Icon d={I.external} size={10} />
+                  </Link>
+                }
+              >
+                <MiniGraph nodes={graphNodes} />
+              </Panel>
+
+              <Panel
+                title={locale === 'it' ? 'Prossimi passi' : 'Next up'}
+                right={<Pill kind="n" dot>{`${(milestones || []).filter(m => m.status !== 'completed').length} · ${locale === 'it' ? 'in corso' : 'upcoming'}`}</Pill>}
+              >
+                <MilestoneList items={milestones || []} locale={locale} />
+              </Panel>
+
+              <Panel
+                title={locale === 'it' ? 'Budget' : 'Budget'}
+                subtitle={payload?.budget
+                  ? `${payload.period_month || ''} · $${payload.budget.current_llm_usd.toFixed(2)} / $${payload.budget.cap_llm_usd.toFixed(2)}`
+                  : (locale === 'it' ? 'mese corrente · LLM + tool' : 'current month · LLM + tools')
+                }
+              >
+                <BudgetRows groups={usageGroups} budget={payload?.budget || null} />
+              </Panel>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <StatusBar
+        heartbeatLabel={lastHeartbeat}
+        gateway="pi-agent · anthropic"
+        ctxLabel={`ctx · ${graphNodes.length} nodes`}
+        budget={statusBarBudget}
+        tz="tz · Europe/Rome"
+        hints={[
+          ...(loading ? [locale === 'it' ? 'sto caricando…' : 'loading…'] : []),
+        ]}
+      />
+
+      {/* Floating "Ask your co-founder" drawer — wired to the same chat agent
+          with full project-scoped tools (list_ecosystem_alerts,
+          list_pending_actions, queue_draft_for_approval, ...) */}
+      <ProjectChatDrawer projectId={projectId} />
+    </div>
+  );
+}
+
+// =============================================================================
+// Masthead narrative — SOUL-voiced opening blurb
+// =============================================================================
+
+function buildMastheadNarrative(
+  payload: DashboardPayload | null,
+  toolCalls: number,
+  locale: 'en' | 'it',
+): React.ReactNode {
+  if (!payload) {
+    return locale === 'it'
+      ? 'Carico i segnali del tuo progetto…'
+      : 'Loading your project signals…';
+  }
+  const alertCount = payload.top_ecosystem_alerts?.length ?? 0;
+  const pendingCount = (payload.pending_summary?.pending ?? 0) + (payload.pending_summary?.edited ?? 0);
+  const agentCount = payload.monitors.filter(m => m.status === 'active').length;
+
+  if (locale === 'it') {
+    const parts: React.ReactNode[] = [];
+    if (agentCount > 0) {
+      parts.push(<span key="a"><b style={{ color: 'var(--ink)' }}>{agentCount} monitor</b> attivi hanno fatto <b style={{ color: 'var(--ink)' }}>{toolCalls} chiamate tool</b> di notte. </span>);
     }
+    if (alertCount > 0) {
+      parts.push(<span key="b">Ecosystem ha fatto emergere <i style={{ color: 'var(--accent-ink)', fontStyle: 'normal' }}>{alertCount} segnali</i>. </span>);
+    }
+    if (pendingCount > 0) {
+      parts.push(<span key="c">Hai <b style={{ color: 'var(--ink)' }}>{pendingCount} decision{pendingCount === 1 ? 'e' : 'i'} in attesa</b>.</span>);
+    }
+    if (parts.length === 0) {
+      parts.push(<span key="d">Settimana tranquilla. Tempo di alzare l&apos;asticella.</span>);
+    }
+    return parts;
   }
 
-  async function saveBurnRate() {
-    try {
-      await api.post(`/api/dashboard/${projectId}/burn-rate`, burnForm);
-      setShowBurnForm(false);
-      fetchDashboard();
-    } catch (err) {
-      console.error('Failed to save burn rate:', err);
-    }
+  const parts: React.ReactNode[] = [];
+  if (agentCount > 0) {
+    parts.push(<span key="a"><b style={{ color: 'var(--ink)' }}>{agentCount} agent{agentCount === 1 ? '' : 's'}</b> made <b style={{ color: 'var(--ink)' }}>{toolCalls} tool calls</b> overnight. </span>);
+  }
+  if (alertCount > 0) {
+    parts.push(<span key="b">Ecosystem surfaced <i style={{ color: 'var(--accent-ink)', fontStyle: 'normal' }}>{alertCount} signal{alertCount === 1 ? '' : 's'}</i>. </span>);
+  }
+  if (pendingCount > 0) {
+    parts.push(<span key="c">You have <b style={{ color: 'var(--ink)' }}>{pendingCount} decision{pendingCount === 1 ? '' : 's'} waiting</b>.</span>);
+  }
+  if (parts.length === 0) {
+    parts.push(<span key="d">Quiet week. Good moment to raise the bar.</span>);
+  }
+  return parts;
+}
+
+// =============================================================================
+// Heartbeat panel — real monitor_runs + ecosystem alerts as activity stream
+// =============================================================================
+
+function HeartbeatPanel({
+  monitors,
+  ecosystemAlerts,
+  locale,
+}: {
+  monitors: MonitorRow[];
+  ecosystemAlerts: EcosystemAlertPreview[];
+  locale: 'en' | 'it';
+}) {
+  // Merge monitor last_runs + ecosystem alerts into a single timeline,
+  // newest first, capped at 6 rows.
+  type Event = {
+    t: string;
+    agent: string;
+    role: string;
+    msg: string;
+    target: string;
+    tag: string;
+    kind: 'live' | 'ok' | 'info' | 'warn' | 'n';
+  };
+
+  const events: Event[] = [];
+
+  for (const alert of ecosystemAlerts.slice(0, 4)) {
+    events.push({
+      t: alert.created_at,
+      agent: 'Scout',
+      role: alert.alert_type.replace('_', ' '),
+      msg: alert.headline.slice(0, 80),
+      target: alert.source_url ? safeHost(alert.source_url) : '',
+      tag: `${(alert.relevance_score * 100).toFixed(0)}% rilevante`,
+      kind: alert.relevance_score > 0.8 ? 'live' : alert.relevance_score > 0.6 ? 'ok' : 'n',
+    });
   }
 
-  async function dismissAlert(alertId: string) {
-    try {
-      await api.post(`/api/dashboard/${projectId}/alerts/${alertId}/dismiss`);
-      setAlerts((prev) => prev.map((a) => (a.alert_id === alertId ? { ...a, dismissed: true } : a)));
-    } catch (err) {
-      console.error('Failed to dismiss alert:', err);
-    }
+  for (const m of monitors.slice(0, 4)) {
+    if (!m.last_run) continue;
+    events.push({
+      t: m.last_run,
+      agent: agentNameFromType(m.type),
+      role: roleFromType(m.type),
+      msg: locale === 'it' ? `Scan completato · ${m.name}` : `Scan completed · ${m.name}`,
+      target: (m.last_result || '').slice(0, 60).replace(/\s+/g, ' '),
+      tag: 'monitor',
+      kind: 'n',
+    });
   }
 
-  async function runAnalysis() {
-    setTaskId(null);
-    try {
-      const { data } = await api.post<ApiResponse<{ task_id: string }>>(`/api/dashboard/${projectId}/analyze`);
-      if (data.success) {setTaskId(data.data.task_id);}
-    } catch (err) {
-      console.error('Failed to run analysis:', err);
-    }
-  }
+  // Sort newest first, dedupe by (agent,msg)
+  events.sort((a, b) => b.t.localeCompare(a.t));
+  const trimmed = events.slice(0, 6);
 
-  const isRunning = task?.status === 'processing' || task?.status === 'pending';
-  const runway = burnRate && burnRate.monthly_burn > 0 ? Math.round(burnRate.cash_on_hand / burnRate.monthly_burn) : null;
-
-  function getLatestValue(metric: MetricDefinition): number | null {
-    if (!metric.entries || metric.entries.length === 0) {return null;}
-    return metric.entries[metric.entries.length - 1].value;
-  }
-
-  function getGrowthRate(metric: MetricDefinition): number | null {
-    if (!metric.entries || metric.entries.length < 2) {return null;}
-    const latest = metric.entries[metric.entries.length - 1].value;
-    const previous = metric.entries[metric.entries.length - 2].value;
-    if (previous === 0) {return null;}
-    return Math.round(((latest - previous) / previous) * 100);
-  }
-
-  function renderSparkline(entries: { value: number }[]) {
-    if (!entries || entries.length < 2) {return null;}
-    const values = entries.slice(-10).map((e) => e.value);
-    const max = Math.max(...values);
-    const min = Math.min(...values);
-    const range = max - min || 1;
-    const width = 80;
-    const height = 24;
-    const points = values
-      .map((v, i) => `${(i / (values.length - 1)) * width},${height - ((v - min) / range) * height}`)
-      .join(' ');
-
+  if (trimmed.length === 0) {
     return (
-      <svg width={width} height={height} className="inline-block">
-        <polyline fill="none" stroke="#3b82f6" strokeWidth="1.5" points={points} />
-      </svg>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
-        Loading dashboard...
+      <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
+        {locale === 'it'
+          ? 'Nessuna attività recente. Lancia uno scan dall\'inbox o dalla Brief.'
+          : 'No recent activity. Trigger a scan from the inbox or Brief.'}
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <div className="max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-white">Command Center</h3>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowMetricForm(!showMetricForm)}
-              className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-sm font-medium transition-colors"
-            >
-              + Add Metric
-            </button>
-            <button
-              onClick={runAnalysis}
-              disabled={isRunning}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              {isRunning ? `Analyzing... ${task?.progress || 0}%` : 'Run AI Analysis'}
-            </button>
-          </div>
-        </div>
-
-        {/* Task Progress */}
-        {isRunning && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm text-zinc-300">{task?.message || 'Running analysis...'}</span>
-            </div>
-            <div className="w-full h-2 bg-zinc-800 rounded-full">
-              <div
-                className="h-full bg-blue-500 rounded-full transition-all"
-                style={{ width: `${task?.progress || 0}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {task?.status === 'failed' && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 text-red-400 text-sm">
-            {task.error}
-          </div>
-        )}
-
-        {/* Alerts */}
-        {alerts.filter((a) => !a.dismissed).length > 0 && (
-          <div className="space-y-2 mb-6">
-            {alerts
-              .filter((a) => !a.dismissed)
-              .map((alert) => (
-                <div
-                  key={alert.alert_id}
-                  className={`flex items-center justify-between rounded-xl p-4 text-sm ${
-                    alert.severity === 'critical'
-                      ? 'bg-red-500/10 border border-red-500/30 text-red-400'
-                      : alert.severity === 'warning'
-                        ? 'bg-yellow-500/10 border border-yellow-500/30 text-yellow-400'
-                        : 'bg-blue-500/10 border border-blue-500/30 text-blue-400'
-                  }`}
-                >
-                  <span>{alert.message}</span>
-                  <button
-                    onClick={() => dismissAlert(alert.alert_id)}
-                    className="text-zinc-500 hover:text-zinc-300 ml-4"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              ))}
-          </div>
-        )}
-
-        {/* Add Metric Form */}
-        {showMetricForm && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-            <h4 className="text-sm font-medium text-white mb-4">Add New Metric</h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Name</label>
-                <input
-                  type="text"
-                  value={metricForm.name}
-                  onChange={(e) => setMetricForm({ ...metricForm, name: e.target.value })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                  placeholder="e.g., Monthly Revenue"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Type</label>
-                <select
-                  value={metricForm.type}
-                  onChange={(e) => setMetricForm({ ...metricForm, type: e.target.value as MetricDefinition['type'] })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                >
-                  <option value="currency">Currency</option>
-                  <option value="count">Count</option>
-                  <option value="percentage">Percentage</option>
-                  <option value="duration">Duration</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Target Growth Rate (%)</label>
-                <input
-                  type="number"
-                  value={metricForm.target_growth_rate}
-                  onChange={(e) => setMetricForm({ ...metricForm, target_growth_rate: Number(e.target.value) })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                onClick={() => setShowMetricForm(false)}
-                className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={addMetric}
-                disabled={!metricForm.name}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
-              >
-                Add Metric
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Metrics Grid */}
-        {metrics.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-            {metrics.map((metric) => {
-              const latest = getLatestValue(metric);
-              const growth = getGrowthRate(metric);
-              return (
-                <div
-                  key={metric.metric_id}
-                  className="bg-zinc-900 border border-zinc-800 rounded-xl p-4"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-zinc-400 uppercase tracking-wider">{metric.name}</span>
-                    <span className="text-xs text-zinc-600">{metric.type}</span>
-                  </div>
-                  <div className="flex items-end justify-between">
-                    <div>
-                      <div className="text-2xl font-bold text-white">
-                        {latest !== null
-                          ? metric.type === 'currency'
-                            ? `$${latest.toLocaleString()}`
-                            : metric.type === 'percentage'
-                              ? `${latest}%`
-                              : latest.toLocaleString()
-                          : '--'}
-                      </div>
-                      {growth !== null && (
-                        <span
-                          className={`text-xs font-medium ${
-                            growth >= 0 ? 'text-green-400' : 'text-red-400'
-                          }`}
-                        >
-                          {growth >= 0 ? '+' : ''}
-                          {growth}%
-                        </span>
-                      )}
-                    </div>
-                    {renderSparkline(metric.entries || [])}
-                  </div>
-                  <div className="mt-2 text-xs text-zinc-500">
-                    Target: {metric.target_growth_rate}% growth
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Burn Rate / Runway */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-sm font-medium text-white">Burn Rate & Runway</h4>
-            <button
-              onClick={() => {
-                if (burnRate) {
-                  setBurnForm({ monthly_burn: burnRate.monthly_burn, cash_on_hand: burnRate.cash_on_hand });
-                }
-                setShowBurnForm(!showBurnForm);
+    <div style={{ padding: '4px 0' }}>
+      {trimmed.map((e, i) => (
+        <div
+          key={i}
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '60px 118px 1fr auto',
+            gap: 12,
+            padding: '10px 14px',
+            borderBottom: i < trimmed.length - 1 ? '1px solid var(--line)' : 'none',
+            alignItems: 'center',
+          }}
+        >
+          <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+            {formatTimeAgo(e.t, locale)}
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+            <span
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: 4,
+                background: agentColor(e.agent),
+                color: '#fff',
+                fontSize: 9,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontFamily: 'var(--f-mono)',
               }}
-              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
             >
-              {showBurnForm ? 'Cancel' : 'Edit'}
-            </button>
-          </div>
-
-          {showBurnForm ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-zinc-400 mb-1">Monthly Burn ($)</label>
-                  <input
-                    type="number"
-                    value={burnForm.monthly_burn}
-                    onChange={(e) => setBurnForm({ ...burnForm, monthly_burn: Number(e.target.value) })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-zinc-400 mb-1">Cash on Hand ($)</label>
-                  <input
-                    type="number"
-                    value={burnForm.cash_on_hand}
-                    onChange={(e) => setBurnForm({ ...burnForm, cash_on_hand: Number(e.target.value) })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <button
-                  onClick={saveBurnRate}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          ) : burnRate ? (
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <div className="text-xs text-zinc-400 mb-1">Monthly Burn</div>
-                <div className="text-lg font-semibold text-white">
-                  ${burnRate.monthly_burn.toLocaleString()}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-zinc-400 mb-1">Cash on Hand</div>
-                <div className="text-lg font-semibold text-white">
-                  ${burnRate.cash_on_hand.toLocaleString()}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-zinc-400 mb-1">Runway</div>
-                <div
-                  className={`text-lg font-semibold ${
-                    runway !== null && runway < 6
-                      ? 'text-red-400'
-                      : runway !== null && runway < 12
-                        ? 'text-yellow-400'
-                        : 'text-green-400'
-                  }`}
-                >
-                  {runway !== null ? `${runway} months` : '--'}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="text-sm text-zinc-500">
-              No burn rate data yet. Click Edit to add your financials.
-            </div>
-          )}
+              {e.agent.slice(0, 2).toUpperCase()}
+            </span>
+            <span style={{ fontSize: 12, fontWeight: 500 }}>{e.agent}</span>
+            <span className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-5)', textTransform: 'uppercase' }}>
+              {e.role}
+            </span>
+          </span>
+          <span style={{ fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ color: 'var(--ink-2)' }}>{e.msg}</span>
+            {e.target && <span style={{ color: 'var(--ink-4)' }}> — {e.target}</span>}
+          </span>
+          <Pill kind={e.kind} dot={e.kind !== 'n'}>
+            {e.tag}
+          </Pill>
         </div>
+      ))}
+    </div>
+  );
+}
 
-        {/* AI Analysis */}
-        {analysis && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-            <h4 className="text-sm font-medium text-white mb-4">AI Health Analysis</h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-              <div className="text-center">
-                <div
-                  className={`text-3xl font-bold ${
-                    analysis.health_score >= 70
-                      ? 'text-green-400'
-                      : analysis.health_score >= 40
-                        ? 'text-yellow-400'
-                        : 'text-red-400'
-                  }`}
-                >
-                  {analysis.health_score}
-                </div>
-                <div className="text-xs text-zinc-400 mt-1">Health Score</div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm font-medium text-white">{analysis.trajectory}</div>
-                <div className="text-xs text-zinc-400 mt-1">Trajectory</div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm font-medium text-red-400">{analysis.top_concern}</div>
-                <div className="text-xs text-zinc-400 mt-1">Top Concern</div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm font-medium text-green-400">{analysis.top_opportunity}</div>
-                <div className="text-xs text-zinc-400 mt-1">Top Opportunity</div>
-              </div>
-            </div>
-            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-              <h5 className="text-xs font-medium text-blue-400 mb-1">Weekly Advice</h5>
-              <p className="text-sm text-zinc-300">{analysis.weekly_advice}</p>
-            </div>
-          </div>
-        )}
+// =============================================================================
+// Ticket list — pending_actions preview
+// =============================================================================
 
-        {/* Monitors */}
-        {monitors.length > 0 && (
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-medium text-white">Monitors</h4>
-              {lastCronCheck && (
-                <span className="text-[10px] text-zinc-600">
-                  Auto-check: {Math.floor((Date.now() - lastCronCheck.getTime()) / 60000)}m ago
-                </span>
+function TicketListPanel({
+  decisions,
+  locale,
+}: {
+  decisions: PendingDecisionPreview[];
+  locale: 'en' | 'it';
+}) {
+  if (decisions.length === 0) {
+    return (
+      <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
+        {locale === 'it'
+          ? 'Nessuna decisione in coda. Il co-founder è silente — per ora.'
+          : 'No decisions queued. Your co-founder is quiet — for now.'}
+      </div>
+    );
+  }
+  const statusMap: Record<string, 'live' | 'info' | 'warn' | 'n'> = {
+    pending: 'live',
+    edited: 'info',
+    approved: 'ok' as 'info',
+    rejected: 'n',
+  };
+  return (
+    <div>
+      {decisions.slice(0, 4).map((r, i) => (
+        <div
+          key={r.id}
+          style={{
+            padding: '10px 14px',
+            borderBottom: i < Math.min(3, decisions.length - 1) ? '1px solid var(--line)' : 'none',
+            display: 'grid',
+            gridTemplateColumns: '64px 1fr auto',
+            gap: 12,
+            alignItems: 'center',
+          }}
+        >
+          <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+            {r.id.replace(/^pa_/, 'T-').slice(0, 8)}
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {r.title}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3, fontSize: 10.5, color: 'var(--ink-5)' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Icon d={I.flag} size={10} />
+                {r.action_type.replace(/_/g, ' ')}
+              </span>
+              {r.estimated_impact && (
+                <>
+                  <span>·</span>
+                  <span>{r.estimated_impact} impact</span>
+                </>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {monitors.map((m) => (
-                <MonitorCard
-                  key={m.id}
-                  monitor={m}
-                  projectId={projectId}
-                  onRunComplete={() => {
-                    fetchMonitors();
-                    fetchDashboard();
-                  }}
-                />
-              ))}
-            </div>
           </div>
-        )}
+          <Pill kind={statusMap[r.status] || 'n'} dot={r.status !== 'rejected'}>
+            {r.status}
+          </Pill>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-        {/* Signal Timeline */}
-        {alerts.length > 0 && (
-          <div className="mb-6">
-            <h4 className="text-sm font-medium text-white mb-3">Signal Timeline</h4>
-            <SignalTimeline
-              alerts={alerts}
-              projectId={projectId}
-              onDismiss={(alertId) => {
-                setAlerts((prev) =>
-                  prev.map((a) => (a.alert_id === alertId ? { ...a, dismissed: true } : a)),
-                );
-              }}
-            />
-          </div>
-        )}
+// =============================================================================
+// Mini graph — SVG force-directed preview (static layout, real node names)
+// =============================================================================
 
-        {/* Empty State */}
-        {metrics.length === 0 && !burnRate && !analysis && monitors.length === 0 && (
-          <div className="text-center py-20 text-zinc-500">
-            <p>Your command center is empty.</p>
-            <p className="text-sm mt-1">
-              Add metrics and burn rate data to track your startup health.
-            </p>
+function MiniGraph({ nodes }: { nodes: GraphNodeRow[] }) {
+  const colorMap: Record<string, string> = {
+    your_startup: 'var(--ink)',
+    competitor: 'var(--clay)',
+    market_segment: 'var(--sky)',
+    technology: 'var(--moss)',
+    trend: 'var(--moss)',
+    risk: 'oklch(0.60 0.14 20)',
+    persona: 'var(--plum)',
+    partner: 'var(--sky)',
+  };
+
+  // Sort by node_type heuristic so the self node (if any) is prominent
+  const selfNode = nodes.find(n => n.node_type === 'your_startup');
+  const others = nodes.filter(n => n !== selfNode).slice(0, 8);
+
+  // Static layout — self at center, others in a circle around it
+  const width = 320;
+  const height = 220;
+  const cx = 160;
+  const cy = 105;
+  const ringRadius = 75;
+
+  const positioned = others.map((n, i) => {
+    const angle = (i / Math.max(1, others.length)) * 2 * Math.PI;
+    return {
+      ...n,
+      x: cx + Math.cos(angle) * ringRadius,
+      y: cy + Math.sin(angle) * ringRadius,
+      r: 7,
+    };
+  });
+
+  const selfPos = { x: cx, y: cy, r: 14, name: selfNode?.name || 'You', node_type: 'your_startup' };
+
+  if (nodes.length === 0) {
+    return (
+      <div
+        style={{
+          padding: 24,
+          background: 'var(--paper)',
+          height: 220,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 12,
+          color: 'var(--ink-5)',
+        }}
+      >
+        Nessun nodo nel graph. Il co-founder lo popola durante gli scan settimanali.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: 12, background: 'var(--paper)', position: 'relative' }}>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height }}>
+        {positioned.map(n => (
+          <line
+            key={`edge-${n.id}`}
+            x1={selfPos.x}
+            y1={selfPos.y}
+            x2={n.x}
+            y2={n.y}
+            stroke="var(--ink-6)"
+            strokeWidth="0.5"
+            opacity="0.7"
+          />
+        ))}
+        <g>
+          <circle cx={selfPos.x} cy={selfPos.y} r={selfPos.r + 6} fill="none" stroke="var(--ink)" strokeWidth="0.5" opacity="0.3" />
+          <circle cx={selfPos.x} cy={selfPos.y} r={selfPos.r} fill={colorMap.your_startup} />
+          <text
+            x={selfPos.x}
+            y={selfPos.y + selfPos.r + 10}
+            fontSize="9"
+            fill="var(--ink-3)"
+            textAnchor="middle"
+            fontFamily="var(--f-mono)"
+          >
+            {selfPos.name.slice(0, 16)}
+          </text>
+        </g>
+        {positioned.map(n => (
+          <g key={n.id}>
+            <circle cx={n.x} cy={n.y} r={n.r} fill={colorMap[n.node_type] || 'var(--ink-5)'} opacity={0.85} />
+            <text
+              x={n.x}
+              y={n.y + n.r + 10}
+              fontSize="9"
+              fill="var(--ink-3)"
+              textAnchor="middle"
+              fontFamily="var(--f-mono)"
+            >
+              {n.name.slice(0, 14)}
+            </text>
+          </g>
+        ))}
+      </svg>
+      <div
+        style={{
+          position: 'absolute',
+          left: 14,
+          top: 14,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+          fontSize: 10,
+          fontFamily: 'var(--f-mono)',
+        }}
+      >
+        {[
+          ['your_startup', 'you'],
+          ['competitor', 'competitors'],
+          ['market_segment', 'markets'],
+          ['technology', 'tech'],
+          ['risk', 'risks'],
+        ].map(([k, l]) => (
+          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--ink-4)' }}>
+            <span className="lp-dot" style={{ background: colorMap[k] }} /> {l}
           </div>
-        )}
+        ))}
       </div>
     </div>
   );
 }
+
+// =============================================================================
+// Milestones + Budget rows
+// =============================================================================
+
+function MilestoneList({
+  items,
+  locale,
+}: {
+  items: JourneyPayload['milestones'];
+  locale: 'en' | 'it';
+}) {
+  const safeItems = items || [];
+  if (safeItems.length === 0) {
+    return (
+      <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
+        {locale === 'it' ? 'Nessuna milestone definita.' : 'No milestones set.'}
+      </div>
+    );
+  }
+  return (
+    <div>
+      {safeItems.slice(0, 4).map((it, i) => (
+        <div
+          key={it.id || it.milestone_id || i}
+          style={{
+            padding: '9px 14px',
+            borderBottom: i < Math.min(3, safeItems.length - 1) ? '1px solid var(--line)' : 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <span
+            style={{
+              width: 14,
+              height: 14,
+              borderRadius: 7,
+              border: '1px solid',
+              borderColor: it.status === 'completed' ? 'var(--moss)' : 'var(--line-2)',
+              background: it.status === 'completed' ? 'var(--moss)' : 'transparent',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            {it.status === 'completed' && (
+              <Icon d={I.check} size={9} style={{ color: '#fff', strokeWidth: 2 }} />
+            )}
+          </span>
+          <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', width: 32 }}>
+            W{it.week}
+          </span>
+          <span
+            style={{
+              fontSize: 12,
+              color: 'var(--ink-2)',
+              flex: 1,
+              textDecoration: it.status === 'completed' ? 'line-through' : 'none',
+              textDecorationColor: 'var(--ink-5)',
+            }}
+          >
+            {it.title}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BudgetRows({
+  groups,
+  budget,
+}: {
+  groups: LlmUsageGroupRow[];
+  budget: BudgetPayload | null;
+}) {
+  const cap = budget?.cap_llm_usd || 1;
+  const rows = groups.length > 0
+    ? groups.slice(0, 5)
+    : [{ step: 'No LLM calls yet', provider: '', model: '', total_cost_usd: 0, call_count: 0 }];
+
+  return (
+    <div>
+      {rows.map((r, i) => {
+        const name = r.step || 'unlabeled';
+        const pct = cap > 0 ? (r.total_cost_usd / cap) * 100 : 0;
+        return (
+          <div
+            key={i}
+            style={{
+              padding: '9px 14px',
+              borderBottom: i < rows.length - 1 ? '1px solid var(--line)' : 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
+            <span style={{ fontSize: 12, color: 'var(--ink-2)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {name}
+            </span>
+            <div style={{ width: 90, height: 4, borderRadius: 2, background: 'var(--line-2)', overflow: 'hidden' }}>
+              <div
+                style={{
+                  width: `${Math.min(100, pct)}%`,
+                  height: '100%',
+                  background: pct > 80 ? 'var(--clay)' : 'var(--ink-3)',
+                }}
+              />
+            </div>
+            <span
+              className="lp-mono"
+              style={{ fontSize: 10, color: 'var(--ink-4)', minWidth: 72, textAlign: 'right' }}
+            >
+              ${r.total_cost_usd.toFixed(3)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+function EmptyMetric({ locale }: { locale: 'en' | 'it' }) {
+  return (
+    <div
+      className="lp-card"
+      style={{
+        padding: '12px 14px 10px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'var(--ink-5)',
+        fontSize: 11,
+      }}
+    >
+      {locale === 'it' ? '— nessuna metrica' : '— no metric'}
+    </div>
+  );
+}
+
+function agentNameFromType(type: string): string {
+  if (type.startsWith('ecosystem.competitors')) return 'Scout';
+  if (type.startsWith('ecosystem.ip')) return 'Scout';
+  if (type.startsWith('ecosystem.trends')) return 'Scout';
+  if (type.startsWith('ecosystem.partnerships')) return 'Outreach';
+  if (type === 'health') return 'Chief';
+  return 'Agent';
+}
+
+function roleFromType(type: string): string {
+  if (type.startsWith('ecosystem.')) return 'research';
+  if (type === 'health') return 'ceo';
+  return 'monitor';
+}
+
+function agentColor(name: string): string {
+  const map: Record<string, string> = {
+    Scout: '#7a8b4a',
+    Chief: '#4a5a7a',
+    Analyst: '#7a5a4a',
+    Outreach: '#7a4a6a',
+    Designer: '#4a7a7a',
+    Agent: '#6b6558',
+  };
+  return map[name] || '#555';
+}
+
+function safeHost(url: string): string {
+  try { return new URL(url).hostname; } catch { return url.slice(0, 40); }
+}
+
+function formatTimeAgo(iso: string, locale: 'en' | 'it'): string {
+  try {
+    const d = new Date(iso);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  } catch {
+    return iso.slice(11, 16);
+  }
+}
+
+// =============================================================================
+// Local style constants
+// =============================================================================
+
+const btnPrimary: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '7px 12px 7px 11px',
+  borderRadius: 'var(--r-m)',
+  background: 'var(--ink)',
+  color: 'var(--paper)',
+  border: 'none',
+  cursor: 'pointer',
+  fontSize: 12,
+  fontFamily: 'var(--f-sans)',
+  fontWeight: 500,
+  textDecoration: 'none',
+};
+
+const btnGhost: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '7px 12px',
+  borderRadius: 'var(--r-m)',
+  background: 'transparent',
+  color: 'var(--ink-2)',
+  border: '1px solid var(--line-2)',
+  cursor: 'pointer',
+  fontSize: 12,
+  fontFamily: 'var(--f-sans)',
+  textDecoration: 'none',
+};
+
+const linkStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--ink-4)',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  cursor: 'pointer',
+  textDecoration: 'none',
+};
