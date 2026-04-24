@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import api from '@/api';
-import SignalCard from '@/components/home/SignalCard';
-import ProjectCard from '@/components/home/ProjectCard';
+import { TopBar } from '@/components/design/chrome';
+import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
 
 interface DashboardProject {
   project_id: string;
@@ -35,147 +36,546 @@ export default function HomePage() {
   const router = useRouter();
   const [projects, setProjects] = useState<DashboardProject[]>([]);
   const [signals, setSignals] = useState<DashboardSignal[]>([]);
-  const [stats, setStats] = useState<DashboardStats>({ total_projects: 0, total_skills_completed: 0, total_alerts_this_week: 0 });
+  const [stats, setStats] = useState<DashboardStats>({
+    total_projects: 0,
+    total_skills_completed: 0,
+    total_alerts_this_week: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
 
-  const fetchData = useCallback(async () => {
-    try {
-      const { data } = await api.get('/api/dashboard');
-      if (data.success && data.data) {
-        setProjects(data.data.projects || []);
-        setSignals(data.data.signals || []);
-        setStats(data.data.stats || { total_projects: 0, total_skills_completed: 0, total_alerts_this_week: 0 });
-      }
-    } catch { /* ignore */ }
-    setLoading(false);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get('/api/dashboard')
+      .then(({ data }) => {
+        if (cancelled) return;
+        if (data.success && data.data) {
+          setProjects(data.data.projects || []);
+          setSignals(data.data.signals || []);
+          setStats(
+            data.data.stats || {
+              total_projects: 0,
+              total_skills_completed: 0,
+              total_alerts_this_week: 0,
+            },
+          );
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
 
   async function handleCreate() {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      const { data } = await api.post('/api/projects', { name: newName.trim(), description: newDesc.trim() });
+      const { data } = await api.post('/api/projects', {
+        name: newName.trim(),
+        description: newDesc.trim(),
+      });
       if (data.success && data.data) {
         router.push(`/project/${data.data.project_id || data.data.id}/chat`);
       }
-    } catch { /* ignore */ }
+    } catch {
+      // ignore
+    }
     setCreating(false);
   }
 
-  const [showCreate, setShowCreate] = useState(false);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full text-zinc-500 text-sm">Loading...</div>
-    );
-  }
+  const severityKind = (s: string): 'ok' | 'warn' | 'live' | 'n' =>
+    s === 'critical' ? 'live' : s === 'high' ? 'warn' : s === 'low' ? 'ok' : 'n';
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-bold text-white">LaunchPad</h1>
-            <p className="text-sm text-zinc-500 mt-1">
-              {stats.total_projects} project{stats.total_projects !== 1 ? 's' : ''} | {stats.total_skills_completed} skills completed | {stats.total_alerts_this_week} signals this week
-            </p>
-          </div>
-          <button
-            onClick={() => setShowCreate(!showCreate)}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+    <div className="lp-frame">
+      <TopBar
+        breadcrumb={['Home']}
+        right={
+          <span className="lp-mono" style={{ fontSize: 10 }}>
+            {stats.total_projects} project{stats.total_projects !== 1 ? 's' : ''}
+          </span>
+        }
+      />
+
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        {/* Left projects rail */}
+        <div
+          style={{
+            width: 200,
+            flexShrink: 0,
+            borderRight: '1px solid var(--line)',
+            background: 'var(--paper-2)',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '12px 0',
+            gap: 2,
+          }}
+        >
+          <div
+            style={{
+              padding: '0 12px 8px',
+              fontSize: 10,
+              color: 'var(--ink-5)',
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+              fontFamily: 'var(--f-mono)',
+            }}
           >
-            New Project
-          </button>
+            Projects
+          </div>
+
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            {projects.map((p) => (
+              <Link
+                key={p.project_id}
+                href={`/project/${p.project_id}/chat`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '7px 12px',
+                  fontSize: 12.5,
+                  color: 'var(--ink-2)',
+                  textDecoration: 'none',
+                  borderRadius: 0,
+                  transition: 'background .1s',
+                }}
+                className="lp-rail-item"
+              >
+                <span
+                  style={{
+                    width: 22,
+                    height: 22,
+                    flexShrink: 0,
+                    borderRadius: 6,
+                    background: 'var(--surface)',
+                    border: '1px solid var(--line)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fontFamily: 'var(--f-mono)',
+                    color: 'var(--ink-3)',
+                  }}
+                >
+                  {p.name.slice(0, 2).toUpperCase()}
+                </span>
+                <span
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {p.name}
+                </span>
+                {p.weekly_alerts > 0 && (
+                  <span
+                    style={{
+                      fontSize: 9,
+                      fontFamily: 'var(--f-mono)',
+                      color: 'var(--clay)',
+                      background: 'oklch(0.94 0.05 40)',
+                      padding: '1px 4px',
+                      borderRadius: 4,
+                    }}
+                  >
+                    {p.weekly_alerts}
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+
+          <div style={{ padding: '8px 8px 0' }}>
+            <button
+              onClick={() => setShowCreate(true)}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '7px 8px',
+                background: 'transparent',
+                border: '1px dashed var(--line-2)',
+                borderRadius: 'var(--r-m)',
+                color: 'var(--ink-4)',
+                fontSize: 12,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                transition: 'border-color .12s, color .12s',
+              }}
+            >
+              <Icon d={I.plus} size={12} />
+              New project
+            </button>
+          </div>
         </div>
 
-        {/* Create project form */}
-        {showCreate && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-6">
-            <div className="flex gap-3">
-              <input
-                autoFocus
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Project name"
-                className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500"
-                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              />
-              <input
-                value={newDesc}
-                onChange={(e) => setNewDesc(e.target.value)}
-                placeholder="Description (optional)"
-                className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500"
-                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              />
-              <button
-                onClick={handleCreate}
-                disabled={creating || !newName.trim()}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white text-sm rounded-lg transition-colors"
-              >
-                {creating ? 'Creating...' : 'Create'}
-              </button>
-            </div>
+        {/* Main content */}
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            minWidth: 0,
+            background: 'var(--paper)',
+          }}
+        >
+          {/* Content header */}
+          <div
+            style={{
+              padding: '16px 24px 14px',
+              borderBottom: '1px solid var(--line)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+            }}
+          >
+            <h1
+              className="lp-serif"
+              style={{ fontSize: 22, fontWeight: 400, letterSpacing: -0.3, margin: 0 }}
+            >
+              Workspace
+            </h1>
+            <span style={{ flex: 1 }} />
+            <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+              {stats.total_skills_completed} skills completed ·{' '}
+              {stats.total_alerts_this_week} signals this week
+            </span>
           </div>
-        )}
 
-        {/* Signals Feed */}
-        {signals.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">Recent Signals</h2>
-            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
-              {signals.map((s) => (
-                <SignalCard
-                  key={s.id}
-                  severity={s.severity}
-                  projectName={s.project_name}
-                  message={s.message}
-                  createdAt={s.created_at}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Projects Grid */}
-        {projects.length > 0 ? (
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">Projects</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {projects.map((p) => (
-                <ProjectCard
-                  key={p.project_id}
-                  projectId={p.project_id}
-                  name={p.name}
-                  description={p.description}
-                  skillsCompleted={p.skills_completed}
-                  totalSkills={p.total_skills}
-                  weeklyAlerts={p.weekly_alerts}
-                  createdAt={p.created_at}
-                />
-              ))}
-            </div>
-          </div>
-        ) : (
-          !showCreate && (
-            <div className="text-center py-16">
-              <h3 className="text-lg text-zinc-400 mb-2">No projects yet</h3>
-              <p className="text-sm text-zinc-600 mb-4">Create your first project to start validating your startup idea</p>
-              <button
-                onClick={() => setShowCreate(true)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+          <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
+            {loading ? (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: 'var(--ink-5)',
+                  padding: 40,
+                  textAlign: 'center',
+                }}
               >
-                Create Project
-              </button>
-            </div>
-          )
-        )}
+                Loading…
+              </div>
+            ) : (
+              <>
+                {/* Create form */}
+                {showCreate && (
+                  <div
+                    className="lp-card"
+                    style={{ padding: 16, marginBottom: 20 }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
+                      New project
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        autoFocus
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        placeholder="Project name"
+                        onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+                        style={{
+                          flex: 1,
+                          padding: '7px 10px',
+                          background: 'var(--paper)',
+                          border: '1px solid var(--line-2)',
+                          borderRadius: 'var(--r-m)',
+                          fontSize: 13,
+                          color: 'var(--ink-2)',
+                          fontFamily: 'inherit',
+                          outline: 'none',
+                        }}
+                      />
+                      <input
+                        value={newDesc}
+                        onChange={(e) => setNewDesc(e.target.value)}
+                        placeholder="Description (optional)"
+                        onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+                        style={{
+                          flex: 1,
+                          padding: '7px 10px',
+                          background: 'var(--paper)',
+                          border: '1px solid var(--line-2)',
+                          borderRadius: 'var(--r-m)',
+                          fontSize: 13,
+                          color: 'var(--ink-2)',
+                          fontFamily: 'inherit',
+                          outline: 'none',
+                        }}
+                      />
+                      <button
+                        onClick={handleCreate}
+                        disabled={creating || !newName.trim()}
+                        style={{
+                          padding: '7px 14px',
+                          background: 'var(--ink)',
+                          color: 'var(--paper)',
+                          border: 'none',
+                          borderRadius: 'var(--r-m)',
+                          fontSize: 12,
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          opacity: creating || !newName.trim() ? 0.5 : 1,
+                        }}
+                      >
+                        {creating ? 'Creating…' : 'Create'}
+                      </button>
+                      <button
+                        onClick={() => setShowCreate(false)}
+                        style={{
+                          padding: '7px 10px',
+                          background: 'transparent',
+                          color: 'var(--ink-4)',
+                          border: '1px solid var(--line)',
+                          borderRadius: 'var(--r-m)',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Signals */}
+                {signals.length > 0 && (
+                  <div style={{ marginBottom: 24 }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: 'var(--ink-5)',
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                        fontFamily: 'var(--f-mono)',
+                        marginBottom: 10,
+                      }}
+                    >
+                      Recent signals
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      {signals.map((s) => (
+                        <div
+                          key={s.id}
+                          className="lp-card"
+                          style={{ padding: '10px 14px', maxWidth: 320 }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              marginBottom: 4,
+                            }}
+                          >
+                            <Pill kind={severityKind(s.severity)}>{s.severity}</Pill>
+                            <span style={{ fontSize: 10, color: 'var(--ink-5)' }}>
+                              {s.project_name}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.45 }}>
+                            {s.message}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Projects grid */}
+                {projects.length > 0 ? (
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: 'var(--ink-5)',
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                        fontFamily: 'var(--f-mono)',
+                        marginBottom: 10,
+                      }}
+                    >
+                      Projects
+                    </div>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                        gap: 12,
+                      }}
+                    >
+                      {projects.map((p) => (
+                        <Link
+                          key={p.project_id}
+                          href={`/project/${p.project_id}/chat`}
+                          style={{ textDecoration: 'none' }}
+                        >
+                          <div
+                            className="lp-card"
+                            style={{
+                              padding: '14px 16px',
+                              cursor: 'pointer',
+                              transition: 'box-shadow .15s',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: 10,
+                                marginBottom: 8,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: 28,
+                                  height: 28,
+                                  flexShrink: 0,
+                                  borderRadius: 7,
+                                  background: 'var(--surface)',
+                                  border: '1px solid var(--line)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  fontFamily: 'var(--f-mono)',
+                                  color: 'var(--ink-3)',
+                                }}
+                              >
+                                {p.name.slice(0, 2).toUpperCase()}
+                              </span>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    color: 'var(--ink)',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {p.name}
+                                </div>
+                                {p.description && (
+                                  <div
+                                    style={{
+                                      fontSize: 11.5,
+                                      color: 'var(--ink-4)',
+                                      marginTop: 2,
+                                      lineHeight: 1.4,
+                                      overflow: 'hidden',
+                                      display: '-webkit-box',
+                                      WebkitLineClamp: 2,
+                                      WebkitBoxOrient: 'vertical',
+                                    }}
+                                  >
+                                    {p.description}
+                                  </div>
+                                )}
+                              </div>
+                              {p.weekly_alerts > 0 && (
+                                <Pill kind="warn">{p.weekly_alerts}</Pill>
+                              )}
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                fontSize: 11,
+                                color: 'var(--ink-5)',
+                                fontFamily: 'var(--f-mono)',
+                              }}
+                            >
+                              <span>
+                                {p.skills_completed}/{p.total_skills} skills
+                              </span>
+                              <span>·</span>
+                              <span>
+                                {new Date(p.created_at).toLocaleDateString('en', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                })}
+                              </span>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  !showCreate && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 60,
+                        gap: 12,
+                        color: 'var(--ink-4)',
+                        textAlign: 'center',
+                      }}
+                    >
+                      <Icon d={I.layers} size={32} style={{ opacity: 0.4 }} />
+                      <h3
+                        className="lp-serif"
+                        style={{ fontSize: 20, fontWeight: 400, margin: 0, color: 'var(--ink-3)' }}
+                      >
+                        No projects yet.
+                      </h3>
+                      <p style={{ margin: 0, maxWidth: 360, fontSize: 13, lineHeight: 1.55 }}>
+                        Create your first project to start validating your startup idea with the
+                        co-pilot.
+                      </p>
+                      <button
+                        onClick={() => setShowCreate(true)}
+                        style={{
+                          marginTop: 4,
+                          padding: '8px 16px',
+                          background: 'var(--ink)',
+                          color: 'var(--paper)',
+                          border: 'none',
+                          borderRadius: 'var(--r-m)',
+                          fontSize: 13,
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        Create project
+                      </button>
+                    </div>
+                  )
+                )}
+              </>
+            )}
+          </div>
+        </div>
       </div>
+
+      <StatusBar
+        heartbeatLabel="heartbeat · idle"
+        gateway="pi-agent · anthropic"
+        ctxLabel={`${stats.total_projects} projects`}
+        budget={`${stats.total_alerts_this_week} signals`}
+      />
     </div>
   );
 }

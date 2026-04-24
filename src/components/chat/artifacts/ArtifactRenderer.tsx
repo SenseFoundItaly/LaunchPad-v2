@@ -11,6 +11,7 @@ import WorkflowCardInline from './WorkflowCardInline';
 import MetricGridCard from './MetricGridCard';
 import SensitivitySliderCard from './SensitivitySliderCard';
 import MonitorProposalCard from './MonitorProposalCard';
+import BudgetProposalCard from './BudgetProposalCard';
 import SourcesFooter from './SourcesFooter';
 import { RadarChart, BarChart, PieChart, GaugeChart, ScoreCard } from '@/components/charts';
 
@@ -92,6 +93,8 @@ export default function ArtifactRenderer({
       return <SensitivitySliderCard artifact={artifact} onAction={onAction} />;
     case 'monitor-proposal':
       return <MonitorProposalCard artifact={artifact} onAction={onAction} />;
+    case 'budget-proposal':
+      return <BudgetProposalCard artifact={artifact} onAction={onAction} />;
     default:
       return null;
   }

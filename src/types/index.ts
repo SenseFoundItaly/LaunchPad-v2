@@ -343,7 +343,10 @@ export type PendingActionType =
   | 'proposed_investor_followup'
   | 'proposed_graph_update'
   | 'workflow_step'                 // chat-proposed workflow step, one row per step
-  | 'configure_monitor';            // chat-proposed ecosystem monitor awaiting founder approval
+  | 'configure_monitor'             // chat-proposed ecosystem monitor awaiting founder approval
+  | 'configure_budget'              // chat-proposed monthly LLM budget cap change awaiting founder approval
+  | 'skill_rerun_result'            // heartbeat-executor refreshed a stale analytical skill — surfaces new score in inbox
+  | 'task';                         // chat-proposed founder task (TODO) — Mark done / Snooze / Dismiss
 
 export type PendingActionStatus =
   | 'pending'
@@ -371,6 +374,13 @@ export interface PendingAction {
   created_at: string;
   updated_at: string;
 }
+
+// Re-export lane taxonomy defined in src/lib/action-lanes.ts so UI code
+// can `import type { ActionLane } from '@/types'` without reaching into lib.
+// Phase 1 of the 4-bucket reorganization (Tasks / Approvals / Notifications).
+// Source moved out of pending-actions.ts so client bundles don't pull in
+// better-sqlite3 (Turbopack: "Module not found: Can't resolve 'fs'").
+export type { ActionLane } from '@/lib/action-lanes';
 
 // === Partner Configs (Add-on 1/3 onboarding) ===
 export interface PartnerConfig {

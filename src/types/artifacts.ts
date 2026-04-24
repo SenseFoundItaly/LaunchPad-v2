@@ -14,7 +14,9 @@ export type ArtifactType =
   | 'metric-grid'
   | 'sensitivity-slider'
   | 'fact'
-  | 'monitor-proposal';
+  | 'monitor-proposal'
+  | 'budget-proposal'
+  | 'task';
 
 /**
  * Source — verifiable provenance for every factual claim the agent makes.
@@ -273,6 +275,70 @@ export interface MonitorProposalArtifact extends ArtifactBase {
   sources: Source[];
 }
 
+/**
+ * `budget-proposal` — in-chat inline card representing an agent-proposed
+ * change to the project's monthly LLM budget cap. Mirrors the monitor-proposal
+ * pattern: artifact pairs with a `pending_actions` row
+ * (`action_type='configure_budget'`); founder approves/edits/dismisses from
+ * either surface. The executor UPSERTs `project_budgets.cap_llm_usd` for the
+ * current period_month.
+ *
+ * The agent emits this when the founder asks to raise/lower the cap, OR when
+ * the credits-empty error surfaces in conversation. It is never a silent
+ * mutation — always surfaces for approval.
+ */
+export interface BudgetProposalArtifact extends ArtifactBase {
+  type: 'budget-proposal';
+  pending_action_id: string;
+  current_cap_usd: number;
+  proposed_cap_usd: number;
+  reason: string;
+  estimated_monthly_cost_usd?: number;
+  // REQUIRED — every budget bump cites the founder ask or the credits-empty
+  // error that motivated it. Caps are not raised silently.
+  sources: Source[];
+}
+
+/**
+ * `task` — founder-facing TODO surfaced in chat and persisted as a
+ * `pending_actions` row with action_type='task'. Sources OPTIONAL: a task
+ * is a directive ("draft the seed deck"), not a factual claim — though when
+ * it springs from analysis the agent SHOULD cite the analysis that motivated
+ * it so the founder can judge urgency.
+ *
+ * Pairs with the inbox row via `pending_action_id`, mirroring the
+ * monitor-proposal pattern. The TaskCard component renders Mark done /
+ * Snooze / Dismiss against the same PATCH /actions/[id] endpoint.
+ */
+export interface TaskArtifact extends ArtifactBase {
+  type: 'task';
+  title: string;
+  description?: string;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  // ISO date or natural language ("this week", "by Friday") — surfaced as-is.
+  due?: string;
+  // Set server-side after persistence; threaded back into the inline card so
+  // Mark done / Snooze / Dismiss can PATCH the matching pending_actions row.
+  pending_action_id?: string;
+  // --- Expansion fields (Phase G). All optional → backwards-compatible.
+  // Populated ONLY when the founder clicks "Expand" on the TaskCard; the
+  // server endpoint runs an LLM turn that decomposes the title into a plan
+  // and UPDATEs the pending_actions.payload with these fields. Presence of
+  // `expanded_at` is the idempotency key — a second Expand click is a 409.
+  /** Long-form context, ~200-500 chars. Grounded in the founder's idea. */
+  details?: string;
+  /** 3-7 actionable verb-first steps, each <120 chars. */
+  subtasks?: string[];
+  /** Skills / research / founder quotes the expansion cited. */
+  references?: Source[];
+  /** One of: '30 minutes', '1 hour', 'half a day', '1 day', '2-3 days', '1 week', '2+ weeks'. */
+  estimated_effort?: string;
+  /** ISO timestamp — presence signals the expansion has run at least once. */
+  expanded_at?: string;
+  // Optional — see header comment.
+  sources?: Source[];
+}
+
 export type Artifact =
   | OptionSet
   | InsightCard
@@ -289,7 +355,9 @@ export type Artifact =
   | MetricGrid
   | SensitivitySlider
   | FactArtifact
-  | MonitorProposalArtifact;
+  | MonitorProposalArtifact
+  | BudgetProposalArtifact
+  | TaskArtifact;
 
 /**
  * Set of artifact types that MUST have non-empty sources. Parser uses this
@@ -314,6 +382,7 @@ export const ARTIFACTS_REQUIRING_SOURCES: ReadonlySet<ArtifactType> = new Set([
   'metric-grid',
   'fact',
   'monitor-proposal',
+  'budget-proposal',
 ]);
 
 /**

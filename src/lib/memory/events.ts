@@ -25,6 +25,10 @@ export type EventType =
   | 'action_rejected'
   | 'action_dismissed'
   | 'workflow_proposed'
+  // Emitted when the daily heartbeat proposes a founder task (action_type='task').
+  // Payload: { pending_action_id, title, priority }. Powers the Activity feed
+  // [CEO] line and lets the founder audit which heartbeat-proposed tasks landed.
+  | 'task_proposed'
   // Emitted by the chat route when the parser rejects an artifact for
   // failing source-requirement validation. Payload contains the artifact
   // type and the failure reason — feeds a "how often is sourcing failing"
@@ -35,7 +39,18 @@ export type EventType =
   // monitor_id, linked_risk_id, kind, schedule, and whether the agent
   // bypassed L2 semantic dedup. Feeds the HEARTBEAT monitor portfolio
   // review (v3) + founder's audit timeline.
-  | 'monitor_approved';
+  | 'monitor_approved'
+  // Emitted by configure_budget executor when a founder approves a
+  // budget-proposal. Payload: { prev_cap_usd, new_cap_usd, period_month, reason }.
+  // Feeds the audit timeline + lets future heartbeats see "founder bumped
+  // cap last week" so they don't re-suggest the same change.
+  | 'budget_changed'
+  // Emitted by the task-expand endpoint when a founder clicks Expand on a
+  // TaskCard and the model returns a plan. Payload:
+  //   { client_artifact_id, pending_action_id, subtask_count, estimated_effort }.
+  // Used for dashboards ("how often do founders expand tasks?") and to prevent
+  // the memory timeline from looking like a graveyard of unexpanded TODOs.
+  | 'task_expanded';
 
 export interface MemoryEvent {
   id: string;

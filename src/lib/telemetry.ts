@@ -214,9 +214,12 @@ export function logToLangfuse(
         completionTokens,
         totalTokens,
       },
-      calculatedTotalCost: cost > 0 ? cost : undefined,
+      // Langfuse v3 dropped `calculatedTotalCost` from the top-level
+      // generation signature; keep cost visible in metadata instead so
+      // dashboards that key off `metadata.costUsd` still work.
       metadata: {
         latencyMs,
+        costUsd: cost > 0 ? cost : undefined,
         cacheCreationTokens: usage.cache_creation_input_tokens || 0,
         cacheReadTokens: usage.cache_read_input_tokens || 0,
       },

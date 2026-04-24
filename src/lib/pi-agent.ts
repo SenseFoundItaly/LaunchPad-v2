@@ -105,6 +105,15 @@ function loadSession(sessionId: string): AgentMessage[] {
       }
     }
 
+    // After trimming incomplete assistant turns, also strip any trailing user
+    // messages that were left orphaned. The SDK will re-add the user message
+    // when the next turn runs, preventing consecutive-user-message rejections.
+    while (messages.length > 0) {
+      const last = messages[messages.length - 1] as { role?: string };
+      if (last.role !== 'user') break;
+      messages.pop();
+    }
+
     return messages;
   } catch {
     return [];
@@ -177,10 +186,6 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
   const timeout = options.timeout || 120000;
   const timer = setTimeout(() => agent.abort(), timeout);
 
-  // Persist user message
-  const userMsg: Message = { role: 'user', content: prompt, timestamp: Date.now() };
-  if (options.sessionId) appendToSession(options.sessionId, userMsg as AgentMessage);
-
   agent.subscribe((event) => {
     if (event.type === 'message_update') {
       const evt = event.assistantMessageEvent;
@@ -188,14 +193,11 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
         fullText += evt.delta;
       }
     }
+    // message_end fires for user, toolResult, and assistant messages in order.
+    // Writing here is sufficient — turn_end would double-write toolResults.
     if (event.type === 'message_end' && event.message) {
       if ('usage' in event.message) lastUsage = (event.message as any).usage;
       if (options.sessionId) appendToSession(options.sessionId, event.message);
-    }
-    if (event.type === 'turn_end' && event.toolResults && options.sessionId) {
-      for (const tr of event.toolResults) {
-        appendToSession(options.sessionId, tr as AgentMessage);
-      }
     }
   });
 
@@ -248,15 +250,14 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
         agent.state.tools = [...baseToolsS, ...extraToolsS];
       }
 
-      // Restore conversation history
+      // Restore conversation history (trimmed to last valid complete turn).
+      // The SDK appends the user message and subsequent assistant turns itself —
+      // do NOT call appendToSession here or the user message appears twice.
       if (options.sessionId) {
         const prior = loadSession(options.sessionId);
         if (prior.length > 0) {
           agent.state.messages = prior;
         }
-        // Persist user message
-        const userMsg: Message = { role: 'user', content: prompt, timestamp: Date.now() };
-        appendToSession(options.sessionId, userMsg as AgentMessage);
       }
 
       timer = setTimeout(() => agent.abort(), timeout);
@@ -307,19 +308,10 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
             if (event.message && 'usage' in event.message) {
               lastUsage = (event.message as any).usage;
             }
-            // Persist assistant message to session
+            // message_end fires for user, toolResult, and assistant messages in order.
+            // Writing here is sufficient — turn_end would double-write toolResults.
             if (options.sessionId && event.message) {
               appendToSession(options.sessionId, event.message);
-            }
-            break;
-          }
-
-          case 'turn_end': {
-            // Persist tool result messages
-            if (options.sessionId && event.toolResults) {
-              for (const tr of event.toolResults) {
-                appendToSession(options.sessionId, tr as AgentMessage);
-              }
             }
             break;
           }

@@ -24,7 +24,25 @@ import {
   IconBtn,
   type PillKind,
 } from '@/components/design/primitives';
-import type { PendingAction, PendingActionStatus, PendingActionType } from '@/types';
+import type { PendingAction, PendingActionStatus, PendingActionType, ActionLane } from '@/types';
+import { laneFor } from '@/lib/action-lanes';
+
+// Phase 1 — 3-lane Inbox (Tasks / Approvals / Notifications).
+// See /Users/openmaiku/.claude/plans/buckets-tasks-intelligence-signals-assets.md
+//
+// Every pending_action falls into exactly one lane, derived from action_type
+// via ACTION_LANE in src/lib/pending-actions.ts. Tabs filter client-side; the
+// underlying fetch is still the full /actions endpoint so a founder switching
+// tabs doesn't incur a round-trip.
+const LANE_LABEL: Record<ActionLane, string> = {
+  todo: 'TODOs',
+  approval: 'Approvals',
+  notification: 'Notifications',
+};
+const LANE_ORDER: ActionLane[] = ['todo', 'approval', 'notification'];
+
+const AGENT_OPTIONS = ['any', 'Scout', 'Chief', 'Analyst', 'Outreach', 'Designer', 'Architect'] as const;
+const STATUS_OPTIONS: Array<'any' | PendingActionStatus> = ['any', 'pending', 'edited', 'approved', 'sent', 'rejected', 'failed'];
 
 // =============================================================================
 // Page
@@ -57,6 +75,16 @@ export default function TicketsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Lane tab + filter dropdowns. Default lane is chosen after first fetch
+  // based on whichever lane has the most open rows (so a founder with 12
+  // approvals and 0 TODOs lands on Approvals first). Filters default to 'any'
+  // so the list matches the pre-Phase-1 behaviour until the founder narrows.
+  const [lane, setLane] = useState<ActionLane>('todo');
+  const [laneInitialized, setLaneInitialized] = useState(false);
+  const [agentFilter, setAgentFilter] = useState<string>('any');
+  const [statusFilter, setStatusFilter] = useState<'any' | PendingActionStatus>('any');
+  const [typeFilter, setTypeFilter] = useState<string>('any');
+
   const fetchAll = useCallback(async () => {
     setError(null);
     try {
@@ -80,6 +108,72 @@ export default function TicketsPage({
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // Lane counts for the tab strip — only OPEN rows count (pending+edited),
+  // matching what the footer's `openCount` already tracks. Terminal-state
+  // rows still appear in the list if the dropdown filter allows, but the
+  // tab badge shouldn't scream "12!" when 11 of those are already sent.
+  const laneCounts = useMemo<Record<ActionLane, number>>(() => {
+    const c: Record<ActionLane, number> = { todo: 0, approval: 0, notification: 0 };
+    for (const a of actions) {
+      if (a.status === 'pending' || a.status === 'edited') {
+        c[laneFor(a.action_type)]++;
+      }
+    }
+    return c;
+  }, [actions]);
+
+  // After the first successful fetch, pick the lane with the highest open
+  // count so the founder lands where the work is. Tie-breaker: TODOs.
+  useEffect(() => {
+    if (laneInitialized || loading) return;
+    const winner = LANE_ORDER.reduce<ActionLane>(
+      (best, l) => (laneCounts[l] > laneCounts[best] ? l : best),
+      'todo',
+    );
+    setLane(winner);
+    setLaneInitialized(true);
+  }, [laneCounts, laneInitialized, loading]);
+
+  // Available action_types within the current lane — powers the 'type' dropdown.
+  const typeOptions = useMemo<string[]>(() => {
+    const inLane = actions.filter((a) => laneFor(a.action_type) === lane);
+    const unique = Array.from(new Set(inLane.map((a) => a.action_type))).sort();
+    return ['any', ...unique];
+  }, [actions, lane]);
+
+  // Apply lane + dropdown filters. Keeps the full `actions` array as the
+  // source of truth so lane-switching is instant (no re-fetch).
+  const filteredActions = useMemo(() => {
+    return actions.filter((a) => {
+      if (laneFor(a.action_type) !== lane) return false;
+      if (statusFilter !== 'any' && a.status !== statusFilter) return false;
+      if (typeFilter !== 'any' && a.action_type !== typeFilter) return false;
+      if (agentFilter !== 'any' && agentFromType(a.action_type) !== agentFilter) return false;
+      return true;
+    });
+  }, [actions, lane, statusFilter, typeFilter, agentFilter]);
+
+  // Keep selection valid inside the filtered view; if the currently-selected
+  // row got filtered out, auto-pick the first visible row.
+  useEffect(() => {
+    if (!selectedId && filteredActions[0]) {
+      setSelectedId(filteredActions[0].id);
+      return;
+    }
+    if (selectedId && !filteredActions.find((a) => a.id === selectedId)) {
+      setSelectedId(filteredActions[0]?.id ?? null);
+    }
+  }, [filteredActions, selectedId]);
+
+  // Reset dropdowns when switching lane — stops "status=sent" from silently
+  // suppressing the new lane's open rows.
+  function handleLaneChange(next: ActionLane) {
+    setLane(next);
+    setAgentFilter('any');
+    setStatusFilter('any');
+    setTypeFilter('any');
+  }
+
   async function transition(actionId: string, verb: 'approve' | 'reject' | 'mark_sent', extras: Record<string, unknown> = {}) {
     try {
       const res = await fetch(`/api/projects/${projectId}/actions/${actionId}`, {
@@ -99,13 +193,13 @@ export default function TicketsPage({
     }
   }
 
-  const selected = actions.find(a => a.id === selectedId) || null;
+  const selected = filteredActions.find(a => a.id === selectedId) || null;
   const openCount = (summary?.pending ?? 0) + (summary?.edited ?? 0);
 
   return (
     <div className="lp-frame">
       <TopBar
-        breadcrumb={['Project', 'Tickets & audit']}
+        breadcrumb={['Project', 'Inbox']}
         right={
           <Pill kind="n">
             {actions.length} · {openCount} open
@@ -117,15 +211,31 @@ export default function TicketsPage({
         <NavRail projectId={projectId} current="tickets" />
 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <TicketsToolbar total={actions.length} open={openCount} />
+          <LaneTabs
+            active={lane}
+            counts={laneCounts}
+            onChange={handleLaneChange}
+          />
+          <TicketsToolbar
+            total={filteredActions.length}
+            open={laneCounts[lane]}
+            agentFilter={agentFilter}
+            setAgentFilter={setAgentFilter}
+            statusFilter={statusFilter}
+            setStatusFilter={setStatusFilter}
+            typeFilter={typeFilter}
+            setTypeFilter={setTypeFilter}
+            typeOptions={typeOptions}
+          />
 
           <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
             <TicketsTable
-              rows={actions}
+              rows={filteredActions}
               selectedId={selectedId}
               onSelect={setSelectedId}
               loading={loading}
               error={error}
+              lane={lane}
             />
             {selected && (
               <TicketDetail
@@ -140,9 +250,66 @@ export default function TicketsPage({
       <StatusBar
         heartbeatLabel="heartbeat · idle"
         gateway="pi-agent · anthropic"
-        ctxLabel={`ctx · ${actions.length} tickets`}
+        ctxLabel={`ctx · ${filteredActions.length} / ${actions.length}`}
         budget={`${openCount} open`}
       />
+    </div>
+  );
+}
+
+// =============================================================================
+// Lane tabs — 3-lane strip above the toolbar
+// =============================================================================
+
+function LaneTabs({
+  active,
+  counts,
+  onChange,
+}: {
+  active: ActionLane;
+  counts: Record<ActionLane, number>;
+  onChange: (l: ActionLane) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        gap: 0,
+        borderBottom: '1px solid var(--line)',
+        background: 'var(--surface)',
+        paddingLeft: 12,
+      }}
+    >
+      {LANE_ORDER.map((l) => {
+        const isActive = l === active;
+        return (
+          <button
+            key={l}
+            onClick={() => onChange(l)}
+            style={{
+              padding: '12px 18px',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: isActive ? '2px solid var(--accent)' : '2px solid transparent',
+              color: isActive ? 'var(--ink-1)' : 'var(--ink-4)',
+              fontWeight: isActive ? 600 : 400,
+              fontSize: 13,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontFamily: 'var(--f-sans)',
+              marginBottom: -1, // overlap the border-bottom for active underline
+            }}
+          >
+            <span>{LANE_LABEL[l]}</span>
+            {counts[l] > 0 && (
+              <Pill kind={isActive ? 'info' : 'n'}>{counts[l]}</Pill>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -151,11 +318,31 @@ export default function TicketsPage({
 // Toolbar
 // =============================================================================
 
-function TicketsToolbar({ total, open }: { total: number; open: number }) {
+function TicketsToolbar({
+  total,
+  open,
+  agentFilter,
+  setAgentFilter,
+  statusFilter,
+  setStatusFilter,
+  typeFilter,
+  setTypeFilter,
+  typeOptions,
+}: {
+  total: number;
+  open: number;
+  agentFilter: string;
+  setAgentFilter: (v: string) => void;
+  statusFilter: 'any' | PendingActionStatus;
+  setStatusFilter: (v: 'any' | PendingActionStatus) => void;
+  typeFilter: string;
+  setTypeFilter: (v: string) => void;
+  typeOptions: string[];
+}) {
   return (
     <div
       style={{
-        padding: '12px 20px',
+        padding: '10px 20px',
         borderBottom: '1px solid var(--line)',
         background: 'var(--surface)',
         display: 'flex',
@@ -163,6 +350,8 @@ function TicketsToolbar({ total, open }: { total: number; open: number }) {
         gap: 10,
       }}
     >
+      {/* Keep the search-box shell for visual continuity. Phase 1 wires the
+          dropdowns; free-text search lands in a later phase. */}
       <div
         style={{
           display: 'flex',
@@ -171,24 +360,98 @@ function TicketsToolbar({ total, open }: { total: number; open: number }) {
           padding: '6px 10px',
           border: '1px solid var(--line-2)',
           borderRadius: 6,
-          minWidth: 260,
+          minWidth: 220,
           background: 'var(--paper)',
+          opacity: 0.5,
         }}
       >
         <Icon d={I.search} size={12} style={{ color: 'var(--ink-5)' }} />
-        <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>Filter tickets · agent:scout status:open …</span>
+        <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>Filter · v2</span>
         <span style={{ flex: 1 }} />
         <span className="lp-kbd">/</span>
       </div>
-      <Pill kind="n">status · any</Pill>
-      <Pill kind="n">agent · any</Pill>
-      <Pill kind="n">type · any</Pill>
+      <FilterSelect
+        label="status"
+        value={statusFilter}
+        options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+        onChange={(v) => setStatusFilter(v as 'any' | PendingActionStatus)}
+      />
+      <FilterSelect
+        label="agent"
+        value={agentFilter}
+        options={AGENT_OPTIONS.map((a) => ({ value: a, label: a }))}
+        onChange={setAgentFilter}
+      />
+      <FilterSelect
+        label="type"
+        value={typeFilter}
+        options={typeOptions.map((t) => ({ value: t, label: t.replace(/_/g, ' ') }))}
+        onChange={setTypeFilter}
+      />
       <span style={{ flex: 1 }} />
       <span style={{ fontSize: 11, color: 'var(--ink-5)' }}>
-        {total} total · {open} open
+        {total} shown · {open} open in lane
       </span>
       <IconBtn d={I.download} title="export" />
     </div>
+  );
+}
+
+// Tiny pill-shaped <select> wrapper so filters look like the existing toolbar
+// pills but actually drive state. Native <select> keeps a11y + keyboard nav
+// free; the pill-like shell is a CSS coat of paint.
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (v: string) => void;
+}) {
+  const isActive = value !== 'any';
+  return (
+    <label
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '4px 8px',
+        borderRadius: 999,
+        border: `1px solid ${isActive ? 'var(--accent)' : 'var(--line-2)'}`,
+        background: isActive ? 'var(--accent-wash)' : 'var(--paper)',
+        fontSize: 11,
+        color: isActive ? 'var(--accent-ink)' : 'var(--ink-4)',
+        cursor: 'pointer',
+        fontFamily: 'var(--f-sans)',
+      }}
+    >
+      <span style={{ opacity: 0.7 }}>{label}</span>
+      <span>·</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: 'inherit',
+          fontSize: 11,
+          fontFamily: 'var(--f-sans)',
+          outline: 'none',
+          cursor: 'pointer',
+          paddingRight: 2,
+          maxWidth: 140,
+        }}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -211,12 +474,14 @@ function TicketsTable({
   onSelect,
   loading,
   error,
+  lane,
 }: {
   rows: PendingAction[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   loading: boolean;
   error: string | null;
+  lane: ActionLane;
 }) {
   if (error) {
     return (
@@ -228,14 +493,19 @@ function TicketsTable({
   if (loading && rows.length === 0) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
-        Caricamento tickets…
+        Loading inbox…
       </div>
     );
   }
   if (rows.length === 0) {
+    const emptyCopy: Record<ActionLane, string> = {
+      todo: 'No active TODOs. The co-founder creates tasks when it spots something you need to do.',
+      approval: 'No drafts awaiting approval. Drafts queue here when the agent prepares an outreach email, monitor config, or hypothesis.',
+      notification: 'No new notifications. The system posts here when it auto-refreshes a stale skill or completes a background job.',
+    };
     return (
       <div style={{ padding: 60, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
-        Nessun ticket ancora. Il co-founder accoda bozze quando esegue uno scan o quando gli chiedi di preparare qualcosa.
+        {emptyCopy[lane]}
       </div>
     );
   }
@@ -462,38 +732,107 @@ function TicketDetail({
       </SideSection>
 
       <SideSection title="Human actions">
-        <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {canAct && (
-            <button
-              onClick={() => onTransition(action.id, 'approve')}
-              style={{ ...btnGhost, justifyContent: 'flex-start' }}
-            >
-              <Icon d={I.check} size={12} /> Approve output
-            </button>
-          )}
-          {awaitingClick && (
-            <button
-              onClick={() => onTransition(action.id, 'mark_sent')}
-              style={{ ...btnGhost, justifyContent: 'flex-start', color: 'var(--moss)' }}
-            >
-              <Icon d={I.check} size={12} /> Mark as sent
-            </button>
-          )}
-          {canAct && (
-            <button
-              onClick={() => onTransition(action.id, 'reject')}
-              style={{ ...btnGhost, justifyContent: 'flex-start', color: 'oklch(0.55 0.14 20)' }}
-            >
-              <Icon d={I.stop} size={12} /> Cancel
-            </button>
-          )}
-          {!canAct && !awaitingClick && (
-            <div style={{ fontSize: 11, color: 'var(--ink-5)', padding: 8 }}>
-              Terminal state. Nothing to do here.
-            </div>
-          )}
-        </div>
+        <LaneAwareActions action={action} canAct={canAct} awaitingClick={awaitingClick} onTransition={onTransition} />
       </SideSection>
+    </div>
+  );
+}
+
+// Lane-specific verb set. The underlying API contract is the same (transition
+// verbs against /actions/[actionId]) but the labels + ordering reflect what
+// the founder is actually doing in each lane:
+//   TODO         → Mark done (approve) | Snooze (edit) | Dismiss (reject)
+//   APPROVAL     → Approve | Reject — same as before
+//   NOTIFICATION → Acknowledge (reject = clear from inbox)
+function LaneAwareActions({
+  action,
+  canAct,
+  awaitingClick,
+  onTransition,
+}: {
+  action: PendingAction;
+  canAct: boolean;
+  awaitingClick: boolean;
+  onTransition: (id: string, verb: 'approve' | 'reject' | 'mark_sent') => Promise<void>;
+}) {
+  const lane = laneFor(action.action_type);
+
+  if (!canAct && !awaitingClick) {
+    return (
+      <div style={{ padding: 14, fontSize: 11, color: 'var(--ink-5)' }}>
+        Terminal state. Nothing to do here.
+      </div>
+    );
+  }
+
+  if (awaitingClick) {
+    return (
+      <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button
+          onClick={() => onTransition(action.id, 'mark_sent')}
+          style={{ ...btnGhost, justifyContent: 'flex-start', color: 'var(--moss)' }}
+        >
+          <Icon d={I.check} size={12} /> Mark as sent
+        </button>
+      </div>
+    );
+  }
+
+  if (lane === 'notification') {
+    // System-generated notice — only verb is acknowledge (clear from inbox).
+    // We map "acknowledge" to the reject transition because the action has no
+    // executor; reject is the terminal state that takes it out of the open
+    // counts. The "rejected" label is a state-machine artifact, not a value
+    // judgement on the notification.
+    return (
+      <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button
+          onClick={() => onTransition(action.id, 'reject')}
+          style={{ ...btnGhost, justifyContent: 'flex-start' }}
+        >
+          <Icon d={I.check} size={12} /> Acknowledge
+        </button>
+        <div style={{ fontSize: 10.5, color: 'var(--ink-5)', padding: '4px 8px', lineHeight: 1.5 }}>
+          Notifications older than 7 days clear automatically.
+        </div>
+      </div>
+    );
+  }
+
+  if (lane === 'todo') {
+    return (
+      <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button
+          onClick={() => onTransition(action.id, 'approve')}
+          style={{ ...btnGhost, justifyContent: 'flex-start', color: 'var(--moss)' }}
+        >
+          <Icon d={I.check} size={12} /> Mark done
+        </button>
+        <button
+          onClick={() => onTransition(action.id, 'reject')}
+          style={{ ...btnGhost, justifyContent: 'flex-start', color: 'oklch(0.55 0.14 20)' }}
+        >
+          <Icon d={I.stop} size={12} /> Dismiss
+        </button>
+      </div>
+    );
+  }
+
+  // Default: approval lane (drafts, configs, workflow steps)
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <button
+        onClick={() => onTransition(action.id, 'approve')}
+        style={{ ...btnGhost, justifyContent: 'flex-start' }}
+      >
+        <Icon d={I.check} size={12} /> Approve
+      </button>
+      <button
+        onClick={() => onTransition(action.id, 'reject')}
+        style={{ ...btnGhost, justifyContent: 'flex-start', color: 'oklch(0.55 0.14 20)' }}
+      >
+        <Icon d={I.stop} size={12} /> Reject
+      </button>
     </div>
   );
 }
@@ -541,6 +880,13 @@ function agentFromType(type: PendingActionType): string {
     // Treat as "Scout" — same family as proposed_graph_update, both about
     // populating the project's observation layer.
     configure_monitor: 'Scout',
+    // configure_budget: founder-facing budget cap change proposed by chat.
+    // "Chief" because raising the cap is a CEO-class decision, not analytics.
+    configure_budget: 'Chief',
+    // skill_rerun_result: heartbeat-executor refreshed an analytical skill.
+    // "Chief" — score-delta visibility is a CEO concern.
+    skill_rerun_result: 'Chief',
+    task: 'Chief',
   };
   return map[type] || 'Agent';
 }

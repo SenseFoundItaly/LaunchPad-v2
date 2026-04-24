@@ -35,8 +35,10 @@ export type TaskLabel =
   | 'summarize'          // generic summarization
   | 'classify'           // generic classification
   | 'heartbeat-reflect'  // daily agent self-reflection
+  | 'heartbeat-propose'  // daily heartbeat task proposer (cheap)
   | 'skill-invoke'       // agent invoking a registered skill as a tool
-  | 'risk-analysis';     // structured risk audit (roadmap 1.1)
+  | 'risk-analysis'      // structured risk audit (roadmap 1.1)
+  | 'task-expand';       // task-expansion turn (break a TODO into subtasks)
 
 type ResolvedModel = {
   provider: 'anthropic' | 'openrouter';
@@ -74,8 +76,10 @@ const DEFAULT_TASK_TIER: Partial<Record<TaskLabel, ModelTier>> = {
   summarize: 'cheap',
   'update-generate': 'cheap',
   'investor-update': 'cheap',
+  'heartbeat-propose': 'cheap',
   'scaling-plan': 'premium',
   milestones: 'premium',
+  'task-expand': 'cheap',  // single-shot analytical; Haiku handles cleanly.
   // chat, monitor-agent, scoring, research, simulation, pitch-iterate,
   // term-sheet, growth-iterate, growth-synthesize, heartbeat-reflect,
   // skill-invoke, AND any new unmapped task -> balanced (Sonnet).

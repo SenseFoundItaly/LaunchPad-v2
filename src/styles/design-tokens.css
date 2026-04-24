@@ -91,6 +91,20 @@
 .lp-msg-row:focus-within .lp-msg-actions { opacity: 1 !important; }
 .lp-msg-action-btn:hover { background: var(--paper-2) !important; color: var(--ink-2) !important; }
 
+/* Markdown prose inside assistant bubbles */
+.lp-md p { margin: 0 0 6px; }
+.lp-md p:last-child { margin-bottom: 0; }
+.lp-md strong { font-weight: 600; color: var(--ink); }
+.lp-md em { font-style: italic; }
+.lp-md ul, .lp-md ol { margin: 4px 0 8px; padding-left: 18px; }
+.lp-md li { margin: 2px 0; }
+.lp-md h1, .lp-md h2, .lp-md h3 { font-weight: 600; color: var(--ink); margin: 10px 0 3px; font-size: 13px; }
+.lp-md hr { border: none; border-top: 1px solid var(--line-2); margin: 10px 0; }
+.lp-md code { font-family: var(--f-mono); font-size: 0.85em; background: var(--paper-2); padding: 1px 4px; border-radius: 3px; }
+.lp-md pre { background: var(--paper-2); padding: 10px; border-radius: var(--r-m); overflow: auto; }
+.lp-md pre code { background: none; padding: 0; }
+.lp-md a { color: var(--accent-ink); text-decoration: underline; }
+
 /* tiny icons */
 .lp-ic { width: 14px; height: 14px; stroke: currentColor; stroke-width: 1.25; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 .lp-ic-lg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.25; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
@@ -98,3 +112,5 @@
 /* keep artboard contents from feeling cramped inside DCArtboard */
 .lp-frame { width: 100%; height: 100%; background: var(--paper); color: var(--ink); font-family: var(--f-sans); font-size: 13px; line-height: 1.45; display: flex; flex-direction: column; overflow: hidden; }
 .lp-frame * { box-sizing: border-box; }
+.lp-rail-item:hover { background: var(--surface); color: var(--ink); }
+.lp-inline-option:hover { border-color: var(--ink-4) !important; background: var(--paper-2) !important; }

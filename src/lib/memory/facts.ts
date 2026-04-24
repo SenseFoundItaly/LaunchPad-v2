@@ -157,7 +157,9 @@ export function listFacts(
                ORDER BY updated_at DESC
                LIMIT ?`;
   params.push(limit);
-  const rows = query<MemoryFact & { dismissed: number }>(sql, ...params);
+  // Override the boolean `dismissed` field with the SQLite int representation
+  // so the spread + boolean cast on the next line type-checks.
+  const rows = query<Omit<MemoryFact, 'dismissed'> & { dismissed: number }>(sql, ...params);
   return rows.map((r) => ({ ...r, dismissed: r.dismissed === 1 }));
 }
 

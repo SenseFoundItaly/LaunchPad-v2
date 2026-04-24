@@ -22,9 +22,11 @@
 
 import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
-import { query } from '@/lib/db';
+import { query, get } from '@/lib/db';
 import { createPendingAction } from '@/lib/pending-actions';
 import { checkDedup } from '@/lib/monitor-dedup';
+import { getCreditsRemaining } from '@/lib/credits';
+import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readiness';
 import type { PendingActionType } from '@/types';
 import type { Source } from '@/types/artifacts';
 
@@ -224,7 +226,7 @@ const getProjectMetrics = (ctx: ToolContext): AgentTool => ({
 const getProjectSummary = (ctx: ToolContext): AgentTool => ({
   name: 'get_project_summary',
   label: 'Project Overview',
-  description: 'Get the project\'s name, description, idea canvas (problem/solution/target market/value prop), latest startup score, and research snapshot. Use at the start of a conversation to ground yourself in what the founder is building.',
+  description: 'Get the project\'s name, description, idea canvas (problem/solution/target market/value prop), latest startup score, research snapshot, AND a per-stage readiness block listing which of the 7 validation stages are missing skills + a "Next recommended" skill the founder should run. Call this at the start of EVERY conversation — the readiness block is what tells you which skill kickoff to put in your trailing option-set.',
   parameters: Type.Object({}),
   async execute(_id): Promise<AgentToolResult<unknown>> {
     const project = query<Record<string, unknown>>(
@@ -277,9 +279,29 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
       } catch { /* ignore */ }
     }
 
+    // Phase H — append the 7-stage readiness snapshot. The agent reads this
+    // to decide which skill kickoff to surface in its trailing option-set.
+    // Without this block, option-sets default to topic-of-conversation
+    // continuations and never push validation forward.
+    let readinessHint: ReturnType<typeof getStageReadiness> | null = null;
+    try {
+      readinessHint = getStageReadiness(ctx.projectId);
+      lines.push('');
+      lines.push(formatReadinessForPrompt(readinessHint));
+    } catch (err) {
+      // Non-fatal — if scoring breaks (corrupt skill_completions row, etc.)
+      // the rest of the summary should still flow.
+      console.warn('[get_project_summary] stage readiness failed:', err);
+    }
+
     return {
       content: [{ type: 'text', text: lines.join('\n') }],
-      details: { has_idea: !!idea, has_score: !!score },
+      details: {
+        has_idea: !!idea,
+        has_score: !!score,
+        next_recommended_skill: readinessHint?.next_recommended_skill?.id ?? null,
+        overall_score: readinessHint?.overall_score ?? null,
+      },
     };
   },
 });
@@ -292,6 +314,7 @@ const VALID_ACTION_TYPES: readonly PendingActionType[] = [
   'draft_email', 'draft_linkedin_post', 'draft_linkedin_dm',
   'proposed_hypothesis', 'proposed_interview_question', 'proposed_landing_copy',
   'proposed_investor_followup', 'proposed_graph_update',
+  'task',
 ];
 
 const createPendingActionTool = (ctx: ToolContext): AgentTool => ({
@@ -592,6 +615,264 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
 });
 
 // =============================================================================
+// propose_budget_change — chat-driven monthly LLM cap proposal.
+//
+// When the founder asks to raise/lower their monthly LLM budget, OR when a
+// credits-empty error has just surfaced and they want to keep working, this
+// tool creates a pending_actions row + emits an inline BudgetProposalCard.
+// The executor (configureBudget) UPSERTs project_budgets.cap_llm_usd for the
+// current period_month on approval. Caps are NEVER raised silently — every
+// change requires explicit founder approval through the inline card.
+// =============================================================================
+
+const BUDGET_DEFAULT_CAP_USD = 0.30;
+const BUDGET_MIN_CAP_USD = 0.10;
+const BUDGET_MAX_PROPOSAL_USD = 100;
+
+const proposeBudgetChangeTool = (ctx: ToolContext): AgentTool => ({
+  name: 'propose_budget_change',
+  label: 'Propose Budget Change',
+  description:
+    'Propose a change to the project\'s monthly LLM budget cap (USD). Call when the founder explicitly asks to raise/lower their cap ("raise my cap to $5", "give me more credits"), OR when a credits-empty error has surfaced and the founder wants to keep working. The founder sees an inline approval card with current → proposed delta and a reason — never bump silently. Cite the founder quote or the credits-empty error in sources. Do NOT call for vague "i need more"; ask the founder for a target cap first. Sanity ceiling: $100/mo per call (founder can edit the card to go higher).',
+  parameters: Type.Object({
+    proposed_cap_usd: Type.Number({ description: 'New monthly cap in USD. Must be > 0 and ≤ 100. The founder can edit on the card before approving if they want a different number.' }),
+    reason: Type.String({ description: 'One sentence explaining why this cap makes sense (e.g., "running out mid-week — bumping to absorb daily heartbeat + 2 monitor runs"). Shown verbatim on the approval card.' }),
+    estimated_monthly_cost_usd: Type.Optional(Type.Number({ description: 'Optional projection of expected spend at the proposed cap, based on founder activity. Surfaces on the card.' })),
+    sources: Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] array. Required: cite the founder quote (type:"user" with verbatim quote) or the credits-empty observation (type:"internal" ref:"chat_turn") that motivated this proposal.' }),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as {
+      proposed_cap_usd: number;
+      reason: string;
+      estimated_monthly_cost_usd?: number;
+      sources: unknown[];
+    };
+
+    if (!Number.isFinite(p.proposed_cap_usd) || p.proposed_cap_usd <= 0) {
+      return {
+        content: [{ type: 'text', text: 'proposed_cap_usd must be a positive number.' }],
+        details: { error: true },
+      };
+    }
+    if (p.proposed_cap_usd < BUDGET_MIN_CAP_USD) {
+      return {
+        content: [{ type: 'text', text: `proposed_cap_usd must be at least $${BUDGET_MIN_CAP_USD.toFixed(2)} (the practical floor for one heartbeat run).` }],
+        details: { error: true },
+      };
+    }
+    if (p.proposed_cap_usd > BUDGET_MAX_PROPOSAL_USD) {
+      return {
+        content: [{ type: 'text', text: `proposed_cap_usd cannot exceed $${BUDGET_MAX_PROPOSAL_USD} via this tool. If the founder needs more, they can edit the card before approving.` }],
+        details: { error: true },
+      };
+    }
+    if (!p.reason || p.reason.trim().length === 0) {
+      return {
+        content: [{ type: 'text', text: 'propose_budget_change requires a non-empty reason.' }],
+        details: { error: true },
+      };
+    }
+    if (!Array.isArray(p.sources) || p.sources.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'propose_budget_change requires at least one source. Cite the founder quote or the credits-empty error that motivated this proposal.' }],
+        details: { error: true },
+      };
+    }
+
+    const periodMonth = (() => {
+      const d = new Date();
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    })();
+
+    const currentRow = get<{ cap_llm_usd: number }>(
+      `SELECT cap_llm_usd FROM project_budgets WHERE project_id = ? AND period_month = ?`,
+      ctx.projectId,
+      periodMonth,
+    );
+    const currentCapUsd = currentRow?.cap_llm_usd ?? BUDGET_DEFAULT_CAP_USD;
+
+    if (Math.abs(currentCapUsd - p.proposed_cap_usd) < 0.001) {
+      return {
+        content: [{ type: 'text', text: `Current cap is already $${currentCapUsd.toFixed(2)}. Pick a different proposed_cap_usd or tell the founder no change is needed.` }],
+        details: { error: true },
+      };
+    }
+
+    const pendingActionPayload: Record<string, unknown> = {
+      proposed_cap_usd: p.proposed_cap_usd,
+      current_cap_usd: currentCapUsd,
+      reason: p.reason,
+      period_month: periodMonth,
+      sources: p.sources,
+    };
+    if (p.estimated_monthly_cost_usd != null) {
+      pendingActionPayload.estimated_monthly_cost_usd = p.estimated_monthly_cost_usd;
+    }
+
+    let pendingAction;
+    try {
+      pendingAction = createPendingAction({
+        project_id: ctx.projectId,
+        action_type: 'configure_budget',
+        title: `Raise monthly cap: $${currentCapUsd.toFixed(2)} → $${p.proposed_cap_usd.toFixed(2)}`,
+        rationale: p.reason,
+        payload: pendingActionPayload,
+        estimated_impact: 'medium',
+        sources: p.sources as Source[],
+      });
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to queue budget proposal: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    const artifactId = `bud_prop_${pendingAction.id.slice(-12)}`;
+    const artifactBody: Record<string, unknown> = {
+      pending_action_id: pendingAction.id,
+      current_cap_usd: currentCapUsd,
+      proposed_cap_usd: p.proposed_cap_usd,
+      reason: p.reason,
+      sources: p.sources,
+    };
+    if (p.estimated_monthly_cost_usd != null) {
+      artifactBody.estimated_monthly_cost_usd = p.estimated_monthly_cost_usd;
+    }
+
+    const artifactBlock = [
+      `:::artifact{"type":"budget-proposal","id":"${artifactId}"}`,
+      JSON.stringify(artifactBody),
+      ':::',
+    ].join('\n');
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            `Budget proposal queued (pending_action ${pendingAction.id}). ` +
+            `Emit the following artifact block VERBATIM in your reply so the inline Approve/Edit/Dismiss card renders:\n\n${artifactBlock}`,
+        },
+      ],
+      details: {
+        pending_action_id: pendingAction.id,
+        artifact_id: artifactId,
+        current_cap_usd: currentCapUsd,
+        proposed_cap_usd: p.proposed_cap_usd,
+      },
+    };
+  },
+});
+
+// =============================================================================
+// create_task — first-class founder TODO surfaced inline in chat
+// =============================================================================
+
+const VALID_TASK_PRIORITIES = ['critical', 'high', 'medium', 'low'] as const;
+
+const createTaskTool = (ctx: ToolContext): AgentTool => ({
+  name: 'create_task',
+  label: 'Create Task',
+  description:
+    'Create a founder task (TODO) when the founder asks you to remember/track/do something concrete ("add a task to draft the seed deck", "remind me to call X tomorrow"). The task appears as an inline card in chat with Mark done / Snooze / Dismiss / Expand buttons, and persists in the Tasks tab of the Canvas. Prefer this tool over a free-text reply when the founder asks you to track work — it is the only way the task survives the conversation. For approval-required drafts (emails, posts, hypotheses), use queue_draft_for_approval instead. Sources are optional but recommended when the task springs from analysis the founder should see. KEEP TITLES SHORT (≤120 chars, imperative) — the founder can click Expand on the card to ask for a richer breakdown (subtasks, references, estimated effort) on demand. DO NOT preemptively pre-write subtasks or long descriptions; that burns budget on tasks the founder may dismiss. The Expand action is opt-in.',
+  parameters: Type.Object({
+    title: Type.String({ description: 'Imperative one-line task ≤120 chars. Example: "Draft seed deck v1 by Friday".' }),
+    description: Type.Optional(Type.String({ description: 'Optional context shown beneath the title — what this involves, why it matters.' })),
+    priority: Type.String({ description: `One of: ${VALID_TASK_PRIORITIES.join(', ')}. Default medium.` }),
+    due: Type.Optional(Type.String({ description: 'Free-text or ISO date (e.g., "this week", "by 2026-05-01").' })),
+    sources: Type.Optional(Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Optional Source[] — cite the analysis or founder quote that motivated this task.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as {
+      title: string;
+      description?: string;
+      priority: string;
+      due?: string;
+      sources?: unknown[];
+    };
+
+    if (!p.title || p.title.trim().length === 0) {
+      return {
+        content: [{ type: 'text', text: 'create_task requires a non-empty title.' }],
+        details: { error: true },
+      };
+    }
+    if (!VALID_TASK_PRIORITIES.includes(p.priority as typeof VALID_TASK_PRIORITIES[number])) {
+      return {
+        content: [{ type: 'text', text: `Invalid priority "${p.priority}". Must be one of: ${VALID_TASK_PRIORITIES.join(', ')}` }],
+        details: { error: true },
+      };
+    }
+
+    if (getCreditsRemaining(ctx.projectId) <= 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: 'Out of credits this month — task not created. Tell the founder their monthly task budget is exhausted and ask whether to surface this as a reminder instead, or wait for the next month.',
+        }],
+        details: { error: true, reason: 'out_of_credits' },
+      };
+    }
+
+    const artifactId = `task_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+    let pendingAction;
+    try {
+      pendingAction = createPendingAction({
+        project_id: ctx.projectId,
+        action_type: 'task',
+        title: p.title.trim().slice(0, 200),
+        rationale: (p.description ?? '').slice(0, 800),
+        payload: {
+          source: 'create_task_tool',
+          client_artifact_id: artifactId,
+          due: p.due ?? null,
+        },
+        estimated_impact: 'medium',
+        sources: p.sources as Source[] | undefined,
+        priority: p.priority as 'critical' | 'high' | 'medium' | 'low',
+      });
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to create task: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    const artifactBody: Record<string, unknown> = {
+      title: p.title.trim(),
+      priority: p.priority,
+      pending_action_id: pendingAction.id,
+    };
+    if (p.description) artifactBody.description = p.description;
+    if (p.due) artifactBody.due = p.due;
+    if (p.sources) artifactBody.sources = p.sources;
+
+    const artifactBlock = [
+      `:::artifact{"type":"task","id":"${artifactId}"}`,
+      JSON.stringify(artifactBody),
+      ':::',
+    ].join('\n');
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            `Task created (pending_action ${pendingAction.id}). ` +
+            `Emit the following artifact block VERBATIM in your reply so the inline TaskCard renders:\n\n${artifactBlock}`,
+        },
+      ],
+      details: {
+        pending_action_id: pendingAction.id,
+        artifact_id: artifactId,
+        priority: p.priority,
+      },
+    };
+  },
+});
+
+// =============================================================================
 // Factory
 // =============================================================================
 
@@ -610,5 +891,7 @@ export function makeProjectTools(projectId: string): AgentTool[] {
     listGraphNodes(ctx),
     createPendingActionTool(ctx),
     proposeMonitorTool(ctx),
+    proposeBudgetChangeTool(ctx),
+    createTaskTool(ctx),
   ];
 }

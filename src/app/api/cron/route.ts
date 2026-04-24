@@ -9,11 +9,222 @@ import { recordEvent } from '@/lib/memory/events';
 import { buildMemoryContext } from '@/lib/memory/context';
 import { sendBrief } from '@/lib/email';
 import { pickModel } from '@/lib/llm/router';
+import { getCreditsRemaining } from '@/lib/credits';
+import { createPendingAction, typesForLane } from '@/lib/pending-actions';
+import { STAGES } from '@/lib/stages';
+import { scoreOverall } from '@/lib/scoring';
+import type { SkillData } from '@/hooks/useSkillStatus';
+import {
+  findStaleSkills,
+  runSkill,
+} from '@/lib/skill-executor';
 import {
   extractEcosystemAlerts,
   persistEcosystemAlerts,
   type PersistResult,
 } from '@/lib/ecosystem-alert-parser';
+
+interface ProposedTask {
+  title: string;
+  description?: string;
+  priority?: 'critical' | 'high' | 'medium' | 'low';
+  rationale?: string;
+}
+
+interface SkillCompletionRow {
+  skill_id: string;
+  summary: string | null;
+  completed_at: string;
+}
+
+interface ScoreDelta {
+  yesterday: number;
+  today: number;
+  delta: number;
+  recently_completed_labels: string[];
+  line: string;
+  skillMapToday: Record<string, SkillData>;
+}
+
+/**
+ * Reconstruct yesterday's skillMap from skill_completions.completed_at and
+ * compute today/yesterday overall scores for the heartbeat narration. The
+ * `skillMapToday` is returned so the caller can reuse it as a baseline before
+ * the stale-skill executor (Phase E) recomputes after a fresh rerun.
+ */
+function computeScoreDelta(projectId: string): ScoreDelta {
+  const rows = query<SkillCompletionRow>(
+    'SELECT skill_id, summary, completed_at FROM skill_completions WHERE project_id = ?',
+    projectId,
+  );
+  const yesterdayCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const skillMapToday: Record<string, SkillData> = {};
+  const skillMapYesterday: Record<string, SkillData> = {};
+  const allSkills = STAGES.flatMap((s) => s.skills);
+  for (const skill of allSkills) {
+    skillMapToday[skill.id] = { status: 'not_run' };
+    skillMapYesterday[skill.id] = { status: 'not_run' };
+  }
+  for (const r of rows) {
+    skillMapToday[r.skill_id] = {
+      status: 'completed',
+      summary: r.summary || undefined,
+      completedAt: r.completed_at,
+    };
+    if (new Date(r.completed_at).getTime() <= yesterdayCutoff.getTime()) {
+      skillMapYesterday[r.skill_id] = {
+        status: 'completed',
+        summary: r.summary || undefined,
+        completedAt: r.completed_at,
+      };
+    }
+  }
+
+  const today = scoreOverall(skillMapToday).score;
+  const yesterday = scoreOverall(skillMapYesterday).score;
+  const delta = Math.round((today - yesterday) * 10) / 10;
+
+  const recently = allSkills.filter((sk) => {
+    const data = skillMapToday[sk.id];
+    if (!data?.completedAt) return false;
+    return new Date(data.completedAt).getTime() > yesterdayCutoff.getTime();
+  });
+  const labels = recently.map((s) => s.label);
+  const sign = delta > 0 ? '+' : '';
+  const line = `Score: ${yesterday.toFixed(1)} → ${today.toFixed(1)} (Δ${sign}${delta.toFixed(1)}) · last 24h: ${labels.join(', ') || 'no skills completed'}`;
+
+  return {
+    yesterday,
+    today,
+    delta,
+    recently_completed_labels: labels,
+    line,
+    skillMapToday,
+  };
+}
+
+function extractFirstJsonArray(text: string): unknown[] | null {
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fence ? fence[1] : text;
+  const start = candidate.indexOf('[');
+  const end = candidate.lastIndexOf(']');
+  if (start === -1 || end === -1 || end < start) return null;
+  try {
+    const parsed = JSON.parse(candidate.slice(start, end + 1));
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizePriority(p: unknown): 'critical' | 'high' | 'medium' | 'low' {
+  const v = String(p || '').toLowerCase();
+  if (v === 'critical' || v === 'high' || v === 'medium' || v === 'low') return v;
+  return 'medium';
+}
+
+async function proposeHeartbeatTasks(args: {
+  projectId: string;
+  ownerUserId: string;
+  locale: 'en' | 'it';
+  memCtx: string;
+  pendingTitles: string[];
+  alertHeadlines: string[];
+  reflection: string;
+}): Promise<{ proposed: number; skipped_credits: boolean }> {
+  if (getCreditsRemaining(args.projectId) <= 0) {
+    return { proposed: 0, skipped_credits: true };
+  }
+
+  const proposerSystem = buildSystemPromptString({
+    locale: args.locale,
+    context: 'cron',
+    tail: 'You propose UP TO 3 high-impact founder tasks for the next 24h. Output ONLY a JSON array of objects with keys: title (<=80 chars), description (<=200 chars), priority (critical|high|medium|low), rationale (cite the signal). Only propose tasks tied to a specific weakness in a current stage, a recent alert, or an explicit founder commitment from chat. Do NOT propose generic advice. If nothing high-impact is needed, output []. NO prose outside the JSON.',
+    projectContext: `Heartbeat reflection just generated:\n${args.reflection}\n\n${args.memCtx}\n\n## Existing pending tasks (do NOT duplicate)\n${args.pendingTitles.map((t) => `- ${t}`).join('\n') || '(none)'}\n\n## Recent ecosystem alerts\n${args.alertHeadlines.map((h) => `- ${h}`).join('\n') || '(none)'}`,
+  });
+
+  let raw: string;
+  let usage: Awaited<ReturnType<typeof runAgent>>['usage'];
+  try {
+    const startedAt = Date.now();
+    const result = await runAgent('Propose tasks now.', {
+      systemPrompt: proposerSystem,
+      timeout: 60000,
+      task: 'heartbeat-propose',
+    });
+    raw = result.text;
+    usage = result.usage;
+    const latency = Date.now() - startedAt;
+    try {
+      const { provider, model } = pickModel('heartbeat-propose');
+      recordUsage({
+        project_id: args.projectId,
+        skill_id: 'heartbeat',
+        step: 'task_proposer',
+        provider,
+        model,
+        usage,
+        latency_ms: latency,
+      });
+    } catch (err) {
+      console.warn('[heartbeat] proposer recordUsage failed:', (err as Error).message);
+    }
+  } catch (err) {
+    console.warn('[heartbeat] proposer LLM call failed:', (err as Error).message);
+    return { proposed: 0, skipped_credits: false };
+  }
+
+  const arr = extractFirstJsonArray(raw);
+  if (!arr) return { proposed: 0, skipped_credits: false };
+
+  const existingTitleSet = new Set(args.pendingTitles.map((t) => t.toLowerCase().trim()));
+  let created = 0;
+
+  for (const item of arr) {
+    if (created >= 3) break;
+    if (!item || typeof item !== 'object') continue;
+    const t = item as ProposedTask;
+    const title = (t.title || '').toString().trim();
+    if (!title || title.length > 200) continue;
+    if (existingTitleSet.has(title.toLowerCase())) continue;
+    if (getCreditsRemaining(args.projectId) <= 0) break;
+
+    const priority = normalizePriority(t.priority);
+    const action = createPendingAction({
+      project_id: args.projectId,
+      action_type: 'task',
+      title: title.slice(0, 200),
+      rationale: (t.rationale || '').toString().slice(0, 500) || undefined,
+      payload: {
+        source: 'heartbeat',
+        proposed_at: new Date().toISOString(),
+        description: (t.description || '').toString().slice(0, 500),
+      },
+      priority,
+    });
+
+    try {
+      recordEvent({
+        userId: args.ownerUserId,
+        projectId: args.projectId,
+        eventType: 'task_proposed',
+        payload: {
+          pending_action_id: action.id,
+          title: action.title,
+          priority,
+        },
+      });
+    } catch (err) {
+      console.warn('[heartbeat] task_proposed recordEvent failed:', (err as Error).message);
+    }
+
+    existingTitleSet.add(title.toLowerCase());
+    created++;
+  }
+
+  return { proposed: created, skipped_credits: false };
+}
 
 const PI_PROVIDER = (process.env.PI_PROVIDER || 'anthropic');
 const PI_MODEL = process.env.PI_MODEL || (PI_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
@@ -284,12 +495,59 @@ export async function GET(request: NextRequest) {
   // a single indexed query on memory_events.
   const heartbeatResults = await processHeartbeats();
 
+  // Phase 1 (4-bucket reorg) — auto-dismiss notification-lane rows older than
+  // 7 days so the Notifications tab doesn't accumulate forever. Cheap bulk
+  // UPDATE; runs every 15 min but only flips rows that crossed the threshold
+  // since the last tick.
+  const dismissedNotifications = dismissStaleNotifications();
+
   return json({
     monitors_ran: monitorResults.length,
     monitor_results: monitorResults,
     heartbeats_ran: heartbeatResults.length,
     heartbeat_results: heartbeatResults,
+    notifications_dismissed: dismissedNotifications,
   });
+}
+
+/**
+ * Phase 1 (4-bucket Inbox reorg) — bulk-reject open notification-lane rows
+ * that are older than 7 days. Rejected is the terminal state that takes a
+ * row out of the lane's open count; the row stays in the DB so a founder
+ * can still surface it via the 'status=rejected' filter.
+ *
+ * Bypasses the per-row state-machine guard (applyTransition) for efficiency,
+ * but respects the FSM: pending/edited → rejected is always legal. No row
+ * executor gets invoked because notification-lane types don't have executors.
+ */
+function dismissStaleNotifications(): number {
+  const notificationTypes = typesForLane('notification');
+  if (notificationTypes.length === 0) return 0;
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const now = new Date().toISOString();
+  const typePlaceholders = notificationTypes.map(() => '?').join(',');
+
+  const result = run(
+    `UPDATE pending_actions
+     SET status = 'rejected',
+         updated_at = ?,
+         execution_result = COALESCE(execution_result, '{"auto_dismissed":true,"reason":"stale>7d"}')
+     WHERE status IN ('pending', 'edited')
+       AND action_type IN (${typePlaceholders})
+       AND updated_at < ?`,
+    now,
+    ...notificationTypes,
+    sevenDaysAgo,
+  );
+  // better-sqlite3's `run` returns {changes, lastInsertRowid}; guard against
+  // tests / mocks that return something else.
+  const changes = typeof (result as { changes?: number } | null)?.changes === 'number'
+    ? (result as { changes: number }).changes
+    : 0;
+  if (changes > 0) {
+    console.log(`[cron] auto-dismissed ${changes} stale notification(s) >7d`);
+  }
+  return changes;
 }
 
 interface HeartbeatResult {
@@ -297,6 +555,94 @@ interface HeartbeatResult {
   project_name: string;
   status: 'completed' | 'failed' | 'skipped_budget' | 'skipped_already_ran';
   summary_preview?: string;
+  tasks_proposed?: number;
+  skills_executed?: number;
+}
+
+const SKILL_LABELS: Record<string, string> = (() => {
+  const map: Record<string, string> = {};
+  for (const stage of STAGES) {
+    for (const skill of stage.skills) {
+      map[skill.id] = skill.label;
+    }
+  }
+  return map;
+})();
+
+/**
+ * After the heartbeat reflection + task proposer, refresh ONE stale
+ * analytical skill if any. Capped at 1 per heartbeat to spread cost across
+ * days. Result lands as a `skill_rerun_result` pending_action so the
+ * founder reviews the score delta in their inbox.
+ *
+ * Required headroom is higher (5 credits ≈ $0.25) than a task because a
+ * skill rerun spends meaningfully more tokens than a task proposal.
+ */
+const SKILL_RERUN_MIN_CREDITS = 5;
+
+async function executeStaleSkills(args: {
+  projectId: string;
+  ownerUserId: string;
+  scoreBefore: number;
+  skillMapToday: Record<string, SkillData>;
+}): Promise<number> {
+  if (getCreditsRemaining(args.projectId) < SKILL_RERUN_MIN_CREDITS) {
+    console.log(`[heartbeat] ${args.projectId}: skipping skill rerun — credits below ${SKILL_RERUN_MIN_CREDITS}`);
+    return 0;
+  }
+
+  const stale = findStaleSkills(args.projectId);
+  if (stale.length === 0) return 0;
+  const target = stale[0];
+  const label = SKILL_LABELS[target.skill_id] || target.skill_id;
+  const daysSinceLabel = target.days_since === null
+    ? 'never run'
+    : `${target.days_since} days ago`;
+
+  let result;
+  try {
+    result = await runSkill(args.projectId, target.skill_id, {
+      ownerUserId: args.ownerUserId,
+    });
+  } catch (err) {
+    console.warn(`[heartbeat] runSkill ${target.skill_id} failed:`, (err as Error).message);
+    return 0;
+  }
+
+  // Recompute score with the fresh completion folded in. Reuse the today
+  // map and overwrite the just-rerun skill so we don't re-query the table.
+  const skillMapAfter: Record<string, SkillData> = { ...args.skillMapToday };
+  skillMapAfter[target.skill_id] = {
+    status: 'completed',
+    summary: result.summary,
+    completedAt: result.completed_at,
+  };
+  const scoreAfter = scoreOverall(skillMapAfter).score;
+
+  try {
+    createPendingAction({
+      project_id: args.projectId,
+      action_type: 'skill_rerun_result',
+      title: `Refreshed ${label}: score ${args.scoreBefore.toFixed(1)} → ${scoreAfter.toFixed(1)}`,
+      rationale: `Last run ${daysSinceLabel} — auto-refreshed by daily heartbeat.`,
+      payload: {
+        source: 'heartbeat-executor',
+        skill_id: target.skill_id,
+        skill_label: label,
+        score_before: args.scoreBefore,
+        score_after: scoreAfter,
+        summary_preview: result.summary.slice(0, 500),
+        artifacts_persisted: result.artifacts_persisted,
+        latency_ms: result.latency_ms,
+      },
+      priority: 'low',
+      estimated_impact: 'low',
+    });
+  } catch (err) {
+    console.warn('[heartbeat] createPendingAction(skill_rerun_result) failed:', (err as Error).message);
+  }
+
+  return 1;
 }
 
 /**
@@ -362,11 +708,16 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
       );
 
       const locale = project.locale === 'it' ? 'it' : 'en';
+
+      // Phase D: prepend a one-line score delta so the reflection narrates
+      // *why* readiness moved instead of generic "good progress" prose.
+      const scoreDelta = computeScoreDelta(project.id);
+
       const systemPrompt = buildSystemPromptString({
         locale,
         context: 'cron',
-        tail: 'You are running the daily HEARTBEAT reflection. Produce a concise (120-250 word) summary of: (1) what changed in the last 24h, (2) what the founder should prioritize today, (3) any risks the approval inbox is surfacing. NO emoji. Plain text. End with one explicit "next action" suggestion.',
-        projectContext: `${memCtx}\n\n## Pending actions\n${pending.map((p) => `- [${p.status}] ${p.title}`).join('\n') || '(none)'}\n\n## Ecosystem alerts (unreviewed)\n${alerts.map((a) => `- ${a.relevance_score.toFixed(2)}  ${a.headline}`).join('\n') || '(none)'}`,
+        tail: 'You are running the daily HEARTBEAT reflection. Open with the score-delta line from "## Readiness delta" as your first sentence verbatim — do not paraphrase. Then produce a concise (120-250 word) summary of: (1) what changed in the last 24h, (2) what the founder should prioritize today, (3) any risks the approval inbox is surfacing. NO emoji. Plain text. End with one explicit "next action" suggestion.',
+        projectContext: `## Readiness delta\n${scoreDelta.line}\n\n${memCtx}\n\n## Pending actions\n${pending.map((p) => `- [${p.status}] ${p.title}`).join('\n') || '(none)'}\n\n## Ecosystem alerts (unreviewed)\n${alerts.map((a) => `- ${a.relevance_score.toFixed(2)}  ${a.headline}`).join('\n') || '(none)'}`,
       });
 
       const startedAt = Date.now();
@@ -406,6 +757,40 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
         },
       });
 
+      // After the reflection is recorded, propose up to 3 high-impact tasks
+      // for the next 24h. Reuses the credit guard + dedupes against existing
+      // pending titles. Failures here MUST NOT break the heartbeat.
+      let tasksProposed = 0;
+      try {
+        const proposeRes = await proposeHeartbeatTasks({
+          projectId: project.id,
+          ownerUserId: project.owner_user_id,
+          locale,
+          memCtx,
+          pendingTitles: pending.map((p) => p.title),
+          alertHeadlines: alerts.map((a) => a.headline),
+          reflection,
+        });
+        tasksProposed = proposeRes.proposed;
+      } catch (err) {
+        console.warn(`[heartbeat] proposer failed for ${project.id}:`, (err as Error).message);
+      }
+
+      // Phase E: refresh ONE stale analytical skill if any. The result lands
+      // as a 'skill_rerun_result' pending_action with score-delta in the
+      // title — founder reviews from inbox.
+      let skillsExecuted = 0;
+      try {
+        skillsExecuted = await executeStaleSkills({
+          projectId: project.id,
+          ownerUserId: project.owner_user_id,
+          scoreBefore: scoreDelta.today,
+          skillMapToday: scoreDelta.skillMapToday,
+        });
+      } catch (err) {
+        console.warn(`[heartbeat] executeStaleSkills failed for ${project.id}:`, (err as Error).message);
+      }
+
       // Send (or stub) the Monday Brief. Stubbed when RESEND_API_KEY is
       // unset — logs "would have emailed X" without a network call. Real
       // delivery is a one-env-var flip away. Non-fatal on failure.
@@ -433,6 +818,8 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
         project_name: project.name,
         status: 'completed',
         summary_preview: reflection.slice(0, 140),
+        tasks_proposed: tasksProposed,
+        skills_executed: skillsExecuted,
       });
     } catch (err) {
       console.warn(`[heartbeat] project ${project.id} failed:`, (err as Error).message);

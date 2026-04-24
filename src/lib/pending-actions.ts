@@ -20,6 +20,22 @@ import type {
 } from '@/types';
 
 // =============================================================================
+// Lane derivation — Phase 1 (Bucket Reorganization)
+//
+// Re-exported from `@/lib/action-lanes` so client components can consume the
+// lane taxonomy without dragging better-sqlite3 / fs into the browser bundle.
+// Server-side callers (API routes, cron, this module) keep importing from
+// here so the existing surface is unchanged.
+// =============================================================================
+
+export {
+  ACTION_LANE,
+  laneFor,
+  typesForLane,
+  type ActionLane,
+} from '@/lib/action-lanes';
+
+// =============================================================================
 // Row <-> domain conversion
 // =============================================================================
 
@@ -110,6 +126,9 @@ export interface CreatePendingActionInput {
   // pull in the full Source union — callers pass whatever the parser/artifact
   // emitted. Persisted as JSON to pending_actions.sources.
   sources?: unknown[];
+  // Founder-task priority for action_type='task'. Powers the inline TaskCard
+  // priority pill (critical=red, high=accent, medium=sky, low=ink-5).
+  priority?: 'critical' | 'high' | 'medium' | 'low';
 }
 
 export function createPendingAction(input: CreatePendingActionInput): PendingAction {
@@ -122,8 +141,8 @@ export function createPendingAction(input: CreatePendingActionInput): PendingAct
   run(
     `INSERT INTO pending_actions
        (id, project_id, monitor_run_id, ecosystem_alert_id, action_type, title, rationale,
-        payload, estimated_impact, status, execution_target, sources, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+        payload, estimated_impact, status, execution_target, sources, priority, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
     id,
     input.project_id,
     input.monitor_run_id || null,
@@ -135,6 +154,7 @@ export function createPendingAction(input: CreatePendingActionInput): PendingAct
     input.estimated_impact || null,
     input.execution_target || null,
     sourcesJson,
+    input.priority || null,
     now,
     now,
   );

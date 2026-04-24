@@ -55,6 +55,14 @@ export async function POST(
     let updated;
     switch (transition) {
       case 'approve': {
+        // If the founder edited fields on the inline approval card before
+        // hitting Approve (monitor schedule, budget cap, etc.), persist the
+        // edits FIRST so effectivePayload() in the executor sees them.
+        // Skipping this would silently drop "Save & approve" overrides.
+        if (body.edited_payload && typeof body.edited_payload === 'object') {
+          editPendingAction(actionId, body.edited_payload);
+        }
+
         // 1. Transition pending/edited → approved
         updated = approvePendingAction(actionId);
 
