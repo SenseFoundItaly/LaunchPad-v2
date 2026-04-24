@@ -529,6 +529,122 @@ const configureBudget: ActionHandler = async (action) => {
   };
 };
 
+/**
+ * `propose_milestone_update` executor — applies a chat-proposed status/title/
+ * description/linked_feature change to milestones on founder approval.
+ *
+ * The diff was built by `propose_milestone_update` in src/lib/project-tools.ts
+ * (`payload.diff = { fieldName: { current, proposed } }`). The founder may
+ * have edited individual `proposed` values via the inline approval card —
+ * `effectivePayload()` already merged any `edited_payload` over the original.
+ *
+ * On success: completed_at is set/cleared automatically when status moves to
+ * or away from 'completed', so the journey UI's "completed_at sort" stays
+ * accurate even if the agent forgot to send it.
+ */
+const VALID_MILESTONE_FIELDS = new Set(['status', 'title', 'description', 'linked_feature']);
+const VALID_MILESTONE_STATUSES_EXEC = new Set(['upcoming', 'in_progress', 'completed']);
+
+const proposeMilestoneUpdateExecutor: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const milestoneId = payload.milestone_id;
+  if (typeof milestoneId !== 'string' || !milestoneId) {
+    return { ok: false, error: 'propose_milestone_update: payload.milestone_id missing' };
+  }
+
+  const diff = payload.diff;
+  if (!diff || typeof diff !== 'object') {
+    return { ok: false, error: 'propose_milestone_update: payload.diff missing' };
+  }
+
+  // Verify the milestone still belongs to the project — guards against the
+  // founder approving a stale proposal after the milestone got deleted.
+  const existing = query<{
+    id: string;
+    project_id: string;
+    title: string;
+    status: string;
+  }>(
+    'SELECT id, project_id, title, status FROM milestones WHERE id = ?',
+    milestoneId,
+  );
+  if (existing.length === 0) {
+    return { ok: false, error: `Milestone "${milestoneId}" no longer exists` };
+  }
+  const milestone = existing[0];
+  if (milestone.project_id !== action.project_id) {
+    return { ok: false, error: `Milestone "${milestoneId}" doesn't belong to project ${action.project_id}` };
+  }
+
+  // Build the SET clause from the diff. Only include fields whose `proposed`
+  // value differs from the current row state — edited_payload may have
+  // collapsed a field back to no-op.
+  const sets: string[] = [];
+  const args: unknown[] = [];
+  const changes: Record<string, unknown> = {};
+
+  for (const [field, val] of Object.entries(diff as Record<string, { proposed: unknown }>)) {
+    if (!VALID_MILESTONE_FIELDS.has(field)) continue;
+    if (!val || typeof val !== 'object' || !('proposed' in val)) continue;
+    const proposed = val.proposed;
+
+    if (field === 'status') {
+      if (typeof proposed !== 'string' || !VALID_MILESTONE_STATUSES_EXEC.has(proposed)) {
+        return { ok: false, error: `Invalid status "${String(proposed)}" — must be upcoming|in_progress|completed` };
+      }
+    } else if (proposed != null && typeof proposed !== 'string') {
+      return { ok: false, error: `Field "${field}" must be a string, got ${typeof proposed}` };
+    }
+
+    sets.push(`${field} = ?`);
+    args.push(proposed ?? null);
+    changes[field] = proposed;
+  }
+
+  // Auto-manage completed_at — flip to/from a timestamp when status crosses
+  // the completed boundary. Founder doesn't have to remember to set it.
+  if ('status' in changes) {
+    if (changes.status === 'completed' && milestone.status !== 'completed') {
+      sets.push('completed_at = ?');
+      args.push(new Date().toISOString());
+    } else if (changes.status !== 'completed' && milestone.status === 'completed') {
+      sets.push('completed_at = ?');
+      args.push(null);
+    }
+  }
+
+  if (sets.length === 0) {
+    return {
+      ok: true,
+      deliverable: {
+        mode: 'direct',
+        narrative: `No effective changes to milestone "${milestone.title}" — proposal already reflected current state.`,
+      },
+    };
+  }
+
+  args.push(milestoneId);
+  try {
+    run(`UPDATE milestones SET ${sets.join(', ')} WHERE id = ?`, ...args);
+  } catch (err) {
+    return { ok: false, error: `Failed to update milestone: ${(err as Error).message}` };
+  }
+
+  const summaryParts: string[] = [];
+  for (const [field, value] of Object.entries(changes)) {
+    summaryParts.push(`${field}=${typeof value === 'string' ? `"${value.slice(0, 60)}"` : String(value)}`);
+  }
+
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct',
+      narrative: `Milestone "${milestone.title}" updated: ${summaryParts.join(', ')}.`,
+      created_row_id: milestoneId,
+    },
+  };
+};
+
 const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   draft_email: draftEmail,
   draft_linkedin_post: draftLinkedInPost,
@@ -540,6 +656,7 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   proposed_landing_copy: proposedLandingCopy,
   configure_monitor: configureMonitor,
   configure_budget: configureBudget,
+  propose_milestone_update: proposeMilestoneUpdateExecutor,
   // workflow_step is intentionally unmapped — each step is a placeholder
   // row, not an auto-executable action. Founder approval just flips status
   // without a domain effect.

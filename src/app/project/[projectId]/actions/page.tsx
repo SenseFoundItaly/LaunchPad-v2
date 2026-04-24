@@ -886,6 +886,9 @@ function agentFromType(type: PendingActionType): string {
     // skill_rerun_result: heartbeat-executor refreshed an analytical skill.
     // "Chief" — score-delta visibility is a CEO concern.
     skill_rerun_result: 'Chief',
+    // propose_milestone_update: chat-proposed milestone status/content edit.
+    // "Chief" — milestone progress is a founder commitment, scoring-relevant.
+    propose_milestone_update: 'Chief',
     task: 'Chief',
   };
   return map[type] || 'Agent';

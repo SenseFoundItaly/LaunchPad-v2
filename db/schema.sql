@@ -679,3 +679,45 @@ CREATE INDEX IF NOT EXISTS idx_monitors_project_dedup
 ALTER TABLE pending_actions ADD COLUMN priority TEXT;
 CREATE INDEX IF NOT EXISTS idx_pending_actions_project_type_status
   ON pending_actions(project_id, action_type, status);
+
+-- =============================================================================
+-- Per-project agents (2026-04-24). Replaces the client-side derivation in
+-- /project/[id]/org/page.tsx with persistent agent records.
+--
+-- Each project gets 5 default agents seeded on creation (Chief / Scout /
+-- Outreach / Analyst / Designer). Founders can rename, retire, or hire new
+-- ones from the Org page. The Org page still overlays live signals
+-- (heartbeat from monitors.last_run, tickets from pending_actions.status,
+-- budget from llm_usage_logs) using the JSON-array filter columns below.
+--
+-- Trust boundary: agents are per-project — a chat tool that addresses
+-- "@scout" only routes to that project's scout. Cross-project agents are
+-- explicitly out of scope.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agents (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id),
+  role VARCHAR NOT NULL,                  -- stable slug: 'chief'|'scout'|'outreach'|'analyst'|'designer'|<custom>
+  name VARCHAR NOT NULL,                  -- founder-editable display name
+  title VARCHAR,                          -- "CEO", "Research", "Growth", etc.
+  model VARCHAR,                          -- "claude-opus-4.7" | "sonnet-4 + web" | etc.
+  status VARCHAR NOT NULL DEFAULT 'active', -- active | retired | placeholder
+  budget_cap_usd REAL DEFAULT 0.10,       -- monthly soft cap; live spend pulled from llm_usage_logs
+  monitor_types JSON,                     -- e.g. ["health"] or ["ecosystem.competitors","ecosystem.ip"]
+  action_types JSON,                      -- e.g. ["draft_email","draft_linkedin_post"]
+  cost_step_prefixes JSON,                -- e.g. ["health","manual.health"] — used to sum llm_usage_logs.total_cost_usd
+  description TEXT,                       -- short purpose blurb
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(project_id, role)
+);
+CREATE INDEX IF NOT EXISTS idx_agents_project_status
+  ON agents(project_id, status);
+
+-- =============================================================================
+-- propose_milestone_update action_type — added 2026-04-24.
+-- The chat copilot can now propose status transitions or content edits to
+-- existing milestones. Lives in pending_actions like every other proposal;
+-- the executor (in src/lib/action-executors.ts) writes to milestones on
+-- approval. No schema change to milestones — just a new action_type value.
+-- =============================================================================

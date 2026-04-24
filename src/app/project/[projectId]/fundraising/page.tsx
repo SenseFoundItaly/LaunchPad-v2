@@ -97,6 +97,22 @@ export default function FundraisingPage({
     }
   }, [task, fetchData]);
 
+  // Refresh on cross-page events. Chat investor tools (add_investor /
+  // move_investor_stage / log_investor_interaction) write directly to the
+  // DB; the org/intelligence pages already listen for these events and
+  // refetch. Mirror that here so the Raise pipeline stays in sync without
+  // a hard reload when the founder mutates investors via chat.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => { fetchData(); };
+    window.addEventListener('lp-tasks-changed', handler);
+    window.addEventListener('lp-data-changed', handler);
+    return () => {
+      window.removeEventListener('lp-tasks-changed', handler);
+      window.removeEventListener('lp-data-changed', handler);
+    };
+  }, [fetchData]);
+
   async function addInvestor() {
     try {
       await api.post(`/api/fundraising/${projectId}/investors`, investorForm);

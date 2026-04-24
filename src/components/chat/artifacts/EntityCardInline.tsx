@@ -23,6 +23,7 @@ const ENTITY_TYPE_COLORS: Record<string, string> = {
   funding_source: 'bg-lime-500/20 text-lime-400',
   feature: 'bg-violet-500/20 text-violet-400',
   metric: 'bg-sky-500/20 text-sky-400',
+  investor: 'bg-amber-500/20 text-amber-400',
 };
 
 function getTypeColor(entityType: string): string {

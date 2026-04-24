@@ -38,6 +38,7 @@ export const ACTION_LANE: Record<PendingActionType, ActionLane> = {
   proposed_landing_copy: 'approval',
   proposed_investor_followup: 'approval',
   proposed_graph_update: 'approval',
+  propose_milestone_update: 'approval',
 };
 
 export function laneFor(type: PendingActionType): ActionLane {

@@ -1,19 +1,24 @@
 'use client';
 
 /**
- * Org — ported from screen-org.jsx.
+ * Org — per-project AI workforce.
  *
- * Synthesizes an "AI workforce" from real data. We don't have an agents
- * table in the schema (Phase 1 territory); instead we derive 4 agents from
- * monitor types + pending_actions categories:
+ * Each project owns persistent agent rows in the `agents` table (seeded with
+ * 5 defaults on project creation: Chief / Scout / Outreach / Analyst /
+ * Designer). The founder can rename, retire, or hire new agents from this
+ * page.
  *
- *   Chief    ← health monitor + aggregate of all activity
- *   Scout    ← ecosystem.competitors/ip/trends monitors + proposed_graph_update actions
- *   Outreach ← ecosystem.partnerships monitor + draft_email/linkedin actions
- *   Analyst  ← proposed_hypothesis / proposed_interview_question actions
- *   Designer ← proposed_landing_copy actions (or +hire placeholder when none)
+ * Live signals are still computed client-side by joining each agent's
+ * stored `monitor_types` / `action_types` / `cost_step_prefixes` against
+ * the existing endpoints:
+ *   - /api/projects/{id}/agents          → identity (name, role, model, caps, filters)
+ *   - /api/dashboard/{id}                → monitors[].last_run for heartbeat
+ *   - /api/projects/{id}/actions         → pending_actions for ticket counts
+ *   - /api/projects/{id}/usage/groups    → llm_usage_logs for budget_used
+ *   - /api/journey/{id}                  → milestones for the goal tree
  *
- * Goal tree derives from milestones table via /api/journey/{id}.
+ * Refresh is event-driven — listens for `lp-tasks-changed` and
+ * `lp-agents-changed` so chat-side mutations propagate without a hard reload.
  */
 
 import { use, useEffect, useState, useCallback, useMemo } from 'react';
@@ -59,15 +64,28 @@ interface DashboardResp {
   pending_decisions?: PendingActionRow[];
 }
 
-interface Agent {
+interface AgentRecord {
   id: string;
-  name: string;
+  project_id: string;
   role: string;
-  model: string;
+  name: string;
+  title: string | null;
+  model: string | null;
+  status: 'active' | 'retired' | 'placeholder';
+  budget_cap_usd: number;
+  monitor_types: string[];
+  action_types: string[];
+  cost_step_prefixes: string[];
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface AgentRow extends AgentRecord {
+  // Computed live signals
   heart: string | null;
-  status: 'live' | 'idle' | 'placeholder';
+  liveStatus: 'live' | 'idle' | 'placeholder';
   budget_used: number;
-  budget_cap: number;
   tickets: number;
 }
 
@@ -77,20 +95,24 @@ export default function OrgPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
+  const [agentRecords, setAgentRecords] = useState<AgentRecord[]>([]);
   const [monitors, setMonitors] = useState<MonitorRow[]>([]);
   const [actions, setActions] = useState<PendingActionRow[]>([]);
   const [usage, setUsage] = useState<UsageGroup[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showHire, setShowHire] = useState(false);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [dash, actionsRes, usageRes, journey] = await Promise.all([
+      const [agentsRes, dash, actionsRes, usageRes, journey] = await Promise.all([
+        fetch(`/api/projects/${projectId}/agents`).then(r => r.json() as Promise<{ agents?: AgentRecord[]; error?: string }>),
         fetch(`/api/dashboard/${projectId}`).then(r => r.json() as Promise<ApiResponse<DashboardResp>>),
         fetch(`/api/projects/${projectId}/actions?limit=200`).then(r => r.json() as Promise<ApiResponse<{ actions: PendingActionRow[] }>>),
         fetch(`/api/projects/${projectId}/usage/groups`).then(r => r.json() as Promise<ApiResponse<UsageGroup[]>>).catch(() => ({ success: true, data: [] as UsageGroup[] })),
         api.get<ApiResponse<{ milestones?: Milestone[] }>>(`/api/journey/${projectId}`).catch(() => ({ data: { success: true, data: { milestones: [] } } })),
       ]);
+      setAgentRecords(agentsRes.agents || []);
       setMonitors(dash.data?.monitors || []);
       setActions(actionsRes.data?.actions || []);
       setUsage(usageRes.data || []);
@@ -102,23 +124,26 @@ export default function OrgPage({
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Synthesize agents from real data
-  const agents = useMemo<Agent[]>(() => {
-    const byStep: Record<string, UsageGroup[]> = {};
-    for (const u of usage) {
-      const key = u.step || '';
-      (byStep[key] ||= []).push(u);
-    }
-
-    const costFor = (...stepPrefixes: string[]): number => {
-      let total = 0;
-      for (const u of usage) {
-        if (stepPrefixes.some(p => (u.step || '').startsWith(p))) total += u.total_cost_usd;
-      }
-      return total;
+  // Refresh on cross-page events. Chat dispatches `lp-tasks-changed` after
+  // any pending_actions mutation; the new `lp-agents-changed` lets future
+  // chat tools (hire/retire) trigger a refresh without a full reload.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => { fetchAll(); };
+    window.addEventListener('lp-tasks-changed', handler);
+    window.addEventListener('lp-agents-changed', handler);
+    window.addEventListener('lp-data-changed', handler);
+    return () => {
+      window.removeEventListener('lp-tasks-changed', handler);
+      window.removeEventListener('lp-agents-changed', handler);
+      window.removeEventListener('lp-data-changed', handler);
     };
+  }, [fetchAll]);
 
-    const lastRunFor = (...types: string[]): string | null => {
+  // Overlay live signals on top of stored agent identity.
+  const agents = useMemo<AgentRow[]>(() => {
+    const lastRunFor = (types: string[]): string | null => {
+      if (types.length === 0) return null;
       const runs = monitors
         .filter(m => types.some(t => m.type.startsWith(t)))
         .map(m => m.last_run)
@@ -126,11 +151,20 @@ export default function OrgPage({
       return runs.sort().pop() || null;
     };
 
-    const ticketsFor = (...types: string[]): number =>
-      actions.filter(a => types.some(t => a.action_type === t)).length;
+    const ticketsFor = (types: string[]): number =>
+      types.length === 0 ? 0 : actions.filter(a => types.includes(a.action_type)).length;
 
-    const heartLabel = (iso: string | null): string => {
-      if (!iso) return '—';
+    const costFor = (prefixes: string[]): number => {
+      if (prefixes.length === 0) return 0;
+      let total = 0;
+      for (const u of usage) {
+        if (prefixes.some(p => (u.step || '').startsWith(p))) total += u.total_cost_usd;
+      }
+      return total;
+    };
+
+    const heartLabel = (iso: string | null): string | null => {
+      if (!iso) return null;
       const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
       if (mins < 1) return 'now';
       if (mins < 60) return `${mins}m ago`;
@@ -144,66 +178,29 @@ export default function OrgPage({
       return Date.now() - new Date(iso).getTime() < 15 * 60 * 1000;
     };
 
-    return [
-      {
-        id: 'chief',
-        name: 'Chief',
-        role: 'CEO',
-        model: 'claude-opus-4.1',
-        heart: heartLabel(lastRunFor('health')),
-        status: isLive(lastRunFor('health')) ? 'live' : 'idle',
-        budget_used: costFor('health', 'manual.health'),
-        budget_cap: 0.12,
-        tickets: ticketsFor('proposed_investor_followup'),
-      },
-      {
-        id: 'scout',
-        name: 'Scout',
-        role: 'Research',
-        model: 'sonnet-4 + web',
-        heart: heartLabel(lastRunFor('ecosystem.competitors', 'ecosystem.ip', 'ecosystem.trends')),
-        status: isLive(lastRunFor('ecosystem.competitors', 'ecosystem.ip', 'ecosystem.trends')) ? 'live' : 'idle',
-        budget_used: costFor('cron.ecosystem.competitors', 'cron.ecosystem.ip', 'cron.ecosystem.trends', 'manual.ecosystem.competitors', 'manual.ecosystem.ip', 'manual.ecosystem.trends'),
-        budget_cap: 0.15,
-        tickets: ticketsFor('proposed_graph_update'),
-      },
-      {
-        id: 'outreach',
-        name: 'Outreach',
-        role: 'Growth',
-        model: 'sonnet-4',
-        heart: heartLabel(lastRunFor('ecosystem.partnerships')),
-        status: isLive(lastRunFor('ecosystem.partnerships')) ? 'live' : 'idle',
-        budget_used: costFor('cron.ecosystem.partnerships', 'manual.ecosystem.partnerships'),
-        budget_cap: 0.10,
-        tickets: ticketsFor('draft_email', 'draft_linkedin_post', 'draft_linkedin_dm'),
-      },
-      {
-        id: 'analyst',
-        name: 'Analyst',
-        role: 'Data',
-        model: 'sonnet-4',
-        heart: null,
-        status: ticketsFor('proposed_hypothesis', 'proposed_interview_question') > 0 ? 'live' : 'idle',
-        budget_used: 0,
-        budget_cap: 0.10,
-        tickets: ticketsFor('proposed_hypothesis', 'proposed_interview_question'),
-      },
-      {
-        id: 'design',
-        name: 'Designer',
-        role: 'Pitch/brand',
-        model: 'sonnet-4',
-        heart: null,
-        status: ticketsFor('proposed_landing_copy') > 0 ? 'live' : 'placeholder',
-        budget_used: 0,
-        budget_cap: 0.08,
-        tickets: ticketsFor('proposed_landing_copy'),
-      },
-    ];
-  }, [monitors, actions, usage]);
+    return agentRecords
+      .filter(a => a.status !== 'retired')
+      .map((a): AgentRow => {
+        const last = lastRunFor(a.monitor_types);
+        const tickets = ticketsFor(a.action_types);
+        const cost = costFor(a.cost_step_prefixes);
 
-  const liveCount = agents.filter(a => a.status === 'live').length;
+        let liveStatus: 'live' | 'idle' | 'placeholder' = a.status === 'placeholder' ? 'placeholder' : 'idle';
+        if (isLive(last)) liveStatus = 'live';
+        else if (tickets > 0) liveStatus = 'live';
+        else if (a.status === 'placeholder') liveStatus = 'placeholder';
+
+        return {
+          ...a,
+          heart: heartLabel(last),
+          liveStatus,
+          budget_used: cost,
+          tickets,
+        };
+      });
+  }, [agentRecords, monitors, actions, usage]);
+
+  const liveCount = agents.filter(a => a.liveStatus === 'live').length;
 
   return (
     <div className="lp-frame">
@@ -242,9 +239,27 @@ export default function OrgPage({
                 Your AI workforce
               </h1>
               <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 4 }}>
-                Synthesized from monitors + pending_actions · heartbeats follow scan schedule · budgets track llm_usage_logs.
+                Persistent per-project agents · heartbeats follow scan schedule · budgets track llm_usage_logs.
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowHire(true)}
+              className="lp-mono"
+              style={{
+                fontSize: 11,
+                padding: '7px 12px',
+                borderRadius: 5,
+                border: '1px solid var(--line)',
+                background: 'var(--paper)',
+                color: 'var(--ink-2)',
+                cursor: 'pointer',
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+              }}
+            >
+              + Hire agent
+            </button>
           </div>
           <div
             className="lp-scroll"
@@ -257,7 +272,12 @@ export default function OrgPage({
               gap: 20,
             }}
           >
-            <OrgChart agents={agents} loading={loading} />
+            <OrgChart
+              agents={agents}
+              loading={loading}
+              onUpdated={fetchAll}
+              projectId={projectId}
+            />
             <GoalTree milestones={milestones} />
           </div>
         </div>
@@ -268,6 +288,14 @@ export default function OrgPage({
         ctxLabel={`ctx · ${monitors.length} monitors`}
         budget={`tickets · ${actions.length} total`}
       />
+
+      {showHire && (
+        <HireAgentModal
+          projectId={projectId}
+          onClose={() => setShowHire(false)}
+          onCreated={() => { setShowHire(false); fetchAll(); }}
+        />
+      )}
     </div>
   );
 }
@@ -276,7 +304,19 @@ export default function OrgPage({
 // Org chart
 // =============================================================================
 
-function OrgChart({ agents, loading }: { agents: Agent[]; loading: boolean }) {
+function OrgChart({
+  agents,
+  loading,
+  onUpdated,
+  projectId,
+}: {
+  agents: AgentRow[];
+  loading: boolean;
+  onUpdated: () => void;
+  projectId: string;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   return (
     <div className="lp-card">
       <div
@@ -308,7 +348,7 @@ function OrgChart({ agents, loading }: { agents: Agent[]; loading: boolean }) {
             fill="none"
             opacity="0.6"
           />
-          {agents.map((a, i) => {
+          {agents.slice(0, 6).map((a, i) => {
             const positions = [240, 60, 160, 240, 340, 440];
             const cx = i === 0 ? 240 : positions[Math.min(i, 5)];
             const cy = i === 0 ? 26 : 118;
@@ -318,8 +358,8 @@ function OrgChart({ agents, loading }: { agents: Agent[]; loading: boolean }) {
                 cx={cx}
                 cy={cy}
                 name={a.name}
-                role={a.role}
-                status={a.status}
+                role={a.title || a.role}
+                status={a.liveStatus}
                 hub={i === 0}
               />
             );
@@ -335,7 +375,7 @@ function OrgChart({ agents, loading }: { agents: Agent[]; loading: boolean }) {
           color: 'var(--ink-5)',
           padding: '8px 14px',
           display: 'grid',
-          gridTemplateColumns: '1.4fr 1fr 90px 80px 80px 60px',
+          gridTemplateColumns: '1.4fr 1fr 90px 80px 80px 60px 30px',
           gap: 12,
           textTransform: 'uppercase',
           letterSpacing: 0.4,
@@ -348,11 +388,16 @@ function OrgChart({ agents, loading }: { agents: Agent[]; loading: boolean }) {
         <span>status</span>
         <span>budget</span>
         <span>tickets</span>
+        <span></span>
       </div>
 
       {loading && agents.length === 0 ? (
         <div style={{ padding: 30, textAlign: 'center', fontSize: 12, color: 'var(--ink-5)' }}>
           Loading roster…
+        </div>
+      ) : agents.length === 0 ? (
+        <div style={{ padding: 30, textAlign: 'center', fontSize: 12, color: 'var(--ink-5)' }}>
+          No agents on this project yet. Hire one to get started.
         </div>
       ) : (
         agents.map((a, i) => (
@@ -361,12 +406,12 @@ function OrgChart({ agents, loading }: { agents: Agent[]; loading: boolean }) {
             style={{
               padding: '10px 14px',
               display: 'grid',
-              gridTemplateColumns: '1.4fr 1fr 90px 80px 80px 60px',
+              gridTemplateColumns: '1.4fr 1fr 90px 80px 80px 60px 30px',
               gap: 12,
               alignItems: 'center',
               fontSize: 12,
               borderBottom: i < agents.length - 1 ? '1px solid var(--line)' : 'none',
-              opacity: a.status === 'placeholder' ? 0.55 : 1,
+              opacity: a.liveStatus === 'placeholder' ? 0.55 : 1,
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -375,9 +420,9 @@ function OrgChart({ agents, loading }: { agents: Agent[]; loading: boolean }) {
                   width: 24,
                   height: 24,
                   borderRadius: 5,
-                  background: a.status === 'placeholder' ? 'transparent' : agentColor(a.name),
-                  border: a.status === 'placeholder' ? '1px dashed var(--ink-6)' : 'none',
-                  color: a.status === 'placeholder' ? 'var(--ink-5)' : '#fff',
+                  background: a.liveStatus === 'placeholder' ? 'transparent' : agentColor(a.role, a.name),
+                  border: a.liveStatus === 'placeholder' ? '1px dashed var(--ink-6)' : 'none',
+                  color: a.liveStatus === 'placeholder' ? 'var(--ink-5)' : '#fff',
                   fontSize: 10,
                   fontWeight: 600,
                   display: 'flex',
@@ -390,23 +435,23 @@ function OrgChart({ agents, loading }: { agents: Agent[]; loading: boolean }) {
               </span>
               <div>
                 <div style={{ fontWeight: 500 }}>{a.name}</div>
-                <div style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>{a.role}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>{a.title || a.role}</div>
               </div>
             </div>
             <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-              {a.model}
+              {a.model || '—'}
             </span>
             <span
               className="lp-mono"
               style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 5 }}
             >
-              {a.status === 'live' && (
+              {a.liveStatus === 'live' && (
                 <span className="lp-dot lp-pulse" style={{ background: 'var(--moss)' }} />
               )}
               {a.heart || '—'}
             </span>
-            <Pill kind={a.status === 'live' ? 'ok' : 'n'} dot={a.status === 'live'}>
-              {a.status}
+            <Pill kind={a.liveStatus === 'live' ? 'ok' : 'n'} dot={a.liveStatus === 'live'}>
+              {a.liveStatus}
             </Pill>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <div
@@ -420,7 +465,7 @@ function OrgChart({ agents, loading }: { agents: Agent[]; loading: boolean }) {
               >
                 <div
                   style={{
-                    width: `${Math.min(100, (a.budget_used / Math.max(0.01, a.budget_cap)) * 100)}%`,
+                    width: `${Math.min(100, (a.budget_used / Math.max(0.01, a.budget_cap_usd)) * 100)}%`,
                     height: '100%',
                     background: 'var(--ink-3)',
                   }}
@@ -433,8 +478,35 @@ function OrgChart({ agents, loading }: { agents: Agent[]; loading: boolean }) {
             <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
               {a.tickets}
             </span>
+            <button
+              type="button"
+              onClick={() => setEditingId(a.id)}
+              title="Edit agent"
+              style={{
+                fontSize: 11,
+                width: 24,
+                height: 24,
+                border: '1px solid var(--line)',
+                borderRadius: 4,
+                background: 'transparent',
+                color: 'var(--ink-4)',
+                cursor: 'pointer',
+              }}
+            >
+              ⋯
+            </button>
           </div>
         ))
+      )}
+
+      {editingId && (
+        <EditAgentModal
+          projectId={projectId}
+          agent={agents.find(a => a.id === editingId)!}
+          onClose={() => setEditingId(null)}
+          onSaved={() => { setEditingId(null); onUpdated(); }}
+          onRetired={() => { setEditingId(null); onUpdated(); }}
+        />
       )}
     </div>
   );
@@ -456,7 +528,7 @@ function AgentNode({
   hub?: boolean;
 }) {
   const placeholder = status === 'placeholder';
-  const color = placeholder ? 'var(--ink-6)' : agentColor(name);
+  const color = placeholder ? 'var(--ink-6)' : agentColor(role, name);
   return (
     <g>
       {status === 'live' && (
@@ -482,7 +554,7 @@ function AgentNode({
         fill={placeholder ? 'var(--ink-5)' : '#fff'}
         textAnchor="middle"
       >
-        {name}
+        {name.slice(0, 8)}
       </text>
       <text
         x={cx}
@@ -493,7 +565,7 @@ function AgentNode({
         fontFamily="var(--f-mono)"
         letterSpacing=".5"
       >
-        {role.toUpperCase()}
+        {role.toUpperCase().slice(0, 8)}
       </text>
       {hub && (
         <text
@@ -511,6 +583,292 @@ function AgentNode({
     </g>
   );
 }
+
+// =============================================================================
+// Hire / Edit modals
+// =============================================================================
+
+function HireAgentModal({
+  projectId,
+  onClose,
+  onCreated,
+}: {
+  projectId: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [role, setRole] = useState('');
+  const [name, setName] = useState('');
+  const [title, setTitle] = useState('');
+  const [model, setModel] = useState('sonnet-4');
+  const [budgetCap, setBudgetCap] = useState('0.10');
+  const [description, setDescription] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!role.trim() || !name.trim()) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/agents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: role.trim(),
+          name: name.trim(),
+          title: title.trim() || null,
+          model: model.trim() || null,
+          budget_cap_usd: parseFloat(budgetCap) || 0.10,
+          description: description.trim() || null,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body?.error || `Hire failed (${res.status})`);
+        return;
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('lp-agents-changed', { detail: { projectId } }));
+      }
+      onCreated();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <ModalShell onClose={onClose} title="Hire agent">
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <FieldRow label="Role slug" hint="lowercase, used as a stable id (e.g. 'biz_dev')">
+          <input value={role} onChange={e => setRole(e.target.value)} required maxLength={40} />
+        </FieldRow>
+        <FieldRow label="Name" hint="Display name (e.g. 'Biz')">
+          <input value={name} onChange={e => setName(e.target.value)} required maxLength={80} />
+        </FieldRow>
+        <FieldRow label="Title" hint="e.g. 'BD lead'">
+          <input value={title} onChange={e => setTitle(e.target.value)} maxLength={80} />
+        </FieldRow>
+        <FieldRow label="Model" hint="e.g. 'sonnet-4', 'claude-opus-4.7'">
+          <input value={model} onChange={e => setModel(e.target.value)} maxLength={80} />
+        </FieldRow>
+        <FieldRow label="Monthly budget cap (USD)" hint="Soft cap shown on the roster bar">
+          <input type="number" step="0.01" min="0" value={budgetCap} onChange={e => setBudgetCap(e.target.value)} />
+        </FieldRow>
+        <FieldRow label="Description" hint="Short purpose blurb">
+          <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} />
+        </FieldRow>
+
+        {error && <div style={{ fontSize: 12, color: 'var(--alert)' }}>{error}</div>}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button type="button" onClick={onClose} style={btnGhost}>Cancel</button>
+          <button type="submit" disabled={submitting} style={btnPrimary}>
+            {submitting ? 'Hiring…' : 'Hire'}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+function EditAgentModal({
+  projectId,
+  agent,
+  onClose,
+  onSaved,
+  onRetired,
+}: {
+  projectId: string;
+  agent: AgentRow;
+  onClose: () => void;
+  onSaved: () => void;
+  onRetired: () => void;
+}) {
+  const [name, setName] = useState(agent.name);
+  const [title, setTitle] = useState(agent.title ?? '');
+  const [model, setModel] = useState(agent.model ?? '');
+  const [budgetCap, setBudgetCap] = useState(String(agent.budget_cap_usd ?? 0.10));
+  const [description, setDescription] = useState(agent.description ?? '');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/agents/${agent.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          title: title.trim() || null,
+          model: model.trim() || null,
+          budget_cap_usd: parseFloat(budgetCap) || agent.budget_cap_usd,
+          description: description.trim() || null,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body?.error || `Save failed (${res.status})`);
+        return;
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('lp-agents-changed', { detail: { projectId } }));
+      }
+      onSaved();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function retire() {
+    if (!confirm(`Retire ${agent.name}? Historical activity stays attributable.`)) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/agents/${agent.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body?.error || `Retire failed (${res.status})`);
+        return;
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('lp-agents-changed', { detail: { projectId } }));
+      }
+      onRetired();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <ModalShell onClose={onClose} title={`Edit · ${agent.name}`}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-5)' }} className="lp-mono">
+          role · {agent.role}
+        </div>
+        <FieldRow label="Name">
+          <input value={name} onChange={e => setName(e.target.value)} required maxLength={80} />
+        </FieldRow>
+        <FieldRow label="Title">
+          <input value={title} onChange={e => setTitle(e.target.value)} maxLength={80} />
+        </FieldRow>
+        <FieldRow label="Model">
+          <input value={model} onChange={e => setModel(e.target.value)} maxLength={80} />
+        </FieldRow>
+        <FieldRow label="Monthly budget cap (USD)">
+          <input type="number" step="0.01" min="0" value={budgetCap} onChange={e => setBudgetCap(e.target.value)} />
+        </FieldRow>
+        <FieldRow label="Description">
+          <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} />
+        </FieldRow>
+
+        {error && <div style={{ fontSize: 12, color: 'var(--alert)' }}>{error}</div>}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+          <button type="button" onClick={retire} disabled={submitting} style={btnDanger}>
+            Retire
+          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" onClick={onClose} style={btnGhost}>Cancel</button>
+            <button type="submit" disabled={submitting} style={btnPrimary}>
+              {submitting ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+function ModalShell({ children, title, onClose }: { children: React.ReactNode; title: string; onClose: () => void }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className="lp-card"
+        style={{
+          width: 'min(92vw, 420px)',
+          padding: 16,
+          background: 'var(--surface)',
+          maxHeight: '90vh', overflow: 'auto',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <h3 className="lp-serif" style={{ margin: 0, fontSize: 16 }}>{title}</h3>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--ink-4)', cursor: 'pointer', fontSize: 18 }}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function FieldRow({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span style={{ fontSize: 11, color: 'var(--ink-4)', fontWeight: 600 }}>{label}</span>
+      {hint && <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>{hint}</span>}
+      <span
+        style={{ display: 'flex' }}
+        onClickCapture={(e) => {
+          // Pass through; child input takes focus.
+          void e;
+        }}
+      >
+        {children}
+      </span>
+      <style jsx>{`
+        label > span > input,
+        label > span > textarea {
+          width: 100%;
+          padding: 6px 8px;
+          font-size: 12px;
+          background: var(--paper);
+          border: 1px solid var(--line);
+          border-radius: 4px;
+          color: var(--ink-2);
+          font-family: inherit;
+        }
+      `}</style>
+    </label>
+  );
+}
+
+const btnPrimary: React.CSSProperties = {
+  padding: '7px 12px', fontSize: 11, borderRadius: 4,
+  background: 'var(--ink-2)', color: 'var(--paper)',
+  border: 'none', cursor: 'pointer',
+  textTransform: 'uppercase', letterSpacing: 0.5,
+  fontFamily: 'var(--f-mono)',
+};
+const btnGhost: React.CSSProperties = {
+  padding: '7px 12px', fontSize: 11, borderRadius: 4,
+  background: 'transparent', color: 'var(--ink-3)',
+  border: '1px solid var(--line)', cursor: 'pointer',
+  textTransform: 'uppercase', letterSpacing: 0.5,
+  fontFamily: 'var(--f-mono)',
+};
+const btnDanger: React.CSSProperties = {
+  padding: '7px 12px', fontSize: 11, borderRadius: 4,
+  background: 'transparent', color: 'var(--alert, #c54)',
+  border: '1px solid var(--alert, #c54)', cursor: 'pointer',
+  textTransform: 'uppercase', letterSpacing: 0.5,
+  fontFamily: 'var(--f-mono)',
+};
 
 // =============================================================================
 // Goal tree (from milestones)
@@ -700,13 +1058,19 @@ function GoalRow({
   );
 }
 
-function agentColor(name: string): string {
+// Stable color per role slug (with a fallback for custom hires).
+function agentColor(role: string, name: string): string {
   const map: Record<string, string> = {
-    Scout: '#7a8b4a',
-    Chief: '#4a5a7a',
-    Analyst: '#7a5a4a',
-    Outreach: '#7a4a6a',
-    Designer: '#4a7a7a',
+    chief: '#4a5a7a',
+    scout: '#7a8b4a',
+    outreach: '#7a4a6a',
+    analyst: '#7a5a4a',
+    designer: '#4a7a7a',
   };
-  return map[name] || '#555';
+  if (map[role]) return map[role];
+  // Hash the name for a deterministic muted color when a founder hires custom.
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 25%, 38%)`;
 }

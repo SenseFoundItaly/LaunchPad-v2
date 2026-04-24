@@ -13,7 +13,7 @@ interface GraphLegendProps {
 const ALL_TYPES: GraphNodeType[] = [
   'your_startup', 'competitor', 'technology', 'market_segment', 'persona',
   'risk', 'trend', 'company', 'compliance', 'regulation',
-  'partner', 'funding_source', 'feature', 'metric',
+  'partner', 'funding_source', 'feature', 'metric', 'investor',
 ];
 
 export default function GraphLegend({ activeTypes, hiddenTypes, onToggleType, nodeCount, edgeCount }: GraphLegendProps) {

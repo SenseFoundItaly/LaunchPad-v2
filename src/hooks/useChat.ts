@@ -168,6 +168,16 @@ export function useChat(projectId: string, step: string = 'chat') {
         }
       } finally {
         setIsStreaming(false);
+        // Broadcast a generic "data changed" signal so cross-page surfaces
+        // (org, fundraising, intelligence) refetch after a chat turn. Chat
+        // tools may have written to investors / milestones / agents tables
+        // directly (without going through pending_actions, so the existing
+        // `lp-tasks-changed` event misses them). Cost is a few GET refetches
+        // on the active tab — much cheaper than missing a freshly-recorded
+        // investor or stage change.
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('lp-data-changed', { detail: { projectId } }));
+        }
       }
     },
     [projectId, step]

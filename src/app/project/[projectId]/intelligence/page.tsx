@@ -58,6 +58,7 @@ const TYPE_COLOR: Record<string, string> = {
   compliance: 'oklch(0.55 0.1 40)',
   regulation: 'oklch(0.55 0.1 40)',
   funding_source: 'var(--sky)',
+  investor: 'oklch(0.78 0.15 80)',
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -71,6 +72,7 @@ const TYPE_LABEL: Record<string, string> = {
   partner: 'partners',
   ip_alert: 'IP alerts',
   insight: 'insights',
+  investor: 'investors',
 };
 
 export default function IntelligenceGraphPage({
