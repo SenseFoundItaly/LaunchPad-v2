@@ -10,7 +10,7 @@ import { buildMemoryContext } from '@/lib/memory/context';
 import { sendBrief } from '@/lib/email';
 import { pickModel } from '@/lib/llm/router';
 import { getCreditsRemaining } from '@/lib/credits';
-import { createPendingAction } from '@/lib/pending-actions';
+import { createPendingAction, typesForLane } from '@/lib/pending-actions';
 import { STAGES } from '@/lib/stages';
 import { scoreOverall } from '@/lib/scoring';
 import type { SkillData } from '@/hooks/useSkillStatus';
@@ -495,12 +495,59 @@ export async function GET(request: NextRequest) {
   // a single indexed query on memory_events.
   const heartbeatResults = await processHeartbeats();
 
+  // Phase 1 (4-bucket reorg) — auto-dismiss notification-lane rows older than
+  // 7 days so the Notifications tab doesn't accumulate forever. Cheap bulk
+  // UPDATE; runs every 15 min but only flips rows that crossed the threshold
+  // since the last tick.
+  const dismissedNotifications = dismissStaleNotifications();
+
   return json({
     monitors_ran: monitorResults.length,
     monitor_results: monitorResults,
     heartbeats_ran: heartbeatResults.length,
     heartbeat_results: heartbeatResults,
+    notifications_dismissed: dismissedNotifications,
   });
+}
+
+/**
+ * Phase 1 (4-bucket Inbox reorg) — bulk-reject open notification-lane rows
+ * that are older than 7 days. Rejected is the terminal state that takes a
+ * row out of the lane's open count; the row stays in the DB so a founder
+ * can still surface it via the 'status=rejected' filter.
+ *
+ * Bypasses the per-row state-machine guard (applyTransition) for efficiency,
+ * but respects the FSM: pending/edited → rejected is always legal. No row
+ * executor gets invoked because notification-lane types don't have executors.
+ */
+function dismissStaleNotifications(): number {
+  const notificationTypes = typesForLane('notification');
+  if (notificationTypes.length === 0) return 0;
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const now = new Date().toISOString();
+  const typePlaceholders = notificationTypes.map(() => '?').join(',');
+
+  const result = run(
+    `UPDATE pending_actions
+     SET status = 'rejected',
+         updated_at = ?,
+         execution_result = COALESCE(execution_result, '{"auto_dismissed":true,"reason":"stale>7d"}')
+     WHERE status IN ('pending', 'edited')
+       AND action_type IN (${typePlaceholders})
+       AND updated_at < ?`,
+    now,
+    ...notificationTypes,
+    sevenDaysAgo,
+  );
+  // better-sqlite3's `run` returns {changes, lastInsertRowid}; guard against
+  // tests / mocks that return something else.
+  const changes = typeof (result as { changes?: number } | null)?.changes === 'number'
+    ? (result as { changes: number }).changes
+    : 0;
+  if (changes > 0) {
+    console.log(`[cron] auto-dismissed ${changes} stale notification(s) >7d`);
+  }
+  return changes;
 }
 
 interface HeartbeatResult {

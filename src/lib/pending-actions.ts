@@ -20,6 +20,22 @@ import type {
 } from '@/types';
 
 // =============================================================================
+// Lane derivation — Phase 1 (Bucket Reorganization)
+//
+// Re-exported from `@/lib/action-lanes` so client components can consume the
+// lane taxonomy without dragging better-sqlite3 / fs into the browser bundle.
+// Server-side callers (API routes, cron, this module) keep importing from
+// here so the existing surface is unchanged.
+// =============================================================================
+
+export {
+  ACTION_LANE,
+  laneFor,
+  typesForLane,
+  type ActionLane,
+} from '@/lib/action-lanes';
+
+// =============================================================================
 // Row <-> domain conversion
 // =============================================================================
 

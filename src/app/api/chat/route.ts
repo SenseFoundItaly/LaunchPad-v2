@@ -543,8 +543,11 @@ function buildDirectMessages(projectId: string, step: string, messages: { role: 
 /** Build context from completed skills to inject into skill kickoff prompts */
 function buildCompletedSkillContext(projectId: string, message: string): string {
   // Only inject for skill kickoff messages
-  const { SKILL_KICKOFFS } = require('@/lib/stages');
-  const isKickoff = Object.values(SKILL_KICKOFFS).some((k: string) => message.includes(k));
+  // Lazy require keeps stages out of the top-level import graph (avoids a
+  // server-only cycle). Cast back to the typed signature exported by stages.ts
+  // so `Object.values()` doesn't degrade to `unknown[]`.
+  const { SKILL_KICKOFFS } = require('@/lib/stages') as { SKILL_KICKOFFS: Record<string, string> };
+  const isKickoff = Object.values(SKILL_KICKOFFS).some((k) => message.includes(k));
   if (!isKickoff) return '';
 
   const completions = query<{ skill_id: string; summary: string; completed_at: string }>(

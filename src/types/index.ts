@@ -375,6 +375,13 @@ export interface PendingAction {
   updated_at: string;
 }
 
+// Re-export lane taxonomy defined in src/lib/action-lanes.ts so UI code
+// can `import type { ActionLane } from '@/types'` without reaching into lib.
+// Phase 1 of the 4-bucket reorganization (Tasks / Approvals / Notifications).
+// Source moved out of pending-actions.ts so client bundles don't pull in
+// better-sqlite3 (Turbopack: "Module not found: Can't resolve 'fs'").
+export type { ActionLane } from '@/lib/action-lanes';
+
 // === Partner Configs (Add-on 1/3 onboarding) ===
 export interface PartnerConfig {
   slug: string;

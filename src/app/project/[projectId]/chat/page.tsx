@@ -1713,18 +1713,40 @@ function TasksTab({
   const [tasks, setTasks] = useState<TaskListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Phase 1 — cross-lane counts so the founder sees "you also have 3 drafts
+  // waiting" without needing to leave the chat to find them. Cheap parallel
+  // fetches; the Inbox endpoints are <50ms each in practice.
+  const [approvalCount, setApprovalCount] = useState(0);
+  const [notificationCount, setNotificationCount] = useState(0);
 
   const refetch = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/projects/${projectId}/tasks`);
-      const body = await res.json();
-      if (!res.ok || body?.success === false) {
-        throw new Error(body?.error || `HTTP ${res.status}`);
+      const [tasksRes, approvalsRes, notificationsRes] = await Promise.all([
+        fetch(`/api/projects/${projectId}/tasks`),
+        fetch(`/api/projects/${projectId}/approvals`),
+        fetch(`/api/projects/${projectId}/notifications`),
+      ]);
+      const tasksBody = await tasksRes.json();
+      if (!tasksRes.ok || tasksBody?.success === false) {
+        throw new Error(tasksBody?.error || `HTTP ${tasksRes.status}`);
       }
-      const data = body?.data ?? body;
-      setTasks(Array.isArray(data?.tasks) ? data.tasks : []);
+      const tasksData = tasksBody?.data ?? tasksBody;
+      setTasks(Array.isArray(tasksData?.tasks) ? tasksData.tasks : []);
+
+      // Approvals + notifications are non-blocking — failure shouldn't hide
+      // the tasks list. Best-effort parse; default to 0 on any parse error.
+      try {
+        const approvalsBody = await approvalsRes.json();
+        const data = approvalsBody?.data ?? approvalsBody;
+        setApprovalCount(typeof data?.counts?.total === 'number' ? data.counts.total : 0);
+      } catch { setApprovalCount(0); }
+      try {
+        const notificationsBody = await notificationsRes.json();
+        const data = notificationsBody?.data ?? notificationsBody;
+        setNotificationCount(typeof data?.counts?.total === 'number' ? data.counts.total : 0);
+      } catch { setNotificationCount(0); }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1750,6 +1772,8 @@ function TasksTab({
     return map;
   }, [tasks]);
 
+  const otherLanesTotal = approvalCount + notificationCount;
+
   return (
     <div
       className="lp-scroll"
@@ -1762,6 +1786,46 @@ function TasksTab({
         gap: 18,
       }}
     >
+      {/* Phase 1 — cross-lane awareness banner. Shown only when other lanes
+          have open rows so the Tasks tab stays clean otherwise. Click jumps
+          to the full Inbox where the founder can switch lanes. */}
+      {otherLanesTotal > 0 && (
+        <a
+          href={`/project/${projectId}/actions`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '8px 12px',
+            background: 'var(--paper-2)',
+            border: '1px solid var(--line-2)',
+            borderRadius: 6,
+            fontSize: 11.5,
+            color: 'var(--ink-3)',
+            textDecoration: 'none',
+            fontFamily: 'var(--f-sans)',
+          }}
+        >
+          <span>
+            {locale === 'it' ? 'Hai anche ' : 'You also have '}
+            {approvalCount > 0 && (
+              <strong style={{ color: 'var(--ink-2)' }}>
+                {approvalCount} {locale === 'it' ? 'approvazion' + (approvalCount === 1 ? 'e' : 'i') : 'approval' + (approvalCount === 1 ? '' : 's')}
+              </strong>
+            )}
+            {approvalCount > 0 && notificationCount > 0 && ' · '}
+            {notificationCount > 0 && (
+              <strong style={{ color: 'var(--ink-2)' }}>
+                {notificationCount} {locale === 'it' ? 'notific' + (notificationCount === 1 ? 'a' : 'he') : 'notification' + (notificationCount === 1 ? '' : 's')}
+              </strong>
+            )}
+            {locale === 'it' ? ' nell’Inbox.' : ' in the Inbox.'}
+          </span>
+          <span style={{ color: 'var(--accent)', fontSize: 11 }}>
+            {locale === 'it' ? 'Apri Inbox →' : 'Open Inbox →'}
+          </span>
+        </a>
+      )}
       {loading && tasks.length === 0 && (
         <div style={{ fontSize: 12, color: 'var(--ink-5)', textAlign: 'center', padding: 40 }}>
           {locale === 'it' ? 'Caricamento task…' : 'Loading tasks…'}

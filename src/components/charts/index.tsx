@@ -95,7 +95,7 @@ export function PieChart({ data, height = 250, title, donut = true }: {
             cy="50%"
             innerRadius={donut ? 50 : 0}
             outerRadius={80}
-            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+            label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
             labelLine={{ stroke: '#52525b' }}
           >
             {data.map((entry, i) => (
