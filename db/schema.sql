@@ -668,3 +668,14 @@ CREATE INDEX IF NOT EXISTS idx_monitors_project_risk_kind
   ON monitors(project_id, linked_risk_id, kind, status);
 CREATE INDEX IF NOT EXISTS idx_monitors_project_dedup
   ON monitors(project_id, dedup_hash);
+
+-- =============================================================================
+-- Founder tasks (chat-driven TODO) — added 2026-04-23.
+-- Tasks live in pending_actions with action_type='task'. The new `priority`
+-- column powers the inline TaskCard badge (critical/high/medium/low). Same
+-- ALTER-as-migration pattern; loader swallows duplicate-column errors.
+-- Due date + any future scheduling lives in payload (JSON).
+-- =============================================================================
+ALTER TABLE pending_actions ADD COLUMN priority TEXT;
+CREATE INDEX IF NOT EXISTS idx_pending_actions_project_type_status
+  ON pending_actions(project_id, action_type, status);

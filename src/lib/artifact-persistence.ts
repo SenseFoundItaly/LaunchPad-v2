@@ -35,10 +35,12 @@ import type {
   MetricGrid,
   ComparisonTable,
   ActionSuggestion,
+  TaskArtifact,
   Source,
 } from '@/types/artifacts';
 import { recordFact } from './memory/facts';
 import { createPendingAction } from './pending-actions';
+import { getCreditsRemaining } from './credits';
 import type { PendingActionType } from '@/types';
 
 /**
@@ -83,6 +85,8 @@ export function persistArtifact(ctx: PersistContext, artifact: Artifact): Persis
         return persistComparisonTable(ctx, artifact as ComparisonTable);
       case 'action-suggestion':
         return persistActionSuggestion(ctx, artifact as ActionSuggestion);
+      case 'task':
+        return persistTask(ctx, artifact as TaskArtifact);
       default:
         return { type: artifact.type, persisted: false, note: 'no handler' };
     }
@@ -435,6 +439,68 @@ function persistActionSuggestion(ctx: PersistContext, a: ActionSuggestion): Pers
   });
 
   return { type: a.type, persisted: true, target: `pending_actions (${actionType})` };
+}
+
+// ─── task → pending_actions (action_type='task') ─────────────────────────────
+
+/**
+ * `task` artifact → pending_actions row.
+ *
+ * Dedup: (project_id, action_type='task', payload.client_artifact_id = a.id)
+ * — re-runs of the same chat turn (e.g. browser refresh during stream) won't
+ * create duplicate task rows.
+ *
+ * The TaskCard PATCH endpoint at /api/projects/[projectId]/tasks/[clientArtifactId]
+ * looks up by the same client_artifact_id, so the inline card stays addressable
+ * even when the artifact JSON didn't carry a server-assigned pending_action_id
+ * (which is the case for raw :::artifact{type:"task"} emission, as opposed to
+ * the create_task tool path that writes the row up-front and embeds the id).
+ */
+function persistTask(ctx: PersistContext, a: TaskArtifact): PersistResult {
+  const title = (a.title ?? '').trim();
+  if (!title) return { type: a.type, persisted: false, note: 'missing title' };
+
+  const clientArtifactId = a.id || null;
+
+  // Credit guard — refuse to write a task row when the project is out of
+  // credits this month. Same check guards the create_task tool path; the
+  // monthly cap (project_budgets.cap_llm_usd) is the real ceiling.
+  if (getCreditsRemaining(ctx.projectId) <= 0) {
+    return { type: a.type, persisted: false, note: 'out of credits' };
+  }
+
+  // Dedupe by client_artifact_id when the artifact carries one — protects
+  // against the chat route re-running persistence on stream replay.
+  if (clientArtifactId) {
+    const existing = get<{ id: string }>(
+      `SELECT id FROM pending_actions
+       WHERE project_id = ? AND action_type = 'task'
+         AND json_extract(payload, '$.client_artifact_id') = ?
+       LIMIT 1`,
+      ctx.projectId,
+      clientArtifactId,
+    );
+    if (existing) {
+      return { type: a.type, persisted: false, note: 'duplicate (client_artifact_id match)' };
+    }
+  }
+
+  createPendingAction({
+    project_id: ctx.projectId,
+    action_type: 'task',
+    title: title.slice(0, 200),
+    rationale: (a.description ?? '').slice(0, 800),
+    payload: {
+      source: 'task-artifact',
+      client_artifact_id: clientArtifactId,
+      due: a.due ?? null,
+    },
+    estimated_impact: 'medium',
+    sources: a.sources,
+    priority: a.priority,
+  });
+
+  return { type: a.type, persisted: true, target: `pending_actions (task, ${a.priority})` };
 }
 
 function mapActionType(raw: string | undefined): PendingActionType {

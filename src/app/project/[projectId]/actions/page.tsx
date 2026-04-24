@@ -541,6 +541,13 @@ function agentFromType(type: PendingActionType): string {
     // Treat as "Scout" — same family as proposed_graph_update, both about
     // populating the project's observation layer.
     configure_monitor: 'Scout',
+    // configure_budget: founder-facing budget cap change proposed by chat.
+    // "Chief" because raising the cap is a CEO-class decision, not analytics.
+    configure_budget: 'Chief',
+    // skill_rerun_result: heartbeat-executor refreshed an analytical skill.
+    // "Chief" — score-delta visibility is a CEO concern.
+    skill_rerun_result: 'Chief',
+    task: 'Chief',
   };
   return map[type] || 'Agent';
 }

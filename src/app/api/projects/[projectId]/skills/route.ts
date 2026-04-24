@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
+import { query, run, get } from '@/lib/db';
 import { json, error, generateId } from '@/lib/api-helpers';
+import { recordEvent } from '@/lib/memory/events';
 
 /** GET: list all skill completions for a project */
 export async function GET(
@@ -39,6 +40,30 @@ export async function POST(
     body.summary || null,
     new Date().toISOString(),
   );
+
+  // Phase D3: emit skill_completed so the heartbeat narration + future
+  // memory context see "skill X completed Yh ago" without extra plumbing.
+  // Non-fatal — a broken event write must not block the completion write.
+  try {
+    const owner = get<{ owner_user_id: string | null }>(
+      'SELECT owner_user_id FROM projects WHERE id = ?',
+      projectId,
+    );
+    if (owner?.owner_user_id) {
+      recordEvent({
+        userId: owner.owner_user_id,
+        projectId,
+        eventType: 'skill_completed',
+        payload: {
+          skill_id: body.skill_id,
+          summary_preview: (body.summary || '').toString().slice(0, 300),
+          source: 'api-skills-post',
+        },
+      });
+    }
+  } catch (err) {
+    console.warn('[skills] skill_completed recordEvent failed:', (err as Error).message);
+  }
 
   return json({ id, skill_id: body.skill_id, status: 'completed' }, 201);
 }

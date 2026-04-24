@@ -16,6 +16,7 @@ const VALID_TYPES: PendingActionType[] = [
   'draft_email', 'draft_linkedin_post', 'draft_linkedin_dm',
   'proposed_hypothesis', 'proposed_interview_question', 'proposed_landing_copy',
   'proposed_investor_followup', 'proposed_graph_update',
+  'task',
 ];
 
 /**

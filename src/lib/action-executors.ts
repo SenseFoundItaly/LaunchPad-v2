@@ -437,6 +437,98 @@ const configureMonitor: ActionHandler = async (action) => {
   };
 };
 
+/**
+ * `configure_budget` executor — UPSERTs the founder-approved monthly cap
+ * into project_budgets for the current period_month.
+ *
+ * The proposed cap was put on the table by `propose_budget_change`. The
+ * founder may have edited the value via the BudgetProposalCard's Edit mode;
+ * `effectivePayload()` already merged any `edited_payload.proposed_cap_usd`
+ * over the original. We trust the merged value but defensively bound it to
+ * (0, 1000] so a malformed edit can't blow out the cap.
+ *
+ * UPSERT keyed on (project_id, period_month). If the founder bumps mid-month
+ * we just overwrite the cap; current_llm_usd is preserved (we never reset
+ * it on a cap change — that would erase the actual spend record).
+ */
+const configureBudget: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+
+  const proposedCapRaw = payload.proposed_cap_usd;
+  const proposedCap = typeof proposedCapRaw === 'number' ? proposedCapRaw : Number(proposedCapRaw);
+  if (!Number.isFinite(proposedCap) || proposedCap <= 0) {
+    return { ok: false, error: 'configure_budget: proposed_cap_usd must be a positive number' };
+  }
+  if (proposedCap > 1000) {
+    return { ok: false, error: 'configure_budget: cap exceeds $1000/mo safety bound — edit the card to a smaller number' };
+  }
+
+  const periodMonth = (() => {
+    if (typeof payload.period_month === 'string' && /^\d{4}-\d{2}$/.test(payload.period_month)) {
+      return payload.period_month;
+    }
+    const d = new Date();
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  })();
+
+  const existing = query<{ cap_llm_usd: number }>(
+    `SELECT cap_llm_usd FROM project_budgets WHERE project_id = ? AND period_month = ?`,
+    action.project_id,
+    periodMonth,
+  );
+  const prevCap = existing[0]?.cap_llm_usd ?? null;
+
+  const budgetId = generateId('bud');
+  const now = new Date().toISOString();
+
+  // SQLite UPSERT — preserves current_llm_usd on conflict so existing spend
+  // tracking survives a cap change. Updates cap + status + updated_at only.
+  run(
+    `INSERT INTO project_budgets (
+       id, project_id, period_month, cap_llm_usd, created_at, updated_at
+     )
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(project_id, period_month) DO UPDATE SET
+       cap_llm_usd = excluded.cap_llm_usd,
+       status = 'active',
+       updated_at = excluded.updated_at`,
+    budgetId,
+    action.project_id,
+    periodMonth,
+    proposedCap,
+    now,
+    now,
+  );
+
+  const reason = typeof payload.reason === 'string' ? payload.reason : null;
+
+  try {
+    recordEvent({
+      userId: (payload.approving_user_id as string) || 'system',
+      projectId: action.project_id,
+      eventType: 'budget_changed',
+      payload: {
+        prev_cap_usd: prevCap,
+        new_cap_usd: proposedCap,
+        period_month: periodMonth,
+        reason,
+      },
+    });
+  } catch {
+    // observability only
+  }
+
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct',
+      narrative: prevCap != null
+        ? `Monthly LLM cap updated: $${prevCap.toFixed(2)} → $${proposedCap.toFixed(2)} for ${periodMonth}.`
+        : `Monthly LLM cap set to $${proposedCap.toFixed(2)} for ${periodMonth}.`,
+    },
+  };
+};
+
 const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   draft_email: draftEmail,
   draft_linkedin_post: draftLinkedInPost,
@@ -447,6 +539,7 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   proposed_interview_question: proposedInterviewQuestion,
   proposed_landing_copy: proposedLandingCopy,
   configure_monitor: configureMonitor,
+  configure_budget: configureBudget,
   // workflow_step is intentionally unmapped — each step is a placeholder
   // row, not an auto-executable action. Founder approval just flips status
   // without a domain effect.

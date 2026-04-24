@@ -110,6 +110,9 @@ export interface CreatePendingActionInput {
   // pull in the full Source union — callers pass whatever the parser/artifact
   // emitted. Persisted as JSON to pending_actions.sources.
   sources?: unknown[];
+  // Founder-task priority for action_type='task'. Powers the inline TaskCard
+  // priority pill (critical=red, high=accent, medium=sky, low=ink-5).
+  priority?: 'critical' | 'high' | 'medium' | 'low';
 }
 
 export function createPendingAction(input: CreatePendingActionInput): PendingAction {
@@ -122,8 +125,8 @@ export function createPendingAction(input: CreatePendingActionInput): PendingAct
   run(
     `INSERT INTO pending_actions
        (id, project_id, monitor_run_id, ecosystem_alert_id, action_type, title, rationale,
-        payload, estimated_impact, status, execution_target, sources, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+        payload, estimated_impact, status, execution_target, sources, priority, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
     id,
     input.project_id,
     input.monitor_run_id || null,
@@ -135,6 +138,7 @@ export function createPendingAction(input: CreatePendingActionInput): PendingAct
     input.estimated_impact || null,
     input.execution_target || null,
     sourcesJson,
+    input.priority || null,
     now,
     now,
   );
