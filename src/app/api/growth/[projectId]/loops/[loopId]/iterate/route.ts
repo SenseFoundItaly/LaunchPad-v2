@@ -51,7 +51,11 @@ export async function POST(
       ];
 
       setProgress(task.task_id, 60, 'Generating next experiment...');
-      const result = await chatJSONByTask(messages, 'growth-iterate');
+      const result = await chatJSONByTask(messages, 'growth-iterate', 0.3, {
+        project_id: projectId,
+        skill_id: 'growth-iterate',
+        step: 'growth.iterate',
+      });
       const r = result;
 
       setProgress(task.task_id, 80, 'Saving iteration...');
