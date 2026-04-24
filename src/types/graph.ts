@@ -12,7 +12,8 @@ export type GraphNodeType =
   | 'partner'
   | 'funding_source'
   | 'feature'
-  | 'metric';
+  | 'metric'
+  | 'investor';
 
 export interface GraphNode {
   id: string;
@@ -55,4 +56,5 @@ export const NODE_COLORS: Record<string, string> = {
   funding_source: '#84cc16', // lime
   feature: '#8b5cf6',        // violet
   metric: '#0ea5e9',         // sky
+  investor: '#fbbf24',       // amber-400 — distinct from persona's amber-500
 };

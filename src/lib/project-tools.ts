@@ -22,11 +22,12 @@
 
 import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
-import { query, get } from '@/lib/db';
+import { query, get, run } from '@/lib/db';
 import { createPendingAction } from '@/lib/pending-actions';
 import { checkDedup } from '@/lib/monitor-dedup';
 import { getCreditsRemaining } from '@/lib/credits';
 import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readiness';
+import { generateId } from '@/lib/api-helpers';
 import type { PendingActionType } from '@/types';
 import type { Source } from '@/types/artifacts';
 
@@ -125,7 +126,7 @@ const listGraphNodes = (ctx: ToolContext): AgentTool => ({
   label: 'Knowledge Graph',
   description: 'List nodes from this project\'s knowledge graph. Use when asked about the graph, tracked competitors, known trends, technologies, partners, or any entity the project has accumulated.',
   parameters: Type.Object({
-    node_type: Type.Optional(Type.String({ description: 'Filter by type: competitor, trend, technology, market_segment, persona, risk, partner, ip_alert, your_startup, feature, metric, company, compliance, regulation, funding_source.' })),
+    node_type: Type.Optional(Type.String({ description: 'Filter by type: competitor, trend, technology, market_segment, persona, risk, partner, ip_alert, your_startup, feature, metric, company, compliance, regulation, funding_source, investor.' })),
     limit: Type.Optional(Type.Number({ description: 'Max nodes. Default 30, max 100.' })),
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
@@ -873,6 +874,530 @@ const createTaskTool = (ctx: ToolContext): AgentTool => ({
 });
 
 // =============================================================================
+// Investor management — direct DB writes (no approval flow).
+//
+// Rationale: pipeline mutations (add a name, move a stage, log a meeting note)
+// are internal CRM bookkeeping, not external sends. The founder is asking the
+// agent to record information they already know — no third-party action is
+// being taken. Approval-required operations (sending an actual email to an
+// investor) still flow through `proposed_investor_followup` via
+// queue_draft_for_approval.
+//
+// All tools dispatch `lp-data-changed` semantically by emitting an artifact
+// the chat parser already routes through; the Raise page picks up live
+// refresh via the listener added in Phase E. The DB writes themselves are
+// what the page reads on refetch.
+// =============================================================================
+
+const PIPELINE_STAGES = [
+  'Target', 'Intro', 'Meeting', 'Pitch', 'Due Diligence',
+  'Term Sheet', 'Committed', 'Passed',
+] as const;
+type PipelineStage = typeof PIPELINE_STAGES[number];
+
+const VALID_INVESTOR_TYPES = ['VC', 'Angel', 'Family Office', 'Corporate', 'Accelerator', 'Other'] as const;
+const VALID_INTERACTION_TYPES = ['email', 'call', 'meeting', 'intro', 'note', 'demo'] as const;
+
+const listInvestorsTool = (ctx: ToolContext): AgentTool => ({
+  name: 'list_investors',
+  label: 'Investor Pipeline',
+  description:
+    'List investors currently in the project\'s fundraising pipeline. Use to look up an investor id before calling move_investor_stage or log_investor_interaction, or when the founder asks who is in the pipeline / how the round is going.',
+  parameters: Type.Object({
+    stage: Type.Optional(Type.String({ description: `Filter by stage: ${PIPELINE_STAGES.join(', ')}.` })),
+    limit: Type.Optional(Type.Number({ description: 'Max rows. Default 50, max 200.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { stage?: string; limit?: number };
+    const limit = Math.max(1, Math.min(200, p.limit ?? 50));
+    const conds = ['project_id = ?'];
+    const args: unknown[] = [ctx.projectId];
+    if (p.stage) {
+      conds.push('stage = ?');
+      args.push(p.stage);
+    }
+    const rows = query<Record<string, unknown>>(
+      `SELECT id, name, type, stage, contact_name, contact_email, check_size, notes, updated_at
+         FROM investors
+        WHERE ${conds.join(' AND ')}
+        ORDER BY updated_at DESC
+        LIMIT ${limit}`,
+      ...args,
+    );
+
+    if (rows.length === 0) {
+      return {
+        content: [{ type: 'text', text: p.stage
+          ? `No investors at stage "${p.stage}".`
+          : 'Pipeline is empty. Use add_investor to start tracking targets.' }],
+        details: { count: 0 },
+      };
+    }
+
+    const text = rows.map((r, i) => {
+      const checkStr = r.check_size ? ` · $${(r.check_size as number).toLocaleString()}` : '';
+      const contact = r.contact_name ? ` · ${r.contact_name}` : '';
+      return `${i + 1}. [${r.stage} · ${r.type || 'unknown'}] ${r.name}${contact}${checkStr}\n   id: ${r.id}`;
+    }).join('\n');
+
+    return {
+      content: [{ type: 'text', text }],
+      details: { count: rows.length, stage: p.stage || 'all' },
+    };
+  },
+});
+
+const addInvestorTool = (ctx: ToolContext): AgentTool => ({
+  name: 'add_investor',
+  label: 'Add Investor',
+  description:
+    'Add a new investor to the fundraising pipeline. Use when the founder mentions a new prospect ("got intro\'d to Sequoia partner Bob") or pastes contact details. This is a pipeline bookkeeping write — no external action taken. For sending an actual outbound email, use queue_draft_for_approval with action_type=draft_email instead. Returns the new investor_id which you can pass to log_investor_interaction or move_investor_stage in the same conversation.',
+  parameters: Type.Object({
+    name: Type.String({ description: 'Firm or individual name (e.g., "Sequoia Capital", "Marc Andreessen").' }),
+    type: Type.Optional(Type.String({ description: `One of: ${VALID_INVESTOR_TYPES.join(', ')}. Default: VC.` })),
+    contact_name: Type.Optional(Type.String({ description: 'Primary contact at the firm.' })),
+    contact_email: Type.Optional(Type.String({ description: 'Contact email if known.' })),
+    stage: Type.Optional(Type.String({ description: `Initial pipeline stage. Default: Target. One of: ${PIPELINE_STAGES.join(', ')}.` })),
+    check_size: Type.Optional(Type.Number({ description: 'Typical check size in USD (no thousands separators).' })),
+    notes: Type.Optional(Type.String({ description: 'Free-form note (e.g., "warm intro from Alice, focuses on B2B SaaS").' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as {
+      name: string;
+      type?: string;
+      contact_name?: string;
+      contact_email?: string;
+      stage?: string;
+      check_size?: number;
+      notes?: string;
+    };
+
+    if (!p.name || !p.name.trim()) {
+      return {
+        content: [{ type: 'text', text: 'add_investor requires a non-empty name.' }],
+        details: { error: true },
+      };
+    }
+
+    const stage = p.stage && (PIPELINE_STAGES as readonly string[]).includes(p.stage)
+      ? p.stage as PipelineStage
+      : 'Target';
+    const type = p.type && (VALID_INVESTOR_TYPES as readonly string[]).includes(p.type)
+      ? p.type
+      : 'VC';
+
+    const id = generateId('inv');
+    const now = new Date().toISOString();
+
+    try {
+      run(
+        `INSERT INTO investors
+           (id, project_id, name, type, contact_name, contact_email, stage,
+            check_size, notes, tags, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        ctx.projectId,
+        p.name.trim().slice(0, 200),
+        type,
+        p.contact_name?.slice(0, 200) ?? '',
+        p.contact_email?.slice(0, 200) ?? '',
+        stage,
+        p.check_size ?? null,
+        p.notes?.slice(0, 1000) ?? '',
+        JSON.stringify([]),
+        now,
+        now,
+      );
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to add investor: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Investor "${p.name}" added to pipeline at stage "${stage}". investor_id: ${id}. The Raise tab will show them in the ${stage} column on next view.`,
+      }],
+      details: { investor_id: id, stage, type },
+    };
+  },
+});
+
+const moveInvestorStageTool = (ctx: ToolContext): AgentTool => ({
+  name: 'move_investor_stage',
+  label: 'Move Investor Stage',
+  description:
+    'Move an existing investor to a different pipeline stage (e.g., Target → Intro after a warm intro happens, Meeting → Pitch after the deck went out, Pitch → Passed after a no). Always look up the investor_id first via list_investors. Direct write — no approval needed.',
+  parameters: Type.Object({
+    investor_id: Type.String({ description: 'The investor row id (use list_investors to find).' }),
+    stage: Type.String({ description: `New stage. One of: ${PIPELINE_STAGES.join(', ')}.` }),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { investor_id: string; stage: string };
+
+    if (!(PIPELINE_STAGES as readonly string[]).includes(p.stage)) {
+      return {
+        content: [{ type: 'text', text: `Invalid stage "${p.stage}". Must be one of: ${PIPELINE_STAGES.join(', ')}.` }],
+        details: { error: true },
+      };
+    }
+
+    const existing = get<{ id: string; project_id: string; name: string; stage: string }>(
+      'SELECT id, project_id, name, stage FROM investors WHERE id = ?',
+      p.investor_id,
+    );
+    if (!existing) {
+      return {
+        content: [{ type: 'text', text: `No investor with id "${p.investor_id}". Call list_investors to find the right id.` }],
+        details: { error: true },
+      };
+    }
+    if (existing.project_id !== ctx.projectId) {
+      // Cross-project guard — shouldn't happen via the chat flow but defence in depth.
+      return {
+        content: [{ type: 'text', text: `Investor "${p.investor_id}" doesn't belong to this project.` }],
+        details: { error: true },
+      };
+    }
+    if (existing.stage === p.stage) {
+      return {
+        content: [{ type: 'text', text: `${existing.name} is already at stage "${p.stage}". No change made.` }],
+        details: { investor_id: existing.id, stage: p.stage, no_change: true },
+      };
+    }
+
+    try {
+      run(
+        'UPDATE investors SET stage = ?, updated_at = ? WHERE id = ?',
+        p.stage,
+        new Date().toISOString(),
+        p.investor_id,
+      );
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to update stage: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Moved ${existing.name}: ${existing.stage} → ${p.stage}.`,
+      }],
+      details: { investor_id: p.investor_id, prev_stage: existing.stage, new_stage: p.stage },
+    };
+  },
+});
+
+const logInvestorInteractionTool = (ctx: ToolContext): AgentTool => ({
+  name: 'log_investor_interaction',
+  label: 'Log Interaction',
+  description:
+    'Record a meeting / call / email / DM with an investor. Use when the founder reports something happened ("had the meeting with USV today, going well"). The interaction shows up under the investor card on the Raise tab and feeds the next-step reminder. For drafting an actual outbound message, use queue_draft_for_approval instead — this tool is for logging events that already happened.',
+  parameters: Type.Object({
+    investor_id: Type.String({ description: 'The investor row id (use list_investors to find).' }),
+    type: Type.String({ description: `Interaction type. One of: ${VALID_INTERACTION_TYPES.join(', ')}.` }),
+    summary: Type.String({ description: 'What happened (≤500 chars).' }),
+    next_step: Type.Optional(Type.String({ description: 'Concrete next action ("send updated deck Friday", "follow up in 2 weeks").' })),
+    next_step_date: Type.Optional(Type.String({ description: 'ISO date for next step (YYYY-MM-DD).' })),
+    date: Type.Optional(Type.String({ description: 'Date the interaction happened. Default: today.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as {
+      investor_id: string;
+      type: string;
+      summary: string;
+      next_step?: string;
+      next_step_date?: string;
+      date?: string;
+    };
+
+    if (!(VALID_INTERACTION_TYPES as readonly string[]).includes(p.type)) {
+      return {
+        content: [{ type: 'text', text: `Invalid type "${p.type}". Must be one of: ${VALID_INTERACTION_TYPES.join(', ')}.` }],
+        details: { error: true },
+      };
+    }
+    if (!p.summary || !p.summary.trim()) {
+      return {
+        content: [{ type: 'text', text: 'log_investor_interaction requires a non-empty summary.' }],
+        details: { error: true },
+      };
+    }
+
+    const investor = get<{ id: string; project_id: string; name: string }>(
+      'SELECT id, project_id, name FROM investors WHERE id = ?',
+      p.investor_id,
+    );
+    if (!investor) {
+      return {
+        content: [{ type: 'text', text: `No investor with id "${p.investor_id}". Call list_investors to find the right id.` }],
+        details: { error: true },
+      };
+    }
+    if (investor.project_id !== ctx.projectId) {
+      return {
+        content: [{ type: 'text', text: `Investor "${p.investor_id}" doesn't belong to this project.` }],
+        details: { error: true },
+      };
+    }
+
+    const id = generateId('int');
+    const isoDate = p.date && /^\d{4}-\d{2}-\d{2}$/.test(p.date)
+      ? p.date
+      : new Date().toISOString().slice(0, 10);
+
+    try {
+      run(
+        `INSERT INTO investor_interactions
+           (id, investor_id, type, summary, next_step, next_step_date, date)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        p.investor_id,
+        p.type,
+        p.summary.slice(0, 800),
+        p.next_step?.slice(0, 400) ?? null,
+        p.next_step_date && /^\d{4}-\d{2}-\d{2}$/.test(p.next_step_date) ? p.next_step_date : null,
+        isoDate,
+      );
+      // Bump investor.updated_at so the pipeline view re-orders correctly.
+      run(
+        'UPDATE investors SET updated_at = ? WHERE id = ?',
+        new Date().toISOString(),
+        p.investor_id,
+      );
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to log interaction: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    const followUp = p.next_step
+      ? ` Next step: ${p.next_step}${p.next_step_date ? ` (${p.next_step_date})` : ''}.`
+      : '';
+    return {
+      content: [{
+        type: 'text',
+        text: `Logged ${p.type} with ${investor.name}.${followUp}`,
+      }],
+      details: { interaction_id: id, investor_id: p.investor_id, type: p.type },
+    };
+  },
+});
+
+// =============================================================================
+// propose_milestone_update — chat-proposed milestone status/content edit.
+//
+// Unlike investor pipeline writes (which are pure CRM bookkeeping), milestone
+// transitions are commitments the founder is making to themselves about the
+// venture's trajectory — flipping "Launch beta" to completed has scoring and
+// stage-readiness implications. So this stays approval-gated like every
+// other meaningful state change: tool creates a pending_actions row, executor
+// in src/lib/action-executors.ts writes to milestones on approval.
+//
+// Two flavors:
+//   - status_only:   only touches milestones.status (upcoming|in_progress|completed)
+//   - full_edit:     can also patch title/description/linked_feature
+// Both share the same artifact shape so the UI renders one unified card.
+// =============================================================================
+
+const VALID_MILESTONE_STATUSES = ['upcoming', 'in_progress', 'completed'] as const;
+type MilestoneStatus = typeof VALID_MILESTONE_STATUSES[number];
+
+const proposeMilestoneUpdateTool = (ctx: ToolContext): AgentTool => ({
+  name: 'propose_milestone_update',
+  label: 'Propose Milestone Update',
+  description:
+    'Propose a status transition or content edit on an EXISTING milestone in this project\'s journey. Use when the founder reports a milestone moving forward ("we shipped the beta", "demo day is done"), explicitly asks you to flip one ("mark Launch website as in progress"), or you spot a milestone that materially needs a description/title fix. Always look up the milestone_id first via get_project_summary or by listing milestones — never invent ids. The founder sees an inline approval card showing current → proposed diff. Sources: cite the founder quote (type:"user") or the analysis that motivates the change. Do NOT call to create new milestones — milestones are generated through the Journey skill flow, not chat.',
+  parameters: Type.Object({
+    milestone_id: Type.String({ description: 'The milestone row id (look up via get_project_summary or by listing milestones).' }),
+    new_status: Type.Optional(Type.String({ description: `Optional new status. One of: ${VALID_MILESTONE_STATUSES.join(', ')}. Pass when the founder reports a transition.` })),
+    new_title: Type.Optional(Type.String({ description: 'Optional revised title (≤200 chars).' })),
+    new_description: Type.Optional(Type.String({ description: 'Optional revised description (≤1000 chars).' })),
+    new_linked_feature: Type.Optional(Type.String({ description: 'Optional linked feature id (or empty string to clear).' })),
+    reason: Type.String({ description: 'One sentence on why the change is being proposed (shown verbatim on the approval card).' }),
+    sources: Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] array. Required: cite the founder quote (type:"user" with verbatim quote) or the analysis (type:"internal" with ref) that motivates this update.' }),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as {
+      milestone_id: string;
+      new_status?: string;
+      new_title?: string;
+      new_description?: string;
+      new_linked_feature?: string;
+      reason: string;
+      sources: unknown[];
+    };
+
+    if (!p.milestone_id || !p.milestone_id.trim()) {
+      return {
+        content: [{ type: 'text', text: 'propose_milestone_update requires milestone_id. Look it up via get_project_summary or list milestones first.' }],
+        details: { error: true },
+      };
+    }
+    if (!p.reason || !p.reason.trim()) {
+      return {
+        content: [{ type: 'text', text: 'propose_milestone_update requires a non-empty reason.' }],
+        details: { error: true },
+      };
+    }
+    if (!Array.isArray(p.sources) || p.sources.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'propose_milestone_update requires at least one source. Cite the founder quote or the analysis motivating this update.' }],
+        details: { error: true },
+      };
+    }
+    if (p.new_status && !(VALID_MILESTONE_STATUSES as readonly string[]).includes(p.new_status)) {
+      return {
+        content: [{ type: 'text', text: `Invalid new_status "${p.new_status}". Must be one of: ${VALID_MILESTONE_STATUSES.join(', ')}.` }],
+        details: { error: true },
+      };
+    }
+
+    // Need at least one field changing — reject pure no-op proposals so the
+    // founder doesn't get an empty diff card.
+    if (!p.new_status && p.new_title == null && p.new_description == null && p.new_linked_feature == null) {
+      return {
+        content: [{ type: 'text', text: 'Nothing to propose — pass at least one of new_status / new_title / new_description / new_linked_feature.' }],
+        details: { error: true },
+      };
+    }
+
+    const milestone = get<{
+      id: string;
+      project_id: string;
+      title: string;
+      description: string | null;
+      status: string;
+      linked_feature: string | null;
+    }>(
+      'SELECT id, project_id, title, description, status, linked_feature FROM milestones WHERE id = ?',
+      p.milestone_id,
+    );
+    if (!milestone) {
+      return {
+        content: [{ type: 'text', text: `No milestone with id "${p.milestone_id}". Use get_project_summary or the journey API to find the right id.` }],
+        details: { error: true },
+      };
+    }
+    if (milestone.project_id !== ctx.projectId) {
+      return {
+        content: [{ type: 'text', text: `Milestone "${p.milestone_id}" doesn't belong to this project.` }],
+        details: { error: true },
+      };
+    }
+
+    // Build a diff so the approval card can show current → proposed inline.
+    // Skip fields that match the current value — keeps the card honest.
+    const diff: Record<string, { current: unknown; proposed: unknown }> = {};
+    if (p.new_status && p.new_status !== milestone.status) {
+      diff.status = { current: milestone.status, proposed: p.new_status };
+    }
+    if (p.new_title != null && p.new_title.trim() !== milestone.title) {
+      diff.title = { current: milestone.title, proposed: p.new_title.trim().slice(0, 200) };
+    }
+    if (p.new_description != null && (p.new_description ?? '') !== (milestone.description ?? '')) {
+      diff.description = {
+        current: milestone.description ?? '',
+        proposed: p.new_description.slice(0, 1000),
+      };
+    }
+    if (p.new_linked_feature != null && (p.new_linked_feature ?? '') !== (milestone.linked_feature ?? '')) {
+      diff.linked_feature = {
+        current: milestone.linked_feature ?? '',
+        proposed: p.new_linked_feature.slice(0, 200),
+      };
+    }
+
+    if (Object.keys(diff).length === 0) {
+      return {
+        content: [{ type: 'text', text: `Proposed values match milestone "${milestone.title}" already. No change needed.` }],
+        details: { milestone_id: milestone.id, no_change: true },
+      };
+    }
+
+    const pendingActionPayload: Record<string, unknown> = {
+      milestone_id: milestone.id,
+      milestone_title: milestone.title,
+      diff,
+      reason: p.reason,
+      sources: p.sources,
+    };
+
+    let pendingAction;
+    try {
+      pendingAction = createPendingAction({
+        project_id: ctx.projectId,
+        action_type: 'propose_milestone_update',
+        title: diff.status
+          ? `Update milestone "${milestone.title}": ${milestone.status} → ${diff.status.proposed}`
+          : `Edit milestone "${milestone.title}"`,
+        rationale: p.reason,
+        payload: pendingActionPayload,
+        estimated_impact: diff.status ? 'high' : 'medium',
+        sources: p.sources as Source[],
+      });
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to queue milestone update: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    const artifactId = `milestone_prop_${pendingAction.id.slice(-12)}`;
+    const artifactBody: Record<string, unknown> = {
+      pending_action_id: pendingAction.id,
+      milestone_id: milestone.id,
+      milestone_title: milestone.title,
+      diff,
+      reason: p.reason,
+      sources: p.sources,
+    };
+
+    const artifactBlock = [
+      `:::artifact{"type":"action-suggestion","id":"${artifactId}"}`,
+      JSON.stringify({
+        action: 'approve_milestone_update',
+        title: artifactBody.milestone_title,
+        body: p.reason,
+        cta: diff.status
+          ? `Approve: ${milestone.status} → ${(diff.status as { proposed: string }).proposed}`
+          : 'Approve milestone edit',
+        pending_action_id: pendingAction.id,
+        diff,
+        sources: p.sources,
+      }),
+      ':::',
+    ].join('\n');
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            `Milestone update queued (pending_action ${pendingAction.id}). ` +
+            `Emit the following artifact block VERBATIM in your reply so the inline approval card renders:\n\n${artifactBlock}`,
+        },
+      ],
+      details: {
+        pending_action_id: pendingAction.id,
+        artifact_id: artifactId,
+        milestone_id: milestone.id,
+        diff_keys: Object.keys(diff),
+      },
+    };
+  },
+});
+
+// Acknowledge unused symbol when MilestoneStatus isn't directly referenced.
+// (Kept for documentation of the validated status set.)
+void (null as unknown as MilestoneStatus);
+
+// =============================================================================
 // Factory
 // =============================================================================
 
@@ -893,5 +1418,12 @@ export function makeProjectTools(projectId: string): AgentTool[] {
     proposeMonitorTool(ctx),
     proposeBudgetChangeTool(ctx),
     createTaskTool(ctx),
+    // Investor pipeline (Phase B) — direct CRM writes (not approval-gated).
+    listInvestorsTool(ctx),
+    addInvestorTool(ctx),
+    moveInvestorStageTool(ctx),
+    logInvestorInteractionTool(ctx),
+    // Milestones (Phase D)
+    proposeMilestoneUpdateTool(ctx),
   ];
 }

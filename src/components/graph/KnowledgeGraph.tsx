@@ -46,6 +46,7 @@ const CLUSTER_ANGLES: Record<string, number> = {
   funding_source: 60,
   feature: 150,
   metric: 210,
+  investor: 75,
 };
 
 export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick }: KnowledgeGraphProps) {

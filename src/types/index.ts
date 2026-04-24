@@ -346,6 +346,7 @@ export type PendingActionType =
   | 'configure_monitor'             // chat-proposed ecosystem monitor awaiting founder approval
   | 'configure_budget'              // chat-proposed monthly LLM budget cap change awaiting founder approval
   | 'skill_rerun_result'            // heartbeat-executor refreshed a stale analytical skill — surfaces new score in inbox
+  | 'propose_milestone_update'      // chat-proposed milestone status/content edit awaiting founder approval
   | 'task';                         // chat-proposed founder task (TODO) — Mark done / Snooze / Dismiss
 
 export type PendingActionStatus =

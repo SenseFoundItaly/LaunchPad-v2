@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { query, run } from '@/lib/db';
 import { json, error, mapProject, generateId } from '@/lib/api-helpers';
 import { seedEcosystemMonitorsForProject } from '@/lib/ecosystem-monitors';
+import { seedDefaultAgents } from '@/lib/agents';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 
 export async function GET() {
@@ -98,6 +99,15 @@ export async function POST(request: NextRequest) {
     ecosystemSeed = { created: [], skipped: [], error: (err as Error).message };
   }
 
+  // Seed the 5 default agents (Chief / Scout / Outreach / Analyst / Designer).
+  // Idempotent on (project_id, role) — safe even if a retry lands on the same id.
+  let agentsSeed: { created: number; skipped: number; error?: string } = { created: 0, skipped: 0 };
+  try {
+    agentsSeed = seedDefaultAgents(id);
+  } catch (err) {
+    agentsSeed = { created: 0, skipped: 0, error: (err as Error).message };
+  }
+
   const row = query('SELECT * FROM projects WHERE id = ?', id);
   return json({
     ...mapProject(row[0]),
@@ -105,5 +115,6 @@ export async function POST(request: NextRequest) {
       health: healthSeed,
       ecosystem: ecosystemSeed,
     },
+    agents_seeded: agentsSeed,
   }, 201);
 }
