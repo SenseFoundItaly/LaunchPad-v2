@@ -87,14 +87,14 @@ export async function GET(
 ) {
   const { projectId } = await params;
 
-  const project = get<{ id: string; owner_user_id: string | null }>(
+  const project = await get<{ id: string; owner_user_id: string | null }>(
     'SELECT id, owner_user_id FROM projects WHERE id = ?',
     projectId,
   );
   if (!project) return error('Project not found', 404);
 
   const facts = project.owner_user_id
-    ? listFacts(project.owner_user_id, projectId, { limit: 10 }).map((f) => ({
+    ? (await listFacts(project.owner_user_id, projectId, { limit: 10 })).map((f) => ({
         id: f.id,
         fact: f.fact,
         kind: f.kind,
@@ -103,7 +103,7 @@ export async function GET(
       }))
     : [];
 
-  const alerts = query<AlertRow>(
+  const alerts = await query<AlertRow>(
     `SELECT id, alert_type, source, source_url, headline, body, relevance_score, created_at
      FROM ecosystem_alerts
      WHERE project_id = ? AND reviewed_state = 'pending'
@@ -112,12 +112,12 @@ export async function GET(
     projectId,
   );
 
-  const score = get<ScoreRow>(
+  const score = await get<ScoreRow>(
     'SELECT overall_score, benchmark, scored_at FROM scores WHERE project_id = ?',
     projectId,
   );
 
-  const nodes = query<NodeRow>(
+  const nodes = await query<NodeRow>(
     `SELECT id, name, node_type, summary, created_at
      FROM graph_nodes
      WHERE project_id = ?
@@ -126,7 +126,7 @@ export async function GET(
     projectId,
   );
 
-  const completions = query<SkillCompletionRow>(
+  const completions = await query<SkillCompletionRow>(
     'SELECT skill_id, status, summary, completed_at FROM skill_completions WHERE project_id = ?',
     projectId,
   );

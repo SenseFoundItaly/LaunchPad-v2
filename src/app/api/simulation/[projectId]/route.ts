@@ -7,6 +7,6 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
-  const rows = await query('SELECT * FROM simulation WHERE project_id = ?', projectId);
+  const rows = await query('SELECT * FROM simulation WHERE project_id = $1', projectId);
   return json(rows.length > 0 ? rows[0] : null);
 }

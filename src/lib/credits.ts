@@ -31,7 +31,7 @@ function currentPeriodMonth(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-function getCurrentBudget(projectId: string): BudgetRow | undefined {
+async function getCurrentBudget(projectId: string): Promise<BudgetRow | undefined> {
   return get<BudgetRow>(
     `SELECT cap_llm_usd, current_llm_usd
      FROM project_budgets
@@ -50,22 +50,19 @@ export interface CreditsSnapshot {
   period_month: string;
 }
 
-export function getCreditsSnapshot(projectId: string): CreditsSnapshot {
+export async function getCreditsSnapshot(projectId: string): Promise<CreditsSnapshot> {
   const periodMonth = currentPeriodMonth();
-  const budget = getCurrentBudget(projectId);
-  // No row yet this month → fall back to the schema default cap so the badge
-  // still shows a number rather than 0. The first cost-meter call this month
-  // will create the row at the same default and persist correctly.
+  const budget = await getCurrentBudget(projectId);
   const capUsd = budget?.cap_llm_usd ?? 0;
   const usedUsd = budget?.current_llm_usd ?? 0;
   const remainingUsd = Math.max(0, capUsd - usedUsd);
   const remaining = Math.floor(remainingUsd / CREDITS_PER_TASK_USD);
 
-  const todayRow = get<{ n: number }>(
+  const todayRow = await get<{ n: number }>(
     `SELECT COUNT(*) as n FROM pending_actions
      WHERE project_id = ?
        AND action_type = 'task'
-       AND created_at >= date('now')`,
+       AND created_at >= CURRENT_DATE`,
     projectId,
   );
   const usedToday = todayRow?.n ?? 0;
@@ -80,6 +77,6 @@ export function getCreditsSnapshot(projectId: string): CreditsSnapshot {
   };
 }
 
-export function getCreditsRemaining(projectId: string): number {
-  return getCreditsSnapshot(projectId).remaining;
+export async function getCreditsRemaining(projectId: string): Promise<number> {
+  return (await getCreditsSnapshot(projectId)).remaining;
 }

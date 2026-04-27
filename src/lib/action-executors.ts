@@ -54,9 +54,9 @@ export interface ExecutorResult {
 
 export type ActionHandler = (action: PendingAction) => Promise<ExecutorResult>;
 
-function getSourceAlert(alertId: string | null): EcosystemAlert | null {
+async function getSourceAlert(alertId: string | null): Promise<EcosystemAlert | null> {
   if (!alertId) return null;
-  const rows = query<Record<string, unknown>>(
+  const rows = await query<Record<string, unknown>>(
     'SELECT * FROM ecosystem_alerts WHERE id = ?',
     alertId,
   );
@@ -134,7 +134,7 @@ const draftEmail: ActionHandler = async (action) => {
 const draftLinkedInPost: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
   const text = String(payload.body || payload.draft_seed || action.title);
-  const sourceAlert = getSourceAlert(action.ecosystem_alert_id);
+  const sourceAlert = await getSourceAlert(action.ecosystem_alert_id);
   const attachUrl = sourceAlert?.source_url || (typeof payload.url === 'string' ? payload.url : undefined);
 
   return {
@@ -193,7 +193,7 @@ const proposedHypothesis: ActionHandler = async (action) => {
   }
 
   const iterId = generateId('iter');
-  run(
+  await run(
     `INSERT INTO growth_iterations (id, loop_id, hypothesis, proposed_changes, status)
      VALUES (?, ?, ?, ?, 'proposed')`,
     iterId,
@@ -220,7 +220,7 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
   const attributes = payload.attributes || null;
 
   const nodeId = generateId('gnode');
-  run(
+  await run(
     `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes)
      VALUES (?, ?, ?, ?, ?, ?)`,
     nodeId,
@@ -232,7 +232,7 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
   );
 
   if (action.ecosystem_alert_id) {
-    run(
+    await run(
       'UPDATE ecosystem_alerts SET graph_node_id = ? WHERE id = ?',
       nodeId,
       action.ecosystem_alert_id,
@@ -266,9 +266,9 @@ const proposedInvestorFollowup: ActionHandler = async (action) => {
   }
 
   const intId = generateId('ivi');
-  run(
+  await run(
     `INSERT INTO investor_interactions (id, investor_id, type, summary, next_step, date)
-     VALUES (?, ?, 'email', ?, ?, date('now'))`,
+     VALUES (?, ?, 'email', ?, ?, CURRENT_DATE)`,
     intId, investorId, summary, nextStep,
   );
 
@@ -373,7 +373,7 @@ const configureMonitor: ActionHandler = async (action) => {
   const nextRun = calculateNextRun(schedule) ?? now;
   const dedupHash = dedup.dedup_hash ?? computeDedupHash(urls, q);
 
-  run(
+  await run(
     `INSERT INTO monitors (
        id, project_id, type, name, schedule, config, prompt, status,
        next_run, created_at,
@@ -408,7 +408,7 @@ const configureMonitor: ActionHandler = async (action) => {
   // monitor row) is now queryable across memory_events. Feeds into the
   // founder's timeline + future HEARTBEAT portfolio review (B3).
   try {
-    recordEvent({
+    await recordEvent({
       // action.user_id isn't always on the PendingAction type; fall back to
       // the project owner. Both values live on the action row itself as
       // text in payload if the chat route recorded it; safest to skip here.
@@ -471,7 +471,7 @@ const configureBudget: ActionHandler = async (action) => {
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   })();
 
-  const existing = query<{ cap_llm_usd: number }>(
+  const existing = await query<{ cap_llm_usd: number }>(
     `SELECT cap_llm_usd FROM project_budgets WHERE project_id = ? AND period_month = ?`,
     action.project_id,
     periodMonth,
@@ -481,9 +481,9 @@ const configureBudget: ActionHandler = async (action) => {
   const budgetId = generateId('bud');
   const now = new Date().toISOString();
 
-  // SQLite UPSERT — preserves current_llm_usd on conflict so existing spend
+  // PostgreSQL UPSERT — preserves current_llm_usd on conflict so existing spend
   // tracking survives a cap change. Updates cap + status + updated_at only.
-  run(
+  await run(
     `INSERT INTO project_budgets (
        id, project_id, period_month, cap_llm_usd, created_at, updated_at
      )
@@ -503,7 +503,7 @@ const configureBudget: ActionHandler = async (action) => {
   const reason = typeof payload.reason === 'string' ? payload.reason : null;
 
   try {
-    recordEvent({
+    await recordEvent({
       userId: (payload.approving_user_id as string) || 'system',
       projectId: action.project_id,
       eventType: 'budget_changed',

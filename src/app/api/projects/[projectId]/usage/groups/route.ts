@@ -20,7 +20,7 @@ export async function GET(
   const { projectId } = await params;
   const periodMonth = new Date().toISOString().slice(0, 7);
 
-  const rows = query<{
+  const rows = await query<{
     step: string | null;
     provider: string;
     model: string;

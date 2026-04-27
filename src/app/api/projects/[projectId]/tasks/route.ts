@@ -16,7 +16,7 @@ interface TaskRow {
   project_id: string;
   title: string;
   rationale: string | null;
-  payload: string | null;
+  payload: Record<string, unknown> | null;
   status: string;
   priority: string | null;
   sources: string | null;
@@ -47,7 +47,7 @@ export async function GET(
   }
 
   const placeholders = statuses.map(() => '?').join(',');
-  const rows = query<TaskRow>(
+  const rows = await query<TaskRow>(
     `SELECT id, project_id, title, rationale, payload, status, priority, sources, created_at, updated_at
      FROM pending_actions
      WHERE project_id = ?
@@ -68,7 +68,7 @@ export async function GET(
   );
 
   const tasks = rows.map((r) => {
-    const payload = safeJson<Record<string, unknown>>(r.payload) || {};
+    const payload = r.payload || {};
     return {
       id: r.id,
       project_id: r.project_id,

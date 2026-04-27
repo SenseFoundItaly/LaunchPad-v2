@@ -18,7 +18,7 @@ export async function GET(
 ) {
   const { projectId } = await params;
 
-  const plans = query<{
+  const plans = await query<{
     id: string;
     name: string;
     description: string | null;
@@ -46,7 +46,7 @@ export async function GET(
     steps = JSON.parse(plan.steps);
   } catch { /* bad JSON, show empty DAG */ }
 
-  const executions = query<{
+  const executions = await query<{
     id: string;
     workflow_run_id: string | null;
     step_index: number | null;

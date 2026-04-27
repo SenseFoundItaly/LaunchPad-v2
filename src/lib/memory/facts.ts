@@ -7,13 +7,6 @@ import type { Source } from '@/types/artifacts';
  * memory_facts is the durable knowledge base per (user, project). Facts are
  * curated signals the agent (or user) wants preserved across sessions:
  * decisions, commitments, named entities, preferences, observed patterns.
- *
- * Compared to memory_events (append-only timeline), facts are:
- *   - Dedup-able (same fact string per user+project = same row, bump updated_at)
- *   - Dismissible (user can mark as stale without deleting)
- *   - Ranked (recency + confidence drive buildMemoryContext selection)
- *   - Embedding-ready (BLOB column stays NULL in v1; populated later for
- *     semantic retrieval — schema change not needed)
  */
 
 export type FactKind = 'fact' | 'decision' | 'observation' | 'note' | 'preference';
@@ -41,12 +34,6 @@ export interface RecordFactInput {
   sourceType?: FactSourceType;
   sourceId?: string;
   confidence?: number;
-  // Optional structured Source[] (Phase D). Coexists with sourceType/sourceId
-  // (which are compact back-pointers to the originating table row). When the
-  // agent emits a fact via :::artifact{type=fact} block, the parser ensures
-  // sources[] is non-empty before we ever reach this function — callers
-  // deriving facts from internal code (skill completions, workflow capture)
-  // may omit sources if they rely on sourceType+sourceId instead.
   sources?: Source[];
 }
 
@@ -57,17 +44,17 @@ export interface RecordFactInput {
  *
  * Returns the fact id. Non-throwing (warns + returns '' on failure).
  */
-export function recordFact(input: RecordFactInput): string {
+export async function recordFact(input: RecordFactInput): Promise<string> {
   try {
     const kind = input.kind || 'fact';
     const confidence = input.confidence ?? 0.8;
 
     // Dedup: same fact text (case-insensitive, trimmed) within (user,project,kind)
     const trimmed = input.fact.trim();
-    const existing = get<{ id: string; confidence: number }>(
+    const existing = await get<{ id: string; confidence: number }>(
       `SELECT id, confidence FROM memory_facts
        WHERE user_id = ? AND project_id = ? AND kind = ?
-         AND LOWER(fact) = LOWER(?) AND dismissed = 0`,
+         AND LOWER(fact) = LOWER(?) AND dismissed = false`,
       input.userId,
       input.projectId,
       kind,
@@ -79,13 +66,8 @@ export function recordFact(input: RecordFactInput): string {
 
     let id: string;
     if (existing) {
-      // Keep the higher confidence; bump updated_at. If the new call carries
-      // sources, overwrite — newer provenance is generally richer (the agent
-      // may have run a web_search the first time and cited a verbatim URL
-      // the second time). A NULL-preserving merge would be possible but not
-      // worth the complexity for v1.
       const newConf = Math.max(existing.confidence, confidence);
-      run(
+      await run(
         `UPDATE memory_facts
          SET updated_at = CURRENT_TIMESTAMP, confidence = ?, sources = COALESCE(?, sources)
          WHERE id = ?`,
@@ -96,7 +78,7 @@ export function recordFact(input: RecordFactInput): string {
       id = existing.id;
     } else {
       id = crypto.randomUUID();
-      run(
+      await run(
         `INSERT INTO memory_facts
            (id, user_id, project_id, fact, kind, source_type, source_id, confidence, sources)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -112,7 +94,7 @@ export function recordFact(input: RecordFactInput): string {
       );
     }
 
-    recordEvent({
+    await recordEvent({
       userId: input.userId,
       projectId: input.projectId,
       eventType: 'fact_recorded',
@@ -133,15 +115,15 @@ export interface ListFactsOpts {
   minConfidence?: number;
 }
 
-export function listFacts(
+export async function listFacts(
   userId: string,
   projectId: string,
   opts: ListFactsOpts = {},
-): MemoryFact[] {
+): Promise<MemoryFact[]> {
   const { limit = 20, includeDismissed = false, kinds, minConfidence } = opts;
   const clauses: string[] = ['user_id = ?', 'project_id = ?'];
   const params: unknown[] = [userId, projectId];
-  if (!includeDismissed) clauses.push('dismissed = 0');
+  if (!includeDismissed) clauses.push('dismissed = false');
   if (kinds && kinds.length > 0) {
     clauses.push(`kind IN (${kinds.map(() => '?').join(',')})`);
     params.push(...kinds);
@@ -157,31 +139,28 @@ export function listFacts(
                ORDER BY updated_at DESC
                LIMIT ?`;
   params.push(limit);
-  // Override the boolean `dismissed` field with the SQLite int representation
-  // so the spread + boolean cast on the next line type-checks.
-  const rows = query<Omit<MemoryFact, 'dismissed'> & { dismissed: number }>(sql, ...params);
-  return rows.map((r) => ({ ...r, dismissed: r.dismissed === 1 }));
+  const rows = await query<MemoryFact>(sql, ...params);
+  return rows;
 }
 
 /**
- * Soft-dismiss a fact. The row stays; dismissed=1 excludes it from
- * buildMemoryContext selection. Also writes a memory_event for audit +
- * preference-learning feedback.
+ * Soft-dismiss a fact. The row stays; dismissed=true excludes it from
+ * buildMemoryContext selection.
  */
-export function dismissFact(factId: string, userId: string): boolean {
+export async function dismissFact(factId: string, userId: string): Promise<boolean> {
   try {
-    const fact = get<{ project_id: string; fact: string }>(
+    const fact = await get<{ project_id: string; fact: string }>(
       'SELECT project_id, fact FROM memory_facts WHERE id = ? AND user_id = ?',
       factId,
       userId,
     );
     if (!fact) return false;
 
-    run(
-      'UPDATE memory_facts SET dismissed = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    await run(
+      'UPDATE memory_facts SET dismissed = true, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       factId,
     );
-    recordEvent({
+    await recordEvent({
       userId,
       projectId: fact.project_id,
       eventType: 'fact_dismissed',

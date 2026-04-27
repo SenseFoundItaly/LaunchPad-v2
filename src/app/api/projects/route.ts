@@ -8,7 +8,7 @@ import { AuthError, requireUser } from '@/lib/auth/require-user';
 export async function GET() {
   try {
     const { orgId } = await requireUser();
-    const rows = query(
+    const rows = await query(
       'SELECT * FROM projects WHERE org_id = ? ORDER BY created_at DESC',
       orgId,
     );
@@ -31,10 +31,10 @@ export async function GET() {
  * `health` stays because it is an internal-metrics check, not an ecosystem
  * scan — different semantics, different target surface.
  */
-function createHealthMonitor(projectId: string, projectName: string) {
+async function createHealthMonitor(projectId: string, projectName: string) {
   const id = generateId('mon');
   const now = new Date().toISOString();
-  run(
+  await run(
     `INSERT INTO monitors (id, project_id, type, name, schedule, prompt, status, created_at)
      VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
     id,
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
   const locale = body.locale === 'it' ? 'it' : 'en';
   const partnerSlug = typeof body.partner_slug === 'string' ? body.partner_slug : null;
 
-  run(
+  await run(
     `INSERT INTO projects (id, name, description, status, current_step, llm_provider, partner_slug, locale, owner_user_id, org_id, created_at, updated_at)
      VALUES (?, ?, ?, 'created', 1, ?, ?, ?, ?, ?, ?, ?)`,
     id,
@@ -87,18 +87,18 @@ export async function POST(request: NextRequest) {
   let ecosystemSeed: { created: unknown[]; skipped: unknown[]; error?: string } = { created: [], skipped: [] };
 
   try {
-    healthSeed = createHealthMonitor(id, body.name);
+    healthSeed = await createHealthMonitor(id, body.name);
   } catch (err) {
     console.warn('Health monitor seed failed:', (err as Error).message);
   }
 
   try {
-    ecosystemSeed = seedEcosystemMonitorsForProject(id);
+    ecosystemSeed = await seedEcosystemMonitorsForProject(id);
   } catch (err) {
     ecosystemSeed = { created: [], skipped: [], error: (err as Error).message };
   }
 
-  const row = query('SELECT * FROM projects WHERE id = ?', id);
+  const row = await query('SELECT * FROM projects WHERE id = ?', id);
   return json({
     ...mapProject(row[0]),
     monitors_seeded: {

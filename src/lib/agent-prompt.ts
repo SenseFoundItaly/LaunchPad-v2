@@ -140,8 +140,8 @@ export function buildSystemPromptString(input: BuildSystemPromptInput = {}): str
  * Resolve a project's locale from the DB. Returns 'en' if the project is
  * not found or has no locale set.
  */
-export function resolveProjectLocale(projectId: string, queryFn: (sql: string, ...params: unknown[]) => Array<{ locale: string | null }>): Locale {
-  const rows = queryFn('SELECT locale FROM projects WHERE id = ?', projectId);
+export async function resolveProjectLocale(projectId: string, queryFn: (sql: string, ...params: unknown[]) => Promise<Array<{ locale: string | null }>>): Promise<Locale> {
+  const rows = await queryFn('SELECT locale FROM projects WHERE id = ?', projectId);
   return rows[0]?.locale === 'it' ? 'it' : 'en';
 }
 

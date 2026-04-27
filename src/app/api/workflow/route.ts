@@ -17,15 +17,15 @@ export async function POST(request: NextRequest) {
   setTimeout(async () => {
     try {
       setProgress(task.task_id, 10, 'Loading project data...');
-      const ideaRows = await query('SELECT * FROM idea_canvas WHERE project_id = ?', projectId);
+      const ideaRows = await query('SELECT * FROM idea_canvas WHERE project_id = $1', projectId);
       if (ideaRows.length === 0) {
         failTask(task.task_id, 'No idea canvas found. Complete Step 1 first.');
         return;
       }
 
-      const scoreRows = await query('SELECT * FROM scores WHERE project_id = ?', projectId);
-      const researchRows = await query('SELECT * FROM research WHERE project_id = ?', projectId);
-      const simRows = await query('SELECT * FROM simulation WHERE project_id = ?', projectId);
+      const scoreRows = await query('SELECT * FROM scores WHERE project_id = $1', projectId);
+      const researchRows = await query('SELECT * FROM research WHERE project_id = $1', projectId);
+      const simRows = await query('SELECT * FROM simulation WHERE project_id = $1', projectId);
 
       let context = `Idea Canvas:\n${JSON.stringify(ideaRows[0], null, 2)}`;
       if (scoreRows.length > 0) {context += `\n\nScoring:\n${JSON.stringify(scoreRows[0], null, 2)}`;}
@@ -43,11 +43,11 @@ export async function POST(request: NextRequest) {
       const r = result;
 
       setProgress(task.task_id, 90, 'Saving results...');
-      const existing = await query('SELECT project_id FROM workflow WHERE project_id = ?', projectId);
+      const existing = await query('SELECT project_id FROM workflow WHERE project_id = $1', projectId);
       if (existing.length > 0) {
         await run(
-          `UPDATE workflow SET gtm_strategy = ?, pitch_deck = ?, financial_model = ?, roadmap = ?, action_items = ?, generated_at = ?
-           WHERE project_id = ?`,
+          `UPDATE workflow SET gtm_strategy = $1, pitch_deck = $2, financial_model = $3, roadmap = $4, action_items = $5, generated_at = $6
+           WHERE project_id = $7`,
           JSON.stringify(r.gtm_strategy),
           JSON.stringify(r.pitch_deck),
           JSON.stringify(r.financial_model),
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       } else {
         await run(
           `INSERT INTO workflow (project_id, gtm_strategy, pitch_deck, financial_model, roadmap, action_items, generated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           projectId,
           JSON.stringify(r.gtm_strategy),
           JSON.stringify(r.pitch_deck),
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       }
 
       await run(
-        `UPDATE projects SET status = 'workflow_complete', current_step = 5, updated_at = ? WHERE id = ?`,
+        `UPDATE projects SET status = 'workflow_complete', current_step = 5, updated_at = $1 WHERE id = $2`,
         new Date().toISOString(),
         projectId,
       );

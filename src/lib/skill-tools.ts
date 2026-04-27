@@ -141,7 +141,7 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
 
       // Record invocation event BEFORE the call — if the skill throws, we
       // still have the trace entry for preference learning.
-      recordEvent({
+      await recordEvent({
         userId: opts.userId,
         projectId: opts.projectId,
         eventType: 'skill_invoked',

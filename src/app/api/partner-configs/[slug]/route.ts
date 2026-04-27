@@ -16,8 +16,8 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const rows = query<Record<string, unknown>>(
-    'SELECT slug, display_name, locale, knowledge_seed, preferred_skills, brief_template, brand, created_at FROM partner_configs WHERE slug = ?',
+  const rows = await query<Record<string, unknown>>(
+    'SELECT slug, display_name, locale, knowledge_seed, preferred_skills, brief_template, brand, created_at FROM partner_configs WHERE slug = $1',
     slug,
   );
   if (rows.length === 0) {
@@ -31,17 +31,11 @@ export async function GET(
     slug: row.slug as string,
     display_name: row.display_name as string,
     locale: (row.locale as string) || 'en',
-    knowledge_seed: safeJson(row.knowledge_seed),
-    preferred_skills: safeJson(row.preferred_skills),
+    knowledge_seed: row.knowledge_seed as PartnerConfig['knowledge_seed'],
+    preferred_skills: row.preferred_skills as PartnerConfig['preferred_skills'],
     brief_template: (row.brief_template as string) || 'default',
-    brand: safeJson(row.brand),
+    brand: row.brand as PartnerConfig['brand'],
     created_at: row.created_at as string,
   };
   return json(config);
-}
-
-function safeJson<T>(v: unknown): T | null {
-  if (!v) return null;
-  if (typeof v !== 'string') return v as T;
-  try { return JSON.parse(v) as T; } catch { return null; }
 }

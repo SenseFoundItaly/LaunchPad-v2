@@ -21,11 +21,6 @@ import type {
 
 // =============================================================================
 // Lane derivation — Phase 1 (Bucket Reorganization)
-//
-// Re-exported from `@/lib/action-lanes` so client components can consume the
-// lane taxonomy without dragging better-sqlite3 / fs into the browser bundle.
-// Server-side callers (API routes, cron, this module) keep importing from
-// here so the existing surface is unchanged.
 // =============================================================================
 
 export {
@@ -47,20 +42,15 @@ interface PendingActionRow {
   action_type: string;
   title: string;
   rationale: string | null;
-  payload: string;
+  payload: Record<string, unknown>;
   estimated_impact: string | null;
   status: string;
-  edited_payload: string | null;
+  edited_payload: Record<string, unknown> | null;
   execution_target: string | null;
   executed_at: string | null;
-  execution_result: string | null;
+  execution_result: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
-}
-
-function safeParseJson<T>(raw: string | null | undefined): T | null {
-  if (!raw) return null;
-  try { return JSON.parse(raw) as T; } catch { return null; }
 }
 
 function rowToAction(row: PendingActionRow): PendingAction {
@@ -72,13 +62,13 @@ function rowToAction(row: PendingActionRow): PendingAction {
     action_type: row.action_type as PendingActionType,
     title: row.title,
     rationale: row.rationale,
-    payload: safeParseJson<Record<string, unknown>>(row.payload) || {},
+    payload: row.payload || {},
     estimated_impact: row.estimated_impact as PendingAction['estimated_impact'],
     status: row.status as PendingActionStatus,
-    edited_payload: safeParseJson<Record<string, unknown>>(row.edited_payload),
+    edited_payload: row.edited_payload,
     execution_target: row.execution_target,
     executed_at: row.executed_at,
-    execution_result: safeParseJson<Record<string, unknown>>(row.execution_result),
+    execution_result: row.execution_result,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -86,11 +76,6 @@ function rowToAction(row: PendingActionRow): PendingAction {
 
 // =============================================================================
 // State machine
-// Valid transitions:
-//   pending -> approved | edited | rejected
-//   edited  -> approved | rejected   (can iterate edits)
-//   approved -> sent | failed        (after execution attempt)
-//   rejected / sent / failed are terminal
 // =============================================================================
 
 const TRANSITIONS: Record<PendingActionStatus, PendingActionStatus[]> = {
@@ -107,8 +92,7 @@ export function canTransition(from: PendingActionStatus, to: PendingActionStatus
 }
 
 // =============================================================================
-// Creation — called by the ecosystem-monitor run handler and by skills that
-// propose drafts. Always starts in `pending`.
+// Creation
 // =============================================================================
 
 export interface CreatePendingActionInput {
@@ -121,24 +105,18 @@ export interface CreatePendingActionInput {
   monitor_run_id?: string;
   ecosystem_alert_id?: string;
   execution_target?: string;
-  // Optional Source[] JSON from the originating artifact (Phase D of the
-  // mandatory-sources plan). Kept as `unknown[]` at this layer so we don't
-  // pull in the full Source union — callers pass whatever the parser/artifact
-  // emitted. Persisted as JSON to pending_actions.sources.
   sources?: unknown[];
-  // Founder-task priority for action_type='task'. Powers the inline TaskCard
-  // priority pill (critical=red, high=accent, medium=sky, low=ink-5).
   priority?: 'critical' | 'high' | 'medium' | 'low';
 }
 
-export function createPendingAction(input: CreatePendingActionInput): PendingAction {
+export async function createPendingAction(input: CreatePendingActionInput): Promise<PendingAction> {
   const id = generateId('pa');
   const now = new Date().toISOString();
   const sourcesJson =
     Array.isArray(input.sources) && input.sources.length > 0
       ? JSON.stringify(input.sources)
       : null;
-  run(
+  await run(
     `INSERT INTO pending_actions
        (id, project_id, monitor_run_id, ecosystem_alert_id, action_type, title, rationale,
         payload, estimated_impact, status, execution_target, sources, priority, created_at, updated_at)
@@ -158,15 +136,15 @@ export function createPendingAction(input: CreatePendingActionInput): PendingAct
     now,
     now,
   );
-  return getPendingAction(id)!;
+  return (await getPendingAction(id))!;
 }
 
 // =============================================================================
 // Reads
 // =============================================================================
 
-export function getPendingAction(id: string): PendingAction | null {
-  const rows = query<PendingActionRow>(
+export async function getPendingAction(id: string): Promise<PendingAction | null> {
+  const rows = await query<PendingActionRow>(
     'SELECT * FROM pending_actions WHERE id = ?',
     id,
   );
@@ -179,7 +157,7 @@ export interface ListPendingActionsOptions {
   limit?: number;
 }
 
-export function listPendingActions(opts: ListPendingActionsOptions): PendingAction[] {
+export async function listPendingActions(opts: ListPendingActionsOptions): Promise<PendingAction[]> {
   const statuses = opts.status
     ? (Array.isArray(opts.status) ? opts.status : [opts.status])
     : null;
@@ -191,7 +169,7 @@ export function listPendingActions(opts: ListPendingActionsOptions): PendingActi
   }
   sql += ' ORDER BY created_at DESC';
   if (opts.limit) { sql += ` LIMIT ${Math.max(1, Math.min(500, opts.limit))}`; }
-  const rows = query<PendingActionRow>(sql, ...params);
+  const rows = await query<PendingActionRow>(sql, ...params);
   return rows.map(rowToAction);
 }
 
@@ -206,12 +184,12 @@ export class InvalidTransitionError extends Error {
   }
 }
 
-function applyTransition(
+async function applyTransition(
   id: string,
   to: PendingActionStatus,
   extraUpdates: { key: string; value: unknown }[] = [],
-): PendingAction {
-  const action = getPendingAction(id);
+): Promise<PendingAction> {
+  const action = await getPendingAction(id);
   if (!action) throw new Error(`Pending action not found: ${id}`);
   if (!canTransition(action.status, to)) {
     throw new InvalidTransitionError(action.status, to);
@@ -219,21 +197,21 @@ function applyTransition(
   const now = new Date().toISOString();
   const sets = ['status = ?', 'updated_at = ?', ...extraUpdates.map(u => `${u.key} = ?`)];
   const params: unknown[] = [to, now, ...extraUpdates.map(u => u.value), id];
-  run(`UPDATE pending_actions SET ${sets.join(', ')} WHERE id = ?`, ...params);
-  return getPendingAction(id)!;
+  await run(`UPDATE pending_actions SET ${sets.join(', ')} WHERE id = ?`, ...params);
+  return (await getPendingAction(id))!;
 }
 
-export function approvePendingAction(id: string): PendingAction {
+export async function approvePendingAction(id: string): Promise<PendingAction> {
   return applyTransition(id, 'approved');
 }
 
-export function editPendingAction(id: string, editedPayload: Record<string, unknown>): PendingAction {
+export async function editPendingAction(id: string, editedPayload: Record<string, unknown>): Promise<PendingAction> {
   return applyTransition(id, 'edited', [
     { key: 'edited_payload', value: JSON.stringify(editedPayload) },
   ]);
 }
 
-export function rejectPendingAction(id: string, reason?: string): PendingAction {
+export async function rejectPendingAction(id: string, reason?: string): Promise<PendingAction> {
   const extras: { key: string; value: unknown }[] = [];
   if (reason) {
     extras.push({
@@ -251,14 +229,14 @@ export interface ExecutionResult {
   error?: string;
 }
 
-export function markActionSent(id: string, result: ExecutionResult): PendingAction {
+export async function markActionSent(id: string, result: ExecutionResult): Promise<PendingAction> {
   return applyTransition(id, 'sent', [
     { key: 'execution_result', value: JSON.stringify(result) },
     { key: 'executed_at', value: new Date().toISOString() },
   ]);
 }
 
-export function markActionFailed(id: string, error: string): PendingAction {
+export async function markActionFailed(id: string, error: string): Promise<PendingAction> {
   return applyTransition(id, 'failed', [
     { key: 'execution_result', value: JSON.stringify({ error }) },
     { key: 'executed_at', value: new Date().toISOString() },
@@ -266,7 +244,7 @@ export function markActionFailed(id: string, error: string): PendingAction {
 }
 
 // =============================================================================
-// Inbox summary — powers the dashboard badge and Monday Brief digest
+// Inbox summary
 // =============================================================================
 
 export interface InboxSummary {
@@ -277,17 +255,17 @@ export interface InboxSummary {
   rejected_last_7d: number;
 }
 
-export function inboxSummary(projectId: string): InboxSummary {
+export async function inboxSummary(projectId: string): Promise<InboxSummary> {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  const counts = query<{ status: string; c: number }>(
+  const counts = await query<{ status: string; c: number }>(
     `SELECT status, COUNT(*) as c FROM pending_actions WHERE project_id = ? GROUP BY status`,
     projectId,
   );
   const byStatus: Record<string, number> = {};
   for (const row of counts) byStatus[row.status] = row.c;
 
-  const recent = query<{ status: string; c: number }>(
+  const recent = await query<{ status: string; c: number }>(
     `SELECT status, COUNT(*) as c FROM pending_actions
      WHERE project_id = ? AND updated_at >= ? AND status IN ('sent', 'rejected')
      GROUP BY status`,

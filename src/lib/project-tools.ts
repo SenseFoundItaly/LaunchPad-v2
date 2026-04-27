@@ -62,7 +62,7 @@ const listEcosystemAlerts = (ctx: ToolContext): AgentTool => ({
       args.push(p.alert_type);
     }
 
-    const rows = query<Record<string, unknown>>(
+    const rows = await query<Record<string, unknown>>(
       `SELECT id, alert_type, headline, body, source_url, relevance_score, confidence, created_at, reviewed_state
        FROM ecosystem_alerts
        WHERE ${conditions.join(' AND ')}
@@ -98,7 +98,7 @@ const listPendingActions = (ctx: ToolContext): AgentTool => ({
     const limit = Math.max(1, Math.min(50, p.limit ?? 20));
 
     const placeholders = statuses.map(() => '?').join(',');
-    const rows = query<Record<string, unknown>>(
+    const rows = await query<Record<string, unknown>>(
       `SELECT id, action_type, title, rationale, estimated_impact, status, created_at
        FROM pending_actions
        WHERE project_id = ? AND status IN (${placeholders})
@@ -139,7 +139,7 @@ const listGraphNodes = (ctx: ToolContext): AgentTool => ({
       args.push(p.node_type);
     }
 
-    const rows = query<Record<string, unknown>>(
+    const rows = await query<Record<string, unknown>>(
       `SELECT id, name, node_type, summary, created_at
        FROM graph_nodes
        WHERE ${conditions.join(' AND ')}
@@ -165,25 +165,27 @@ const getProjectMetrics = (ctx: ToolContext): AgentTool => ({
   description: 'Get the project\'s current tracked metrics (MRR, users, retention, etc.), burn rate, runway, and recent operational alerts. Use when asked about numbers, growth, runway, burn, or startup health.',
   parameters: Type.Object({}),
   async execute(_id): Promise<AgentToolResult<unknown>> {
-    const metrics = query<{ id: string; name: string; type: string; target_growth_rate: number }>(
+    const metrics = await query<{ id: string; name: string; type: string; target_growth_rate: number }>(
       'SELECT id, name, type, target_growth_rate FROM metrics WHERE project_id = ?',
       ctx.projectId,
     );
-    const metricsWithEntries = metrics.map(m => {
-      const entries = query<{ date: string; value: number }>(
+    const metricsWithEntries = [];
+    for (const m of metrics) {
+      const entries = await query<{ date: string; value: number }>(
         'SELECT date, value FROM metric_entries WHERE metric_id = ? ORDER BY date DESC LIMIT 8',
         m.id,
       );
-      return { ...m, entries: entries.reverse() };
-    });
+      metricsWithEntries.push({ ...m, entries: entries.reverse() });
+    }
 
-    const burn = query<{ monthly_burn: number; cash_on_hand: number }>(
+    const burnRows = await query<{ monthly_burn: number; cash_on_hand: number }>(
       'SELECT monthly_burn, cash_on_hand FROM burn_rate WHERE project_id = ?',
       ctx.projectId,
-    )[0];
+    );
+    const burn = burnRows[0];
 
-    const alerts = query<{ severity: string; type: string; message: string; created_at: string }>(
-      `SELECT severity, type, message, created_at FROM alerts WHERE project_id = ? AND dismissed = 0
+    const alerts = await query<{ severity: string; type: string; message: string; created_at: string }>(
+      `SELECT severity, type, message, created_at FROM alerts WHERE project_id = ? AND dismissed = false
        ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, created_at DESC
        LIMIT 5`,
       ctx.projectId,
@@ -229,28 +231,32 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
   description: 'Get the project\'s name, description, idea canvas (problem/solution/target market/value prop), latest startup score, research snapshot, AND a per-stage readiness block listing which of the 7 validation stages are missing skills + a "Next recommended" skill the founder should run. Call this at the start of EVERY conversation — the readiness block is what tells you which skill kickoff to put in your trailing option-set.',
   parameters: Type.Object({}),
   async execute(_id): Promise<AgentToolResult<unknown>> {
-    const project = query<Record<string, unknown>>(
+    const projectRows = await query<Record<string, unknown>>(
       'SELECT id, name, description, current_step, locale, partner_slug, created_at FROM projects WHERE id = ?',
       ctx.projectId,
-    )[0];
+    );
+    const project = projectRows[0];
     if (!project) {
       return { content: [{ type: 'text', text: 'Project not found.' }], details: { error: true } };
     }
 
-    const idea = query<Record<string, unknown>>(
+    const ideaRows = await query<Record<string, unknown>>(
       'SELECT problem, solution, target_market, business_model, value_proposition FROM idea_canvas WHERE project_id = ?',
       ctx.projectId,
-    )[0];
+    );
+    const idea = ideaRows[0];
 
-    const score = query<Record<string, unknown>>(
+    const scoreRows = await query<Record<string, unknown>>(
       'SELECT overall_score, recommendation FROM scores WHERE project_id = ?',
       ctx.projectId,
-    )[0];
+    );
+    const score = scoreRows[0];
 
-    const research = query<{ competitors: string | null; trends: string | null }>(
+    const researchRows = await query<{ competitors: string | null; trends: string | null }>(
       'SELECT competitors, trends FROM research WHERE project_id = ?',
       ctx.projectId,
-    )[0];
+    );
+    const research = researchRows[0];
 
     const lines: string[] = [];
     lines.push(`Project: ${project.name}${project.description ? ` — ${project.description}` : ''}`);
@@ -272,7 +278,7 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
 
     if (research?.competitors) {
       try {
-        const comps = JSON.parse(research.competitors) as Array<{ name: string }>;
+        const comps = research.competitors as unknown as Array<{ name: string }>;
         if (Array.isArray(comps) && comps.length > 0) {
           lines.push(`\nTracked competitors: ${comps.slice(0, 5).map(c => c.name).join(', ')}`);
         }
@@ -283,9 +289,9 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
     // to decide which skill kickoff to surface in its trailing option-set.
     // Without this block, option-sets default to topic-of-conversation
     // continuations and never push validation forward.
-    let readinessHint: ReturnType<typeof getStageReadiness> | null = null;
+    let readinessHint: Awaited<ReturnType<typeof getStageReadiness>> | null = null;
     try {
-      readinessHint = getStageReadiness(ctx.projectId);
+      readinessHint = await getStageReadiness(ctx.projectId);
       lines.push('');
       lines.push(formatReadinessForPrompt(readinessHint));
     } catch (err) {
@@ -349,7 +355,7 @@ const createPendingActionTool = (ctx: ToolContext): AgentTool => ({
       : 'medium';
 
     try {
-      const action = createPendingAction({
+      const action = await createPendingAction({
         project_id: ctx.projectId,
         action_type: p.action_type as PendingActionType,
         title: p.title,
@@ -551,7 +557,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
 
     let pendingAction;
     try {
-      pendingAction = createPendingAction({
+      pendingAction = await createPendingAction({
         project_id: ctx.projectId,
         action_type: 'configure_monitor',
         title: `Configure monitor: ${p.name}`,
@@ -684,7 +690,7 @@ const proposeBudgetChangeTool = (ctx: ToolContext): AgentTool => ({
       return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
     })();
 
-    const currentRow = get<{ cap_llm_usd: number }>(
+    const currentRow = await get<{ cap_llm_usd: number }>(
       `SELECT cap_llm_usd FROM project_budgets WHERE project_id = ? AND period_month = ?`,
       ctx.projectId,
       periodMonth,
@@ -711,7 +717,7 @@ const proposeBudgetChangeTool = (ctx: ToolContext): AgentTool => ({
 
     let pendingAction;
     try {
-      pendingAction = createPendingAction({
+      pendingAction = await createPendingAction({
         project_id: ctx.projectId,
         action_type: 'configure_budget',
         title: `Raise monthly cap: $${currentCapUsd.toFixed(2)} → $${p.proposed_cap_usd.toFixed(2)}`,
@@ -804,7 +810,7 @@ const createTaskTool = (ctx: ToolContext): AgentTool => ({
       };
     }
 
-    if (getCreditsRemaining(ctx.projectId) <= 0) {
+    if ((await getCreditsRemaining(ctx.projectId)) <= 0) {
       return {
         content: [{
           type: 'text',
@@ -818,7 +824,7 @@ const createTaskTool = (ctx: ToolContext): AgentTool => ({
 
     let pendingAction;
     try {
-      pendingAction = createPendingAction({
+      pendingAction = await createPendingAction({
         project_id: ctx.projectId,
         action_type: 'task',
         title: p.title.trim().slice(0, 200),

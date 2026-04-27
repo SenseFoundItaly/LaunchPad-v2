@@ -36,18 +36,18 @@ import type { Source } from '@/types/artifacts';
 interface TaskRow {
   id: string;
   status: string;
-  payload: string | null;
+  payload: Record<string, unknown> | null;
   title: string | null;
   rationale: string | null;
   priority: string | null;
 }
 
-function findByClientArtifactId(projectId: string, clientArtifactId: string): TaskRow | null {
-  const rows = query<TaskRow>(
+async function findByClientArtifactId(projectId: string, clientArtifactId: string): Promise<TaskRow | null> {
+  const rows = await query<TaskRow>(
     `SELECT id, status, payload, title, rationale, priority FROM pending_actions
      WHERE project_id = ?
        AND action_type = 'task'
-       AND json_extract(payload, '$.client_artifact_id') = ?
+       AND payload->>'client_artifact_id' = ?
      ORDER BY created_at DESC
      LIMIT 1`,
     projectId,
@@ -61,9 +61,9 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string; clientArtifactId: string }> },
 ) {
   const { projectId, clientArtifactId } = await params;
-  const row = findByClientArtifactId(projectId, clientArtifactId);
+  const row = await findByClientArtifactId(projectId, clientArtifactId);
   if (!row) return error('Task not found for this artifact id', 404);
-  const action = getPendingAction(row.id);
+  const action = await getPendingAction(row.id);
   return json(action);
 }
 
@@ -90,7 +90,7 @@ export async function POST(
   const body = await request.json().catch(() => ({} as Record<string, unknown>));
   const action = body?.action as string;
 
-  const row = findByClientArtifactId(projectId, clientArtifactId);
+  const row = await findByClientArtifactId(projectId, clientArtifactId);
   if (!row) return error('Task not found for this artifact id', 404);
 
   try {
@@ -99,27 +99,27 @@ export async function POST(
         // approve→sent in one POST. The state machine forbids
         // pending→sent directly, hence the two-step transition.
         if (row.status === 'pending' || row.status === 'edited') {
-          approvePendingAction(row.id);
+          await approvePendingAction(row.id);
         }
-        const updated = markActionSent(row.id, { target: 'task_completed' });
+        const updated = await markActionSent(row.id, { target: 'task_completed' });
         return json(updated);
       }
       case 'snooze': {
         const hours = typeof body?.snooze_hours === 'number' ? body.snooze_hours : 24;
         const until = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
-        const payload = row.payload ? JSON.parse(row.payload) : {};
+        const payload = row.payload ? { ...row.payload } : {};
         payload.snooze_until = until;
-        run(
+        await run(
           `UPDATE pending_actions SET payload = ?, updated_at = ? WHERE id = ?`,
           JSON.stringify(payload),
           new Date().toISOString(),
           row.id,
         );
-        const updated = getPendingAction(row.id);
+        const updated = await getPendingAction(row.id);
         return json(updated);
       }
       case 'dismiss': {
-        const updated = rejectPendingAction(row.id, typeof body?.reason === 'string' ? body.reason : undefined);
+        const updated = await rejectPendingAction(row.id, typeof body?.reason === 'string' ? body.reason : undefined);
         return json(updated);
       }
       case 'expand': {
@@ -231,13 +231,13 @@ interface ProjectContext {
   owner_user_id: string | null;
 }
 
-function loadProjectContext(projectId: string): ProjectContext | null {
-  const project = get<{ name: string; description: string | null; owner_user_id: string | null }>(
+async function loadProjectContext(projectId: string): Promise<ProjectContext | null> {
+  const project = await get<{ name: string; description: string | null; owner_user_id: string | null }>(
     'SELECT name, description, owner_user_id FROM projects WHERE id = ?',
     projectId,
   );
   if (!project) return null;
-  const idea = get<{
+  const idea = await get<{
     problem: string | null;
     solution: string | null;
     target_market: string | null;
@@ -289,7 +289,7 @@ async function handleExpand(
   clientArtifactId: string,
   row: TaskRow,
 ) {
-  const existingPayload = row.payload ? JSON.parse(row.payload) as Record<string, unknown> : {};
+  const existingPayload = row.payload ? (row.payload as Record<string, unknown>) : {};
 
   // Idempotent: if already expanded, return the existing fields without
   // re-billing. We use HTTP 200 (not 409) so the client can simply replace
@@ -307,14 +307,14 @@ async function handleExpand(
 
   // Cost gate — expansion is one LLM turn (cheap tier Haiku). Require at
   // least 3 credits headroom so the credits badge doesn't hit 0 exactly.
-  if (getCreditsRemaining(projectId) < 3) {
+  if (await getCreditsRemaining(projectId) < 3) {
     return error(
       'Out of credit headroom for task expansion this month. Raise your cap or wait for next month.',
       402,
     );
   }
 
-  const ctx = loadProjectContext(projectId);
+  const ctx = await loadProjectContext(projectId);
   if (!ctx) return error('Project not found', 404);
 
   const prompt = buildExpansionPrompt(ctx, {
@@ -376,7 +376,7 @@ async function handleExpand(
     expanded_at: expandedAt,
   };
 
-  run(
+  await run(
     `UPDATE pending_actions SET payload = ?, updated_at = ? WHERE id = ?`,
     JSON.stringify(nextPayload),
     new Date().toISOString(),
@@ -386,7 +386,7 @@ async function handleExpand(
   // Timeline event — non-fatal if it fails.
   try {
     if (ctx.owner_user_id) {
-      recordEvent({
+      await recordEvent({
         userId: ctx.owner_user_id,
         projectId,
         eventType: 'task_expanded',

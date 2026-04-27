@@ -43,13 +43,13 @@ export async function requireUser(): Promise<SessionUser> {
   const email = user.email;
 
   // Upsert shadow user
-  const existing = get<{ id: string }>('SELECT id FROM users WHERE id = ?', userId);
+  const existing = await get<{ id: string }>('SELECT id FROM users WHERE id = ?', userId);
   if (!existing) {
-    run('INSERT INTO users (id, email) VALUES (?, ?)', userId, email);
+    await run('INSERT INTO users (id, email) VALUES (?, ?)', userId, email);
   }
 
   // Find the user's personal (owner) org, or create one.
-  const membership = get<{ org_id: string }>(
+  const membership = await get<{ org_id: string }>(
     `SELECT m.org_id FROM memberships m WHERE m.user_id = ? AND m.role = 'owner' LIMIT 1`,
     userId,
   );
@@ -64,13 +64,13 @@ export async function requireUser(): Promise<SessionUser> {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
       .slice(0, 40);
-    run(
+    await run(
       'INSERT INTO organizations (id, name, slug) VALUES (?, ?, ?)',
       orgId,
       `${email}'s workspace`,
       slug,
     );
-    run(
+    await run(
       'INSERT INTO memberships (id, user_id, org_id, role) VALUES (?, ?, ?, ?)',
       crypto.randomUUID(),
       userId,

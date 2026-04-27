@@ -1,46 +1,94 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
+import postgres from 'postgres';
 
-const DB_PATH = process.env.LAUNCHPAD_DB_PATH || path.join(process.cwd(), 'data', 'launchpad.db');
-const SCHEMA_PATH = path.join(process.cwd(), 'db', 'schema.sql');
+// ---------------------------------------------------------------------------
+// Singleton — survives Next.js HMR (dev-mode hot reloads create new module
+// instances; storing on globalThis prevents leaked connections).
+// ---------------------------------------------------------------------------
+const globalForPg = globalThis as unknown as { __pg?: postgres.Sql };
 
-let db: Database.Database | null = null;
+function getSql(): postgres.Sql {
+  if (!globalForPg.__pg) {
+    const url = process.env.DATABASE_URL;
+    if (!url) {
+      throw new Error(
+        'DATABASE_URL is not set. Add it to .env.local (or Vercel env vars).'
+      );
+    }
+    globalForPg.__pg = postgres(url, {
+      // Supabase PgBouncer (transaction mode) doesn't support prepared stmts
+      prepare: false,
+      // Idle timeout — close unused connections after 20s in serverless
+      idle_timeout: 20,
+      // Max connections — keep low for serverless (each function invocation
+      // gets its own pool; Supabase pooler handles the real fan-out)
+      max: 3,
+    });
+  }
+  return globalForPg.__pg;
+}
 
-export function getDb(): Database.Database {
-  if (!db) {
-    const dir = path.dirname(DB_PATH);
-    if (!fs.existsSync(dir)) {fs.mkdirSync(dir, { recursive: true });}
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    // Initialize schema
-    if (fs.existsSync(SCHEMA_PATH)) {
-      const schema = fs.readFileSync(SCHEMA_PATH, 'utf-8');
-      // Split on semicolons and execute each statement
-      const statements = schema.split(';').map(s => s.trim()).filter(s => s.length > 0);
-      for (const stmt of statements) {
-        try {
-          db.exec(stmt);
-        } catch {
-          // Skip DuckDB-specific syntax that doesn't work in SQLite
-        }
-      }
+// ---------------------------------------------------------------------------
+// Placeholder conversion: `?` → `$1, $2, ...`
+// Skips `?` characters inside single-quoted string literals.
+// ---------------------------------------------------------------------------
+function convertPlaceholders(sql: string): string {
+  let idx = 0;
+  let inString = false;
+  let result = '';
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    if (ch === "'" && sql[i - 1] !== '\\') {
+      inString = !inString;
+      result += ch;
+    } else if (ch === '?' && !inString) {
+      idx++;
+      result += `$${idx}`;
+    } else {
+      result += ch;
     }
   }
-  return db;
+  return result;
 }
 
-export function query<T = Record<string, unknown>>(sql: string, ...params: unknown[]): T[] {
-  const d = getDb();
-  return d.prepare(sql).all(...params) as T[];
+// ---------------------------------------------------------------------------
+// Public API — matches the old synchronous signatures but now returns Promises.
+// All existing callers just need to `await` these calls.
+// ---------------------------------------------------------------------------
+
+/**
+ * Run a SELECT query, returns array of rows.
+ */
+export async function query<T = Record<string, unknown>>(
+  sql: string,
+  ...params: unknown[]
+): Promise<T[]> {
+  const pg = getSql();
+  const converted = convertPlaceholders(sql);
+  const rows = await pg.unsafe(converted, params as never[]);
+  return rows as unknown as T[];
 }
 
-export function run(sql: string, ...params: unknown[]) {
-  const d = getDb();
-  return d.prepare(sql).run(...params);
+/**
+ * Run a mutating statement (INSERT/UPDATE/DELETE). Returns the result rows
+ * (useful for RETURNING clauses) or empty array.
+ */
+export async function run(
+  sql: string,
+  ...params: unknown[]
+): Promise<postgres.RowList<postgres.Row[]>> {
+  const pg = getSql();
+  const converted = convertPlaceholders(sql);
+  return pg.unsafe(converted, params as never[]);
 }
 
-export function get<T = Record<string, unknown>>(sql: string, ...params: unknown[]): T | undefined {
-  const d = getDb();
-  return d.prepare(sql).get(...params) as T | undefined;
+/**
+ * Run a query expecting a single row (or undefined). Sugar for
+ * `(await query(...))[0]`.
+ */
+export async function get<T = Record<string, unknown>>(
+  sql: string,
+  ...params: unknown[]
+): Promise<T | undefined> {
+  const rows = await query<T>(sql, ...params);
+  return rows[0];
 }

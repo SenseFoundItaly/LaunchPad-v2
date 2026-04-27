@@ -22,7 +22,7 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string; actionId: string }> },
 ) {
   const { projectId, actionId } = await params;
-  const action = getPendingAction(actionId);
+  const action = await getPendingAction(actionId);
   if (!action) return error('Action not found', 404);
   if (action.project_id !== projectId) return error('Action does not belong to this project', 403);
   return json(action);
@@ -45,7 +45,7 @@ export async function POST(
   const body = await request.json();
   const transition = body?.transition as string;
 
-  const existing = getPendingAction(actionId);
+  const existing = await getPendingAction(actionId);
   if (!existing) return error('Action not found', 404);
   if (existing.project_id !== projectId) {
     return error('Action does not belong to this project', 403);
@@ -60,11 +60,11 @@ export async function POST(
         // edits FIRST so effectivePayload() in the executor sees them.
         // Skipping this would silently drop "Save & approve" overrides.
         if (body.edited_payload && typeof body.edited_payload === 'object') {
-          editPendingAction(actionId, body.edited_payload);
+          await editPendingAction(actionId, body.edited_payload);
         }
 
         // 1. Transition pending/edited → approved
-        updated = approvePendingAction(actionId);
+        updated = await approvePendingAction(actionId);
 
         // 2. Dispatch to the type-specific handler. Structured handlers
         //    ("direct") write a row to a domain table and we chain straight
@@ -75,13 +75,13 @@ export async function POST(
         //    "approve" click IS the acknowledgment.
         const result = await executeApprovedAction(updated);
         if (!result.ok) {
-          updated = markActionFailed(actionId, result.error || 'Handler returned not-ok');
+          updated = await markActionFailed(actionId, result.error || 'Handler returned not-ok');
           return json({ ...updated, deliverable: null, execution_error: result.error });
         }
 
         const mode = result.deliverable?.mode;
         if (mode === 'direct' || mode === 'outbox') {
-          updated = markActionSent(actionId, {
+          updated = await markActionSent(actionId, {
             target: mode,
             external_id: result.deliverable?.created_row_id,
             response: result.deliverable?.narrative,
@@ -95,22 +95,22 @@ export async function POST(
         if (!body.edited_payload || typeof body.edited_payload !== 'object') {
           return error('edited_payload must be an object');
         }
-        updated = editPendingAction(actionId, body.edited_payload);
+        updated = await editPendingAction(actionId, body.edited_payload);
         break;
       case 'reject': {
-        updated = rejectPendingAction(actionId, body.reason);
+        updated = await rejectPendingAction(actionId, body.reason);
         // Preference learning: the agent proposed something the founder
         // didn't want. Record a low-confidence 'preference' fact so future
         // buildMemoryContext calls include "user rejected X" in the prompt,
         // steering the agent away from similar proposals. Non-fatal.
         try {
-          const owner = query<{ owner_user_id: string | null }>(
+          const owner = (await query<{ owner_user_id: string | null }>(
             'SELECT owner_user_id FROM projects WHERE id = ?', projectId,
-          )[0];
+          ))[0];
           if (owner?.owner_user_id) {
             const reasonSuffix = body.reason ? `. Reason: ${String(body.reason).slice(0, 200)}` : '';
             const factText = `User rejected agent-proposed action "${existing.title}" (type: ${existing.action_type})${reasonSuffix}`;
-            recordFact({
+            await recordFact({
               userId: owner.owner_user_id,
               projectId,
               fact: factText,
@@ -119,7 +119,7 @@ export async function POST(
               sourceId: actionId,
               confidence: 0.6,
             });
-            recordEvent({
+            await recordEvent({
               userId: owner.owner_user_id,
               projectId,
               eventType: 'action_rejected',
@@ -137,10 +137,10 @@ export async function POST(
         break;
       }
       case 'mark_sent':
-        updated = markActionSent(actionId, body.result || {});
+        updated = await markActionSent(actionId, body.result || {});
         break;
       case 'mark_failed':
-        updated = markActionFailed(actionId, body.error || 'Unknown error');
+        updated = await markActionFailed(actionId, body.error || 'Unknown error');
         break;
       default:
         return error(`Unknown transition: ${transition}. Must be one of: approve, edit, reject, mark_sent, mark_failed`);

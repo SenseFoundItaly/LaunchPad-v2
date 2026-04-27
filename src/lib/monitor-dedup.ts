@@ -47,7 +47,7 @@ interface ActiveMonitorRow {
   name: string;
   kind: string | null;
   linked_risk_id: string | null;
-  urls_to_track: string | null;
+  urls_to_track: string[] | null;
   query: string | null;
 }
 
@@ -85,7 +85,7 @@ export async function checkDedup(
   projectId: string,
   proposal: MonitorProposalInput,
 ): Promise<DedupVerdict> {
-  const active = query<ActiveMonitorRow>(
+  const active = await query<ActiveMonitorRow>(
     `SELECT id, name, kind, linked_risk_id, urls_to_track, query
      FROM monitors
      WHERE project_id = ? AND status = 'active'`,
@@ -129,7 +129,7 @@ export async function checkDedup(
   const proposedUrls = new Set((proposal.urls_to_track ?? []).map((u) => u.trim()).filter(Boolean));
   if (proposedUrls.size > 0) {
     for (const m of active) {
-      const existing: string[] = m.urls_to_track ? safeParseJsonArray(m.urls_to_track) : [];
+      const existing: string[] = m.urls_to_track ? safeParseArray(m.urls_to_track) : [];
       const overlap = existing.filter((u) => proposedUrls.has(u));
       if (overlap.length > 0) {
         return {
@@ -149,7 +149,7 @@ export async function checkDedup(
   // happen to produce the same normalized (url_set + query) combination
   // but different names — e.g. agent reproposing a known monitor with a
   // reworded title. The indexed lookup is O(1).
-  const hashDup = get<{ id: string; name: string }>(
+  const hashDup = await get<{ id: string; name: string }>(
     'SELECT id, name FROM monitors WHERE project_id = ? AND status = ? AND dedup_hash = ? LIMIT 1',
     projectId, 'active', dedup_hash,
   );
@@ -196,13 +196,14 @@ export async function checkDedup(
   return { ok: true, dedup_hash, active_count: active.length };
 }
 
-function safeParseJsonArray(s: string): string[] {
-  try {
-    const v = JSON.parse(s);
-    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
-  } catch {
-    return [];
-  }
+/**
+ * Safely coerce a JSONB-returned value into a string[].
+ * postgres.js returns JSONB as already-parsed objects, so this handles
+ * both the case where it's already an array and edge cases.
+ */
+function safeParseArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val.filter((x) => typeof x === 'string');
+  return [];
 }
 
 const DEDUP_SYSTEM_PROMPT = `You compare a proposed startup monitor against existing active monitors to detect semantic overlap. Two monitors overlap if they fire on substantially the same underlying events.
@@ -242,7 +243,7 @@ async function runSemanticClassifier(
       name: m.name,
       kind: m.kind,
       query: m.query,
-      urls: m.urls_to_track ? safeParseJsonArray(m.urls_to_track) : [],
+      urls: m.urls_to_track ? safeParseArray(m.urls_to_track) : [],
     })),
   });
 

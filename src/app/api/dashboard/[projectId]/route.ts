@@ -22,27 +22,28 @@ export async function GET(
 ) {
   const { projectId } = await params;
 
-  const metrics = query<{ id: string; name: string; type: string; target_growth_rate: number }>(
+  const metrics = await query<{ id: string; name: string; type: string; target_growth_rate: number }>(
     'SELECT * FROM metrics WHERE project_id = ?', projectId,
   );
-  const metricsWithEntries = metrics.map(m => {
-    const entries = query<{ date: string; value: number; notes: string }>(
+  const metricsWithEntries = [];
+  for (const m of metrics) {
+    const entries = await query<{ date: string; value: number; notes: string }>(
       'SELECT date, value, notes FROM metric_entries WHERE metric_id = ? ORDER BY date DESC LIMIT 12',
       m.id,
     );
-    return { ...m, entries: entries.reverse() };
-  });
+    metricsWithEntries.push({ ...m, entries: entries.reverse() });
+  }
 
-  const burnRate = query<{ monthly_burn: number; cash_on_hand: number; updated_at: string }>(
+  const burnRate = await query<{ monthly_burn: number; cash_on_hand: number; updated_at: string }>(
     'SELECT * FROM burn_rate WHERE project_id = ?', projectId,
   );
 
-  const alerts = query(
-    'SELECT * FROM alerts WHERE project_id = ? AND dismissed = 0 ORDER BY created_at DESC LIMIT 20',
+  const alerts = await query(
+    'SELECT * FROM alerts WHERE project_id = ? AND dismissed = false ORDER BY created_at DESC LIMIT 20',
     projectId,
   );
 
-  const monitors = query(
+  const monitors = await query(
     'SELECT * FROM monitors WHERE project_id = ? ORDER BY created_at DESC',
     projectId,
   );
@@ -51,7 +52,7 @@ export async function GET(
 
   // Top ecosystem alerts (last 14 days, relevance >= 0.6, not dismissed).
   // The dashboard preview shows the top 5; the Brief has the full list.
-  const topEcosystemAlerts = query(
+  const topEcosystemAlerts = await query(
     `SELECT id, alert_type, headline, body, source_url, relevance_score, confidence, reviewed_state, created_at
      FROM ecosystem_alerts
      WHERE project_id = ?
@@ -66,7 +67,7 @@ export async function GET(
 
   // Pending decisions (top 5 pending or edited, ranked by created_at desc).
   // Full list lives in /actions inbox.
-  const pendingDecisions = query(
+  const pendingDecisions = await query(
     `SELECT id, action_type, title, rationale, estimated_impact, status, created_at
      FROM pending_actions
      WHERE project_id = ? AND status IN ('pending', 'edited')
@@ -78,7 +79,7 @@ export async function GET(
   );
 
   // Pending summary counts for a quick glance
-  const pendingSummaryRow = query<{ pending: number; edited: number; approved: number; sent_7d: number }>(
+  const pendingSummaryRow = (await query<{ pending: number; edited: number; approved: number; sent_7d: number }>(
     `SELECT
        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
        SUM(CASE WHEN status = 'edited' THEN 1 ELSE 0 END) as edited,
@@ -87,11 +88,11 @@ export async function GET(
      FROM pending_actions WHERE project_id = ?`,
     new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
     projectId,
-  )[0];
+  ))[0];
 
   // Current month budget + month-to-date spend
   const periodMonth = new Date().toISOString().slice(0, 7);
-  const budget = query<{
+  const budget = (await query<{
     current_llm_usd: number;
     warn_llm_usd: number;
     cap_llm_usd: number;
@@ -101,7 +102,7 @@ export async function GET(
      FROM project_budgets
      WHERE project_id = ? AND period_month = ?`,
     projectId, periodMonth,
-  )[0];
+  ))[0];
 
   return json({
     metrics: metricsWithEntries,

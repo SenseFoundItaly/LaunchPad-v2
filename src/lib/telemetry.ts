@@ -76,7 +76,7 @@ export async function traceLLMCall<T>(
       });
     }
 
-    logUsageToSQLite(
+    await logUsageToDb(
       ctx.projectId,
       ctx.skillId || null,
       ctx.step || null,
@@ -232,9 +232,9 @@ export function logToLangfuse(
 }
 
 // ---------------------------------------------------------------------------
-// logUsageToSQLite — persist to llm_usage_logs table
+// logUsageToDb — persist to llm_usage_logs table
 // ---------------------------------------------------------------------------
-export function logUsageToSQLite(
+export async function logUsageToDb(
   projectId: string,
   skillId: string | null,
   step: string | null,
@@ -243,10 +243,10 @@ export function logUsageToSQLite(
   usage: TokenUsage,
   cost: number,
   latencyMs: number,
-): void {
+): Promise<void> {
   try {
     const id = generateId('usg');
-    run(
+    await run(
       `INSERT INTO llm_usage_logs
         (id, project_id, skill_id, step, provider, model,
          input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
@@ -271,3 +271,6 @@ export function logUsageToSQLite(
     console.error('Failed to log LLM usage:', err);
   }
 }
+
+/** @deprecated Use logUsageToDb instead */
+export const logUsageToSQLite = logUsageToDb;

@@ -276,22 +276,25 @@ export function getEcosystemTemplate(type: EcosystemMonitorType): EcosystemMonit
 // Context loader — pulls project data into the prompt context
 // =============================================================================
 
-export function loadMonitorContext(projectId: string): MonitorPromptContext {
-  const project = query<{ id: string; name: string; description: string | null; locale: string | null }>(
+export async function loadMonitorContext(projectId: string): Promise<MonitorPromptContext> {
+  const projectRows = await query<{ id: string; name: string; description: string | null; locale: string | null }>(
     'SELECT id, name, description, locale FROM projects WHERE id = ?',
     projectId,
-  )[0];
+  );
+  const project = projectRows[0];
   if (!project) throw new Error(`Project not found: ${projectId}`);
 
-  const idea = query<Record<string, string | null>>(
+  const ideaRows = await query<Record<string, string | null>>(
     'SELECT problem, solution, target_market, value_proposition FROM idea_canvas WHERE project_id = ?',
     projectId,
-  )[0] || null;
+  );
+  const idea = ideaRows[0] || null;
 
-  const researchRow = query<{ competitors: string | null; trends: string | null }>(
+  const researchRows = await query<{ competitors: string | null; trends: string | null }>(
     'SELECT competitors, trends FROM research WHERE project_id = ?',
     projectId,
-  )[0];
+  );
+  const researchRow = researchRows[0];
 
   let research: MonitorPromptContext['research'] = null;
   const knownCompetitors: string[] = [];
@@ -311,11 +314,11 @@ export function loadMonitorContext(projectId: string): MonitorPromptContext {
     }
   }
 
-  const graphKeywords = query<{ name: string }>(
+  const graphKeywords = (await query<{ name: string }>(
     `SELECT name FROM graph_nodes WHERE project_id = ?
      AND node_type IN ('market_segment', 'technology', 'trend') LIMIT 10`,
     projectId,
-  ).map(r => r.name);
+  )).map(r => r.name);
 
   const locale: 'en' | 'it' = project.locale === 'it' ? 'it' : 'en';
 
@@ -340,16 +343,16 @@ export interface SeedResult {
   skipped: Array<{ type: EcosystemMonitorType; reason: string }>;
 }
 
-export function seedEcosystemMonitorsForProject(projectId: string): SeedResult {
+export async function seedEcosystemMonitorsForProject(projectId: string): Promise<SeedResult> {
   const result: SeedResult = { created: [], skipped: [] };
 
-  const existing = query<{ type: string }>(
+  const existing = await query<{ type: string }>(
     `SELECT type FROM monitors WHERE project_id = ? AND type LIKE 'ecosystem.%'`,
     projectId,
   );
   const existingTypes = new Set(existing.map(r => r.type));
 
-  const ctx = loadMonitorContext(projectId);
+  const ctx = await loadMonitorContext(projectId);
 
   for (const template of ECOSYSTEM_MONITOR_TEMPLATES) {
     if (existingTypes.has(template.type)) {
@@ -363,7 +366,7 @@ export function seedEcosystemMonitorsForProject(projectId: string): SeedResult {
     const name = ctx.locale === 'it' ? template.nameIt : template.name;
     const prompt = template.buildPrompt(ctx);
 
-    run(
+    await run(
       `INSERT INTO monitors (id, project_id, type, name, schedule, config, prompt, status, next_run, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
       id,

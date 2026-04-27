@@ -52,8 +52,8 @@ interface ScoreDelta {
  * `skillMapToday` is returned so the caller can reuse it as a baseline before
  * the stale-skill executor (Phase E) recomputes after a fresh rerun.
  */
-function computeScoreDelta(projectId: string): ScoreDelta {
-  const rows = query<SkillCompletionRow>(
+async function computeScoreDelta(projectId: string): Promise<ScoreDelta> {
+  const rows = await query<SkillCompletionRow>(
     'SELECT skill_id, summary, completed_at FROM skill_completions WHERE project_id = ?',
     projectId,
   );
@@ -133,7 +133,7 @@ async function proposeHeartbeatTasks(args: {
   alertHeadlines: string[];
   reflection: string;
 }): Promise<{ proposed: number; skipped_credits: boolean }> {
-  if (getCreditsRemaining(args.projectId) <= 0) {
+  if (await getCreditsRemaining(args.projectId) <= 0) {
     return { proposed: 0, skipped_credits: true };
   }
 
@@ -188,10 +188,10 @@ async function proposeHeartbeatTasks(args: {
     const title = (t.title || '').toString().trim();
     if (!title || title.length > 200) continue;
     if (existingTitleSet.has(title.toLowerCase())) continue;
-    if (getCreditsRemaining(args.projectId) <= 0) break;
+    if (await getCreditsRemaining(args.projectId) <= 0) break;
 
     const priority = normalizePriority(t.priority);
-    const action = createPendingAction({
+    const action = await createPendingAction({
       project_id: args.projectId,
       action_type: 'task',
       title: title.slice(0, 200),
@@ -205,7 +205,7 @@ async function proposeHeartbeatTasks(args: {
     });
 
     try {
-      recordEvent({
+      await recordEvent({
         userId: args.ownerUserId,
         projectId: args.projectId,
         eventType: 'task_proposed',
@@ -294,9 +294,9 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
   // Cost gate: autonomous cron runs are the #1 way a runaway project chews
   // through its monthly budget. Skip the monitor when the project is over
   // its cap so the overage doesn't grow unboundedly.
-  const capStatus = isProjectCapped(monitor.project_id);
+  const capStatus = await isProjectCapped(monitor.project_id);
   if (capStatus.capped) {
-    run(
+    await run(
       `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
        VALUES (?, ?, ?, 'skipped_budget', ?, 0, ?)`,
       runId, monitor.id, monitor.project_id,
@@ -305,16 +305,17 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
     );
     // Bump next_run so we don't just immediately retry on the next cron tick.
     const nextRun = calculateNextRun(monitor.schedule);
-    run('UPDATE monitors SET last_run = ?, next_run = ? WHERE id = ?', runAt, nextRun, monitor.id);
+    await run('UPDATE monitors SET last_run = ?, next_run = ? WHERE id = ?', runAt, nextRun, monitor.id);
     return { monitor_id: monitor.id, name: monitor.name, status: 'skipped_budget' };
   }
 
   // Resolve the project's locale so monitors running for Italian projects
   // get the Italian SOUL + AGENTS + HEARTBEAT in their system prompt.
-  const localeRow = query<{ locale: string | null }>(
+  const localeRows = await query<{ locale: string | null }>(
     'SELECT locale FROM projects WHERE id = ?',
     monitor.project_id,
-  )[0];
+  );
+  const localeRow = localeRows[0];
   const locale = localeRow?.locale === 'it' ? 'it' : 'en';
   const systemPrompt = buildSystemPromptString({
     locale,
@@ -346,14 +347,14 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
       console.warn('[cron] recordUsage failed:', (err as Error).message);
     }
 
-    run(
+    await run(
       `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
        VALUES (?, ?, ?, 'completed', ?, ?, ?)`,
       runId, monitor.id, monitor.project_id, result, 0, runAt,
     );
 
     const nextRun = calculateNextRun(monitor.schedule);
-    run(
+    await run(
       'UPDATE monitors SET last_run = ?, last_result = ?, next_run = ? WHERE id = ?',
       runAt, result.slice(0, 2000), nextRun, monitor.id,
     );
@@ -379,7 +380,7 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
           maxPendingActionsPerRun: 5,
         });
         // Update monitor_runs.alerts_generated to reflect structured alerts
-        run(
+        await run(
           'UPDATE monitor_runs SET alerts_generated = ? WHERE id = ?',
           persistResult.alerts_inserted, runId,
         );
@@ -401,9 +402,9 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
       severity = deriveSeverity(result);
     }
 
-    run(
+    await run(
       `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at)
-       VALUES (?, ?, ?, ?, ?, 0, ?)`,
+       VALUES (?, ?, ?, ?, ?, false, ?)`,
       alertId, monitor.project_id, monitor.type, severity, cleanMessage || 'Monitor completed', runAt,
     );
 
@@ -411,12 +412,13 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
     // buildMemoryContext() + the HEARTBEAT reflection include it automatically.
     // Non-fatal on failure.
     try {
-      const owner = query<{ owner_user_id: string | null }>(
+      const ownerRows = await query<{ owner_user_id: string | null }>(
         'SELECT owner_user_id FROM projects WHERE id = ?',
         monitor.project_id,
-      )[0];
+      );
+      const owner = ownerRows[0];
       if (owner?.owner_user_id) {
-        recordEvent({
+        await recordEvent({
           userId: owner.owner_user_id,
           projectId: monitor.project_id,
           eventType: 'monitor_alert',
@@ -444,7 +446,7 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
       parse_errors: parseErrors,
     };
   } catch (err) {
-    run(
+    await run(
       `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
        VALUES (?, ?, ?, 'failed', ?, 0, ?)`,
       runId, monitor.id, monitor.project_id, (err as Error).message.slice(0, 2000), runAt,
@@ -477,7 +479,7 @@ export async function GET(request: NextRequest) {
 
   // Find monitors that are due (skip if ran in last 5 minutes to prevent loops)
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-  const due = query<MonitorRow>(
+  const due = await query<MonitorRow>(
     `SELECT id, project_id, type, name, schedule, prompt FROM monitors WHERE status = 'active'
      AND schedule != 'manual'
      AND (last_run IS NULL OR last_run < ?)
@@ -499,7 +501,7 @@ export async function GET(request: NextRequest) {
   // 7 days so the Notifications tab doesn't accumulate forever. Cheap bulk
   // UPDATE; runs every 15 min but only flips rows that crossed the threshold
   // since the last tick.
-  const dismissedNotifications = dismissStaleNotifications();
+  const dismissedNotifications = await dismissStaleNotifications();
 
   return json({
     monitors_ran: monitorResults.length,
@@ -520,14 +522,14 @@ export async function GET(request: NextRequest) {
  * but respects the FSM: pending/edited → rejected is always legal. No row
  * executor gets invoked because notification-lane types don't have executors.
  */
-function dismissStaleNotifications(): number {
+async function dismissStaleNotifications(): Promise<number> {
   const notificationTypes = typesForLane('notification');
   if (notificationTypes.length === 0) return 0;
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const now = new Date().toISOString();
   const typePlaceholders = notificationTypes.map(() => '?').join(',');
 
-  const result = run(
+  const result = await run(
     `UPDATE pending_actions
      SET status = 'rejected',
          updated_at = ?,
@@ -539,11 +541,8 @@ function dismissStaleNotifications(): number {
     ...notificationTypes,
     sevenDaysAgo,
   );
-  // better-sqlite3's `run` returns {changes, lastInsertRowid}; guard against
-  // tests / mocks that return something else.
-  const changes = typeof (result as { changes?: number } | null)?.changes === 'number'
-    ? (result as { changes: number }).changes
-    : 0;
+  // postgres.js returns the affected rows as an array with a `.count` property.
+  const changes = (result as unknown as { count: number }).count ?? 0;
   if (changes > 0) {
     console.log(`[cron] auto-dismissed ${changes} stale notification(s) >7d`);
   }
@@ -586,12 +585,12 @@ async function executeStaleSkills(args: {
   scoreBefore: number;
   skillMapToday: Record<string, SkillData>;
 }): Promise<number> {
-  if (getCreditsRemaining(args.projectId) < SKILL_RERUN_MIN_CREDITS) {
+  if (await getCreditsRemaining(args.projectId) < SKILL_RERUN_MIN_CREDITS) {
     console.log(`[heartbeat] ${args.projectId}: skipping skill rerun — credits below ${SKILL_RERUN_MIN_CREDITS}`);
     return 0;
   }
 
-  const stale = findStaleSkills(args.projectId);
+  const stale = await findStaleSkills(args.projectId);
   if (stale.length === 0) return 0;
   const target = stale[0];
   const label = SKILL_LABELS[target.skill_id] || target.skill_id;
@@ -620,7 +619,7 @@ async function executeStaleSkills(args: {
   const scoreAfter = scoreOverall(skillMapAfter).score;
 
   try {
-    createPendingAction({
+    await createPendingAction({
       project_id: args.projectId,
       action_type: 'skill_rerun_result',
       title: `Refreshed ${label}: score ${args.scoreBefore.toFixed(1)} → ${scoreAfter.toFixed(1)}`,
@@ -654,7 +653,7 @@ async function executeStaleSkills(args: {
 async function processHeartbeats(): Promise<HeartbeatResult[]> {
   const results: HeartbeatResult[] = [];
 
-  const projects = query<{
+  const projects = await query<{
     id: string; name: string; owner_user_id: string | null; locale: string | null;
   }>(
     `SELECT p.id, p.name, p.owner_user_id, p.locale
@@ -669,7 +668,7 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
     if (!project.owner_user_id) continue;
 
     // Skip if a heartbeat has already fired in the last 24h.
-    const recent = query<{ id: string }>(
+    const recent = await query<{ id: string }>(
       `SELECT id FROM memory_events
        WHERE user_id = ? AND project_id = ?
          AND event_type = 'heartbeat_reflection'
@@ -683,7 +682,7 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
     }
 
     // Cost gate.
-    const capStatus = isProjectCapped(project.id);
+    const capStatus = await isProjectCapped(project.id);
     if (capStatus.capped) {
       results.push({ project_id: project.id, project_name: project.name, status: 'skipped_budget' });
       continue;
@@ -693,14 +692,14 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
       // Compose the heartbeat prompt: HEARTBEAT.md describes the 6-step
       // reflection. Memory context + pending + alerts give the agent the
       // facts it needs without burning tokens on re-fetching everything.
-      const memCtx = buildMemoryContext(project.owner_user_id, project.id, { maxEvents: 30 });
-      const pending = query<{ id: string; title: string; status: string; created_at: string }>(
+      const memCtx = await buildMemoryContext(project.owner_user_id, project.id, { maxEvents: 30 });
+      const pending = await query<{ id: string; title: string; status: string; created_at: string }>(
         `SELECT id, title, status, created_at FROM pending_actions
          WHERE project_id = ? AND status = 'pending'
          ORDER BY created_at DESC LIMIT 10`,
         project.id,
       );
-      const alerts = query<{ headline: string; relevance_score: number; created_at: string }>(
+      const alerts = await query<{ headline: string; relevance_score: number; created_at: string }>(
         `SELECT headline, relevance_score, created_at FROM ecosystem_alerts
          WHERE project_id = ? AND reviewed_state = 'pending'
          ORDER BY relevance_score DESC LIMIT 10`,
@@ -711,7 +710,7 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
 
       // Phase D: prepend a one-line score delta so the reflection narrates
       // *why* readiness moved instead of generic "good progress" prose.
-      const scoreDelta = computeScoreDelta(project.id);
+      const scoreDelta = await computeScoreDelta(project.id);
 
       const systemPrompt = buildSystemPromptString({
         locale,
@@ -745,7 +744,7 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
         console.warn('[heartbeat] recordUsage failed:', (err as Error).message);
       }
 
-      recordEvent({
+      await recordEvent({
         userId: project.owner_user_id,
         projectId: project.id,
         eventType: 'heartbeat_reflection',
@@ -865,7 +864,7 @@ export async function POST(request: NextRequest) {
     params.push(new Date(Date.now() - 5 * 60 * 1000).toISOString());
   }
 
-  const monitors = query<MonitorRow>(
+  const monitors = await query<MonitorRow>(
     `SELECT id, project_id, type, name, schedule, prompt FROM monitors WHERE ${conditions.join(' AND ')}`,
     ...params,
   );

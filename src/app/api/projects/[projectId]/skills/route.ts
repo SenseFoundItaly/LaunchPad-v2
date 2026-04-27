@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
-  const rows = query(
+  const rows = await query(
     'SELECT * FROM skill_completions WHERE project_id = ? ORDER BY completed_at DESC',
     projectId,
   );
@@ -26,7 +26,7 @@ export async function POST(
   if (!body?.skill_id) return error('skill_id required');
 
   const id = generateId('skc');
-  run(
+  await run(
     `INSERT INTO skill_completions (id, project_id, skill_id, status, summary, completed_at)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(project_id, skill_id) DO UPDATE SET
@@ -45,12 +45,12 @@ export async function POST(
   // memory context see "skill X completed Yh ago" without extra plumbing.
   // Non-fatal — a broken event write must not block the completion write.
   try {
-    const owner = get<{ owner_user_id: string | null }>(
+    const owner = await get<{ owner_user_id: string | null }>(
       'SELECT owner_user_id FROM projects WHERE id = ?',
       projectId,
     );
     if (owner?.owner_user_id) {
-      recordEvent({
+      await recordEvent({
         userId: owner.owner_user_id,
         projectId,
         eventType: 'skill_completed',

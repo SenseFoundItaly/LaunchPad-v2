@@ -22,7 +22,7 @@ interface ActionRow {
   project_id: string;
   title: string;
   rationale: string | null;
-  payload: string | null;
+  payload: Record<string, unknown> | null;
   action_type: string;
   status: string;
   sources: string | null;
@@ -62,7 +62,7 @@ export async function GET(
   const statusPlaceholders = statuses.map(() => '?').join(',');
   const typePlaceholders = notificationTypes.map(() => '?').join(',');
 
-  const rows = query<ActionRow>(
+  const rows = await query<ActionRow>(
     `SELECT id, project_id, title, rationale, payload, action_type, status, sources,
             created_at, updated_at
      FROM pending_actions
@@ -83,7 +83,7 @@ export async function GET(
     rationale: r.rationale,
     action_type: r.action_type,
     status: r.status,
-    payload: safeJson<Record<string, unknown>>(r.payload) || {},
+    payload: r.payload || {},
     sources: safeJson<unknown[]>(r.sources) || [],
     created_at: r.created_at,
     updated_at: r.updated_at,

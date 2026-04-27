@@ -30,10 +30,10 @@ export async function GET(
   const weeksBack = Math.max(1, Math.min(8, parseInt(url.searchParams.get('weeks_back') || '1', 10) || 1));
   const relevanceCutoff = Math.max(0, Math.min(1, parseFloat(url.searchParams.get('relevance_cutoff') || '0.6')));
 
-  const project = query<{ id: string; name: string; locale: string | null }>(
+  const project = (await query<{ id: string; name: string; locale: string | null }>(
     'SELECT id, name, locale FROM projects WHERE id = ?',
     projectId,
-  )[0];
+  ))[0];
   if (!project) return error('Project not found', 404);
 
   const locale: 'en' | 'it' = project.locale === 'it' ? 'it' : 'en';
@@ -41,7 +41,7 @@ export async function GET(
   const weekStart = mondayOfThisWeek().toISOString().slice(0, 10);
 
   // Ecosystem alerts (above cutoff, not dismissed)
-  const ecosystemRaw = query<Record<string, unknown>>(
+  const ecosystemRaw = await query<Record<string, unknown>>(
     `SELECT * FROM ecosystem_alerts
      WHERE project_id = ?
        AND created_at >= ?
@@ -54,22 +54,22 @@ export async function GET(
   const ecosystemAlerts: EcosystemAlert[] = ecosystemRaw.map(rowToEcosystemAlert);
 
   // Pending actions requiring decision
-  const decisionsNeeded = listPendingActions({
+  const decisionsNeeded = await listPendingActions({
     project_id: projectId,
     status: ['pending', 'edited'],
     limit: 20,
   });
 
   // Actions already taken this period (approved or sent)
-  const actionsTaken = listPendingActions({
+  const actionsTaken = (await listPendingActions({
     project_id: projectId,
     status: ['approved', 'sent'],
     limit: 15,
-  }).filter(a => a.updated_at >= periodStart);
+  })).filter(a => a.updated_at >= periodStart);
 
   // Operational alerts (existing `alerts` table — metric-health, growth-loop, fundraising)
-  const operationalRaw = query<Record<string, unknown>>(
-    `SELECT * FROM alerts WHERE project_id = ? AND dismissed = 0 AND created_at >= ?
+  const operationalRaw = await query<Record<string, unknown>>(
+    `SELECT * FROM alerts WHERE project_id = ? AND dismissed = false AND created_at >= ?
      ORDER BY
        CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
        created_at DESC
@@ -78,7 +78,7 @@ export async function GET(
   );
   const operationalAlerts: Alert[] = operationalRaw.map(rowToAlert);
 
-  const summary = inboxSummary(projectId);
+  const summary = await inboxSummary(projectId);
 
   // Deterministic section builders — LLM personality voice is added in Phase 1
   const sections: MondayBriefSection[] = [
@@ -143,8 +143,8 @@ function buildMovementsSection(
 }
 
 function buildDecisionsSection(
-  decisions: ReturnType<typeof listPendingActions>,
-  summary: ReturnType<typeof inboxSummary>,
+  decisions: Awaited<ReturnType<typeof listPendingActions>>,
+  summary: Awaited<ReturnType<typeof inboxSummary>>,
   locale: 'en' | 'it',
 ): MondayBriefSection | null {
   if (decisions.length === 0) return null;
@@ -169,7 +169,7 @@ function buildDecisionsSection(
 }
 
 function buildActionsTakenSection(
-  actions: ReturnType<typeof listPendingActions>,
+  actions: Awaited<ReturnType<typeof listPendingActions>>,
   locale: 'en' | 'it',
 ): MondayBriefSection | null {
   if (actions.length === 0) return null;

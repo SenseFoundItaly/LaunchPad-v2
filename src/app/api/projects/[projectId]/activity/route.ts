@@ -61,11 +61,6 @@ interface MonitorRunRow {
   run_at: string;
 }
 
-function safeJson<T>(s: string | null | undefined): T | null {
-  if (!s) return null;
-  try { return JSON.parse(s) as T; } catch { return null; }
-}
-
 function chatLabel(role: string, content: string): { tag: ActivityTag; label: string } {
   const trimmed = content.replace(/:::artifact[\s\S]*?:::/g, '').trim();
   const head = trimmed.slice(0, 100);
@@ -81,7 +76,7 @@ export async function GET(
   const url = new URL(request.url);
   const since = url.searchParams.get('since');
 
-  const project = get<{ id: string }>('SELECT id FROM projects WHERE id = ?', projectId);
+  const project = await get<{ id: string }>('SELECT id FROM projects WHERE id = ?', projectId);
   if (!project) return error('Project not found', 404);
 
   const sinceClause = since ? 'AND created_at > ?' : '';
@@ -91,7 +86,7 @@ export async function GET(
   // chat_messages
   const chatParams: unknown[] = [projectId];
   if (since) chatParams.push(since);
-  const chats = query<ChatRow>(
+  const chats = await query<ChatRow>(
     `SELECT id, role, content, timestamp
      FROM chat_messages
      WHERE project_id = ? ${sinceTsClause}
@@ -102,7 +97,7 @@ export async function GET(
   // pending_actions (split into TASK / DRAFT by action_type)
   const paParams: unknown[] = [projectId];
   if (since) paParams.push(since);
-  const actions = query<PendingRow>(
+  const actions = await query<PendingRow>(
     `SELECT id, action_type, title, priority, payload, created_at
      FROM pending_actions
      WHERE project_id = ? ${sinceClause}
@@ -113,7 +108,7 @@ export async function GET(
   // ecosystem_alerts
   const alertParams: unknown[] = [projectId];
   if (since) alertParams.push(since);
-  const alerts = query<AlertRow>(
+  const alerts = await query<AlertRow>(
     `SELECT id, headline, body, source_url, relevance_score, created_at
      FROM ecosystem_alerts
      WHERE project_id = ? ${sinceClause}
@@ -124,7 +119,7 @@ export async function GET(
   // memory_events (CEO heartbeat reflection + task proposals)
   const memParams: unknown[] = [projectId];
   if (since) memParams.push(since);
-  const memEvents = query<MemEventRow>(
+  const memEvents = await query<MemEventRow>(
     `SELECT id, event_type, payload, created_at
      FROM memory_events
      WHERE project_id = ?
@@ -137,7 +132,7 @@ export async function GET(
   // monitor_runs — join to monitors for name/type
   const runParams: unknown[] = [projectId];
   if (since) runParams.push(since);
-  const runs = query<MonitorRunRow>(
+  const runs = await query<MonitorRunRow>(
     `SELECT mr.id, mr.status, mr.summary, mr.alerts_generated,
             m.name as monitor_name, m.type as monitor_type, mr.run_at
      FROM monitor_runs mr
@@ -167,7 +162,7 @@ export async function GET(
     else if (isSkillRerun) tag = 'AGENT';
     else tag = 'DRAFT';
     const pri = a.priority ? ` (${a.priority})` : '';
-    const payload = safeJson<{ source?: string; summary_preview?: string }>(a.payload);
+    const payload = a.payload as unknown as { source?: string; summary_preview?: string } | null;
     let label: string;
     if (isTask) {
       label = `Created task: ${a.title}${pri}`;
@@ -204,7 +199,7 @@ export async function GET(
 
   for (const m of memEvents) {
     if (m.event_type === 'heartbeat_reflection') {
-      const payload = safeJson<{ summary?: string; pending_count?: number; alerts_count?: number }>(m.payload);
+      const payload = m.payload as unknown as { summary?: string; pending_count?: number; alerts_count?: number } | null;
       const counts = payload
         ? `${payload.pending_count ?? 0} pending · ${payload.alerts_count ?? 0} alerts`
         : '';
@@ -216,7 +211,7 @@ export async function GET(
         body: payload?.summary?.slice(0, 220),
       });
     } else {
-      const payload = safeJson<{ title?: string; priority?: string }>(m.payload);
+      const payload = m.payload as unknown as { title?: string; priority?: string } | null;
       const pri = payload?.priority ? ` (${payload.priority})` : '';
       events.push({
         id: `mem:${m.id}`,

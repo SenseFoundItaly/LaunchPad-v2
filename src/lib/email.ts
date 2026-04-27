@@ -43,9 +43,10 @@ export interface SendResult {
  * Supabase auth round-trip is in place).
  */
 export async function sendBrief(input: BriefEmailInput): Promise<SendResult> {
-  const user = query<{ email: string | null }>(
+  const rows = await query<{ email: string | null }>(
     'SELECT email FROM users WHERE id = ?', input.userId,
-  )[0];
+  );
+  const user = rows[0];
   const to = user?.email ?? null;
 
   if (!to) {

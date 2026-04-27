@@ -5,24 +5,6 @@ import { listEvents } from './events';
 /**
  * buildMemoryContext — produces the structured "what the agent knows about
  * this (user, project)" block that gets prepended to the system prompt.
- *
- * Read order (priority, most important first):
- *   1. Project snapshot (name, description, stage, latest score) — stable
- *      facts the agent should always have top-of-mind.
- *   2. Top curated facts (memory_facts) — durable knowledge + preferences,
- *      ordered by recency of update, filtered to non-dismissed.
- *   3. Recent timeline (memory_events, last 15) — "what happened" signal for
- *      topicality.
- *   4. Knowledge graph summary — node counts + top-weighted edges. Today the
- *      graph is write-only; this is its first retrieval surface.
- *   5. Completed skills summary — preserved from pre-memory chat behavior.
- *
- * Returns a single string ready to be concatenated into systemPrompt.
- *
- * Caching: this is called on every chat turn. The hot paths are indexed:
- *   - idx_memory_facts_user_project(user_id, project_id, dismissed, updated_at)
- *   - idx_memory_events_user_project(user_id, project_id, created_at)
- * All SELECTs return in <1ms at realistic sizes.
  */
 
 export interface MemoryContextOptions {
@@ -31,11 +13,11 @@ export interface MemoryContextOptions {
   maxGraphNodes?: number;
 }
 
-export function buildMemoryContext(
+export async function buildMemoryContext(
   userId: string,
   projectId: string,
   opts: MemoryContextOptions = {},
-): string {
+): Promise<string> {
   const { maxFacts = 20, maxEvents = 15, maxGraphNodes = 10 } = opts;
 
   const parts: string[] = [];
@@ -43,7 +25,7 @@ export function buildMemoryContext(
   parts.push('');
 
   // 1. Project snapshot
-  const project = get<{
+  const project = await get<{
     name: string; description: string; status: string;
     current_step: number; locale: string;
   }>(
@@ -59,7 +41,7 @@ export function buildMemoryContext(
     parts.push('');
   }
 
-  const score = get<{ overall_score: number; recommendation: string }>(
+  const score = await get<{ overall_score: number; recommendation: string }>(
     'SELECT overall_score, recommendation FROM scores WHERE project_id = ?',
     projectId,
   );
@@ -70,7 +52,7 @@ export function buildMemoryContext(
   }
 
   // 2. Curated facts (decisions + observations + notes + preferences)
-  const facts = listFacts(userId, projectId, { limit: maxFacts });
+  const facts = await listFacts(userId, projectId, { limit: maxFacts });
   if (facts.length > 0) {
     parts.push('## Curated facts');
     for (const f of facts) {
@@ -81,7 +63,7 @@ export function buildMemoryContext(
   }
 
   // 3. Recent timeline
-  const events = listEvents(userId, projectId, { limit: maxEvents });
+  const events = await listEvents(userId, projectId, { limit: maxEvents });
   if (events.length > 0) {
     parts.push('## Recent activity (most recent first)');
     for (const e of events) {
@@ -92,7 +74,7 @@ export function buildMemoryContext(
   }
 
   // 4. Knowledge graph summary
-  const graphSummary = summarizeGraph(projectId, maxGraphNodes);
+  const graphSummary = await summarizeGraph(projectId, maxGraphNodes);
   if (graphSummary) {
     parts.push('## Knowledge graph');
     parts.push(graphSummary);
@@ -100,7 +82,7 @@ export function buildMemoryContext(
   }
 
   // 5. Completed skills
-  const skills = query<{ skill_id: string; summary: string; completed_at: string }>(
+  const skills = await query<{ skill_id: string; summary: string; completed_at: string }>(
     `SELECT skill_id, summary, completed_at FROM skill_completions
      WHERE project_id = ? AND status = 'completed' ORDER BY completed_at DESC LIMIT 10`,
     projectId,
@@ -132,14 +114,14 @@ function summarizeEvent(type: string, payload: unknown): string {
   return JSON.stringify(payload).slice(0, 160);
 }
 
-function summarizeGraph(projectId: string, maxNodes: number): string | null {
-  const nodeCounts = query<{ node_type: string; count: number }>(
+async function summarizeGraph(projectId: string, maxNodes: number): Promise<string | null> {
+  const nodeCounts = await query<{ node_type: string; count: number }>(
     'SELECT node_type, COUNT(*) as count FROM graph_nodes WHERE project_id = ? GROUP BY node_type',
     projectId,
   );
   if (nodeCounts.length === 0) return null;
 
-  const topEdges = query<{
+  const topEdges = await query<{
     source_name: string; target_name: string; relation: string; weight: number;
   }>(
     `SELECT s.name as source_name, t.name as target_name, e.relation, e.weight

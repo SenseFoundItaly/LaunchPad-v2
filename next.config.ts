@@ -9,7 +9,6 @@ const nextConfig: NextConfig = {
   // streams on chat turns (the runAgentStream path). The non-streaming
   // runAgent path tolerates it; streaming does not.
   serverExternalPackages: [
-    "better-sqlite3",
     "ws",
     "@mariozechner/pi-ai",
     "@mariozechner/pi-agent-core",

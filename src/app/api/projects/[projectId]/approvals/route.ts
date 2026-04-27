@@ -33,11 +33,6 @@ interface ActionRow {
 
 const VALID_STATUSES = new Set(['pending', 'edited', 'approved', 'sent', 'rejected', 'failed']);
 
-function safeJson<T>(s: string | null | undefined): T | null {
-  if (!s) return null;
-  try { return JSON.parse(s) as T; } catch { return null; }
-}
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
@@ -57,7 +52,7 @@ export async function GET(
   const statusPlaceholders = statuses.map(() => '?').join(',');
   const typePlaceholders = approvalTypes.map(() => '?').join(',');
 
-  const rows = query<ActionRow>(
+  const rows = await query<ActionRow>(
     `SELECT id, project_id, title, rationale, payload, action_type, status, sources,
             estimated_impact, created_at, updated_at
      FROM pending_actions
@@ -86,8 +81,8 @@ export async function GET(
     action_type: r.action_type,
     estimated_impact: r.estimated_impact,
     status: r.status,
-    payload: safeJson<Record<string, unknown>>(r.payload) || {},
-    sources: safeJson<unknown[]>(r.sources) || [],
+    payload: r.payload || {},
+    sources: r.sources || [],
     created_at: r.created_at,
     updated_at: r.updated_at,
   }));

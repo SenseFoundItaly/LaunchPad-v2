@@ -36,12 +36,12 @@ export interface CapturedWorkflow {
  * Returns the created plan_id + pending_action_ids so the caller can surface
  * them in logs / the stream done frame if desired.
  */
-export function captureWorkflow(input: {
+export async function captureWorkflow(input: {
   userId: string;
   projectId: string;
   artifact: WorkflowCard;
   chatTurnPreview?: string;
-}): CapturedWorkflow | null {
+}): Promise<CapturedWorkflow | null> {
   const { userId, projectId, artifact } = input;
   if (!artifact.title || !Array.isArray(artifact.steps) || artifact.steps.length === 0) {
     return null;
@@ -56,7 +56,7 @@ export function captureWorkflow(input: {
       : null;
 
   try {
-    run(
+    await run(
       `INSERT INTO workflow_plans (id, project_id, name, description, steps, status, current_step, sources)
        VALUES (?, ?, ?, ?, ?, 'proposed', 0, ?)`,
       planId,
@@ -75,9 +75,10 @@ export function captureWorkflow(input: {
   // individually in the existing approval inbox. Rationale + payload carry
   // enough context for the UI to render without a join back to workflow_plans.
   const actionIds: string[] = [];
-  artifact.steps.forEach((stepText, idx) => {
+  for (let idx = 0; idx < artifact.steps.length; idx++) {
+    const stepText = artifact.steps[idx];
     try {
-      const created = createPendingAction({
+      const created = await createPendingAction({
         project_id: projectId,
         action_type: 'workflow_step',
         title: `Step ${idx + 1} of "${artifact.title}": ${stepText.slice(0, 80)}`,
@@ -100,14 +101,14 @@ export function captureWorkflow(input: {
     } catch (err) {
       console.warn(`[workflow-capture] step ${idx} pending_action failed:`, (err as Error).message);
     }
-  });
+  }
 
   // Memory: both a fact (durable, "the agent proposed X") and an event
   // (timeline). The fact has higher confidence because it's a concrete
   // proposal, not a guess. Fires outside the try so a failed persistence
   // above still traces.
   try {
-    recordFact({
+    await recordFact({
       userId,
       projectId,
       fact: `Agent proposed workflow "${artifact.title}" (${artifact.steps.length} steps, category: ${artifact.category ?? 'general'})`,
@@ -116,7 +117,7 @@ export function captureWorkflow(input: {
       sourceId: planId,
       confidence: 0.85,
     });
-    recordEvent({
+    await recordEvent({
       userId,
       projectId,
       eventType: 'workflow_proposed',

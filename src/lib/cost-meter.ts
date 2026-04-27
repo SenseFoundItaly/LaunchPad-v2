@@ -48,7 +48,7 @@ export interface RecordUsageResult {
  * Safe to call with undefined usage — we no-op in that case rather than
  * throw. This guards the path where Pi Agent emits done without usage.
  */
-export function recordUsage(input: RecordUsageInput): RecordUsageResult | null {
+export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageResult | null> {
   if (!input.usage) return null;
 
   const costUsd = extractCost(input.usage);
@@ -58,7 +58,7 @@ export function recordUsage(input: RecordUsageInput): RecordUsageResult | null {
   const cacheRead = extractTokens(input.usage, 'cacheRead');
 
   const logId = generateId('llmlg');
-  run(
+  await run(
     `INSERT INTO llm_usage_logs
        (id, project_id, skill_id, step, provider, model,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
@@ -79,11 +79,11 @@ export function recordUsage(input: RecordUsageInput): RecordUsageResult | null {
   );
 
   const periodMonth = currentPeriodMonth();
-  const budget = upsertMonthlyBudget(input.project_id, periodMonth, costUsd);
+  const budget = await upsertMonthlyBudget(input.project_id, periodMonth, costUsd);
 
   const crossedWarn = didCrossWarn(input.project_id, periodMonth, budget, costUsd);
   if (crossedWarn) {
-    maybeEmitBudgetWarning(input.project_id, periodMonth, budget);
+    await maybeEmitBudgetWarning(input.project_id, periodMonth, budget);
   }
 
   // Mirror the call into Langfuse so cron/manual monitor runs appear in the
@@ -164,14 +164,14 @@ export class BudgetExceededError extends Error {
  *
  * This is the Phase-1 hard-block gate. Phase 0 used only observe + warn.
  */
-export function isProjectCapped(projectId: string): {
+export async function isProjectCapped(projectId: string): Promise<{
   capped: boolean;
   currentUsd: number;
   capUsd: number;
   periodMonth: string;
-} {
+}> {
   const periodMonth = currentPeriodMonth();
-  const row = query<{
+  const row = (await query<{
     current_llm_usd: number;
     cap_llm_usd: number;
     status: string;
@@ -181,7 +181,7 @@ export function isProjectCapped(projectId: string): {
      WHERE project_id = ? AND period_month = ?`,
     projectId,
     periodMonth,
-  )[0];
+  ))[0];
 
   if (!row) {
     // No budget row yet this month — not capped.
@@ -202,12 +202,12 @@ export function isProjectCapped(projectId: string): {
  * for call sites that want a single-line guard. Pass bypassBudget=true to
  * skip the check (admin / system tasks).
  */
-export function enforceBudget(
+export async function enforceBudget(
   projectId: string,
   bypassBudget = false,
-): void {
+): Promise<void> {
   if (bypassBudget) return;
-  const status = isProjectCapped(projectId);
+  const status = await isProjectCapped(projectId);
   if (status.capped) {
     throw new BudgetExceededError(
       projectId,
@@ -226,15 +226,15 @@ interface BudgetSnapshot {
   status: string;
 }
 
-function upsertMonthlyBudget(
+async function upsertMonthlyBudget(
   projectId: string,
   periodMonth: string,
   costDelta: number,
-): BudgetSnapshot {
+): Promise<BudgetSnapshot> {
   // ON CONFLICT DO UPDATE accumulates current_llm_usd. UNIQUE(project_id,
-  // period_month) constraint makes this atomic in SQLite.
+  // period_month) constraint makes this atomic in PostgreSQL.
   const budgetId = generateId('bud');
-  run(
+  await run(
     `INSERT INTO project_budgets
        (id, project_id, period_month, current_llm_usd, status)
      VALUES (?, ?, ?, ?, 'active')
@@ -247,7 +247,7 @@ function upsertMonthlyBudget(
     costDelta,
   );
 
-  const rows = query<BudgetSnapshot>(
+  const rows = await query<BudgetSnapshot>(
     `SELECT id, current_llm_usd, warn_llm_usd, cap_llm_usd, status
      FROM project_budgets
      WHERE project_id = ? AND period_month = ?`,
@@ -257,8 +257,8 @@ function upsertMonthlyBudget(
 }
 
 function didCrossWarn(
-  projectId: string,
-  periodMonth: string,
+  _projectId: string,
+  _periodMonth: string,
   budget: BudgetSnapshot,
   costDelta: number,
 ): boolean {
@@ -268,12 +268,12 @@ function didCrossWarn(
   return before < budget.warn_llm_usd && budget.current_llm_usd >= budget.warn_llm_usd;
 }
 
-function maybeEmitBudgetWarning(projectId: string, periodMonth: string, budget: BudgetSnapshot): void {
+async function maybeEmitBudgetWarning(projectId: string, periodMonth: string, budget: BudgetSnapshot): Promise<void> {
   // Only one warning alert per (project, month) — silently no-op if already issued.
-  const existing = query<{ c: number }>(
+  const existing = await query<{ c: number }>(
     `SELECT COUNT(*) as c FROM alerts
      WHERE project_id = ? AND type = 'budget_warning'
-       AND created_at >= ? AND dismissed = 0`,
+       AND created_at >= ? AND dismissed = false`,
     projectId,
     `${periodMonth}-01T00:00:00.000Z`,
   );
@@ -282,9 +282,9 @@ function maybeEmitBudgetWarning(projectId: string, periodMonth: string, budget: 
   const alertId = generateId('alrt');
   const pct = ((budget.current_llm_usd / budget.cap_llm_usd) * 100).toFixed(0);
   const msg = `LLM budget for ${periodMonth} at ${pct}% of cap ($${budget.current_llm_usd.toFixed(3)} / $${budget.cap_llm_usd.toFixed(2)}). Observe-only for now — no calls blocked.`;
-  run(
+  await run(
     `INSERT INTO alerts (id, project_id, type, severity, message, dismissed)
-     VALUES (?, ?, 'budget_warning', 'warning', ?, 0)`,
+     VALUES (?, ?, 'budget_warning', 'warning', ?, false)`,
     alertId, projectId, msg,
   );
 }

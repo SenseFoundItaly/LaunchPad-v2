@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const projects = query<{ id: string; name: string; description: string }>(
+  const projects = await query<{ id: string; name: string; description: string }>(
     'SELECT id, name, description FROM projects WHERE id = ?', project_id
   );
   if (projects.length === 0) {
@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
   // (or an admin has flipped status=capped), refuse before spending.
   // Critical safety rail because skills auto-invocation (below) can fan
   // out a single chat turn into multiple LLM calls.
-  const capStatus = isProjectCapped(project_id);
+  const capStatus = await isProjectCapped(project_id);
   if (capStatus.capped) {
     return new Response(
       JSON.stringify({
@@ -229,14 +229,14 @@ export async function POST(request: NextRequest) {
   // Memory context — curated facts + recent events + graph summary + completed
   // skills — lets the agent remember across sessions AND across chat "steps"
   // within a project (see sessionId change below).
-  const memoryContext = buildMemoryContext(userId, project_id);
+  const memoryContext = await buildMemoryContext(userId, project_id);
 
   // Build system prompt: SOUL + AGENTS personality first (locale-aware),
   // then ARTIFACT_INSTRUCTIONS, then per-project context + memory + recently-
   // completed skill summaries. SOUL/AGENTS were previously missing from the
   // chat path — they're now loaded from agents/*.md (or .it.md).
-  const locale = resolveProjectLocale(project_id, query);
-  const skillContext = buildCompletedSkillContext(project_id, lastMessage);
+  const locale = await resolveProjectLocale(project_id, query);
+  const skillContext = await buildCompletedSkillContext(project_id, lastMessage);
   const systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
@@ -328,7 +328,7 @@ export async function POST(request: NextRequest) {
         }
         controller.enqueue(chunk);
       },
-      flush() {
+      async flush() {
         const latencyMs = Date.now() - piStart;
         // Pull the actual provider+model from the router so the logged slug
         // reflects reality (direct Anthropic vs OpenRouter). Falls back to
@@ -337,7 +337,7 @@ export async function POST(request: NextRequest) {
         const piProvider = picked.provider;
         const piModel = picked.model;
         const usage = { output_tokens: 0 };
-        logUsageToSQLite(project_id, null, step, piProvider, piModel, usage, 0, latencyMs);
+        await logUsageToSQLite(project_id, null, step, piProvider, piModel, usage, 0, latencyMs);
         logToLangfuse(
           { projectId: project_id, step, provider: piProvider as 'anthropic' | 'openai' | 'openrouter', model: piModel },
           usage, 0, latencyMs,
@@ -354,14 +354,14 @@ export async function POST(request: NextRequest) {
         // works on the visible prose too. Non-fatal on failure.
         try {
           const now = new Date().toISOString();
-          run(
+          await run(
             `INSERT INTO chat_messages (id, project_id, step, role, content, timestamp, user_id)
              VALUES (?, ?, ?, 'user', ?, ?, ?)`,
             `msg_${crypto.randomUUID().slice(0, 12)}`,
             project_id, step, lastMessage, now, userId,
           );
           if (fullResponse.trim().length > 0) {
-            run(
+            await run(
               `INSERT INTO chat_messages (id, project_id, step, role, content, timestamp, user_id)
                VALUES (?, ?, ?, 'assistant', ?, ?, ?)`,
               `msg_${crypto.randomUUID().slice(0, 12)}`,
@@ -375,7 +375,7 @@ export async function POST(request: NextRequest) {
         // Memory: chat_turn event + fact artifact extraction.
         // Wrapped in try so memory failures never break the stream response.
         try {
-          recordEvent({
+          await recordEvent({
             userId,
             projectId: project_id,
             eventType: 'chat_turn',
@@ -396,7 +396,7 @@ export async function POST(request: NextRequest) {
           const rejected = segments.filter((s) => s.type === 'artifact-error');
           if (rejected.length > 0) {
             try {
-              recordEvent({
+              await recordEvent({
                 userId,
                 projectId: project_id,
                 eventType: 'artifact_rejected_no_sources',
@@ -423,7 +423,7 @@ export async function POST(request: NextRequest) {
             if (seg.artifact.type === 'fact') {
               const f = seg.artifact as FactArtifact;
               if (f.fact && typeof f.fact === 'string') {
-                recordFact({
+                await recordFact({
                   userId,
                   projectId: project_id,
                   fact: f.fact,
@@ -449,7 +449,7 @@ export async function POST(request: NextRequest) {
               // upserts to graph_nodes / scores / research / pending_actions
               // as appropriate so the canvas data survives page refreshes
               // and populates the graph + dashboard views.
-              const persistResult = persistArtifact({ userId, projectId: project_id }, seg.artifact);
+              const persistResult = await persistArtifact({ userId, projectId: project_id }, seg.artifact);
               if (!persistResult.persisted && persistResult.note === 'out of credits') {
                 console.warn(`[chat] dropped ${seg.artifact.type} artifact: out of credits`);
               }
@@ -474,7 +474,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Fallback: direct LLM (works without Pi Agent SDK)
-  const fullMessages = buildDirectMessages(project_id, step, messages);
+  const fullMessages = await buildDirectMessages(project_id, step, messages);
   const directStart = Date.now();
   let directResponseLen = 0;
   let directResponseText = '';
@@ -492,7 +492,7 @@ export async function POST(request: NextRequest) {
           ? (process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514')
           : (process.env.OPENAI_MODEL || 'gpt-4o');
         const dUsage = { output_tokens: Math.round(directResponseLen / 4) };
-        logUsageToSQLite(project_id, null, step, provider, model, dUsage, 0, latencyMs);
+        await logUsageToSQLite(project_id, null, step, provider, model, dUsage, 0, latencyMs);
         logToLangfuse(
           { projectId: project_id, step, provider: provider as 'anthropic' | 'openai', model },
           dUsage, 0, latencyMs,
@@ -519,17 +519,17 @@ export async function POST(request: NextRequest) {
   });
 }
 
-function buildDirectMessages(projectId: string, step: string, messages: { role: string; content: string }[]) {
+async function buildDirectMessages(projectId: string, step: string, messages: { role: string; content: string }[]) {
   let systemPrompt = STEP_SYSTEM_PROMPTS[step] || STEP_SYSTEM_PROMPTS['chat'];
 
-  const projectRows = query<{ name: string; description: string }>(
+  const projectRows = await query<{ name: string; description: string }>(
     'SELECT name, description FROM projects WHERE id = ?', projectId
   );
   if (projectRows.length > 0) {
     systemPrompt += `\n\nProject: "${projectRows[0].name}"${projectRows[0].description ? ` — ${projectRows[0].description}` : ''}`;
   }
 
-  const ideaRows = query('SELECT * FROM idea_canvas WHERE project_id = ?', projectId);
+  const ideaRows = await query('SELECT * FROM idea_canvas WHERE project_id = ?', projectId);
   if (ideaRows.length > 0) {
     systemPrompt += `\n\nCurrent Idea Canvas:\n${JSON.stringify(ideaRows[0], null, 2)}`;
   }
@@ -541,7 +541,7 @@ function buildDirectMessages(projectId: string, step: string, messages: { role: 
 }
 
 /** Build context from completed skills to inject into skill kickoff prompts */
-function buildCompletedSkillContext(projectId: string, message: string): string {
+async function buildCompletedSkillContext(projectId: string, message: string): Promise<string> {
   // Only inject for skill kickoff messages
   // Lazy require keeps stages out of the top-level import graph (avoids a
   // server-only cycle). Cast back to the typed signature exported by stages.ts
@@ -550,7 +550,7 @@ function buildCompletedSkillContext(projectId: string, message: string): string 
   const isKickoff = Object.values(SKILL_KICKOFFS).some((k) => message.includes(k));
   if (!isKickoff) return '';
 
-  const completions = query<{ skill_id: string; summary: string; completed_at: string }>(
+  const completions = await query<{ skill_id: string; summary: string; completed_at: string }>(
     'SELECT skill_id, summary, completed_at FROM skill_completions WHERE project_id = ? AND status = ?',
     projectId, 'completed',
   );

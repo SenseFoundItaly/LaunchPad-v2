@@ -95,8 +95,8 @@ export interface StaleSkill {
  * Return skills in the safe-rerun whitelist that are either never-run or
  * older than STALE_DAYS, ordered with never-run first then oldest first.
  */
-export function findStaleSkills(projectId: string): StaleSkill[] {
-  const rows = query<{ skill_id: string; completed_at: string | null }>(
+export async function findStaleSkills(projectId: string): Promise<StaleSkill[]> {
+  const rows = await query<{ skill_id: string; completed_at: string | null }>(
     'SELECT skill_id, completed_at FROM skill_completions WHERE project_id = ?',
     projectId,
   );
@@ -151,7 +151,7 @@ export interface RunSkillResult {
  *   1. Load SKILL.md body as system prompt.
  *   2. Run a single Pi Agent turn with the kickoff prompt.
  *   3. Persist artifacts via persistArtifact (routes gauge-chart → scores,
- *      research-summary → research, etc.).
+ *      research-summary → research.competitors, etc.).
  *   4. UPSERT skill_completions row.
  *   5. Emit memory_event(skill_completed) for the timeline.
  *
@@ -215,7 +215,7 @@ export async function runSkill(
     const segments = parseMessageContent(text);
     for (const seg of segments) {
       if (seg.type !== 'artifact') continue;
-      const result = persistArtifact({ userId: opts.ownerUserId, projectId }, seg.artifact);
+      const result = await persistArtifact({ userId: opts.ownerUserId, projectId }, seg.artifact);
       if (result.persisted) artifactsPersisted++;
     }
   } catch (err) {
@@ -224,7 +224,7 @@ export async function runSkill(
 
   // UPSERT skill_completions — same shape as the POST /skills route.
   const completedAt = new Date().toISOString();
-  run(
+  await run(
     `INSERT INTO skill_completions (id, project_id, skill_id, status, summary, completed_at)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(project_id, skill_id) DO UPDATE SET

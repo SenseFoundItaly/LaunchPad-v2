@@ -55,11 +55,11 @@ export async function POST(
   }
 
   // Load the project to ensure ownership + grab context for the prompt.
-  const project = get<{
+  const project = await get<{
     id: string; name: string; description: string; current_step: number;
     owner_user_id: string | null; org_id: string | null;
   }>(
-    'SELECT id, name, description, current_step, owner_user_id, org_id FROM projects WHERE id = ?',
+    'SELECT id, name, description, current_step, owner_user_id, org_id FROM projects WHERE id = $1',
     projectId,
   );
   if (!project) return error('Project not found', 404);
@@ -78,8 +78,8 @@ export async function POST(
   }
 
   // Pull any existing score dimensions so the auditor has scoring context.
-  const score = get<{ overall_score: number; dimensions: string }>(
-    'SELECT overall_score, dimensions FROM scores WHERE project_id = ?',
+  const score = await get<{ overall_score: number; dimensions: string }>(
+    'SELECT overall_score, dimensions FROM scores WHERE project_id = $1',
     projectId,
   );
 
@@ -131,24 +131,24 @@ export async function POST(
 
   // Upsert into simulation.risk_scenarios (preserves any existing personas).
   try {
-    const existing = get<{ project_id: string }>('SELECT project_id FROM simulation WHERE project_id = ?', projectId);
+    const existing = await get<{ project_id: string }>('SELECT project_id FROM simulation WHERE project_id = $1', projectId);
     if (existing) {
-      run(
-        'UPDATE simulation SET risk_scenarios = ?, scenario_sources = COALESCE(?, scenario_sources), simulated_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+      await run(
+        'UPDATE simulation SET risk_scenarios = $1, scenario_sources = COALESCE($2, scenario_sources), simulated_at = CURRENT_TIMESTAMP WHERE project_id = $3',
         JSON.stringify(audit),
         flatSourcesJson,
         projectId,
       );
     } else {
-      run(
-        'INSERT INTO simulation (project_id, risk_scenarios, scenario_sources) VALUES (?, ?, ?)',
+      await run(
+        'INSERT INTO simulation (project_id, risk_scenarios, scenario_sources) VALUES ($1, $2, $3)',
         projectId,
         JSON.stringify(audit),
         flatSourcesJson,
       );
     }
 
-    recordEvent({
+    await recordEvent({
       userId,
       projectId,
       eventType: 'skill_completed',
@@ -180,18 +180,14 @@ export async function GET(
     throw e;
   }
 
-  const row = get<{ risk_scenarios: string | null; simulated_at: string }>(
-    'SELECT risk_scenarios, simulated_at FROM simulation WHERE project_id = ?',
+  const row = await get<{ risk_scenarios: string | null; simulated_at: string }>(
+    'SELECT risk_scenarios, simulated_at FROM simulation WHERE project_id = $1',
     projectId,
   );
   if (!row || !row.risk_scenarios) return error('No risk audit yet', 404);
 
-  let audit: unknown = null;
-  try {
-    audit = JSON.parse(row.risk_scenarios);
-  } catch {
-    return error('Stored risk audit is malformed', 500);
-  }
+  // risk_scenarios is JSONB — postgres.js returns it already parsed
+  const audit: unknown = row.risk_scenarios;
 
   return json({ audit, generated_at: row.simulated_at });
 }

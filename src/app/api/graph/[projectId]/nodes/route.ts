@@ -13,31 +13,29 @@ export async function POST(
     return error('name and node_type are required');
   }
 
-  const rows = query('SELECT id FROM projects WHERE id = ?', projectId);
+  const rows = await query('SELECT id FROM projects WHERE id = $1', projectId);
   if (rows.length === 0) {return error('Project not found', 404);}
 
   // UPSERT: check for existing node with same name + project_id
-  const existing = get(
-    'SELECT * FROM graph_nodes WHERE project_id = ? AND name = ?',
+  const existing = await get(
+    'SELECT * FROM graph_nodes WHERE project_id = $1 AND name = $2',
     projectId,
     body.name,
   );
 
   if (existing) {
     // Update existing node
-    run(
-      `UPDATE graph_nodes SET node_type = ?, summary = ?, attributes = ? WHERE id = ?`,
+    await run(
+      `UPDATE graph_nodes SET node_type = $1, summary = $2, attributes = $3 WHERE id = $4`,
       body.node_type,
       body.summary || existing.summary || '',
       JSON.stringify(body.attributes || {}),
       existing.id,
     );
-    const updated = get('SELECT * FROM graph_nodes WHERE id = ?', existing.id);
+    const updated = await get('SELECT * FROM graph_nodes WHERE id = $1', existing.id);
     return json({
       ...updated,
-      attributes: typeof updated!.attributes === 'string'
-        ? JSON.parse(updated!.attributes)
-        : (updated!.attributes || {}),
+      attributes: updated!.attributes || {},
     });
   }
 
@@ -45,9 +43,9 @@ export async function POST(
   const id = generateId('gn');
   const now = new Date().toISOString();
 
-  run(
+  await run(
     `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     id,
     projectId,
     body.name,
@@ -57,11 +55,9 @@ export async function POST(
     now,
   );
 
-  const created = get('SELECT * FROM graph_nodes WHERE id = ?', id);
+  const created = await get('SELECT * FROM graph_nodes WHERE id = $1', id);
   return json({
     ...created,
-    attributes: typeof created!.attributes === 'string'
-      ? JSON.parse(created!.attributes)
-      : (created!.attributes || {}),
+    attributes: created!.attributes || {},
   }, 201);
 }

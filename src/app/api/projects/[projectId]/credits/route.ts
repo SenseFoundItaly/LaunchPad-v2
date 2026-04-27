@@ -15,7 +15,7 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
-  const project = get<{ id: string }>('SELECT id FROM projects WHERE id = ?', projectId);
+  const project = await get<{ id: string }>('SELECT id FROM projects WHERE id = ?', projectId);
   if (!project) return error('Project not found', 404);
-  return json(getCreditsSnapshot(projectId));
+  return json(await getCreditsSnapshot(projectId));
 }

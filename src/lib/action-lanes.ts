@@ -3,8 +3,8 @@
  *
  * Pure-function module. NO `@/lib/db` import — safe to consume from client
  * components (e.g. /project/[id]/actions/page.tsx). The earlier home for this
- * was `@/lib/pending-actions`, but that file imports better-sqlite3, which
- * blows up Turbopack's client bundle with `Module not found: Can't resolve 'fs'`.
+ * was `@/lib/pending-actions`, but that file imports server-only DB code which
+ * blows up Turbopack's client bundle.
  *
  * Server-side callers (API routes, cron) continue to import these symbols
  * from `@/lib/pending-actions` via re-export, so this split is invisible to

@@ -24,19 +24,19 @@ export async function POST(
     return json({ id: 'skipped', source: body.source_node_id, target: body.target_node_id, relation: body.relation, label: '', weight: 1.0 });
   }
 
-  const rows = query('SELECT id FROM projects WHERE id = ?', projectId);
+  const rows = await query('SELECT id FROM projects WHERE id = $1', projectId);
   if (rows.length === 0) {return error('Project not found', 404);}
 
   // Verify both nodes exist
-  const srcNode = get('SELECT id FROM graph_nodes WHERE id = ?', body.source_node_id);
-  const tgtNode = get('SELECT id FROM graph_nodes WHERE id = ?', body.target_node_id);
+  const srcNode = await get('SELECT id FROM graph_nodes WHERE id = $1', body.source_node_id);
+  const tgtNode = await get('SELECT id FROM graph_nodes WHERE id = $1', body.target_node_id);
   if (!srcNode || !tgtNode) {
     return json({ id: 'skipped', source: body.source_node_id, target: body.target_node_id, relation: body.relation, label: '', weight: 1.0 });
   }
 
   // Check for duplicate
-  const existing = get(
-    'SELECT * FROM graph_edges WHERE project_id = ? AND source_node_id = ? AND target_node_id = ? AND relation = ?',
+  const existing = await get(
+    'SELECT * FROM graph_edges WHERE project_id = $1 AND source_node_id = $2 AND target_node_id = $3 AND relation = $4',
     projectId, body.source_node_id, body.target_node_id, body.relation,
   );
 
@@ -49,14 +49,14 @@ export async function POST(
 
   try {
     const id = generateId('ge');
-    run(
+    await run(
       `INSERT INTO graph_edges (id, project_id, source_node_id, target_node_id, relation, label, weight, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       id, projectId, body.source_node_id, body.target_node_id,
       body.relation, body.label || '', body.weight ?? 1.0, new Date().toISOString(),
     );
 
-    const created = get('SELECT * FROM graph_edges WHERE id = ?', id);
+    const created = await get('SELECT * FROM graph_edges WHERE id = $1', id);
     return json({
       id: created!.id, source: created!.source_node_id, target: created!.target_node_id,
       relation: created!.relation, label: created!.label, weight: created!.weight,

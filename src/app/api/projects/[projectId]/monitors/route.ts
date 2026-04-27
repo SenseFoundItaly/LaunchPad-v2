@@ -39,7 +39,7 @@ export async function GET(
     throw e;
   }
 
-  const project = get<{ id: string; org_id: string | null }>(
+  const project = await get<{ id: string; org_id: string | null }>(
     'SELECT id, org_id FROM projects WHERE id = ?',
     projectId,
   );
@@ -48,7 +48,7 @@ export async function GET(
     return json({ error: 'Forbidden' }, 403);
   }
 
-  const monitors = query<MonitorRow>(
+  const monitors = await query<MonitorRow>(
     `SELECT id, project_id, type, name, schedule, config, prompt, status,
             last_run, last_result, next_run, created_at
      FROM monitors WHERE project_id = ? ORDER BY created_at ASC`,
@@ -58,7 +58,7 @@ export async function GET(
   return json(
     monitors.map((m) => ({
       ...m,
-      config: m.config ? JSON.parse(m.config) : null,
+      config: m.config ? m.config : null,
     })),
   );
 }

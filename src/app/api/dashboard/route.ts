@@ -13,13 +13,13 @@ export async function GET() {
   }
 
   // Projects the user has access to (via org membership).
-  const projects = query<{
+  const projects = await query<{
     id: string; name: string; description: string; status: string;
     current_step: number; created_at: string;
   }>('SELECT * FROM projects WHERE org_id = ? ORDER BY created_at DESC', orgId);
 
   // Per-project skill counts
-  const skillCounts = query<{ project_id: string; count: number }>(
+  const skillCounts = await query<{ project_id: string; count: number }>(
     `SELECT project_id, COUNT(*) as count FROM skill_completions
      WHERE status = 'completed' GROUP BY project_id`
   );
@@ -27,19 +27,19 @@ export async function GET() {
   for (const s of skillCounts) skillMap[s.project_id] = s.count;
 
   // Recent alerts across all projects (last 20)
-  const alerts = query<{
+  const alerts = await query<{
     id: string; project_id: string; type: string; severity: string;
     message: string; created_at: string;
   }>(
     `SELECT a.id, a.project_id, a.type, a.severity, a.message, a.created_at
-     FROM alerts a WHERE a.dismissed = 0
+     FROM alerts a WHERE a.dismissed = false
      ORDER BY a.created_at DESC LIMIT 20`
   );
 
   // Weekly alert counts per project
-  const weeklyAlerts = query<{ project_id: string; count: number }>(
+  const weeklyAlerts = await query<{ project_id: string; count: number }>(
     `SELECT project_id, COUNT(*) as count FROM alerts
-     WHERE created_at > datetime('now', '-7 days') AND dismissed = 0
+     WHERE created_at > NOW() - INTERVAL '7 days' AND dismissed = false
      GROUP BY project_id`
   );
   const weeklyMap: Record<string, number> = {};

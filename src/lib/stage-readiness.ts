@@ -40,7 +40,7 @@ export interface ProjectReadiness {
   stages: StageReadiness[];
   /**
    * The first missing skill from the lowest-numbered stage that is not yet
-   * GO (≥6.0). The agent should push THIS skill in its option-set until
+   * GO (>=6.0). The agent should push THIS skill in its option-set until
    * the stage clears. Null when every stage is GO+.
    */
   next_recommended_skill: (SkillDef & { stage_number: number; stage_name: string; kickoff: string }) | null;
@@ -49,8 +49,8 @@ export interface ProjectReadiness {
 type CompletionRow = { skill_id: string; status: string | null; summary: string | null; completed_at: string | null };
 
 /** Build a SkillData map from skill_completions rows — server mirror of useSkillStatus. */
-export function buildSkillMap(projectId: string): Record<string, SkillData> {
-  const rows = query<CompletionRow>(
+export async function buildSkillMap(projectId: string): Promise<Record<string, SkillData>> {
+  const rows = await query<CompletionRow>(
     `SELECT skill_id, status, summary, completed_at
        FROM skill_completions
       WHERE project_id = ?`,
@@ -94,8 +94,8 @@ function verdictFromScore(score: number): StageReadiness['verdict'] {
  * which skill to push next. The agent's option-set generator reads this
  * via get_project_summary.
  */
-export function getStageReadiness(projectId: string): ProjectReadiness {
-  const skillMap = buildSkillMap(projectId);
+export async function getStageReadiness(projectId: string): Promise<ProjectReadiness> {
+  const skillMap = await buildSkillMap(projectId);
   const overall = scoreOverall(skillMap);
 
   const stages: StageReadiness[] = STAGES.map((stage) => {

@@ -8,16 +8,16 @@ export async function GET(
 ) {
   const { projectId } = await params;
 
-  const rows = query('SELECT id FROM projects WHERE id = ?', projectId);
+  const rows = await query('SELECT id FROM projects WHERE id = $1', projectId);
   if (rows.length === 0) {return error('Project not found', 404);}
 
-  const nodes = query('SELECT * FROM graph_nodes WHERE project_id = ? ORDER BY created_at', projectId);
-  const edges = query('SELECT * FROM graph_edges WHERE project_id = ? ORDER BY created_at', projectId);
+  const nodes = await query('SELECT * FROM graph_nodes WHERE project_id = $1 ORDER BY created_at', projectId);
+  const edges = await query('SELECT * FROM graph_edges WHERE project_id = $1 ORDER BY created_at', projectId);
 
-  // Parse JSON attributes for each node
+  // attributes is JSONB — postgres.js returns it already parsed
   const parsedNodes = nodes.map((n: Record<string, unknown>) => ({
     ...n,
-    attributes: typeof n.attributes === 'string' ? JSON.parse(n.attributes) : (n.attributes || {}),
+    attributes: n.attributes || {},
   }));
 
   // Map edge fields to match GraphEdge interface (source/target instead of source_node_id/target_node_id)

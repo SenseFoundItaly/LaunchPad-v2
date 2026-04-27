@@ -24,11 +24,11 @@ export async function POST(request: NextRequest) {
   const { project_id, step = 'chat', messages = [] } = body;
 
   // Replace: delete existing then insert current set
-  run('DELETE FROM chat_messages WHERE project_id = ? AND step = ?', project_id, step);
+  await run('DELETE FROM chat_messages WHERE project_id = ? AND step = ?', project_id, step);
 
   for (const msg of messages) {
     const id = generateId('msg');
-    run(
+    await run(
       `INSERT INTO chat_messages (id, project_id, step, role, content, timestamp)
        VALUES (?, ?, ?, ?, ?, ?)`,
       id,

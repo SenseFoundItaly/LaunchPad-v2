@@ -20,7 +20,9 @@ interface MonitorConfigProps {
 }
 
 export default function MonitorConfig({ monitor, projectId, onClose, onSave, onDelete }: MonitorConfigProps) {
-  const config = monitor.config ? JSON.parse(monitor.config) : {};
+  const config = monitor.config
+    ? (typeof monitor.config === 'string' ? JSON.parse(monitor.config) : monitor.config)
+    : {};
 
   const [schedule, setSchedule] = useState(monitor.schedule || 'weekly');
   const [prompt, setPrompt] = useState(monitor.prompt || '');

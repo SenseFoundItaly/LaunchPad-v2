@@ -32,7 +32,7 @@ type Params = { params: Promise<{ projectId: string; monitorId: string }> };
 export async function POST(_request: NextRequest, { params }: Params) {
   const { projectId, monitorId } = await params;
 
-  const monitors = query<Record<string, unknown>>(
+  const monitors = await query<Record<string, unknown>>(
     'SELECT * FROM monitors WHERE id = ? AND project_id = ?',
     monitorId, projectId,
   );
@@ -46,10 +46,10 @@ export async function POST(_request: NextRequest, { params }: Params) {
 
   // Locale-aware system prompt: Italian SOUL + AGENTS for IT projects, falls
   // back to English when .it.md is missing. Matches the cron route.
-  const localeRow = query<{ locale: string | null }>(
+  const localeRow = (await query<{ locale: string | null }>(
     'SELECT locale FROM projects WHERE id = ?',
     projectId,
-  )[0];
+  ))[0];
   const locale = localeRow?.locale === 'it' ? 'it' : 'en';
   const systemPrompt = buildSystemPromptString({
     locale,
@@ -116,14 +116,14 @@ export async function POST(_request: NextRequest, { params }: Params) {
 
             // 2. monitor_runs row (pre-fill alerts_generated=0, bump below
             // if ecosystem parsing succeeds)
-            run(
+            await run(
               `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
                VALUES (?, ?, ?, 'completed', ?, 0, ?)`,
               runId, monitorId, projectId, fullResponse, now,
             );
 
             const nextRun = calculateNextRun(schedule);
-            run(
+            await run(
               'UPDATE monitors SET last_run = ?, last_result = ?, next_run = ? WHERE id = ?',
               now, fullResponse.slice(0, 2000), nextRun, monitorId,
             );
@@ -149,7 +149,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
                 });
                 ecosystemAlertsInserted = persistResult.alerts_inserted;
                 pendingActionsCreated = persistResult.pending_actions_created;
-                run(
+                await run(
                   'UPDATE monitor_runs SET alerts_generated = ? WHERE id = ?',
                   ecosystemAlertsInserted, runId,
                 );
@@ -167,21 +167,21 @@ export async function POST(_request: NextRequest, { params }: Params) {
             else if (ecosystemAlertsInserted > 0) severity = 'info';
             else severity = deriveSeverity(fullResponse);
 
-            run(
+            await run(
               `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at)
-               VALUES (?, ?, ?, ?, ?, 0, ?)`,
+               VALUES (?, ?, ?, ?, ?, false, ?)`,
               alertId, projectId, monitorType, severity, cleanMessage || 'Monitor completed', now,
             );
 
             // Memory: record monitor outcome for the project owner's timeline.
             // Non-fatal on failure.
             try {
-              const owner = query<{ owner_user_id: string | null }>(
+              const owner = (await query<{ owner_user_id: string | null }>(
                 'SELECT owner_user_id FROM projects WHERE id = ?',
                 projectId,
-              )[0];
+              ))[0];
               if (owner?.owner_user_id) {
-                recordEvent({
+                await recordEvent({
                   userId: owner.owner_user_id,
                   projectId,
                   eventType: 'monitor_alert',

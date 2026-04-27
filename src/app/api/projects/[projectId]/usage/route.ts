@@ -33,7 +33,7 @@ export async function GET(
   if (!projectId) return error('projectId is required');
 
   // Recent logs (last 100)
-  const logs = query<UsageRow>(
+  const logs = await query<UsageRow>(
     `SELECT * FROM llm_usage_logs
      WHERE project_id = ?
      ORDER BY created_at DESC
@@ -42,7 +42,7 @@ export async function GET(
   );
 
   // Aggregations
-  const totals = query<{
+  const totals = await query<{
     total_cost: number;
     total_input: number;
     total_output: number;
@@ -63,7 +63,7 @@ export async function GET(
   );
 
   // Per-skill breakdown
-  const bySkill = query<SkillCost>(
+  const bySkill = await query<SkillCost>(
     `SELECT
        COALESCE(skill_id, step, 'unknown') AS skill_id,
        COALESCE(SUM(total_cost_usd), 0) AS total_cost,

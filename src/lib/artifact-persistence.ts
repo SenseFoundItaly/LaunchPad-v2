@@ -66,27 +66,27 @@ export interface PersistResult {
   note?: string;
 }
 
-export function persistArtifact(ctx: PersistContext, artifact: Artifact): PersistResult {
+export async function persistArtifact(ctx: PersistContext, artifact: Artifact): Promise<PersistResult> {
   try {
     switch (artifact.type) {
       case 'entity-card':
-        return persistEntityCard(ctx, artifact as EntityCard);
+        return await persistEntityCard(ctx, artifact as EntityCard);
       case 'insight-card':
-        return persistInsightCard(ctx, artifact as InsightCard);
+        return await persistInsightCard(ctx, artifact as InsightCard);
       case 'gauge-chart':
-        return persistGaugeChart(ctx, artifact as GaugeChartArtifact);
+        return await persistGaugeChart(ctx, artifact as GaugeChartArtifact);
       case 'radar-chart':
-        return persistRadarChart(ctx, artifact as RadarChartArtifact);
+        return await persistRadarChart(ctx, artifact as RadarChartArtifact);
       case 'score-card':
-        return persistScoreCard(ctx, artifact as ScoreCardArtifact);
+        return await persistScoreCard(ctx, artifact as ScoreCardArtifact);
       case 'metric-grid':
-        return persistMetricGrid(ctx, artifact as MetricGrid);
+        return await persistMetricGrid(ctx, artifact as MetricGrid);
       case 'comparison-table':
-        return persistComparisonTable(ctx, artifact as ComparisonTable);
+        return await persistComparisonTable(ctx, artifact as ComparisonTable);
       case 'action-suggestion':
-        return persistActionSuggestion(ctx, artifact as ActionSuggestion);
+        return await persistActionSuggestion(ctx, artifact as ActionSuggestion);
       case 'task':
-        return persistTask(ctx, artifact as TaskArtifact);
+        return await persistTask(ctx, artifact as TaskArtifact);
       default:
         return { type: artifact.type, persisted: false, note: 'no handler' };
     }
@@ -98,11 +98,11 @@ export function persistArtifact(ctx: PersistContext, artifact: Artifact): Persis
 
 // ─── entity-card → graph_nodes + graph_edges ─────────────────────────────────
 
-function persistEntityCard(ctx: PersistContext, a: EntityCard): PersistResult {
+async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<PersistResult> {
   if (!a.name) return { type: a.type, persisted: false, note: 'missing name' };
 
   // Dedup by (project_id, lower(name)) — agent may mention same entity across turns.
-  const existing = get<{ id: string }>(
+  const existing = await get<{ id: string }>(
     'SELECT id FROM graph_nodes WHERE project_id = ? AND LOWER(name) = LOWER(?) LIMIT 1',
     ctx.projectId,
     a.name,
@@ -114,7 +114,7 @@ function persistEntityCard(ctx: PersistContext, a: EntityCard): PersistResult {
     // COALESCE keeps prior sources when the update carries none — the parser
     // guarantees factual artifacts arrive with sources, so this is mostly
     // a safety net against future relaxation of the rule.
-    run(
+    await run(
       'UPDATE graph_nodes SET summary = ?, attributes = ?, sources = COALESCE(?, sources) WHERE id = ?',
       a.summary ?? '',
       JSON.stringify(a.attributes ?? {}),
@@ -125,7 +125,7 @@ function persistEntityCard(ctx: PersistContext, a: EntityCard): PersistResult {
   }
 
   const id = `node_${crypto.randomUUID().slice(0, 12)}`;
-  run(
+  await run(
     `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     id,
@@ -141,13 +141,13 @@ function persistEntityCard(ctx: PersistContext, a: EntityCard): PersistResult {
   // is derived from entity_type for a little semantic colour on the graph.
   // Edge inherits the entity-card's sources — same provenance justifies
   // both the node's existence and the relationship claim.
-  const root = get<{ id: string }>(
+  const root = await get<{ id: string }>(
     "SELECT id FROM graph_nodes WHERE project_id = ? AND node_type = 'your_startup' LIMIT 1",
     ctx.projectId,
   );
   if (root) {
     const relation = relationForEntityType(a.entity_type);
-    run(
+    await run(
       `INSERT INTO graph_edges (id, project_id, source_node_id, target_node_id, relation, sources)
        VALUES (?, ?, ?, ?, ?, ?)`,
       `edge_${crypto.randomUUID().slice(0, 12)}`,
@@ -176,7 +176,7 @@ function relationForEntityType(t: string | undefined): string {
 
 // ─── insight-card → memory_facts ─────────────────────────────────────────────
 
-function persistInsightCard(ctx: PersistContext, a: InsightCard): PersistResult {
+async function persistInsightCard(ctx: PersistContext, a: InsightCard): Promise<PersistResult> {
   const title = (a.title ?? '').trim();
   const body = (a.body ?? '').trim();
   if (!title && !body) return { type: a.type, persisted: false, note: 'empty insight' };
@@ -188,7 +188,7 @@ function persistInsightCard(ctx: PersistContext, a: InsightCard): PersistResult 
     a.confidence === 'low' ? 0.5 :
     0.75;
 
-  recordFact({
+  await recordFact({
     userId: ctx.userId,
     projectId: ctx.projectId,
     fact,
@@ -207,20 +207,20 @@ function persistInsightCard(ctx: PersistContext, a: InsightCard): PersistResult 
 
 // ─── gauge-chart → scores.overall_score + benchmark ──────────────────────────
 
-function persistGaugeChart(ctx: PersistContext, a: GaugeChartArtifact): PersistResult {
+async function persistGaugeChart(ctx: PersistContext, a: GaugeChartArtifact): Promise<PersistResult> {
   if (typeof a.score !== 'number') return { type: a.type, persisted: false, note: 'non-numeric score' };
 
   const normalizedScore = a.maxScore && a.maxScore > 0 ? (a.score * 10) / a.maxScore : a.score;
   const benchmark = a.verdict ?? null;
   const srcJson = sourcesJson(a.sources);
 
-  const existing = get<{ project_id: string }>(
+  const existing = await get<{ project_id: string }>(
     'SELECT project_id FROM scores WHERE project_id = ?',
     ctx.projectId,
   );
 
   if (existing) {
-    run(
+    await run(
       'UPDATE scores SET overall_score = ?, benchmark = COALESCE(?, benchmark), sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
       normalizedScore,
       benchmark,
@@ -228,7 +228,7 @@ function persistGaugeChart(ctx: PersistContext, a: GaugeChartArtifact): PersistR
       ctx.projectId,
     );
   } else {
-    run(
+    await run(
       'INSERT INTO scores (project_id, overall_score, benchmark, dimensions, sources) VALUES (?, ?, ?, ?, ?)',
       ctx.projectId,
       normalizedScore,
@@ -243,7 +243,7 @@ function persistGaugeChart(ctx: PersistContext, a: GaugeChartArtifact): PersistR
 
 // ─── radar-chart → scores.dimensions (merged JSON) ───────────────────────────
 
-function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): PersistResult {
+async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Promise<PersistResult> {
   if (!Array.isArray(a.data) || a.data.length === 0) {
     return { type: a.type, persisted: false, note: 'no data points' };
   }
@@ -258,7 +258,7 @@ function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): PersistR
     return { type: a.type, persisted: false, note: 'no usable points' };
   }
 
-  const existing = get<{ dimensions: string | null }>(
+  const existing = await get<{ dimensions: Record<string, unknown> | null }>(
     'SELECT dimensions FROM scores WHERE project_id = ?',
     ctx.projectId,
   );
@@ -266,16 +266,16 @@ function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): PersistR
   const srcJson = sourcesJson(a.sources);
 
   if (existing) {
-    const prior = safeJson(existing.dimensions) || {};
+    const prior = (existing.dimensions as Record<string, unknown> | null) || {};
     const merged = { ...prior, ...incoming };
-    run(
+    await run(
       'UPDATE scores SET dimensions = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
       JSON.stringify(merged),
       srcJson,
       ctx.projectId,
     );
   } else {
-    run(
+    await run(
       'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, 0, ?, ?)',
       ctx.projectId,
       JSON.stringify(incoming),
@@ -288,28 +288,28 @@ function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): PersistR
 
 // ─── score-card → scores.dimensions (single key) ─────────────────────────────
 
-function persistScoreCard(ctx: PersistContext, a: ScoreCardArtifact): PersistResult {
+async function persistScoreCard(ctx: PersistContext, a: ScoreCardArtifact): Promise<PersistResult> {
   if (typeof a.score !== 'number' || !a.title) {
     return { type: a.type, persisted: false, note: 'missing title or score' };
   }
 
-  const existing = get<{ dimensions: string | null }>(
+  const existing = await get<{ dimensions: Record<string, unknown> | null }>(
     'SELECT dimensions FROM scores WHERE project_id = ?',
     ctx.projectId,
   );
-  const prior = existing ? (safeJson(existing.dimensions) || {}) : {};
+  const prior = existing ? ((existing.dimensions as Record<string, unknown> | null) || {}) : {};
   const merged = { ...prior, [a.title]: a.score };
   const srcJson = sourcesJson(a.sources);
 
   if (existing) {
-    run(
+    await run(
       'UPDATE scores SET dimensions = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
       JSON.stringify(merged),
       srcJson,
       ctx.projectId,
     );
   } else {
-    run(
+    await run(
       'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, 0, ?, ?)',
       ctx.projectId,
       JSON.stringify(merged),
@@ -322,7 +322,7 @@ function persistScoreCard(ctx: PersistContext, a: ScoreCardArtifact): PersistRes
 
 // ─── metric-grid → research.market_size (when market-themed) ─────────────────
 
-function persistMetricGrid(ctx: PersistContext, a: MetricGrid): PersistResult {
+async function persistMetricGrid(ctx: PersistContext, a: MetricGrid): Promise<PersistResult> {
   if (!Array.isArray(a.metrics) || a.metrics.length === 0) {
     return { type: a.type, persisted: false, note: 'no metrics' };
   }
@@ -341,7 +341,7 @@ function persistMetricGrid(ctx: PersistContext, a: MetricGrid): PersistResult {
     return acc;
   }, {});
 
-  const existing = get<{ project_id: string }>(
+  const existing = await get<{ project_id: string }>(
     'SELECT project_id FROM research WHERE project_id = ?',
     ctx.projectId,
   );
@@ -349,14 +349,14 @@ function persistMetricGrid(ctx: PersistContext, a: MetricGrid): PersistResult {
   const srcJson = sourcesJson(a.sources);
 
   if (existing) {
-    run(
+    await run(
       'UPDATE research SET market_size = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
       JSON.stringify({ ...marketData, _title: a.title }),
       srcJson,
       ctx.projectId,
     );
   } else {
-    run(
+    await run(
       'INSERT INTO research (project_id, market_size, sources) VALUES (?, ?, ?)',
       ctx.projectId,
       JSON.stringify({ ...marketData, _title: a.title }),
@@ -369,7 +369,7 @@ function persistMetricGrid(ctx: PersistContext, a: MetricGrid): PersistResult {
 
 // ─── comparison-table → research.competitors (when competitor-themed) ────────
 
-function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): PersistResult {
+async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): Promise<PersistResult> {
   if (!Array.isArray(a.rows) || !Array.isArray(a.columns)) {
     return { type: a.type, persisted: false, note: 'malformed table' };
   }
@@ -389,21 +389,21 @@ function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): Persis
     }, {}),
   }));
 
-  const existing = get<{ project_id: string }>(
+  const existing = await get<{ project_id: string }>(
     'SELECT project_id FROM research WHERE project_id = ?',
     ctx.projectId,
   );
   const srcJson = sourcesJson(a.sources);
 
   if (existing) {
-    run(
+    await run(
       'UPDATE research SET competitors = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
       JSON.stringify(competitors),
       srcJson,
       ctx.projectId,
     );
   } else {
-    run(
+    await run(
       'INSERT INTO research (project_id, competitors, sources) VALUES (?, ?, ?)',
       ctx.projectId,
       JSON.stringify(competitors),
@@ -416,13 +416,13 @@ function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): Persis
 
 // ─── action-suggestion → pending_actions ─────────────────────────────────────
 
-function persistActionSuggestion(ctx: PersistContext, a: ActionSuggestion): PersistResult {
+async function persistActionSuggestion(ctx: PersistContext, a: ActionSuggestion): Promise<PersistResult> {
   const title = (a.title ?? '').trim();
   if (!title) return { type: a.type, persisted: false, note: 'missing title' };
 
   const actionType = mapActionType(a.action_type);
 
-  createPendingAction({
+  await createPendingAction({
     project_id: ctx.projectId,
     action_type: actionType,
     title: title.slice(0, 120),
@@ -456,7 +456,7 @@ function persistActionSuggestion(ctx: PersistContext, a: ActionSuggestion): Pers
  * (which is the case for raw :::artifact{type:"task"} emission, as opposed to
  * the create_task tool path that writes the row up-front and embeds the id).
  */
-function persistTask(ctx: PersistContext, a: TaskArtifact): PersistResult {
+async function persistTask(ctx: PersistContext, a: TaskArtifact): Promise<PersistResult> {
   const title = (a.title ?? '').trim();
   if (!title) return { type: a.type, persisted: false, note: 'missing title' };
 
@@ -465,17 +465,17 @@ function persistTask(ctx: PersistContext, a: TaskArtifact): PersistResult {
   // Credit guard — refuse to write a task row when the project is out of
   // credits this month. Same check guards the create_task tool path; the
   // monthly cap (project_budgets.cap_llm_usd) is the real ceiling.
-  if (getCreditsRemaining(ctx.projectId) <= 0) {
+  if (await getCreditsRemaining(ctx.projectId) <= 0) {
     return { type: a.type, persisted: false, note: 'out of credits' };
   }
 
   // Dedupe by client_artifact_id when the artifact carries one — protects
   // against the chat route re-running persistence on stream replay.
   if (clientArtifactId) {
-    const existing = get<{ id: string }>(
+    const existing = await get<{ id: string }>(
       `SELECT id FROM pending_actions
        WHERE project_id = ? AND action_type = 'task'
-         AND json_extract(payload, '$.client_artifact_id') = ?
+         AND payload->>'client_artifact_id' = ?
        LIMIT 1`,
       ctx.projectId,
       clientArtifactId,
@@ -485,7 +485,7 @@ function persistTask(ctx: PersistContext, a: TaskArtifact): PersistResult {
     }
   }
 
-  createPendingAction({
+  await createPendingAction({
     project_id: ctx.projectId,
     action_type: 'task',
     title: title.slice(0, 200),
@@ -518,12 +518,5 @@ function mapActionType(raw: string | undefined): PendingActionType {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-function safeJson(s: string | null | undefined): Record<string, unknown> | null {
-  if (!s) return null;
-  try {
-    const v = JSON.parse(s);
-    return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
+// safeJson is no longer needed — dimensions is JSONB and postgres.js returns
+// it as an already-parsed object. Removed.
