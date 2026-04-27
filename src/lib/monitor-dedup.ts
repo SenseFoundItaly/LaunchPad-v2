@@ -178,7 +178,7 @@ export async function checkDedup(
     return { ok: true, dedup_hash, active_count: active.length };
   }
 
-  const verdict = await runSemanticClassifier(proposal, active);
+  const verdict = await runSemanticClassifier(projectId, proposal, active);
   if (verdict && verdict.overlap_score >= 0.7) {
     const match = active.find((m) => m.id === verdict.best_match_id);
     if (match) {
@@ -225,6 +225,7 @@ interface ClassifierResult {
 }
 
 async function runSemanticClassifier(
+  projectId: string,
   proposal: MonitorProposalInput,
   existing: ActiveMonitorRow[],
 ): Promise<ClassifierResult | null> {
@@ -254,6 +255,8 @@ async function runSemanticClassifier(
         { role: 'user', content: userPayload },
       ],
       'classify',
+      0.3,
+      { project_id: projectId, step: 'monitor.dedup.classify' },
     );
     // Shape-check — Haiku occasionally wraps the JSON in extra framing.
     const candidate = res as Partial<ClassifierResult>;

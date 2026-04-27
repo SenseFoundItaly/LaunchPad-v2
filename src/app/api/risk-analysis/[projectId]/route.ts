@@ -105,7 +105,11 @@ export async function POST(
 
   let audit: unknown;
   try {
-    audit = await chatJSONByTask(messages, 'risk-analysis');
+    audit = await chatJSONByTask(messages, 'risk-analysis', 0.3, {
+      project_id: projectId,
+      skill_id: 'risk-scoring',
+      step: 'risk-analysis',
+    });
   } catch (err) {
     return error(`Risk audit failed: ${(err as Error).message}`, 500);
   }

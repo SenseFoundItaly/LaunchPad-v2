@@ -53,7 +53,11 @@ export async function POST(
       ];
 
       setProgress(task.task_id, 50, 'Building scaling plan...');
-      const result = await chatJSONByTask(messages, 'scaling-plan');
+      const result = await chatJSONByTask(messages, 'scaling-plan', 0.3, {
+        project_id: projectId,
+        skill_id: 'scaling-plan',
+        step: 'journey.scaling-plan',
+      });
       const r = result;
 
       setProgress(task.task_id, 90, 'Done.');

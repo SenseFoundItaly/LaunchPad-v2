@@ -57,7 +57,11 @@ export async function POST(
       ];
 
       setProgress(task.task_id, 60, 'Drafting update...');
-      const result = await chatJSONByTask(messages, 'update-generate');
+      const result = await chatJSONByTask(messages, 'update-generate', 0.3, {
+        project_id: projectId,
+        skill_id: 'update-generate',
+        step: 'journey.update.generate',
+      });
       const r = result;
 
       setProgress(task.task_id, 80, 'Saving update...');

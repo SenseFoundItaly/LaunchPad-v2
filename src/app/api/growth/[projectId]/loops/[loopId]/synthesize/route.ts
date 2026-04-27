@@ -38,7 +38,11 @@ export async function POST(
       ];
 
       setProgress(task.task_id, 50, 'Synthesizing learnings...');
-      const result = await chatJSONByTask(messages, 'growth-synthesize');
+      const result = await chatJSONByTask(messages, 'growth-synthesize', 0.3, {
+        project_id: projectId,
+        skill_id: 'growth-synthesize',
+        step: 'growth.synthesize',
+      });
       const r = result;
 
       setProgress(task.task_id, 80, 'Saving synthesis...');

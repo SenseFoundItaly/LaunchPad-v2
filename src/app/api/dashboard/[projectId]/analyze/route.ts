@@ -44,7 +44,11 @@ export async function POST(
       ];
 
       setProgress(task.task_id, 60, 'Generating health assessment...');
-      const result = await chatJSONByTask(messages, 'summarize');
+      const result = await chatJSONByTask(messages, 'summarize', 0.3, {
+        project_id: projectId,
+        skill_id: 'dashboard-analyze',
+        step: 'dashboard.analyze',
+      });
       const r = result;
 
       setProgress(task.task_id, 80, 'Updating alerts...');
