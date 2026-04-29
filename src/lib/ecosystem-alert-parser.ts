@@ -13,6 +13,7 @@ import { run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { computeDedupeHash } from '@/lib/ecosystem-monitors';
 import { createPendingAction } from '@/lib/pending-actions';
+import { updateCompetitorProfile } from '@/lib/competitor-profiles';
 import type { EcosystemAlertType, PendingActionType } from '@/types';
 
 export interface ParsedEcosystemAlert {
@@ -32,6 +33,9 @@ const VALID_ALERT_TYPES: ReadonlySet<string> = new Set<EcosystemAlertType>([
   'partnership_opportunity',
   'regulatory_change',
   'funding_event',
+  'hiring_signal',
+  'customer_sentiment',
+  'social_signal',
 ]);
 
 const SUGGESTED_ACTION_TO_PENDING_TYPE: Record<string, PendingActionType> = {
@@ -186,6 +190,13 @@ export function persistEcosystemAlerts(
       );
       result.alerts_inserted++;
       persistedAlerts.push({ alert, alertId });
+
+      // Update competitor profile if the headline mentions an entity
+      try {
+        updateCompetitorProfile(opts.projectId, alert.headline, alert.alert_type);
+      } catch (profileErr) {
+        console.warn('competitor_profile update failed:', (profileErr as Error).message);
+      }
     } catch (err) {
       result.alerts_skipped++;
       persistedAlerts.push({ alert, alertId: null });

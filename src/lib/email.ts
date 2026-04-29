@@ -25,6 +25,7 @@ export interface BriefEmailInput {
   pendingActions: { id: string; title: string; rationale?: string }[];
   ecosystemAlerts: { headline: string; body?: string; relevance_score: number }[];
   heartbeatSummary?: string;
+  intelligenceBriefs?: { title: string; narrative: string; temporal_prediction: string | null }[];
 }
 
 export interface SendResult {
@@ -120,6 +121,17 @@ function renderBriefHtml(input: BriefEmailInput): string {
        </div>`
     : '';
 
+  const briefsBlock = input.intelligenceBriefs && input.intelligenceBriefs.length > 0
+    ? `<h3 style="font-size:15px;margin:18px 0 8px 0;color:#111;">Intelligence briefs</h3>
+       ${input.intelligenceBriefs.slice(0, 2).map(b =>
+         `<div style="padding:10px 12px;background:#f0f4f8;border-radius:6px;margin-bottom:8px;border-left:3px solid #4a5a7a;">
+           <strong style="font-size:13px;color:#222;">${escapeHtml(b.title)}</strong>
+           ${b.temporal_prediction ? `<br/><span style="font-size:11px;color:#666;font-style:italic;">Prediction: ${escapeHtml(b.temporal_prediction)}</span>` : ''}
+           <br/><span style="font-size:12px;color:#444;">${escapeHtml(b.narrative.slice(0, 200))}${b.narrative.length > 200 ? '…' : ''}</span>
+         </div>`,
+       ).join('')}`
+    : '';
+
   return `
 <!DOCTYPE html>
 <html>
@@ -128,6 +140,7 @@ function renderBriefHtml(input: BriefEmailInput): string {
     <h1 style="font-size:22px;margin:0 0 8px 0;">Monday Brief</h1>
     <p style="color:#666;margin:0 0 18px 0;">${escapeHtml(input.projectName)}</p>
     ${heartbeatBlock}
+    ${briefsBlock}
     ${actionsBlock}
     ${alertsBlock}
     <p style="margin:24px 0 0 0;">

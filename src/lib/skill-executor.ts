@@ -192,20 +192,18 @@ export async function runSkill(
 
   // Cost meter — log against the actual provider/model from the router so
   // the slug matches what was called.
-  try {
-    const { provider, model } = pickModel('skill-invoke');
-    recordUsage({
-      project_id: projectId,
-      skill_id: skillId,
-      step: 'heartbeat-executor',
-      provider,
-      model,
-      usage,
-      latency_ms: latencyMs,
-    });
-  } catch (err) {
-    console.warn('[skill-executor] recordUsage failed:', (err as Error).message);
-  }
+  const { provider, model } = pickModel('skill-invoke');
+  recordUsage({
+    project_id: projectId,
+    skill_id: skillId,
+    step: 'heartbeat-executor',
+    provider,
+    model,
+    usage,
+    latency_ms: latencyMs,
+  }).catch(err =>
+    console.warn('[skill-executor] recordUsage failed:', (err as Error).message),
+  );
 
   // Persist any structured artifacts the skill emitted (gauge-chart →
   // scores, comparison-table → research.competitors, etc.). Non-fatal — the

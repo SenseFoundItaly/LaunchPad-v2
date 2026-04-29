@@ -81,8 +81,12 @@ export async function chatJSONByTask<T = Record<string, unknown>>(
   task: TaskLabel | string,
   temperature = 0.3,
 ): Promise<T> {
-  const { provider, model } = pickModel(task);
-  return chatJSON<T>(messages, provider, temperature, model);
+  const { provider, model, maxTokens } = pickModel(task);
+  const raw = await chat(messages, provider, temperature, maxTokens, model);
+  let cleaned = raw.trim();
+  cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+  cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/g, '');
+  return JSON.parse(cleaned.trim());
 }
 
 export interface LLMUsage {

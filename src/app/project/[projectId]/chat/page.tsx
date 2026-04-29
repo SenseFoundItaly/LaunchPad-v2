@@ -669,13 +669,16 @@ function MdProse({ text }: { text: string }) {
         const end = s.indexOf('`', i + 1);
         if (end !== -1) { push(<code key={`c${i}`}>{s.slice(i + 1, end)}</code>); i = end + 1; continue; }
       }
+      // Find next marker AFTER current position to avoid infinite loop
+      // when the current char is an unmatched marker (no closing pair).
+      const searchFrom = i + 1;
       const next = Math.min(
-        s.indexOf('**', i) === -1 ? Infinity : s.indexOf('**', i),
-        s.indexOf('*', i) === -1 ? Infinity : s.indexOf('*', i),
-        s.indexOf('`', i) === -1 ? Infinity : s.indexOf('`', i),
+        s.indexOf('**', searchFrom) === -1 ? Infinity : s.indexOf('**', searchFrom),
+        s.indexOf('*', searchFrom) === -1 ? Infinity : s.indexOf('*', searchFrom),
+        s.indexOf('`', searchFrom) === -1 ? Infinity : s.indexOf('`', searchFrom),
       );
       const end2 = isFinite(next) ? next : s.length;
-      if (end2 > i) push(s.slice(i, end2));
+      push(s.slice(i, end2));
       i = end2;
     }
     return parts.length === 1 ? parts[0] : <span key={key}>{parts}</span>;

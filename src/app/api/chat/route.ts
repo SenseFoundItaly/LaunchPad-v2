@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
 import crypto from 'crypto';
-import { chatStream } from '@/lib/llm';
+import { chatWithUsage } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
-import { logUsageToSQLite, logToLangfuse } from '@/lib/telemetry';
+import { logUsageToSQLite, logToLangfuse, estimateCost } from '@/lib/telemetry';
 import { runAgentStream } from '@/lib/pi-agent';
 import { buildSystemPromptString, resolveProjectLocale } from '@/lib/agent-prompt';
 import { makeProjectTools } from '@/lib/project-tools';
@@ -301,6 +301,8 @@ export async function POST(request: NextRequest) {
     // :::artifact{type="fact"} blocks, (2) write a chat_turn memory_event with
     // a meaningful preview, (3) fuel later telemetry.
     let fullResponse = '';
+    // Captured from the SSE `done` event emitted by runAgentStream on agent_end.
+    let streamUsage: { input_tokens?: number; output_tokens?: number; total_tokens?: number; cost?: number } | undefined;
     const decoder = new TextDecoder();
 
     // Wrap to add telemetry + memory hooks on completion
@@ -317,6 +319,10 @@ export async function POST(request: NextRequest) {
                 const payload = JSON.parse(line.slice(6));
                 if (typeof payload.content === 'string') {
                   fullResponse += payload.content;
+                }
+                // Capture real token usage from the `done` SSE event
+                if (payload.done && payload.usage) {
+                  streamUsage = payload.usage;
                 }
               } catch {
                 // non-JSON SSE line; ignore
@@ -336,12 +342,16 @@ export async function POST(request: NextRequest) {
         const picked = pickModel('chat');
         const piProvider = picked.provider;
         const piModel = picked.model;
-        const usage = { output_tokens: 0 };
-        await logUsageToSQLite(project_id, null, step, piProvider, piModel, usage, 0, latencyMs);
+        const usage = {
+          input_tokens: streamUsage?.input_tokens ?? 0,
+          output_tokens: streamUsage?.output_tokens ?? 0,
+        };
+        const cost = streamUsage?.cost ?? estimateCost(piProvider, piModel, usage);
+        await logUsageToSQLite(project_id, null, step, piProvider, piModel, usage, cost, latencyMs);
         logToLangfuse(
           { projectId: project_id, step, provider: piProvider as 'anthropic' | 'openai' | 'openrouter', model: piModel },
-          usage, 0, latencyMs,
-          lastMessage.slice(0, 1000), '',
+          usage, cost, latencyMs,
+          lastMessage.slice(0, 1000), fullResponse.slice(0, 2000),
         );
 
         // Persist the turn to chat_messages so that on page refresh,
@@ -473,29 +483,27 @@ export async function POST(request: NextRequest) {
     console.error('Pi Agent SDK error, falling back to direct LLM:', err);
   }
 
-  // Fallback: direct LLM (works without Pi Agent SDK)
+  // Fallback: direct LLM with real token tracking (works without Pi Agent SDK).
+  // Uses chatWithUsage (non-streaming) instead of chatStream so we get exact
+  // token counts. Acceptable tradeoff: this path only fires when the Pi Agent
+  // SDK throws — the primary chat path above handles streaming.
   const fullMessages = await buildDirectMessages(project_id, step, messages);
   const directStart = Date.now();
-  let directResponseLen = 0;
-  let directResponseText = '';
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for await (const chunk of chatStream(fullMessages, provider)) {
-          directResponseLen += chunk.length;
-          directResponseText += chunk;
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: chunk })}\n\n`));
-        }
-        const latencyMs = Date.now() - directStart;
         const model = provider === 'anthropic'
           ? (process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514')
           : (process.env.OPENAI_MODEL || 'gpt-4o');
-        const dUsage = { output_tokens: Math.round(directResponseLen / 4) };
-        await logUsageToSQLite(project_id, null, step, provider, model, dUsage, 0, latencyMs);
+        const { text: directResponseText, usage: dUsage } = await chatWithUsage(fullMessages, provider);
+        const latencyMs = Date.now() - directStart;
+        const cost = estimateCost(provider, model, dUsage);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: directResponseText })}\n\n`));
+        await logUsageToSQLite(project_id, null, step, provider, model, dUsage, cost, latencyMs);
         logToLangfuse(
           { projectId: project_id, step, provider: provider as 'anthropic' | 'openai', model },
-          dUsage, 0, latencyMs,
+          dUsage, cost, latencyMs,
           lastMessage.slice(0, 1000),
           directResponseText.slice(0, 2000),
         );

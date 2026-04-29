@@ -123,6 +123,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'home',    iconKey: 'home',    label: 'Home',     route: 'dashboard' },
   { id: 'chat',    iconKey: 'chat',    label: 'Co-pilot', route: 'chat' },
   { id: 'graph',   iconKey: 'graph',   label: 'Graph',    route: 'intelligence' },
+  { id: 'signals', iconKey: 'signal',  label: 'Signals',  route: 'signals' },
   { id: 'org',     iconKey: 'org',     label: 'Org',      route: 'org' },
   { id: 'pipe',    iconKey: 'pipe',    label: 'Pipeline', route: 'workflow' },
   { id: 'tickets', iconKey: 'tickets', label: 'Tickets',  route: 'actions' },

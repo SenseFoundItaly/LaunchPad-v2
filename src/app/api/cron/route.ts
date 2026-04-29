@@ -23,6 +23,13 @@ import {
   persistEcosystemAlerts,
   type PersistResult,
 } from '@/lib/ecosystem-alert-parser';
+import { processWatchSourcesCron } from '@/lib/watch-source-processor';
+import type { ProcessResult as WatchSourceResult } from '@/lib/watch-source-processor';
+import {
+  processCorrelations,
+  expireOldBriefs,
+  type CorrelationResult,
+} from '@/lib/intelligence-correlator';
 
 interface ProposedTask {
   title: string;
@@ -156,20 +163,18 @@ async function proposeHeartbeatTasks(args: {
     raw = result.text;
     usage = result.usage;
     const latency = Date.now() - startedAt;
-    try {
-      const { provider, model } = pickModel('heartbeat-propose');
-      recordUsage({
-        project_id: args.projectId,
-        skill_id: 'heartbeat',
-        step: 'task_proposer',
-        provider,
-        model,
-        usage,
-        latency_ms: latency,
-      });
-    } catch (err) {
-      console.warn('[heartbeat] proposer recordUsage failed:', (err as Error).message);
-    }
+    const { provider, model } = pickModel('heartbeat-propose');
+    recordUsage({
+      project_id: args.projectId,
+      skill_id: 'heartbeat',
+      step: 'task_proposer',
+      provider,
+      model,
+      usage,
+      latency_ms: latency,
+    }).catch(err =>
+      console.warn('[heartbeat] proposer recordUsage failed:', (err as Error).message),
+    );
   } catch (err) {
     console.warn('[heartbeat] proposer LLM call failed:', (err as Error).message);
     return { proposed: 0, skipped_credits: false };
@@ -334,18 +339,16 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
     // Observe-mode cost meter — logs to llm_usage_logs + upserts monthly
     // project_budgets. No hard-stop in Phase 0; crossed_warn surfaces as an
     // alerts row that the Monday Brief can include in its operational section.
-    try {
-      recordUsage({
-        project_id: monitor.project_id,
-        step: `cron.${monitor.type}`,
-        provider: PI_PROVIDER,
-        model: PI_MODEL,
-        usage,
-        latency_ms: latencyMs,
-      });
-    } catch (err) {
-      console.warn('[cron] recordUsage failed:', (err as Error).message);
-    }
+    recordUsage({
+      project_id: monitor.project_id,
+      step: `cron.${monitor.type}`,
+      provider: PI_PROVIDER,
+      model: PI_MODEL,
+      usage,
+      latency_ms: latencyMs,
+    }).catch(err =>
+      console.warn('[cron] recordUsage failed:', (err as Error).message),
+    );
 
     await run(
       `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
@@ -492,6 +495,41 @@ export async function GET(request: NextRequest) {
 
   const monitorResults = due.length > 0 ? await processMonitors(due) : [];
 
+  // Phase B: Process due watch sources (URL-based change detection).
+  // Up to 10 per cron tick to stay within Vercel Hobby 10s timeout.
+  let watchSourceResults: WatchSourceResult[] = [];
+  try {
+    watchSourceResults = await processWatchSourcesCron(10);
+  } catch (err) {
+    console.warn('[cron] processWatchSourcesCron failed:', (err as Error).message);
+  }
+
+  // Phase C: Cross-signal correlation engine.
+  // Runs weekly per project. Groups recent signals by entity and synthesizes
+  // strategic narratives via Sonnet. Also expires briefs older than 7 days.
+  let correlationResults: CorrelationResult[] = [];
+  let briefsExpired = 0;
+  try {
+    // Expire stale briefs first
+    briefsExpired = await expireOldBriefs();
+
+    // Run correlation for each active project with owner
+    const activeProjects = await query<{ id: string }>(
+      `SELECT id FROM projects WHERE owner_user_id IS NOT NULL AND status != 'archived'`,
+    );
+    for (const proj of activeProjects) {
+      try {
+        const result = await processCorrelations(proj.id);
+        correlationResults.push(result);
+      } catch (err) {
+        console.warn(`[cron] correlation failed for ${proj.id}:`, (err as Error).message);
+        correlationResults.push({ project_id: proj.id, briefs_created: 0, briefs_superseded: 0, skipped_reason: 'error' });
+      }
+    }
+  } catch (err) {
+    console.warn('[cron] correlation phase failed:', (err as Error).message);
+  }
+
   // Heartbeat reflections — once per project per 24h. Piggybacks on the same
   // cron endpoint; cheap to poll because the "has reflected today" check is
   // a single indexed query on memory_events.
@@ -506,6 +544,11 @@ export async function GET(request: NextRequest) {
   return json({
     monitors_ran: monitorResults.length,
     monitor_results: monitorResults,
+    watch_sources_processed: watchSourceResults.length,
+    watch_source_results: watchSourceResults,
+    correlations_ran: correlationResults.length,
+    correlation_results: correlationResults,
+    briefs_expired: briefsExpired,
     heartbeats_ran: heartbeatResults.length,
     heartbeat_results: heartbeatResults,
     notifications_dismissed: dismissedNotifications,
@@ -706,6 +749,14 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
         project.id,
       );
 
+      // Load active intelligence briefs for heartbeat context
+      const activeBriefs = await query<{ title: string; narrative: string; temporal_prediction: string | null; entity_name: string | null }>(
+        `SELECT title, narrative, temporal_prediction, entity_name FROM intelligence_briefs
+         WHERE project_id = ? AND status = 'active'
+         ORDER BY created_at DESC LIMIT 5`,
+        project.id,
+      );
+
       const locale = project.locale === 'it' ? 'it' : 'en';
 
       // Phase D: prepend a one-line score delta so the reflection narrates
@@ -716,7 +767,7 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
         locale,
         context: 'cron',
         tail: 'You are running the daily HEARTBEAT reflection. Open with the score-delta line from "## Readiness delta" as your first sentence verbatim — do not paraphrase. Then produce a concise (120-250 word) summary of: (1) what changed in the last 24h, (2) what the founder should prioritize today, (3) any risks the approval inbox is surfacing. NO emoji. Plain text. End with one explicit "next action" suggestion.',
-        projectContext: `## Readiness delta\n${scoreDelta.line}\n\n${memCtx}\n\n## Pending actions\n${pending.map((p) => `- [${p.status}] ${p.title}`).join('\n') || '(none)'}\n\n## Ecosystem alerts (unreviewed)\n${alerts.map((a) => `- ${a.relevance_score.toFixed(2)}  ${a.headline}`).join('\n') || '(none)'}`,
+        projectContext: `## Readiness delta\n${scoreDelta.line}\n\n${memCtx}\n\n## Pending actions\n${pending.map((p) => `- [${p.status}] ${p.title}`).join('\n') || '(none)'}\n\n## Ecosystem alerts (unreviewed)\n${alerts.map((a) => `- ${a.relevance_score.toFixed(2)}  ${a.headline}`).join('\n') || '(none)'}\n\n## Active intelligence briefs\n${activeBriefs.map((b) => `- ${b.entity_name ? `[${b.entity_name}] ` : ''}${b.title}${b.temporal_prediction ? ` (prediction: ${b.temporal_prediction})` : ''}`).join('\n') || '(none)'}`,
       });
 
       const startedAt = Date.now();
@@ -729,20 +780,18 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
       // Record usage so the reflection cost counts toward budget.
       // Resolve the real provider+model from the router so the logged slug
       // matches what was actually called (Anthropic direct or OpenRouter).
-      try {
-        const { provider, model } = pickModel('heartbeat-reflect');
-        recordUsage({
-          project_id: project.id,
-          skill_id: 'heartbeat',
-          step: 'daily_reflection',
-          provider,
-          model,
-          usage,
-          latency_ms: latencyMs,
-        });
-      } catch (err) {
-        console.warn('[heartbeat] recordUsage failed:', (err as Error).message);
-      }
+      const { provider, model } = pickModel('heartbeat-reflect');
+      recordUsage({
+        project_id: project.id,
+        skill_id: 'heartbeat',
+        step: 'daily_reflection',
+        provider,
+        model,
+        usage,
+        latency_ms: latencyMs,
+      }).catch(err =>
+        console.warn('[heartbeat] recordUsage failed:', (err as Error).message),
+      );
 
       await recordEvent({
         userId: project.owner_user_id,
@@ -804,6 +853,11 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
             relevance_score: a.relevance_score,
           })),
           heartbeatSummary: reflection.slice(0, 500),
+          intelligenceBriefs: activeBriefs.map((b) => ({
+            title: b.title,
+            narrative: b.narrative,
+            temporal_prediction: b.temporal_prediction,
+          })),
         });
         if (!briefResult.ok && !briefResult.stubbed) {
           console.warn(`[heartbeat] email delivery failed for ${project.id}: ${briefResult.error}`);

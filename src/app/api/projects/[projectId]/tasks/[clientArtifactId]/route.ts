@@ -344,19 +344,17 @@ async function handleExpand(
   const latencyMs = Date.now() - startedAt;
 
   // Cost meter — log against the actual provider/model from the router.
-  try {
-    const { provider, model } = pickModel('task-expand');
-    recordUsage({
-      project_id: projectId,
-      step: 'task-expand',
-      provider,
-      model,
-      usage: agentUsage,
-      latency_ms: latencyMs,
-    });
-  } catch (err) {
-    console.warn('[tasks/expand] recordUsage failed:', (err as Error).message);
-  }
+  const { provider, model } = pickModel('task-expand');
+  recordUsage({
+    project_id: projectId,
+    step: 'task-expand',
+    provider,
+    model,
+    usage: agentUsage,
+    latency_ms: latencyMs,
+  }).catch(err =>
+    console.warn('[tasks/expand] recordUsage failed:', (err as Error).message),
+  );
 
   const fields = parseExpansion(agentText);
   if (!fields) {

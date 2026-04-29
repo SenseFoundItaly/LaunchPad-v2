@@ -585,9 +585,9 @@ CREATE TABLE IF NOT EXISTS project_budgets (
   id VARCHAR PRIMARY KEY,
   project_id VARCHAR REFERENCES projects(id) ON DELETE CASCADE,
   period_month VARCHAR NOT NULL,
-  cap_llm_usd DOUBLE PRECISION DEFAULT 0.30,
+  cap_llm_usd DOUBLE PRECISION DEFAULT 0.50,
   cap_external_actions INTEGER DEFAULT 20,
-  warn_llm_usd DOUBLE PRECISION DEFAULT 0.24,
+  warn_llm_usd DOUBLE PRECISION DEFAULT 0.40,
   warn_external_actions INTEGER DEFAULT 16,
   current_llm_usd DOUBLE PRECISION DEFAULT 0,
   current_external_actions INTEGER DEFAULT 0,
@@ -633,3 +633,112 @@ CREATE TABLE IF NOT EXISTS memory_events (
 
 CREATE INDEX IF NOT EXISTS idx_memory_events_user_project
   ON memory_events(user_id, project_id, created_at);
+
+-- =============================================================================
+-- Watch Sources (URL-based change detection for market signals)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS watch_sources (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  label VARCHAR NOT NULL,
+  category VARCHAR NOT NULL DEFAULT 'custom',
+  scrape_config JSONB DEFAULT '{}',
+  schedule VARCHAR NOT NULL DEFAULT 'daily',
+  last_snapshot TEXT,
+  last_content_hash VARCHAR,
+  last_scraped_at TIMESTAMP,
+  next_scrape_at TIMESTAMP,
+  status VARCHAR NOT NULL DEFAULT 'active',
+  error_message TEXT,
+  error_count INTEGER DEFAULT 0,
+  change_tracking_tag VARCHAR,
+  monitor_id VARCHAR REFERENCES monitors(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_watch_sources_project_status
+  ON watch_sources(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_watch_sources_next_scrape
+  ON watch_sources(next_scrape_at)
+  WHERE status = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_watch_sources_project_url
+  ON watch_sources(project_id, url);
+
+-- =============================================================================
+-- Source Changes (detected content diffs from watch sources)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS source_changes (
+  id VARCHAR PRIMARY KEY,
+  watch_source_id VARCHAR NOT NULL REFERENCES watch_sources(id) ON DELETE CASCADE,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  change_status VARCHAR NOT NULL,
+  diff_summary TEXT,
+  raw_diff TEXT,
+  previous_content_hash VARCHAR,
+  current_content_hash VARCHAR,
+  significance VARCHAR NOT NULL DEFAULT 'noise',
+  significance_rationale TEXT,
+  alert_id VARCHAR REFERENCES ecosystem_alerts(id) ON DELETE SET NULL,
+  detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_changes_project_detected
+  ON source_changes(project_id, detected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_source_changes_source_detected
+  ON source_changes(watch_source_id, detected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_source_changes_project_significance
+  ON source_changes(project_id, significance);
+
+-- =============================================================================
+-- Intelligence Briefs (cross-signal correlation synthesis)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS intelligence_briefs (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  brief_type VARCHAR NOT NULL DEFAULT 'correlation',
+  entity_name VARCHAR,
+  title TEXT NOT NULL,
+  narrative TEXT NOT NULL,
+  temporal_prediction TEXT,
+  confidence DOUBLE PRECISION DEFAULT 0.7,
+  signal_ids JSONB NOT NULL DEFAULT '[]',
+  signal_count INTEGER DEFAULT 0,
+  recommended_actions JSONB DEFAULT '[]',
+  valid_until TIMESTAMP,
+  status VARCHAR NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ib_project_created
+  ON intelligence_briefs(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ib_project_status
+  ON intelligence_briefs(project_id, status)
+  WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_ib_entity
+  ON intelligence_briefs(project_id, entity_name)
+  WHERE entity_name IS NOT NULL;
+
+-- =============================================================================
+-- Competitor Profiles (per-competitor intelligence dossiers)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS competitor_profiles (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name VARCHAR NOT NULL,
+  slug VARCHAR NOT NULL,
+  description TEXT,
+  signal_counts JSONB DEFAULT '{}',
+  total_signals INTEGER DEFAULT 0,
+  latest_brief_id VARCHAR REFERENCES intelligence_briefs(id) ON DELETE SET NULL,
+  trend_direction VARCHAR DEFAULT 'stable',
+  last_activity_at TIMESTAMP,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(project_id, slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cp_project
+  ON competitor_profiles(project_id);

@@ -16,6 +16,7 @@
 import { completeSimple, getModel, getEnvApiKey } from '@mariozechner/pi-ai';
 import type { TextContent } from '@mariozechner/pi-ai';
 import { pickModel } from './llm/router';
+import { recordUsage } from './cost-meter';
 
 interface SkillManifestEntry {
   id: string;
@@ -88,6 +89,7 @@ ${skillList}
 
 Return the ${topN} most relevant skill ids as a JSON array, e.g. ["market-research","startup-scoring","pitch-coaching"]`;
 
+    const classifyStart = Date.now();
     const assistantMessage = await completeSimple(
       getModel(provider as any, model as any),
       {
@@ -101,6 +103,16 @@ Return the ${topN} most relevant skill ids as a JSON array, e.g. ["market-resear
         temperature: 0,
       },
     );
+
+    // Log classifier token usage — small but adds up across every chat turn.
+    recordUsage({
+      project_id: project.id,
+      step: 'skill-relevance.classify',
+      provider,
+      model,
+      usage: assistantMessage.usage,
+      latency_ms: Date.now() - classifyStart,
+    }).catch((err) => console.warn('[skill-relevance] recordUsage failed:', err));
 
     const raw = assistantMessage.content
       .filter((c): c is TextContent => c.type === 'text')

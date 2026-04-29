@@ -304,7 +304,10 @@ export type EcosystemAlertType =
   | 'trend_signal'
   | 'partnership_opportunity'
   | 'regulatory_change'
-  | 'funding_event';
+  | 'funding_event'
+  | 'hiring_signal'
+  | 'customer_sentiment'
+  | 'social_signal';
 
 export type EcosystemAlertState =
   | 'pending'
@@ -375,6 +378,82 @@ export interface PendingAction {
   updated_at: string;
 }
 
+// === Watch Sources & Source Changes (URL-based change detection) ===
+export type WatchSourceCategory =
+  | 'competitor_pricing'
+  | 'competitor_product'
+  | 'patent_database'
+  | 'regulatory'
+  | 'news'
+  | 'custom'
+  | 'careers_page'
+  | 'social_feed'
+  | 'review_site';
+
+export const VALID_CATEGORIES = new Set<WatchSourceCategory>([
+  'competitor_pricing', 'competitor_product', 'patent_database',
+  'regulatory', 'news', 'custom', 'careers_page', 'social_feed', 'review_site',
+]);
+
+export type WatchSourceStatus = 'active' | 'paused' | 'error';
+export type WatchSourceSchedule = 'hourly' | 'daily' | 'weekly' | 'manual';
+
+export interface WatchSource {
+  id: string;
+  project_id: string;
+  url: string;
+  label: string;
+  category: WatchSourceCategory;
+  scrape_config: Record<string, unknown>;
+  schedule: WatchSourceSchedule;
+  last_snapshot: string | null;
+  last_content_hash: string | null;
+  last_scraped_at: string | null;
+  next_scrape_at: string | null;
+  status: WatchSourceStatus;
+  error_message: string | null;
+  error_count: number;
+  change_tracking_tag: string | null;
+  monitor_id: string | null;
+  created_at: string;
+  updated_at: string;
+  // Computed fields from JOIN queries
+  last_change_at?: string | null;
+  total_changes?: number;
+}
+
+export type ChangeStatus = 'new' | 'same' | 'changed' | 'removed';
+export type SignalSignificance = 'high' | 'medium' | 'low' | 'noise';
+
+export interface SourceChange {
+  id: string;
+  watch_source_id: string;
+  project_id: string;
+  change_status: ChangeStatus;
+  diff_summary: string | null;
+  raw_diff: string | null;
+  previous_content_hash: string | null;
+  current_content_hash: string | null;
+  significance: SignalSignificance;
+  significance_rationale: string | null;
+  alert_id: string | null;
+  detected_at: string;
+}
+
+export interface SignalTimelineEntry {
+  id: string;
+  type: 'ecosystem_alert' | 'source_change' | 'intelligence_brief';
+  headline: string;
+  body: string | null;
+  source_label: string;
+  source_url: string | null;
+  significance: SignalSignificance;
+  timestamp: string;
+  alert_type?: string;
+  change_status?: ChangeStatus;
+  diff_preview?: string | null;
+}
+
 // Re-export lane taxonomy defined in src/lib/action-lanes.ts so UI code
 // can `import type { ActionLane } from '@/types'` without reaching into lib.
 // Phase 1 of the 4-bucket reorganization (Tasks / Approvals / Notifications).
@@ -406,6 +485,52 @@ export interface ProjectBudget {
   current_llm_usd: number;
   current_external_actions: number;
   status: 'active' | 'warned' | 'capped';
+  created_at: string;
+  updated_at: string;
+}
+
+// === Intelligence Briefs (cross-signal correlation synthesis) ===
+export type IntelligenceBriefType = 'correlation' | 'daily_digest' | 'competitor_profile';
+export type IntelligenceBriefStatus = 'active' | 'expired' | 'superseded';
+
+export interface RecommendedAction {
+  action: string;
+  urgency: 'immediate' | 'this_week' | 'this_month' | 'watch';
+  rationale: string;
+}
+
+export interface IntelligenceBrief {
+  id: string;
+  project_id: string;
+  brief_type: IntelligenceBriefType;
+  entity_name: string | null;
+  title: string;
+  narrative: string;
+  temporal_prediction: string | null;
+  confidence: number;
+  signal_ids: string[];
+  signal_count: number;
+  recommended_actions: RecommendedAction[];
+  valid_until: string | null;
+  status: IntelligenceBriefStatus;
+  created_at: string;
+}
+
+// === Competitor Profiles (per-competitor intelligence dossiers) ===
+export type TrendDirection = 'expanding' | 'stable' | 'contracting' | 'pivoting';
+
+export interface CompetitorProfile {
+  id: string;
+  project_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  signal_counts: Record<string, number>;
+  total_signals: number;
+  latest_brief_id: string | null;
+  trend_direction: TrendDirection;
+  last_activity_at: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }

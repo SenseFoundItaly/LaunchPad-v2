@@ -6,6 +6,7 @@ import { completeSimple, getModel, getEnvApiKey } from '@mariozechner/pi-ai';
 import type { TextContent } from '@mariozechner/pi-ai';
 import { pickModel, type TaskLabel } from './llm/router';
 import { recordEvent } from './memory/events';
+import { recordUsage } from './cost-meter';
 
 /**
  * Skills-as-tools — converts every launchpad-skills/<skill>/SKILL.md into an
@@ -174,6 +175,7 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
       const userMsg = context || `Run the ${skill.frontmatter.name} skill for the current project.`;
       const apiKey = getEnvApiKey(provider as 'anthropic' | 'openrouter');
 
+      const skillStart = Date.now();
       const assistantMessage = await completeSimple(
         getModel(provider as any, model as any),
         {
@@ -185,6 +187,17 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
           signal: AbortSignal.timeout(60_000),
         },
       );
+
+      // Log token usage — completeSimple returns pi-ai Usage on assistantMessage.
+      recordUsage({
+        project_id: opts.projectId,
+        skill_id: skill.id,
+        step: `skill-tool.${skill.id}`,
+        provider,
+        model,
+        usage: assistantMessage.usage,
+        latency_ms: Date.now() - skillStart,
+      }).catch((err) => console.warn(`[skill-tools] recordUsage failed for ${skill.id}:`, err));
 
       // Extract text content blocks from the assistant message.
       const output = assistantMessage.content

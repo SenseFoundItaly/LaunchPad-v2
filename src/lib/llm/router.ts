@@ -16,6 +16,8 @@
  * quality-first policy so new routes don't silently degrade.
  */
 
+import { MODEL_CONFIG, TIER_DEFAULTS } from './models';
+
 export type ModelTier = 'cheap' | 'balanced' | 'premium';
 
 export type TaskLabel =
@@ -38,12 +40,15 @@ export type TaskLabel =
   | 'heartbeat-propose'  // daily heartbeat task proposer (cheap)
   | 'skill-invoke'       // agent invoking a registered skill as a tool
   | 'risk-analysis'      // structured risk audit (roadmap 1.1)
-  | 'task-expand';       // task-expansion turn (break a TODO into subtasks)
+  | 'task-expand'        // task-expansion turn (break a TODO into subtasks)
+  | 'signal-classify'    // watch-source change significance classification (cheap)
+  | 'signal-correlate';  // cross-signal correlation synthesis (balanced/Sonnet)
 
 type ResolvedModel = {
   provider: 'anthropic' | 'openrouter';
   model: string;
   tier: ModelTier;
+  maxTokens: number;
 };
 
 // Provider selection:
@@ -56,18 +61,16 @@ type ResolvedModel = {
 // providers is a server restart, not a hot path decision.
 const USE_OPENROUTER = Boolean(process.env.OPENROUTER_API_KEY);
 
-const TIER_MODELS: Record<ModelTier, { provider: 'anthropic' | 'openrouter'; model: string }> =
-  USE_OPENROUTER
-    ? {
-        cheap:    { provider: 'openrouter', model: 'anthropic/claude-haiku-4.5' },
-        balanced: { provider: 'openrouter', model: 'anthropic/claude-sonnet-4.6' },
-        premium:  { provider: 'openrouter', model: 'anthropic/claude-opus-4.7' },
-      }
-    : {
-        cheap:    { provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
-        balanced: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
-        premium:  { provider: 'anthropic', model: 'claude-opus-4-7' },
-      };
+// Derive tier → {provider, model} from MODEL_CONFIG instead of duplicating IDs.
+const TIER_MODELS: Record<ModelTier, { provider: 'anthropic' | 'openrouter'; model: string }> = (() => {
+  const result = {} as Record<ModelTier, { provider: 'anthropic' | 'openrouter'; model: string }>;
+  for (const cfg of Object.values(MODEL_CONFIG)) {
+    result[cfg.tier] = USE_OPENROUTER
+      ? { provider: 'openrouter', model: cfg.openrouterId }
+      : { provider: 'anthropic', model: cfg.id };
+  }
+  return result;
+})();
 
 // Default task -> tier. Anything not listed falls through to `balanced`.
 // Conservative routing confirmed with user: only obvious wins move off balanced.
@@ -80,6 +83,7 @@ const DEFAULT_TASK_TIER: Partial<Record<TaskLabel, ModelTier>> = {
   'scaling-plan': 'premium',
   milestones: 'premium',
   'task-expand': 'cheap',  // single-shot analytical; Haiku handles cleanly.
+  'signal-classify': 'cheap',  // watch-source change classification; Haiku is sufficient.
   // chat, monitor-agent, scoring, research, simulation, pitch-iterate,
   // term-sheet, growth-iterate, growth-synthesize, heartbeat-reflect,
   // skill-invoke, AND any new unmapped task -> balanced (Sonnet).
@@ -132,7 +136,8 @@ export function pickModel(task: TaskLabel | string): ResolvedModel {
     'balanced';
 
   const { provider, model } = TIER_MODELS[tier];
-  return { provider, model, tier };
+  const { maxTokens } = TIER_DEFAULTS[tier];
+  return { provider, model, tier, maxTokens };
 }
 
 /** Test-only: reset the env cache so tests can set LLM_ROUTING_JSON and re-query. */

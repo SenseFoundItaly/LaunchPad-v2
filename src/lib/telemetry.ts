@@ -1,6 +1,7 @@
 import { Langfuse } from 'langfuse';
 import { run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
+import { MODEL_CONFIG } from './llm/models';
 
 // ---------------------------------------------------------------------------
 // Langfuse — lazy-init so the app runs fine without credentials
@@ -102,35 +103,24 @@ export async function traceLLMCall<T>(
 // estimateCost — USD from token counts and known pricing
 // ---------------------------------------------------------------------------
 
-// Prices are USD per million tokens. Extend when new models enter the tier map
-// in src/lib/llm/router.ts.
+// Build PRICING from MODEL_CONFIG — auto-registers both Anthropic and OpenRouter
+// slugs so adding a new model in models.ts is sufficient.
 const PRICING: Record<string, {
   input: number;
   output: number;
   cacheWrite?: number;
   cacheRead?: number;
-}> = {
-  // Sonnet 4.0 (legacy, kept for backward compat with PI_MODEL fallback)
-  'claude-sonnet-4-20250514': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
-  'claude-sonnet-4': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
-
-  // Claude 4.X via direct Anthropic — tier models selected by router.ts
-  'claude-haiku-4-5-20251001':  { input: 0.80, output: 4,  cacheWrite: 1.00, cacheRead: 0.08 },
-  'claude-haiku-4-5':           { input: 0.80, output: 4,  cacheWrite: 1.00, cacheRead: 0.08 },
-  'claude-sonnet-4-6':          { input: 3,    output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
-  'claude-opus-4-7':            { input: 5,    output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
-
-  // Same models via OpenRouter — slugs are namespaced. Passthrough pricing
-  // at provider cost; any OpenRouter markup shows up on the invoice, not
-  // in these per-call numbers.
-  'anthropic/claude-haiku-4.5':  { input: 0.80, output: 4,  cacheWrite: 1.00, cacheRead: 0.08 },
-  'anthropic/claude-sonnet-4.6': { input: 3,    output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
-  'anthropic/claude-opus-4.7':   { input: 5,    output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
-
-  // OpenAI fallback models
-  'gpt-4o':      { input: 2.50, output: 10 },
-  'gpt-4o-mini': { input: 0.15, output: 0.60 },
-};
+}> = {};
+for (const m of Object.values(MODEL_CONFIG)) {
+  PRICING[m.id] = m.pricing;
+  PRICING[m.openrouterId] = m.pricing;
+}
+// Sonnet 4.0 (legacy, kept for backward compat with PI_MODEL fallback)
+PRICING['claude-sonnet-4-20250514'] = { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 };
+PRICING['claude-sonnet-4'] = { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 };
+// OpenAI fallback models (not in MODEL_CONFIG)
+PRICING['gpt-4o'] = { input: 2.50, output: 10 };
+PRICING['gpt-4o-mini'] = { input: 0.15, output: 0.60 };
 
 export function estimateCost(
   _provider: string,

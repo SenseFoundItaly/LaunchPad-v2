@@ -100,19 +100,17 @@ export async function POST(_request: NextRequest, { params }: Params) {
             // 1. Cost meter — observe-mode only. If pi-ai's done frame lacks
             // a usage object (mock providers, some failure modes), recordUsage
             // no-ops gracefully.
-            try {
-              const usage = payload.usage as Parameters<typeof recordUsage>[0]['usage'];
-              recordUsage({
-                project_id: projectId,
-                step: `manual.${monitorType}`,
-                provider: PI_PROVIDER,
-                model: PI_MODEL,
-                usage,
-                latency_ms: latencyMs,
-              });
-            } catch (err) {
-              console.warn('[monitor/run] recordUsage failed:', (err as Error).message);
-            }
+            const usage = payload.usage as Parameters<typeof recordUsage>[0]['usage'];
+            recordUsage({
+              project_id: projectId,
+              step: `manual.${monitorType}`,
+              provider: PI_PROVIDER,
+              model: PI_MODEL,
+              usage,
+              latency_ms: latencyMs,
+            }).catch(err =>
+              console.warn('[monitor/run] recordUsage failed:', (err as Error).message),
+            );
 
             // 2. monitor_runs row (pre-fill alerts_generated=0, bump below
             // if ecosystem parsing succeeds)

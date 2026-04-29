@@ -2,11 +2,13 @@
 export function calculateNextRun(schedule: string, from?: Date): string | null {
   if (schedule === 'manual') return null;
   const base = from || new Date();
-  const ms = {
+  const ms: Record<string, number> = {
+    hourly: 60 * 60 * 1000,
     daily: 24 * 60 * 60 * 1000,
     weekly: 7 * 24 * 60 * 60 * 1000,
     monthly: 30 * 24 * 60 * 60 * 1000,
-  }[schedule];
-  if (!ms) return null;
-  return new Date(base.getTime() + ms).toISOString();
+  };
+  const interval = ms[schedule];
+  if (!interval) return null;
+  return new Date(base.getTime() + interval).toISOString();
 }

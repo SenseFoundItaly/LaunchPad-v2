@@ -18,7 +18,10 @@ export type EcosystemMonitorType =
   | 'ecosystem.competitors'
   | 'ecosystem.ip'
   | 'ecosystem.trends'
-  | 'ecosystem.partnerships';
+  | 'ecosystem.partnerships'
+  | 'ecosystem.hiring'
+  | 'ecosystem.customer_sentiment'
+  | 'ecosystem.social';
 
 export interface EcosystemMonitorTemplate {
   type: EcosystemMonitorType;
@@ -73,7 +76,7 @@ OUTPUT CONTRACT — do not deviate:
    }
    :::
 3. Field rules:
-   - alert_type: one of "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event"
+   - alert_type: one of "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal"
    - headline: 1 line, <=120 chars
    - body: 2-4 sentences, factual
    - source_url: direct URL (not a search page)
@@ -101,7 +104,7 @@ CONTRATTO DI OUTPUT — non deviare:
    }
    :::
 3. Regole dei campi:
-   - alert_type: uno tra "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event"
+   - alert_type: uno tra "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal"
    - headline: 1 riga, <=120 caratteri
    - body: 2-4 frasi, fattuale
    - source_url: URL diretto (non una pagina di ricerca)
@@ -258,6 +261,114 @@ contact point (open form, public BD email).`;
 };
 
 // =============================================================================
+// Template 5 — Hiring Signals
+// =============================================================================
+
+export const HIRING_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.hiring',
+  name: 'Ecosystem — Hiring Signals',
+  nameIt: 'Ecosistema — Segnali Assunzioni',
+  schedule: 'monthly',
+  defaultConfig: { competitors: [], roles: [], threshold: 'all' },
+  buildPrompt: (ctx) => {
+    const competitors = ctx.knownCompetitors.length > 0
+      ? ctx.knownCompetitors.join(', ')
+      : '(none tracked yet — use project context to infer the competitive set)';
+    const header = ctx.locale === 'it'
+      ? 'SCAN MENSILE — SEGNALI ASSUNZIONI'
+      : 'MONTHLY SCAN — HIRING SIGNALS';
+    const body = ctx.locale === 'it'
+      ? `Monitora le assunzioni strategiche dei competitor e aziende adiacenti: ${competitors}
+
+Cerca su LinkedIn Jobs, pagine carriere dei competitor, board Greenhouse/Lever, cambiamenti team su Crunchbase.
+Focus su: AE enterprise, security engineer, leadership, espansione in nuove aree.
+Per ogni assunzione strategica rilevante, emetti un ecosystem_alert con alert_type="hiring_signal".
+Ignora assunzioni di routine — solo quelle che segnalano un cambio di direzione strategica.`
+      : `Monitor strategic hires at competitors and adjacent companies: ${competitors}
+
+Search LinkedIn Jobs, competitor careers pages, Greenhouse/Lever boards, Crunchbase team changes.
+Focus on: enterprise AEs, security engineers, leadership hires, team expansion into new areas.
+For each strategically relevant hire, emit one ecosystem_alert with alert_type="hiring_signal".
+Ignore routine hiring — only flag hires that signal a strategic direction change.`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
+// =============================================================================
+// Template 6 — Customer Sentiment
+// =============================================================================
+
+export const CUSTOMER_SENTIMENT_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.customer_sentiment',
+  name: 'Ecosystem — Customer Sentiment',
+  nameIt: 'Ecosistema — Sentiment Clienti',
+  schedule: 'monthly',
+  defaultConfig: { competitors: [], platforms: [], threshold: 'all' },
+  buildPrompt: (ctx) => {
+    const competitors = ctx.knownCompetitors.length > 0
+      ? ctx.knownCompetitors.join(', ')
+      : '(none tracked yet — use project context to infer the competitive set)';
+    const keywords = ctx.keywords.length > 0 ? ctx.keywords.join(', ') : ctx.idea?.solution || ctx.projectName;
+    const header = ctx.locale === 'it'
+      ? 'SCAN MENSILE — SENTIMENT CLIENTI'
+      : 'MONTHLY SCAN — CUSTOMER SENTIMENT';
+    const body = ctx.locale === 'it'
+      ? `Analizza il sentiment dei clienti per i competitor nel settore: ${keywords}
+Competitor tracciati: ${competitors}
+
+Cerca su G2, Capterra, Trustpilot, recensioni app store, Reddit, forum di supporto.
+Focus su: pattern di lamentele ricorrenti, shift nei rating, temi di feedback ripetuti, gap competitivi sfruttabili.
+Per ogni pattern significativo, emetti un ecosystem_alert con alert_type="customer_sentiment".
+Non riportare singole recensioni — solo pattern con multiple fonti.`
+      : `Analyze customer sentiment for competitors in this space: ${keywords}
+Tracked competitors: ${competitors}
+
+Search G2, Capterra, Trustpilot, app store reviews, Reddit, support forums.
+Focus on: recurring complaint patterns, rating shifts, repeated feedback themes, exploitable competitive gaps.
+For each significant pattern, emit one ecosystem_alert with alert_type="customer_sentiment".
+Do not report single reviews — only patterns with multiple sources.`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
+// =============================================================================
+// Template 7 — Social Media
+// =============================================================================
+
+export const SOCIAL_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.social',
+  name: 'Ecosystem — Social Signals',
+  nameIt: 'Ecosistema — Segnali Social',
+  schedule: 'monthly',
+  defaultConfig: { competitors: [], platforms: [], threshold: 'all' },
+  buildPrompt: (ctx) => {
+    const competitors = ctx.knownCompetitors.length > 0
+      ? ctx.knownCompetitors.join(', ')
+      : '(none tracked yet — use project context to infer the competitive set)';
+    const keywords = ctx.keywords.length > 0 ? ctx.keywords.join(', ') : ctx.idea?.solution || ctx.projectName;
+    const header = ctx.locale === 'it'
+      ? 'SCAN MENSILE — SEGNALI SOCIAL'
+      : 'MONTHLY SCAN — SOCIAL SIGNALS';
+    const body = ctx.locale === 'it'
+      ? `Monitora l'attività social dei competitor e le conversazioni nel settore: ${keywords}
+Competitor tracciati: ${competitors}
+
+Cerca su Twitter/X, LinkedIn posts, HackerNews, ProductHunt, blog dei competitor.
+Focus su: annunci di feature, cambi di messaging, campagne PR, contenuti virali, shift di posizionamento.
+Per ogni segnale social significativo, emetti un ecosystem_alert con alert_type="social_signal".
+Non riportare post di routine — solo segnali che indicano un cambio strategico o una nuova narrativa.`
+      : `Monitor competitor social activity and industry conversations for: ${keywords}
+Tracked competitors: ${competitors}
+
+Search Twitter/X, LinkedIn posts, HackerNews, ProductHunt, competitor blogs.
+Focus on: feature announcements, messaging changes, PR campaigns, viral content, positioning shifts.
+For each significant social signal, emit one ecosystem_alert with alert_type="social_signal".
+Do not report routine posts — only signals indicating a strategic shift or new narrative.`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
+// =============================================================================
 // Registry
 // =============================================================================
 
@@ -266,6 +377,9 @@ export const ECOSYSTEM_MONITOR_TEMPLATES: EcosystemMonitorTemplate[] = [
   IP_TEMPLATE,
   TRENDS_TEMPLATE,
   PARTNERSHIPS_TEMPLATE,
+  HIRING_TEMPLATE,
+  CUSTOMER_SENTIMENT_TEMPLATE,
+  SOCIAL_TEMPLATE,
 ];
 
 export function getEcosystemTemplate(type: EcosystemMonitorType): EcosystemMonitorTemplate | undefined {

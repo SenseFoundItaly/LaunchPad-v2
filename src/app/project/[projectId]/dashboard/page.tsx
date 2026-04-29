@@ -33,7 +33,7 @@ import {
   Icon,
   I,
 } from '@/components/design/primitives';
-import type { ApiResponse } from '@/types';
+import type { ApiResponse, SignalTimelineEntry } from '@/types';
 
 // =============================================================================
 // Payload types (matches /api/dashboard/{id} extended shape)
@@ -145,15 +145,17 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
   const [graphNodes, setGraphNodes] = useState<GraphNodeRow[]>([]);
   const [milestones, setMilestones] = useState<JourneyPayload['milestones']>([]);
   const [usageGroups, setUsageGroups] = useState<LlmUsageGroupRow[]>([]);
+  const [signalEntries, setSignalEntries] = useState<SignalTimelineEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [dash, graph, journey, usage] = await Promise.all([
+      const [dash, graph, journey, usage, signals] = await Promise.all([
         api.get<ApiResponse<DashboardPayload>>(`/api/dashboard/${projectId}`),
         api.get<ApiResponse<{ nodes?: GraphNodeRow[] }>>(`/api/graph/${projectId}`).catch(() => ({ data: { data: { nodes: [] } } })),
         api.get<ApiResponse<JourneyPayload>>(`/api/journey/${projectId}`).catch(() => ({ data: { data: { milestones: [] } } })),
         api.get<ApiResponse<LlmUsageGroupRow[]>>(`/api/projects/${projectId}/usage/groups`).catch(() => ({ data: { data: [] } })),
+        fetch(`/api/projects/${projectId}/signals?days=7&limit=8`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
       ]);
       if (dash.data?.data) setPayload(dash.data.data);
       const nodes = (graph.data as ApiResponse<{ nodes?: GraphNodeRow[] }> | undefined)?.data?.nodes;
@@ -162,6 +164,9 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
       setMilestones(Array.isArray(ms) ? ms : []);
       const groups = (usage.data as ApiResponse<LlmUsageGroupRow[]> | undefined)?.data;
       setUsageGroups(Array.isArray(groups) ? groups : []);
+      if (signals?.success && Array.isArray(signals.data)) {
+        setSignalEntries(signals.data);
+      }
     } catch {
       // Partial data is fine — the page renders empty panels gracefully
     } finally {
@@ -382,6 +387,19 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
                 }
               >
                 <MiniGraph nodes={graphNodes} />
+              </Panel>
+
+              <Panel
+                title={locale === 'it' ? 'Segnali' : 'Signals'}
+                subtitle={`${signalEntries.length} · ${locale === 'it' ? 'ultimi 7g' : 'last 7d'}`}
+                right={
+                  <Link href={`/project/${projectId}/signals`} style={linkStyle}>
+                    {locale === 'it' ? 'vedi tutto' : 'view all'}
+                    <Icon d={I.arrow} size={10} />
+                  </Link>
+                }
+              >
+                <SignalsPreviewPanel signals={signalEntries} locale={locale} />
               </Panel>
 
               <Panel
@@ -918,6 +936,88 @@ function BudgetRows({
 }
 
 // =============================================================================
+// Signals preview — scrollable signal cards for dashboard
+// =============================================================================
+
+const SIG_BORDER: Record<string, string> = {
+  high: 'var(--clay)',
+  medium: 'var(--sky)',
+  low: 'var(--ink-5)',
+  noise: 'var(--line-2)',
+};
+
+const SIG_PILL: Record<string, 'warn' | 'info' | 'n'> = {
+  high: 'warn',
+  medium: 'info',
+  low: 'n',
+  noise: 'n',
+};
+
+function SignalsPreviewPanel({
+  signals,
+  locale,
+}: {
+  signals: SignalTimelineEntry[];
+  locale: 'en' | 'it';
+}) {
+  if (signals.length === 0) {
+    return (
+      <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
+        {locale === 'it'
+          ? 'Nessun segnale rilevato negli ultimi 7 giorni.'
+          : 'No signals detected in the last 7 days.'}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxHeight: 260, overflow: 'auto' }}>
+      {signals.slice(0, 8).map((s) => (
+        <div
+          key={s.id}
+          style={{
+            padding: '9px 14px',
+            borderBottom: '1px solid var(--line)',
+            borderLeft: `3px solid ${SIG_BORDER[s.significance] || 'var(--line-2)'}`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 3,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Pill kind={SIG_PILL[s.significance] || 'n'} dot>
+              {s.significance}
+            </Pill>
+            <span className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-5)', textTransform: 'uppercase' }}>
+              {s.type === 'ecosystem_alert' ? 'monitor' : 'watch'}
+            </span>
+            <span style={{ flex: 1 }} />
+            <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
+              {formatTimeAgo(s.timestamp, locale)}
+            </span>
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--ink-2)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {s.headline}
+          </div>
+          <div style={{ fontSize: 10.5, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Icon d={I.globe} size={9} />
+            {s.source_label}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// =============================================================================
 // Helpers
 // =============================================================================
 
@@ -944,6 +1044,9 @@ function agentNameFromType(type: string): string {
   if (type.startsWith('ecosystem.ip')) return 'Scout';
   if (type.startsWith('ecosystem.trends')) return 'Scout';
   if (type.startsWith('ecosystem.partnerships')) return 'Outreach';
+  if (type.startsWith('ecosystem.hiring')) return 'Recruiter';
+  if (type.startsWith('ecosystem.customer_sentiment')) return 'Listener';
+  if (type.startsWith('ecosystem.social')) return 'Social';
   if (type === 'health') return 'Chief';
   return 'Agent';
 }
@@ -961,6 +1064,9 @@ function agentColor(name: string): string {
     Analyst: '#7a5a4a',
     Outreach: '#7a4a6a',
     Designer: '#4a7a7a',
+    Recruiter: '#5a7a4a',
+    Listener: '#4a6a7a',
+    Social: '#6a4a7a',
     Agent: '#6b6558',
   };
   return map[name] || '#555';
