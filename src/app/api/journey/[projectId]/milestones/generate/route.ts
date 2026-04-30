@@ -47,7 +47,7 @@ export async function POST(
       ];
 
       setProgress(task.task_id, 60, 'Processing milestones...');
-      const result = await chatJSONByTask(messages, 'milestones');
+      const result = await chatJSONByTask(messages, 'milestones', { projectId });
       const r = result;
 
       setProgress(task.task_id, 80, 'Saving milestones...');

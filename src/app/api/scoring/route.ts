@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       ];
 
       setProgress(task.task_id, 50, 'Running multi-dimensional scoring...');
-      const result = await chatJSONByTask(messages, 'scoring');
+      const result = await chatJSONByTask(messages, 'scoring', { projectId });
 
       setProgress(task.task_id, 90, 'Saving results...');
       // Upsert scores

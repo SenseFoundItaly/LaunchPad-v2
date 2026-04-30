@@ -161,12 +161,16 @@ export function logToLangfuse(
     const now = new Date();
     const startTime = new Date(now.getTime() - latencyMs);
 
-    // Map model names to Langfuse-recognized names for auto-pricing
+    // Map model names to Langfuse-recognized canonical IDs. Auto-register
+    // OpenRouter slugs from MODEL_CONFIG so adding a model in models.ts is
+    // sufficient — no manual sync needed here.
     const modelMap: Record<string, string> = {
       'sonnet': 'claude-sonnet-4-20250514',
       'claude-sonnet-4': 'claude-sonnet-4-20250514',
-      'claude-sonnet-4-6': 'claude-sonnet-4-20250514',
     };
+    for (const cfg of Object.values(MODEL_CONFIG)) {
+      modelMap[cfg.openrouterId] = cfg.id;
+    }
     const langfuseModel = modelMap[ctx.model || ''] || ctx.model || 'unknown';
 
     const promptTokens = usage.input_tokens || 0;

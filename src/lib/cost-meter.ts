@@ -15,7 +15,7 @@
 import type { Usage } from '@mariozechner/pi-ai';
 import { query, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
-import { logToLangfuse } from '@/lib/telemetry';
+import { logToLangfuse, type TelemetryContext } from '@/lib/telemetry';
 
 export interface RecordUsageInput {
   project_id: string;
@@ -90,9 +90,7 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
   // same dashboard as chat traces. logToLangfuse lazy-inits the Langfuse
   // client and silently no-ops when LANGFUSE_SECRET_KEY is absent, so this
   // is safe to call unconditionally from local-dev or prod.
-  const provider = (input.provider === 'anthropic' || input.provider === 'openai')
-    ? input.provider
-    : 'anthropic';
+  const provider = input.provider as TelemetryContext['provider'];
   try {
     logToLangfuse(
       {

@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { pickModel, type TaskLabel } from './router';
+import { recordUsage } from '@/lib/cost-meter';
 
 // Lazy-init: avoid crashing at import time when keys aren't set (gateway mode)
 let _openai: OpenAI | null = null;
@@ -29,29 +30,8 @@ export async function chat(
   maxTokens = 4096,
   model?: string,
 ): Promise<string> {
-  if (provider === 'anthropic') {
-    const system = messages
-      .filter((m) => m.role === 'system')
-      .map((m) => m.content)
-      .join('\n');
-    const msgs = messages.filter((m) => m.role !== 'system');
-    const response = await getAnthropic().messages.create({
-      model: model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
-      system,
-      messages: msgs as Anthropic.MessageParam[],
-      temperature,
-      max_tokens: maxTokens,
-    });
-    return response.content[0].type === 'text' ? response.content[0].text : '';
-  }
-
-  const response = await getOpenAI().chat.completions.create({
-    model: model || process.env.OPENAI_MODEL || 'gpt-4o',
-    messages,
-    temperature,
-    max_tokens: maxTokens,
-  });
-  return response.choices[0].message.content || '';
+  const { text } = await chatWithUsage(messages, provider, temperature, maxTokens, model);
+  return text;
 }
 
 export async function chatJSON<T = Record<string, unknown>>(
@@ -72,17 +52,41 @@ export async function chatJSON<T = Record<string, unknown>>(
  * complexity tier (see src/lib/llm/router.ts). Use this for any new call site
  * where you'd otherwise pass a hardcoded provider.
  *
+ * When `opts.projectId` is provided, token usage is recorded via recordUsage()
+ * which handles both the DB log row and the Langfuse trace.
+ *
  * Example:
- *   const result = await chatJSONByTask<ScoreResult>(messages, 'scoring');
+ *   const result = await chatJSONByTask<ScoreResult>(messages, 'scoring', { projectId });
  *   // routes to balanced tier (Sonnet 4.6) by default.
  */
 export async function chatJSONByTask<T = Record<string, unknown>>(
   messages: Message[],
   task: TaskLabel | string,
-  temperature = 0.3,
+  opts?: { projectId?: string; temperature?: number },
 ): Promise<T> {
   const { provider, model, maxTokens } = pickModel(task);
-  const raw = await chat(messages, provider, temperature, maxTokens, model);
+  const startedAt = Date.now();
+  const { text: raw, usage } = await chatWithUsage(
+    messages, provider, opts?.temperature ?? 0.3, maxTokens, model,
+  );
+  const latencyMs = Date.now() - startedAt;
+
+  if (opts?.projectId) {
+    recordUsage({
+      project_id: opts.projectId,
+      step: task,
+      provider,
+      model,
+      usage: {
+        input: usage.input_tokens,
+        output: usage.output_tokens,
+        cacheCreation: usage.cache_creation_input_tokens,
+        cacheRead: usage.cache_read_input_tokens,
+      } as any,
+      latency_ms: latencyMs,
+    }).catch(err => console.warn(`[${task}] recordUsage failed:`, (err as Error).message));
+  }
+
   let cleaned = raw.trim();
   cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
   cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/g, '');
@@ -101,6 +105,7 @@ export async function chatWithUsage(
   provider = 'openai',
   temperature = 0.7,
   maxTokens = 4096,
+  model?: string,
 ): Promise<{ text: string; usage: LLMUsage }> {
   if (provider === 'anthropic') {
     const system = messages
@@ -109,7 +114,7 @@ export async function chatWithUsage(
       .join('\n');
     const msgs = messages.filter((m) => m.role !== 'system');
     const response = await getAnthropic().messages.create({
-      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+      model: model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
       system,
       messages: msgs as Anthropic.MessageParam[],
       temperature,
@@ -129,7 +134,7 @@ export async function chatWithUsage(
   }
 
   const response = await getOpenAI().chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-4o',
+    model: model || process.env.OPENAI_MODEL || 'gpt-4o',
     messages,
     temperature,
     max_tokens: maxTokens,

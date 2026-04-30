@@ -59,7 +59,7 @@ export async function POST(
       ];
 
       setProgress(task.task_id, 60, 'Generating improved pitch...');
-      const result = await chatJSONByTask(messages, 'pitch-iterate');
+      const result = await chatJSONByTask(messages, 'pitch-iterate', { projectId });
       const r = result;
 
       setProgress(task.task_id, 80, 'Saving pitch version...');

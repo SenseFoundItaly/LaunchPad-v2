@@ -7,9 +7,7 @@ import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { recordUsage } from '@/lib/cost-meter';
 import { recordEvent } from '@/lib/memory/events';
 import { extractEcosystemAlerts, persistEcosystemAlerts } from '@/lib/ecosystem-alert-parser';
-
-const PI_PROVIDER = process.env.PI_PROVIDER || 'anthropic';
-const PI_MODEL = process.env.PI_MODEL || (PI_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
+import { pickModel } from '@/lib/llm/router';
 
 function deriveSeverity(text: string): 'critical' | 'warning' | 'info' {
   const lower = text.toLowerCase();
@@ -101,11 +99,12 @@ export async function POST(_request: NextRequest, { params }: Params) {
             // a usage object (mock providers, some failure modes), recordUsage
             // no-ops gracefully.
             const usage = payload.usage as Parameters<typeof recordUsage>[0]['usage'];
+            const { provider: monProvider, model: monModel } = pickModel('monitor-agent');
             recordUsage({
               project_id: projectId,
               step: `manual.${monitorType}`,
-              provider: PI_PROVIDER,
-              model: PI_MODEL,
+              provider: monProvider,
+              model: monModel,
               usage,
               latency_ms: latencyMs,
             }).catch(err =>

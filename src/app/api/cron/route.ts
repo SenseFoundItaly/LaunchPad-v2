@@ -231,9 +231,6 @@ async function proposeHeartbeatTasks(args: {
   return { proposed: created, skipped_credits: false };
 }
 
-const PI_PROVIDER = (process.env.PI_PROVIDER || 'anthropic');
-const PI_MODEL = process.env.PI_MODEL || (PI_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
-
 /**
  * Cron endpoint bearer auth.
  *
@@ -339,11 +336,12 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
     // Observe-mode cost meter — logs to llm_usage_logs + upserts monthly
     // project_budgets. No hard-stop in Phase 0; crossed_warn surfaces as an
     // alerts row that the Monday Brief can include in its operational section.
+    const { provider: monProvider, model: monModel } = pickModel('monitor-agent');
     recordUsage({
       project_id: monitor.project_id,
       step: `cron.${monitor.type}`,
-      provider: PI_PROVIDER,
-      model: PI_MODEL,
+      provider: monProvider,
+      model: monModel,
       usage,
       latency_ms: latencyMs,
     }).catch(err =>
