@@ -25,6 +25,7 @@
 
 import crypto from 'crypto';
 import { get, run } from '@/lib/db';
+import { generateId } from '@/lib/api-helpers';
 import type {
   Artifact,
   EntityCard,
@@ -36,6 +37,8 @@ import type {
   ComparisonTable,
   ActionSuggestion,
   TaskArtifact,
+  HtmlPreviewArtifact,
+  DocumentArtifact,
   Source,
 } from '@/types/artifacts';
 import { recordFact } from './memory/facts';
@@ -87,6 +90,12 @@ export async function persistArtifact(ctx: PersistContext, artifact: Artifact): 
         return await persistActionSuggestion(ctx, artifact as ActionSuggestion);
       case 'task':
         return await persistTask(ctx, artifact as TaskArtifact);
+      case 'html-preview':
+        return await persistBuildArtifact(ctx, artifact as HtmlPreviewArtifact);
+      case 'document':
+        return await persistDocumentArtifact(ctx, artifact as DocumentArtifact);
+      case 'solve-progress':
+        return { type: artifact.type, persisted: false, note: 'UI-only tracker' };
       default:
         return { type: artifact.type, persisted: false, note: 'no handler' };
     }
@@ -514,6 +523,56 @@ function mapActionType(raw: string | undefined): PendingActionType {
   if (r.includes('investor')) return 'proposed_investor_followup';
   if (r.includes('workflow') || r.includes('step')) return 'workflow_step';
   return 'proposed_hypothesis';
+}
+
+// ─── html-preview → build_artifacts ──────────────────────────────────────────
+
+async function persistBuildArtifact(ctx: PersistContext, a: HtmlPreviewArtifact): Promise<PersistResult> {
+  if (!a.html) return { type: a.type, persisted: false, note: 'empty html' };
+
+  const id = generateId('ba');
+  await run(
+    `INSERT INTO build_artifacts (id, project_id, skill_id, artifact_type, title, content, metadata, sources, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    ctx.projectId,
+    'build-landing-page',
+    'html-preview',
+    a.title || 'Landing Page',
+    a.html,
+    JSON.stringify({ viewport: a.viewport ?? 'desktop' }),
+    JSON.stringify(a.sources ?? []),
+    new Date().toISOString(),
+  );
+
+  return { type: a.type, persisted: true, target: `build_artifacts (${id})` };
+}
+
+// ─── document → build_artifacts ──────────────────────────────────────────────
+
+async function persistDocumentArtifact(ctx: PersistContext, a: DocumentArtifact): Promise<PersistResult> {
+  if (!a.content) return { type: a.type, persisted: false, note: 'empty content' };
+
+  const skillId = a.doc_type === 'pitch-deck' ? 'build-pitch-deck'
+    : a.doc_type === 'one-pager' ? 'build-one-pager'
+    : 'build-document';
+  const id = generateId('ba');
+  await run(
+    `INSERT INTO build_artifacts (id, project_id, skill_id, artifact_type, title, content, doc_type, metadata, sources, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    ctx.projectId,
+    skillId,
+    'document',
+    a.title || 'Document',
+    a.content,
+    a.doc_type,
+    JSON.stringify({ sections_count: a.sections?.length ?? 0 }),
+    JSON.stringify(a.sources ?? []),
+    new Date().toISOString(),
+  );
+
+  return { type: a.type, persisted: true, target: `build_artifacts (${id}, ${a.doc_type})` };
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

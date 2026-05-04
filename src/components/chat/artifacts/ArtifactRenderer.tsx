@@ -12,6 +12,9 @@ import MetricGridCard from './MetricGridCard';
 import SensitivitySliderCard from './SensitivitySliderCard';
 import MonitorProposalCard from './MonitorProposalCard';
 import BudgetProposalCard from './BudgetProposalCard';
+import HtmlPreviewCard from './HtmlPreviewCard';
+import DocumentCard from './DocumentCard';
+import SolveProgressCard from './SolveProgressCard';
 import SourcesFooter from './SourcesFooter';
 import { RadarChart, BarChart, PieChart, GaugeChart, ScoreCard } from '@/components/charts';
 
@@ -95,6 +98,12 @@ export default function ArtifactRenderer({
       return <MonitorProposalCard artifact={artifact} onAction={onAction} />;
     case 'budget-proposal':
       return <BudgetProposalCard artifact={artifact} onAction={onAction} />;
+    case 'html-preview':
+      return <HtmlPreviewCard artifact={artifact} />;
+    case 'document':
+      return <DocumentCard artifact={artifact} />;
+    case 'solve-progress':
+      return <SolveProgressCard artifact={artifact} />;
     default:
       return null;
   }

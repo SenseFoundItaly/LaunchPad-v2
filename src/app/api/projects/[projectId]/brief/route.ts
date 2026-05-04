@@ -5,6 +5,7 @@ import { listPendingActions, inboxSummary } from '@/lib/pending-actions';
 import type {
   EcosystemAlert,
   Alert,
+  IntelligenceBrief,
   MondayBrief,
   MondayBriefSection,
 } from '@/types';
@@ -78,11 +79,25 @@ export async function GET(
   );
   const operationalAlerts: Alert[] = operationalRaw.map(rowToAlert);
 
+  // Active intelligence briefs (correlation synthesis)
+  const intelligenceBriefsRaw = await query<Record<string, unknown>>(
+    `SELECT id, project_id, brief_type, entity_name, title, narrative,
+            temporal_prediction, confidence, signal_ids, signal_count,
+            recommended_actions, valid_until, status, created_at
+     FROM intelligence_briefs
+     WHERE project_id = ? AND status = 'active'
+     ORDER BY confidence DESC, created_at DESC
+     LIMIT 10`,
+    projectId,
+  );
+  const intelligenceBriefs: IntelligenceBrief[] = intelligenceBriefsRaw.map(rowToIntelligenceBrief);
+
   const summary = await inboxSummary(projectId);
 
   // Deterministic section builders — LLM personality voice is added in Phase 1
   const sections: MondayBriefSection[] = [
     buildMovementsSection(ecosystemAlerts, locale),
+    buildStrategicIntelSection(intelligenceBriefs, locale),
     buildDecisionsSection(decisionsNeeded, summary, locale),
     buildActionsTakenSection(actionsTaken, locale),
     buildOperationalSection(operationalAlerts, locale),
@@ -95,12 +110,14 @@ export async function GET(
       project.name,
       ecosystemAlerts.length,
       decisionsNeeded.length,
+      intelligenceBriefs.length,
       locale,
     ),
     sections,
     ecosystem_alerts: ecosystemAlerts,
     pending_actions: [...decisionsNeeded, ...actionsTaken],
     operational_alerts: operationalAlerts,
+    intelligence_briefs: intelligenceBriefs,
     generated_at: new Date().toISOString(),
   };
 
@@ -138,6 +155,33 @@ function buildMovementsSection(
       summary: a.body,
       source_url: a.source_url,
       score: a.relevance_score,
+    })),
+  };
+}
+
+function buildStrategicIntelSection(
+  briefs: IntelligenceBrief[],
+  locale: 'en' | 'it',
+): MondayBriefSection | null {
+  if (briefs.length === 0) return null;
+  const entityBriefs = briefs.filter(b => b.entity_name);
+  const heading = locale === 'it' ? 'Intelligence strategica' : 'Strategic intelligence';
+  const narrative = locale === 'it'
+    ? `${briefs.length} analisi di correlazione attive${entityBriefs.length > 0 ? ` su ${entityBriefs.map(b => b.entity_name).join(', ')}` : ''}. Le previsioni temporali indicano dove guardare nei prossimi mesi.`
+    : `${briefs.length} active correlation ${briefs.length === 1 ? 'analysis' : 'analyses'}${entityBriefs.length > 0 ? ` covering ${entityBriefs.map(b => b.entity_name).join(', ')}` : ''}. Temporal predictions point to where to look in the months ahead.`;
+  return {
+    kind: 'strategic_intel',
+    heading,
+    narrative,
+    artifacts: briefs.map(b => ({
+      type: 'intelligence-brief',
+      brief_id: b.id,
+      title: b.title,
+      narrative: b.narrative,
+      confidence: b.confidence,
+      entity_name: b.entity_name,
+      temporal_prediction: b.temporal_prediction,
+      recommended_actions: b.recommended_actions,
     })),
   };
 }
@@ -232,18 +276,25 @@ function personalityIntro(
   projectName: string,
   movementCount: number,
   decisionCount: number,
+  briefCount: number,
   locale: 'en' | 'it',
 ): string {
+  const briefPart = (loc: 'en' | 'it') => {
+    if (briefCount === 0) return '';
+    return loc === 'it'
+      ? `, ${briefCount} analisi intel`
+      : `, ${briefCount} intel brief${briefCount === 1 ? '' : 's'}`;
+  };
   if (locale === 'it') {
-    if (movementCount === 0 && decisionCount === 0) {
+    if (movementCount === 0 && decisionCount === 0 && briefCount === 0) {
       return `Settimana tranquilla per ${projectName}. Nessuna novità rilevante dall'ecosistema. Tempo di alzare l'asticella su quello che stai testando.`;
     }
-    return `Ecco il tuo lunedì su ${projectName}: ${movementCount} segnale/i dall'ecosistema, ${decisionCount} decisione/i in attesa. Partiamo dall'alto.`;
+    return `Ecco il tuo lunedì su ${projectName}: ${movementCount} segnale/i dall'ecosistema, ${decisionCount} decisione/i in attesa${briefPart('it')}. Partiamo dall'alto.`;
   }
-  if (movementCount === 0 && decisionCount === 0) {
+  if (movementCount === 0 && decisionCount === 0 && briefCount === 0) {
     return `Quiet week on ${projectName}. Nothing material moved in your ecosystem. Good moment to raise the bar on what you're testing.`;
   }
-  return `Here is your Monday on ${projectName}: ${movementCount} ecosystem signal${movementCount === 1 ? '' : 's'}, ${decisionCount} decision${decisionCount === 1 ? '' : 's'} waiting. Top-down.`;
+  return `Here is your Monday on ${projectName}: ${movementCount} ecosystem signal${movementCount === 1 ? '' : 's'}, ${decisionCount} decision${decisionCount === 1 ? '' : 's'} waiting${briefPart('en')}. Top-down.`;
 }
 
 function groupByType<T extends { alert_type: string }>(items: T[]): Record<string, T[]> {
@@ -312,5 +363,24 @@ function rowToAlert(row: Record<string, unknown>): Alert {
     message: row.message as string,
     created_at: row.created_at as string,
     dismissed: Boolean(row.dismissed),
+  };
+}
+
+function rowToIntelligenceBrief(row: Record<string, unknown>): IntelligenceBrief {
+  return {
+    id: row.id as string,
+    project_id: row.project_id as string,
+    brief_type: row.brief_type as IntelligenceBrief['brief_type'],
+    entity_name: (row.entity_name as string) ?? null,
+    title: row.title as string,
+    narrative: row.narrative as string,
+    temporal_prediction: (row.temporal_prediction as string) ?? null,
+    confidence: (row.confidence as number) ?? 0,
+    signal_ids: typeof row.signal_ids === 'string' ? JSON.parse(row.signal_ids) : (row.signal_ids as string[]) ?? [],
+    signal_count: (row.signal_count as number) ?? 0,
+    recommended_actions: typeof row.recommended_actions === 'string' ? JSON.parse(row.recommended_actions) : (row.recommended_actions as IntelligenceBrief['recommended_actions']) ?? [],
+    valid_until: (row.valid_until as string) ?? null,
+    status: row.status as IntelligenceBrief['status'],
+    created_at: row.created_at as string,
   };
 }

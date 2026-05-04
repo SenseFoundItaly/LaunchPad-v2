@@ -57,6 +57,9 @@ export const STAGES: StageDef[] = [
       { id: 'prototype-spec', label: 'MVP Spec', route: 'chat?skill=prototype-spec', dataKey: 'prototype_spec' },
       { id: 'gtm-strategy', label: 'GTM Strategy', route: 'chat?skill=gtm-strategy', dataKey: 'gtm_strategy' },
       { id: 'growth-optimization', label: 'Growth Loops', route: 'chat?skill=growth-optimization', dataKey: 'growth_loops' },
+      { id: 'build-landing-page', label: 'Landing Page', route: 'chat?skill=build-landing-page', dataKey: 'build_landing_page' },
+      { id: 'build-pitch-deck', label: 'Pitch Deck', route: 'chat?skill=build-pitch-deck', dataKey: 'build_pitch_deck' },
+      { id: 'build-one-pager', label: 'One-Pager', route: 'chat?skill=build-one-pager', dataKey: 'build_one_pager' },
     ],
   },
   {
@@ -97,6 +100,9 @@ export const SKILL_KICKOFFS: Record<string, string> = {
   'investor-relations': 'Help me build my investor pipeline and plan outreach strategy.',
   'simulation': 'Simulate market reception for my startup — run 6 persona reactions (2 customers, 2 investors, 1 expert, 1 competitor) and 4 risk scenarios.',
   'weekly-metrics': 'Analyze my startup metrics, calculate burn rate and runway, and flag any alerts or trends I should watch.',
+  'build-landing-page': 'Build me a responsive landing page based on my validated idea, market research, and brand positioning.',
+  'build-pitch-deck': 'Build a Sequoia-format investor pitch deck using my validated project data.',
+  'build-one-pager': 'Create a concise executive summary one-pager for investor outreach.',
 };
 
 /** Contextual next steps shown in the skill detail panel after completion */
@@ -138,10 +144,24 @@ export const SKILL_NEXT_STEPS: Record<string, { label: string; skillId: string }
   'prototype-spec': [
     { label: 'Plan go-to-market launch', skillId: 'gtm-strategy' },
     { label: 'Set up growth loops', skillId: 'growth-optimization' },
+    { label: 'Build a landing page', skillId: 'build-landing-page' },
   ],
   'gtm-strategy': [
     { label: 'Set up growth experiment loops', skillId: 'growth-optimization' },
     { label: 'Build investor pipeline', skillId: 'investor-relations' },
+    { label: 'Build a landing page', skillId: 'build-landing-page' },
+  ],
+  'build-landing-page': [
+    { label: 'Set up growth experiment loops', skillId: 'growth-optimization' },
+    { label: 'Build a pitch deck', skillId: 'build-pitch-deck' },
+  ],
+  'build-pitch-deck': [
+    { label: 'Create executive one-pager', skillId: 'build-one-pager' },
+    { label: 'Build investor pipeline', skillId: 'investor-relations' },
+  ],
+  'build-one-pager': [
+    { label: 'Build investor pipeline', skillId: 'investor-relations' },
+    { label: 'Practice investor pitch', skillId: 'pitch-coaching' },
   ],
   'growth-optimization': [
     { label: 'Track weekly metrics', skillId: 'weekly-metrics' },
@@ -174,6 +194,9 @@ export const SKILL_SOURCES: Record<string, string[]> = {
   'investment-readiness': ['financial-model', 'startup-scoring', 'risk-scoring'],
   'pitch-coaching': ['investment-readiness', 'financial-model'],
   'investor-relations': ['pitch-coaching', 'investment-readiness'],
+  'build-landing-page': ['idea-shaping', 'market-research', 'prototype-spec'],
+  'build-pitch-deck': ['idea-shaping', 'market-research', 'financial-model', 'business-model'],
+  'build-one-pager': ['idea-shaping', 'market-research', 'startup-scoring'],
 };
 
 /** Color utility for Tailwind classes */

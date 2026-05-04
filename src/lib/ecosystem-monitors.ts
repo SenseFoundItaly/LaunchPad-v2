@@ -21,7 +21,8 @@ export type EcosystemMonitorType =
   | 'ecosystem.partnerships'
   | 'ecosystem.hiring'
   | 'ecosystem.customer_sentiment'
-  | 'ecosystem.social';
+  | 'ecosystem.social'
+  | 'ecosystem.ads';
 
 export interface EcosystemMonitorTemplate {
   type: EcosystemMonitorType;
@@ -76,7 +77,7 @@ OUTPUT CONTRACT — do not deviate:
    }
    :::
 3. Field rules:
-   - alert_type: one of "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal"
+   - alert_type: one of "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal" | "ad_activity" | "pricing_change" | "product_launch"
    - headline: 1 line, <=120 chars
    - body: 2-4 sentences, factual
    - source_url: direct URL (not a search page)
@@ -104,7 +105,7 @@ CONTRATTO DI OUTPUT — non deviare:
    }
    :::
 3. Regole dei campi:
-   - alert_type: uno tra "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal"
+   - alert_type: uno tra "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal" | "ad_activity" | "pricing_change" | "product_launch"
    - headline: 1 riga, <=120 caratteri
    - body: 2-4 frasi, fattuale
    - source_url: URL diretto (non una pagina di ricerca)
@@ -283,13 +284,15 @@ export const HIRING_TEMPLATE: EcosystemMonitorTemplate = {
 Cerca su LinkedIn Jobs, pagine carriere dei competitor, board Greenhouse/Lever, cambiamenti team su Crunchbase.
 Focus su: AE enterprise, security engineer, leadership, espansione in nuove aree.
 Per ogni assunzione strategica rilevante, emetti un ecosystem_alert con alert_type="hiring_signal".
-Ignora assunzioni di routine — solo quelle che segnalano un cambio di direzione strategica.`
+Ignora assunzioni di routine — solo quelle che segnalano un cambio di direzione strategica.
+Nel campo body, prefissa con un tag di sotto-categoria: [leadership], [engineering_expansion], [new_market_expansion] o [sales_expansion].`
       : `Monitor strategic hires at competitors and adjacent companies: ${competitors}
 
 Search LinkedIn Jobs, competitor careers pages, Greenhouse/Lever boards, Crunchbase team changes.
 Focus on: enterprise AEs, security engineers, leadership hires, team expansion into new areas.
 For each strategically relevant hire, emit one ecosystem_alert with alert_type="hiring_signal".
-Ignore routine hiring — only flag hires that signal a strategic direction change.`;
+Ignore routine hiring — only flag hires that signal a strategic direction change.
+In the body field, prefix with a sub-category tag: [leadership], [engineering_expansion], [new_market_expansion], or [sales_expansion].`;
     return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
   },
 };
@@ -369,6 +372,45 @@ Do not report routine posts — only signals indicating a strategic shift or new
 };
 
 // =============================================================================
+// Template 8 — Ads & Paid Marketing
+// =============================================================================
+
+export const ADS_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.ads',
+  name: 'Ecosystem — Ad Activity',
+  nameIt: 'Ecosistema — Attivita Pubblicitaria',
+  schedule: 'weekly',
+  defaultConfig: { competitors: [], platforms: ['meta', 'google'], threshold: 'all' },
+  buildPrompt: (ctx) => {
+    const competitors = ctx.knownCompetitors.length > 0
+      ? ctx.knownCompetitors.join(', ')
+      : '(none tracked yet — use project context to infer the competitive set)';
+    const keywords = ctx.keywords.length > 0 ? ctx.keywords.join(', ') : ctx.idea?.solution || ctx.projectName;
+    const header = ctx.locale === 'it'
+      ? 'SCAN SETTIMANALE — ATTIVITA PUBBLICITARIA'
+      : 'WEEKLY SCAN — AD ACTIVITY';
+    const body = ctx.locale === 'it'
+      ? `Monitora l'attivita pubblicitaria dei competitor e del settore: ${keywords}
+Competitor tracciati: ${competitors}
+
+Cerca su Meta Ads Library, Google Ads Transparency Center, landing page dei competitor.
+Focus su: nuove campagne, cambi di messaging, nuovi canali paid, budget shifts evidenti,
+creativita nuove, landing page aggiornate, promozioni aggressive.
+Per ogni attivita significativa, emetti un ecosystem_alert con alert_type="ad_activity".
+Non riportare refresh minori di creativita — solo cambiamenti strategici di paid marketing.`
+      : `Monitor competitor and industry ad activity for: ${keywords}
+Tracked competitors: ${competitors}
+
+Search Meta Ads Library, Google Ads Transparency Center, competitor landing pages.
+Focus on: new campaigns, messaging changes, new paid channels, evident budget shifts,
+new creatives, updated landing pages, aggressive promotions.
+For each significant ad activity, emit one ecosystem_alert with alert_type="ad_activity".
+Do not report minor creative refreshes — only strategic paid marketing changes.`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
+// =============================================================================
 // Registry
 // =============================================================================
 
@@ -380,6 +422,7 @@ export const ECOSYSTEM_MONITOR_TEMPLATES: EcosystemMonitorTemplate[] = [
   HIRING_TEMPLATE,
   CUSTOMER_SENTIMENT_TEMPLATE,
   SOCIAL_TEMPLATE,
+  ADS_TEMPLATE,
 ];
 
 export function getEcosystemTemplate(type: EcosystemMonitorType): EcosystemMonitorTemplate | undefined {

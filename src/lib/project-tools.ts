@@ -41,11 +41,11 @@ interface ToolContext {
 const listEcosystemAlerts = (ctx: ToolContext): AgentTool => ({
   name: 'list_ecosystem_alerts',
   label: 'Ecosystem Alerts',
-  description: 'List this project\'s ecosystem alerts (competitor activity, IP filings, trend signals, partnership opportunities, funding events). Use when the founder asks about what moved in their ecosystem, competitor updates, or recent market signals.',
+  description: 'List this project\'s ecosystem alerts (competitor activity, IP filings, trend signals, partnership opportunities, funding events, hiring signals, customer sentiment, social signals, ad activity, pricing changes, product launches). Use when the founder asks about what moved in their ecosystem, competitor updates, or recent market signals.',
   parameters: Type.Object({
     days_back: Type.Optional(Type.Number({ description: 'Lookback window in days. Default 14.' })),
     min_relevance: Type.Optional(Type.Number({ description: 'Relevance cutoff 0.0-1.0. Default 0.6.' })),
-    alert_type: Type.Optional(Type.String({ description: 'Filter by one of: competitor_activity, ip_filing, trend_signal, partnership_opportunity, regulatory_change, funding_event' })),
+    alert_type: Type.Optional(Type.String({ description: 'Filter by one of: competitor_activity, ip_filing, trend_signal, partnership_opportunity, regulatory_change, funding_event, hiring_signal, customer_sentiment, social_signal, ad_activity, pricing_change, product_launch' })),
     limit: Type.Optional(Type.Number({ description: 'Max rows. Default 20, max 50.' })),
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {

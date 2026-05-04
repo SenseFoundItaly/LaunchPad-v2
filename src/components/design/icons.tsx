@@ -81,6 +81,7 @@ export const I = {
   stop: 'M3 3h10v10H3z',
   download: 'M8 2v8m0 0l-3-3m3 3l3-3M3 13h10',
   signal: 'M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm-4 2a6 6 0 0 1 0-8m8 0a6 6 0 0 1 0 8',
+  printer: 'M5 2v3H2v6h3v3h6v-3h3V5h-3V2H5zm0 3h6v2H5V5zm0 5h6v3H5v-3z',
 } as const;
 
 export type IconKey = keyof typeof I;

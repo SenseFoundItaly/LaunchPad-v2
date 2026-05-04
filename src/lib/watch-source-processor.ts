@@ -260,7 +260,7 @@ async function classifyChange(
 
   const systemPrompt = [
     'You classify content changes detected on a tracked web page.',
-    `Respond ONLY with valid JSON: {"significance":"high"|"medium"|"low"|"noise","rationale":"<1-2 sentences>","headline":"<concise headline, max 120 chars>","alert_type":"<one of: competitor_activity, ip_filing, trend_signal, partnership_opportunity, regulatory_change, funding_event, hiring_signal, customer_sentiment, social_signal>"}`,
+    `Respond ONLY with valid JSON: {"significance":"high"|"medium"|"low"|"noise","rationale":"<1-2 sentences>","headline":"<concise headline, max 120 chars>","alert_type":"<one of: competitor_activity, ip_filing, trend_signal, partnership_opportunity, regulatory_change, funding_event, hiring_signal, customer_sentiment, social_signal, ad_activity, pricing_change, product_launch>"}`,
     '',
     'Significance scale:',
     '- high: pricing change, major product launch, regulatory shift, acquisition',
@@ -338,9 +338,13 @@ function getCategoryHints(category: string): string | null {
     case 'review_site':
       return 'This is a review/ratings site. Use alert_type="customer_sentiment" for changes. Focus on rating shifts, recurring complaint patterns, competitive gaps mentioned, or sudden review volume changes. Ignore single reviews.';
     case 'competitor_pricing':
-      return 'This is a competitor pricing page. Use alert_type="competitor_activity" for changes. Focus on pricing tier changes, plan additions or removals, discount structures, free tier modifications, usage limit adjustments, or enterprise pricing shifts. Ignore cosmetic page updates.';
+      return 'This is a competitor pricing page. Use alert_type="pricing_change" for pricing changes (tier changes, plan additions/removals, discount structures, free tier mods, usage limit adjustments, enterprise pricing shifts). Use alert_type="competitor_activity" for non-pricing updates. Ignore cosmetic page updates.';
     case 'competitor_product':
-      return 'This is a competitor product page. Use alert_type="competitor_activity" for changes. Focus on feature launches, feature deprecations, API changes, platform pivots, new integrations, or roadmap announcements. Ignore minor copy edits or layout changes.';
+      return 'This is a competitor product page. Use alert_type="product_launch" for major product launches or new product lines. Use alert_type="competitor_activity" for incremental feature updates, deprecations, API changes, integrations, or roadmap announcements. Ignore minor copy edits or layout changes.';
+    case 'ad_tracker':
+      return 'This is an ad/paid marketing tracker (Meta Ads Library, Google Ads Transparency, landing page). Use alert_type="ad_activity" for changes. Focus on new campaigns, messaging pivots, new paid channels, budget shifts, aggressive promotions, or landing page messaging changes. Ignore minor creative refreshes.';
+    case 'marketing':
+      return 'This is a marketing page or content source. Use alert_type="ad_activity" for paid marketing changes, or alert_type="competitor_activity" for organic marketing shifts. Focus on messaging changes, campaign launches, positioning pivots, content strategy shifts, or rebrand signals. Ignore routine blog posts.';
     case 'patent_database':
       return 'This is a patent database listing. Use alert_type="ip_filing" for changes. Focus on new patent filings, granted patents, prior art relevance to our domain, claims scope changes, or continuation filings. Ignore administrative status updates.';
     case 'regulatory':

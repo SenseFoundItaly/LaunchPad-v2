@@ -21,7 +21,8 @@ import api from '@/api';
 import { useChat } from '@/hooks/useChat';
 import { useProject } from '@/hooks/useProject';
 import { parseMessageContent } from '@/lib/artifact-parser';
-import type { Artifact, ArtifactType } from '@/types/artifacts';
+import type { Artifact, ArtifactType, SolveProgressArtifact } from '@/types/artifacts';
+import SolveProgressCard from '@/components/chat/artifacts/SolveProgressCard';
 import ArtifactRenderer from '@/components/chat/artifacts/ArtifactRenderer';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { CreditsBadge } from '@/components/CreditsBadge';
@@ -126,6 +127,16 @@ export default function CopilotChatPage({
     }
     return { canvasArtifacts: canvas, inlineArtifactsByMsgId: inlineMap };
   }, [messages]);
+
+  // Auto-switch to Solve tab when the first solve-progress artifact appears
+  const hasSolveProgress = canvasArtifacts.some((a) => a.type === 'solve-progress');
+  const solveTabSwitched = useRef(false);
+  useEffect(() => {
+    if (hasSolveProgress && !solveTabSwitched.current) {
+      solveTabSwitched.current = true;
+      setCanvasTab('solve');
+    }
+  }, [hasSolveProgress]);
 
   function handleSend() {
     const v = input.trim();
@@ -404,6 +415,9 @@ export default function CopilotChatPage({
           {canvasTab === 'activity' && (
             <ActivityTab projectId={projectId} locale={locale} onJumpTasks={() => setCanvasTab('tasks')} />
           )}
+          {canvasTab === 'solve' && (
+            <SolveTab messages={messages} locale={locale} />
+          )}
         </div>
       </div>
 
@@ -475,12 +489,14 @@ function ChatEmptyState({
       'Riassumi i miei numeri e la mia runway',
       'Cosa ho nell\'inbox da approvare?',
       'Quali competitor ho tracciato finora?',
+      'Avvia il flusso Solve',
     ]
     : [
       'What moved in my ecosystem this week?',
       'Summarize my numbers and runway',
       'What do I have in my inbox?',
       'Which competitors am I tracking?',
+      'Start the Solve flow',
     ];
 
   return (
@@ -1675,7 +1691,7 @@ function ComposerMenu({
 // Canvas
 // =============================================================================
 
-type CanvasTab = 'latest' | 'tasks' | 'intelligence' | 'activity';
+type CanvasTab = 'latest' | 'tasks' | 'intelligence' | 'activity' | 'solve';
 
 // ─── TasksTab ─────────────────────────────────────────────────────────────────
 //
@@ -2582,6 +2598,91 @@ function formatTime(iso: string): string {
   }
 }
 
+// =============================================================================
+// SolveTab — shows the Solve Flow pipeline from chat messages
+// =============================================================================
+
+function SolveTab({
+  messages,
+  locale,
+}: {
+  messages: Array<{ role: string; content: string }>;
+  locale: 'en' | 'it';
+}) {
+  // Walk backwards through assistant messages to find the latest solve-progress artifact
+  const latestSolve = useMemo<SolveProgressArtifact | null>(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role !== 'assistant') continue;
+      const segments = parseMessageContent(m.content);
+      for (const seg of segments) {
+        if (seg.type === 'artifact') {
+          const a = (seg as { type: 'artifact'; artifact: Artifact }).artifact;
+          if (a.type === 'solve-progress') return a as SolveProgressArtifact;
+        }
+      }
+    }
+    return null;
+  }, [messages]);
+
+  if (!latestSolve) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 40,
+          gap: 12,
+          textAlign: 'center',
+        }}
+      >
+        <Icon d={I.bolt} size={28} style={{ color: 'var(--ink-5)' }} />
+        <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+          {locale === 'it' ? 'Nessun flusso Solve attivo' : 'No active Solve flow'}
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--ink-5)', maxWidth: 240, lineHeight: 1.5 }}>
+          {locale === 'it'
+            ? 'Chiedi "Avvia il flusso Solve" nella chat per iniziare una pipeline guidata Ricerca → Analisi → Deliverable.'
+            : 'Ask "Start the Solve flow" in chat to begin a guided Research → Scoring → Deliverable pipeline.'}
+        </div>
+      </div>
+    );
+  }
+
+  const completed = latestSolve.stages.filter((s) => s.status === 'completed').length;
+  const total = latestSolve.stages.length;
+  const allDone = completed === total;
+
+  return (
+    <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', padding: 20 }}>
+      {/* Header */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <Icon d={I.bolt} size={14} style={{ color: allDone ? 'var(--moss)' : 'var(--accent)' }} />
+          <span className="lp-serif" style={{ fontSize: 14, color: 'var(--ink-1)' }}>
+            {locale === 'it' ? 'Flusso Solve' : 'Solve Flow'}
+          </span>
+          <Pill kind={allDone ? 'ok' : 'live'}>
+            {completed}/{total}
+          </Pill>
+        </div>
+        {latestSolve.started_at && (
+          <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>
+            {locale === 'it' ? 'Avviato ' : 'Started '}
+            {relativeTime(latestSolve.started_at, locale)}
+          </div>
+        )}
+      </div>
+
+      {/* Pipeline card — reuses the existing SolveProgressCard component */}
+      <SolveProgressCard artifact={latestSolve} />
+    </div>
+  );
+}
+
 function ActivityTab({
   projectId,
   locale,
@@ -2730,6 +2831,7 @@ function CanvasHeader({
     { id: 'latest',       label: { en: 'Latest',       it: 'Ultimo' } },
     { id: 'tasks',        label: { en: 'Tasks',        it: 'Task' } },
     { id: 'intelligence', label: { en: 'Intelligence', it: 'Intelligence' } },
+    { id: 'solve',        label: { en: 'Solve',        it: 'Solve' } },
     { id: 'activity',     label: { en: 'Activity',     it: 'Attività' } },
   ];
   return (

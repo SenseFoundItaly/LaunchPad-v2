@@ -742,3 +742,22 @@ CREATE TABLE IF NOT EXISTS competitor_profiles (
 
 CREATE INDEX IF NOT EXISTS idx_cp_project
   ON competitor_profiles(project_id);
+
+-- =============================================================================
+-- Build Artifacts (generated deliverables: landing pages, pitch decks, one-pagers)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS build_artifacts (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  skill_id VARCHAR NOT NULL,
+  artifact_type VARCHAR NOT NULL,
+  title VARCHAR NOT NULL,
+  content TEXT NOT NULL,
+  doc_type VARCHAR,
+  metadata JSONB DEFAULT '{}',
+  sources JSONB DEFAULT '[]',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ba_project
+  ON build_artifacts(project_id);

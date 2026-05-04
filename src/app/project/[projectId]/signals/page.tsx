@@ -295,6 +295,21 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
                   active={alertTypeFilter === 'social_signal'}
                   onClick={() => setAlertTypeFilter('social_signal')}
                 />
+                <FilterChip
+                  label="Ads"
+                  active={alertTypeFilter === 'ad_activity'}
+                  onClick={() => setAlertTypeFilter('ad_activity')}
+                />
+                <FilterChip
+                  label="Pricing"
+                  active={alertTypeFilter === 'pricing_change'}
+                  onClick={() => setAlertTypeFilter('pricing_change')}
+                />
+                <FilterChip
+                  label="Launches"
+                  active={alertTypeFilter === 'product_launch'}
+                  onClick={() => setAlertTypeFilter('product_launch')}
+                />
               </div>
 
               <Panel

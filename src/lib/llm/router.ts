@@ -42,7 +42,8 @@ export type TaskLabel =
   | 'risk-analysis'      // structured risk audit (roadmap 1.1)
   | 'task-expand'        // task-expansion turn (break a TODO into subtasks)
   | 'signal-classify'    // watch-source change significance classification (cheap)
-  | 'signal-correlate';  // cross-signal correlation synthesis (balanced/Sonnet)
+  | 'signal-correlate'   // cross-signal correlation synthesis (balanced/Sonnet)
+  | 'skill-premium';     // premium-tier skill runs (landing page, pitch deck)
 
 type ResolvedModel = {
   provider: 'anthropic' | 'openrouter';
@@ -84,6 +85,7 @@ const DEFAULT_TASK_TIER: Partial<Record<TaskLabel, ModelTier>> = {
   milestones: 'premium',
   'task-expand': 'cheap',  // single-shot analytical; Haiku handles cleanly.
   'signal-classify': 'cheap',  // watch-source change classification; Haiku is sufficient.
+  'skill-premium': 'premium',  // landing page + pitch deck Build skills need Opus.
   // chat, monitor-agent, scoring, research, simulation, pitch-iterate,
   // term-sheet, growth-iterate, growth-synthesize, heartbeat-reflect,
   // skill-invoke, AND any new unmapped task -> balanced (Sonnet).

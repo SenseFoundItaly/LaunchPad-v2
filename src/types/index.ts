@@ -307,7 +307,10 @@ export type EcosystemAlertType =
   | 'funding_event'
   | 'hiring_signal'
   | 'customer_sentiment'
-  | 'social_signal';
+  | 'social_signal'
+  | 'ad_activity'
+  | 'pricing_change'
+  | 'product_launch';
 
 export type EcosystemAlertState =
   | 'pending'
@@ -388,11 +391,14 @@ export type WatchSourceCategory =
   | 'custom'
   | 'careers_page'
   | 'social_feed'
-  | 'review_site';
+  | 'review_site'
+  | 'ad_tracker'
+  | 'marketing';
 
 export const VALID_CATEGORIES = new Set<WatchSourceCategory>([
   'competitor_pricing', 'competitor_product', 'patent_database',
   'regulatory', 'news', 'custom', 'careers_page', 'social_feed', 'review_site',
+  'ad_tracker', 'marketing',
 ]);
 
 export type WatchSourceStatus = 'active' | 'paused' | 'error';
@@ -490,7 +496,7 @@ export interface ProjectBudget {
 }
 
 // === Intelligence Briefs (cross-signal correlation synthesis) ===
-export type IntelligenceBriefType = 'correlation' | 'daily_digest' | 'competitor_profile';
+export type IntelligenceBriefType = 'correlation';
 export type IntelligenceBriefStatus = 'active' | 'expired' | 'superseded';
 
 export interface RecommendedAction {
@@ -537,7 +543,7 @@ export interface CompetitorProfile {
 
 // === Monday Brief (aggregated digest delivered by cron) ===
 export interface MondayBriefSection {
-  kind: 'movements' | 'actions_taken' | 'decisions_needed' | 'metrics' | 'fundraising';
+  kind: 'movements' | 'actions_taken' | 'decisions_needed' | 'metrics' | 'fundraising' | 'strategic_intel';
   heading: string;
   narrative: string;
   artifacts?: Array<Record<string, unknown>>;
@@ -551,5 +557,6 @@ export interface MondayBrief {
   ecosystem_alerts: EcosystemAlert[];
   pending_actions: PendingAction[];
   operational_alerts: Alert[];
+  intelligence_briefs: IntelligenceBrief[];
   generated_at: string;
 }

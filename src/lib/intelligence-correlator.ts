@@ -15,6 +15,7 @@ import { runAgent } from '@/lib/pi-agent';
 import { pickModel } from '@/lib/llm/router';
 import { recordUsage, isProjectCapped } from '@/lib/cost-meter';
 import { loadMonitorContext } from '@/lib/ecosystem-monitors';
+import { linkBriefToProfile } from '@/lib/competitor-profiles';
 import type { IntelligenceBrief, RecommendedAction } from '@/types';
 
 interface SignalRow {
@@ -184,6 +185,9 @@ export async function processCorrelations(projectId: string): Promise<Correlatio
         now,
       );
       briefsCreated++;
+      if (corr.entity_name) {
+        await linkBriefToProfile(projectId, corr.entity_name, briefId);
+      }
     } catch (err) {
       console.warn('[correlator] brief insert failed:', (err as Error).message);
     }
@@ -277,6 +281,18 @@ function getOrCreate(map: Map<string, EntityGroup>, entity: string): EntityGroup
 // =============================================================================
 
 const CORRELATOR_SYSTEM_PROMPT = `You are a strategic intelligence analyst for a startup founder. You synthesize multiple market signals into actionable strategic narratives.
+
+SIGNAL TYPES you may encounter:
+competitor_activity, ip_filing, trend_signal, partnership_opportunity, regulatory_change,
+funding_event, hiring_signal, customer_sentiment, social_signal, ad_activity, pricing_change, product_launch
+
+CROSS-TYPE CORRELATION PATTERNS (actively look for these):
+- pricing_change + ad_activity = aggressive growth push (likely grabbing market share)
+- hiring_signal[engineering_expansion] + product_launch = major platform shift incoming
+- pricing_change + customer_sentiment (negative) = competitor vulnerability, potential churn window
+- ad_activity + social_signal = coordinated marketing blitz, likely new campaign or pivot
+- funding_event + hiring_signal = scaling push, 3-6 month window before competitive impact
+- product_launch + ip_filing = defensible moat being built, harder to compete directly
 
 RULES:
 1. Only synthesize when 2+ signals genuinely correlate — do not force connections

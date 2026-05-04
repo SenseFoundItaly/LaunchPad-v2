@@ -8,6 +8,12 @@ interface SignalCardProps {
   signal: SignalTimelineEntry;
 }
 
+const ALERT_TYPE_PILL_KIND: Record<string, PillKind> = {
+  ad_activity: 'warn',
+  pricing_change: 'live',
+  product_launch: 'info',
+};
+
 const SIGNIFICANCE_PILL: Record<SignalSignificance, PillKind> = {
   high: 'warn',
   medium: 'info',
@@ -42,9 +48,13 @@ export function SignalCard({ signal }: SignalCardProps) {
           {signal.type === 'ecosystem_alert' ? 'monitor' : 'watch'}
         </Pill>
         {signal.alert_type && (
-          <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', textTransform: 'uppercase' }}>
-            {signal.alert_type.replace(/_/g, ' ')}
-          </span>
+          ALERT_TYPE_PILL_KIND[signal.alert_type]
+            ? <Pill kind={ALERT_TYPE_PILL_KIND[signal.alert_type]}>
+                {signal.alert_type.replace(/_/g, ' ')}
+              </Pill>
+            : <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', textTransform: 'uppercase' }}>
+                {signal.alert_type.replace(/_/g, ' ')}
+              </span>
         )}
         {signal.change_status && signal.change_status !== 'same' && (
           <Pill kind={signal.change_status === 'new' ? 'ok' : signal.change_status === 'removed' ? 'warn' : 'info'}>
