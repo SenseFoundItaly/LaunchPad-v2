@@ -81,17 +81,17 @@ export async function GET(
   if (!project) return error('Project not found', 404);
 
   const sinceClause = since ? 'AND created_at > ?' : '';
-  const sinceTsClause = since ? 'AND timestamp > ?' : '';
+  const sinceTsClause = since ? 'AND "timestamp" > ?' : '';
   const sinceRunClause = since ? 'AND run_at > ?' : '';
 
   // chat_messages
   const chatParams: unknown[] = [projectId];
   if (since) chatParams.push(since);
   const chats = await query<ChatRow>(
-    `SELECT id, role, content, timestamp
+    `SELECT id, role, content, "timestamp"
      FROM chat_messages
      WHERE project_id = ? ${sinceTsClause}
-     ORDER BY timestamp DESC LIMIT 100`,
+     ORDER BY "timestamp" DESC LIMIT 100`,
     ...chatParams,
   );
 
