@@ -20,7 +20,7 @@ export default function ProjectLayout({
   // NavRail + StatusBar) — skip the legacy ProjectSidebar for these so we
   // don't double-stack navigation. Extend this list as more pages port to
   // the new design.
-  const fullBleedRoutes = ['dashboard', 'actions', 'chat', 'intelligence', 'workflow', 'org'];
+  const fullBleedRoutes = ['dashboard', 'actions', 'chat', 'intelligence', 'workflow', 'org', 'signals'];
   const fullBleed = fullBleedRoutes.some((r) =>
     pathname.includes(`/project/${projectId}/${r}`),
   );
