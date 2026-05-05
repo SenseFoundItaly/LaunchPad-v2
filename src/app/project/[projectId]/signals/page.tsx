@@ -1,105 +1,96 @@
 'use client';
 
 /**
- * Signals Dashboard — unified market intelligence view.
+ * Signals Dashboard — Rocket-style intelligence feed.
  *
- * Layout matches Founder OS chrome: lp-frame, TopBar, NavRail, scrollable body, StatusBar.
- *
- * Left column (1.4fr): unified signal timeline with filter chips
- * Right column (1fr): watch source management + add source form
- *
- * Masthead: 4 MetricTiles (active sources, changes this week, high signals, last checked)
+ * Three-zone layout: NavRail → SignalsSidebar → Main (Masthead + FilterBar + Table/SourcesView).
+ * View toggle between Feed (table) and Sources (watch source management).
  */
 
 import { use, useEffect, useState, useCallback, useMemo } from 'react';
 import { TopBar, NavRail } from '@/components/design/chrome';
-import {
-  Pill,
-  Panel,
-  StatusBar,
-  Icon,
-  I,
-} from '@/components/design/primitives';
-import { SummaryStrip } from '@/components/signals/SummaryStrip';
-import { SignalCard } from '@/components/signals/SignalCard';
-import { WatchSourceCard } from '@/components/signals/WatchSourceCard';
-import { AddSourceForm } from '@/components/signals/AddSourceForm';
-import { IntelligenceBriefCard } from '@/components/signals/IntelligenceBriefCard';
-import { CompetitorProfileCard } from '@/components/signals/CompetitorProfileCard';
+import { Pill, StatusBar, IconBtn, I } from '@/components/design/primitives';
+import { SignalsSidebar, CATEGORY_GROUPS } from '@/components/signals/SignalsSidebar';
+import type { ViewMode } from '@/components/signals/SignalsSidebar';
+import { SignalsFilterBar } from '@/components/signals/SignalsFilterBar';
+import { SignalsTable, getImpact, matchCompetitor } from '@/components/signals/SignalsTable';
+import type { SortField, SortDir } from '@/components/signals/SignalsTable';
+import { SourcesView } from '@/components/signals/SourcesView';
+import { LogView } from '@/components/signals/LogView';
 import type { SignalTimelineEntry, WatchSource, IntelligenceBrief, CompetitorProfile } from '@/types';
-
-// Filter chip types
-type SourceFilter = 'all' | 'monitor' | 'watch_source';
-type SignificanceFilter = 'all' | 'high' | 'medium' | 'low';
 
 export default function SignalsPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = use(params);
 
+  // Data
   const [signals, setSignals] = useState<SignalTimelineEntry[]>([]);
   const [sources, setSources] = useState<(WatchSource & { last_change_at?: string | null; total_changes?: number })[]>([]);
   const [briefs, setBriefs] = useState<IntelligenceBrief[]>([]);
   const [competitors, setCompetitors] = useState<CompetitorProfile[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // View & layout
+  const [view, setView] = useState<ViewMode>('feed');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
   // Filters
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
-  const [significanceFilter, setSignificanceFilter] = useState<SignificanceFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [competitorFilter, setCompetitorFilter] = useState('all');
+  const [platformFilter, setPlatformFilter] = useState('all');
+  const [impactFilter, setImpactFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [daysFilter, setDaysFilter] = useState(30);
 
+  // Sort
+  const [sortField, setSortField] = useState<SortField>('timestamp');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  // Sync sidebar competitor filter with filter bar
+  const handleCompetitorFilter = useCallback((v: string) => setCompetitorFilter(v), []);
+
+  const handleSort = useCallback((field: SortField) => {
+    setSortField((prev) => {
+      if (prev === field) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return prev;
+      }
+      setSortDir('desc');
+      return field;
+    });
+  }, []);
+
+  // Fetchers
   const fetchSignals = useCallback(async () => {
     try {
-      const params = new URLSearchParams({
-        source: sourceFilter,
-        days: String(daysFilter),
-        limit: '100',
-      });
-      if (significanceFilter !== 'all') {
-        params.set('significance', significanceFilter);
-      }
-      const res = await fetch(`/api/projects/${projectId}/signals?${params}`);
+      const p = new URLSearchParams({ days: String(daysFilter), limit: '200' });
+      const res = await fetch(`/api/projects/${projectId}/signals?${p}`);
       const body = await res.json();
-      if (body.success && Array.isArray(body.data)) {
-        setSignals(body.data);
-      }
-    } catch {
-      // partial data ok
-    }
-  }, [projectId, sourceFilter, significanceFilter, daysFilter]);
+      if (body.success && Array.isArray(body.data)) setSignals(body.data);
+    } catch { /* partial data ok */ }
+  }, [projectId, daysFilter]);
 
   const fetchSources = useCallback(async () => {
     try {
       const res = await fetch(`/api/projects/${projectId}/watch-sources`);
       const body = await res.json();
-      if (body.success && Array.isArray(body.data)) {
-        setSources(body.data);
-      }
-    } catch {
-      // partial data ok
-    }
+      if (body.success && Array.isArray(body.data)) setSources(body.data);
+    } catch { /* partial data ok */ }
   }, [projectId]);
 
   const fetchBriefs = useCallback(async () => {
     try {
       const res = await fetch(`/api/projects/${projectId}/intelligence-briefs?status=active`);
       const body = await res.json();
-      if (body.success && Array.isArray(body.data)) {
-        setBriefs(body.data);
-      }
-    } catch {
-      // partial data ok
-    }
+      if (body.success && Array.isArray(body.data)) setBriefs(body.data);
+    } catch { /* partial data ok */ }
   }, [projectId]);
 
   const fetchCompetitors = useCallback(async () => {
     try {
       const res = await fetch(`/api/projects/${projectId}/competitors`);
       const body = await res.json();
-      if (body.success && Array.isArray(body.data)) {
-        setCompetitors(body.data);
-      }
-    } catch {
-      // partial data ok
-    }
+      if (body.success && Array.isArray(body.data)) setCompetitors(body.data);
+    } catch { /* partial data ok */ }
   }, [projectId]);
 
   const fetchAll = useCallback(async () => {
@@ -110,38 +101,94 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Derived metrics
-  const activeSources = sources.filter((s) => s.status === 'active').length;
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const changesThisWeek = signals.filter(
-    (s) => s.type === 'source_change' && new Date(s.timestamp).getTime() > weekAgo,
-  ).length;
-  const highSignals = signals.filter((s) => s.significance === 'high').length;
-  const lastChecked = sources
-    .map((s) => s.last_scraped_at)
-    .filter((x): x is string => !!x)
-    .sort()
-    .pop() || null;
+  // Competitor names for matching
+  const competitorNames = useMemo(() => competitors.map((c) => c.name), [competitors]);
 
-  // Alert type filter for new categories
-  const [alertTypeFilter, setAlertTypeFilter] = useState<string>('all');
+  // Build type→category lookup
+  const typeToCategoryLabel = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const g of CATEGORY_GROUPS) {
+      for (const t of g.types) map[t] = g.label;
+    }
+    return map;
+  }, []);
 
-  // Filter signals for display (significance filter already applied at API level,
-  // but we also filter locally for responsive chip toggling)
+  // Filtered + sorted signals
   const filteredSignals = useMemo(() => {
-    return signals.filter((s) => {
-      if (sourceFilter !== 'all' && s.type !== (sourceFilter === 'monitor' ? 'ecosystem_alert' : 'source_change')) {
-        return false;
+    const query = searchQuery.toLowerCase();
+    const selectedCompetitorName = competitorFilter !== 'all'
+      ? competitors.find((c) => c.id === competitorFilter)?.name || null
+      : null;
+
+    let result = signals.filter((s) => {
+      // Platform filter
+      if (platformFilter === 'monitor' && s.type !== 'ecosystem_alert') return false;
+      if (platformFilter === 'watch_source' && s.type !== 'source_change') return false;
+
+      // Impact filter
+      if (impactFilter !== 'all') {
+        const impact = getImpact(s);
+        if (impact.level !== impactFilter) return false;
       }
-      if (significanceFilter !== 'all' && s.significance !== significanceFilter) {
-        return false;
+
+      // Category filter
+      if (categoryFilter !== 'all') {
+        const catLabel = s.alert_type ? typeToCategoryLabel[s.alert_type] : null;
+        if (catLabel !== categoryFilter) return false;
       }
-      if (alertTypeFilter !== 'all' && s.alert_type !== alertTypeFilter) {
-        return false;
+
+      // Competitor filter
+      if (selectedCompetitorName) {
+        const matched = matchCompetitor(s, [selectedCompetitorName]);
+        if (!matched) return false;
       }
+
+      // Search
+      if (query) {
+        const text = `${s.headline} ${s.body || ''} ${s.source_label || ''}`.toLowerCase();
+        if (!text.includes(query)) return false;
+      }
+
       return true;
     });
-  }, [signals, sourceFilter, significanceFilter, alertTypeFilter]);
+
+    // Sort
+    result.sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'timestamp') {
+        cmp = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+      } else {
+        cmp = getImpact(a).score - getImpact(b).score;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+    return result;
+  }, [signals, searchQuery, competitorFilter, competitors, platformFilter, impactFilter, categoryFilter, typeToCategoryLabel, sortField, sortDir]);
+
+  // Derived counts for sidebar badges
+  const competitorCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const s of signals) {
+      const matched = matchCompetitor(s, competitorNames);
+      if (matched) counts[matched] = (counts[matched] || 0) + 1;
+    }
+    return counts;
+  }, [signals, competitorNames]);
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const s of signals) {
+      if (s.alert_type) {
+        const label = typeToCategoryLabel[s.alert_type];
+        if (label) counts[label] = (counts[label] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [signals, typeToCategoryLabel]);
+
+  // Metrics
+  const activeSources = sources.filter((s) => s.status === 'active').length;
 
   return (
     <div className="lp-frame">
@@ -157,239 +204,93 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <NavRail projectId={projectId} current="signals" />
 
+        <SignalsSidebar
+          view={view}
+          onViewChange={setView}
+          competitors={competitors}
+          competitorFilter={competitorFilter}
+          onCompetitorFilter={handleCompetitorFilter}
+          competitorCounts={competitorCounts}
+          categoryFilter={categoryFilter}
+          onCategoryFilter={setCategoryFilter}
+          categoryCounts={categoryCounts}
+          collapsed={sidebarCollapsed}
+        />
+
+        {/* Main content area */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {/* Masthead */}
           <div
             style={{
-              padding: '20px 28px 16px',
+              padding: '14px 20px 12px',
               borderBottom: '1px solid var(--line)',
               background: 'var(--surface)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
             }}
           >
-            <div style={{ marginBottom: 4 }}>
-              <span
-                className="lp-mono"
-                style={{ fontSize: 10, color: 'var(--ink-5)', letterSpacing: 1, textTransform: 'uppercase' }}
-              >
-                market intelligence
-              </span>
-            </div>
-            <h1
-              className="lp-serif"
-              style={{ fontSize: 32, fontWeight: 400, letterSpacing: -0.8, margin: '0 0 16px 0', lineHeight: 1 }}
-            >
-              Signals
-            </h1>
-            <SummaryStrip
-              activeSources={activeSources}
-              changesThisWeek={changesThisWeek}
-              highSignals={highSignals}
-              lastChecked={lastChecked}
+            <IconBtn
+              d={sidebarCollapsed ? I.chevr : I.chevd}
+              title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+              onClick={() => setSidebarCollapsed((v) => !v)}
+              size={26}
             />
+            <div style={{ flex: 1 }}>
+              <h1
+                className="lp-serif"
+                style={{ fontSize: 22, fontWeight: 400, letterSpacing: -0.4, margin: 0, lineHeight: 1 }}
+              >
+                Signals
+              </h1>
+            </div>
+            <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+              {filteredSignals.length} signal{filteredSignals.length === 1 ? '' : 's'}
+            </span>
+            <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
+              last {daysFilter}d
+            </span>
           </div>
 
-          {/* Body grid */}
-          <div
-            className="lp-scroll"
-            style={{
-              flex: 1,
-              overflow: 'auto',
-              padding: 20,
-              display: 'grid',
-              gridTemplateColumns: '1.4fr 1fr',
-              gap: 20,
-              alignContent: 'start',
-            }}
-          >
-            {/* Left: briefs + signal timeline */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {/* Intelligence briefs */}
-              {briefs.length > 0 && (
-                <Panel
-                  title="Intelligence briefs"
-                  subtitle={`${briefs.length} active`}
-                  right={
-                    <Pill kind="info" dot>
-                      correlations
-                    </Pill>
-                  }
-                >
-                  {briefs.map((b) => (
-                    <IntelligenceBriefCard key={b.id} brief={b} />
-                  ))}
-                </Panel>
+          {view === 'feed' ? (
+            <>
+              <SignalsFilterBar
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                competitorFilter={competitorFilter}
+                onCompetitorFilter={handleCompetitorFilter}
+                competitors={competitors}
+                platformFilter={platformFilter}
+                onPlatformFilter={setPlatformFilter}
+                impactFilter={impactFilter}
+                onImpactFilter={setImpactFilter}
+                daysFilter={daysFilter}
+                onDaysFilter={setDaysFilter}
+              />
+              {loading && signals.length === 0 ? (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
+                  Loading signals...
+                </div>
+              ) : (
+                <SignalsTable
+                  signals={filteredSignals}
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                  competitorNames={competitorNames}
+                />
               )}
-
-              {/* Filter chips */}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <FilterChip
-                  label="All sources"
-                  active={sourceFilter === 'all'}
-                  onClick={() => setSourceFilter('all')}
-                />
-                <FilterChip
-                  label="Monitors"
-                  active={sourceFilter === 'monitor'}
-                  onClick={() => setSourceFilter('monitor')}
-                />
-                <FilterChip
-                  label="Watch sources"
-                  active={sourceFilter === 'watch_source'}
-                  onClick={() => setSourceFilter('watch_source')}
-                />
-                <span style={{ width: 1, background: 'var(--line-2)', margin: '0 4px' }} />
-                <FilterChip
-                  label="All severity"
-                  active={significanceFilter === 'all'}
-                  onClick={() => setSignificanceFilter('all')}
-                />
-                <FilterChip
-                  label="High"
-                  active={significanceFilter === 'high'}
-                  onClick={() => setSignificanceFilter('high')}
-                />
-                <FilterChip
-                  label="Medium"
-                  active={significanceFilter === 'medium'}
-                  onClick={() => setSignificanceFilter('medium')}
-                />
-                <FilterChip
-                  label="Low"
-                  active={significanceFilter === 'low'}
-                  onClick={() => setSignificanceFilter('low')}
-                />
-                <span style={{ width: 1, background: 'var(--line-2)', margin: '0 4px' }} />
-                <FilterChip
-                  label="7d"
-                  active={daysFilter === 7}
-                  onClick={() => setDaysFilter(7)}
-                />
-                <FilterChip
-                  label="30d"
-                  active={daysFilter === 30}
-                  onClick={() => setDaysFilter(30)}
-                />
-                <FilterChip
-                  label="90d"
-                  active={daysFilter === 90}
-                  onClick={() => setDaysFilter(90)}
-                />
-                <span style={{ width: 1, background: 'var(--line-2)', margin: '0 4px' }} />
-                <FilterChip
-                  label="All types"
-                  active={alertTypeFilter === 'all'}
-                  onClick={() => setAlertTypeFilter('all')}
-                />
-                <FilterChip
-                  label="Hiring"
-                  active={alertTypeFilter === 'hiring_signal'}
-                  onClick={() => setAlertTypeFilter('hiring_signal')}
-                />
-                <FilterChip
-                  label="Sentiment"
-                  active={alertTypeFilter === 'customer_sentiment'}
-                  onClick={() => setAlertTypeFilter('customer_sentiment')}
-                />
-                <FilterChip
-                  label="Social"
-                  active={alertTypeFilter === 'social_signal'}
-                  onClick={() => setAlertTypeFilter('social_signal')}
-                />
-                <FilterChip
-                  label="Ads"
-                  active={alertTypeFilter === 'ad_activity'}
-                  onClick={() => setAlertTypeFilter('ad_activity')}
-                />
-                <FilterChip
-                  label="Pricing"
-                  active={alertTypeFilter === 'pricing_change'}
-                  onClick={() => setAlertTypeFilter('pricing_change')}
-                />
-                <FilterChip
-                  label="Launches"
-                  active={alertTypeFilter === 'product_launch'}
-                  onClick={() => setAlertTypeFilter('product_launch')}
-                />
-              </div>
-
-              <Panel
-                title="Signal timeline"
-                subtitle={`${filteredSignals.length} signal${filteredSignals.length === 1 ? '' : 's'}`}
-                right={
-                  <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-                    last {daysFilter}d
-                  </span>
-                }
-              >
-                {loading && filteredSignals.length === 0 ? (
-                  <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
-                    Loading signals…
-                  </div>
-                ) : filteredSignals.length === 0 ? (
-                  <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
-                    No signals detected in this period. Add watch sources or wait for monitor scans.
-                  </div>
-                ) : (
-                  <div>
-                    {filteredSignals.map((s) => (
-                      <SignalCard key={s.id} signal={s} />
-                    ))}
-                  </div>
-                )}
-              </Panel>
-            </div>
-
-            {/* Right: competitor profiles + watch sources */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {/* Competitor profiles */}
-              {competitors.length > 0 && (
-                <Panel
-                  title="Competitor profiles"
-                  subtitle={`${competitors.length} tracked`}
-                  right={
-                    <Pill kind="n">
-                      derived
-                    </Pill>
-                  }
-                >
-                  {competitors.map((c) => (
-                    <CompetitorProfileCard key={c.id} profile={c} projectId={projectId} />
-                  ))}
-                </Panel>
-              )}
-
-              <Panel
-                title="Watch sources"
-                subtitle={`${sources.length} tracked`}
-                right={
-                  <Pill kind={activeSources > 0 ? 'ok' : 'n'}>
-                    {activeSources} active
-                  </Pill>
-                }
-              >
-                {sources.length === 0 && !loading ? (
-                  <div style={{ padding: 20, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
-                    No watch sources yet. Add a URL below to start tracking changes.
-                  </div>
-                ) : (
-                  <div>
-                    {sources.map((s) => (
-                      <WatchSourceCard
-                        key={s.id}
-                        source={s}
-                        projectId={projectId}
-                        onRefresh={fetchAll}
-                      />
-                    ))}
-                  </div>
-                )}
-              </Panel>
-
-              <Panel title="Add source" right={<Icon d={I.plus} size={12} style={{ color: 'var(--ink-4)' }} />}>
-                <AddSourceForm projectId={projectId} onAdded={fetchAll} />
-              </Panel>
-            </div>
-          </div>
+            </>
+          ) : view === 'sources' ? (
+            <SourcesView
+              sources={sources}
+              projectId={projectId}
+              onRefresh={fetchAll}
+              loading={loading}
+            />
+          ) : (
+            <LogView projectId={projectId} />
+          )}
         </div>
       </div>
 
@@ -400,38 +301,5 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
         budget={`${sources.length} sources`}
       />
     </div>
-  );
-}
-
-// =============================================================================
-// Filter chip component
-// =============================================================================
-
-function FilterChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: '4px 10px',
-        borderRadius: 999,
-        border: `1px solid ${active ? 'var(--accent)' : 'var(--line-2)'}`,
-        background: active ? 'var(--accent-wash)' : 'var(--paper)',
-        color: active ? 'var(--accent-ink)' : 'var(--ink-4)',
-        fontSize: 11,
-        fontFamily: 'var(--f-sans)',
-        cursor: 'pointer',
-        fontWeight: active ? 600 : 400,
-      }}
-    >
-      {label}
-    </button>
   );
 }

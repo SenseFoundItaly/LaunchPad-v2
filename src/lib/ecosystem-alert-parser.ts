@@ -14,6 +14,7 @@ import { generateId } from '@/lib/api-helpers';
 import { computeDedupeHash } from '@/lib/ecosystem-monitors';
 import { createPendingAction } from '@/lib/pending-actions';
 import { updateCompetitorProfile } from '@/lib/competitor-profiles';
+import { logSignalActivity } from '@/lib/signal-activity-log';
 import type { EcosystemAlertType, PendingActionType } from '@/types';
 
 export interface ParsedEcosystemAlert {
@@ -190,6 +191,15 @@ export function persistEcosystemAlerts(
       );
       result.alerts_inserted++;
       persistedAlerts.push({ alert, alertId });
+
+      logSignalActivity({
+        project_id: opts.projectId,
+        event_type: 'signal_created',
+        entity_id: alertId,
+        entity_type: 'ecosystem_alert',
+        headline: `Monitor signal: ${alert.headline.slice(0, 120)}`,
+        metadata: { alert_type: alert.alert_type, monitor_id: opts.monitorId, relevance: alert.relevance_score },
+      }).catch(() => {});
 
       // Update competitor profile if the headline mentions an entity
       try {

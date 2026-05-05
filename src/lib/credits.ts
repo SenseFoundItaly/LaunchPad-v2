@@ -5,25 +5,29 @@ import { get } from '@/lib/db';
  *
  * Real LLM cost continues to be tracked dollar-precise in llm_usage_logs and
  * project_budgets.current_llm_usd. Credits are a friendlier number for the
- * founder to look at: "you have 12 credits this month" beats "$0.43 of $0.60".
+ * founder to look at: "you have 72/100 credits this month" beats "$0.43 of $0.60".
  *
- * MVP economics:
- *   - 1 task = 1 credit = $0.05 of headroom against the monthly LLM cap.
- *   - The badge in TopBar also shows "today X/3" — a soft daily cap surfaced
- *     for psychological-anchoring purposes (display only; not enforced — the
- *     monthly cap_llm_usd is the only hard limit).
+ * Economics are now DB-driven:
+ *   - cap_credits lives on the project_budgets row (default 100)
+ *   - creditsPerDollar = cap_credits / cap_llm_usd
+ *   - credits_used = round(current_llm_usd * creditsPerDollar)
+ *   - remaining = max(0, cap_credits - credits_used)
  *
- * When to enforce: persistArtifact's task case + the create_task tool both
- * call getCreditsRemaining() before writing. If it returns 0, the write is
- * skipped and a friendly error surfaces instead of a silently-dropped task.
+ * The badge in TopBar also shows "today X/3" — a soft daily cap surfaced
+ * for psychological-anchoring purposes (display only; not enforced — the
+ * monthly cap_llm_usd is the only hard limit).
  */
 
-export const CREDITS_PER_TASK_USD = 0.05;
 export const FREE_DAILY_TASKS = 3;
+
+/** Default credits-per-dollar when no budget row exists yet. */
+const DEFAULT_CREDITS_PER_DOLLAR = 200;
+const DEFAULT_CAP_CREDITS = 100;
 
 interface BudgetRow {
   cap_llm_usd: number;
   current_llm_usd: number;
+  cap_credits: number;
 }
 
 function currentPeriodMonth(): string {
@@ -33,7 +37,7 @@ function currentPeriodMonth(): string {
 
 async function getCurrentBudget(projectId: string): Promise<BudgetRow | undefined> {
   return get<BudgetRow>(
-    `SELECT cap_llm_usd, current_llm_usd
+    `SELECT cap_llm_usd, current_llm_usd, cap_credits
      FROM project_budgets
      WHERE project_id = ? AND period_month = ?`,
     projectId,
@@ -41,8 +45,20 @@ async function getCurrentBudget(projectId: string): Promise<BudgetRow | undefine
   );
 }
 
+/**
+ * Convert a USD amount to credits given a project's cap configuration.
+ * Exported so the chat page can compute per-message credit costs client-side.
+ */
+export function usdToCredits(usd: number, capUsd: number, capCredits: number): number {
+  if (capUsd <= 0) return 0;
+  const creditsPerDollar = capCredits / capUsd;
+  return Math.round(usd * creditsPerDollar);
+}
+
 export interface CreditsSnapshot {
   remaining: number;
+  total: number;
+  credits_used: number;
   used_today: number;
   daily_cap: number;
   cap_usd: number;
@@ -55,8 +71,11 @@ export async function getCreditsSnapshot(projectId: string): Promise<CreditsSnap
   const budget = await getCurrentBudget(projectId);
   const capUsd = budget?.cap_llm_usd ?? 0;
   const usedUsd = budget?.current_llm_usd ?? 0;
-  const remainingUsd = Math.max(0, capUsd - usedUsd);
-  const remaining = Math.floor(remainingUsd / CREDITS_PER_TASK_USD);
+  const capCredits = budget?.cap_credits ?? DEFAULT_CAP_CREDITS;
+
+  const creditsPerDollar = capUsd > 0 ? capCredits / capUsd : DEFAULT_CREDITS_PER_DOLLAR;
+  const creditsUsed = Math.round(usedUsd * creditsPerDollar);
+  const remaining = Math.max(0, capCredits - creditsUsed);
 
   const todayRow = await get<{ n: number }>(
     `SELECT COUNT(*) as n FROM pending_actions
@@ -69,6 +88,8 @@ export async function getCreditsSnapshot(projectId: string): Promise<CreditsSnap
 
   return {
     remaining,
+    total: capCredits,
+    credits_used: creditsUsed,
     used_today: usedToday,
     daily_cap: FREE_DAILY_TASKS,
     cap_usd: capUsd,

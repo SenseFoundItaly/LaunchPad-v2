@@ -22,12 +22,15 @@
 
 import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
-import { query, get } from '@/lib/db';
+import { query, get, run } from '@/lib/db';
 import { createPendingAction } from '@/lib/pending-actions';
+import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
 import { getCreditsRemaining } from '@/lib/credits';
 import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readiness';
-import type { PendingActionType } from '@/types';
+import { logSignalActivity } from '@/lib/signal-activity-log';
+import type { PendingActionType, EcosystemAlertType, WatchSourceCategory } from '@/types';
+import { VALID_CATEGORIES } from '@/types';
 import type { Source } from '@/types/artifacts';
 
 interface ToolContext {
@@ -879,6 +882,232 @@ const createTaskTool = (ctx: ToolContext): AgentTool => ({
 });
 
 // =============================================================================
+// propose_watch_source — in-chat watch source proposal with approval flow.
+// =============================================================================
+
+const VALID_WS_SCHEDULES = ['hourly', 'daily', 'weekly', 'manual'] as const;
+
+const proposeWatchSourceTool = (ctx: ToolContext): AgentTool => ({
+  name: 'propose_watch_source',
+  label: 'Propose Watch Source',
+  description:
+    'Propose tracking a specific URL for content changes. Call when the founder says "track stripe.com/pricing", "watch their careers page", or similar. The founder sees an inline approval card. After approval, the URL is added to watch sources and scraped on the chosen schedule. DO NOT call for vague tracking — you need a specific URL.',
+  parameters: Type.Object({
+    url: Type.String({ description: 'Exact URL to track. Must be a valid HTTP/HTTPS URL.' }),
+    label: Type.String({ description: 'Human-readable label ≤80 chars. Example: "Stripe Pricing Page"' }),
+    category: Type.String({ description: `One of: ${[...VALID_CATEGORIES].join(', ')}` }),
+    schedule: Type.String({ description: 'hourly | daily | weekly | manual. Pick based on expected change frequency.' }),
+    rationale: Type.String({ description: 'Why this URL matters for the founder. Shown on the approval card.' }),
+    sources: Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] array. Cite the founder quote or analysis motivating this watch source.' }),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as {
+      url: string;
+      label: string;
+      category: string;
+      schedule: string;
+      rationale: string;
+      sources: unknown[];
+    };
+
+    // Validate URL
+    try {
+      new URL(p.url);
+    } catch {
+      return {
+        content: [{ type: 'text', text: `Invalid URL: "${p.url}". Must be a valid HTTP/HTTPS URL.` }],
+        details: { error: true },
+      };
+    }
+
+    // Validate category
+    if (!VALID_CATEGORIES.has(p.category as WatchSourceCategory)) {
+      return {
+        content: [{ type: 'text', text: `Invalid category "${p.category}". Must be one of: ${[...VALID_CATEGORIES].join(', ')}` }],
+        details: { error: true },
+      };
+    }
+
+    // Validate schedule
+    if (!VALID_WS_SCHEDULES.includes(p.schedule as typeof VALID_WS_SCHEDULES[number])) {
+      return {
+        content: [{ type: 'text', text: `Invalid schedule "${p.schedule}". Must be hourly | daily | weekly | manual.` }],
+        details: { error: true },
+      };
+    }
+
+    if (!Array.isArray(p.sources) || p.sources.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'propose_watch_source requires at least one source. Cite the founder quote or analysis motivating this.' }],
+        details: { error: true },
+      };
+    }
+
+    const pendingActionPayload = {
+      url: p.url,
+      label: p.label,
+      category: p.category,
+      schedule: p.schedule,
+      rationale: p.rationale,
+      sources: p.sources,
+    };
+
+    let pendingAction;
+    try {
+      pendingAction = await createPendingAction({
+        project_id: ctx.projectId,
+        action_type: 'configure_watch_source',
+        title: `Track URL: ${p.label}`,
+        rationale: p.rationale,
+        payload: pendingActionPayload,
+        estimated_impact: 'medium',
+        sources: p.sources as Source[],
+      });
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to queue watch source proposal: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    const artifactId = `ws_prop_${pendingAction.id.slice(-12)}`;
+    const artifactBody: Record<string, unknown> = {
+      action: 'create',
+      url: p.url,
+      label: p.label,
+      category: p.category,
+      schedule: p.schedule,
+      rationale: p.rationale,
+      pending_action_id: pendingAction.id,
+      sources: p.sources,
+    };
+
+    const artifactBlock = [
+      `:::artifact{"type":"watch-source-proposal","id":"${artifactId}"}`,
+      JSON.stringify(artifactBody),
+      ':::',
+    ].join('\n');
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            `Watch source proposal queued (pending_action ${pendingAction.id}). ` +
+            `Emit the following artifact block VERBATIM in your reply so the inline approval card renders:\n\n${artifactBlock}`,
+        },
+      ],
+      details: {
+        pending_action_id: pendingAction.id,
+        artifact_id: artifactId,
+      },
+    };
+  },
+});
+
+// =============================================================================
+// create_signal — direct signal injection from chat (no approval needed).
+// =============================================================================
+
+const VALID_ALERT_TYPES: ReadonlySet<string> = new Set([
+  'competitor_activity', 'ip_filing', 'trend_signal', 'partnership_opportunity',
+  'regulatory_change', 'funding_event', 'hiring_signal', 'customer_sentiment',
+  'social_signal', 'ad_activity', 'pricing_change', 'product_launch',
+]);
+
+const createSignalTool = (ctx: ToolContext): AgentTool => ({
+  name: 'create_signal',
+  label: 'Create Signal',
+  description:
+    'Directly inject a signal (ecosystem alert) into the feed from chat. Use when the founder shares intel ("Acme just raised $10M", "competitor launched a new feature") that should be captured as a signal. No approval needed — the signal appears in the feed immediately. The founder can dismiss it later.',
+  parameters: Type.Object({
+    headline: Type.String({ description: 'Signal headline ≤200 chars. Example: "Acme raises $10M Series A"' }),
+    body: Type.Optional(Type.String({ description: 'Optional longer description / context.' })),
+    alert_type: Type.String({ description: `One of: ${[...VALID_ALERT_TYPES].join(', ')}` }),
+    source: Type.Optional(Type.String({ description: 'Source attribution, e.g. "TechCrunch", "founder intel".' })),
+    source_url: Type.Optional(Type.String({ description: 'URL to the source article/page.' })),
+    relevance_score: Type.Number({ description: 'Relevance 0.0-1.0. How relevant is this to the founder\'s startup?' }),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as {
+      headline: string;
+      body?: string;
+      alert_type: string;
+      source?: string;
+      source_url?: string;
+      relevance_score: number;
+    };
+
+    if (!p.headline || p.headline.trim().length === 0) {
+      return {
+        content: [{ type: 'text', text: 'create_signal requires a non-empty headline.' }],
+        details: { error: true },
+      };
+    }
+
+    if (!VALID_ALERT_TYPES.has(p.alert_type)) {
+      return {
+        content: [{ type: 'text', text: `Invalid alert_type "${p.alert_type}". Must be one of: ${[...VALID_ALERT_TYPES].join(', ')}` }],
+        details: { error: true },
+      };
+    }
+
+    if (typeof p.relevance_score !== 'number' || p.relevance_score < 0 || p.relevance_score > 1) {
+      return {
+        content: [{ type: 'text', text: `relevance_score must be between 0 and 1. Got: ${p.relevance_score}` }],
+        details: { error: true },
+      };
+    }
+
+    const alertId = generateId('ealr');
+    const now = new Date().toISOString();
+
+    try {
+      await run(
+        `INSERT INTO ecosystem_alerts
+           (id, project_id, alert_type, source, source_url,
+            headline, body, relevance_score, confidence,
+            reviewed_state, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.9, 'pending', ?)`,
+        alertId,
+        ctx.projectId,
+        p.alert_type,
+        p.source || 'chat:founder',
+        p.source_url || null,
+        p.headline.trim().slice(0, 300),
+        p.body || null,
+        p.relevance_score,
+        now,
+      );
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to create signal: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    logSignalActivity({
+      project_id: ctx.projectId,
+      event_type: 'signal_auto_created_from_chat',
+      entity_id: alertId,
+      entity_type: 'ecosystem_alert',
+      headline: `Chat-created signal: ${p.headline.trim().slice(0, 120)}`,
+      metadata: { alert_type: p.alert_type, relevance_score: p.relevance_score },
+    }).catch(() => {});
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Signal created (${alertId}). "${p.headline}" now appears in the Signals feed as a pending ${p.alert_type} alert with relevance ${p.relevance_score.toFixed(2)}.`,
+        },
+      ],
+      details: { alert_id: alertId, alert_type: p.alert_type },
+    };
+  },
+});
+
+// =============================================================================
 // Factory
 // =============================================================================
 
@@ -899,5 +1128,7 @@ export function makeProjectTools(projectId: string): AgentTool[] {
     proposeMonitorTool(ctx),
     proposeBudgetChangeTool(ctx),
     createTaskTool(ctx),
+    proposeWatchSourceTool(ctx),
+    createSignalTool(ctx),
   ];
 }

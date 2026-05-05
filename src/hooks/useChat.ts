@@ -3,9 +3,16 @@
 import { useState, useCallback, useRef } from 'react';
 import type { ChatMessage, ToolActivity } from '@/types';
 
+export interface MessageCostInfo {
+  cost_usd: number;
+  credits: number;
+}
+
 export function useChat(projectId: string, step: string = 'chat') {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  // Per-message cost info keyed by message id
+  const [messageCosts, setMessageCosts] = useState<Record<string, MessageCostInfo>>({});
   const abortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
 
@@ -136,6 +143,23 @@ export function useChat(projectId: string, step: string = 'chat') {
                     });
                   }
 
+                  if (parsed.done && parsed.usage?.cost) {
+                    // Capture per-message cost + credits from the done event
+                    setMessages((prev) => {
+                      const msgId = prev[prev.length - 1]?.id;
+                      if (msgId) {
+                        setMessageCosts((costs) => ({
+                          ...costs,
+                          [msgId]: {
+                            cost_usd: parsed.usage.cost,
+                            credits: parsed.usage.credits ?? 0,
+                          },
+                        }));
+                      }
+                      return prev;
+                    });
+                  }
+
                   if (parsed.error) {
                     console.error('Stream error:', parsed.error);
                     setMessages((prev) => {
@@ -182,5 +206,5 @@ export function useChat(projectId: string, step: string = 'chat') {
     setMessages([]);
   }, []);
 
-  return { messages, isStreaming, sendMessage, stopStreaming, clearMessages, setMessages };
+  return { messages, isStreaming, sendMessage, stopStreaming, clearMessages, setMessages, messageCosts };
 }

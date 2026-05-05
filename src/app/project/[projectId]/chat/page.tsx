@@ -67,7 +67,7 @@ export default function CopilotChatPage({
   // ('chat') preserves all rows written before threading existed.
   const thread = searchParams.get('thread');
   const step = thread ? `chat:${thread}` : 'chat';
-  const { messages, isStreaming, sendMessage, setMessages } = useChat(projectId, step);
+  const { messages, isStreaming, sendMessage, setMessages, messageCosts } = useChat(projectId, step);
   const [input, setInput] = useState('');
   const [historyLoaded, setHistoryLoaded] = useState(false);
   // Canvas tabs — Latest (this turn's artifacts), Tasks (durable TODO list),
@@ -330,6 +330,7 @@ export default function CopilotChatPage({
                   inlineArtifacts={inlineArtifactsByMsgId.get(m.id)}
                   onArtifactAction={handleArtifactAction}
                   onQuickReply={!isStreaming ? sendMessage : undefined}
+                  costInfo={messageCosts[m.id]}
                   // Retry only for user messages; disabled while streaming
                   // to prevent double-sends. Reuses sendMessage so the
                   // retried turn goes through the same memory-context +
@@ -542,6 +543,7 @@ function Msg({
   onArtifactAction,
   onQuickReply,
   onRetry,
+  costInfo,
 }: {
   who: 'user' | 'ai';
   agent: string;
@@ -559,6 +561,8 @@ function Msg({
   onQuickReply?: (text: string) => void;
   /** Provided only for user messages to resubmit. Undefined while streaming. */
   onRetry?: (content: string) => void;
+  /** Per-message cost info from the SSE done event */
+  costInfo?: { cost_usd: number; credits: number };
 }) {
   if (who === 'user') {
     return (
@@ -652,6 +656,13 @@ function Msg({
         <QuickReplies rawContent={rawContent} onReply={onQuickReply} />
       )}
       {!streaming && <MsgActions content={rawContent} align="left" />}
+      {!streaming && costInfo && costInfo.cost_usd > 0 && (
+        <span style={{ display: 'inline-block', marginTop: 4 }} title={`$${costInfo.cost_usd.toFixed(4)}`}>
+          <Pill kind={costInfo.credits > 5 ? 'warn' : 'n'}>
+            {costInfo.credits || '<1'} cr
+          </Pill>
+        </span>
+      )}
     </div>
   );
 }

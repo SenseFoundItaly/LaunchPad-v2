@@ -883,6 +883,9 @@ function agentFromType(type: PendingActionType): string {
     // configure_budget: founder-facing budget cap change proposed by chat.
     // "Chief" because raising the cap is a CEO-class decision, not analytics.
     configure_budget: 'Chief',
+    // configure_watch_source: in-chat watch source proposal awaiting founder
+    // approval. "Scout" — same family as monitors, both about observation.
+    configure_watch_source: 'Scout',
     // skill_rerun_result: heartbeat-executor refreshed an analytical skill.
     // "Chief" — score-delta visibility is a CEO concern.
     skill_rerun_result: 'Chief',

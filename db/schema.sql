@@ -591,6 +591,7 @@ CREATE TABLE IF NOT EXISTS project_budgets (
   warn_external_actions INTEGER DEFAULT 16,
   current_llm_usd DOUBLE PRECISION DEFAULT 0,
   current_external_actions INTEGER DEFAULT 0,
+  cap_credits INTEGER DEFAULT 100,
   status VARCHAR DEFAULT 'active',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -761,3 +762,22 @@ CREATE TABLE IF NOT EXISTS build_artifacts (
 
 CREATE INDEX IF NOT EXISTS idx_ba_project
   ON build_artifacts(project_id);
+
+-- =============================================================================
+-- Signal Activity Logs (audit trail for signal pipeline events)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS signal_activity_logs (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  event_type VARCHAR NOT NULL,
+  entity_id VARCHAR,
+  entity_type VARCHAR,
+  headline TEXT NOT NULL,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_logs_project_time
+  ON signal_activity_logs(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_signal_logs_project_type
+  ON signal_activity_logs(project_id, event_type);

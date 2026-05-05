@@ -71,6 +71,7 @@ export async function GET(
           WHEN ea.relevance_score >= 0.3 THEN 'low'
           ELSE 'noise'
         END AS significance,
+        ea.relevance_score,
         ea.created_at AS timestamp,
         ea.alert_type,
         NULL AS change_status,
@@ -99,6 +100,7 @@ export async function GET(
         ws.label AS source_label,
         ws.url AS source_url,
         sc.significance,
+        NULL::numeric AS relevance_score,
         sc.detected_at AS timestamp,
         NULL AS alert_type,
         sc.change_status,

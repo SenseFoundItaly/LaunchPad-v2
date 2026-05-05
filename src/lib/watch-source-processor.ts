@@ -19,6 +19,7 @@ import {
   structuralDiff, formatDiffForLLM,
   parseMarkdownTable, extractJsonLd,
 } from '@/lib/structural-diff';
+import { logSignalActivity } from '@/lib/signal-activity-log';
 import type { WatchSource, ChangeStatus, SignalSignificance } from '@/types';
 
 export interface ProcessResult {
@@ -84,6 +85,14 @@ export async function processWatchSource(
       now,
       ws.id,
     );
+    logSignalActivity({
+      project_id: ws.project_id,
+      event_type: 'watch_source_error',
+      entity_id: ws.id,
+      entity_type: 'watch_source',
+      headline: `Scrape error on "${ws.label}": ${errorMsg.slice(0, 120)}`,
+      metadata: { url: ws.url, error_count: newErrorCount },
+    }).catch(() => {});
     return { watch_source_id: ws.id, status: 'error', change_status: 'same', error: errorMsg };
   }
 
@@ -101,6 +110,15 @@ export async function processWatchSource(
     now,
     ws.id,
   );
+
+  logSignalActivity({
+    project_id: ws.project_id,
+    event_type: 'watch_source_scraped',
+    entity_id: ws.id,
+    entity_type: 'watch_source',
+    headline: `Scraped "${ws.label}" — ${scrapeResult.changeStatus}`,
+    metadata: { url: ws.url, change_status: scrapeResult.changeStatus },
+  }).catch(() => {});
 
   // If no change, record it and move on
   if (scrapeResult.changeStatus === 'same') {
@@ -191,6 +209,26 @@ export async function processWatchSource(
     alertId,
     now,
   );
+
+  logSignalActivity({
+    project_id: ws.project_id,
+    event_type: 'classification_completed',
+    entity_id: changeId,
+    entity_type: 'source_change',
+    headline: `Classified "${ws.label}" change as ${classification.significance}: ${classification.headline}`,
+    metadata: { significance: classification.significance, alert_type: classification.alert_type },
+  }).catch(() => {});
+
+  if (alertId) {
+    logSignalActivity({
+      project_id: ws.project_id,
+      event_type: 'signal_created',
+      entity_id: alertId,
+      entity_type: 'ecosystem_alert',
+      headline: `Signal from watch source: ${classification.headline}`,
+      metadata: { alert_type: classification.alert_type, watch_source_id: ws.id, significance: classification.significance },
+    }).catch(() => {});
+  }
 
   // If high significance, auto-queue a pending_action for the founder
   let pendingActionCreated = false;

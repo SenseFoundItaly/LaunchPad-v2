@@ -37,6 +37,9 @@ export interface RecordUsageResult {
   crossed_warn: boolean;
   current_llm_usd: number;
   cap_llm_usd: number;
+  credits_used: number;
+  credits_remaining: number;
+  credits_total: number;
 }
 
 /**
@@ -115,6 +118,12 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
     console.warn('cost-meter → Langfuse failed (non-fatal):', (err as Error).message);
   }
 
+  const capCredits = budget.cap_credits ?? 100;
+  const creditsPerDollar = budget.cap_llm_usd > 0 ? capCredits / budget.cap_llm_usd : 200;
+  const creditsUsedThisCall = Math.round(costUsd * creditsPerDollar);
+  const totalCreditsUsed = Math.round(budget.current_llm_usd * creditsPerDollar);
+  const creditsRemaining = Math.max(0, capCredits - totalCreditsUsed);
+
   return {
     log_id: logId,
     cost_usd: costUsd,
@@ -122,6 +131,9 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
     crossed_warn: crossedWarn,
     current_llm_usd: budget.current_llm_usd,
     cap_llm_usd: budget.cap_llm_usd,
+    credits_used: creditsUsedThisCall,
+    credits_remaining: creditsRemaining,
+    credits_total: capCredits,
   };
 }
 
@@ -221,6 +233,7 @@ interface BudgetSnapshot {
   current_llm_usd: number;
   warn_llm_usd: number;
   cap_llm_usd: number;
+  cap_credits: number;
   status: string;
 }
 
@@ -246,7 +259,7 @@ async function upsertMonthlyBudget(
   );
 
   const rows = await query<BudgetSnapshot>(
-    `SELECT id, current_llm_usd, warn_llm_usd, cap_llm_usd, status
+    `SELECT id, current_llm_usd, warn_llm_usd, cap_llm_usd, cap_credits, status
      FROM project_budgets
      WHERE project_id = ? AND period_month = ?`,
     projectId, periodMonth,

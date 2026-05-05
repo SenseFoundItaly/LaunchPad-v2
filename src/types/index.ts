@@ -351,6 +351,7 @@ export type PendingActionType =
   | 'workflow_step'                 // chat-proposed workflow step, one row per step
   | 'configure_monitor'             // chat-proposed ecosystem monitor awaiting founder approval
   | 'configure_budget'              // chat-proposed monthly LLM budget cap change awaiting founder approval
+  | 'configure_watch_source'        // chat-proposed watch source awaiting founder approval
   | 'skill_rerun_result'            // heartbeat-executor refreshed a stale analytical skill — surfaces new score in inbox
   | 'task';                         // chat-proposed founder task (TODO) — Mark done / Snooze / Dismiss
 
@@ -454,6 +455,7 @@ export interface SignalTimelineEntry {
   source_label: string;
   source_url: string | null;
   significance: SignalSignificance;
+  relevance_score?: number;
   timestamp: string;
   alert_type?: string;
   change_status?: ChangeStatus;
@@ -490,6 +492,7 @@ export interface ProjectBudget {
   warn_external_actions: number;
   current_llm_usd: number;
   current_external_actions: number;
+  cap_credits: number;
   status: 'active' | 'warned' | 'capped';
   created_at: string;
   updated_at: string;

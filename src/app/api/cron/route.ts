@@ -11,6 +11,7 @@ import { sendBrief } from '@/lib/email';
 import { pickModel } from '@/lib/llm/router';
 import { getCreditsRemaining } from '@/lib/credits';
 import { createPendingAction, typesForLane } from '@/lib/pending-actions';
+import { logSignalActivity } from '@/lib/signal-activity-log';
 import { STAGES } from '@/lib/stages';
 import { scoreOverall } from '@/lib/scoring';
 import type { SkillData } from '@/hooks/useSkillStatus';
@@ -438,6 +439,15 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
       console.warn('[cron] recordEvent monitor_alert failed:', (err as Error).message);
     }
 
+    logSignalActivity({
+      project_id: monitor.project_id,
+      event_type: 'monitor_ran',
+      entity_id: runId,
+      entity_type: 'monitor_run',
+      headline: `Monitor "${monitor.name}" completed — ${persistResult?.alerts_inserted ?? 0} alerts`,
+      metadata: { monitor_id: monitor.id, alerts_inserted: persistResult?.alerts_inserted ?? 0 },
+    }).catch(() => {});
+
     return {
       monitor_id: monitor.id,
       name: monitor.name,
@@ -452,6 +462,16 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
        VALUES (?, ?, ?, 'failed', ?, 0, ?)`,
       runId, monitor.id, monitor.project_id, (err as Error).message.slice(0, 2000), runAt,
     );
+
+    logSignalActivity({
+      project_id: monitor.project_id,
+      event_type: 'monitor_failed',
+      entity_id: runId,
+      entity_type: 'monitor_run',
+      headline: `Monitor "${monitor.name}" failed: ${(err as Error).message.slice(0, 120)}`,
+      metadata: { monitor_id: monitor.id },
+    }).catch(() => {});
+
     return { monitor_id: monitor.id, name: monitor.name, status: 'failed' };
   }
 }

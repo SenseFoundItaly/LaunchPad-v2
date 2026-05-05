@@ -29,6 +29,7 @@ export const ACTION_LANE: Record<PendingActionType, ActionLane> = {
   skill_rerun_result: 'notification',
   configure_monitor: 'approval',
   configure_budget: 'approval',
+  configure_watch_source: 'approval',
   workflow_step: 'approval',
   draft_email: 'approval',
   draft_linkedin_post: 'approval',

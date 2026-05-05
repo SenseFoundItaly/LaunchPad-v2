@@ -32,6 +32,7 @@ import { generateId } from '@/lib/api-helpers';
 import { checkDedup, computeDedupHash } from './monitor-dedup';
 import { recordEvent } from './memory/events';
 import { calculateNextRun } from './monitor-schedule';
+import { logSignalActivity } from './signal-activity-log';
 import type {
   PendingAction,
   PendingActionType,
@@ -529,6 +530,77 @@ const configureBudget: ActionHandler = async (action) => {
   };
 };
 
+/**
+ * `configure_watch_source` executor — converts an approved watch-source
+ * proposal into an active row in the `watch_sources` table.
+ *
+ * Validates URL format and checks for duplicate URLs in the same project.
+ */
+const configureWatchSource: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+
+  const url = String(payload.url ?? '');
+  const label = String(payload.label ?? action.title);
+  const category = String(payload.category ?? 'custom');
+  const schedule = String(payload.schedule ?? 'daily');
+
+  // Validate URL
+  try {
+    new URL(url);
+  } catch {
+    return { ok: false, error: 'configure_watch_source: invalid URL format' };
+  }
+
+  // Check for duplicate URL
+  const existing = await query<{ id: string }>(
+    'SELECT id FROM watch_sources WHERE project_id = ? AND url = ?',
+    action.project_id, url,
+  );
+  if (existing.length > 0) {
+    return { ok: false, error: `configure_watch_source: URL already tracked (${existing[0].id})` };
+  }
+
+  const wsId = generateId('ws');
+  const now = new Date().toISOString();
+  const nextScrape = calculateNextRun(schedule) || now;
+
+  await run(
+    `INSERT INTO watch_sources
+       (id, project_id, url, label, category, scrape_config, schedule,
+        next_scrape_at, status, change_tracking_tag,
+        created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, '{}', ?, ?, 'active', ?, ?, ?)`,
+    wsId,
+    action.project_id,
+    url,
+    label,
+    category,
+    schedule,
+    nextScrape,
+    `ws_${wsId}`,
+    now,
+    now,
+  );
+
+  logSignalActivity({
+    project_id: action.project_id,
+    event_type: 'watch_source_created',
+    entity_id: wsId,
+    entity_type: 'watch_source',
+    headline: `Watch source created: ${label} (${url})`,
+    metadata: { category, schedule, source: 'chat_approval' },
+  }).catch(() => {});
+
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct',
+      created_row_id: wsId,
+      narrative: `Watch source "${label}" created. Schedule: ${schedule}. URL: ${url}`,
+    },
+  };
+};
+
 const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   draft_email: draftEmail,
   draft_linkedin_post: draftLinkedInPost,
@@ -540,6 +612,7 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   proposed_landing_copy: proposedLandingCopy,
   configure_monitor: configureMonitor,
   configure_budget: configureBudget,
+  configure_watch_source: configureWatchSource,
   // workflow_step is intentionally unmapped — each step is a placeholder
   // row, not an auto-executable action. Founder approval just flips status
   // without a domain effect.

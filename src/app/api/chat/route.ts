@@ -357,7 +357,7 @@ export async function POST(request: NextRequest) {
         }
         controller.enqueue(chunk);
       },
-      async flush() {
+      async flush(controller) {
         const latencyMs = Date.now() - piStart;
         // Pull the actual provider+model from the router so the logged slug
         // reflects reality (direct Anthropic vs OpenRouter). Falls back to
@@ -491,6 +491,28 @@ export async function POST(request: NextRequest) {
         } catch (err) {
           console.warn('[chat] memory write failed (non-fatal):', err);
         }
+
+        // Emit done event with cost + credits so the client can show per-message credits
+        try {
+          const donePayload: Record<string, unknown> = { done: true };
+          if (typeof cost === 'number' && cost > 0) {
+            // Compute credits from cost using the project's budget configuration
+            let credits = 0;
+            try {
+              const budgetRow = (await query<{ cap_llm_usd: number; cap_credits: number }>(
+                `SELECT cap_llm_usd, cap_credits FROM project_budgets
+                 WHERE project_id = ? AND period_month = ?`,
+                project_id,
+                (() => { const d = new Date(); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`; })(),
+              ))[0];
+              if (budgetRow && budgetRow.cap_llm_usd > 0) {
+                credits = Math.round(cost * (budgetRow.cap_credits / budgetRow.cap_llm_usd));
+              }
+            } catch { /* non-fatal — credits just stays 0 */ }
+            donePayload.usage = { cost, credits };
+          }
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(donePayload)}\n\n`));
+        } catch { /* non-fatal */ }
       },
     }));
 
@@ -530,7 +552,7 @@ export async function POST(request: NextRequest) {
           lastMessage.slice(0, 1000),
           directResponseText.slice(0, 2000),
         );
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, usage: { cost } })}\n\n`));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));

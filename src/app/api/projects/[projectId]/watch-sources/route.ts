@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
+import { logSignalActivity } from '@/lib/signal-activity-log';
 import type { WatchSource, WatchSourceCategory } from '@/types';
 import { VALID_CATEGORIES } from '@/types';
 
@@ -109,6 +110,15 @@ export async function POST(
     'SELECT * FROM watch_sources WHERE id = ?',
     id,
   );
+
+  logSignalActivity({
+    project_id: projectId,
+    event_type: 'watch_source_created',
+    entity_id: id,
+    entity_type: 'watch_source',
+    headline: `Watch source added: ${body.label} (${body.url})`,
+    metadata: { category: body.category || 'custom', schedule },
+  }).catch(() => {});
 
   return json(created[0], 201);
 }
