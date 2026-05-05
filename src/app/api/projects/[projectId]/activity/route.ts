@@ -72,6 +72,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  try {
   const { projectId } = await params;
   const url = new URL(request.url);
   const since = url.searchParams.get('since');
@@ -237,4 +238,8 @@ export async function GET(
   const capped = events.slice(0, 100);
 
   return json({ events: capped });
+  } catch (e) {
+    console.error('[activity] unhandled error:', e);
+    return error((e as Error).message || 'Internal error', 500);
+  }
 }

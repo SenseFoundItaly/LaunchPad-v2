@@ -2710,12 +2710,15 @@ function ActivityTab({
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/projects/${projectId}/activity`);
-      const body = await res.json();
+      const text = await res.text();
+      if (!text) throw new Error(`Empty response (HTTP ${res.status})`);
+      let body: Record<string, unknown>;
+      try { body = JSON.parse(text); } catch { throw new Error(`Invalid JSON (HTTP ${res.status})`); }
       if (!res.ok || body?.success === false) {
-        throw new Error(body?.error || `HTTP ${res.status}`);
+        throw new Error((body?.error as string) || `HTTP ${res.status}`);
       }
-      const inner = body?.data ?? body;
-      setEvents(Array.isArray(inner.events) ? inner.events : []);
+      const inner = (body?.data ?? body) as { events?: unknown[] };
+      setEvents(Array.isArray(inner.events) ? inner.events as ActivityEvent[] : []);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
