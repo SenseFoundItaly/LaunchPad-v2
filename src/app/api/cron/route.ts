@@ -496,81 +496,115 @@ export async function GET(request: NextRequest) {
   const auth = requireCronAuth(request);
   if (!auth.ok) return auth.response;
 
-  const now = new Date().toISOString();
-
-  // Find monitors that are due (skip if ran in last 5 minutes to prevent loops)
-  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-  const due = await query<MonitorRow>(
-    `SELECT id, project_id, type, name, schedule, prompt FROM monitors WHERE status = 'active'
-     AND schedule != 'manual'
-     AND (last_run IS NULL OR last_run < ?)
-     AND (
-       (next_run IS NOT NULL AND next_run <= ?)
-       OR (next_run IS NULL AND last_run IS NULL)
-     )`,
-    fiveMinAgo, now,
+  const cronRunId = generateId('crun');
+  const startedAt = Date.now();
+  await run(
+    `INSERT INTO cron_runs (id, started_at, status) VALUES (?, ?, 'running')`,
+    cronRunId, new Date(startedAt).toISOString(),
   );
 
-  const monitorResults = due.length > 0 ? await processMonitors(due) : [];
-
-  // Phase B: Process due watch sources (URL-based change detection).
-  // Up to 10 per cron tick to stay within Vercel Hobby 10s timeout.
-  let watchSourceResults: WatchSourceResult[] = [];
   try {
-    watchSourceResults = await processWatchSourcesCron(10);
-  } catch (err) {
-    console.warn('[cron] processWatchSourcesCron failed:', (err as Error).message);
-  }
+    const now = new Date().toISOString();
 
-  // Phase C: Cross-signal correlation engine.
-  // Runs weekly per project. Groups recent signals by entity and synthesizes
-  // strategic narratives via Sonnet. Also expires briefs older than 7 days.
-  let correlationResults: CorrelationResult[] = [];
-  let briefsExpired = 0;
-  try {
-    // Expire stale briefs first
-    briefsExpired = await expireOldBriefs();
-
-    // Run correlation for each active project with owner
-    const activeProjects = await query<{ id: string }>(
-      `SELECT id FROM projects WHERE owner_user_id IS NOT NULL AND status != 'archived'`,
+    // Find monitors that are due (skip if ran in last 5 minutes to prevent loops)
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const due = await query<MonitorRow>(
+      `SELECT id, project_id, type, name, schedule, prompt FROM monitors WHERE status = 'active'
+       AND schedule != 'manual'
+       AND (last_run IS NULL OR last_run < ?)
+       AND (
+         (next_run IS NOT NULL AND next_run <= ?)
+         OR (next_run IS NULL AND last_run IS NULL)
+       )`,
+      fiveMinAgo, now,
     );
-    for (const proj of activeProjects) {
-      try {
-        const result = await processCorrelations(proj.id);
-        correlationResults.push(result);
-      } catch (err) {
-        console.warn(`[cron] correlation failed for ${proj.id}:`, (err as Error).message);
-        correlationResults.push({ project_id: proj.id, briefs_created: 0, briefs_superseded: 0, skipped_reason: 'error' });
-      }
+
+    const monitorResults = due.length > 0 ? await processMonitors(due) : [];
+
+    // Phase B: Process due watch sources (URL-based change detection).
+    // Up to 10 per cron tick to stay within Vercel Hobby 10s timeout.
+    let watchSourceResults: WatchSourceResult[] = [];
+    try {
+      watchSourceResults = await processWatchSourcesCron(10);
+    } catch (err) {
+      console.warn('[cron] processWatchSourcesCron failed:', (err as Error).message);
     }
+
+    // Phase C: Cross-signal correlation engine.
+    // Runs weekly per project. Groups recent signals by entity and synthesizes
+    // strategic narratives via Sonnet. Also expires briefs older than 7 days.
+    let correlationResults: CorrelationResult[] = [];
+    let briefsExpired = 0;
+    try {
+      // Expire stale briefs first
+      briefsExpired = await expireOldBriefs();
+
+      // Run correlation for each active project with owner
+      const activeProjects = await query<{ id: string }>(
+        `SELECT id FROM projects WHERE owner_user_id IS NOT NULL AND status != 'archived'`,
+      );
+      for (const proj of activeProjects) {
+        try {
+          const result = await processCorrelations(proj.id);
+          correlationResults.push(result);
+        } catch (err) {
+          console.warn(`[cron] correlation failed for ${proj.id}:`, (err as Error).message);
+          correlationResults.push({ project_id: proj.id, briefs_created: 0, briefs_superseded: 0, skipped_reason: 'error' });
+        }
+      }
+    } catch (err) {
+      console.warn('[cron] correlation phase failed:', (err as Error).message);
+    }
+
+    // Heartbeat reflections — once per project per 24h. Piggybacks on the same
+    // cron endpoint; cheap to poll because the "has reflected today" check is
+    // a single indexed query on memory_events.
+    const heartbeatResults = await processHeartbeats();
+
+    // Phase 1 (4-bucket reorg) — auto-dismiss notification-lane rows older than
+    // 7 days so the Notifications tab doesn't accumulate forever. Cheap bulk
+    // UPDATE; runs every 15 min but only flips rows that crossed the threshold
+    // since the last tick.
+    const dismissedNotifications = await dismissStaleNotifications();
+
+    // Finalize cron_runs row with stats
+    const durationMs = Date.now() - startedAt;
+    await run(
+      `UPDATE cron_runs
+       SET finished_at = ?, status = 'completed', duration_ms = ?,
+           monitors_ran = ?, watch_sources_processed = ?,
+           correlations_ran = ?, heartbeats_ran = ?, notifications_dismissed = ?
+       WHERE id = ?`,
+      new Date().toISOString(), durationMs,
+      monitorResults.length, watchSourceResults.length,
+      correlationResults.length, heartbeatResults.length, dismissedNotifications,
+      cronRunId,
+    );
+
+    return json({
+      cron_run_id: cronRunId,
+      monitors_ran: monitorResults.length,
+      monitor_results: monitorResults,
+      watch_sources_processed: watchSourceResults.length,
+      watch_source_results: watchSourceResults,
+      correlations_ran: correlationResults.length,
+      correlation_results: correlationResults,
+      briefs_expired: briefsExpired,
+      heartbeats_ran: heartbeatResults.length,
+      heartbeat_results: heartbeatResults,
+      notifications_dismissed: dismissedNotifications,
+    });
   } catch (err) {
-    console.warn('[cron] correlation phase failed:', (err as Error).message);
+    const durationMs = Date.now() - startedAt;
+    await run(
+      `UPDATE cron_runs
+       SET finished_at = ?, status = 'failed', duration_ms = ?, error_message = ?
+       WHERE id = ?`,
+      new Date().toISOString(), durationMs, (err as Error).message.slice(0, 2000),
+      cronRunId,
+    ).catch(() => {});
+    throw err;
   }
-
-  // Heartbeat reflections — once per project per 24h. Piggybacks on the same
-  // cron endpoint; cheap to poll because the "has reflected today" check is
-  // a single indexed query on memory_events.
-  const heartbeatResults = await processHeartbeats();
-
-  // Phase 1 (4-bucket reorg) — auto-dismiss notification-lane rows older than
-  // 7 days so the Notifications tab doesn't accumulate forever. Cheap bulk
-  // UPDATE; runs every 15 min but only flips rows that crossed the threshold
-  // since the last tick.
-  const dismissedNotifications = await dismissStaleNotifications();
-
-  return json({
-    monitors_ran: monitorResults.length,
-    monitor_results: monitorResults,
-    watch_sources_processed: watchSourceResults.length,
-    watch_source_results: watchSourceResults,
-    correlations_ran: correlationResults.length,
-    correlation_results: correlationResults,
-    briefs_expired: briefsExpired,
-    heartbeats_ran: heartbeatResults.length,
-    heartbeat_results: heartbeatResults,
-    notifications_dismissed: dismissedNotifications,
-  });
 }
 
 /**

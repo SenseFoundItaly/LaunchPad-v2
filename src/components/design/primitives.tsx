@@ -181,23 +181,34 @@ export function MetricTile({ label, value, delta, sparkData = [], kind = 'n' }: 
 // StatusBar — bottom Bloomberg-style bar (heartbeat, gateway, budget, tz)
 // =============================================================================
 
+export type HeartbeatKind = 'healthy' | 'stale' | 'dead';
+
 export interface StatusBarProps {
   hints?: React.ReactNode[];
   heartbeatLabel?: string;
+  heartbeatKind?: HeartbeatKind;
   gateway?: string;
   ctxLabel?: string;
   budget?: string;
   tz?: string;
 }
 
+const HEARTBEAT_DOT: Record<HeartbeatKind, { color: string; pulse: boolean }> = {
+  healthy: { color: 'var(--moss)', pulse: true },
+  stale: { color: 'var(--clay)', pulse: false },
+  dead: { color: 'oklch(0.60 0.14 20)', pulse: false },
+};
+
 export function StatusBar({
   hints = [],
   heartbeatLabel = 'heartbeat · idle',
+  heartbeatKind = 'healthy',
   gateway = 'pi-agent · anthropic',
   ctxLabel,
   budget = 'budget · —',
   tz = 'tz · Europe/Rome',
 }: StatusBarProps) {
+  const dotStyle = HEARTBEAT_DOT[heartbeatKind] || HEARTBEAT_DOT.healthy;
   return (
     <div
       className="lp-mono"
@@ -216,7 +227,10 @@ export function StatusBar({
       }}
     >
       <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-        <span className="lp-dot lp-pulse" style={{ background: 'var(--moss)' }} />
+        <span
+          className={`lp-dot${dotStyle.pulse ? ' lp-pulse' : ''}`}
+          style={{ background: dotStyle.color }}
+        />
         {heartbeatLabel}
       </span>
       <span>{gateway}</span>

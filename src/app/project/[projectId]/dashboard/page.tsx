@@ -34,6 +34,8 @@ import {
   IconBtn,
   I,
 } from '@/components/design/primitives';
+import type { HeartbeatKind } from '@/components/design/primitives';
+import CronSettingsPanel from '@/components/cron/CronSettingsPanel';
 import type { ApiResponse, SignalTimelineEntry } from '@/types';
 
 // =============================================================================
@@ -147,16 +149,19 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
   const [milestones, setMilestones] = useState<JourneyPayload['milestones']>([]);
   const [usageGroups, setUsageGroups] = useState<LlmUsageGroupRow[]>([]);
   const [signalEntries, setSignalEntries] = useState<SignalTimelineEntry[]>([]);
+  const [cronbeat, setCronbeat] = useState<{ health: HeartbeatKind; hours_since_last: number | null } | null>(null);
+  const [cronPanelOpen, setCronPanelOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [dash, graph, journey, usage, signals] = await Promise.all([
+      const [dash, graph, journey, usage, signals, beat] = await Promise.all([
         api.get<ApiResponse<DashboardPayload>>(`/api/dashboard/${projectId}`),
         api.get<ApiResponse<{ nodes?: GraphNodeRow[] }>>(`/api/graph/${projectId}`).catch(() => ({ data: { data: { nodes: [] } } })),
         api.get<ApiResponse<JourneyPayload>>(`/api/journey/${projectId}`).catch(() => ({ data: { data: { milestones: [] } } })),
         api.get<ApiResponse<LlmUsageGroupRow[]>>(`/api/projects/${projectId}/usage/groups`).catch(() => ({ data: { data: [] } })),
         fetch(`/api/projects/${projectId}/signals?days=7&limit=8`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
+        api.get<ApiResponse<{ health: HeartbeatKind; hours_since_last: number | null }>>('/api/cronbeat').catch(() => null),
       ]);
       if (dash.data?.data) setPayload(dash.data.data);
       const nodes = (graph.data as ApiResponse<{ nodes?: GraphNodeRow[] }> | undefined)?.data?.nodes;
@@ -168,6 +173,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
       if (signals?.success && Array.isArray(signals.data)) {
         setSignalEntries(signals.data);
       }
+      if (beat?.data?.data) setCronbeat(beat.data.data);
     } catch {
       // Partial data is fine — the page renders empty panels gracefully
     } finally {
@@ -219,6 +225,16 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
     : 'budget · —';
 
   const lastHeartbeat = useMemo(() => {
+    if (cronbeat) {
+      const h = cronbeat.health;
+      if (cronbeat.hours_since_last == null) {
+        return locale === 'it' ? 'cron · mai eseguito' : 'cron · never run';
+      }
+      const hrs = cronbeat.hours_since_last;
+      const agoStr = hrs < 1 ? '<1h ago' : `${Math.round(hrs)}h ago`;
+      return `cron · ${h} · ${agoStr}`;
+    }
+    // Fallback to monitor-based estimate
     const lastRun = payload?.monitors
       .map(m => m.last_run)
       .filter((x): x is string => !!x)
@@ -229,7 +245,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
     if (ago < 60) return `heartbeat · ${ago}s ago`;
     if (ago < 3600) return `heartbeat · ${Math.floor(ago / 60)}m ago`;
     return `heartbeat · ${Math.floor(ago / 3600)}h ago`;
-  }, [payload, locale]);
+  }, [payload, cronbeat, locale]);
 
   return (
     <div className="lp-frame">
@@ -351,6 +367,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
                 locale={locale}
                 projectId={projectId}
                 overnightAgentCount={overnightAgentCount}
+                onOpenCronSettings={() => setCronPanelOpen(true)}
               />
 
               <Panel
@@ -417,6 +434,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
 
       <StatusBar
         heartbeatLabel={lastHeartbeat}
+        heartbeatKind={cronbeat?.health || 'healthy'}
         gateway="pi-agent · anthropic"
         ctxLabel={`ctx · ${graphNodes.length} nodes`}
         budget={statusBarBudget}
@@ -424,6 +442,13 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
         hints={[
           ...(loading ? [locale === 'it' ? 'sto caricando…' : 'loading…'] : []),
         ]}
+      />
+
+      {/* Cron settings slide-over */}
+      <CronSettingsPanel
+        projectId={projectId}
+        open={cronPanelOpen}
+        onClose={() => setCronPanelOpen(false)}
       />
 
       {/* Floating "Ask your co-founder" drawer — wired to the same chat agent
@@ -517,12 +542,14 @@ function HeartbeatSection({
   locale,
   projectId,
   overnightAgentCount,
+  onOpenCronSettings,
 }: {
   monitors: MonitorRow[];
   ecosystemAlerts: EcosystemAlertPreview[];
   locale: 'en' | 'it';
   projectId: string;
   overnightAgentCount: number;
+  onOpenCronSettings?: () => void;
 }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [viewAll, setViewAll] = useState(false);
@@ -604,6 +631,12 @@ function HeartbeatSection({
               ? `live · ${overnightAgentCount} monitor${overnightAgentCount === 1 ? '' : 's'}`
               : 'idle'}
           </Pill>
+          <IconBtn
+            d={I.sliders}
+            size={22}
+            title="Cron settings"
+            onClick={onOpenCronSettings}
+          />
           <IconBtn
             d={viewAll ? I.collapse : I.expand}
             size={22}

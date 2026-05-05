@@ -781,3 +781,21 @@ CREATE INDEX IF NOT EXISTS idx_signal_logs_project_time
   ON signal_activity_logs(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_signal_logs_project_type
   ON signal_activity_logs(project_id, event_type);
+
+-- =============================================================================
+-- Cron Runs (audit log for the cron system itself)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS cron_runs (
+  id TEXT PRIMARY KEY,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'running',
+  duration_ms INTEGER,
+  monitors_ran INTEGER DEFAULT 0,
+  watch_sources_processed INTEGER DEFAULT 0,
+  correlations_ran INTEGER DEFAULT 0,
+  heartbeats_ran INTEGER DEFAULT 0,
+  notifications_dismissed INTEGER DEFAULT 0,
+  error_message TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_cron_runs_started_at ON cron_runs(started_at DESC);
