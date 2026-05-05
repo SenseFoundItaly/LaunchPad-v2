@@ -31,6 +31,7 @@ import {
   MetricTile,
   StatusBar,
   Icon,
+  IconBtn,
   I,
 } from '@/components/design/primitives';
 import type { ApiResponse, SignalTimelineEntry } from '@/types';
@@ -344,22 +345,13 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
             }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              <Panel
-                title={locale === 'it' ? 'Heartbeat di oggi' : "Today's heartbeat"}
-                right={
-                  <>
-                    <Pill kind="live" dot>
-                      {overnightAgentCount > 0 ? `live · ${overnightAgentCount} monitor${overnightAgentCount === 1 ? '' : 's'}` : 'idle'}
-                    </Pill>
-                  </>
-                }
-              >
-                <HeartbeatPanel
-                  monitors={payload?.monitors || []}
-                  ecosystemAlerts={payload?.top_ecosystem_alerts || []}
-                  locale={locale}
-                />
-              </Panel>
+              <HeartbeatSection
+                monitors={payload?.monitors || []}
+                ecosystemAlerts={payload?.top_ecosystem_alerts || []}
+                locale={locale}
+                projectId={projectId}
+                overnightAgentCount={overnightAgentCount}
+              />
 
               <Panel
                 title={locale === 'it' ? 'Ticket' : 'Tickets'}
@@ -494,120 +486,342 @@ function buildMastheadNarrative(
 }
 
 // =============================================================================
-// Heartbeat panel — real monitor_runs + ecosystem alerts as activity stream
+// Heartbeat section — expandable activity stream with "view all" mode
 // =============================================================================
 
-function HeartbeatPanel({
+type HeartbeatEvent = {
+  t: string;
+  agent: string;
+  role: string;
+  msg: string;
+  target: string;
+  tag: string;
+  kind: 'live' | 'ok' | 'info' | 'warn' | 'n';
+  full?: string;
+};
+
+interface ActivityApiEvent {
+  id: string;
+  at: string;
+  tag: string;
+  label: string;
+  body?: string;
+  href?: string;
+}
+
+const ACTIVITY_FILTER_TAGS = ['All', 'SCAN', 'CEO', 'TASK', 'ALERT'] as const;
+
+function HeartbeatSection({
   monitors,
   ecosystemAlerts,
   locale,
+  projectId,
+  overnightAgentCount,
 }: {
   monitors: MonitorRow[];
   ecosystemAlerts: EcosystemAlertPreview[];
   locale: 'en' | 'it';
+  projectId: string;
+  overnightAgentCount: number;
 }) {
-  // Merge monitor last_runs + ecosystem alerts into a single timeline,
-  // newest first, capped at 6 rows.
-  type Event = {
-    t: string;
-    agent: string;
-    role: string;
-    msg: string;
-    target: string;
-    tag: string;
-    kind: 'live' | 'ok' | 'info' | 'warn' | 'n';
-  };
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [viewAll, setViewAll] = useState(false);
+  const [activityEvents, setActivityEvents] = useState<ActivityApiEvent[] | null>(null);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [filterTag, setFilterTag] = useState<string>('All');
 
-  const events: Event[] = [];
+  // Build condensed events from monitors + ecosystem alerts
+  const condensedEvents = useMemo(() => {
+    const events: HeartbeatEvent[] = [];
 
-  for (const alert of ecosystemAlerts.slice(0, 4)) {
-    events.push({
-      t: alert.created_at,
-      agent: 'Scout',
-      role: alert.alert_type.replace('_', ' '),
-      msg: alert.headline.slice(0, 80),
-      target: alert.source_url ? safeHost(alert.source_url) : '',
-      tag: `${(alert.relevance_score * 100).toFixed(0)}% rilevante`,
-      kind: alert.relevance_score > 0.8 ? 'live' : alert.relevance_score > 0.6 ? 'ok' : 'n',
-    });
-  }
+    for (const alert of ecosystemAlerts.slice(0, 4)) {
+      events.push({
+        t: alert.created_at,
+        agent: 'Scout',
+        role: alert.alert_type.replace('_', ' '),
+        msg: alert.headline.slice(0, 80),
+        target: alert.source_url ? safeHost(alert.source_url) : '',
+        tag: `${(alert.relevance_score * 100).toFixed(0)}% rilevante`,
+        kind: alert.relevance_score > 0.8 ? 'live' : alert.relevance_score > 0.6 ? 'ok' : 'n',
+        full: alert.body || undefined,
+      });
+    }
 
-  for (const m of monitors.slice(0, 4)) {
-    if (!m.last_run) continue;
-    events.push({
-      t: m.last_run,
-      agent: agentNameFromType(m.type),
-      role: roleFromType(m.type),
-      msg: locale === 'it' ? `Scan completato · ${m.name}` : `Scan completed · ${m.name}`,
-      target: (m.last_result || '').slice(0, 60).replace(/\s+/g, ' '),
-      tag: 'monitor',
-      kind: 'n',
-    });
-  }
+    for (const m of monitors.slice(0, 4)) {
+      if (!m.last_run) continue;
+      events.push({
+        t: m.last_run,
+        agent: agentNameFromType(m.type),
+        role: roleFromType(m.type),
+        msg: locale === 'it' ? `Scan completato · ${m.name}` : `Scan completed · ${m.name}`,
+        target: (m.last_result || '').slice(0, 60).replace(/\s+/g, ' '),
+        tag: 'monitor',
+        kind: 'n',
+        full: m.last_result || undefined,
+      });
+    }
 
-  // Sort newest first, dedupe by (agent,msg)
-  events.sort((a, b) => b.t.localeCompare(a.t));
-  const trimmed = events.slice(0, 6);
+    events.sort((a, b) => b.t.localeCompare(a.t));
+    return events.slice(0, 6);
+  }, [monitors, ecosystemAlerts, locale]);
 
-  if (trimmed.length === 0) {
-    return (
-      <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
-        {locale === 'it'
-          ? 'Nessuna attività recente. Lancia uno scan dall\'inbox o dalla Brief.'
-          : 'No recent activity. Trigger a scan from the inbox or Brief.'}
-      </div>
-    );
-  }
+  // Fetch full activity on "view all"
+  const handleExpandAll = useCallback(async () => {
+    if (viewAll) {
+      setViewAll(false);
+      return;
+    }
+    setViewAll(true);
+    if (!activityEvents) {
+      setActivityLoading(true);
+      try {
+        const res = await api.get<ApiResponse<{ events: ActivityApiEvent[] }>>(
+          `/api/projects/${projectId}/activity`,
+        );
+        setActivityEvents(res.data?.data?.events || []);
+      } catch {
+        setActivityEvents([]);
+      } finally {
+        setActivityLoading(false);
+      }
+    }
+  }, [viewAll, activityEvents, projectId]);
+
+  // Filtered activity events for "view all" mode
+  const filteredActivity = useMemo(() => {
+    if (!activityEvents) return [];
+    if (filterTag === 'All') return activityEvents;
+    return activityEvents.filter(e => e.tag === filterTag);
+  }, [activityEvents, filterTag]);
 
   return (
-    <div style={{ padding: '4px 0' }}>
-      {trimmed.map((e, i) => (
+    <Panel
+      title={locale === 'it' ? 'Heartbeat di oggi' : "Today's heartbeat"}
+      right={
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Pill kind="live" dot>
+            {overnightAgentCount > 0
+              ? `live · ${overnightAgentCount} monitor${overnightAgentCount === 1 ? '' : 's'}`
+              : 'idle'}
+          </Pill>
+          <IconBtn
+            d={viewAll ? I.collapse : I.expand}
+            size={22}
+            title={viewAll ? 'Collapse' : 'Expand activity log'}
+            onClick={handleExpandAll}
+            active={viewAll}
+          />
+        </span>
+      }
+    >
+      {viewAll ? (
+        <div style={{ padding: '4px 0' }}>
+          {/* Filter pills */}
+          <div style={{ display: 'flex', gap: 6, padding: '6px 14px 10px', flexWrap: 'wrap' }}>
+            {ACTIVITY_FILTER_TAGS.map(tag => (
+              <button
+                key={tag}
+                onClick={() => setFilterTag(tag)}
+                style={{
+                  padding: '3px 10px',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  borderRadius: 'var(--r-m)',
+                  border: '1px solid var(--line)',
+                  background: filterTag === tag ? 'var(--paper-3)' : 'transparent',
+                  color: filterTag === tag ? 'var(--ink)' : 'var(--ink-4)',
+                  cursor: 'pointer',
+                  transition: 'background .12s',
+                }}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+
+          {/* Scrollable full timeline */}
+          <div style={{ maxHeight: '60vh', overflowY: 'auto', padding: '0' }}>
+            {activityLoading && (
+              <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
+                Loading activity…
+              </div>
+            )}
+            {!activityLoading && filteredActivity.length === 0 && (
+              <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
+                {locale === 'it' ? 'Nessun evento trovato.' : 'No events found.'}
+              </div>
+            )}
+            {!activityLoading &&
+              filteredActivity.map((ev, i) => (
+                <ActivityRow key={ev.id} event={ev} locale={locale} isLast={i === filteredActivity.length - 1} />
+              ))}
+          </div>
+        </div>
+      ) : condensedEvents.length === 0 ? (
+        <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
+          {locale === 'it'
+            ? "Nessuna attività recente. Lancia uno scan dall'inbox o dalla Brief."
+            : 'No recent activity. Trigger a scan from the inbox or Brief.'}
+        </div>
+      ) : (
+        <div style={{ padding: '4px 0' }}>
+          {condensedEvents.map((e, i) => (
+            <div key={i}>
+              <div
+                onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '60px 118px 1fr auto',
+                  gap: 12,
+                  padding: '10px 14px',
+                  borderBottom: i < condensedEvents.length - 1 && expandedIdx !== i ? '1px solid var(--line)' : 'none',
+                  alignItems: 'center',
+                  cursor: e.full ? 'pointer' : 'default',
+                  transition: 'background .1s',
+                }}
+                onMouseEnter={(ev) => { if (e.full) (ev.currentTarget as HTMLDivElement).style.background = 'var(--paper-2)'; }}
+                onMouseLeave={(ev) => { (ev.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+              >
+                <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                  {formatTimeAgo(e.t, locale)}
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <span
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: 4,
+                      background: agentColor(e.agent),
+                      color: '#fff',
+                      fontSize: 9,
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontFamily: 'var(--f-mono)',
+                    }}
+                  >
+                    {e.agent.slice(0, 2).toUpperCase()}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>{e.agent}</span>
+                  <span className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-5)', textTransform: 'uppercase' }}>
+                    {e.role}
+                  </span>
+                </span>
+                <span style={{ fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ color: 'var(--ink-2)' }}>{e.msg}</span>
+                  {e.target && <span style={{ color: 'var(--ink-4)' }}> — {e.target}</span>}
+                </span>
+                <Pill kind={e.kind} dot={e.kind !== 'n'}>
+                  {e.tag}
+                </Pill>
+              </div>
+              {/* Expanded body */}
+              {expandedIdx === i && e.full && (
+                <div
+                  style={{
+                    margin: '0 14px 8px',
+                    padding: '10px 12px',
+                    background: 'var(--paper-2)',
+                    borderLeft: `3px solid ${agentColor(e.agent)}`,
+                    borderRadius: '0 var(--r-m) var(--r-m) 0',
+                    maxHeight: 300,
+                    overflowY: 'auto',
+                    fontFamily: 'var(--f-mono)',
+                    fontSize: 11,
+                    lineHeight: 1.5,
+                    color: 'var(--ink-3)',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    borderBottom: i < condensedEvents.length - 1 ? '1px solid var(--line)' : 'none',
+                  }}
+                >
+                  {e.full}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/** Single row in the "view all" activity timeline */
+function ActivityRow({
+  event,
+  locale,
+  isLast,
+}: {
+  event: ActivityApiEvent;
+  locale: 'en' | 'it';
+  isLast: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const tagColor: Record<string, string> = {
+    SCAN: 'var(--sky)',
+    CEO: 'var(--plum)',
+    TASK: 'var(--moss)',
+    ALERT: 'oklch(0.60 0.14 20)',
+    CHIEF: 'var(--ink-3)',
+    YOU: 'var(--ink-4)',
+    DRAFT: 'var(--ink-5)',
+    AGENT: 'var(--sky)',
+  };
+  const color = tagColor[event.tag] || 'var(--ink-4)';
+
+  return (
+    <div>
+      <div
+        onClick={() => event.body && setOpen(!open)}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '14px 60px 56px 1fr',
+          gap: 10,
+          padding: '9px 14px',
+          borderBottom: !isLast && !open ? '1px solid var(--line)' : 'none',
+          alignItems: 'start',
+          cursor: event.body ? 'pointer' : 'default',
+          transition: 'background .1s',
+        }}
+        onMouseEnter={(e) => { if (event.body) (e.currentTarget as HTMLDivElement).style.background = 'var(--paper-2)'; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      >
+        <span style={{ color: 'var(--ink-5)', fontSize: 10, paddingTop: 1 }}>
+          {event.body ? <Icon d={open ? I.chevd : I.chevr} size={10} /> : null}
+        </span>
+        <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+          {formatTimeAgo(event.at, locale)}
+        </span>
+        <Pill kind="n">
+          {event.tag}
+        </Pill>
+        <span style={{ fontSize: 12, color: 'var(--ink-2)', minWidth: 0 }}>
+          {event.label}
+        </span>
+      </div>
+      {open && event.body && (
         <div
-          key={i}
           style={{
-            display: 'grid',
-            gridTemplateColumns: '60px 118px 1fr auto',
-            gap: 12,
-            padding: '10px 14px',
-            borderBottom: i < trimmed.length - 1 ? '1px solid var(--line)' : 'none',
-            alignItems: 'center',
+            margin: '0 14px 8px',
+            padding: '10px 12px',
+            background: 'var(--paper-2)',
+            borderLeft: `3px solid ${color}`,
+            borderRadius: '0 var(--r-m) var(--r-m) 0',
+            maxHeight: 300,
+            overflowY: 'auto',
+            fontFamily: 'var(--f-mono)',
+            fontSize: 11,
+            lineHeight: 1.5,
+            color: 'var(--ink-3)',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            borderBottom: !isLast ? '1px solid var(--line)' : 'none',
           }}
         >
-          <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-            {formatTimeAgo(e.t, locale)}
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-            <span
-              style={{
-                width: 18,
-                height: 18,
-                borderRadius: 4,
-                background: agentColor(e.agent),
-                color: '#fff',
-                fontSize: 9,
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontFamily: 'var(--f-mono)',
-              }}
-            >
-              {e.agent.slice(0, 2).toUpperCase()}
-            </span>
-            <span style={{ fontSize: 12, fontWeight: 500 }}>{e.agent}</span>
-            <span className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-5)', textTransform: 'uppercase' }}>
-              {e.role}
-            </span>
-          </span>
-          <span style={{ fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            <span style={{ color: 'var(--ink-2)' }}>{e.msg}</span>
-            {e.target && <span style={{ color: 'var(--ink-4)' }}> — {e.target}</span>}
-          </span>
-          <Pill kind={e.kind} dot={e.kind !== 'n'}>
-            {e.tag}
-          </Pill>
+          {event.body}
         </div>
-      ))}
+      )}
     </div>
   );
 }

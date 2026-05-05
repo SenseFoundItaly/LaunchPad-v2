@@ -193,7 +193,7 @@ export async function GET(
       at: al.created_at,
       tag: 'ALERT',
       label: `${al.headline} (relevance ${al.relevance_score.toFixed(2)})`,
-      body: al.body ? al.body.slice(0, 220) : undefined,
+      body: al.body ? al.body.slice(0, 1000) : undefined,
       href: al.source_url || undefined,
     });
   }
@@ -230,7 +230,7 @@ export async function GET(
       at: r.run_at,
       tag: 'SCAN',
       label: `Monitor ${name} ${r.status === 'completed' ? 'ran' : r.status} — ${r.alerts_generated} signals`,
-      body: r.summary ? r.summary.slice(0, 220) : undefined,
+      body: r.summary ? r.summary.slice(0, 2000) : undefined,
     });
   }
 
