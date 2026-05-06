@@ -203,7 +203,7 @@ export function StatusBar({
   hints = [],
   heartbeatLabel = 'heartbeat · idle',
   heartbeatKind = 'healthy',
-  gateway = 'pi-agent · anthropic',
+  gateway,
   ctxLabel,
   budget = 'budget · —',
   tz = 'tz · Europe/Rome',
@@ -233,7 +233,7 @@ export function StatusBar({
         />
         {heartbeatLabel}
       </span>
-      <span>{gateway}</span>
+      {gateway && <span>{gateway}</span>}
       {ctxLabel && <span>{ctxLabel}</span>}
       <span style={{ flex: 1 }} />
       {hints.map((h, i) => (

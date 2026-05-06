@@ -24,6 +24,7 @@ import { parseMessageContent } from '@/lib/artifact-parser';
 import type { Artifact, ArtifactType, SolveProgressArtifact } from '@/types/artifacts';
 import SolveProgressCard from '@/components/chat/artifacts/SolveProgressCard';
 import ArtifactRenderer from '@/components/chat/artifacts/ArtifactRenderer';
+import { ContextPanel } from '@/components/chat/ContextPanel';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import {
@@ -128,15 +129,8 @@ export default function CopilotChatPage({
     return { canvasArtifacts: canvas, inlineArtifactsByMsgId: inlineMap };
   }, [messages]);
 
-  // Auto-switch to Solve tab when the first solve-progress artifact appears
+  // Detect solve-progress artifacts for inline display in the canvas grid
   const hasSolveProgress = canvasArtifacts.some((a) => a.type === 'solve-progress');
-  const solveTabSwitched = useRef(false);
-  useEffect(() => {
-    if (hasSolveProgress && !solveTabSwitched.current) {
-      solveTabSwitched.current = true;
-      setCanvasTab('solve');
-    }
-  }, [hasSolveProgress]);
 
   function handleSend() {
     const v = input.trim();
@@ -330,7 +324,6 @@ export default function CopilotChatPage({
                   inlineArtifacts={inlineArtifactsByMsgId.get(m.id)}
                   onArtifactAction={handleArtifactAction}
                   onQuickReply={!isStreaming ? sendMessage : undefined}
-                  costInfo={messageCosts[m.id]}
                   // Retry only for user messages; disabled while streaming
                   // to prevent double-sends. Reuses sendMessage so the
                   // retried turn goes through the same memory-context +
@@ -398,34 +391,31 @@ export default function CopilotChatPage({
                 alignContent: 'start',
               }}
             >
-              {canvasArtifacts.length === 0 ? (
+              {/* Solve progress inline when present */}
+              {hasSolveProgress && (
+                <div style={{ gridColumn: 'span 6' }}>
+                  <InlineSolveProgress messages={messages} locale={locale} />
+                </div>
+              )}
+              {canvasArtifacts.filter((a) => a.type !== 'solve-progress').length === 0 && !hasSolveProgress ? (
                 <CanvasEmptyState locale={locale} />
               ) : (
-                canvasArtifacts.map((a, i) => (
-                  <ArtifactCard key={i} artifact={a} onAction={handleArtifactAction} />
-                ))
+                canvasArtifacts
+                  .filter((a) => a.type !== 'solve-progress')
+                  .map((a, i) => (
+                    <ArtifactCard key={i} artifact={a} onAction={handleArtifactAction} />
+                  ))
               )}
             </div>
           )}
-          {canvasTab === 'tasks' && (
-            <TasksTab projectId={projectId} onAction={handleArtifactAction} locale={locale} />
-          )}
-          {canvasTab === 'intelligence' && (
-            <IntelligenceTab projectId={projectId} locale={locale} />
-          )}
-          {canvasTab === 'activity' && (
-            <ActivityTab projectId={projectId} locale={locale} onJumpTasks={() => setCanvasTab('tasks')} />
-          )}
-          {canvasTab === 'solve' && (
-            <SolveTab messages={messages} locale={locale} />
+          {canvasTab === 'context' && (
+            <ContextPanel projectId={projectId} locale={locale} onAction={handleArtifactAction} />
           )}
         </div>
       </div>
 
       <StatusBar
-        heartbeatLabel={isStreaming ? 'streaming' : 'heartbeat · idle'}
-        gateway="pi-agent · anthropic"
-        ctxLabel={`ctx · ${messages.length} msgs`}
+        heartbeatLabel={isStreaming ? 'streaming' : 'idle'}
         budget={`${canvasArtifacts.length} artifact${canvasArtifacts.length === 1 ? '' : 's'}`}
       />
     </div>
@@ -446,32 +436,18 @@ function ChatHeader({
   const p = project as { name?: string; description?: string } | null;
   return (
     <div style={{ padding: '14px 20px 12px', borderBottom: '1px solid var(--line)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <Pill kind="live" dot>
-          {locale === 'it' ? 'loop · discovery clienti' : 'loop · customer discovery'}
-        </Pill>
-      </div>
       <h2
         className="lp-serif"
-        style={{ fontSize: 20, fontWeight: 400, letterSpacing: -0.3, margin: 0 }}
+        style={{ fontSize: 20, fontWeight: 400, letterSpacing: -0.3, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}
       >
         {p?.name || 'Your project'}
+        <span className="lp-dot lp-pulse" style={{ background: 'var(--moss)', width: 6, height: 6 }} />
       </h2>
       <div
-        style={{
-          fontSize: 11,
-          color: 'var(--ink-4)',
-          marginTop: 4,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}
+        className="lp-mono"
+        style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}
       >
-        <span className="lp-mono">
-          {locale === 'it' ? 'obiettivo · validare ICP' : 'goal · validate ICP'}
-        </span>
-        <span>·</span>
-        <span>chief · scout · analyst · outreach</span>
+        {locale === 'it' ? 'Validazione ICP' : 'Validate ICP'}
       </div>
     </div>
   );
@@ -489,15 +465,11 @@ function ChatEmptyState({
       'Cosa si è mosso nel mio ecosistema questa settimana?',
       'Riassumi i miei numeri e la mia runway',
       'Cosa ho nell\'inbox da approvare?',
-      'Quali competitor ho tracciato finora?',
-      'Avvia il flusso Solve',
     ]
     : [
       'What moved in my ecosystem this week?',
       'Summarize my numbers and runway',
       'What do I have in my inbox?',
-      'Which competitors am I tracking?',
-      'Start the Solve flow',
     ];
 
   return (
@@ -543,7 +515,6 @@ function Msg({
   onArtifactAction,
   onQuickReply,
   onRetry,
-  costInfo,
 }: {
   who: 'user' | 'ai';
   agent: string;
@@ -561,9 +532,9 @@ function Msg({
   onQuickReply?: (text: string) => void;
   /** Provided only for user messages to resubmit. Undefined while streaming. */
   onRetry?: (content: string) => void;
-  /** Per-message cost info from the SSE done event */
-  costInfo?: { cost_usd: number; credits: number };
 }) {
+  const [toolsExpanded, setToolsExpanded] = useState(false);
+
   if (who === 'user') {
     return (
       <div
@@ -608,10 +579,51 @@ function Msg({
         >
           {agent.slice(0, 2).toUpperCase()}
         </span>
-        <span style={{ fontSize: 12, fontWeight: 600 }}>{agent}</span>
         {streaming && <Pill kind="live" dot>streaming</Pill>}
       </div>
-      {tools && tools.length > 0 && (
+      {tools && tools.length === 1 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+          <span
+            className="lp-chip"
+            style={{
+              background: tools[0].status === 'running'
+                ? 'var(--accent-wash)'
+                : tools[0].status === 'error'
+                  ? 'oklch(0.94 0.05 40)'
+                  : 'var(--paper-2)',
+              color: tools[0].status === 'running'
+                ? 'var(--accent-ink)'
+                : tools[0].status === 'error'
+                  ? 'var(--clay)'
+                  : 'var(--ink-4)',
+            }}
+          >
+            {tools[0].status === 'running' && (
+              <span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />
+            )}
+            {tools[0].name}
+          </span>
+        </div>
+      )}
+      {tools && tools.length > 1 && !toolsExpanded && (
+        <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+          <span
+            className="lp-chip"
+            style={{
+              background: tools.some((t) => t.status === 'running') ? 'var(--accent-wash)' : 'var(--paper-2)',
+              color: tools.some((t) => t.status === 'running') ? 'var(--accent-ink)' : 'var(--ink-4)',
+              cursor: 'pointer',
+            }}
+            onClick={() => setToolsExpanded(true)}
+          >
+            {tools.some((t) => t.status === 'running') && (
+              <span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />
+            )}
+            Using {tools.length} tools…
+          </span>
+        </div>
+      )}
+      {tools && tools.length > 1 && toolsExpanded && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
           {tools.map((t) => (
             <span
@@ -636,6 +648,13 @@ function Msg({
               {t.name}
             </span>
           ))}
+          <span
+            className="lp-chip"
+            style={{ background: 'var(--paper-2)', color: 'var(--ink-4)', cursor: 'pointer' }}
+            onClick={() => setToolsExpanded(false)}
+          >
+            collapse
+          </span>
         </div>
       )}
       <div
@@ -656,13 +675,6 @@ function Msg({
         <QuickReplies rawContent={rawContent} onReply={onQuickReply} />
       )}
       {!streaming && <MsgActions content={rawContent} align="left" />}
-      {!streaming && costInfo && costInfo.cost_usd > 0 && (
-        <span style={{ display: 'inline-block', marginTop: 4 }} title={`$${costInfo.cost_usd.toFixed(4)}`}>
-          <Pill kind={costInfo.credits > 5 ? 'warn' : 'n'}>
-            {costInfo.credits || '<1'} cr
-          </Pill>
-        </span>
-      )}
     </div>
   );
 }
@@ -1524,11 +1536,7 @@ function ChatComposer({
             title={locale === 'it' ? 'inserisci template' : 'insert template'}
             onClick={() => onInsertTemplate?.(templates[0].text)}
           />
-          <IconBtn d={I.terminal} size={24} title="cmd" />
           <span style={{ flex: 1 }} />
-          <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-            claude-sonnet-4
-          </span>
           <button
             onClick={onSend}
             disabled={disabled || !value.trim()}
@@ -1702,7 +1710,7 @@ function ComposerMenu({
 // Canvas
 // =============================================================================
 
-type CanvasTab = 'latest' | 'tasks' | 'intelligence' | 'activity' | 'solve';
+type CanvasTab = 'latest' | 'context';
 
 // ─── TasksTab ─────────────────────────────────────────────────────────────────
 //
@@ -2610,7 +2618,55 @@ function formatTime(iso: string): string {
 }
 
 // =============================================================================
-// SolveTab — shows the Solve Flow pipeline from chat messages
+// InlineSolveProgress — renders solve-progress inline in the Canvas grid
+// =============================================================================
+
+function InlineSolveProgress({
+  messages,
+  locale,
+}: {
+  messages: Array<{ role: string; content: string }>;
+  locale: 'en' | 'it';
+}) {
+  const latestSolve = useMemo<SolveProgressArtifact | null>(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role !== 'assistant') continue;
+      const segments = parseMessageContent(m.content);
+      for (const seg of segments) {
+        if (seg.type === 'artifact') {
+          const a = (seg as { type: 'artifact'; artifact: Artifact }).artifact;
+          if (a.type === 'solve-progress') return a as SolveProgressArtifact;
+        }
+      }
+    }
+    return null;
+  }, [messages]);
+
+  if (!latestSolve) return null;
+
+  const completed = latestSolve.stages.filter((s) => s.status === 'completed').length;
+  const total = latestSolve.stages.length;
+  const allDone = completed === total;
+
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <Icon d={I.bolt} size={14} style={{ color: allDone ? 'var(--moss)' : 'var(--accent)' }} />
+        <span className="lp-serif" style={{ fontSize: 14, color: 'var(--ink-1)' }}>
+          {locale === 'it' ? 'Flusso Solve' : 'Solve Flow'}
+        </span>
+        <Pill kind={allDone ? 'ok' : 'live'}>
+          {completed}/{total}
+        </Pill>
+      </div>
+      <SolveProgressCard artifact={latestSolve} />
+    </div>
+  );
+}
+
+// =============================================================================
+// SolveTab — legacy, kept for reference
 // =============================================================================
 
 function SolveTab({
@@ -2842,11 +2898,8 @@ function CanvasHeader({
   onTabChange: (next: CanvasTab) => void;
 }) {
   const tabs: { id: CanvasTab; label: { en: string; it: string } }[] = [
-    { id: 'latest',       label: { en: 'Latest',       it: 'Ultimo' } },
-    { id: 'tasks',        label: { en: 'Tasks',        it: 'Task' } },
-    { id: 'intelligence', label: { en: 'Intelligence', it: 'Intelligence' } },
-    { id: 'solve',        label: { en: 'Solve',        it: 'Solve' } },
-    { id: 'activity',     label: { en: 'Activity',     it: 'Attività' } },
+    { id: 'latest',  label: { en: 'Canvas',  it: 'Canvas' } },
+    { id: 'context', label: { en: 'Context', it: 'Contesto' } },
   ];
   return (
     <div
