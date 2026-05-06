@@ -91,6 +91,26 @@ Skills often feed into each other. Common flows:
 
 When a skill's output reveals a need for another skill, recommend it explicitly.
 
+## Intelligence Protocol
+
+### Proactive Signal Surfacing
+- Check intelligence state on EVERY conversation start, not just when asked
+- Call `list_intelligence_briefs` and `list_ecosystem_alerts` (7d, relevance >= 0.8) in parallel with `get_project_summary`
+- If urgent signals exist, lead with them -- the founder should never be surprised by something the system already knows
+- Frame every surfaced signal with: What happened? Why does it matter to THIS startup? What to do about it?
+
+### Risk-Signal Mapping
+- Every new ecosystem alert should be evaluated against the risk audit (`get_risk_audit`)
+- When a signal matches an early_warning_signal on an existing risk, call it out explicitly
+- When a new risk pattern emerges that is not in the audit, flag it as a potential new risk
+- If a risk has no monitor covering its early warning signals, suggest proposing one
+
+### Conversation Balance
+- Risk and intelligence questions get IMMEDIATE analysis from context (memory context + tools), not a skill redirect
+- "What should I worry about?" → call `get_risk_audit` + `list_ecosystem_alerts`, synthesize, frame with Three-Question Protocol
+- "What changed this week?" → call `list_intelligence_briefs` + `list_ecosystem_alerts`, synthesize chronologically
+- Only suggest running the full Risk Scoring skill when the audit is stale (> 30 days) or the founder explicitly asks
+
 ## Consistency Rules
 
 ### Across Conversations

@@ -303,6 +303,43 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
       console.warn('[get_project_summary] stage readiness failed:', err);
     }
 
+    // Intelligence snapshot — gives the agent passive awareness of active
+    // briefs and hot signals even if it only calls get_project_summary.
+    try {
+      const briefRows = await query<{ title: string; confidence: number; narrative: string }>(
+        `SELECT title, confidence, narrative FROM intelligence_briefs
+         WHERE project_id = ? AND status = 'active'
+         ORDER BY confidence DESC LIMIT 3`,
+        ctx.projectId,
+      );
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const hotSignals = await query<{ headline: string; alert_type: string; relevance_score: number }>(
+        `SELECT headline, alert_type, relevance_score FROM ecosystem_alerts
+         WHERE project_id = ? AND created_at >= ? AND relevance_score >= 0.8 AND reviewed_state != 'dismissed'
+         ORDER BY relevance_score DESC LIMIT 5`,
+        ctx.projectId, sevenDaysAgo,
+      );
+
+      if (briefRows.length > 0 || hotSignals.length > 0) {
+        lines.push('\n## Intelligence snapshot');
+        if (briefRows.length > 0) {
+          lines.push('Active briefs:');
+          for (const b of briefRows) {
+            lines.push(`  - [${b.confidence.toFixed(2)}] ${b.title} — ${b.narrative.slice(0, 120)}`);
+          }
+        }
+        if (hotSignals.length > 0) {
+          lines.push('Hot signals (7d, relevance >= 0.8):');
+          for (const s of hotSignals) {
+            lines.push(`  - [${s.relevance_score.toFixed(2)} · ${s.alert_type}] ${s.headline}`);
+          }
+        }
+        lines.push('→ Use list_intelligence_briefs or get_risk_audit for details.');
+      }
+    } catch (err) {
+      console.warn('[get_project_summary] intelligence snapshot failed (non-fatal):', err);
+    }
+
     return {
       content: [{ type: 'text', text: lines.join('\n') }],
       details: {
@@ -1108,6 +1145,152 @@ const createSignalTool = (ctx: ToolContext): AgentTool => ({
 });
 
 // =============================================================================
+// Intelligence Reads — briefs + risk audit
+// =============================================================================
+
+const listIntelligenceBriefs = (ctx: ToolContext): AgentTool => ({
+  name: 'list_intelligence_briefs',
+  label: 'Intelligence Briefs',
+  description: 'List synthesized intelligence briefs — weekly cross-signal correlations that connect multiple ecosystem alerts into actionable narratives with temporal predictions and recommended actions. Use when asked about intelligence, synthesized signals, what changed this week, what to watch for, or to understand the big picture of ecosystem movements. Briefs are the HIGHEST-VALUE intelligence artifacts — each one connects multiple signals into a "so what" narrative.',
+  parameters: Type.Object({
+    status: Type.Optional(Type.String({ description: 'Filter by status: active, expired, dismissed. Default: active.' })),
+    entity_name: Type.Optional(Type.String({ description: 'Filter by entity (e.g., a competitor name). Case-insensitive partial match.' })),
+    limit: Type.Optional(Type.Number({ description: 'Max briefs to return. Default 5, max 20.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { status?: string; entity_name?: string; limit?: number };
+    const status = p.status || 'active';
+    const limit = Math.max(1, Math.min(20, p.limit ?? 5));
+
+    const conditions = ['project_id = ?', 'status = ?'];
+    const args: unknown[] = [ctx.projectId, status];
+
+    if (p.entity_name) {
+      conditions.push('LOWER(entity_name) LIKE ?');
+      args.push(`%${p.entity_name.toLowerCase()}%`);
+    }
+
+    const rows = await query<Record<string, unknown>>(
+      `SELECT id, brief_type, entity_name, title, narrative, temporal_prediction,
+              confidence, signal_count, recommended_actions, valid_until, created_at
+       FROM intelligence_briefs
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY confidence DESC, created_at DESC
+       LIMIT ${limit}`,
+      ...args,
+    );
+
+    if (rows.length === 0) {
+      return {
+        content: [{ type: 'text', text: `No intelligence briefs with status "${status}"${p.entity_name ? ` for entity "${p.entity_name}"` : ''}.` }],
+        details: { count: 0 },
+      };
+    }
+
+    const text = rows.map((r, i) => {
+      const lines: string[] = [];
+      lines.push(`${i + 1}. [${(r.confidence as number).toFixed(2)} confidence · ${r.brief_type}] ${r.title}`);
+      if (r.entity_name) lines.push(`   Entity: ${r.entity_name}`);
+      lines.push(`   ${(r.narrative as string).slice(0, 300)}`);
+      if (r.temporal_prediction) lines.push(`   Prediction: ${r.temporal_prediction}`);
+
+      // Parse recommended_actions
+      try {
+        const actions = typeof r.recommended_actions === 'string'
+          ? JSON.parse(r.recommended_actions as string)
+          : r.recommended_actions;
+        if (Array.isArray(actions) && actions.length > 0) {
+          lines.push('   Actions:');
+          for (const a of actions.slice(0, 3)) {
+            const urgency = a.urgency ? ` [${a.urgency}]` : '';
+            lines.push(`     - ${a.action || a.title || JSON.stringify(a)}${urgency}`);
+          }
+        }
+      } catch { /* ignore malformed actions */ }
+
+      lines.push(`   Signals: ${r.signal_count} correlated · Created: ${r.created_at}`);
+      return lines.join('\n');
+    }).join('\n\n');
+
+    return {
+      content: [{ type: 'text', text }],
+      details: { count: rows.length, status },
+    };
+  },
+});
+
+const getRiskAudit = (ctx: ToolContext): AgentTool => ({
+  name: 'get_risk_audit',
+  label: 'Risk Audit',
+  description: 'Get the project\'s structured risk audit from the simulation — ranked risks across 5 dimensions (market, technical, execution, financial, regulatory) with probability, impact, mitigation strategies, and early warning signals. Use when asked about risks, what could go wrong, what to worry about, derisking priorities, or to evaluate whether a new signal connects to an existing risk.',
+  parameters: Type.Object({}),
+  async execute(_id): Promise<AgentToolResult<unknown>> {
+    const row = await get<{ risk_scenarios: string | null }>(
+      'SELECT risk_scenarios FROM simulation WHERE project_id = ?',
+      ctx.projectId,
+    );
+
+    if (!row || !row.risk_scenarios) {
+      return {
+        content: [{ type: 'text', text: 'No risk audit available. The founder should run the Risk Scoring skill to generate a structured risk assessment.' }],
+        details: { has_data: false },
+      };
+    }
+
+    let risks: unknown[];
+    try {
+      const parsed = typeof row.risk_scenarios === 'string'
+        ? JSON.parse(row.risk_scenarios)
+        : row.risk_scenarios;
+      risks = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return {
+        content: [{ type: 'text', text: 'Risk audit data is corrupted. Recommend re-running the Risk Scoring skill.' }],
+        details: { has_data: false, corrupt: true },
+      };
+    }
+
+    if (risks.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'Risk audit is empty — no risks identified yet. Recommend running the Risk Scoring skill.' }],
+        details: { has_data: false },
+      };
+    }
+
+    // Sort by severity (probability * impact) descending
+    const scored = (risks as Record<string, unknown>[]).map((risk) => {
+      const prob = typeof risk.probability === 'number' ? risk.probability : 0.5;
+      const impact = typeof risk.impact === 'number' ? risk.impact : 0.5;
+      return { risk, severity: prob * impact, prob, impact };
+    }).sort((a, b) => b.severity - a.severity);
+
+    const text = scored.map(({ risk: r, severity, prob, impact }, i) => {
+      const lines: string[] = [];
+      const id = r.id || r.risk_id || `risk_${i + 1}`;
+      const dimension = r.dimension || r.category || 'unclassified';
+      lines.push(`${i + 1}. [${id} · ${dimension}] ${r.title || r.name || 'Unnamed risk'}`);
+      lines.push(`   Probability: ${(prob * 100).toFixed(0)}% · Impact: ${(impact * 100).toFixed(0)}% · Severity: ${(severity * 100).toFixed(0)}%`);
+      if (r.description) lines.push(`   ${(r.description as string).slice(0, 200)}`);
+      if (r.mitigation) lines.push(`   Mitigation: ${(r.mitigation as string).slice(0, 150)}`);
+      if (r.early_warning_signals || r.early_warnings) {
+        const signals = r.early_warning_signals || r.early_warnings;
+        if (Array.isArray(signals)) {
+          lines.push(`   Early warnings: ${signals.slice(0, 3).join('; ')}`);
+        } else if (typeof signals === 'string') {
+          lines.push(`   Early warnings: ${(signals as string).slice(0, 150)}`);
+        }
+      }
+      return lines.join('\n');
+    }).join('\n\n');
+
+    return {
+      content: [{ type: 'text', text: `Risk Audit (${scored.length} risks, sorted by severity):\n\n${text}` }],
+      details: { has_data: true, risk_count: scored.length, top_risk_id: (scored[0]?.risk.id as string) || null },
+    };
+  },
+});
+
+// =============================================================================
 // Factory
 // =============================================================================
 
@@ -1124,6 +1307,8 @@ export function makeProjectTools(projectId: string): AgentTool[] {
     listEcosystemAlerts(ctx),
     listPendingActions(ctx),
     listGraphNodes(ctx),
+    listIntelligenceBriefs(ctx),
+    getRiskAudit(ctx),
     createPendingActionTool(ctx),
     proposeMonitorTool(ctx),
     proposeBudgetChangeTool(ctx),

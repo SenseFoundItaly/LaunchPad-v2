@@ -73,7 +73,68 @@ export async function buildMemoryContext(
     parts.push('');
   }
 
-  // 4. Knowledge graph summary
+  // 4. Active intelligence briefs (highest-value synthesized intelligence)
+  try {
+    const briefs = await query<{
+      title: string; narrative: string; confidence: number;
+      recommended_actions: string | null;
+    }>(
+      `SELECT title, narrative, confidence, recommended_actions FROM intelligence_briefs
+       WHERE project_id = ? AND status = 'active'
+       ORDER BY confidence DESC LIMIT 3`,
+      projectId,
+    );
+    if (briefs.length > 0) {
+      parts.push('## Active intelligence briefs');
+      for (const b of briefs) {
+        parts.push(`- [${b.confidence.toFixed(2)}] ${b.title}`);
+        parts.push(`  ${b.narrative.slice(0, 200)}`);
+        try {
+          const actions = b.recommended_actions
+            ? (typeof b.recommended_actions === 'string' ? JSON.parse(b.recommended_actions) : b.recommended_actions)
+            : [];
+          const urgent = Array.isArray(actions)
+            ? actions.filter((a: { urgency?: string }) => a.urgency === 'high' || a.urgency === 'critical')
+            : [];
+          if (urgent.length > 0) {
+            parts.push(`  URGENT: ${urgent.map((a: { action?: string; title?: string }) => a.action || a.title).join('; ')}`);
+          }
+        } catch { /* ignore malformed */ }
+      }
+      parts.push('');
+    }
+  } catch { /* non-fatal */ }
+
+  // 5. Top risks from risk audit
+  try {
+    const simRow = await get<{ risk_scenarios: string | null }>(
+      'SELECT risk_scenarios FROM simulation WHERE project_id = ?',
+      projectId,
+    );
+    if (simRow?.risk_scenarios) {
+      const parsed = typeof simRow.risk_scenarios === 'string'
+        ? JSON.parse(simRow.risk_scenarios)
+        : simRow.risk_scenarios;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const topRisks = (parsed as Record<string, unknown>[])
+          .map((r) => {
+            const prob = typeof r.probability === 'number' ? r.probability : 0.5;
+            const imp = typeof r.impact === 'number' ? r.impact : 0.5;
+            return { raw: r, severity: prob * imp, prob, imp };
+          })
+          .sort((a, b) => b.severity - a.severity)
+          .slice(0, 3);
+        parts.push('## Top risks (from risk audit)');
+        for (const { raw: r, severity, prob, imp } of topRisks) {
+          const id = r.id || r.risk_id || '?';
+          parts.push(`- [${id}] ${r.title || r.name} — severity ${(severity * 100).toFixed(0)}% (P=${(prob * 100).toFixed(0)}% I=${(imp * 100).toFixed(0)}%)`);
+        }
+        parts.push('');
+      }
+    }
+  } catch { /* non-fatal */ }
+
+  // 6. Knowledge graph summary
   const graphSummary = await summarizeGraph(projectId, maxGraphNodes);
   if (graphSummary) {
     parts.push('## Knowledge graph');
@@ -81,7 +142,7 @@ export async function buildMemoryContext(
     parts.push('');
   }
 
-  // 5. Completed skills
+  // 7. Completed skills
   const skills = await query<{ skill_id: string; summary: string; completed_at: string }>(
     `SELECT skill_id, summary, completed_at FROM skill_completions
      WHERE project_id = ? AND status = 'completed' ORDER BY completed_at DESC LIMIT 10`,
