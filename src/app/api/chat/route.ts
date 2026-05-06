@@ -388,14 +388,14 @@ export async function POST(request: NextRequest) {
         try {
           const now = new Date().toISOString();
           await run(
-            `INSERT INTO chat_messages (id, project_id, step, role, content, timestamp, user_id)
+            `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
              VALUES (?, ?, ?, 'user', ?, ?, ?)`,
             `msg_${crypto.randomUUID().slice(0, 12)}`,
             project_id, step, lastMessage, now, userId,
           );
           if (fullResponse.trim().length > 0) {
             await run(
-              `INSERT INTO chat_messages (id, project_id, step, role, content, timestamp, user_id)
+              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
                VALUES (?, ?, ?, 'assistant', ?, ?, ?)`,
               `msg_${crypto.randomUUID().slice(0, 12)}`,
               project_id, step, fullResponse, now, userId,

@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   if (!projectId) {return error('project_id required');}
 
   const rows = await query(
-    'SELECT * FROM chat_messages WHERE project_id = ? AND step = ? ORDER BY timestamp',
+    'SELECT * FROM chat_messages WHERE project_id = ? AND step = ? ORDER BY "timestamp"',
     projectId,
     step,
   );
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   for (const msg of messages) {
     const id = generateId('msg');
     await run(
-      `INSERT INTO chat_messages (id, project_id, step, role, content, timestamp)
+      `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp")
        VALUES (?, ?, ?, ?, ?, ?)`,
       id,
       project_id,
