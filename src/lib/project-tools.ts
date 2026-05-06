@@ -634,7 +634,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
 // change requires explicit founder approval through the inline card.
 // =============================================================================
 
-const BUDGET_DEFAULT_CAP_USD = 0.30;
+const BUDGET_DEFAULT_CAP_USD = 5.00;
 const BUDGET_MIN_CAP_USD = 0.10;
 const BUDGET_MAX_PROPOSAL_USD = 100;
 

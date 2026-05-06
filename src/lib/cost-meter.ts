@@ -148,8 +148,9 @@ function currentPeriodMonth(): string {
 
 /**
  * Structured error thrown when a project has exceeded its monthly LLM budget.
- * Callers should catch and return HTTP 429 with the cost snapshot so the UI
- * can render a friendly "over budget" state instead of an opaque 500.
+ *
+ * @deprecated No callers remain — budget enforcement is now observe-only.
+ * Kept for backward compatibility; will be removed in a future cleanup.
  */
 export class BudgetExceededError extends Error {
   constructor(
@@ -168,11 +169,11 @@ export class BudgetExceededError extends Error {
 /**
  * Is this project over its monthly LLM cap, or manually set to 'capped' status?
  *
- * Returns an object with the cap state so callers can render an informative
- * error. Returns {capped: false} if no budget row exists yet (first-ever call
+ * Returns an object with the cap state so callers can log an info message.
+ * Returns {capped: false} if no budget row exists yet (first-ever call
  * for this project this month — cap not binding).
  *
- * This is the Phase-1 hard-block gate. Phase 0 used only observe + warn.
+ * Observe-only — callers log and continue; no hard blocking.
  */
 export async function isProjectCapped(projectId: string): Promise<{
   capped: boolean;
@@ -211,6 +212,9 @@ export async function isProjectCapped(projectId: string): Promise<{
  * Throws BudgetExceededError if the project is capped. Convenience wrapper
  * for call sites that want a single-line guard. Pass bypassBudget=true to
  * skip the check (admin / system tasks).
+ *
+ * @deprecated No callers remain — budget enforcement is now observe-only.
+ * Kept for backward compatibility; will be removed in a future cleanup.
  */
 export async function enforceBudget(
   projectId: string,

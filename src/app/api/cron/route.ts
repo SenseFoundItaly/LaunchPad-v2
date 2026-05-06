@@ -294,22 +294,10 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
   const runId = generateId('mrun');
   const runAt = new Date().toISOString();
 
-  // Cost gate: autonomous cron runs are the #1 way a runaway project chews
-  // through its monthly budget. Skip the monitor when the project is over
-  // its cap so the overage doesn't grow unboundedly.
+  // Cost tracking (observe mode — no hard block)
   const capStatus = await isProjectCapped(monitor.project_id);
   if (capStatus.capped) {
-    await run(
-      `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
-       VALUES (?, ?, ?, 'skipped_budget', ?, 0, ?)`,
-      runId, monitor.id, monitor.project_id,
-      `Skipped: project at $${capStatus.currentUsd.toFixed(4)} / $${capStatus.capUsd.toFixed(2)} for ${capStatus.periodMonth}`,
-      runAt,
-    );
-    // Bump next_run so we don't just immediately retry on the next cron tick.
-    const nextRun = calculateNextRun(monitor.schedule);
-    await run('UPDATE monitors SET last_run = ?, next_run = ? WHERE id = ?', runAt, nextRun, monitor.id);
-    return { monitor_id: monitor.id, name: monitor.name, status: 'skipped_budget' };
+    console.info(`[cron/monitor] project ${monitor.project_id} over budget — proceeding (observe mode)`);
   }
 
   // Resolve the project's locale so monitors running for Italian projects
@@ -776,11 +764,10 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
       continue;
     }
 
-    // Cost gate.
-    const capStatus = await isProjectCapped(project.id);
-    if (capStatus.capped) {
-      results.push({ project_id: project.id, project_name: project.name, status: 'skipped_budget' });
-      continue;
+    // Cost tracking (observe mode — no hard block)
+    const hbCapStatus = await isProjectCapped(project.id);
+    if (hbCapStatus.capped) {
+      console.info(`[cron/heartbeat] project ${project.id} over budget — proceeding (observe mode)`);
     }
 
     try {

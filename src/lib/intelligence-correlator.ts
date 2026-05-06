@@ -72,10 +72,10 @@ export async function processCorrelations(projectId: string): Promise<Correlatio
     return { project_id: projectId, briefs_created: 0, briefs_superseded: 0, skipped_reason: 'recent_brief_exists' };
   }
 
-  // Cost gate
+  // Cost tracking (observe mode — no hard block)
   const capStatus = await isProjectCapped(projectId);
   if (capStatus.capped) {
-    return { project_id: projectId, briefs_created: 0, briefs_superseded: 0, skipped_reason: 'budget_capped' };
+    console.info(`[intel-correlator] project ${projectId} over budget — proceeding (observe mode)`);
   }
 
   // Gather signals from last 7 days

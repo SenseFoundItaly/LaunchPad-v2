@@ -115,8 +115,8 @@ export async function GET(
     pending_summary: pendingSummaryRow || { pending: 0, edited: 0, approved: 0, sent_7d: 0 },
     budget: budget || {
       current_llm_usd: 0,
-      warn_llm_usd: 0.24,
-      cap_llm_usd: 0.30,
+      warn_llm_usd: 4.00,
+      cap_llm_usd: 5.00,
       status: 'active',
     },
     period_month: periodMonth,

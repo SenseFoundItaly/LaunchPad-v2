@@ -50,16 +50,10 @@ export async function processWatchSource(
 ): Promise<ProcessResult> {
   const now = new Date().toISOString();
 
-  // Cost gate
+  // Cost tracking (observe mode — no hard block)
   const capStatus = await isProjectCapped(ws.project_id);
   if (capStatus.capped) {
-    await run(
-      `UPDATE watch_sources SET next_scrape_at = ?, updated_at = ? WHERE id = ?`,
-      calculateNextRun(ws.schedule) || now,
-      now,
-      ws.id,
-    );
-    return { watch_source_id: ws.id, status: 'skipped_budget', change_status: 'same' };
+    console.info(`[watch-source] project ${ws.project_id} over budget — proceeding (observe mode)`);
   }
 
   let scrapeResult: ScrapeResult;

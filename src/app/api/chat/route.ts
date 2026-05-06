@@ -228,22 +228,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Cost-aware throttle: if this project has hit its monthly LLM cap
-  // (or an admin has flipped status=capped), refuse before spending.
-  // Critical safety rail because skills auto-invocation (below) can fan
-  // out a single chat turn into multiple LLM calls.
+  // Cost tracking (observe mode — no hard block)
   const capStatus = await isProjectCapped(project_id);
   if (capStatus.capped) {
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: 'budget_exceeded',
-        current_usd: capStatus.currentUsd,
-        cap_usd: capStatus.capUsd,
-        period_month: capStatus.periodMonth,
-      }),
-      { status: 429, headers: { 'Content-Type': 'application/json' } },
-    );
+    console.info(`[chat] project ${project_id} over budget — proceeding (observe mode)`);
   }
 
   const lastMessage = messages[messages.length - 1]?.content || '';
