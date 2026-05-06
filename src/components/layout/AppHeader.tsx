@@ -13,7 +13,7 @@ function getProjectName(pathname: string): string | null {
 // as more pages migrate to the "Founder OS" design.
 function isFullBleedRoute(pathname: string): boolean {
   if (pathname === '/') return true;
-  return /^\/project\/[^/]+\/(dashboard|actions|chat|intelligence|workflow|org)/.test(pathname);
+  return /^\/project\/[^/]+\/(dashboard|actions|chat|intelligence|workflow|org|signals)/.test(pathname);
 }
 
 export default function AppHeader() {
