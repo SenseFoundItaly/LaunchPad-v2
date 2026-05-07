@@ -145,8 +145,6 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
   const { project } = useProject(projectId);
 
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
-  const [graphNodes, setGraphNodes] = useState<GraphNodeRow[]>([]);
-  const [milestones, setMilestones] = useState<JourneyPayload['milestones']>([]);
   const [usageGroups, setUsageGroups] = useState<LlmUsageGroupRow[]>([]);
   const [signalEntries, setSignalEntries] = useState<SignalTimelineEntry[]>([]);
   const [cronbeat, setCronbeat] = useState<{ health: HeartbeatKind; hours_since_last: number | null } | null>(null);
@@ -155,19 +153,13 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
 
   const fetchAll = useCallback(async () => {
     try {
-      const [dash, graph, journey, usage, signals, beat] = await Promise.all([
+      const [dash, usage, signals, beat] = await Promise.all([
         api.get<ApiResponse<DashboardPayload>>(`/api/dashboard/${projectId}`),
-        api.get<ApiResponse<{ nodes?: GraphNodeRow[] }>>(`/api/graph/${projectId}`).catch(() => ({ data: { data: { nodes: [] } } })),
-        api.get<ApiResponse<JourneyPayload>>(`/api/journey/${projectId}`).catch(() => ({ data: { data: { milestones: [] } } })),
         api.get<ApiResponse<LlmUsageGroupRow[]>>(`/api/projects/${projectId}/usage/groups`).catch(() => ({ data: { data: [] } })),
         fetch(`/api/projects/${projectId}/signals?days=7&limit=8`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
         api.get<ApiResponse<{ health: HeartbeatKind; hours_since_last: number | null }>>('/api/cronbeat').catch(() => null),
       ]);
       if (dash.data?.data) setPayload(dash.data.data);
-      const nodes = (graph.data as ApiResponse<{ nodes?: GraphNodeRow[] }> | undefined)?.data?.nodes;
-      setGraphNodes(Array.isArray(nodes) ? nodes : []);
-      const ms = (journey.data as ApiResponse<JourneyPayload> | undefined)?.data?.milestones;
-      setMilestones(Array.isArray(ms) ? ms : []);
       const groups = (usage.data as ApiResponse<LlmUsageGroupRow[]> | undefined)?.data;
       setUsageGroups(Array.isArray(groups) ? groups : []);
       if (signals?.success && Array.isArray(signals.data)) {
@@ -386,19 +378,6 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
               <Panel
-                title={locale === 'it' ? 'Graph intelligence' : 'Intelligence graph'}
-                subtitle={`${graphNodes.length} ${locale === 'it' ? 'nodi' : 'nodes'}`}
-                right={
-                  <Link href={`/project/${projectId}/intelligence`} style={linkStyle}>
-                    {locale === 'it' ? 'espandi' : 'expand'}
-                    <Icon d={I.external} size={10} />
-                  </Link>
-                }
-              >
-                <MiniGraph nodes={graphNodes} />
-              </Panel>
-
-              <Panel
                 title={locale === 'it' ? 'Segnali' : 'Signals'}
                 subtitle={`${signalEntries.length} · ${locale === 'it' ? 'ultimi 7g' : 'last 7d'}`}
                 right={
@@ -411,22 +390,12 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
                 <SignalsPreviewPanel signals={signalEntries} locale={locale} />
               </Panel>
 
-              <Panel
-                title={locale === 'it' ? 'Prossimi passi' : 'Next up'}
-                right={<Pill kind="n" dot>{`${(milestones || []).filter(m => m.status !== 'completed').length} · ${locale === 'it' ? 'in corso' : 'upcoming'}`}</Pill>}
-              >
-                <MilestoneList items={milestones || []} locale={locale} />
-              </Panel>
-
-              <Panel
-                title={locale === 'it' ? 'Budget' : 'Budget'}
-                subtitle={payload?.budget
-                  ? `${payload.period_month || ''} · $${payload.budget.current_llm_usd.toFixed(2)} / $${payload.budget.cap_llm_usd.toFixed(2)}`
-                  : (locale === 'it' ? 'mese corrente · LLM + tool' : 'current month · LLM + tools')
-                }
-              >
-                <BudgetRows groups={usageGroups} budget={payload?.budget || null} />
-              </Panel>
+              <CollapsibleBudgetPanel
+                usageGroups={usageGroups}
+                budget={payload?.budget || null}
+                periodMonth={payload?.period_month}
+                locale={locale}
+              />
             </div>
           </div>
         </div>
@@ -436,7 +405,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
         heartbeatLabel={lastHeartbeat}
         heartbeatKind={cronbeat?.health || 'healthy'}
         gateway="pi-agent · anthropic"
-        ctxLabel={`ctx · ${graphNodes.length} nodes`}
+        ctxLabel={`ctx · ${signalEntries.length} signals`}
         budget={statusBarBudget}
         tz="tz · Europe/Rome"
         hints={[
@@ -1179,6 +1148,55 @@ function BudgetRows({
         );
       })}
     </div>
+  );
+}
+
+function CollapsibleBudgetPanel({
+  usageGroups,
+  budget,
+  periodMonth,
+  locale,
+}: {
+  usageGroups: LlmUsageGroupRow[];
+  budget: BudgetPayload | null;
+  periodMonth?: string;
+  locale: 'en' | 'it';
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const summaryLine = budget
+    ? `Budget: $${budget.current_llm_usd.toFixed(2)} / $${budget.cap_llm_usd.toFixed(2)}`
+    : (locale === 'it' ? 'Budget: —' : 'Budget: —');
+
+  return (
+    <Panel
+      title={locale === 'it' ? 'Budget' : 'Budget'}
+      subtitle={periodMonth || undefined}
+      right={
+        <IconBtn
+          d={expanded ? I.collapse : I.expand}
+          size={22}
+          title={expanded ? 'Collapse' : 'Expand'}
+          onClick={() => setExpanded((v) => !v)}
+        />
+      }
+    >
+      {expanded ? (
+        <BudgetRows groups={usageGroups} budget={budget} />
+      ) : (
+        <div
+          style={{
+            padding: '10px 14px',
+            fontSize: 12,
+            color: 'var(--ink-2)',
+            fontFamily: 'var(--f-mono)',
+            cursor: 'pointer',
+          }}
+          onClick={() => setExpanded(true)}
+        >
+          {summaryLine}
+        </div>
+      )}
+    </Panel>
   );
 }
 

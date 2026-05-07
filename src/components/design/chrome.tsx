@@ -4,10 +4,12 @@
  * The NavRail is wired to Next.js Link so nav items are real routes:
  *   home → /project/{id}/dashboard
  *   chat → /project/{id}/chat
- *   graph → /project/{id}/chat?sidebar=graph  (graph lives in chat's right canvas)
- *   org → /project/{id}/org   (Phase 1 — doesn't exist yet; falls back to dashboard)
+ *   signals → /project/{id}/signals
+ *   inbox → /project/{id}/actions
+ *
+ * Secondary routes live behind a "More" popover pinned above the user chip:
+ *   graph → /project/{id}/intelligence
  *   pipe → /project/{id}/workflow
- *   tickets → /project/{id}/actions
  *   fund → /project/{id}/fundraising
  */
 
@@ -122,12 +124,14 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'home',    iconKey: 'home',    label: 'Home',     route: 'dashboard' },
   { id: 'chat',    iconKey: 'chat',    label: 'Co-pilot', route: 'chat' },
-  { id: 'graph',   iconKey: 'graph',   label: 'Graph',    route: 'intelligence' },
   { id: 'signals', iconKey: 'signal',  label: 'Signals',  route: 'signals' },
-  { id: 'org',     iconKey: 'org',     label: 'Org',      route: 'org' },
-  { id: 'pipe',    iconKey: 'pipe',    label: 'Pipeline', route: 'workflow' },
-  { id: 'tickets', iconKey: 'tickets', label: 'Tickets',  route: 'actions' },
-  { id: 'fund',    iconKey: 'fund',    label: 'Raise',    route: 'fundraising' },
+  { id: 'inbox',   iconKey: 'tickets', label: 'Inbox',    route: 'actions' },
+];
+
+const MORE_ITEMS: NavItem[] = [
+  { id: 'graph', iconKey: 'graph', label: 'Intelligence', route: 'intelligence' },
+  { id: 'pipe',  iconKey: 'pipe',  label: 'Pipeline',     route: 'workflow' },
+  { id: 'fund',  iconKey: 'fund',  label: 'Raise',        route: 'fundraising' },
 ];
 
 export interface NavRailProps {
@@ -158,44 +162,12 @@ export function NavRail({ projectId, current }: NavRailProps) {
         gap: 2,
       }}
     >
-      {NAV_ITEMS.map((it) => {
-        const on = isActive(it);
-        return (
-          <Link
-            key={it.id}
-            href={`/project/${projectId}/${it.route}`}
-            title={it.label}
-            style={{
-              width: 42,
-              padding: '8px 0',
-              borderRadius: 'var(--r-m)',
-              cursor: 'pointer',
-              background: on ? 'var(--surface)' : 'transparent',
-              boxShadow: on ? 'inset 0 0 0 1px var(--line)' : 'none',
-              color: on ? 'var(--ink)' : 'var(--ink-4)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 3,
-              textDecoration: 'none',
-              transition: 'background .12s, color .12s',
-            }}
-          >
-            <Icon d={I[it.iconKey]} size={15} stroke={1.3} />
-            <span
-              style={{
-                fontSize: 9,
-                fontFamily: 'var(--f-mono)',
-                letterSpacing: -0.2,
-                textTransform: 'uppercase',
-              }}
-            >
-              {it.label}
-            </span>
-          </Link>
-        );
-      })}
+      {NAV_ITEMS.map((it) => (
+        <NavRailItem key={it.id} item={it} projectId={projectId} active={isActive(it)} />
+      ))}
       <div style={{ flex: 1 }} />
+      {/* More menu — opens popover with secondary nav items */}
+      <MoreMenu projectId={projectId} isActive={isActive} />
       {/* User chip — placeholder initials */}
       <div
         style={{
@@ -210,10 +182,145 @@ export function NavRail({ projectId, current }: NavRailProps) {
           fontSize: 10,
           fontWeight: 600,
           fontFamily: 'var(--f-mono)',
+          marginTop: 6,
         }}
       >
         LB
       </div>
+    </div>
+  );
+}
+
+function NavRailItem({ item, projectId, active }: { item: NavItem; projectId: string; active: boolean }) {
+  return (
+    <Link
+      href={`/project/${projectId}/${item.route}`}
+      title={item.label}
+      style={{
+        width: 42,
+        padding: '8px 0',
+        borderRadius: 'var(--r-m)',
+        cursor: 'pointer',
+        background: active ? 'var(--surface)' : 'transparent',
+        boxShadow: active ? 'inset 0 0 0 1px var(--line)' : 'none',
+        color: active ? 'var(--ink)' : 'var(--ink-4)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 3,
+        textDecoration: 'none',
+        transition: 'background .12s, color .12s',
+      }}
+    >
+      <Icon d={I[item.iconKey]} size={15} stroke={1.3} />
+      <span
+        style={{
+          fontSize: 9,
+          fontFamily: 'var(--f-mono)',
+          letterSpacing: -0.2,
+          textTransform: 'uppercase',
+        }}
+      >
+        {item.label}
+      </span>
+    </Link>
+  );
+}
+
+function MoreMenu({ projectId, isActive }: { projectId: string; isActive: (item: NavItem) => boolean }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  // Any MORE_ITEMS route active → highlight the More button
+  const moreActive = MORE_ITEMS.some(isActive);
+
+  React.useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title="More"
+        style={{
+          width: 42,
+          padding: '8px 0',
+          borderRadius: 'var(--r-m)',
+          cursor: 'pointer',
+          background: open || moreActive ? 'var(--surface)' : 'transparent',
+          boxShadow: open || moreActive ? 'inset 0 0 0 1px var(--line)' : 'none',
+          color: open || moreActive ? 'var(--ink)' : 'var(--ink-4)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 3,
+          border: 'none',
+          transition: 'background .12s, color .12s',
+          fontFamily: 'inherit',
+        }}
+      >
+        <Icon d={I.more} size={15} stroke={1.3} />
+        <span
+          style={{
+            fontSize: 9,
+            fontFamily: 'var(--f-mono)',
+            letterSpacing: -0.2,
+            textTransform: 'uppercase',
+          }}
+        >
+          More
+        </span>
+      </button>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 50,
+            bottom: 0,
+            width: 180,
+            background: 'var(--surface)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--r-m)',
+            boxShadow: '0 4px 16px rgba(0,0,0,.12)',
+            padding: '6px 0',
+            zIndex: 100,
+          }}
+        >
+          {MORE_ITEMS.map((it) => {
+            const on = isActive(it);
+            return (
+              <Link
+                key={it.id}
+                href={`/project/${projectId}/${it.route}`}
+                onClick={() => setOpen(false)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 14px',
+                  textDecoration: 'none',
+                  color: on ? 'var(--ink)' : 'var(--ink-3)',
+                  fontWeight: on ? 600 : 400,
+                  fontSize: 12,
+                  fontFamily: 'var(--f-sans)',
+                  background: on ? 'var(--paper-2)' : 'transparent',
+                  transition: 'background .1s',
+                }}
+              >
+                <Icon d={I[it.iconKey]} size={14} stroke={1.2} />
+                {it.label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

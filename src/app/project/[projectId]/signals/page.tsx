@@ -16,7 +16,6 @@ import { SignalsFilterBar } from '@/components/signals/SignalsFilterBar';
 import { SignalsTable, getImpact, matchCompetitor } from '@/components/signals/SignalsTable';
 import type { SortField, SortDir } from '@/components/signals/SignalsTable';
 import { SourcesView } from '@/components/signals/SourcesView';
-import { LogView } from '@/components/signals/LogView';
 import type { SignalTimelineEntry, WatchSource, IntelligenceBrief, CompetitorProfile } from '@/types';
 
 export default function SignalsPage({ params }: { params: Promise<{ projectId: string }> }) {
@@ -281,15 +280,13 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
                 />
               )}
             </>
-          ) : view === 'sources' ? (
+          ) : (
             <SourcesView
               sources={sources}
               projectId={projectId}
               onRefresh={fetchAll}
               loading={loading}
             />
-          ) : (
-            <LogView projectId={projectId} />
           )}
         </div>
       </div>

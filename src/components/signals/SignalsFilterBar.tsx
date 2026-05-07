@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Icon, I } from '@/components/design/primitives';
 import type { CompetitorProfile } from '@/types';
 
@@ -55,86 +56,145 @@ export function SignalsFilterBar({
   daysFilter,
   onDaysFilter,
 }: SignalsFilterBarProps) {
+  const hasAdvancedFilter =
+    competitorFilter !== 'all' || platformFilter !== 'all' || impactFilter !== 'all';
+  const [showAdvanced, setShowAdvanced] = useState(hasAdvancedFilter);
+
   return (
     <div
       style={{
-        display: 'flex',
-        gap: 8,
-        padding: '10px 20px',
         borderBottom: '1px solid var(--line)',
         background: 'var(--surface)',
-        alignItems: 'center',
       }}
     >
-      {/* Search */}
-      <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
-        <Icon
-          d={I.search}
-          size={13}
+      {/* Primary row: search + days + Filters toggle */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          padding: '10px 20px',
+          alignItems: 'center',
+        }}
+      >
+        {/* Search */}
+        <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+          <Icon
+            d={I.search}
+            size={13}
+            style={{
+              position: 'absolute',
+              left: 10,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: 'var(--ink-5)',
+              pointerEvents: 'none',
+            }}
+          />
+          <input
+            type="text"
+            placeholder="Search signals..."
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            style={inputStyle}
+          />
+        </div>
+
+        {/* Date */}
+        <select
+          value={String(daysFilter)}
+          onChange={(e) => onDaysFilter(Number(e.target.value))}
+          style={selectStyle}
+        >
+          <option value="7">7 days</option>
+          <option value="30">30 days</option>
+          <option value="90">90 days</option>
+        </select>
+
+        {/* Filters toggle */}
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((v) => !v)}
           style={{
-            position: 'absolute',
-            left: 10,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            color: 'var(--ink-5)',
-            pointerEvents: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            padding: '7px 10px',
+            border: '1px solid var(--line-2)',
+            borderRadius: 6,
+            background: showAdvanced ? 'var(--paper-2)' : 'var(--paper)',
+            color: showAdvanced ? 'var(--ink)' : 'var(--ink-4)',
+            fontSize: 11,
+            fontFamily: 'var(--f-sans)',
+            fontWeight: 500,
+            cursor: 'pointer',
+            position: 'relative',
           }}
-        />
-        <input
-          type="text"
-          placeholder="Search signals..."
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          style={inputStyle}
-        />
+        >
+          <Icon d={I.sliders} size={12} />
+          Filters
+          {hasAdvancedFilter && (
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: 3,
+                background: 'var(--accent)',
+                position: 'absolute',
+                top: 5,
+                right: 5,
+              }}
+            />
+          )}
+        </button>
       </div>
 
-      {/* Competitor */}
-      <select
-        value={competitorFilter}
-        onChange={(e) => onCompetitorFilter(e.target.value)}
-        style={selectStyle}
-      >
-        <option value="all">All competitors</option>
-        {competitors.map((c) => (
-          <option key={c.id} value={c.id}>{c.name}</option>
-        ))}
-      </select>
+      {/* Advanced filters row — shown on toggle or when an advanced filter is active */}
+      {showAdvanced && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            padding: '0 20px 10px',
+            alignItems: 'center',
+          }}
+        >
+          {/* Competitor */}
+          <select
+            value={competitorFilter}
+            onChange={(e) => onCompetitorFilter(e.target.value)}
+            style={selectStyle}
+          >
+            <option value="all">All competitors</option>
+            {competitors.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
 
-      {/* Platform */}
-      <select
-        value={platformFilter}
-        onChange={(e) => onPlatformFilter(e.target.value)}
-        style={selectStyle}
-      >
-        <option value="all">All platforms</option>
-        <option value="monitor">Monitors</option>
-        <option value="watch_source">Watch sources</option>
-      </select>
+          {/* Platform */}
+          <select
+            value={platformFilter}
+            onChange={(e) => onPlatformFilter(e.target.value)}
+            style={selectStyle}
+          >
+            <option value="all">All platforms</option>
+            <option value="monitor">Monitors</option>
+            <option value="watch_source">Watch sources</option>
+          </select>
 
-      {/* Impact */}
-      <select
-        value={impactFilter}
-        onChange={(e) => onImpactFilter(e.target.value)}
-        style={selectStyle}
-      >
-        <option value="all">All impact</option>
-        <option value="critical">Critical</option>
-        <option value="notable">Notable</option>
-        <option value="normal">Normal</option>
-        <option value="informational">Informational</option>
-      </select>
-
-      {/* Date */}
-      <select
-        value={String(daysFilter)}
-        onChange={(e) => onDaysFilter(Number(e.target.value))}
-        style={selectStyle}
-      >
-        <option value="7">7 days</option>
-        <option value="30">30 days</option>
-        <option value="90">90 days</option>
-      </select>
+          {/* Impact */}
+          <select
+            value={impactFilter}
+            onChange={(e) => onImpactFilter(e.target.value)}
+            style={selectStyle}
+          >
+            <option value="all">All impact</option>
+            <option value="critical">Critical</option>
+            <option value="notable">Notable</option>
+            <option value="normal">Normal</option>
+            <option value="informational">Informational</option>
+          </select>
+        </div>
+      )}
     </div>
   );
 }

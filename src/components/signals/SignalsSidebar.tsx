@@ -23,7 +23,7 @@ export const CATEGORY_GROUPS: CategoryDef[] = [
   { label: 'Advertising',         icon: I.eye,      types: ['ad_activity'] },
 ];
 
-export type ViewMode = 'feed' | 'sources' | 'log';
+export type ViewMode = 'feed' | 'sources';
 
 interface SignalsSidebarProps {
   view: ViewMode;
@@ -70,7 +70,6 @@ export function SignalsSidebar({
           {([
             { key: 'feed' as const, label: 'Feed', icon: I.bell },
             { key: 'sources' as const, label: 'Sources', icon: I.globe },
-            { key: 'log' as const, label: 'Log', icon: I.clock },
           ]).map(({ key, label, icon }) => (
             <button
               key={key}
