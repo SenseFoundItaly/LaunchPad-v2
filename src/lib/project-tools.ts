@@ -165,7 +165,7 @@ const listGraphNodes = (ctx: ToolContext): AgentTool => ({
 const getProjectMetrics = (ctx: ToolContext): AgentTool => ({
   name: 'get_project_metrics',
   label: 'Project Metrics',
-  description: 'Get the project\'s current tracked metrics (MRR, users, retention, etc.), burn rate, runway, and recent operational alerts. Use when asked about numbers, growth, runway, burn, or startup health.',
+  description: 'Get the project\'s current tracked metrics (MRR, users, retention, etc.), burn rate, and runway. Use when asked about numbers, growth, runway, burn, or startup health.',
   parameters: Type.Object({}),
   async execute(_id): Promise<AgentToolResult<unknown>> {
     const metrics = await query<{ id: string; name: string; type: string; target_growth_rate: number }>(
@@ -189,6 +189,7 @@ const getProjectMetrics = (ctx: ToolContext): AgentTool => ({
 
     const alerts = await query<{ severity: string; type: string; message: string; created_at: string }>(
       `SELECT severity, type, message, created_at FROM alerts WHERE project_id = ? AND dismissed = false
+       AND type NOT IN ('budget_warning')
        ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, created_at DESC
        LIMIT 5`,
       ctx.projectId,
@@ -217,7 +218,7 @@ const getProjectMetrics = (ctx: ToolContext): AgentTool => ({
     }
 
     if (alerts.length > 0) {
-      lines.push('\nActive alerts:');
+      lines.push('\nActive signals:');
       for (const a of alerts) lines.push(`  - [${a.severity}] ${a.type}: ${a.message}`);
     }
 
@@ -303,6 +304,10 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
       console.warn('[get_project_summary] stage readiness failed:', err);
     }
 
+    if (!idea && (!readinessHint || readinessHint.overall_score === 0)) {
+      lines.push('\n⚠ NEW PROJECT — no Idea Canvas, no skills completed. Start with idea destructuring.');
+    }
+
     // Intelligence snapshot — gives the agent passive awareness of active
     // briefs and hot signals even if it only calls get_project_summary.
     try {
@@ -345,6 +350,7 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
       details: {
         has_idea: !!idea,
         has_score: !!score,
+        is_new_project: !idea && readinessHint?.overall_score === 0,
         next_recommended_skill: readinessHint?.next_recommended_skill?.id ?? null,
         overall_score: readinessHint?.overall_score ?? null,
       },
@@ -366,7 +372,7 @@ const VALID_ACTION_TYPES: readonly PendingActionType[] = [
 const createPendingActionTool = (ctx: ToolContext): AgentTool => ({
   name: 'queue_draft_for_approval',
   label: 'Queue Draft',
-  description: 'Queue a draft for the founder to review and approve (email, LinkedIn post, hypothesis, graph update, etc.). NEVER execute external sends directly — every external action must go through founder approval. Use this when you want to propose an action the founder can approve with one click.',
+  description: 'Queue a draft (email, LinkedIn post, hypothesis, graph update) for founder approval. The founder sees it in their inbox and can approve, edit, or reject.',
   parameters: Type.Object({
     action_type: Type.String({ description: `One of: ${VALID_ACTION_TYPES.join(', ')}` }),
     title: Type.String({ description: 'One-line summary of what this action does.' }),
@@ -471,7 +477,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
   name: 'propose_monitor',
   label: 'Propose Monitor',
   description:
-    'Propose a recurring ecosystem monitor tied to a SPECIFIC named risk from the risk audit, or a specific founder decision captured verbatim in chat. Every monitor is a sensor on ONE named risk — not a generic watch. DO call when a risk_audit top_risk has an early_warning_signal not yet wired, or the founder explicitly says "watch X". DO NOT call for vague concerns ("competition in general") — push back first. The tool runs dedup automatically: duplicates return an error pointing at the existing monitor. Before calling, ALWAYS call list_ecosystem_alerts or inspect existing monitors via the project summary to avoid overlap. Pass the one-sentence test: "This monitor fires when <linked_risk_id> is materializing, because it detects <signal> at <threshold>." If you cannot complete that sentence, do not call this tool. The founder will see an inline approval card in chat with Approve/Edit/Dismiss.',
+    'Propose a recurring ecosystem monitor tied to a specific named risk. Dedup runs automatically. The founder sees an inline approval card with Approve/Edit/Dismiss.',
   parameters: Type.Object({
     name: Type.String({ description: 'Human-readable ≤60 chars. Example: "HubSpot free-tier launch watch"' }),
     kind: Type.String({ description: `One of: ${VALID_MONITOR_KINDS.join(', ')}` }),
@@ -679,7 +685,7 @@ const proposeBudgetChangeTool = (ctx: ToolContext): AgentTool => ({
   name: 'propose_budget_change',
   label: 'Propose Budget Change',
   description:
-    'Propose a change to the project\'s monthly LLM budget cap (USD). Call when the founder explicitly asks to raise/lower their cap ("raise my cap to $5", "give me more credits"), OR when a credits-empty error has surfaced and the founder wants to keep working. The founder sees an inline approval card with current → proposed delta and a reason — never bump silently. Cite the founder quote or the credits-empty error in sources. Do NOT call for vague "i need more"; ask the founder for a target cap first. Sanity ceiling: $100/mo per call (founder can edit the card to go higher).',
+    'Propose a change to the project\'s monthly LLM budget cap (USD). The founder sees an inline approval card with current → proposed delta. Cite the founder quote or credits-empty error in sources.',
   parameters: Type.Object({
     proposed_cap_usd: Type.Number({ description: 'New monthly cap in USD. Must be > 0 and ≤ 100. The founder can edit on the card before approving if they want a different number.' }),
     reason: Type.String({ description: 'One sentence explaining why this cap makes sense (e.g., "running out mid-week — bumping to absorb daily heartbeat + 2 monitor runs"). Shown verbatim on the approval card.' }),
@@ -820,7 +826,7 @@ const createTaskTool = (ctx: ToolContext): AgentTool => ({
   name: 'create_task',
   label: 'Create Task',
   description:
-    'Create a founder task (TODO) when the founder asks you to remember/track/do something concrete ("add a task to draft the seed deck", "remind me to call X tomorrow"). The task appears as an inline card in chat with Mark done / Snooze / Dismiss / Expand buttons, and persists in the Tasks tab of the Canvas. Prefer this tool over a free-text reply when the founder asks you to track work — it is the only way the task survives the conversation. For approval-required drafts (emails, posts, hypotheses), use queue_draft_for_approval instead. Sources are optional but recommended when the task springs from analysis the founder should see. KEEP TITLES SHORT (≤120 chars, imperative) — the founder can click Expand on the card to ask for a richer breakdown (subtasks, references, estimated effort) on demand. DO NOT preemptively pre-write subtasks or long descriptions; that burns budget on tasks the founder may dismiss. The Expand action is opt-in.',
+    'Create a founder task (TODO) that appears as an inline card in chat and persists in the Tasks tab. Use when the founder asks to remember/track something concrete. Keep titles ≤120 chars, imperative.',
   parameters: Type.Object({
     title: Type.String({ description: 'Imperative one-line task ≤120 chars. Example: "Draft seed deck v1 by Friday".' }),
     description: Type.Optional(Type.String({ description: 'Optional context shown beneath the title — what this involves, why it matters.' })),
@@ -928,7 +934,7 @@ const proposeWatchSourceTool = (ctx: ToolContext): AgentTool => ({
   name: 'propose_watch_source',
   label: 'Propose Watch Source',
   description:
-    'Propose tracking a specific URL for content changes. Call when the founder says "track stripe.com/pricing", "watch their careers page", or similar. The founder sees an inline approval card. After approval, the URL is added to watch sources and scraped on the chosen schedule. DO NOT call for vague tracking — you need a specific URL.',
+    'Propose tracking a specific URL for content changes. The founder sees an inline approval card. After approval the URL is scraped on the chosen schedule.',
   parameters: Type.Object({
     url: Type.String({ description: 'Exact URL to track. Must be a valid HTTP/HTTPS URL.' }),
     label: Type.String({ description: 'Human-readable label ≤80 chars. Example: "Stripe Pricing Page"' }),
@@ -1056,7 +1062,7 @@ const createSignalTool = (ctx: ToolContext): AgentTool => ({
   name: 'create_signal',
   label: 'Create Signal',
   description:
-    'Directly inject a signal (ecosystem alert) into the feed from chat. Use when the founder shares intel ("Acme just raised $10M", "competitor launched a new feature") that should be captured as a signal. No approval needed — the signal appears in the feed immediately. The founder can dismiss it later.',
+    'Inject a signal (ecosystem alert) directly into the feed from chat. No approval needed — appears immediately. Use when the founder shares intel worth capturing.',
   parameters: Type.Object({
     headline: Type.String({ description: 'Signal headline ≤200 chars. Example: "Acme raises $10M Series A"' }),
     body: Type.Optional(Type.String({ description: 'Optional longer description / context.' })),
@@ -1294,14 +1300,24 @@ const getRiskAudit = (ctx: ToolContext): AgentTool => ({
 // Factory
 // =============================================================================
 
+interface MakeProjectToolsOptions {
+  /** Include write tools (queue_draft, propose_monitor, budget, task, watch_source, signal). Default true. */
+  includeWriteTools?: boolean;
+}
+
 /**
  * Returns a tool array scoped to a single project. Merge with getTools() from
  * pi-tools.ts when configuring the agent:
  *   agent.state.tools = [...getTools(), ...makeProjectTools(projectId)]
+ *
+ * Pass `{ includeWriteTools: false }` on read-only turns to save ~800 tokens
+ * of tool descriptions per LLM roundtrip.
  */
-export function makeProjectTools(projectId: string): AgentTool[] {
+export function makeProjectTools(projectId: string, options: MakeProjectToolsOptions = {}): AgentTool[] {
   const ctx: ToolContext = { projectId };
-  return [
+  const { includeWriteTools = true } = options;
+
+  const readTools: AgentTool[] = [
     getProjectSummary(ctx),
     getProjectMetrics(ctx),
     listEcosystemAlerts(ctx),
@@ -1309,6 +1325,12 @@ export function makeProjectTools(projectId: string): AgentTool[] {
     listGraphNodes(ctx),
     listIntelligenceBriefs(ctx),
     getRiskAudit(ctx),
+  ];
+
+  if (!includeWriteTools) return readTools;
+
+  return [
+    ...readTools,
     createPendingActionTool(ctx),
     proposeMonitorTool(ctx),
     proposeBudgetChangeTool(ctx),

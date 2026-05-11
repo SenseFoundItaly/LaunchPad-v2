@@ -73,7 +73,62 @@ export async function buildMemoryContext(
     parts.push('');
   }
 
-  // 4. Active intelligence briefs (highest-value synthesized intelligence)
+  // 4. Founder inbox (pending approvals — non-task actions awaiting decision)
+  try {
+    const inbox = await query<{
+      action_type: string; title: string; estimated_impact: string | null;
+    }>(
+      `SELECT action_type, title, estimated_impact
+       FROM pending_actions
+       WHERE project_id = ?
+         AND action_type != 'task'
+         AND status IN ('pending', 'edited')
+       ORDER BY created_at DESC
+       LIMIT 10`,
+      projectId,
+    );
+    if (inbox.length > 0) {
+      parts.push('## Founder inbox (awaiting decision)');
+      for (const a of inbox) {
+        const impact = a.estimated_impact ? ` · ${a.estimated_impact}` : '';
+        parts.push(`- [${a.action_type}${impact}] ${a.title}`);
+      }
+      parts.push('');
+    }
+  } catch { /* non-fatal */ }
+
+  // 5. Open tasks (task-type actions the founder is tracking)
+  try {
+    const tasks = await query<{
+      title: string; priority: string | null;
+    }>(
+      `SELECT title, priority
+       FROM pending_actions
+       WHERE project_id = ?
+         AND action_type = 'task'
+         AND status IN ('pending', 'edited')
+       ORDER BY
+         CASE priority
+           WHEN 'critical' THEN 1
+           WHEN 'high'     THEN 2
+           WHEN 'medium'   THEN 3
+           WHEN 'low'      THEN 4
+           ELSE 5
+         END,
+         created_at DESC
+       LIMIT 15`,
+      projectId,
+    );
+    if (tasks.length > 0) {
+      parts.push('## Open tasks');
+      for (const t of tasks) {
+        parts.push(`- [${t.priority || 'medium'}] ${t.title}`);
+      }
+      parts.push('');
+    }
+  } catch { /* non-fatal */ }
+
+  // 6. Active intelligence briefs (highest-value synthesized intelligence)
   try {
     const briefs = await query<{
       title: string; narrative: string; confidence: number;
@@ -105,7 +160,7 @@ export async function buildMemoryContext(
     }
   } catch { /* non-fatal */ }
 
-  // 5. Top risks from risk audit
+  // 7. Top risks from risk audit
   try {
     const simRow = await get<{ risk_scenarios: string | null }>(
       'SELECT risk_scenarios FROM simulation WHERE project_id = ?',
@@ -134,7 +189,7 @@ export async function buildMemoryContext(
     }
   } catch { /* non-fatal */ }
 
-  // 6. Knowledge graph summary
+  // 8. Knowledge graph summary
   const graphSummary = await summarizeGraph(projectId, maxGraphNodes);
   if (graphSummary) {
     parts.push('## Knowledge graph');
@@ -142,7 +197,7 @@ export async function buildMemoryContext(
     parts.push('');
   }
 
-  // 7. Completed skills
+  // 9. Completed skills
   const skills = await query<{ skill_id: string; summary: string; completed_at: string }>(
     `SELECT skill_id, summary, completed_at FROM skill_completions
      WHERE project_id = ? AND status = 'completed' ORDER BY completed_at DESC LIMIT 10`,

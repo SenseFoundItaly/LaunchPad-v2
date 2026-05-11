@@ -15,6 +15,7 @@
 
 import { use, useEffect, useState, useCallback, useMemo } from 'react';
 import { TopBar, NavRail } from '@/components/design/chrome';
+import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { Pill, StatusBar, Icon, I, IconBtn } from '@/components/design/primitives';
 
 interface GraphNode {
@@ -79,6 +80,7 @@ export default function IntelligenceGraphPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
+  const { count: inboxBadge } = useOpenActionCount(projectId);
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -121,7 +123,7 @@ export default function IntelligenceGraphPage({
         right={<Pill kind="ok" dot>{nodes.length} nodes · {edges.length} edges</Pill>}
       />
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <NavRail projectId={projectId} current="graph" />
+        <NavRail projectId={projectId} current="graph" inboxBadge={inboxBadge} />
 
         {/* Filters */}
         <div

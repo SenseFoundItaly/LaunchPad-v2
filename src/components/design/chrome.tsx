@@ -138,9 +138,13 @@ export interface NavRailProps {
   projectId: string;
   /** Explicit override for which item is current. Otherwise inferred from pathname. */
   current?: string;
+  /** Badge count shown on the Inbox nav item (pending actions). */
+  inboxBadge?: number;
+  /** When true, show a pulsing dot on the Co-pilot icon. */
+  chatStreaming?: boolean;
 }
 
-export function NavRail({ projectId, current }: NavRailProps) {
+export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRailProps) {
   const pathname = usePathname() || '';
 
   function isActive(item: NavItem): boolean {
@@ -163,7 +167,14 @@ export function NavRail({ projectId, current }: NavRailProps) {
       }}
     >
       {NAV_ITEMS.map((it) => (
-        <NavRailItem key={it.id} item={it} projectId={projectId} active={isActive(it)} />
+        <NavRailItem
+          key={it.id}
+          item={it}
+          projectId={projectId}
+          active={isActive(it)}
+          badge={it.id === 'inbox' ? inboxBadge : undefined}
+          streaming={it.id === 'chat' ? chatStreaming : undefined}
+        />
       ))}
       <div style={{ flex: 1 }} />
       {/* More menu — opens popover with secondary nav items */}
@@ -191,7 +202,7 @@ export function NavRail({ projectId, current }: NavRailProps) {
   );
 }
 
-function NavRailItem({ item, projectId, active }: { item: NavItem; projectId: string; active: boolean }) {
+function NavRailItem({ item, projectId, active, badge, streaming }: { item: NavItem; projectId: string; active: boolean; badge?: number; streaming?: boolean }) {
   return (
     <Link
       href={`/project/${projectId}/${item.route}`}
@@ -210,9 +221,47 @@ function NavRailItem({ item, projectId, active }: { item: NavItem; projectId: st
         gap: 3,
         textDecoration: 'none',
         transition: 'background .12s, color .12s',
+        position: 'relative',
       }}
     >
       <Icon d={I[item.iconKey]} size={15} stroke={1.3} />
+      {typeof badge === 'number' && badge > 0 && (
+        <span
+          style={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            minWidth: 14,
+            height: 14,
+            borderRadius: 7,
+            background: 'var(--clay)',
+            color: '#FFF',
+            fontSize: 9,
+            fontWeight: 700,
+            fontFamily: 'var(--f-mono)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 3px',
+            lineHeight: 1,
+          }}
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
+      {streaming && (
+        <span
+          className="lp-dot lp-pulse"
+          style={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            width: 6,
+            height: 6,
+            background: 'var(--accent)',
+          }}
+        />
+      )}
       <span
         style={{
           fontSize: 9,

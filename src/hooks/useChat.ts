@@ -78,6 +78,8 @@ export function useChat(projectId: string, step: string = 'chat') {
         const decoder = new TextDecoder();
         let fullContent = '';
         let toolsList: ToolActivity[] = [];
+        // SSE line buffer: accumulates partial lines across chunk boundaries
+        let lineBuffer = '';
 
         if (reader) {
           while (true) {
@@ -85,7 +87,9 @@ export function useChat(projectId: string, step: string = 'chat') {
             if (done) {break;}
 
             const text = decoder.decode(value, { stream: true });
-            const lines = text.split('\n');
+            lineBuffer += text;
+            const lines = lineBuffer.split('\n');
+            lineBuffer = lines.pop() ?? '';
 
             for (const line of lines) {
               if (line.startsWith('data: ')) {

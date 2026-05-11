@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Icon, I, Pill } from '@/components/design/primitives';
+import { Icon, I } from '@/components/design/primitives';
 
 // =============================================================================
 // Types
@@ -55,35 +55,18 @@ export function TasksSection({
   const [tasks, setTasks] = useState<TaskListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [approvalCount, setApprovalCount] = useState(0);
-  const [notificationCount, setNotificationCount] = useState(0);
 
   const refetch = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [tasksRes, approvalsRes, notificationsRes] = await Promise.all([
-        fetch(`/api/projects/${projectId}/tasks`),
-        fetch(`/api/projects/${projectId}/approvals`),
-        fetch(`/api/projects/${projectId}/notifications`),
-      ]);
+      const tasksRes = await fetch(`/api/projects/${projectId}/tasks`);
       const tasksBody = await tasksRes.json();
       if (!tasksRes.ok || tasksBody?.success === false) {
         throw new Error(tasksBody?.error || `HTTP ${tasksRes.status}`);
       }
       const tasksData = tasksBody?.data ?? tasksBody;
       setTasks(Array.isArray(tasksData?.tasks) ? tasksData.tasks : []);
-
-      try {
-        const approvalsBody = await approvalsRes.json();
-        const data = approvalsBody?.data ?? approvalsBody;
-        setApprovalCount(typeof data?.counts?.total === 'number' ? data.counts.total : 0);
-      } catch { setApprovalCount(0); }
-      try {
-        const notificationsBody = await notificationsRes.json();
-        const data = notificationsBody?.data ?? notificationsBody;
-        setNotificationCount(typeof data?.counts?.total === 'number' ? data.counts.total : 0);
-      } catch { setNotificationCount(0); }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -109,8 +92,6 @@ export function TasksSection({
     return map;
   }, [tasks]);
 
-  const otherLanesTotal = approvalCount + notificationCount;
-
   return (
     <div
       style={{
@@ -119,43 +100,6 @@ export function TasksSection({
         gap: 18,
       }}
     >
-      {otherLanesTotal > 0 && (
-        <a
-          href={`/project/${projectId}/actions`}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '8px 12px',
-            background: 'var(--paper-2)',
-            border: '1px solid var(--line-2)',
-            borderRadius: 6,
-            fontSize: 11.5,
-            color: 'var(--ink-3)',
-            textDecoration: 'none',
-            fontFamily: 'var(--f-sans)',
-          }}
-        >
-          <span>
-            {locale === 'it' ? 'Hai anche ' : 'You also have '}
-            {approvalCount > 0 && (
-              <strong style={{ color: 'var(--ink-2)' }}>
-                {approvalCount} {locale === 'it' ? 'approvazion' + (approvalCount === 1 ? 'e' : 'i') : 'approval' + (approvalCount === 1 ? '' : 's')}
-              </strong>
-            )}
-            {approvalCount > 0 && notificationCount > 0 && ' · '}
-            {notificationCount > 0 && (
-              <strong style={{ color: 'var(--ink-2)' }}>
-                {notificationCount} {locale === 'it' ? 'notific' + (notificationCount === 1 ? 'a' : 'he') : 'notification' + (notificationCount === 1 ? '' : 's')}
-              </strong>
-            )}
-            {locale === 'it' ? ' nell\u2019Inbox.' : ' in the Inbox.'}
-          </span>
-          <span style={{ color: 'var(--accent)', fontSize: 11 }}>
-            {locale === 'it' ? 'Apri Inbox \u2192' : 'Open Inbox \u2192'}
-          </span>
-        </a>
-      )}
       {loading && tasks.length === 0 && (
         <div style={{ fontSize: 12, color: 'var(--ink-5)', textAlign: 'center', padding: 40 }}>
           {locale === 'it' ? 'Caricamento task\u2026' : 'Loading tasks\u2026'}

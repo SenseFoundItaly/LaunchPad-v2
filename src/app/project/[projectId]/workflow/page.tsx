@@ -10,6 +10,7 @@
 
 import { use, useEffect, useState, useCallback, useMemo } from 'react';
 import { TopBar, NavRail } from '@/components/design/chrome';
+import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import {
   Pill,
   StatusBar,
@@ -77,6 +78,7 @@ export default function WorkflowPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
+  const { count: inboxBadge } = useOpenActionCount(projectId);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(true);
@@ -137,7 +139,7 @@ export default function WorkflowPage({
       />
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <NavRail projectId={projectId} current="pipe" />
+        <NavRail projectId={projectId} current="pipe" inboxBadge={inboxBadge} />
 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {plan ? (

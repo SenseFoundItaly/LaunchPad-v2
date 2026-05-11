@@ -25,6 +25,7 @@ import api from '@/api';
 import { useProject } from '@/hooks/useProject';
 import ProjectChatDrawer from '@/components/chat/ProjectChatDrawer';
 import { TopBar, NavRail } from '@/components/design/chrome';
+import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import {
   Pill,
   Panel,
@@ -150,6 +151,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
   const [cronbeat, setCronbeat] = useState<{ health: HeartbeatKind; hours_since_last: number | null } | null>(null);
   const [cronPanelOpen, setCronPanelOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const { count: inboxBadge } = useOpenActionCount(projectId);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -255,7 +257,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
       />
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <NavRail projectId={projectId} current="home" />
+        <NavRail projectId={projectId} current="home" inboxBadge={inboxBadge} />
 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {/* Masthead */}

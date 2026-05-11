@@ -16,6 +16,7 @@
 
 import { use, useEffect, useState, useCallback, useMemo } from 'react';
 import { TopBar, NavRail } from '@/components/design/chrome';
+import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import {
   Pill,
   StatusBar,
@@ -68,6 +69,7 @@ export default function TicketsPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
+  const { count: inboxBadge } = useOpenActionCount(projectId);
 
   const [actions, setActions] = useState<PendingAction[]>([]);
   const [summary, setSummary] = useState<InboxSummary | null>(null);
@@ -91,7 +93,7 @@ export default function TicketsPage({
       const res = await fetch(`/api/projects/${projectId}/actions?status=pending,edited,approved,rejected,sent,failed&limit=200`);
       const body: InboxResponse = await res.json();
       if (!body.success || !body.data) throw new Error(body.error || 'Fetch failed');
-      setActions(body.data.actions);
+      setActions(body.data.actions ?? []);
       setSummary(body.data.summary);
       // Keep selection if still in list; else pick first
       if (selectedId && !body.data.actions.find(a => a.id === selectedId)) {
@@ -208,7 +210,7 @@ export default function TicketsPage({
       />
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <NavRail projectId={projectId} current="tickets" />
+        <NavRail projectId={projectId} current="tickets" inboxBadge={inboxBadge} />
 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <LaneTabs

@@ -104,7 +104,10 @@ export default function SourcesFooter({
   label = 'Sources',
   compact = false,
 }: SourcesFooterProps) {
-  if (!Array.isArray(sources) || sources.length === 0) return null;
+  // Only display web sources — internal/skill/user/inference sources are kept
+  // in the data layer for traceability but hidden from the founder's view.
+  const webSources = Array.isArray(sources) ? sources.filter((s) => s.type === 'web') : [];
+  if (webSources.length === 0) return null;
 
   const chipBase = compact
     ? 'text-[10px] px-1.5 py-0.5 gap-1'
@@ -116,7 +119,7 @@ export default function SourcesFooter({
         <span className="text-[10px] uppercase tracking-wider text-zinc-500 mr-1">
           {label}
         </span>
-        {sources.map((src, idx) => {
+        {webSources.map((src, idx) => {
           const href = hrefFor(src);
           const title = truncate(src.title, compact ? 28 : 48);
           const tooltip = tooltipFor(src);

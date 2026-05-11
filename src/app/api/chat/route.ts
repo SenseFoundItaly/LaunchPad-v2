@@ -16,9 +16,53 @@ import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
 import { isProjectCapped } from '@/lib/cost-meter';
 import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
-import { pickModel } from '@/lib/llm/router';
+import { pickModel, type TaskLabel } from '@/lib/llm/router';
 import { rankSkillsForQuery } from '@/lib/skill-relevance';
 import { persistArtifact } from '@/lib/artifact-persistence';
+
+/**
+ * Detect simple follow-up messages that don't need Sonnet's reasoning depth.
+ * These get routed to Haiku (~80% cheaper per turn). Conservative: only matches
+ * short, clearly-simple messages. Anything ambiguous stays on Sonnet.
+ */
+const SIMPLE_PATTERNS = /^(yes|no|ok|okay|sure|go|go ahead|got it|thanks|thank you|thx|ty|cool|nice|great|sounds good|let's do it|do it|continue|next|more|tell me more|elaborate|explain|keep going|show me|skip|stop|cancel|undo|exactly|correct|right|yep|nope|nah|si|sì|no grazie|vai|perfetto|avanti|continua)$/i;
+
+function isSimpleFollowUp(message: string, messages: unknown[]): boolean {
+  // Never route the first message to Haiku — it needs full opener logic.
+  if (messages.length <= 1) return false;
+  const trimmed = message.trim();
+  // Short message matching known patterns.
+  if (trimmed.length <= 80 && SIMPLE_PATTERNS.test(trimmed)) return true;
+  // Single-word or very short messages (<=20 chars) without question marks.
+  if (trimmed.length <= 20 && !trimmed.includes('?') && trimmed.split(/\s+/).length <= 3) return true;
+  return false;
+}
+
+/**
+ * Detect whether the user message has write intent (create, propose, draft, etc.).
+ * When false, write tools are excluded from the tool array to save ~800 tokens
+ * per LLM roundtrip. The agent can still suggest write actions in prose —
+ * the next turn (with write intent) would include the tools.
+ */
+const WRITE_INTENT_PATTERN = /\b(create|draft|propose|queue|track|watch|remind|task|budget|monitor|signal|raise|lower|bump|cap|email|linkedin|post|schedule|add a|set up|configure)\b/i;
+
+function hasWriteIntent(message: string): boolean {
+  return WRITE_INTENT_PATTERN.test(message);
+}
+
+// One-shot migration: add tools_json column if it doesn't exist yet.
+// Runs once per server lifecycle (module load). Idempotent via IF NOT EXISTS.
+let _migrated = false;
+async function ensureToolsJsonColumn() {
+  if (_migrated) return;
+  _migrated = true;
+  try {
+    await run('ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS tools_json TEXT');
+  } catch (err) {
+    // Non-fatal — column may already exist or DB may not support IF NOT EXISTS.
+    console.warn('[chat] tools_json migration (non-fatal):', err);
+  }
+}
 
 // Artifact instructions prepended to every message — structured as priority tiers.
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup co-pilot. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
@@ -27,16 +71,13 @@ const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup co-pilot.
 - Maximum 4 tool calls per turn. After the 4th, stop and synthesize.
 - Every turn MUST end with visible prose AND a trailing option-set. No exceptions.
 - Every factual artifact MUST include a non-empty "sources" array. No sources = REJECTED.
-- Every factual sentence in prose MUST end with [1], [2]... markers.
+- Only include sources of type "web" in artifact source arrays and prose [1], [2]... markers. Internal, skill, user, and inference sources are tracked server-side but NOT displayed to the founder. If the only sources are non-web, omit the sources array entirely.
 - Prefer parallel tool calls over sequential.
 - Ship partial answers over perfect-but-never-arriving answers.
 - No invented numbers, company names, or URLs.
 
 === TIER 1 — CONVERSATION OPENER (first turn of every thread) ===
-At the start of every conversation, call these tools IN PARALLEL:
-1. \`get_project_summary\` — stage readiness + intelligence snapshot
-2. \`list_intelligence_briefs\` — active synthesized correlations
-3. \`list_ecosystem_alerts\` (days_back=7, min_relevance=0.8) — hot signals
+At the start of every conversation, call \`get_project_summary\`. It returns stage readiness, intelligence briefs, AND hot signals in one response. Do NOT separately call list_intelligence_briefs or list_ecosystem_alerts on the opener — the summary already includes them. Use those tools only for deep-dives when the summary surfaces something worth exploring.
 
 THEN apply this decision tree to your opening:
 - IF urgent intelligence exists (briefs with high-urgency recommended actions, OR hot signals with relevance >= 0.9):
@@ -45,6 +86,20 @@ THEN apply this decision tree to your opening:
   → Acknowledge signals briefly ("Your ecosystem is quiet this week — one signal worth noting: ..."). Then proceed with normal validation flow.
 - IF no signals at all:
   → Open with the standard validation pipeline flow (stage readiness, next recommended skill).
+
+=== TIER 1.5 — BRAND-NEW PROJECT (no skills completed, no idea canvas) ===
+When get_project_summary shows: no Idea Canvas, overall_score=0, all stages NOT READY, or is_new_project=true:
+1. This is a fresh project. The founder just created it.
+2. Read the project name + description carefully.
+3. IF the description provides enough signal (problem, who, what):
+   → Start destructuring the idea immediately. Identify the problem, solution, target market,
+     and value proposition from what's available. Present your analysis and ask the founder
+     to confirm or correct. Emit a solve-progress artifact to track the flow.
+4. IF the description is too vague (just a name, no context):
+   → Ask 2-3 focused questions to understand the idea: What problem does this solve?
+     Who is the target customer? What is the current alternative?
+5. Frame everything through the Solve Flow: Research → Analysis → Deliverable.
+   The immediate goal is to complete the Idea Canvas (idea-shaping skill) as Stage 1.
 
 === TIER 2 — SIGNAL-TO-RISK FRAMING (Three-Question Protocol) ===
 When surfacing any intelligence signal or brief to the founder, ALWAYS frame it with:
@@ -139,11 +194,28 @@ SKILL TOOL GUARD:
 Skill tools are FULL STRUCTURED SESSIONS (5-15 min, multi-step). Only invoke when the founder EXPLICITLY asks to start a session. For keyword-adjacent questions ("Where are the biggest risks?"), answer from context using get_risk_audit + list_intelligence_briefs + list_ecosystem_alerts. Offer the full session as an option-set choice.
 
 SOLVE FLOW MODE:
-Triggered by "Start the Solve flow" / "Avvia il flusso Solve". Chains Research → Scoring → Deliverable via solve-progress artifact (same id "solve_1" on updates). Founder can skip stages. Reuse fresh data (< 7 days). Always end each stage with option-set.]
+Triggered by "Start the Solve flow" / "Avvia il flusso Solve".
+The Solve flow walks the founder through the 7-stage validation pipeline IN ORDER.
+Each stage has 1-2 skills (see get_project_summary → Stage readiness).
+
+Progression rules:
+1. Before each Solve step, call get_project_summary to read next_recommended_skill.
+   Run THAT skill — do not pick a different one.
+2. Follow the 7-stage order: Idea Validation → Market Validation → Persona Validation
+   → Business Model → Build & Launch → Fundraise → Operate.
+3. Within a stage, respect SKILL_SOURCES dependencies (e.g., startup-scoring before
+   business-model, idea-shaping before startup-scoring).
+4. After each skill completes, emit/update a solve-progress artifact (id "solve_1")
+   showing completed stages and next step.
+5. The founder can skip any stage — when they say "skip", move to the next stage.
+6. Reuse fresh data (< 7 days) — don't re-run a skill if it completed recently.
+7. Always end each stage with an option-set: continue to next stage, skip, or stop.]
 
 `;
 
 export async function POST(request: NextRequest) {
+  await ensureToolsJsonColumn();
+
   // Auth gate: the chat route always runs for a real user. Memory scoping
   // requires a userId; without it we can't build per-user context or log
   // chat_turn events.
@@ -177,8 +249,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const projects = await query<{ id: string; name: string; description: string }>(
-    'SELECT id, name, description FROM projects WHERE id = ?', project_id
+  const projects = await query<{ id: string; name: string; description: string; current_step: number }>(
+    'SELECT id, name, description, current_step FROM projects WHERE id = ?', project_id
   );
   if (projects.length === 0) {
     return new Response(
@@ -228,32 +300,52 @@ export async function POST(request: NextRequest) {
     // and queue its own drafts into the approval inbox. The factory closes
     // over project_id so the agent cannot accidentally read or write another
     // project's rows.
-    const projectTools = makeProjectTools(project_id);
+    const includeWriteTools = messages.length <= 1 || hasWriteIntent(lastMessage);
+    const projectTools = makeProjectTools(project_id, { includeWriteTools });
 
-    // Skills-as-tools with per-turn Haiku relevance filtering. Keeps all
-    // 11 skills auto-invokable but only exposes the top-3 most relevant
-    // to the agent on each turn, preventing the "20-tool drowning" that
-    // previously caused timeouts. Classifier cost ~$0.0003 + 300-500ms,
-    // saves more in reduced tool-description tokens.
-    const skillManifest = listSkillManifest();
-    const relevantManifest = await rankSkillsForQuery(
-      lastMessage,
-      {
-        id: project_id,
-        name: projects[0].name,
-        description: projects[0].description || '',
-        current_step: (projects[0] as { current_step?: number }).current_step ?? 1,
-      },
-      skillManifest,
-      { topN: 3 },
-    );
-    const relevantIds = new Set(relevantManifest.map((s) => s.id));
+    // Route simple follow-ups to Haiku (~80% cheaper) — "yes", "go ahead",
+    // "tell me more", etc. don't need Sonnet's multi-tool reasoning depth.
+    const chatTask: TaskLabel = isSimpleFollowUp(lastMessage, messages)
+      ? 'chat-followup'
+      : 'chat';
+
+    // Solve flow activates implicitly for any project that hasn't completed
+    // all 7 validation stages. All skills are exposed so the system prompt's
+    // get_project_summary → next_recommended_skill ordering works. Once the
+    // pipeline is done (step 7), switch to classifier-filtered free-form chat.
+    const isSolveFlow = (projects[0].current_step ?? 1) < 7;
+
     const allSkillTools = getSkillTools({ userId, projectId: project_id });
-    const skillTools = allSkillTools.filter((t) => {
-      // Tool name format is `skill_<id-with-underscores>` — recover the id.
-      const id = t.name.replace(/^skill_/, '').replace(/_/g, '-');
-      return relevantIds.has(id);
-    });
+
+    let skillTools: typeof allSkillTools;
+    if (chatTask === 'chat-followup') {
+      // Simple follow-ups ("yes", "go ahead") never trigger skill invocations.
+      // Skip the Haiku classifier call entirely to save ~$0.0006 + 300ms.
+      skillTools = [];
+    } else if (isSolveFlow) {
+      // Solve flow: all skills available — system prompt mandates
+      // get_project_summary → next_recommended_skill for ordering.
+      skillTools = allSkillTools;
+    } else {
+      // Free-form chat: Haiku classifier picks top 3 relevant skills.
+      const skillManifest = listSkillManifest();
+      const relevantManifest = await rankSkillsForQuery(
+        lastMessage,
+        {
+          id: project_id,
+          name: projects[0].name,
+          description: projects[0].description || '',
+          current_step: projects[0].current_step ?? 1,
+        },
+        skillManifest,
+        { topN: 3 },
+      );
+      const relevantIds = new Set(relevantManifest.map((s) => s.id));
+      skillTools = allSkillTools.filter((t) => {
+        const id = t.name.replace(/^skill_/, '').replace(/_/g, '-');
+        return relevantIds.has(id);
+      });
+    }
 
     const { stream: piStream } = runAgentStream(lastMessage, {
       sessionId,
@@ -264,7 +356,7 @@ export async function POST(request: NextRequest) {
       // 120s was cutting the agent off mid-tool-loop, leaving an empty
       // final assistant message and no visible response in the UI.
       timeout: 300000,
-      task: 'chat',
+      task: chatTask,
     });
 
     // Accumulate response text so we can: (1) extract agent-emitted facts via
@@ -274,6 +366,11 @@ export async function POST(request: NextRequest) {
     // Captured from the SSE `done` event emitted by runAgentStream on agent_end.
     let streamUsage: { input_tokens?: number; output_tokens?: number; total_tokens?: number; cost?: number } | undefined;
     const decoder = new TextDecoder();
+    // SSE line buffer: accumulates partial lines across chunk boundaries so
+    // that a `data: {...}` line split across two TCP chunks still parses.
+    let lineBuffer = '';
+    // Tool activity accumulated from tool_start/tool_end SSE events.
+    let toolsList: Array<{ id: string; name: string; args?: unknown; status: string }> = [];
 
     // Wrap to add telemetry + memory hooks on completion
     const telemetryStream = piStream.pipeThrough(new TransformStream({
@@ -281,8 +378,11 @@ export async function POST(request: NextRequest) {
         // chunk is the raw SSE event buffer; decode + peek at JSON deltas
         try {
           const text = decoder.decode(chunk, { stream: true });
-          // Look for content deltas: `data: {"content":"..."}`
-          const lines = text.split('\n');
+          lineBuffer += text;
+          const lines = lineBuffer.split('\n');
+          // Last element is either '' (line ended with \n) or a partial line;
+          // keep it in the buffer for the next chunk.
+          lineBuffer = lines.pop() ?? '';
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               try {
@@ -293,6 +393,19 @@ export async function POST(request: NextRequest) {
                 // Capture real token usage from the `done` SSE event
                 if (payload.done && payload.usage) {
                   streamUsage = payload.usage;
+                }
+                // Capture tool activity for persistence
+                if (payload.tool_start) {
+                  toolsList.push({
+                    id: payload.tool_start.id,
+                    name: payload.tool_start.name,
+                    args: payload.tool_start.args,
+                    status: 'done',
+                  });
+                }
+                if (payload.tool_end) {
+                  const t = toolsList.find((x) => x.id === payload.tool_end.id);
+                  if (t) t.status = payload.tool_end.error ? 'error' : 'done';
                 }
               } catch {
                 // non-JSON SSE line; ignore
@@ -309,7 +422,7 @@ export async function POST(request: NextRequest) {
         // Pull the actual provider+model from the router so the logged slug
         // reflects reality (direct Anthropic vs OpenRouter). Falls back to
         // PI_PROVIDER/PI_MODEL env vars for call sites without a task label.
-        const picked = pickModel('chat');
+        const picked = pickModel(chatTask);
         const piProvider = picked.provider;
         const piModel = picked.model;
         const usage = {
@@ -341,11 +454,12 @@ export async function POST(request: NextRequest) {
             project_id, step, lastMessage, now, userId,
           );
           if (fullResponse.trim().length > 0) {
+            const toolsJson = toolsList.length > 0 ? JSON.stringify(toolsList) : null;
             await run(
-              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
-               VALUES (?, ?, ?, 'assistant', ?, ?, ?)`,
+              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, tools_json)
+               VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?)`,
               `msg_${crypto.randomUUID().slice(0, 12)}`,
-              project_id, step, fullResponse, now, userId,
+              project_id, step, fullResponse, now, userId, toolsJson,
             );
           }
         } catch (err) {

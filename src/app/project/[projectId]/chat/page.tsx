@@ -27,6 +27,7 @@ import ArtifactRenderer from '@/components/chat/artifacts/ArtifactRenderer';
 import { ContextPanel } from '@/components/chat/ContextPanel';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { CreditsBadge } from '@/components/CreditsBadge';
+import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import {
   Pill,
   StatusBar,
@@ -37,7 +38,10 @@ import {
 
 // Artifact types that render INLINE in the chat bubble (interactive CTAs)
 // rather than in the right-side Canvas. Anything not listed stays in Canvas.
-const INLINE_ARTIFACT_TYPES = new Set<ArtifactType>(['option-set', 'action-suggestion', 'task']);
+const INLINE_ARTIFACT_TYPES = new Set<ArtifactType>([
+  'option-set', 'action-suggestion', 'task',
+  'monitor-proposal', 'budget-proposal',
+]);
 
 function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artifact[] } {
   const segments = parseMessageContent(content);
@@ -52,7 +56,7 @@ function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artif
 
 interface HistoryResp {
   success: boolean;
-  data?: Array<{ role: string; content: string; timestamp: string }>;
+  data?: Array<{ id: string; role: string; content: string; timestamp: string; tools_json?: string }>;
 }
 
 export default function CopilotChatPage({
@@ -75,6 +79,26 @@ export default function CopilotChatPage({
   // Intelligence (durable facts/alerts/score/nodes aggregated over time).
   const [canvasTab, setCanvasTab] = useState<CanvasTab>('latest');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { count: inboxBadge } = useOpenActionCount(projectId);
+
+  // Fire lp-actions-changed immediately when streaming ends so PendingSection
+  // and useOpenActionCount refetch without waiting for the 60s poll cycle.
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (wasStreamingRef.current && !isStreaming) {
+      window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+    }
+    wasStreamingRef.current = isStreaming;
+  }, [isStreaming, projectId]);
+
+  // Auto-switch to Context tab when the agent creates new pending actions.
+  const prevInboxBadgeRef = useRef(0);
+  useEffect(() => {
+    if (!isStreaming && inboxBadge > prevInboxBadgeRef.current) {
+      setCanvasTab('context');
+    }
+    prevInboxBadgeRef.current = inboxBadge;
+  }, [inboxBadge, isStreaming]);
 
   const locale = (project as unknown as { locale?: string })?.locale === 'it' ? 'it' : 'en';
 
@@ -88,10 +112,11 @@ export default function CopilotChatPage({
         if (cancelled) return;
         const restored = data.success && Array.isArray(data.data) && data.data.length > 0
           ? data.data.map((m, i) => ({
-            id: `restored_${i}`,
+            id: m.id ?? `restored_${i}`,
             role: m.role as 'user' | 'assistant',
             content: m.content,
             timestamp: m.timestamp,
+            tools: m.tools_json ? JSON.parse(m.tools_json) : undefined,
           }))
           : [];
         setMessages(restored);
@@ -107,6 +132,17 @@ export default function CopilotChatPage({
     };
   }, [projectId, step, setMessages]);
 
+  // Auto-start Solve Flow for brand-new projects (no chat history).
+  // Fires once per mount — the ref guard prevents double-firing on
+  // React StrictMode re-mounts and thread switches.
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (historyLoaded && messages.length === 0 && !autoStartedRef.current && !isStreaming) {
+      autoStartedRef.current = true;
+      sendMessage('Start the Solve flow');
+    }
+  }, [historyLoaded, messages.length, isStreaming, sendMessage]);
+
   // Auto-scroll to newest
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -118,14 +154,19 @@ export default function CopilotChatPage({
   // CTAs after the agent has streamed a follow-up.
   const { canvasArtifacts, inlineArtifactsByMsgId } = useMemo(() => {
     const inlineMap = new Map<string, Artifact[]>();
-    let canvas: Artifact[] = [];
+    const canvasById = new Map<string, Artifact>();
     for (const m of messages) {
       if (m.role !== 'assistant' || !m.content) continue;
       const split = classifyArtifacts(m.content);
       if (split.inline.length > 0) inlineMap.set(m.id, split.inline);
-      // Canvas reflects only the latest assistant message.
-      canvas = split.canvas;
+      // Accumulate canvas artifacts across all messages. Later messages
+      // with the same artifact id overwrite earlier ones (e.g. solve-progress
+      // updates use the same id "solve_1").
+      for (const a of split.canvas) {
+        canvasById.set(a.id, a);
+      }
     }
+    const canvas = Array.from(canvasById.values());
     return { canvasArtifacts: canvas, inlineArtifactsByMsgId: inlineMap };
   }, [messages]);
 
@@ -164,6 +205,28 @@ export default function CopilotChatPage({
    */
   const handleArtifactAction = useCallback(
     async (action: string, payload: Record<string, unknown>): Promise<void> => {
+      // Generic pending-action approve/reject from PendingSection
+      if (action === 'action:approve' || action === 'action:reject') {
+        const pendingActionId = String(payload.pending_action_id ?? '');
+        if (!pendingActionId) throw new Error(`Missing pending_action_id on ${action}`);
+        const transition = action === 'action:approve' ? 'approve' : 'reject';
+        const res = await fetch(
+          `/api/projects/${projectId}/actions/${pendingActionId}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transition }),
+          },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `Action failed with status ${res.status}`);
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+        }
+        return;
+      }
       if (
         action === 'monitor:approve' || action === 'monitor:dismiss' ||
         action === 'budget:approve' || action === 'budget:dismiss'
@@ -191,9 +254,13 @@ export default function CopilotChatPage({
           const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
           throw new Error(err.error || `Action failed with status ${res.status}`);
         }
-        // Budget cap changed → CreditsBadge listens for this event to refetch.
-        if (action === 'budget:approve' && typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
+        if (typeof window !== 'undefined') {
+          // Notify PendingSection so it picks up changes from inline chat cards.
+          window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+          // Budget cap changed → CreditsBadge listens for this event to refetch.
+          if (action === 'budget:approve') {
+            window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
+          }
         }
         return;
       }
@@ -242,9 +309,10 @@ export default function CopilotChatPage({
             }));
           }
         }
-        // Notify other surfaces (Tasks tab) so they can refetch.
+        // Notify other surfaces (Tasks tab + PendingSection) so they can refetch.
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('lp-tasks-changed', { detail: { projectId, artifactId, verb } }));
+          window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
         }
         return;
       }
@@ -283,7 +351,7 @@ export default function CopilotChatPage({
       />
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <NavRail projectId={projectId} current="chat" />
+        <NavRail projectId={projectId} current="chat" inboxBadge={inboxBadge} chatStreaming={isStreaming} />
 
         {/* Chat column */}
         <div
@@ -462,11 +530,13 @@ function ChatEmptyState({
 }) {
   const prompts = locale === 'it'
     ? [
+      'Avvia il flusso Solve',
       'Cosa si è mosso nel mio ecosistema questa settimana?',
       'Riassumi i miei numeri e la mia runway',
       'Cosa ho nell\'inbox da approvare?',
     ]
     : [
+      'Start the Solve flow',
       'What moved in my ecosystem this week?',
       'Summarize my numbers and runway',
       'What do I have in my inbox?',

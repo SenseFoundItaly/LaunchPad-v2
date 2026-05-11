@@ -62,7 +62,7 @@ function sessionPath(sessionId: string): string {
   return join(dir, 'session.jsonl');
 }
 
-function loadSession(sessionId: string): AgentMessage[] {
+function loadSession(sessionId: string, maxMessages?: number): AgentMessage[] {
   const path = sessionPath(sessionId);
   if (!existsSync(path)) return [];
 
@@ -114,6 +114,13 @@ function loadSession(sessionId: string): AgentMessage[] {
       messages.pop();
     }
 
+    // Sliding window: cap history to the most recent N messages to prevent
+    // unbounded token growth on long conversations. Each message re-sent on
+    // every tool roundtrip, so this compounds savings significantly.
+    if (maxMessages && maxMessages > 0 && messages.length > maxMessages) {
+      messages.splice(0, messages.length - maxMessages);
+    }
+
     return messages;
   } catch {
     return [];
@@ -139,6 +146,19 @@ export interface RunAgentOptions {
    * PI_PROVIDER + PI_MODEL globals. See src/lib/llm/router.ts.
    */
   task?: TaskLabel;
+  /**
+   * Hard cap on tool calls per turn. After this many tool_execution_start
+   * events, the agent is aborted. Prevents runaway cost from agentic loops
+   * that ignore the prompt-level "max 4 tool calls" instruction.
+   * Default: 4.
+   */
+  maxToolCalls?: number;
+  /**
+   * Max conversation history messages to load from the session file.
+   * Older messages are trimmed from the beginning to cap token growth.
+   * Default: 12 (~6 user/assistant pairs).
+   */
+  maxHistoryMessages?: number;
 }
 
 export interface RunAgentResult {
@@ -172,9 +192,9 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
     agent.state.tools = [...baseTools, ...extraTools];
   }
 
-  // Restore conversation history
+  // Restore conversation history (with optional sliding window)
   if (options.sessionId) {
-    const prior = loadSession(options.sessionId);
+    const prior = loadSession(options.sessionId, options.maxHistoryMessages ?? 12);
     if (prior.length > 0) {
       agent.state.messages = prior;
     }
@@ -250,11 +270,12 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
         agent.state.tools = [...baseToolsS, ...extraToolsS];
       }
 
-      // Restore conversation history (trimmed to last valid complete turn).
+      // Restore conversation history (trimmed to last valid complete turn,
+      // capped to maxHistoryMessages to prevent unbounded token growth).
       // The SDK appends the user message and subsequent assistant turns itself —
       // do NOT call appendToSession here or the user message appears twice.
       if (options.sessionId) {
-        const prior = loadSession(options.sessionId);
+        const prior = loadSession(options.sessionId, options.maxHistoryMessages ?? 12);
         if (prior.length > 0) {
           agent.state.messages = prior;
         }
@@ -264,6 +285,8 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
 
       let fullText = '';
       let lastUsage: Usage | undefined;
+      let toolCallCount = 0;
+      const maxToolCalls = options.maxToolCalls ?? 4;
 
       agent.subscribe((event) => {
         switch (event.type) {
@@ -279,6 +302,12 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
           }
 
           case 'tool_execution_start': {
+            toolCallCount++;
+            if (toolCallCount > maxToolCalls) {
+              console.warn(`[pi-agent] tool call limit reached (${maxToolCalls}), aborting agent`);
+              agent.abort();
+              break;
+            }
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({
                 tool_start: {

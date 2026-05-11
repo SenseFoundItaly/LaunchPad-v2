@@ -43,7 +43,8 @@ export type TaskLabel =
   | 'task-expand'        // task-expansion turn (break a TODO into subtasks)
   | 'signal-classify'    // watch-source change significance classification (cheap)
   | 'signal-correlate'   // cross-signal correlation synthesis (balanced/Sonnet)
-  | 'skill-premium';     // premium-tier skill runs (landing page, pitch deck)
+  | 'skill-premium'      // premium-tier skill runs (landing page, pitch deck)
+  | 'chat-followup';     // simple chat follow-ups routed to Haiku
 
 type ResolvedModel = {
   provider: 'anthropic' | 'openrouter';
@@ -85,6 +86,7 @@ const DEFAULT_TASK_TIER: Partial<Record<TaskLabel, ModelTier>> = {
   milestones: 'premium',
   'task-expand': 'cheap',  // single-shot analytical; Haiku handles cleanly.
   'signal-classify': 'cheap',  // watch-source change classification; Haiku is sufficient.
+  'chat-followup': 'cheap',    // simple follow-ups (yes, tell me more, go ahead) — Haiku handles fine.
   'skill-premium': 'premium',  // landing page + pitch deck Build skills need Opus.
   // chat, monitor-agent, scoring, research, simulation, pitch-iterate,
   // term-sheet, growth-iterate, growth-synthesize, heartbeat-reflect,

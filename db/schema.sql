@@ -313,7 +313,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   role VARCHAR,
   content TEXT,
   user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  tools_json TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id);
@@ -585,13 +586,13 @@ CREATE TABLE IF NOT EXISTS project_budgets (
   id VARCHAR PRIMARY KEY,
   project_id VARCHAR REFERENCES projects(id) ON DELETE CASCADE,
   period_month VARCHAR NOT NULL,
-  cap_llm_usd DOUBLE PRECISION DEFAULT 0.50,
+  cap_llm_usd DOUBLE PRECISION DEFAULT 5.00,
   cap_external_actions INTEGER DEFAULT 20,
-  warn_llm_usd DOUBLE PRECISION DEFAULT 0.40,
+  warn_llm_usd DOUBLE PRECISION DEFAULT 4.00,
   warn_external_actions INTEGER DEFAULT 16,
   current_llm_usd DOUBLE PRECISION DEFAULT 0,
   current_external_actions INTEGER DEFAULT 0,
-  cap_credits INTEGER DEFAULT 100,
+  cap_credits INTEGER DEFAULT 500,
   status VARCHAR DEFAULT 'active',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -799,3 +800,21 @@ CREATE TABLE IF NOT EXISTS cron_runs (
   error_message TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_cron_runs_started_at ON cron_runs(started_at DESC);
+
+-- =============================================================================
+-- Migration: Raise budget caps for active projects (May 2026)
+-- Old defaults ($0.50 cap / $0.40 warn / 100 credits) allowed only ~13 chat
+-- messages/month. New defaults ($5.00 / $4.00 / 500) support ~131 messages.
+-- Idempotent: only touches rows still on the old defaults.
+-- =============================================================================
+UPDATE project_budgets
+SET cap_llm_usd = 5.00,
+    warn_llm_usd = 4.00,
+    cap_credits = 500
+WHERE cap_llm_usd <= 0.60
+  AND warn_llm_usd <= 0.48
+  AND status = 'active';
+
+ALTER TABLE project_budgets ALTER COLUMN cap_llm_usd SET DEFAULT 5.00;
+ALTER TABLE project_budgets ALTER COLUMN warn_llm_usd SET DEFAULT 4.00;
+ALTER TABLE project_budgets ALTER COLUMN cap_credits SET DEFAULT 500;

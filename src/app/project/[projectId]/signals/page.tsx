@@ -9,6 +9,7 @@
 
 import { use, useEffect, useState, useCallback, useMemo } from 'react';
 import { TopBar, NavRail } from '@/components/design/chrome';
+import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { Pill, StatusBar, IconBtn, I } from '@/components/design/primitives';
 import { SignalsSidebar, CATEGORY_GROUPS } from '@/components/signals/SignalsSidebar';
 import type { ViewMode } from '@/components/signals/SignalsSidebar';
@@ -20,6 +21,7 @@ import type { SignalTimelineEntry, WatchSource, IntelligenceBrief, CompetitorPro
 
 export default function SignalsPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = use(params);
+  const { count: inboxBadge } = useOpenActionCount(projectId);
 
   // Data
   const [signals, setSignals] = useState<SignalTimelineEntry[]>([]);
@@ -201,7 +203,7 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
       />
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <NavRail projectId={projectId} current="signals" />
+        <NavRail projectId={projectId} current="signals" inboxBadge={inboxBadge} />
 
         <SignalsSidebar
           view={view}

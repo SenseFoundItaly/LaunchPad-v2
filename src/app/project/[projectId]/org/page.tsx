@@ -19,6 +19,7 @@
 import { use, useEffect, useState, useCallback, useMemo } from 'react';
 import api from '@/api';
 import { TopBar, NavRail } from '@/components/design/chrome';
+import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
 import type { ApiResponse } from '@/types';
 
@@ -77,6 +78,7 @@ export default function OrgPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
+  const { count: inboxBadge } = useOpenActionCount(projectId);
   const [monitors, setMonitors] = useState<MonitorRow[]>([]);
   const [actions, setActions] = useState<PendingActionRow[]>([]);
   const [usage, setUsage] = useState<UsageGroup[]>([]);
@@ -212,7 +214,7 @@ export default function OrgPage({
         right={<Pill kind="ok" dot>{agents.length} agents · {liveCount} active</Pill>}
       />
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <NavRail projectId={projectId} current="org" />
+        <NavRail projectId={projectId} current="org" inboxBadge={inboxBadge} />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div
             style={{
