@@ -1,6 +1,6 @@
 # LaunchPad
 
-Autonomous AI co-founder for early-stage founders — proactive chat, self-driving ecosystem monitors, approval inbox for agent-proposed actions, and a Monday Brief digest.
+Autonomous AI co-founder for early-stage founders — proactive chat, self-driving ecosystem monitors, approval inbox for agent-proposed actions, and a Monday Brief digest - built on PI
 
 ## Quick Start
 
