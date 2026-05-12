@@ -1,0 +1,16 @@
+name: Auto-add to project
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened, ready_for_review]
+
+jobs:
+  add-to-project:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/add-to-project@v1.0.2
+        with:
+          project-url: https://github.com/orgs/SenseFoundItaly/projects/1
+          github-token: ${{ secrets.PROJECT_TOKEN }}
