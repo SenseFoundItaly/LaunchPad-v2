@@ -1,12 +1,16 @@
 import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
 import { json, error, mapProject } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+
   const rows = await query('SELECT * FROM projects WHERE id = ?', projectId);
   if (rows.length === 0) {return error('Project not found', 404);}
   return json(mapProject(rows[0]));
@@ -17,6 +21,9 @@ export async function PUT(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+
   const body = await request.json();
   if (!body) {return error('Request body required');}
 
@@ -45,36 +52,11 @@ export async function DELETE(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
-  const rows = await query('SELECT id FROM projects WHERE id = ?', projectId);
-  if (rows.length === 0) {return error('Project not found', 404);}
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
-  const tables = [
-    'idea_canvas', 'scores', 'research', 'simulation', 'workflow',
-    'burn_rate', 'chat_messages', 'startup_updates', 'milestones',
-    'pitch_versions', 'alerts', 'fundraising_rounds',
-  ];
-  for (const table of tables) {
-    await run(`DELETE FROM ${table} WHERE project_id = ?`, projectId);
-  }
-  const metrics = await query<{ id: string }>('SELECT id FROM metrics WHERE project_id = ?', projectId);
-  for (const m of metrics) {
-    await run('DELETE FROM metric_entries WHERE metric_id = ?', m.id);
-  }
-  await run('DELETE FROM metrics WHERE project_id = ?', projectId);
-
-  const investors = await query<{ id: string }>('SELECT id FROM investors WHERE project_id = ?', projectId);
-  for (const inv of investors) {
-    await run('DELETE FROM investor_interactions WHERE investor_id = ?', inv.id);
-    await run('DELETE FROM term_sheets WHERE investor_id = ?', inv.id);
-  }
-  await run('DELETE FROM investors WHERE project_id = ?', projectId);
-
-  const loops = await query<{ id: string }>('SELECT id FROM growth_loops WHERE project_id = ?', projectId);
-  for (const l of loops) {
-    await run('DELETE FROM growth_iterations WHERE loop_id = ?', l.id);
-  }
-  await run('DELETE FROM growth_loops WHERE project_id = ?', projectId);
-  await run('DELETE FROM term_sheets WHERE project_id = ?', projectId);
+  // All child tables use ON DELETE CASCADE — a single delete propagates
+  // to all 30+ dependent tables automatically without manual cleanup.
   await run('DELETE FROM projects WHERE id = ?', projectId);
 
   return json(null);

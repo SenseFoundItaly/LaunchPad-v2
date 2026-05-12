@@ -938,7 +938,11 @@ export async function POST(request: NextRequest) {
   const force = url.searchParams.get('force') === 'true';
 
   let body: { project_id?: string; type_prefix?: string } = {};
-  try { body = await request.json(); } catch { /* body is optional */ }
+  try {
+    body = await request.json();
+  } catch {
+    return error('Invalid JSON body');
+  }
 
   const conditions: string[] = [`status = 'active'`];
   const params: unknown[] = [];

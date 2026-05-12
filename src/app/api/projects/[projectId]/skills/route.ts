@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { query, run, get } from '@/lib/db';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { recordEvent } from '@/lib/memory/events';
+import { computeSectionScoresFromSummary } from '@/lib/section-scoring';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 /** GET: list all skill completions for a project */
 export async function GET(
@@ -9,6 +11,9 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+
   const rows = await query(
     'SELECT * FROM skill_completions WHERE project_id = ? ORDER BY completed_at DESC',
     projectId,
@@ -22,22 +27,29 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+
   const body = await request.json();
   if (!body?.skill_id) return error('skill_id required');
 
   const id = generateId('skc');
+  const sectionScores = computeSectionScoresFromSummary(body.skill_id, body.summary);
+
   await run(
-    `INSERT INTO skill_completions (id, project_id, skill_id, status, summary, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO skill_completions (id, project_id, skill_id, status, summary, section_scores, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(project_id, skill_id) DO UPDATE SET
        status = excluded.status,
        summary = excluded.summary,
+       section_scores = excluded.section_scores,
        completed_at = excluded.completed_at`,
     id,
     projectId,
     body.skill_id,
     body.status || 'completed',
     body.summary || null,
+    sectionScores ? JSON.stringify(sectionScores) : null,
     new Date().toISOString(),
   );
 

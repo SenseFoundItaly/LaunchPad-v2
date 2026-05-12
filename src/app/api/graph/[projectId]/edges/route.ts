@@ -1,12 +1,15 @@
 import { NextRequest } from 'next/server';
 import { query, run, get } from '@/lib/db';
 import { json, error, generateId } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   let body;
   try {
@@ -23,9 +26,6 @@ export async function POST(
   if (body.source_node_id.startsWith('gn_temp_') || body.target_node_id.startsWith('gn_temp_')) {
     return json({ id: 'skipped', source: body.source_node_id, target: body.target_node_id, relation: body.relation, label: '', weight: 1.0 });
   }
-
-  const rows = await query('SELECT id FROM projects WHERE id = $1', projectId);
-  if (rows.length === 0) {return error('Project not found', 404);}
 
   // Verify both nodes exist
   const srcNode = await get('SELECT id FROM graph_nodes WHERE id = $1', body.source_node_id);

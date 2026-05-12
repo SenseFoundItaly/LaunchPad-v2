@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { json } from '@/lib/api-helpers';
 import type { CompetitorProfile } from '@/types';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 /**
  * GET /api/projects/{projectId}/competitors
@@ -13,6 +14,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   const profiles = await query<CompetitorProfile>(
     `SELECT id, project_id, name, slug, description, signal_counts,
@@ -24,11 +27,13 @@ export async function GET(
     projectId,
   );
 
-  const parsed = profiles.map(p => ({
-    ...p,
-    signal_counts: typeof p.signal_counts === 'string' ? JSON.parse(p.signal_counts) : p.signal_counts,
-    metadata: typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata,
-  }));
+  const parsed = profiles.map(p => {
+    let signal_counts = p.signal_counts;
+    let metadata = p.metadata;
+    try { if (typeof signal_counts === 'string') signal_counts = JSON.parse(signal_counts); } catch { signal_counts = {}; }
+    try { if (typeof metadata === 'string') metadata = JSON.parse(metadata); } catch { metadata = {}; }
+    return { ...p, signal_counts, metadata };
+  });
 
   return json({ success: true, data: parsed });
 }

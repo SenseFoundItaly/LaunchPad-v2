@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { json } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 /**
  * GET /api/dashboard/{projectId}
@@ -21,6 +22,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   const metrics = await query<{ id: string; name: string; type: string; target_growth_rate: number }>(
     'SELECT * FROM metrics WHERE project_id = ?', projectId,

@@ -3,14 +3,22 @@ import { query } from '@/lib/db';
 import { chatJSONByTask } from '@/lib/llm';
 import { SCALING_PLAN_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
-import { json } from '@/lib/api-helpers';
+import { json, error } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
-  const body = await request.json().catch(() => ({}));
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return error('Invalid JSON body');
+  }
   const provider = body?.provider || 'openai';
 
   const task = createTask('scaling_plan', projectId);

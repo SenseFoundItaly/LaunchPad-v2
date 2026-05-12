@@ -87,7 +87,12 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string; clientArtifactId: string }> },
 ) {
   const { projectId, clientArtifactId } = await params;
-  const body = await request.json().catch(() => ({} as Record<string, unknown>));
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return error('Invalid JSON body');
+  }
   const action = body?.action as string;
 
   const row = await findByClientArtifactId(projectId, clientArtifactId);

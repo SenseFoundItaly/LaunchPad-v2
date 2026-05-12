@@ -9,6 +9,9 @@
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
+  -- User's preferred model override. NULL = use system default routing.
+  -- Values: model config key (e.g., 'claude-sonnet-4-6') or NULL.
+  preferred_model VARCHAR,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -299,6 +302,7 @@ CREATE TABLE IF NOT EXISTS skill_completions (
   skill_id VARCHAR NOT NULL,
   status VARCHAR DEFAULT 'completed',
   summary TEXT,
+  section_scores JSONB,
   completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(project_id, skill_id)
 );
@@ -314,7 +318,11 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   content TEXT,
   user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  tools_json TEXT
+  tools_json TEXT,
+  -- Parsed prose-level citations extracted from <CITATIONS> blocks.
+  -- Stored as Source[] JSON so the UI can render a ProseCitationsFooter
+  -- without re-parsing the message content on every render.
+  citations JSONB
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id);
@@ -818,3 +826,76 @@ WHERE cap_llm_usd <= 0.60
 ALTER TABLE project_budgets ALTER COLUMN cap_llm_usd SET DEFAULT 5.00;
 ALTER TABLE project_budgets ALTER COLUMN warn_llm_usd SET DEFAULT 4.00;
 ALTER TABLE project_budgets ALTER COLUMN cap_credits SET DEFAULT 500;
+
+-- =============================================================================
+-- Tabular Reviews (Epic 2: structured comparison reviews with typed cells)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS tabular_reviews (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  title VARCHAR NOT NULL,
+  -- Parallel arrays: column names and their types for typed rendering.
+  columns JSONB NOT NULL,         -- ["Name", "ARR", "Growth", "Website"]
+  column_types JSONB NOT NULL,    -- ["text", "currency", "percentage", "url"]
+  sources JSONB DEFAULT '[]',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_tabular_reviews_project
+  ON tabular_reviews(project_id);
+
+CREATE TABLE IF NOT EXISTS tabular_cells (
+  id VARCHAR PRIMARY KEY,
+  review_id VARCHAR NOT NULL REFERENCES tabular_reviews(id) ON DELETE CASCADE,
+  row_index INTEGER NOT NULL,
+  row_label VARCHAR NOT NULL,
+  -- JSONB array of typed cell values, parallel to the review's columns.
+  -- Each entry is the raw value (number for currency/percentage/score, string for text/url).
+  values JSONB NOT NULL,          -- [42000000, 0.15, 8.2, "https://..."]
+  -- Optional per-row source linking (e.g., competitor profile ID).
+  entity_id VARCHAR,
+  entity_type VARCHAR,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_tabular_cells_review
+  ON tabular_cells(review_id, row_index);
+
+-- =============================================================================
+-- User API Keys (Epic 4: BYOK — per-user key storage)
+-- Keys are encrypted with AES-256-GCM before storage. The `encrypted_key`
+-- column holds the IV + ciphertext + auth tag as a single base64 blob.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS user_api_keys (
+  id VARCHAR PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider VARCHAR NOT NULL,            -- 'anthropic' | 'openai' | 'openrouter'
+  label VARCHAR NOT NULL,               -- user-facing label, e.g. "My Anthropic Key"
+  encrypted_key TEXT NOT NULL,           -- AES-256-GCM encrypted, base64
+  key_hint VARCHAR NOT NULL,            -- last 4 chars of the plaintext key, for UI display
+  validated_at TIMESTAMP,               -- last successful validation
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, provider)             -- one key per provider per user
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_api_keys_user
+  ON user_api_keys(user_id);
+
+-- =============================================================================
+-- Missing indexes for common query patterns (added in migration 003)
+-- =============================================================================
+CREATE INDEX IF NOT EXISTS idx_investors_project ON investors(project_id);
+CREATE INDEX IF NOT EXISTS idx_metrics_project ON metrics(project_id);
+CREATE INDEX IF NOT EXISTS idx_metric_entries_metric_date ON metric_entries(metric_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_growth_loops_project ON growth_loops(project_id);
+CREATE INDEX IF NOT EXISTS idx_alerts_project ON alerts(project_id);
+CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones(project_id);
+CREATE INDEX IF NOT EXISTS idx_skill_completions_project ON skill_completions(project_id);
+CREATE INDEX IF NOT EXISTS idx_investor_interactions_investor ON investor_interactions(investor_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_project_timestamp ON chat_messages(project_id, "timestamp" DESC);
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_project ON graph_nodes(project_id);
+CREATE INDEX IF NOT EXISTS idx_graph_edges_project ON graph_edges(project_id);
+CREATE INDEX IF NOT EXISTS idx_monitor_runs_run_at ON monitor_runs(run_at DESC);
+CREATE INDEX IF NOT EXISTS idx_startup_updates_project ON startup_updates(project_id, date DESC);
+

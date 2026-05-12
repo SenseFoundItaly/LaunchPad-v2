@@ -1,20 +1,21 @@
 import { NextRequest } from 'next/server';
 import { query, run, get } from '@/lib/db';
 import { json, error, generateId } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+
   const body = await request.json();
 
   if (!body?.name || !body?.node_type) {
     return error('name and node_type are required');
   }
-
-  const rows = await query('SELECT id FROM projects WHERE id = $1', projectId);
-  if (rows.length === 0) {return error('Project not found', 404);}
 
   // UPSERT: check for existing node with same name + project_id
   const existing = await get(

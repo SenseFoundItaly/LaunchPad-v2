@@ -70,7 +70,11 @@ export async function POST(
   }
 
   let body: { context?: string } = {};
-  try { body = await request.json(); } catch { /* body is optional */ }
+  try {
+    body = await request.json();
+  } catch {
+    return error('Invalid JSON body');
+  }
 
   const prompt = loadRiskPrompt();
   if (!prompt) {

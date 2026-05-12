@@ -4,6 +4,7 @@ import { chatJSONByTask } from '@/lib/llm';
 import { SCORING_PROMPT } from '@/lib/llm/prompts';
 import { createTask, setProgress, completeTask, failTask } from '@/lib/tasks';
 import { json, error } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -11,6 +12,8 @@ export async function POST(request: NextRequest) {
   const provider = body?.provider || 'openai';
 
   if (!projectId) {return error('project_id required');}
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   const task = createTask('scoring', projectId);
 

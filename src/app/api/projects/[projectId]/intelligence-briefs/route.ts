@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import type { IntelligenceBrief } from '@/types';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 /**
  * GET /api/projects/{projectId}/intelligence-briefs
@@ -16,6 +17,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const url = new URL(request.url);
   const status = url.searchParams.get('status');
   const entity = url.searchParams.get('entity');
@@ -46,12 +49,14 @@ export async function GET(
     ...values,
   );
 
-  // Parse JSONB fields
-  const parsed = briefs.map(b => ({
-    ...b,
-    signal_ids: typeof b.signal_ids === 'string' ? JSON.parse(b.signal_ids) : b.signal_ids,
-    recommended_actions: typeof b.recommended_actions === 'string' ? JSON.parse(b.recommended_actions) : b.recommended_actions,
-  }));
+  // Parse JSONB fields (safe — malformed JSON falls back to empty array)
+  const parsed = briefs.map(b => {
+    let signal_ids = b.signal_ids;
+    let recommended_actions = b.recommended_actions;
+    try { if (typeof signal_ids === 'string') signal_ids = JSON.parse(signal_ids); } catch { signal_ids = []; }
+    try { if (typeof recommended_actions === 'string') recommended_actions = JSON.parse(recommended_actions); } catch { recommended_actions = []; }
+    return { ...b, signal_ids, recommended_actions };
+  });
 
   return json({ success: true, data: parsed });
 }

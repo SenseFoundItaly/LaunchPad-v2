@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { run } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 const STAGES = ['idea', 'mvp', 'pmf', 'growth', 'scale'];
 
@@ -9,6 +10,8 @@ export async function PUT(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const body = await request.json();
 
   if (!body?.current_stage) {return error('current_stage is required');}

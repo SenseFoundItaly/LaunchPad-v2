@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
+import { query, run, get } from '@/lib/db';
 import crypto from 'crypto';
-import { chatWithUsage } from '@/lib/llm';
+import { chatWithUsage, type UserKeyOverride } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
 import { logUsageToSQLite, logToLangfuse, estimateCost } from '@/lib/telemetry';
 import { runAgentStream } from '@/lib/pi-agent';
@@ -11,7 +11,7 @@ import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { buildMemoryContext } from '@/lib/memory/context';
 import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
-import { parseMessageContent } from '@/lib/artifact-parser';
+import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
 import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
 import { isProjectCapped } from '@/lib/cost-meter';
 import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
@@ -61,6 +61,29 @@ async function ensureToolsJsonColumn() {
   } catch (err) {
     // Non-fatal — column may already exist or DB may not support IF NOT EXISTS.
     console.warn('[chat] tools_json migration (non-fatal):', err);
+  }
+}
+
+/**
+ * BYOK: resolve the user's stored API key for the active provider.
+ * Returns a UserKeyOverride if the user has stored a key for the provider
+ * the router selected, otherwise null (fall back to system key).
+ */
+async function resolveUserKey(userId: string, provider: string): Promise<UserKeyOverride | undefined> {
+  try {
+    const { decrypt } = await import('@/lib/crypto');
+    const row = await get<{ encrypted_key: string; provider: string }>(
+      'SELECT encrypted_key, provider FROM user_api_keys WHERE user_id = ? AND provider = ?',
+      userId, provider,
+    );
+    if (!row) return undefined;
+    const apiKey = decrypt(row.encrypted_key);
+    return { provider: row.provider as UserKeyOverride['provider'], apiKey };
+  } catch (err) {
+    // Non-fatal — fall back to system key if decryption fails or
+    // ENCRYPTION_KEY is not set.
+    console.warn('[chat] BYOK key resolution failed (using system key):', (err as Error).message);
+    return undefined;
   }
 }
 
@@ -455,11 +478,13 @@ export async function POST(request: NextRequest) {
           );
           if (fullResponse.trim().length > 0) {
             const toolsJson = toolsList.length > 0 ? JSON.stringify(toolsList) : null;
+            const citationsJson = extractCitations(fullResponse);
             await run(
-              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, tools_json)
-               VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?)`,
+              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, tools_json, citations)
+               VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?)`,
               `msg_${crypto.randomUUID().slice(0, 12)}`,
               project_id, step, fullResponse, now, userId, toolsJson,
+              citationsJson ? JSON.stringify(citationsJson) : null,
             );
           }
         } catch (err) {

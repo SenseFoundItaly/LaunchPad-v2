@@ -1,12 +1,15 @@
 import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string; investorId: string }> },
 ) {
-  const { investorId } = await params;
+  const { projectId, investorId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const body = await request.json();
 
   if (!body?.stage) {return error('stage is required');}

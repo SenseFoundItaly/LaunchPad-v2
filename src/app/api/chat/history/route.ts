@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
 import { json, error, generateId } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -8,6 +9,8 @@ export async function GET(request: NextRequest) {
   const step = searchParams.get('step') || 'chat';
 
   if (!projectId) {return error('project_id required');}
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   const rows = await query(
     'SELECT * FROM chat_messages WHERE project_id = ? AND step = ? ORDER BY "timestamp"',
@@ -20,6 +23,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const body = await request.json();
   if (!body?.project_id) {return error('project_id required');}
+  const authPost = await tryProjectAccess(body.project_id);
+  if (!authPost.ok) return authPost.response;
 
   const { project_id, step = 'chat', messages = [] } = body;
 

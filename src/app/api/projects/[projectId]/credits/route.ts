@@ -35,7 +35,12 @@ export async function PATCH(
   const project = await get<{ id: string }>('SELECT id FROM projects WHERE id = ?', projectId);
   if (!project) return error('Project not found', 404);
 
-  const body = await request.json().catch(() => ({}));
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return error('Invalid JSON body');
+  }
   if (body.action !== 'bump') return error('Invalid action — expected "bump"', 400);
 
   const bumpCredits = typeof body.amount === 'number' && body.amount > 0
