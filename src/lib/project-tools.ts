@@ -135,7 +135,7 @@ const listGraphNodes = (ctx: ToolContext): AgentTool => ({
     const p = params as { node_type?: string; limit?: number };
     const limit = Math.max(1, Math.min(100, p.limit ?? 30));
 
-    const conditions = ['project_id = ?'];
+    const conditions = ['project_id = ?', "reviewed_state = 'approved'"];
     const args: unknown[] = [ctx.projectId];
     if (p.node_type) {
       conditions.push('node_type = ?');
@@ -1062,7 +1062,7 @@ const createSignalTool = (ctx: ToolContext): AgentTool => ({
   name: 'create_signal',
   label: 'Create Signal',
   description:
-    'Inject a signal (ecosystem alert) directly into the feed from chat. No approval needed — appears immediately. Use when the founder shares intel worth capturing.',
+    'Inject a signal (ecosystem alert) into the feed from chat. The signal is created with pending review state — it appears in the feed but the founder can approve or dismiss it. Use when the founder shares intel worth capturing.',
   parameters: Type.Object({
     headline: Type.String({ description: 'Signal headline ≤200 chars. Example: "Acme raises $10M Series A"' }),
     body: Type.Optional(Type.String({ description: 'Optional longer description / context.' })),
@@ -1358,8 +1358,8 @@ const createTabularReviewTool = (ctx: ToolContext): AgentTool => ({
 
     try {
       await run(
-        `INSERT INTO tabular_reviews (id, project_id, title, columns, column_types, sources, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tabular_reviews (id, project_id, title, columns, column_types, sources, reviewed_state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
         reviewId, ctx.projectId, p.title.trim(),
         JSON.stringify(p.columns), JSON.stringify(p.column_types),
         JSON.stringify(p.sources), now, now,

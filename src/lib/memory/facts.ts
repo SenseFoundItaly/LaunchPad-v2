@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { get, query, run } from '@/lib/db';
 import { recordEvent } from './events';
-import type { Source } from '@/types/artifacts';
+import type { Source, ReviewedState } from '@/types/artifacts';
 
 /**
  * memory_facts is the durable knowledge base per (user, project). Facts are
@@ -21,7 +21,7 @@ export interface MemoryFact {
   source_type: FactSourceType | null;
   source_id: string | null;
   confidence: number;
-  dismissed: boolean;
+  reviewed_state: ReviewedState;
   created_at: string;
   updated_at: string;
 }
@@ -42,6 +42,9 @@ export interface RecordFactInput {
  * (user, project, kind), bumps updated_at + confidence instead of inserting
  * a duplicate. Also writes a memory_event(type='fact_recorded').
  *
+ * New facts are inserted with reviewed_state='pending' so they require
+ * founder approval before entering agent context.
+ *
  * Returns the fact id. Non-throwing (warns + returns '' on failure).
  */
 export async function recordFact(input: RecordFactInput): Promise<string> {
@@ -49,12 +52,13 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
     const kind = input.kind || 'fact';
     const confidence = input.confidence ?? 0.8;
 
-    // Dedup: same fact text (case-insensitive, trimmed) within (user,project,kind)
+    // Dedup: same fact text (case-insensitive, trimmed) within (user,project,kind).
+    // Excluded: rejected facts (founder explicitly rejected — allow re-submission).
     const trimmed = input.fact.trim();
     const existing = await get<{ id: string; confidence: number }>(
       `SELECT id, confidence FROM memory_facts
        WHERE user_id = ? AND project_id = ? AND kind = ?
-         AND LOWER(fact) = LOWER(?) AND dismissed = false`,
+         AND LOWER(fact) = LOWER(?) AND reviewed_state != 'rejected'`,
       input.userId,
       input.projectId,
       kind,
@@ -80,8 +84,8 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
       id = crypto.randomUUID();
       await run(
         `INSERT INTO memory_facts
-           (id, user_id, project_id, fact, kind, source_type, source_id, confidence, sources)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, user_id, project_id, fact, kind, source_type, source_id, confidence, reviewed_state, sources)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
         id,
         input.userId,
         input.projectId,
@@ -110,7 +114,8 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
 
 export interface ListFactsOpts {
   limit?: number;
-  includeDismissed?: boolean;
+  /** Filter by reviewed states. Defaults to ['approved'] for agent context. */
+  states?: ReviewedState[];
   kinds?: FactKind[];
   minConfidence?: number;
 }
@@ -120,10 +125,13 @@ export async function listFacts(
   projectId: string,
   opts: ListFactsOpts = {},
 ): Promise<MemoryFact[]> {
-  const { limit = 20, includeDismissed = false, kinds, minConfidence } = opts;
+  const { limit = 20, states = ['approved'], kinds, minConfidence } = opts;
   const clauses: string[] = ['user_id = ?', 'project_id = ?'];
   const params: unknown[] = [userId, projectId];
-  if (!includeDismissed) clauses.push('dismissed = false');
+  if (states.length > 0) {
+    clauses.push(`reviewed_state IN (${states.map(() => '?').join(',')})`);
+    params.push(...states);
+  }
   if (kinds && kinds.length > 0) {
     clauses.push(`kind IN (${kinds.map(() => '?').join(',')})`);
     params.push(...kinds);
@@ -133,7 +141,7 @@ export async function listFacts(
     params.push(minConfidence);
   }
   const sql = `SELECT id, user_id, project_id, fact, kind, source_type, source_id,
-                      confidence, dismissed, created_at, updated_at
+                      confidence, reviewed_state, created_at, updated_at
                FROM memory_facts
                WHERE ${clauses.join(' AND ')}
                ORDER BY updated_at DESC
@@ -144,10 +152,14 @@ export async function listFacts(
 }
 
 /**
- * Soft-dismiss a fact. The row stays; dismissed=true excludes it from
- * buildMemoryContext selection.
+ * Transition a fact's reviewed_state. Replaces the old dismissFact().
+ * Used by the knowledge review endpoint.
  */
-export async function dismissFact(factId: string, userId: string): Promise<boolean> {
+export async function reviewFact(
+  factId: string,
+  userId: string,
+  state: 'approved' | 'rejected',
+): Promise<boolean> {
   try {
     const fact = await get<{ project_id: string; fact: string }>(
       'SELECT project_id, fact FROM memory_facts WHERE id = ? AND user_id = ?',
@@ -157,18 +169,19 @@ export async function dismissFact(factId: string, userId: string): Promise<boole
     if (!fact) return false;
 
     await run(
-      'UPDATE memory_facts SET dismissed = true, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      'UPDATE memory_facts SET reviewed_state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      state,
       factId,
     );
     await recordEvent({
       userId,
       projectId: fact.project_id,
-      eventType: 'fact_dismissed',
+      eventType: state === 'approved' ? 'fact_approved' : 'fact_rejected',
       payload: { factId, preview: fact.fact.slice(0, 120) },
     });
     return true;
   } catch (err) {
-    console.warn('[memory/facts] dismissFact failed:', err);
+    console.warn('[memory/facts] reviewFact failed:', err);
     return false;
   }
 }

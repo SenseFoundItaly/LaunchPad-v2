@@ -232,7 +232,7 @@ function summarizeEvent(type: string, payload: unknown): string {
 
 async function summarizeGraph(projectId: string, maxNodes: number): Promise<string | null> {
   const nodeCounts = await query<{ node_type: string; count: number }>(
-    'SELECT node_type, COUNT(*) as count FROM graph_nodes WHERE project_id = ? GROUP BY node_type',
+    "SELECT node_type, COUNT(*) as count FROM graph_nodes WHERE project_id = ? AND reviewed_state = 'approved' GROUP BY node_type",
     projectId,
   );
   if (nodeCounts.length === 0) return null;
@@ -242,8 +242,8 @@ async function summarizeGraph(projectId: string, maxNodes: number): Promise<stri
   }>(
     `SELECT s.name as source_name, t.name as target_name, e.relation, e.weight
      FROM graph_edges e
-     JOIN graph_nodes s ON s.id = e.source_node_id
-     JOIN graph_nodes t ON t.id = e.target_node_id
+     JOIN graph_nodes s ON s.id = e.source_node_id AND s.reviewed_state = 'approved'
+     JOIN graph_nodes t ON t.id = e.target_node_id AND t.reviewed_state = 'approved'
      WHERE e.project_id = ?
      ORDER BY e.weight DESC LIMIT ?`,
     projectId,

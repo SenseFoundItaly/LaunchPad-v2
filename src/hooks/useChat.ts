@@ -164,6 +164,15 @@ export function useChat(projectId: string, step: string = 'chat') {
                     });
                   }
 
+                  // Broadcast persisted artifact IDs so cards can wire approve/reject
+                  if (parsed.done && parsed.persisted_artifacts && typeof window !== 'undefined') {
+                    window.dispatchEvent(
+                      new CustomEvent('lp-persisted-artifacts', {
+                        detail: parsed.persisted_artifacts,
+                      }),
+                    );
+                  }
+
                   if (parsed.error) {
                     console.error('Stream error:', parsed.error);
                     setMessages((prev) => {

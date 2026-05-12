@@ -499,6 +499,7 @@ CREATE TABLE IF NOT EXISTS graph_nodes (
   summary TEXT,
   attributes JSONB,
   sources JSONB,
+  reviewed_state VARCHAR DEFAULT 'pending',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -622,7 +623,7 @@ CREATE TABLE IF NOT EXISTS memory_facts (
   source_type TEXT,
   source_id TEXT,
   confidence DOUBLE PRECISION DEFAULT 1.0,
-  dismissed BOOLEAN DEFAULT false,
+  reviewed_state VARCHAR DEFAULT 'pending',
   embedding BYTEA,
   sources JSONB,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -630,7 +631,7 @@ CREATE TABLE IF NOT EXISTS memory_facts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_memory_facts_user_project
-  ON memory_facts(user_id, project_id, dismissed, updated_at);
+  ON memory_facts(user_id, project_id, reviewed_state, updated_at);
 
 CREATE TABLE IF NOT EXISTS memory_events (
   id TEXT PRIMARY KEY,
@@ -654,7 +655,7 @@ CREATE TABLE IF NOT EXISTS watch_sources (
   label VARCHAR NOT NULL,
   category VARCHAR NOT NULL DEFAULT 'custom',
   scrape_config JSONB DEFAULT '{}',
-  schedule VARCHAR NOT NULL DEFAULT 'daily',
+  schedule VARCHAR NOT NULL DEFAULT 'weekly',
   last_snapshot TEXT,
   last_content_hash VARCHAR,
   last_scraped_at TIMESTAMP,
@@ -838,6 +839,7 @@ CREATE TABLE IF NOT EXISTS tabular_reviews (
   columns JSONB NOT NULL,         -- ["Name", "ARR", "Growth", "Website"]
   column_types JSONB NOT NULL,    -- ["text", "currency", "percentage", "url"]
   sources JSONB DEFAULT '[]',
+  reviewed_state VARCHAR DEFAULT 'pending',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

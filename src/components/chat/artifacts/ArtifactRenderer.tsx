@@ -37,13 +37,13 @@ export default function ArtifactRenderer({
     case 'insight-card':
       return <InsightCard artifact={artifact} onAction={onAction} />;
     case 'comparison-table':
-      return <ComparisonTable artifact={artifact} />;
+      return <ComparisonTable artifact={artifact} onAction={onAction} />;
     case 'action-suggestion':
       return <ActionSuggestionCard artifact={artifact} onAction={onAction} />;
     case 'score-badge':
       return <ScoreBadge artifact={artifact} />;
     case 'entity-card':
-      return <EntityCardInline artifact={artifact} onEntityDiscovered={onEntityDiscovered} />;
+      return <EntityCardInline artifact={artifact} onEntityDiscovered={onEntityDiscovered} onAction={onAction} />;
     case 'workflow-card':
       return (
         <WorkflowCardInline

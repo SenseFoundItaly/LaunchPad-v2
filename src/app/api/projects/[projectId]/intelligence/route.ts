@@ -10,7 +10,7 @@ import type { SkillData } from '@/hooks/useSkillStatus';
  * GET /api/projects/{projectId}/intelligence
  *
  * Aggregates the durable knowledge layer for the Canvas → Intelligence tab:
- *   - facts:  top memory_facts (confidence DESC, undismissed)
+ *   - facts:  top memory_facts (confidence DESC, approved)
  *   - alerts: top ecosystem_alerts (relevance DESC, pending review)
  *   - score:  latest scores row
  *   - nodes:  recent graph_nodes
@@ -120,7 +120,7 @@ export async function GET(
   const nodes = await query<NodeRow>(
     `SELECT id, name, node_type, summary, created_at
      FROM graph_nodes
-     WHERE project_id = ?
+     WHERE project_id = ? AND reviewed_state = 'approved'
      ORDER BY created_at DESC
      LIMIT 5`,
     projectId,

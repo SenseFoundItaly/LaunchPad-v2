@@ -24,6 +24,7 @@ import Link from 'next/link';
 import api from '@/api';
 import { useProject } from '@/hooks/useProject';
 import ProjectChatDrawer from '@/components/chat/ProjectChatDrawer';
+import PendingKnowledgeList from '@/components/knowledge/PendingKnowledgeList';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import {
@@ -403,6 +404,13 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
                 }
               >
                 <TicketListPanel decisions={payload?.pending_decisions || []} locale={locale} />
+              </Panel>
+
+              <Panel
+                title={locale === 'it' ? 'Revisione Conoscenze' : 'Knowledge Review'}
+                subtitle={locale === 'it' ? 'Elementi in attesa di approvazione' : 'Items awaiting your approval'}
+              >
+                <PendingKnowledgeList projectId={projectId} />
               </Panel>
             </div>
 

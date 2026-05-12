@@ -56,9 +56,15 @@ export type Source =
   | { type: 'user'; title: string; chat_turn_id?: string; quote: string }
   | { type: 'inference'; title: string; based_on: Source[]; reasoning: string };
 
+export type ReviewedState = 'pending' | 'approved' | 'rejected';
+
 export interface ArtifactBase {
   type: ArtifactType;
   id: string;
+  /** Set when the artifact has been persisted (graph_nodes, memory_facts, etc.) */
+  persisted_id?: string;
+  /** Approval state — pending items await founder review before entering agent context */
+  reviewed_state?: ReviewedState;
 }
 
 export interface OptionSet extends ArtifactBase {

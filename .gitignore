@@ -9,3 +9,9 @@ data/
 .vercel
 .env*.local
 .env*.production
+
+# Local Netlify folder
+.netlify
+
+# Playwright MCP snapshots
+.playwright-mcp/

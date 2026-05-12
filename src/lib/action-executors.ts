@@ -542,7 +542,7 @@ const configureWatchSource: ActionHandler = async (action) => {
   const url = String(payload.url ?? '');
   const label = String(payload.label ?? action.title);
   const category = String(payload.category ?? 'custom');
-  const schedule = String(payload.schedule ?? 'daily');
+  const schedule = String(payload.schedule ?? 'weekly');
 
   // Validate URL
   try {

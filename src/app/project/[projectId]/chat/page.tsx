@@ -205,6 +205,26 @@ export default function CopilotChatPage({
    */
   const handleArtifactAction = useCallback(
     async (action: string, payload: Record<string, unknown>): Promise<void> => {
+      // Knowledge item approve/reject (facts, graph_nodes, tabular_reviews)
+      if (action === 'knowledge:approve') {
+        const itemId = String(payload.item_id ?? '');
+        const state = String(payload.state ?? 'approved');
+        if (!itemId) throw new Error('Missing item_id on knowledge action');
+        const res = await fetch(
+          `/api/projects/${projectId}/knowledge/${itemId}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state }),
+          },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `Knowledge review failed with status ${res.status}`);
+        }
+        return;
+      }
+
       // Generic pending-action approve/reject from PendingSection
       if (action === 'action:approve' || action === 'action:reject') {
         const pendingActionId = String(payload.pending_action_id ?? '');

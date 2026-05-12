@@ -67,6 +67,8 @@ export interface PersistResult {
   persisted: boolean;
   target?: string;
   note?: string;
+  /** Server-assigned ID for the persisted row (graph_node id, fact id, etc.) */
+  persisted_id?: string;
 }
 
 export async function persistArtifact(ctx: PersistContext, artifact: Artifact): Promise<PersistResult> {
@@ -123,6 +125,7 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     // COALESCE keeps prior sources when the update carries none — the parser
     // guarantees factual artifacts arrive with sources, so this is mostly
     // a safety net against future relaxation of the rule.
+    // NOTE: UPDATE preserves existing reviewed_state — don't reset to pending.
     await run(
       'UPDATE graph_nodes SET summary = ?, attributes = ?, sources = COALESCE(?, sources) WHERE id = ?',
       a.summary ?? '',
@@ -130,13 +133,13 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
       srcJson,
       existing.id,
     );
-    return { type: a.type, persisted: true, target: 'graph_nodes (update)' };
+    return { type: a.type, persisted: true, target: 'graph_nodes (update)', persisted_id: existing.id };
   }
 
   const id = `node_${crypto.randomUUID().slice(0, 12)}`;
   await run(
-    `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
     id,
     ctx.projectId,
     a.name,
@@ -168,7 +171,7 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     );
   }
 
-  return { type: a.type, persisted: true, target: 'graph_nodes (insert)' };
+  return { type: a.type, persisted: true, target: 'graph_nodes (insert)', persisted_id: id };
 }
 
 function relationForEntityType(t: string | undefined): string {
@@ -197,7 +200,7 @@ async function persistInsightCard(ctx: PersistContext, a: InsightCard): Promise<
     a.confidence === 'low' ? 0.5 :
     0.75;
 
-  await recordFact({
+  const factId = await recordFact({
     userId: ctx.userId,
     projectId: ctx.projectId,
     fact,
@@ -211,7 +214,7 @@ async function persistInsightCard(ctx: PersistContext, a: InsightCard): Promise<
     sources: a.sources,
   });
 
-  return { type: a.type, persisted: true, target: 'memory_facts (observation)' };
+  return { type: a.type, persisted: true, target: 'memory_facts (observation)', persisted_id: factId || undefined };
 }
 
 // ─── gauge-chart → scores.overall_score + benchmark ──────────────────────────

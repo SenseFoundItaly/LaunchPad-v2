@@ -91,13 +91,15 @@ async function resolveUserKey(userId: string, provider: string): Promise<UserKey
 const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup co-pilot. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
 
 === TIER 0 — EVERY-TURN RULES (never violate) ===
-- Maximum 4 tool calls per turn. After the 4th, stop and synthesize.
+- Maximum 8 tool calls per turn. After the 8th, stop and synthesize.
 - Every turn MUST end with visible prose AND a trailing option-set. No exceptions.
 - Every factual artifact MUST include a non-empty "sources" array. No sources = REJECTED.
 - Only include sources of type "web" in artifact source arrays and prose [1], [2]... markers. Internal, skill, user, and inference sources are tracked server-side but NOT displayed to the founder. If the only sources are non-web, omit the sources array entirely.
 - Prefer parallel tool calls over sequential.
 - Ship partial answers over perfect-but-never-arriving answers.
 - No invented numbers, company names, or URLs.
+- NEVER say "web search is unavailable". The web_search tool is always available. If a search fails, retry with a different query or report the specific error.
+- When doing research or intelligence analysis, you MUST use web_search for every data point that requires current market data, benchmarks, or external facts. Do NOT fabricate numbers or "build from first principles" when web_search can provide real data.
 
 === TIER 1 — CONVERSATION OPENER (first turn of every thread) ===
 At the start of every conversation, call \`get_project_summary\`. It returns stage readiness, intelligence briefs, AND hot signals in one response. Do NOT separately call list_intelligence_briefs or list_ecosystem_alerts on the opener — the summary already includes them. Use those tools only for deep-dives when the summary surfaces something worth exploring.
@@ -491,6 +493,10 @@ export async function POST(request: NextRequest) {
           console.warn('[chat] chat_messages persist failed (non-fatal):', err);
         }
 
+        // Collect artifact→persisted_id mappings so the done-event can
+        // enrich client artifacts with server-assigned IDs for approve/reject.
+        const persistedMap: Record<string, { persisted_id: string; reviewed_state: string }> = {};
+
         // Memory: chat_turn event + fact artifact extraction.
         // Wrapped in try so memory failures never break the stream response.
         try {
@@ -542,7 +548,7 @@ export async function POST(request: NextRequest) {
             if (seg.artifact.type === 'fact') {
               const f = seg.artifact as FactArtifact;
               if (f.fact && typeof f.fact === 'string') {
-                await recordFact({
+                const factId = await recordFact({
                   userId,
                   projectId: project_id,
                   fact: f.fact,
@@ -550,6 +556,9 @@ export async function POST(request: NextRequest) {
                   sourceType: 'chat',
                   confidence: f.confidence ?? 0.8,
                 });
+                if (factId && f.id) {
+                  persistedMap[f.id] = { persisted_id: factId, reviewed_state: 'pending' };
+                }
               }
             } else if (seg.artifact.type === 'workflow-card') {
               // Persist the proposed workflow + expand into pending_actions
@@ -572,6 +581,13 @@ export async function POST(request: NextRequest) {
               if (!persistResult.persisted && persistResult.note === 'out of credits') {
                 console.warn(`[chat] dropped ${seg.artifact.type} artifact: out of credits`);
               }
+              // Collect persisted_id for the done-event artifact enrichment
+              if (persistResult.persisted && persistResult.persisted_id && seg.artifact.id) {
+                persistedMap[seg.artifact.id] = {
+                  persisted_id: persistResult.persisted_id,
+                  reviewed_state: 'pending',
+                };
+              }
             }
           }
         } catch (err) {
@@ -581,6 +597,10 @@ export async function POST(request: NextRequest) {
         // Emit done event with cost + credits so the client can show per-message credits
         try {
           const donePayload: Record<string, unknown> = { done: true };
+          // Include persisted artifact IDs so the client can wire approve/reject
+          if (Object.keys(persistedMap).length > 0) {
+            donePayload.persisted_artifacts = persistedMap;
+          }
           if (typeof cost === 'number' && cost > 0) {
             // Compute credits from cost using the project's budget configuration
             let credits = 0;

@@ -286,7 +286,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
       let fullText = '';
       let lastUsage: Usage | undefined;
       let toolCallCount = 0;
-      const maxToolCalls = options.maxToolCalls ?? 4;
+      const maxToolCalls = options.maxToolCalls ?? 8;
 
       agent.subscribe((event) => {
         switch (event.type) {

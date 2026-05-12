@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import type { InsightCard as InsightCardType } from '@/types/artifacts';
+import type { InsightCard as InsightCardType, ReviewedState } from '@/types/artifacts';
+import { usePersistedArtifact } from '@/hooks/usePersistedArtifact';
 import SourcesFooter from './SourcesFooter';
 
 interface InsightCardProps {
@@ -32,16 +33,32 @@ const CONFIDENCE_STYLES: Record<InsightCardType['confidence'], string> = {
 };
 
 export default function InsightCard({ artifact, onAction }: InsightCardProps) {
-  const [dismissed, setDismissed] = useState(false);
+  const persisted = usePersistedArtifact(artifact.id, {
+    persisted_id: artifact.persisted_id,
+    reviewed_state: artifact.reviewed_state,
+  });
+  const [reviewState, setReviewState] = useState<ReviewedState>(
+    artifact.reviewed_state ?? 'pending',
+  );
 
-  function toggleDismiss() {
-    const next = !dismissed;
-    setDismissed(next);
-    onAction?.('insight-dismiss', { id: artifact.id, dismissed: next });
+  // Effective persisted_id — either from props or from the done-event
+  const persistedId = persisted?.persisted_id ?? artifact.persisted_id;
+
+  function handleReview(state: 'approved' | 'rejected') {
+    setReviewState(state);
+    onAction?.('knowledge:approve', {
+      item_id: persistedId ?? artifact.id,
+      type: 'fact',
+      state,
+    });
   }
 
+  const isRejected = reviewState === 'rejected';
+  const isApproved = reviewState === 'approved';
+  const isPending = reviewState === 'pending';
+
   return (
-    <div className={`my-3 bg-zinc-800/50 border border-zinc-700 rounded-lg p-4 transition-opacity ${dismissed ? 'opacity-40' : ''}`}>
+    <div className={`my-3 bg-zinc-800/50 border border-zinc-700 rounded-lg p-4 transition-opacity ${isRejected ? 'opacity-40' : ''}`}>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className={`w-2.5 h-2.5 rounded-full ${CATEGORY_COLORS[artifact.category]}`} />
@@ -55,20 +72,38 @@ export default function InsightCard({ artifact, onAction }: InsightCardProps) {
           >
             {artifact.confidence}
           </span>
-          <button
-            onClick={toggleDismiss}
-            className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
-              dismissed
-                ? 'bg-zinc-600/30 text-zinc-500'
-                : 'bg-zinc-700/50 text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            {dismissed ? 'Dismissed' : 'Dismiss'}
-          </button>
+          {isApproved && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 font-medium flex items-center gap-1">
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              Approved
+            </span>
+          )}
+          {isRejected && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-medium flex items-center gap-1">
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+              Rejected
+            </span>
+          )}
+          {isPending && (
+            <>
+              <button
+                onClick={() => handleReview('approved')}
+                className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors font-medium"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => handleReview('rejected')}
+                className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-700/50 text-zinc-500 hover:text-red-400 hover:bg-red-500/20 transition-colors font-medium"
+              >
+                Reject
+              </button>
+            </>
+          )}
         </div>
       </div>
       <h4 className="text-sm font-semibold text-zinc-100 mb-1">{artifact.title}</h4>
-      <p className={`text-sm leading-relaxed ${dismissed ? 'text-zinc-600' : 'text-zinc-300'}`}>{artifact.body}</p>
+      <p className={`text-sm leading-relaxed ${isRejected ? 'text-zinc-600' : 'text-zinc-300'}`}>{artifact.body}</p>
       <SourcesFooter sources={artifact.sources} />
     </div>
   );
