@@ -80,13 +80,29 @@ export interface InsightCard extends ArtifactBase {
   sources: Source[];
 }
 
+/**
+ * Column type for typed rendering in ComparisonTable and tabular reviews.
+ * - text: plain string (default)
+ * - currency: number formatted as $X,XXX or $X.XM
+ * - percentage: number formatted as X.X%
+ * - score: number rendered with color-coded bar (0-10 scale)
+ * - url: string rendered as a clickable link
+ */
+export type ColumnType = 'text' | 'currency' | 'percentage' | 'score' | 'url';
+
 export interface ComparisonTable extends ArtifactBase {
   type: 'comparison-table';
   title: string;
   columns: string[];
-  rows: { label: string; values: string[] }[];
+  /** Parallel to `columns` — specifies the type of each column for typed
+   *  cell rendering. When absent, all columns default to 'text' (backward
+   *  compatible with existing comparison-table artifacts). */
+  column_types?: ColumnType[];
+  rows: { label: string; values: (string | number)[] }[];
   // REQUIRED — every competitor/option compared needs sourcing.
   sources: Source[];
+  /** When set, this review was persisted to tabular_reviews for cross-turn reference. */
+  review_id?: string;
 }
 
 export interface ActionSuggestion extends ArtifactBase {

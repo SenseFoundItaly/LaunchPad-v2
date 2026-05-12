@@ -446,39 +446,154 @@ When a skill runs in chat:
 
 ---
 
-## What the Platform Should Do (Feature Development Direction)
+## Dev Roadmap Status (Cross-Referenced May 2026)
 
-### Immediate Priorities (Strengthen Existing Core)
+This section maps the business proposal dev roadmap against the actual codebase. Each item is verified against source files.
 
-1. **Close the intelligence loop** — when a founder acts on a signal (approves a pending action), the system should track the outcome. Did the competitor move they responded to actually matter? Was the market signal correct? This feedback loop turns the intelligence layer from "alerts" into "learning."
+### S1 — Platform OS
 
-2. **Richer skill outputs** — skills currently produce text artifacts. The build skills (landing page, pitch deck, one-pager) should produce deployable assets. The landing page generator already produces HTML; pitch decks should produce presentable slides; one-pagers should produce PDF-ready output.
+#### 1.1 Layer 1 Intelligence — ✅ 100% Complete
 
-3. **Founder-to-founder benchmarking** — anonymized, opt-in comparison of stage readiness, metric growth rates, and fundraising velocity across the LaunchPad cohort. "Your MRR growth is in the 72nd percentile of seed-stage SaaS companies on LaunchPad."
+| # | Task | Status | Evidence |
+|---|------|--------|----------|
+| 1 | Viability scoring (idea scoring) | ✅ Done | `startup-scoring` skill + `scores` table + `scoring.ts` |
+| 2 | Risk analysis by category | ✅ Done | `risk-scoring` skill with 5 risk categories |
+| 3 | Strategic suggestions prioritized | ✅ Done | `next_recommended_skill` + heartbeat task proposals |
+| 4 | Cumulative repository (knowledge base) | ✅ Done | `memory_facts` + `memory_events` + `buildMemoryContext()` in `context.ts` |
+| 5 | Smart control panel (dashboard signals) | ✅ Done | `/dashboard` page + `/signals` page + `ecosystem_alerts` table |
+| 6 | Knowledge graph human-in-the-loop | ✅ Done | `graph_nodes`/`graph_edges` tables + `/intelligence` page + `memory_facts` for notes |
+| 7 | Global startup intelligence (automated) | ✅ Done | Heartbeat cron (`/api/cron`), monitors, watch sources, intelligence briefs, correlator |
+| 8 | AI Mentor (contextual agent) | ✅ Done | Full chat agent with SOUL.md + AGENTS.md + 10-section memory context + 16 tools |
 
-4. **Deeper growth loop integration** — growth loops are tracked but not deeply integrated with the metrics system. When a loop is adopted, its proposed changes should automatically update metric baselines and tracking targets.
+#### 1.2 Base Infrastructure — ~90% Complete
 
-### Medium-Term (Expand the Co-Pilot)
+| # | Task | Status | Evidence |
+|---|------|--------|----------|
+| 1 | UX/UI responsive (web-first) | ✅ Done | Next.js App Router with 20+ pages, NavRail, responsive components |
+| 2 | Auth system (auth, profiles, roles) | ✅ Done | Supabase Auth + `users`/`organizations`/`memberships` tables + `/login` |
+| 3 | Memory layer (persistence per user) | ✅ Done | `memory_facts` + `memory_events` + `buildMemoryContext()` |
+| 4 | Cloud infrastructure + deploy pipeline | ✅ Done | Next.js + Supabase + Vercel deploy |
+| 5 | Output export (PDF, markdown, JSON) | ⚠️ Partial | JSON artifacts + HTML landing page generation exist. **PDF export missing** — no PDF library in `package.json` |
+| 6 | Dashboard utente | ✅ Done | `/dashboard` with greeting, metric tiles, sparklines, heartbeat feed, inbox preview, graph mini, milestones, budget |
 
-5. **Multi-project portfolio view** — for founders or accelerators running multiple projects. Cross-project intelligence (same competitor appearing across projects, shared market signals).
+#### 1.3 The Forge Integration (First Block) — ~25% Complete
 
-6. **Team collaboration** — the org/membership structure exists but isn't deeply integrated. Multiple team members should be able to chat with the co-pilot, each with their own memory context but shared project data.
+| # | Task | Status | Evidence |
+|---|------|--------|----------|
+| 1 | Dashboard admin The Forge | ⚠️ Partial | `partner_configs` table + `/api/partner-configs/[slug]` route (read-only). No admin UI. |
+| 2 | User management (invites, mentor 1:1) | ⚠️ Partial | `memberships` table exists. No invite flow or mentor assignment. |
+| 3 | Aggregate view (anonymized, real-time) | ❌ Not built | No portfolio/aggregate view exists |
+| 4 | Export report per founder (PDF/CSV) | ❌ Not built | Depends on PDF export |
+| 5 | Onboarding self-service (<10 min) | ⚠️ Partial | `/onboard/[partnerSlug]` route exists. Wizard needs completion. |
+| 6 | Co-branded onboarding | ⚠️ Partial | Partner slug + brand config in `partner_configs`. Visual branding partial. |
+| 7 | Pre-loaded templates (Forge methodology) | ❌ Not built | `knowledge_seed` field exists in `partner_configs` but no template content |
+| 8 | Auto-notification to mentor | ❌ Not built | No notification system to external mentors |
+| 9 | Layer 1 pre-configured with Forge method | ⚠️ Partial | `preferred_skills` + `knowledge_seed` in partner_configs. Needs Forge-specific content. |
 
-7. **External integrations** — connect to real data sources:
-   - Stripe/payment processors for live revenue data
-   - Analytics platforms (Mixpanel, Amplitude) for product metrics
-   - CRM (HubSpot) for investor pipeline sync
-   - Calendar for meeting prep and follow-up generation
+**Blocked items:** #3, #4 deferred to S2. Items #7, #9 require content from The Forge team.
 
-8. **Proactive outreach** — the system detects that an investor in the pipeline hasn't responded. Instead of just flagging it, it should draft a follow-up email and queue it for approval. Same for competitor moves that warrant customer outreach.
+#### 1.4 Pricing & Billing — ~15% Complete
 
-### Long-Term (Platform Effects)
+| # | Task | Status | Evidence |
+|---|------|--------|----------|
+| 1 | Paywall & upgrade flow | ❌ Not built | Budget system exists but no paywall UI |
+| 2 | Seat management (Team S/M) | ⚠️ Partial | `memberships` table exists. No seat-based plans. |
+| 3 | Billing integration (Stripe) | ❌ Not built | No Stripe library in `package.json` |
+| 4 | Credit asset generation counter | ⚠️ Partial | `credits.ts` fully implemented (credit tracking, `CreditsBadge.tsx`). No purchase flow. |
+| 5 | Trial 14d trigger for active free users | ❌ Not built | No trial logic |
 
-9. **Partner/accelerator platform** — white-label deployment for accelerators. Partner configs already exist. The full vision: an accelerator runs 50 startups through LaunchPad, gets a portfolio dashboard, can inject domain-specific knowledge seeds, and benefits from cross-cohort intelligence.
+#### 1.5 Layer 2 Iteration (Workflow Skills) — ~70% Complete
 
-10. **Marketplace for tools and skills** — the tool registry (`tools` table) and skill system are designed to be extensible. Third-party skills (legal review, technical architecture, hiring plan) could be contributed as modules.
+| # | Task | Status | Evidence |
+|---|------|--------|----------|
+| 1 | Idea pre-validation with scoring | ✅ Done | `idea-shaping` + `startup-scoring` skills with full SKILL.md |
+| 2 | Hypothesis canvas & assumption mapping | ✅ Done | `idea_canvas` table + idea-shaping skill |
+| 3 | Synthetic validation (buyer personas) | ✅ Done | `simulation` skill (6 persona reactions) + `scientific-validation` skill |
+| 4 | Real market validation framework | ⚠️ Partial | `market-research` skill exists. No structured interview CRM/tracker. |
+| 5 | Outreach automation (scraper + CRM) | ⚠️ Partial | `investor-relations` skill exists. No lead scraper or email sequences for customer outreach. |
+| 6 | Asset generation: BMC + pricing + brand | ✅ Done | `business-model` + `prototype-spec` (brand identity section) skills |
+| 7 | Asset generation: financial + pitch | ✅ Done | `financial-model` + `build-pitch-deck` + `build-one-pager` skills |
+| 8 | MVP canvas & tech roadmap | ✅ Done | `prototype-spec` skill covers this fully |
+| 9 | Brief for Frontier Lab / TechBricks | ❌ Not built | TechBricks integration not started — defer to S3 |
+| 10 | GTM plan generator | ✅ Done | `gtm-strategy` skill with full SKILL.md |
+| 11 | Outreach multichannel orchestrated | ❌ Not built | No orchestrated outreach system — defer |
 
-11. **Autonomous execution** — today the system proposes and waits for approval. Progressive trust: as the founder approves more actions of a given type, the system can auto-execute low-risk actions (e.g., auto-send weekly investor updates that follow the established template, auto-refresh stale research when the market moves).
+#### 1.6 The Forge Integration (Second Block) — ~20% Complete
+
+| # | Task | Status | Evidence |
+|---|------|--------|----------|
+| 1 | Guided unlock (step progression) | ⚠️ Partial | Stage readiness scoring exists. No per-user unlock logic tied to partner. |
+| 2 | AI Mentor contextualized | ✅ Done | Agent already uses full memory context per-project |
+| 3 | Event-driven notifications | ⚠️ Partial | Heartbeat proposes tasks. No inactivity >3d trigger or step-completion notifications. |
+| 4 | Mentor access to founder repo | ❌ Not built | No mentor view of founder data |
+| 5 | NPS survey per step | ❌ Not built | Use 3rd-party (Typeform/Tally embed) |
+| 6 | Rolling metrics dashboard (internal) | ⚠️ Partial | `llm_usage_logs` + usage page exists. No activation rate / dropout tracking. |
+
+#### 1.5b Sandbox GTM (Bohm) — ⚠️ Blocked Until Bohm Alignment
+
+| # | Task | Status | Evidence |
+|---|------|--------|----------|
+| 1 | Synthetic buyer personas | ✅ Done | `simulation` skill generates personas + `scientific-validation` |
+| 2 | Message response simulation | ✅ Done | Simulation skill produces persona reactions with scores |
+| 3 | A/B test on synthetic audiences | ❌ Not built | No A/B framework — defer (blocked) |
+| 4 | Simulation results dashboard | ✅ Done | `/simulation` page exists |
+| 5 | White label for Bohm | ⚠️ Partial | `partner_configs` infrastructure exists. Bohm config not created. |
+| 6 | Public API for Sandbox | ❌ Not built | No public API layer — defer (blocked) |
+
+---
+
+### S2 — Versioning B2B (Q4 2026) — Deferred
+
+All items not built. Building blocks exist (`partner_configs`, `investment-readiness` skill, `investors`/`investor_interactions` tables). Depends on S1.6 completion. Design `partner_configs` generically now for forward compatibility.
+
+### S3 — Core OS + CVB (Q4 2026 – Q1 2027) — 50% of Optimizations Done
+
+| # | Task | Status | Evidence |
+|---|------|--------|----------|
+| 1 | LLM routing (dynamic model selection) | ✅ Done | Haiku routing in `skill-relevance.ts`, `pickModel()` in `pi-agent.ts` |
+| 2 | Memory layer scaling (>1000 users) | Deferred | Current implementation works; optimize when needed |
+| 3 | A/B testing framework | ❌ Not built | No libraries or infrastructure |
+| 4 | API cost monitoring per user | ✅ Done | `llm_usage_logs` + `project_budgets` + budget cap checks in cron |
+| 5 | CVB Enterprise (all items) | ❌ Not built | Defer to 2027 |
+
+### S4 — Cluster + Deeptech & S5 — Growth Stage — Deferred
+
+All items not built and scheduled for 2027.
+
+---
+
+### Build Priority Queue
+
+#### P0 — Before The Forge Launch (May 22 Deadline)
+
+1. **PDF export** — Add PDF generation from skill artifacts. Unblocks 1.2.5 and future report exports.
+   - New: `src/lib/pdf-export.ts`, PDF export API endpoint
+2. **Partner admin write routes** — Upgrade `/api/partner-configs/[slug]` from read-only to CRUD. Add admin UI page.
+   - Update: `src/app/api/partner-configs/[slug]/route.ts`, new admin page
+3. **Onboarding wizard completion** — Complete self-service onboarding at `/onboard/[partnerSlug]` end-to-end.
+   - Update: `src/app/onboard/` pages
+
+#### P1 — High Priority (Before June 14)
+
+4. **Stripe billing integration** — Add `stripe` package, billing API routes, paywall/upgrade UI.
+5. **Credit purchase flow** — Connect existing `credits.ts` to Stripe for credit top-ups.
+6. **Invite flow for team/mentor** — Build on `memberships` table to support invite links and mentor assignment.
+
+#### P2 — Important (June–July)
+
+7. **Event-driven notifications** — Inactivity triggers (>3d), step completion alerts, mentor notifications via Resend.
+8. **Outreach automation foundation** — Basic email sequence support for customer validation interviews.
+
+### Deferred / Removed
+
+- **S2 Versioning B2B** — All items. Q4 2026, depends on S1 completion.
+- **S3.2 CVB Enterprise** — 2027.
+- **S4 Cluster + Deeptech** — 2027.
+- **S5 Growth Stage** — Q4 2027.
+- **Bohm Sandbox specifics** (A/B testing, public API, white label) — Blocked until Bohm alignment.
+- **TechBricks integration** — No contract defined.
+- **NPS/Survey system** — Use 3rd-party embed (Typeform/Tally).
+- **Aggregate founder view** — Defer to S2 multi-project portfolio.
 
 ---
 

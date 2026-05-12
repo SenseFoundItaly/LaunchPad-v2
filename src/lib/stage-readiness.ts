@@ -13,10 +13,19 @@
  * Staleness mirrors the skill-executor's STALE_DAYS (14) so a skill that
  * the auto-executor would refresh shows up here as 'stale' too.
  */
-import { query } from '@/lib/db';
+import { query, get } from '@/lib/db';
 import { STAGES, SKILL_KICKOFFS, type SkillDef } from '@/lib/stages';
 import { scoreOverall, scoreStage, type StageScore } from '@/lib/scoring';
 import type { SkillData, SkillStatus } from '@/hooks/useSkillStatus';
+import {
+  extractSectionScores,
+  type SectionScore,
+  type SectionContext,
+  type ScoresDimensions,
+  type SimulationPersona,
+  type RiskScenario,
+  type PersistedSectionScores,
+} from '@/lib/section-scoring';
 
 const STALE_DAYS = 14;
 
@@ -32,6 +41,8 @@ export interface StageReadiness {
   missing_skills: SkillDef[];
   /** Skills that completed but are >STALE_DAYS old. */
   stale_skills: SkillDef[];
+  /** Per-dimension section scores for this stage. */
+  sections: SectionScore[];
 }
 
 export interface ProjectReadiness {
@@ -46,21 +57,45 @@ export interface ProjectReadiness {
   next_recommended_skill: (SkillDef & { stage_number: number; stage_name: string; kickoff: string }) | null;
 }
 
-type CompletionRow = { skill_id: string; status: string | null; summary: string | null; completed_at: string | null };
+type CompletionRow = { skill_id: string; status: string | null; summary: string | null; completed_at: string | null; section_scores: Record<string, number> | null };
 
-/** Build a SkillData map from skill_completions rows — server mirror of useSkillStatus. */
-export async function buildSkillMap(projectId: string): Promise<Record<string, SkillData>> {
-  const rows = await query<CompletionRow>(
-    `SELECT skill_id, status, summary, completed_at
-       FROM skill_completions
-      WHERE project_id = ?`,
-    projectId,
-  );
+export interface SkillMapBundle {
+  skillMap: Record<string, SkillData>;
+  sectionContext: SectionContext;
+}
+
+/** Build a SkillData map from skill_completions rows — server mirror of useSkillStatus.
+ *  Also fetches scores.dimensions, simulation.personas/risk_scenarios, and
+ *  persisted section_scores in parallel for section scoring. */
+export async function buildSkillMap(projectId: string): Promise<SkillMapBundle> {
+  const [completionRows, scoresRow, simRow] = await Promise.all([
+    query<CompletionRow>(
+      `SELECT skill_id, status, summary, completed_at, section_scores
+         FROM skill_completions
+        WHERE project_id = ?`,
+      projectId,
+    ),
+    get<{ dimensions: ScoresDimensions | null }>(
+      'SELECT dimensions FROM scores WHERE project_id = ?',
+      projectId,
+    ),
+    get<{ personas: SimulationPersona[] | null; risk_scenarios: RiskScenario[] | null }>(
+      'SELECT personas, risk_scenarios FROM simulation WHERE project_id = ?',
+      projectId,
+    ),
+  ]);
 
   const cutoffMs = Date.now() - STALE_DAYS * 24 * 60 * 60 * 1000;
   const skillMap: Record<string, SkillData> = {};
   const byId = new Map<string, CompletionRow>();
-  for (const r of rows) byId.set(r.skill_id, r);
+  const persistedScores: Record<string, PersistedSectionScores> = {};
+
+  for (const r of completionRows) {
+    byId.set(r.skill_id, r);
+    if (r.section_scores && typeof r.section_scores === 'object') {
+      persistedScores[r.skill_id] = r.section_scores as PersistedSectionScores;
+    }
+  }
 
   for (const stage of STAGES) {
     for (const skill of stage.skills) {
@@ -79,7 +114,15 @@ export async function buildSkillMap(projectId: string): Promise<Record<string, S
       };
     }
   }
-  return skillMap;
+
+  const sectionContext: SectionContext = {
+    scoresDimensions: scoresRow?.dimensions ?? undefined,
+    simulationPersonas: simRow?.personas ?? undefined,
+    riskScenarios: simRow?.risk_scenarios ?? undefined,
+    persistedScores: Object.keys(persistedScores).length > 0 ? persistedScores : undefined,
+  };
+
+  return { skillMap, sectionContext };
 }
 
 function verdictFromScore(score: number): StageReadiness['verdict'] {
@@ -95,7 +138,7 @@ function verdictFromScore(score: number): StageReadiness['verdict'] {
  * via get_project_summary.
  */
 export async function getStageReadiness(projectId: string): Promise<ProjectReadiness> {
-  const skillMap = await buildSkillMap(projectId);
+  const { skillMap, sectionContext } = await buildSkillMap(projectId);
   const overall = scoreOverall(skillMap);
 
   const stages: StageReadiness[] = STAGES.map((stage) => {
@@ -108,14 +151,14 @@ export async function getStageReadiness(projectId: string): Promise<ProjectReadi
       if (data?.status === 'completed') completed.push(skill);
       else if (data?.status === 'stale') {
         stale.push(skill);
-        // A stale skill is "completed" for the score machinery (scoreStage
-        // treats it as not-run), but for the founder-facing missing-skill
-        // list we surface it as missing too — it needs a refresh.
         missing.push(skill);
       } else {
         missing.push(skill);
       }
     }
+
+    const sections = extractSectionScores(stage.number, skillMap, sectionContext);
+
     return {
       number: stage.number,
       name: stage.name,
@@ -126,6 +169,7 @@ export async function getStageReadiness(projectId: string): Promise<ProjectReadi
       skills_stale: stale.length,
       missing_skills: missing,
       stale_skills: stale,
+      sections,
     };
   });
 
@@ -171,6 +215,15 @@ export function formatReadinessForPrompt(r: ProjectReadiness): string {
     const scorePad = `${s.score.toFixed(1)}`.padEnd(5, ' ');
     const verdictPad = s.verdict.padEnd(11, ' ');
     lines.push(`${namePad}${scorePad}${verdictPad}${missingLabel}${staleNote}`);
+
+    // Compact section scores — pipe-delimited for minimal token cost
+    const availSections = s.sections.filter(sec => sec.available);
+    if (availSections.length > 0) {
+      const sectionStr = availSections
+        .map(sec => `${sec.key}:${sec.score.toFixed(1)}`)
+        .join(' | ');
+      lines.push(`  sections: ${sectionStr}`);
+    }
   }
   if (r.next_recommended_skill) {
     const n = r.next_recommended_skill;

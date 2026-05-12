@@ -29,6 +29,7 @@ import { recordEvent } from '@/lib/memory/events';
 import { persistArtifact } from '@/lib/artifact-persistence';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import { SKILL_KICKOFFS } from '@/lib/stages';
+import { computeSectionScoresFromSummary } from '@/lib/section-scoring';
 
 /**
  * Whitelist — only analytical skills whose output is structured data
@@ -222,18 +223,22 @@ export async function runSkill(
 
   // UPSERT skill_completions — same shape as the POST /skills route.
   const completedAt = new Date().toISOString();
+  const sectionScores = computeSectionScoresFromSummary(skillId, text);
+
   await run(
-    `INSERT INTO skill_completions (id, project_id, skill_id, status, summary, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO skill_completions (id, project_id, skill_id, status, summary, section_scores, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(project_id, skill_id) DO UPDATE SET
        status = excluded.status,
        summary = excluded.summary,
+       section_scores = excluded.section_scores,
        completed_at = excluded.completed_at`,
     generateId('skc'),
     projectId,
     skillId,
     'completed',
     text,
+    sectionScores ? JSON.stringify(sectionScores) : null,
     completedAt,
   );
 

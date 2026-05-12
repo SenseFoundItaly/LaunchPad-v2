@@ -179,8 +179,10 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
       <div style={{ flex: 1 }} />
       {/* More menu — opens popover with secondary nav items */}
       <MoreMenu projectId={projectId} isActive={isActive} />
-      {/* User chip — placeholder initials */}
-      <div
+      {/* User chip — links to /settings for BYOK + model preferences */}
+      <Link
+        href="/settings"
+        title="Settings"
         style={{
           width: 28,
           height: 28,
@@ -194,10 +196,12 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
           fontWeight: 600,
           fontFamily: 'var(--f-mono)',
           marginTop: 6,
+          textDecoration: 'none',
+          cursor: 'pointer',
         }}
       >
         LB
-      </div>
+      </Link>
     </div>
   );
 }

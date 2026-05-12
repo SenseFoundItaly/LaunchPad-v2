@@ -4,6 +4,7 @@ import type { ChatMessage as ChatMessageType } from '@/types';
 import type { EntityCard, WorkflowCard } from '@/types/artifacts';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import ArtifactRenderer from './artifacts/ArtifactRenderer';
+import SourcesFooter from './artifacts/SourcesFooter';
 import ToolActivityBar from './ToolActivityBar';
 import MessageActions from './MessageActions';
 
@@ -270,6 +271,14 @@ export default function ChatMessage({
                     key={`err-${idx}`}
                     reason={segment.reason}
                     artifact_type={segment.artifact_type}
+                  />
+                );
+              case 'citations':
+                return (
+                  <SourcesFooter
+                    key={`citations-${idx}`}
+                    sources={segment.sources}
+                    label="Sources"
                   />
                 );
               default:

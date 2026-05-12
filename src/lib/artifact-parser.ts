@@ -1,5 +1,6 @@
 import {
   type Artifact,
+  type Source,
   ARTIFACTS_REQUIRING_SOURCES,
   validateSource,
 } from '@/types/artifacts';
@@ -12,7 +13,11 @@ export type MessageSegment =
   // UI renders this as a visible red card; persistence layer skips it. This
   // replaces silently-dropping invalid artifacts, which used to hide agent
   // mistakes and create "why didn't my card show up" debugging dead-ends.
-  | { type: 'artifact-error'; raw: string; reason: string; artifact_type?: string };
+  | { type: 'artifact-error'; raw: string; reason: string; artifact_type?: string }
+  // Prose-level citations — a <CITATIONS> JSON block at the end of a response.
+  // Rendered as a standalone SourcesFooter below the prose text, so [N]
+  // markers in prose have a target to scroll to even without artifact cards.
+  | { type: 'citations'; sources: Source[] };
 
 /**
  * Runs source-requirement validation on a parsed artifact. Returns a
@@ -102,10 +107,56 @@ function tryParseArtifact(raw: string): ParseOutcome | null {
   return { ok: true, artifact };
 }
 
+/**
+ * Parse a `<CITATIONS>` JSON block from the end of a response.
+ *
+ * Format:
+ *   <CITATIONS>
+ *   [{"type":"web","title":"...","url":"..."},...]
+ *   </CITATIONS>
+ *
+ * Returns validated Source[] or null if not present / malformed.
+ * Invalid individual sources are silently dropped (the agent sometimes
+ * includes a malformed entry alongside valid ones).
+ */
+function tryParseCitations(text: string): Source[] | null {
+  const match = text.match(/<CITATIONS>\s*([\s\S]*?)\s*<\/CITATIONS>/);
+  if (!match) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+
+  const valid: Source[] = [];
+  for (const src of parsed) {
+    if (validateSource(src) === null) {
+      valid.push(src as Source);
+    }
+  }
+
+  return valid.length > 0 ? valid : null;
+}
+
+/**
+ * Strip the `<CITATIONS>` block from raw text so it doesn't render as prose.
+ */
+function stripCitationsBlock(text: string): string {
+  return text.replace(/<CITATIONS>\s*[\s\S]*?\s*<\/CITATIONS>/, '').trim();
+}
+
 export function parseMessageContent(content: string): MessageSegment[] {
   const segments: MessageSegment[] = [];
 
-  const parts = content.split(/(:::artifact[\s\S]*?:::)/g);
+  // Extract prose-level citations before splitting on artifacts.
+  const proseCitations = tryParseCitations(content);
+  const cleaned = proseCitations ? stripCitationsBlock(content) : content;
+
+  const parts = cleaned.split(/(:::artifact[\s\S]*?:::)/g);
 
   for (const part of parts) {
     if (part.startsWith(':::artifact')) {
@@ -140,12 +191,12 @@ export function parseMessageContent(content: string): MessageSegment[] {
 
   // Handle case where last segment is an unclosed artifact block
   if (segments.length === 0 || (segments.length === 1 && segments[0].type === 'text')) {
-    const openIdx = content.lastIndexOf(':::artifact');
+    const openIdx = cleaned.lastIndexOf(':::artifact');
     if (openIdx !== -1) {
-      const after = content.slice(openIdx);
+      const after = cleaned.slice(openIdx);
       const hasClose = after.includes('\n:::') || (after.endsWith(':::') && after.length > 15);
       if (!hasClose) {
-        const textBefore = content.slice(0, openIdx).trim();
+        const textBefore = cleaned.slice(0, openIdx).trim();
         const result: MessageSegment[] = [];
         if (textBefore) result.push({ type: 'text', content: textBefore });
         result.push({ type: 'artifact-pending', raw: after });
@@ -154,9 +205,24 @@ export function parseMessageContent(content: string): MessageSegment[] {
     }
   }
 
-  if (segments.length === 0 && content.trim()) {
-    segments.push({ type: 'text', content: content.trim() });
+  if (segments.length === 0 && cleaned.trim()) {
+    segments.push({ type: 'text', content: cleaned.trim() });
+  }
+
+  // Append prose citations as the final segment so the footer renders
+  // below all text and artifact cards.
+  if (proseCitations) {
+    segments.push({ type: 'citations', sources: proseCitations });
   }
 
   return segments;
+}
+
+/**
+ * Extract prose-level citations from a raw message for DB persistence.
+ * Called by the chat route when saving an assistant message — the result
+ * goes into `chat_messages.citations` as JSONB.
+ */
+export function extractCitations(content: string): Source[] | null {
+  return tryParseCitations(content);
 }

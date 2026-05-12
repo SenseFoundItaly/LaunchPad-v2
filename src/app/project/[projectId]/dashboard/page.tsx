@@ -129,6 +129,29 @@ interface JourneyPayload {
   milestones?: Array<{ milestone_id?: string; id?: string; week: number; title: string; status: string }>;
 }
 
+// -- Readiness widget types --
+interface ReadinessSectionScore {
+  key: string;
+  label: string;
+  score: number;
+  available: boolean;
+  fallback: boolean;
+}
+
+interface ReadinessStage {
+  number: number;
+  name: string;
+  score: number;
+  verdict: string;
+  sections: ReadinessSectionScore[];
+}
+
+interface ReadinessPayload {
+  overall_score: number;
+  overall_verdict: string;
+  stages: ReadinessStage[];
+}
+
 interface LlmUsageGroupRow {
   step: string | null;
   provider: string;
@@ -148,6 +171,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
   const [usageGroups, setUsageGroups] = useState<LlmUsageGroupRow[]>([]);
   const [signalEntries, setSignalEntries] = useState<SignalTimelineEntry[]>([]);
+  const [readiness, setReadiness] = useState<ReadinessPayload | null>(null);
   const [cronbeat, setCronbeat] = useState<{ health: HeartbeatKind; hours_since_last: number | null } | null>(null);
   const [cronPanelOpen, setCronPanelOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -155,11 +179,12 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
 
   const fetchAll = useCallback(async () => {
     try {
-      const [dash, usage, signals, beat] = await Promise.all([
+      const [dash, usage, signals, beat, readinessRes] = await Promise.all([
         api.get<ApiResponse<DashboardPayload>>(`/api/dashboard/${projectId}`),
         api.get<ApiResponse<LlmUsageGroupRow[]>>(`/api/projects/${projectId}/usage/groups`).catch(() => ({ data: { data: [] } })),
         fetch(`/api/projects/${projectId}/signals?days=7&limit=8`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
         api.get<ApiResponse<{ health: HeartbeatKind; hours_since_last: number | null }>>('/api/cronbeat').catch(() => null),
+        fetch(`/api/projects/${projectId}/readiness`).then(r => r.json()).catch(() => null),
       ]);
       if (dash.data?.data) setPayload(dash.data.data);
       const groups = (usage.data as ApiResponse<LlmUsageGroupRow[]> | undefined)?.data;
@@ -168,6 +193,9 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
         setSignalEntries(signals.data);
       }
       if (beat?.data?.data) setCronbeat(beat.data.data);
+      if (readinessRes?.success && readinessRes.data) {
+        setReadiness(readinessRes.data as ReadinessPayload);
+      }
     } catch {
       // Partial data is fine — the page renders empty panels gracefully
     } finally {
@@ -391,6 +419,12 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
               >
                 <SignalsPreviewPanel signals={signalEntries} locale={locale} />
               </Panel>
+
+              <ReadinessWidget
+                readiness={readiness}
+                locale={locale}
+                projectId={projectId}
+              />
 
               <CollapsibleBudgetPanel
                 usageGroups={usageGroups}
@@ -1029,6 +1063,154 @@ function MiniGraph({ nodes }: { nodes: GraphNodeRow[] }) {
     </div>
   );
 }
+
+// =============================================================================
+// Readiness widget — compact 7-stage overview with micro section bars
+// =============================================================================
+
+const VERDICT_DOT: Record<string, string> = {
+  'STRONG GO': 'var(--moss)',
+  'GO': '#34d399',
+  'CAUTION': '#fbbf24',
+  'NOT READY': 'oklch(0.60 0.14 20)',
+};
+
+const VERDICT_PILL: Record<string, 'ok' | 'warn' | 'n' | 'live'> = {
+  'STRONG GO': 'ok',
+  'GO': 'ok',
+  'CAUTION': 'warn',
+  'NOT READY': 'n',
+};
+
+function ReadinessWidget({
+  readiness,
+  locale,
+  projectId,
+}: {
+  readiness: ReadinessPayload | null;
+  locale: 'en' | 'it';
+  projectId: string;
+}) {
+  return (
+    <Panel
+      title={locale === 'it' ? 'Readiness' : 'Readiness'}
+      subtitle={
+        readiness
+          ? `${readiness.overall_score.toFixed(1)}/10`
+          : undefined
+      }
+      right={
+        readiness ? (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Pill kind={VERDICT_PILL[readiness.overall_verdict] || 'n'} dot>
+              {readiness.overall_verdict}
+            </Pill>
+            <Link href={`/project/${projectId}/readiness`} style={rdLinkStyle}>
+              {locale === 'it' ? 'dettagli' : 'view all'}
+              <Icon d={I.arrow} size={10} />
+            </Link>
+          </span>
+        ) : null
+      }
+    >
+      {!readiness ? (
+        <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
+          {locale === 'it' ? 'Caricamento readiness…' : 'Loading readiness…'}
+        </div>
+      ) : (
+        <div>
+          {readiness.stages.map((stage, i) => {
+            const topSections = stage.sections
+              .filter(s => s.available)
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 4);
+
+            return (
+              <div
+                key={stage.number}
+                style={{
+                  padding: '8px 14px',
+                  borderBottom: i < readiness.stages.length - 1 ? '1px solid var(--line)' : 'none',
+                  display: 'grid',
+                  gridTemplateColumns: '22px 1fr auto auto',
+                  gap: 8,
+                  alignItems: 'center',
+                }}
+              >
+                <span
+                  className="lp-mono"
+                  style={{ fontSize: 11, color: 'var(--ink-4)', textAlign: 'center' }}
+                >
+                  {stage.number}
+                </span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--ink-2)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {stage.name}
+                </span>
+                {/* Micro section bars */}
+                <span style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                  {topSections.map((sec) => (
+                    <span
+                      key={sec.key}
+                      title={`${sec.label}: ${sec.score.toFixed(1)}`}
+                      style={{
+                        width: 16,
+                        height: 4,
+                        borderRadius: 2,
+                        background: sec.score >= 7
+                          ? 'var(--moss)'
+                          : sec.score >= 5
+                            ? '#fbbf24'
+                            : 'oklch(0.60 0.14 20)',
+                        opacity: 0.8,
+                      }}
+                    />
+                  ))}
+                  {topSections.length === 0 && (
+                    <span style={{ width: 16, height: 4, borderRadius: 2, background: 'var(--line-2)' }} />
+                  )}
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span
+                    className="lp-mono"
+                    style={{ fontSize: 11, color: 'var(--ink-3)', minWidth: 28, textAlign: 'right' }}
+                  >
+                    {stage.score.toFixed(1)}
+                  </span>
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      background: VERDICT_DOT[stage.verdict] || 'var(--ink-5)',
+                    }}
+                  />
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+const rdLinkStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--ink-4)',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  cursor: 'pointer',
+  textDecoration: 'none',
+};
 
 // =============================================================================
 // Milestones + Budget rows

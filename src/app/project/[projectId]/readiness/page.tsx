@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useMemo, useEffect } from 'react';
+import { use, useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { STAGES, stageColors, SKILL_KICKOFFS, SKILL_NEXT_STEPS, SKILL_SOURCES } from '@/lib/stages';
 import { useSkillStatus } from '@/hooks/useSkillStatus';
@@ -8,6 +8,7 @@ import { scoreOverall } from '@/lib/scoring';
 import { extractSkillHighlights } from '@/lib/extract-summary';
 import { GaugeChart, RadarChart } from '@/components/charts';
 import type { Source } from '@/types/artifacts';
+import type { SectionScore } from '@/lib/section-scoring';
 import SourcesFooter from '@/components/chat/artifacts/SourcesFooter';
 
 // ─── Risk audit widget (roadmap 1.1) ─────────────────────────────────────────
@@ -202,6 +203,96 @@ function RiskAuditCard({ projectId }: { projectId: string }) {
   );
 }
 
+// ─── Section scores grid ──────────────────────────────────────────────────────
+
+function scoreColor(score: number): string {
+  if (score >= 7) return 'text-green-400';
+  if (score >= 5) return 'text-yellow-400';
+  return 'text-red-400';
+}
+
+function scoreBarColor(score: number): string {
+  if (score >= 7) return 'bg-green-500';
+  if (score >= 5) return 'bg-yellow-500';
+  return 'bg-red-500';
+}
+
+function SectionScoresGrid({ sections }: { sections: SectionScore[] }) {
+  if (!sections || sections.length === 0) return null;
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-3">
+      {sections.map((s) => (
+        <div
+          key={s.key}
+          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-800/40 border border-zinc-800"
+        >
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] text-zinc-400 truncate">{s.label}</div>
+            <div className="h-1 mt-1 rounded-full bg-zinc-700/50 overflow-hidden">
+              {s.available && (
+                <div
+                  className={`h-full rounded-full ${scoreBarColor(s.score)} transition-all`}
+                  style={{ width: `${(s.score / 10) * 100}%` }}
+                />
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {s.available ? (
+              <>
+                <span className={`text-sm font-bold ${scoreColor(s.score)}`}>
+                  {s.score.toFixed(1)}
+                </span>
+                {s.fallback && (
+                  <span className="text-[9px] text-zinc-600 font-mono">est.</span>
+                )}
+              </>
+            ) : (
+              <span className="text-sm text-zinc-600">—</span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Section data hook ────────────────────────────────────────────────────────
+
+interface StageSections {
+  [stageNumber: number]: SectionScore[];
+}
+
+function useSectionData(projectId: string) {
+  const [data, setData] = useState<StageSections>({});
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/readiness`);
+      if (!res.ok) return;
+      const body = await res.json();
+      const readiness = body?.data;
+      if (!readiness?.stages) return;
+      const map: StageSections = {};
+      for (const stage of readiness.stages) {
+        if (stage.sections) {
+          map[stage.number] = stage.sections;
+        }
+      }
+      setData(map);
+    } catch {
+      // Non-fatal — sections are supplementary
+    }
+  }, [projectId]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  return data;
+}
+
+// ─── Verdict style ────────────────────────────────────────────────────────────
+
 function verdictStyle(v: string) {
   if (v === 'STRONG GO') return 'bg-green-500/20 text-green-400';
   if (v === 'GO') return 'bg-emerald-500/20 text-emerald-400';
@@ -213,6 +304,7 @@ export default function IntelligencePage({ params }: { params: Promise<{ project
   const { projectId } = use(params);
   const { skills, skillStatus, stageCompletion, loading } = useSkillStatus(projectId);
   const [openStage, setOpenStage] = useState<number | null>(null);
+  const sectionData = useSectionData(projectId);
 
   const scoring = useMemo(() => scoreOverall(skills), [skills]);
 
@@ -304,6 +396,11 @@ export default function IntelligencePage({ params }: { params: Promise<{ project
                           </div>
                         ))}
                       </div>
+                    )}
+
+                    {/* Section scores grid */}
+                    {sectionData[stage.number] && sectionData[stage.number].length > 0 && (
+                      <SectionScoresGrid sections={sectionData[stage.number]} />
                     )}
 
                     {/* Per-skill cards */}

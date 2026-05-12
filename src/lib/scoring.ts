@@ -1,5 +1,6 @@
 import { STAGES, SKILL_SOURCES } from './stages';
 import type { SkillData } from '@/hooks/useSkillStatus';
+import type { SectionScore } from '@/lib/section-scoring';
 
 export interface SkillScore {
   completion: number;
@@ -15,6 +16,8 @@ export interface StageScore {
   skills: Record<string, SkillScore>;
   verdict: string;
   recommendations: string[];
+  /** Per-dimension section scores (populated by caller, not scoreStage). */
+  sections?: SectionScore[];
 }
 
 /** Evidence depth scoring — counts ALL content including artifacts */

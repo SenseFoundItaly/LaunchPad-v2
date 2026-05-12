@@ -1297,6 +1297,190 @@ const getRiskAudit = (ctx: ToolContext): AgentTool => ({
 });
 
 // =============================================================================
+// create_tabular_review — persistent structured comparison with typed columns.
+// =============================================================================
+
+const VALID_COLUMN_TYPES = ['text', 'currency', 'percentage', 'score', 'url'] as const;
+type ColumnType = typeof VALID_COLUMN_TYPES[number];
+
+const createTabularReviewTool = (ctx: ToolContext): AgentTool => ({
+  name: 'create_tabular_review',
+  label: 'Create Tabular Review',
+  description:
+    'Create a persistent tabular review comparing entities (competitors, markets, features). The review renders as a typed comparison-table artifact in chat AND persists to the database for cross-turn reference. Each column has a type (text, currency, percentage, score, url) for smart formatting.',
+  parameters: Type.Object({
+    title: Type.String({ description: 'Review title. Example: "Competitor ARR & Growth Comparison"' }),
+    columns: Type.Array(Type.String(), { description: 'Column headers. Example: ["ARR", "YoY Growth", "Headcount", "Website"]' }),
+    column_types: Type.Array(Type.String(), { description: `Column types, parallel to columns. Each must be one of: ${VALID_COLUMN_TYPES.join(', ')}. Example: ["currency", "percentage", "text", "url"]` }),
+    rows: Type.Array(
+      Type.Object({
+        label: Type.String({ description: 'Row label (typically entity name).' }),
+        values: Type.Array(Type.Union([Type.String(), Type.Number()]), { description: 'Cell values, parallel to columns. Use numbers for currency/percentage/score, strings for text/url.' }),
+        entity_id: Type.Optional(Type.String({ description: 'Optional entity ID (e.g., competitor_profile id) for linking.' })),
+        entity_type: Type.Optional(Type.String({ description: 'Entity type (e.g., "competitor_profile").' })),
+      }),
+      { description: 'Table rows.' },
+    ),
+    sources: Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] array. Required: cite where the comparison data comes from.' }),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as {
+      title: string;
+      columns: string[];
+      column_types: string[];
+      rows: { label: string; values: (string | number)[]; entity_id?: string; entity_type?: string }[];
+      sources: unknown[];
+    };
+
+    if (!p.title || p.title.trim().length === 0) {
+      return { content: [{ type: 'text', text: 'create_tabular_review requires a non-empty title.' }], details: { error: true } };
+    }
+    if (!Array.isArray(p.columns) || p.columns.length === 0) {
+      return { content: [{ type: 'text', text: 'create_tabular_review requires at least one column.' }], details: { error: true } };
+    }
+    if (!Array.isArray(p.column_types) || p.column_types.length !== p.columns.length) {
+      return { content: [{ type: 'text', text: `column_types must be parallel to columns (got ${p.column_types?.length ?? 0} vs ${p.columns.length}).` }], details: { error: true } };
+    }
+    for (const ct of p.column_types) {
+      if (!VALID_COLUMN_TYPES.includes(ct as ColumnType)) {
+        return { content: [{ type: 'text', text: `Invalid column_type "${ct}". Must be one of: ${VALID_COLUMN_TYPES.join(', ')}` }], details: { error: true } };
+      }
+    }
+    if (!Array.isArray(p.rows) || p.rows.length === 0) {
+      return { content: [{ type: 'text', text: 'create_tabular_review requires at least one row.' }], details: { error: true } };
+    }
+    if (!Array.isArray(p.sources) || p.sources.length === 0) {
+      return { content: [{ type: 'text', text: 'create_tabular_review requires at least one source.' }], details: { error: true } };
+    }
+
+    const reviewId = generateId('trev');
+    const now = new Date().toISOString();
+
+    try {
+      await run(
+        `INSERT INTO tabular_reviews (id, project_id, title, columns, column_types, sources, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        reviewId, ctx.projectId, p.title.trim(),
+        JSON.stringify(p.columns), JSON.stringify(p.column_types),
+        JSON.stringify(p.sources), now, now,
+      );
+
+      for (let i = 0; i < p.rows.length; i++) {
+        const row = p.rows[i];
+        await run(
+          `INSERT INTO tabular_cells (id, review_id, row_index, row_label, values, entity_id, entity_type, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          generateId('tcell'), reviewId, i, row.label.trim(),
+          JSON.stringify(row.values),
+          row.entity_id ?? null, row.entity_type ?? null, now,
+        );
+      }
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to persist tabular review: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    // Emit a comparison-table artifact with the review_id so it's linkable.
+    const artifactId = `trev_${reviewId.slice(-12)}`;
+    const artifactBody: Record<string, unknown> = {
+      title: p.title.trim(),
+      columns: p.columns,
+      column_types: p.column_types,
+      rows: p.rows.map(r => ({ label: r.label, values: r.values })),
+      review_id: reviewId,
+      sources: p.sources,
+    };
+
+    const artifactBlock = [
+      `:::artifact{"type":"comparison-table","id":"${artifactId}"}`,
+      JSON.stringify(artifactBody),
+      ':::',
+    ].join('\n');
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            `Tabular review created (${reviewId}, ${p.rows.length} rows). ` +
+            `Emit the following artifact block VERBATIM in your reply:\n\n${artifactBlock}`,
+        },
+      ],
+      details: {
+        review_id: reviewId,
+        artifact_id: artifactId,
+        row_count: p.rows.length,
+      },
+    };
+  },
+});
+
+const readTabularReviewTool = (ctx: ToolContext): AgentTool => ({
+  name: 'read_tabular_review',
+  label: 'Read Tabular Review',
+  description:
+    'Retrieve a previously-created tabular review by ID or list recent reviews for this project. Use when referring to past competitor comparisons or structured data.',
+  parameters: Type.Object({
+    review_id: Type.Optional(Type.String({ description: 'Specific review ID to read. If omitted, returns recent reviews.' })),
+    limit: Type.Optional(Type.Number({ description: 'Max reviews to list. Default 5, max 20.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { review_id?: string; limit?: number };
+
+    if (p.review_id) {
+      const review = await get<{ id: string; title: string; columns: string; column_types: string; sources: string; created_at: string }>(
+        'SELECT id, title, columns, column_types, sources, created_at FROM tabular_reviews WHERE id = ? AND project_id = ?',
+        p.review_id, ctx.projectId,
+      );
+      if (!review) {
+        return { content: [{ type: 'text', text: `Tabular review "${p.review_id}" not found.` }], details: { error: true } };
+      }
+
+      const cells = await query<{ row_index: number; row_label: string; values: string; entity_id: string | null }>(
+        'SELECT row_index, row_label, values, entity_id FROM tabular_cells WHERE review_id = ? ORDER BY row_index',
+        p.review_id,
+      );
+
+      const columns = JSON.parse(review.columns) as string[];
+      const columnTypes = JSON.parse(review.column_types) as string[];
+
+      const lines: string[] = [];
+      lines.push(`Review: ${review.title} (${review.id})`);
+      lines.push(`Columns: ${columns.map((c, i) => `${c} [${columnTypes[i]}]`).join(' | ')}`);
+      lines.push('');
+      for (const cell of cells) {
+        const vals = JSON.parse(cell.values) as (string | number)[];
+        lines.push(`  ${cell.row_label}: ${vals.map((v, i) => `${columns[i]}=${v}`).join(', ')}${cell.entity_id ? ` (entity: ${cell.entity_id})` : ''}`);
+      }
+
+      return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+        details: { review_id: review.id, row_count: cells.length },
+      };
+    }
+
+    // List recent reviews
+    const limit = Math.max(1, Math.min(20, p.limit ?? 5));
+    const reviews = await query<{ id: string; title: string; created_at: string }>(
+      `SELECT id, title, created_at FROM tabular_reviews WHERE project_id = ? ORDER BY created_at DESC LIMIT ${limit}`,
+      ctx.projectId,
+    );
+
+    if (reviews.length === 0) {
+      return { content: [{ type: 'text', text: 'No tabular reviews for this project.' }], details: { count: 0 } };
+    }
+
+    const text = reviews.map((r, i) => `${i + 1}. ${r.title} (${r.id}) — ${r.created_at}`).join('\n');
+    return {
+      content: [{ type: 'text', text: `Recent tabular reviews:\n${text}` }],
+      details: { count: reviews.length },
+    };
+  },
+});
+
+// =============================================================================
 // Factory
 // =============================================================================
 
@@ -1325,6 +1509,7 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     listGraphNodes(ctx),
     listIntelligenceBriefs(ctx),
     getRiskAudit(ctx),
+    readTabularReviewTool(ctx),
   ];
 
   if (!includeWriteTools) return readTools;
@@ -1337,5 +1522,6 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     createTaskTool(ctx),
     proposeWatchSourceTool(ctx),
     createSignalTool(ctx),
+    createTabularReviewTool(ctx),
   ];
 }
