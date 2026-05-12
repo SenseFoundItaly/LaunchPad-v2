@@ -11,7 +11,7 @@ function getSql(): postgres.Sql {
     const url = process.env.DATABASE_URL;
     if (!url) {
       throw new Error(
-        'DATABASE_URL is not set. Add it to .env.local (or Vercel env vars).'
+        'DATABASE_URL is not set. Add it to .env.local (or your deploy platform env vars).'
       );
     }
     globalForPg.__pg = postgres(url, {

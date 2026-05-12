@@ -1,0 +1,19 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+# Next.js runtime — required for App Router, API routes, SSR
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Extend serverless function timeout for LLM agent calls.
+# The /api/cron route runs monitors + heartbeats sequentially,
+# each with 90-130s agent timeouts. Default 10s is not enough.
+[functions]
+  external_node_modules = ["ws", "@mariozechner/pi-ai", "@mariozechner/pi-agent-core"]
+  node_bundler = "esbuild"
+
+# Environment-specific settings
+[context.production.environment]
+  NODE_ENV = "production"
+  NEXT_TELEMETRY_DISABLED = "1"

@@ -241,8 +241,8 @@ async function proposeHeartbeatTasks(args: {
  *   - If CRON_SECRET IS set → every request MUST carry
  *     `Authorization: Bearer <secret>` or it's rejected with 401.
  *
- * Vercel Cron automatically forwards the bearer when the project env var
- * is configured — no code change required on the Vercel side. For local
+ * The GitHub Actions cron workflow forwards the bearer from the CRON_SECRET
+ * repository secret. For local
  * manual invocation:
  *     curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron
  *
@@ -477,8 +477,8 @@ async function processMonitors(monitors: MonitorRow[]): Promise<MonitorRunOutcom
 
 /** GET /api/cron — check and run due monitors, then heartbeat reflections.
  *
- * Gated by CRON_SECRET bearer when set. Vercel Cron (configured in
- * vercel.json with a 15-min schedule) auto-includes the bearer.
+ * Gated by CRON_SECRET bearer when set. Triggered by the GitHub Actions
+ * scheduled-cron.yml workflow (daily at 08:00 UTC).
  */
 export async function GET(request: NextRequest) {
   const auth = requireCronAuth(request);
@@ -510,7 +510,7 @@ export async function GET(request: NextRequest) {
     const monitorResults = due.length > 0 ? await processMonitors(due) : [];
 
     // Phase B: Process due watch sources (URL-based change detection).
-    // Up to 10 per cron tick to stay within Vercel Hobby 10s timeout.
+    // Up to 10 per cron tick to keep each batch manageable.
     let watchSourceResults: WatchSourceResult[] = [];
     try {
       watchSourceResults = await processWatchSourcesCron(10);

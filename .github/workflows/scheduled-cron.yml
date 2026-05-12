@@ -1,0 +1,21 @@
+name: Daily cron trigger
+
+on:
+  schedule:
+    # 08:00 UTC daily — same as the previous vercel.json cron
+    - cron: "0 8 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  trigger-cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SITE_URL: ${{ secrets.SITE_URL }}
+        run: |
+          curl -sf -X GET \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${SITE_URL}/api/cron" \
+            --max-time 300
