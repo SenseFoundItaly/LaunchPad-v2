@@ -74,15 +74,15 @@ export async function buildSkillMap(projectId: string): Promise<SkillMapBundle> 
          FROM skill_completions
         WHERE project_id = ?`,
       projectId,
-    ),
+    ).catch(() => [] as CompletionRow[]),
     get<{ dimensions: ScoresDimensions | null }>(
       'SELECT dimensions FROM scores WHERE project_id = ?',
       projectId,
-    ),
+    ).catch(() => null),
     get<{ personas: SimulationPersona[] | null; risk_scenarios: RiskScenario[] | null }>(
       'SELECT personas, risk_scenarios FROM simulation WHERE project_id = ?',
       projectId,
-    ),
+    ).catch(() => null),
   ]);
 
   const cutoffMs = Date.now() - STALE_DAYS * 24 * 60 * 60 * 1000;

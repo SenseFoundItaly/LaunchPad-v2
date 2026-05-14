@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { json, error } from '@/lib/api-helpers';
+import { json } from '@/lib/api-helpers';
 import { getStageReadiness } from '@/lib/stage-readiness';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
@@ -18,6 +18,15 @@ export async function GET(
     return json(readiness);
   } catch (err) {
     console.error('[readiness] getStageReadiness failed:', (err as Error).message);
-    return error('Failed to compute readiness', 500);
+    // Return a valid zeroed payload so the dashboard renders a meaningful
+    // state instead of showing an infinite "Loading readiness…" spinner.
+    // _fallback lets clients distinguish this from a real zero-score result.
+    return json({
+      overall_score: 0,
+      overall_verdict: 'NOT READY',
+      stages: [],
+      next_recommended_skill: null,
+      _fallback: true,
+    });
   }
 }

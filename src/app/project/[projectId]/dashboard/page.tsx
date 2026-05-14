@@ -19,11 +19,12 @@
  * this is a full-bleed design-system page.
  */
 
-import { use, useEffect, useState, useCallback, useMemo } from 'react';
+import { use, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import api from '@/api';
 import { useProject } from '@/hooks/useProject';
 import ProjectChatDrawer from '@/components/chat/ProjectChatDrawer';
+import type { ChatDrawerHandle } from '@/components/chat/ProjectChatDrawer';
 import PendingKnowledgeList from '@/components/knowledge/PendingKnowledgeList';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
@@ -108,8 +109,15 @@ interface BudgetPayload {
   status: string;
 }
 
+interface ComputedMetric {
+  name: string;
+  type: string;
+  value: number;
+}
+
 interface DashboardPayload {
   metrics: Metric[];
+  computed_metrics?: ComputedMetric[];
   burn_rate: BurnRow | null;
   alerts: AlertRow[];
   monitors: MonitorRow[];
@@ -173,19 +181,28 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
   const [usageGroups, setUsageGroups] = useState<LlmUsageGroupRow[]>([]);
   const [signalEntries, setSignalEntries] = useState<SignalTimelineEntry[]>([]);
   const [readiness, setReadiness] = useState<ReadinessPayload | null>(null);
+  const [graphNodes, setGraphNodes] = useState<GraphNodeRow[]>([]);
   const [cronbeat, setCronbeat] = useState<{ health: HeartbeatKind; hours_since_last: number | null } | null>(null);
   const [cronPanelOpen, setCronPanelOpen] = useState(false);
+  const [readinessError, setReadinessError] = useState(false);
   const [loading, setLoading] = useState(true);
   const { count: inboxBadge } = useOpenActionCount(projectId);
+  const chatDrawerRef = useRef<ChatDrawerHandle>(null);
+
+  const handleTicketClick = useCallback((ticket: PendingDecisionPreview) => {
+    const message = `Review and resolve ticket ${ticket.id}.\n\nTicket title: """${ticket.title}"""`;
+    chatDrawerRef.current?.openAndSend(message);
+  }, []);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [dash, usage, signals, beat, readinessRes] = await Promise.all([
+      const [dash, usage, signals, beat, readinessRes, graphRes] = await Promise.all([
         api.get<ApiResponse<DashboardPayload>>(`/api/dashboard/${projectId}`),
         api.get<ApiResponse<LlmUsageGroupRow[]>>(`/api/projects/${projectId}/usage/groups`).catch(() => ({ data: { data: [] } })),
         fetch(`/api/projects/${projectId}/signals?days=7&limit=8`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
         api.get<ApiResponse<{ health: HeartbeatKind; hours_since_last: number | null }>>('/api/cronbeat').catch(() => null),
         fetch(`/api/projects/${projectId}/readiness`).then(r => r.json()).catch(() => null),
+        fetch(`/api/graph/${projectId}`).then(r => r.json()).catch(() => ({ success: false })),
       ]);
       if (dash.data?.data) setPayload(dash.data.data);
       const groups = (usage.data as ApiResponse<LlmUsageGroupRow[]> | undefined)?.data;
@@ -195,7 +212,20 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
       }
       if (beat?.data?.data) setCronbeat(beat.data.data);
       if (readinessRes?.success && readinessRes.data) {
-        setReadiness(readinessRes.data as ReadinessPayload);
+        const rd = readinessRes.data as ReadinessPayload & { _fallback?: boolean };
+        if (rd._fallback) {
+          setReadinessError(true);
+          setReadiness(null);
+        } else {
+          setReadinessError(false);
+          setReadiness(rd);
+        }
+      } else {
+        setReadinessError(true);
+        setReadiness(null);
+      }
+      if (graphRes?.success && Array.isArray(graphRes.data?.nodes)) {
+        setGraphNodes(graphRes.data.nodes as GraphNodeRow[]);
       }
     } catch {
       // Partial data is fine — the page renders empty panels gracefully
@@ -209,24 +239,44 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
   // Derived data for sub-panels
   const metricTiles = useMemo(() => {
     if (!payload) return [];
-    return payload.metrics.slice(0, 5).map((m) => {
-      const entries = m.entries || [];
-      const latest = entries[entries.length - 1]?.value;
-      const prior = entries[entries.length - 2]?.value;
-      const delta = latest != null && prior != null && prior !== 0
-        ? `${latest > prior ? '+' : ''}${(((latest / prior) - 1) * 100).toFixed(1)}%`
-        : undefined;
-      const sparkData = entries.map(e => e.value);
-      const kind: 'ok' | 'warn' | 'n' = latest != null && prior != null
-        ? (latest >= prior ? 'ok' : 'warn')
-        : 'n';
-      const valueStr = m.type === 'currency'
-        ? (latest != null ? `€${latest.toLocaleString('it-IT')}` : '—')
-        : m.type === 'percentage'
-          ? (latest != null ? `${latest}%` : '—')
-          : (latest != null ? latest.toLocaleString('it-IT') : '—');
-      return { label: m.name, value: valueStr, delta, sparkData, kind };
-    });
+
+    // If user-defined metrics exist, use those
+    if (payload.metrics.length > 0) {
+      return payload.metrics.slice(0, 5).map((m) => {
+        const entries = m.entries || [];
+        const latest = entries[entries.length - 1]?.value;
+        const prior = entries[entries.length - 2]?.value;
+        const delta = latest != null && prior != null && prior !== 0
+          ? `${latest > prior ? '+' : ''}${(((latest / prior) - 1) * 100).toFixed(1)}%`
+          : undefined;
+        const sparkData = entries.map(e => e.value);
+        const kind: 'ok' | 'warn' | 'n' = latest != null && prior != null
+          ? (latest >= prior ? 'ok' : 'warn')
+          : 'n';
+        const valueStr = m.type === 'currency'
+          ? (latest != null ? `€${latest.toLocaleString('it-IT')}` : '—')
+          : m.type === 'percentage'
+            ? (latest != null ? `${latest}%` : '—')
+            : (latest != null ? latest.toLocaleString('it-IT') : '—');
+        return { label: m.name, value: valueStr, delta, sparkData, kind };
+      });
+    }
+
+    // Fall back to computed metrics from platform data
+    if (payload.computed_metrics && payload.computed_metrics.length > 0) {
+      return payload.computed_metrics.slice(0, 5).map((cm) => {
+        const valueStr = cm.type === 'percentage' ? `${cm.value}%` : String(cm.value);
+        return {
+          label: cm.name,
+          value: valueStr,
+          delta: undefined,
+          sparkData: [] as number[],
+          kind: 'n' as const,
+        };
+      });
+    }
+
+    return [];
   }, [payload]);
 
   const runway = payload?.burn_rate && payload.burn_rate.monthly_burn > 0
@@ -391,6 +441,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
                 projectId={projectId}
                 overnightAgentCount={overnightAgentCount}
                 onOpenCronSettings={() => setCronPanelOpen(true)}
+                cronbeat={cronbeat}
               />
 
               <Panel
@@ -403,13 +454,22 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
                   </Link>
                 }
               >
-                <TicketListPanel decisions={payload?.pending_decisions || []} locale={locale} />
+                <TicketListPanel decisions={payload?.pending_decisions || []} locale={locale} onTicketClick={handleTicketClick} />
               </Panel>
 
               <Panel
-                title={locale === 'it' ? 'Revisione Conoscenze' : 'Knowledge Review'}
-                subtitle={locale === 'it' ? 'Elementi in attesa di approvazione' : 'Items awaiting your approval'}
+                title={locale === 'it' ? 'Conoscenza' : 'Knowledge'}
+                subtitle={graphNodes.length > 0
+                  ? `${graphNodes.length} ${locale === 'it' ? 'nodi' : 'nodes'}`
+                  : undefined}
+                right={
+                  <Link href={`/project/${projectId}/graph`} style={linkStyle}>
+                    {locale === 'it' ? 'grafo' : 'graph'}
+                    <Icon d={I.arrow} size={10} />
+                  </Link>
+                }
               >
+                {graphNodes.length > 0 && <MiniGraph nodes={graphNodes} />}
                 <PendingKnowledgeList projectId={projectId} />
               </Panel>
             </div>
@@ -430,6 +490,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
 
               <ReadinessWidget
                 readiness={readiness}
+                readinessError={readinessError}
                 locale={locale}
                 projectId={projectId}
               />
@@ -467,7 +528,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
       {/* Floating "Ask your co-founder" drawer — wired to the same chat agent
           with full project-scoped tools (list_ecosystem_alerts,
           list_pending_actions, queue_draft_for_approval, ...) */}
-      <ProjectChatDrawer projectId={projectId} />
+      <ProjectChatDrawer ref={chatDrawerRef} projectId={projectId} />
     </div>
   );
 }
@@ -556,6 +617,7 @@ function HeartbeatSection({
   projectId,
   overnightAgentCount,
   onOpenCronSettings,
+  cronbeat,
 }: {
   monitors: MonitorRow[];
   ecosystemAlerts: EcosystemAlertPreview[];
@@ -563,6 +625,7 @@ function HeartbeatSection({
   projectId: string;
   overnightAgentCount: number;
   onOpenCronSettings?: () => void;
+  cronbeat?: { health: HeartbeatKind; hours_since_last: number | null } | null;
 }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [viewAll, setViewAll] = useState(false);
@@ -705,9 +768,20 @@ function HeartbeatSection({
         </div>
       ) : condensedEvents.length === 0 ? (
         <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
-          {locale === 'it'
-            ? "Nessuna attività recente. Lancia uno scan dall'inbox o dalla Brief."
-            : 'No recent activity. Trigger a scan from the inbox or Brief.'}
+          {cronbeat && cronbeat.health !== 'dead' ? (
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <Pill kind="info">pending</Pill>
+              <span>
+                {locale === 'it'
+                  ? 'Heartbeat configurato. In attesa del prossimo ciclo cron.'
+                  : 'Heartbeat configured. Awaiting next cron cycle.'}
+              </span>
+            </span>
+          ) : (
+            locale === 'it'
+              ? "Nessuna attività recente. Lancia uno scan dall'inbox o dalla Brief."
+              : 'No recent activity. Trigger a scan from the inbox or Brief.'
+          )}
         </div>
       ) : (
         <div style={{ padding: '4px 0' }}>
@@ -729,7 +803,7 @@ function HeartbeatSection({
                 onMouseLeave={(ev) => { (ev.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
               >
                 <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                  {formatTimeAgo(e.t, locale)}
+                  {formatWallClock(e.t, locale)}
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                   <span
@@ -837,7 +911,7 @@ function ActivityRow({
           {event.body ? <Icon d={open ? I.chevd : I.chevr} size={10} /> : null}
         </span>
         <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-          {formatTimeAgo(event.at, locale)}
+          {formatWallClock(event.at, locale)}
         </span>
         <Pill kind="n">
           {event.tag}
@@ -879,9 +953,11 @@ function ActivityRow({
 function TicketListPanel({
   decisions,
   locale,
+  onTicketClick,
 }: {
   decisions: PendingDecisionPreview[];
   locale: 'en' | 'it';
+  onTicketClick?: (ticket: PendingDecisionPreview) => void;
 }) {
   if (decisions.length === 0) {
     return (
@@ -892,10 +968,10 @@ function TicketListPanel({
       </div>
     );
   }
-  const statusMap: Record<string, 'live' | 'info' | 'warn' | 'n'> = {
+  const statusMap: Record<string, 'ok' | 'live' | 'info' | 'warn' | 'n'> = {
     pending: 'live',
     edited: 'info',
-    approved: 'ok' as 'info',
+    approved: 'ok',
     rejected: 'n',
   };
   return (
@@ -903,6 +979,7 @@ function TicketListPanel({
       {decisions.slice(0, 4).map((r, i) => (
         <div
           key={r.id}
+          onClick={() => onTicketClick?.(r)}
           style={{
             padding: '10px 14px',
             borderBottom: i < Math.min(3, decisions.length - 1) ? '1px solid var(--line)' : 'none',
@@ -910,7 +987,11 @@ function TicketListPanel({
             gridTemplateColumns: '64px 1fr auto',
             gap: 12,
             alignItems: 'center',
+            cursor: onTicketClick ? 'pointer' : 'default',
+            transition: 'background .1s',
           }}
+          onMouseEnter={(e) => { if (onTicketClick) (e.currentTarget as HTMLDivElement).style.background = 'var(--paper-2)'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
         >
           <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
             {r.id.replace(/^pa_/, 'T-').slice(0, 8)}
@@ -946,6 +1027,25 @@ function TicketListPanel({
 // =============================================================================
 
 function MiniGraph({ nodes }: { nodes: GraphNodeRow[] }) {
+  if (nodes.length === 0) {
+    return (
+      <div
+        style={{
+          padding: 24,
+          background: 'var(--paper)',
+          height: 220,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 12,
+          color: 'var(--ink-5)',
+        }}
+      >
+        Nessun nodo nel graph. Il co-founder lo popola durante gli scan settimanali.
+      </div>
+    );
+  }
+
   const colorMap: Record<string, string> = {
     your_startup: 'var(--ink)',
     competitor: 'var(--clay)',
@@ -979,25 +1079,6 @@ function MiniGraph({ nodes }: { nodes: GraphNodeRow[] }) {
   });
 
   const selfPos = { x: cx, y: cy, r: 14, name: selfNode?.name || 'You', node_type: 'your_startup' };
-
-  if (nodes.length === 0) {
-    return (
-      <div
-        style={{
-          padding: 24,
-          background: 'var(--paper)',
-          height: 220,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 12,
-          color: 'var(--ink-5)',
-        }}
-      >
-        Nessun nodo nel graph. Il co-founder lo popola durante gli scan settimanali.
-      </div>
-    );
-  }
 
   return (
     <div style={{ padding: 12, background: 'var(--paper)', position: 'relative' }}>
@@ -1092,10 +1173,12 @@ const VERDICT_PILL: Record<string, 'ok' | 'warn' | 'n' | 'live'> = {
 
 function ReadinessWidget({
   readiness,
+  readinessError,
   locale,
   projectId,
 }: {
   readiness: ReadinessPayload | null;
+  readinessError?: boolean;
   locale: 'en' | 'it';
   projectId: string;
 }) {
@@ -1123,7 +1206,11 @@ function ReadinessWidget({
     >
       {!readiness ? (
         <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
-          {locale === 'it' ? 'Caricamento readiness…' : 'Loading readiness…'}
+          {readinessError
+            ? (locale === 'it'
+              ? 'Readiness non disponibile. Completa alcune skill per calcolarla.'
+              : 'Readiness unavailable. Complete some skills to calculate.')
+            : (locale === 'it' ? 'Caricamento readiness…' : 'Loading readiness…')}
         </div>
       ) : (
         <div>
@@ -1420,9 +1507,16 @@ function SignalsPreviewPanel({
   if (signals.length === 0) {
     return (
       <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
-        {locale === 'it'
-          ? 'Nessun segnale rilevato negli ultimi 7 giorni.'
-          : 'No signals detected in the last 7 days.'}
+        <div>
+          {locale === 'it'
+            ? 'Nessun segnale rilevato negli ultimi 7 giorni.'
+            : 'No signals detected in the last 7 days.'}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--ink-6)', marginTop: 6 }}>
+          {locale === 'it'
+            ? 'Configura monitor e watch source per ricevere segnali.'
+            : 'Set up monitors and watch sources to receive signals.'}
+        </div>
       </div>
     );
   }
@@ -1450,7 +1544,7 @@ function SignalsPreviewPanel({
             </span>
             <span style={{ flex: 1 }} />
             <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-              {formatTimeAgo(s.timestamp, locale)}
+              {formatWallClock(s.timestamp, locale)}
             </span>
           </div>
           <div
@@ -1533,7 +1627,7 @@ function safeHost(url: string): string {
   try { return new URL(url).hostname; } catch { return url.slice(0, 40); }
 }
 
-function formatTimeAgo(iso: string, locale: 'en' | 'it'): string {
+function formatWallClock(iso: string, locale: 'en' | 'it'): string {
   try {
     const d = new Date(iso);
     const hh = String(d.getHours()).padStart(2, '0');

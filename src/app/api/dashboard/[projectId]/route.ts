@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { json } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
+import { STAGES } from '@/lib/stages';
 
 /**
  * GET /api/dashboard/{projectId}
@@ -26,7 +27,7 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const metrics = await query<{ id: string; name: string; type: string; target_growth_rate: number }>(
-    'SELECT * FROM metrics WHERE project_id = ?', projectId,
+    'SELECT id, name, type, target_growth_rate FROM metrics WHERE project_id = ?', projectId,
   );
   const metricsWithEntries = [];
   for (const m of metrics) {
@@ -38,16 +39,16 @@ export async function GET(
   }
 
   const burnRate = await query<{ monthly_burn: number; cash_on_hand: number; updated_at: string }>(
-    'SELECT * FROM burn_rate WHERE project_id = ?', projectId,
+    'SELECT monthly_burn, cash_on_hand, updated_at FROM burn_rate WHERE project_id = ?', projectId,
   );
 
   const alerts = await query(
-    'SELECT * FROM alerts WHERE project_id = ? AND dismissed = false ORDER BY created_at DESC LIMIT 20',
+    'SELECT id, type, severity, message, created_at FROM alerts WHERE project_id = ? AND dismissed = false ORDER BY created_at DESC LIMIT 20',
     projectId,
   );
 
   const monitors = await query(
-    'SELECT * FROM monitors WHERE project_id = ? ORDER BY created_at DESC',
+    'SELECT id, type, name, status, last_run, last_result, created_at FROM monitors WHERE project_id = ? ORDER BY created_at DESC',
     projectId,
   );
 
@@ -74,6 +75,7 @@ export async function GET(
     `SELECT id, action_type, title, rationale, estimated_impact, status, created_at
      FROM pending_actions
      WHERE project_id = ? AND status IN ('pending', 'edited')
+       AND action_type != 'workflow_step'
      ORDER BY
        CASE estimated_impact WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END,
        created_at DESC
@@ -107,8 +109,45 @@ export async function GET(
     projectId, periodMonth,
   ))[0];
 
+  // --- Computed metrics: live snapshot values from existing platform tables ---
+  const [knowledgeCount, skillsCompleted, signals7d, actionsSent7d] = await Promise.all([
+    query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM graph_nodes WHERE project_id = ? AND reviewed_state = 'approved'`,
+      projectId,
+    ).then(rows => rows[0]?.cnt ?? 0).catch(() => 0),
+    query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM skill_completions WHERE project_id = ? AND status = 'completed'`,
+      projectId,
+    ).then(rows => rows[0]?.cnt ?? 0).catch(() => 0),
+    query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM ecosystem_alerts WHERE project_id = ? AND created_at >= ? AND relevance_score >= 0.6 AND reviewed_state != 'dismissed'`,
+      projectId,
+      new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    ).then(rows => rows[0]?.cnt ?? 0).catch(() => 0),
+    query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM pending_actions WHERE project_id = ? AND status = 'sent' AND updated_at >= ?`,
+      projectId,
+      new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    ).then(rows => rows[0]?.cnt ?? 0).catch(() => 0),
+  ]);
+
+  // Readiness score: completed skills as a percentage of canonical STAGES total
+  const totalSkills = STAGES.reduce((sum, s) => sum + s.skills.length, 0);
+  const readinessScore = totalSkills > 0
+    ? Math.round((skillsCompleted / totalSkills) * 100)
+    : 0;
+
+  const computed_metrics = [
+    { name: 'Readiness Score', type: 'percentage', value: readinessScore },
+    { name: 'Knowledge Nodes', type: 'count', value: knowledgeCount },
+    { name: 'Skills Completed', type: 'count', value: skillsCompleted },
+    { name: 'Signals (7d)', type: 'count', value: signals7d },
+    { name: 'Actions Sent (7d)', type: 'count', value: actionsSent7d },
+  ];
+
   return json({
     metrics: metricsWithEntries,
+    computed_metrics,
     burn_rate: burnRate.length > 0 ? burnRate[0] : null,
     alerts,
     monitors,

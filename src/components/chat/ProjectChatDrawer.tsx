@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { useChat } from '@/hooks/useChat';
 
 /**
@@ -29,6 +29,10 @@ interface ProjectChatDrawerProps {
   triggerLabel?: string;
 }
 
+export interface ChatDrawerHandle {
+  openAndSend: (message: string) => void;
+}
+
 const DEFAULT_SUGGESTED_PROMPTS = [
   'Cosa si è mosso nel mio ecosistema questa settimana?',
   'Riassumi i miei numeri e la mia runway',
@@ -36,15 +40,32 @@ const DEFAULT_SUGGESTED_PROMPTS = [
   'Quali competitor ho tracciato finora?',
 ];
 
-export default function ProjectChatDrawer({
+const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(function ProjectChatDrawer({
   projectId,
   suggestedPrompts = DEFAULT_SUGGESTED_PROMPTS,
   triggerLabel = 'Chiedi al tuo co-founder',
-}: ProjectChatDrawerProps) {
+}, ref) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const { messages, isStreaming, sendMessage } = useChat(projectId, 'chat');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pendingSendRef = useRef<string[]>([]);
+
+  // Expose imperative handle for external callers (e.g. ticket click)
+  useImperativeHandle(ref, () => ({
+    openAndSend(message: string) {
+      pendingSendRef.current.push(message);
+      setOpen(true);
+    },
+  }));
+
+  // Fire pending messages once the drawer is open and not streaming.
+  useEffect(() => {
+    if (open && pendingSendRef.current.length > 0 && !isStreaming) {
+      const msg = pendingSendRef.current.shift()!;
+      sendMessage(msg);
+    }
+  }, [open, isStreaming, sendMessage]);
 
   // Auto-scroll to newest message
   useEffect(() => {
@@ -167,7 +188,9 @@ export default function ProjectChatDrawer({
       )}
     </>
   );
-}
+});
+
+export default ProjectChatDrawer;
 
 // =============================================================================
 // Subcomponents
