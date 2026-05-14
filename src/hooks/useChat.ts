@@ -164,7 +164,7 @@ export function useChat(projectId: string, step: string = 'chat') {
                     });
                   }
 
-                  // Broadcast persisted artifact IDs so cards can wire approve/reject
+                  // Broadcast persisted artifact IDs so cards can wire apply/reject
                   if (parsed.done && parsed.persisted_artifacts && typeof window !== 'undefined') {
                     window.dispatchEvent(
                       new CustomEvent('lp-persisted-artifacts', {
@@ -184,8 +184,8 @@ export function useChat(projectId: string, step: string = 'chat') {
                       return updated;
                     });
                   }
-                } catch {
-                  // skip malformed lines
+                } catch (parseErr) {
+                  console.warn('[useChat] malformed SSE line:', line.slice(0, 200), parseErr);
                 }
               }
             }

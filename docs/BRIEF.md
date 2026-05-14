@@ -165,7 +165,7 @@ Tasks the founder should do. Created by:
 
 ### Approvals Lane
 Drafts and proposals requiring founder sign-off:
-- Emails (`queue_draft_for_approval`)
+- Emails (`queue_draft_for_review`)
 - Monitor proposals (`propose_monitor`)
 - Budget changes (`propose_budget_change`)
 - Watch source proposals (`propose_watch_source`)

@@ -12,11 +12,11 @@
  *
  * Lanes:
  *   - TODO:         things the founder DOES (action verbs: done/snooze/dismiss)
- *   - APPROVAL:     things the agent DRAFTED and the founder approves/edits/rejects
+ *   - APPROVAL:     things the agent DRAFTED and the founder applies/edits/rejects
  *   - NOTIFICATION: things the system FINISHED that the founder just acknowledges
  *
  * Pure derivation from action_type — no schema column added. Default fallback
- * is 'approval' because the generic approve/edit/reject verbs work for any
+ * is 'approval' because the generic apply/edit/reject verbs work for any
  * unknown draft-like type.
  */
 

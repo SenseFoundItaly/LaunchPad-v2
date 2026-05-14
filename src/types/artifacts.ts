@@ -56,14 +56,14 @@ export type Source =
   | { type: 'user'; title: string; chat_turn_id?: string; quote: string }
   | { type: 'inference'; title: string; based_on: Source[]; reasoning: string };
 
-export type ReviewedState = 'pending' | 'approved' | 'rejected';
+export type ReviewedState = 'pending' | 'applied' | 'rejected';
 
 export interface ArtifactBase {
   type: ArtifactType;
   id: string;
   /** Set when the artifact has been persisted (graph_nodes, memory_facts, etc.) */
   persisted_id?: string;
-  /** Approval state — pending items await founder review before entering agent context */
+  /** Review state — pending items await founder review before entering agent context */
   reviewed_state?: ReviewedState;
 }
 
@@ -235,11 +235,11 @@ export interface FactArtifact extends ArtifactBase {
 /**
  * `monitor-proposal` — in-chat inline card representing an agent-proposed
  * recurring monitor tied to a specific derisking goal. The founder can
- * Approve / Edit-before-approve / Dismiss directly from the chat thread.
+ * Apply / Edit-before-applying / Dismiss directly from the chat thread.
  *
  * Every monitor-proposal artifact pairs with a `pending_actions` row
  * (`action_type='configure_monitor'`) so the proposal persists across
- * sessions. Clicking Approve in either surface resolves both.
+ * sessions. Clicking Apply in either surface resolves both.
  *
  * Derisking linkage (`linked_risk_id` or `linked_quote`) is REQUIRED — a
  * monitor with no risk tie becomes orphaned noise. Enforced at the
@@ -253,7 +253,7 @@ export interface FactArtifact extends ArtifactBase {
  *   - L2 (Haiku classifier): semantic overlap check at overlap_score >= 0.7.
  *     When triggered but overridden (dedup_override: true), the reason
  *     surfaces in `overlap_warning` on the artifact so the founder sees
- *     the justification before approving.
+ *     the justification before applying.
  */
 export interface MonitorProposalArtifact extends ArtifactBase {
   type: 'monitor-proposal';
@@ -276,8 +276,8 @@ export interface MonitorProposalArtifact extends ArtifactBase {
   linked_quote?: string;
 
   // Populated server-side when L2 dedup fired but was overridden. The founder
-  // sees a prominent warning banner on the approval card before clicking
-  // Approve — never a silent bypass.
+  // sees a prominent warning banner on the review card before clicking
+  // Apply — never a silent bypass.
   overlap_warning?: {
     existing_monitor_id: string;
     existing_name: string;
@@ -289,7 +289,7 @@ export interface MonitorProposalArtifact extends ArtifactBase {
   // Surfaces on the card so the founder sees the ongoing spend implication.
   estimated_monthly_cost_eur: number;
 
-  // Pairs the artifact to the inbox row — clicking Approve in either place
+  // Pairs the artifact to the inbox row — clicking Apply in either place
   // resolves both. The chat route writes the pending_action first, then
   // emits the artifact with the id embedded.
   pending_action_id: string;
@@ -304,13 +304,13 @@ export interface MonitorProposalArtifact extends ArtifactBase {
  * `budget-proposal` — in-chat inline card representing an agent-proposed
  * change to the project's monthly LLM budget cap. Mirrors the monitor-proposal
  * pattern: artifact pairs with a `pending_actions` row
- * (`action_type='configure_budget'`); founder approves/edits/dismisses from
+ * (`action_type='configure_budget'`); founder applies/edits/dismisses from
  * either surface. The executor UPSERTs `project_budgets.cap_llm_usd` for the
  * current period_month.
  *
  * The agent emits this when the founder asks to raise/lower the cap, OR when
  * the credits-empty error surfaces in conversation. It is never a silent
- * mutation — always surfaces for approval.
+ * mutation — always surfaces for review.
  */
 export interface BudgetProposalArtifact extends ArtifactBase {
   type: 'budget-proposal';

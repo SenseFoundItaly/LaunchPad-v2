@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { listPendingActions, inboxSummary } from '@/lib/pending-actions';
 import type {
   EcosystemAlert,
@@ -27,6 +28,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const url = new URL(request.url);
   const weeksBack = Math.max(1, Math.min(8, parseInt(url.searchParams.get('weeks_back') || '1', 10) || 1));
   const relevanceCutoff = Math.max(0, Math.min(1, parseFloat(url.searchParams.get('relevance_cutoff') || '0.6')));
@@ -61,10 +64,10 @@ export async function GET(
     limit: 20,
   });
 
-  // Actions already taken this period (approved or sent)
+  // Actions already taken this period (applied or sent)
   const actionsTaken = (await listPendingActions({
     project_id: projectId,
-    status: ['approved', 'sent'],
+    status: ['applied', 'sent'],
     limit: 15,
   })).filter(a => a.updated_at >= periodStart);
 
@@ -221,8 +224,8 @@ function buildActionsTakenSection(
     ? 'Cosa ho fatto per te questa settimana'
     : 'What I did for you this week';
   const narrative = locale === 'it'
-    ? `${actions.length} azione/i eseguita/e dopo la tua approvazione.`
-    : `${actions.length} action${actions.length === 1 ? '' : 's'} executed after your approval.`;
+    ? `${actions.length} azione/i eseguita/e dopo che le hai applicate.`
+    : `${actions.length} action${actions.length === 1 ? '' : 's'} executed after you applied ${actions.length === 1 ? 'it' : 'them'}.`;
   return {
     kind: 'actions_taken',
     heading,

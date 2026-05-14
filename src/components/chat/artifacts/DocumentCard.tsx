@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { DocumentArtifact } from '@/types/artifacts';
 import { IconBtn, I, Pill } from '@/components/design/primitives';
 import { openPrintPreview } from '@/lib/print-utils';
+import ArtifactCardShell from './ArtifactCardShell';
 
 export default function DocumentCard({ artifact }: { artifact: DocumentArtifact }) {
   const [activeSection, setActiveSection] = useState(0);
@@ -11,6 +12,11 @@ export default function DocumentCard({ artifact }: { artifact: DocumentArtifact 
 
   const sections = artifact.sections ?? [];
   const isPitchDeck = artifact.doc_type === 'pitch-deck';
+
+  const DOC_TYPE_LABELS: Record<string, string> = {
+    'pitch-deck': 'Pitch Deck',
+    'one-pager': 'One-Pager',
+  };
 
   function copyMarkdown() {
     navigator.clipboard.writeText(artifact.content).then(() => {
@@ -33,35 +39,13 @@ export default function DocumentCard({ artifact }: { artifact: DocumentArtifact 
     openPrintPreview(artifact.title, artifact.content);
   }
 
-  const DOC_TYPE_LABELS: Record<string, string> = {
-    'pitch-deck': 'Pitch Deck',
-    'one-pager': 'One-Pager',
-  };
-
   return (
-    <div
-      style={{
-        gridColumn: 'span 6',
-        border: '1px solid var(--line)',
-        borderRadius: 'var(--r-m)',
-        overflow: 'hidden',
-        background: 'var(--surface)',
-      }}
-    >
-      {/* Toolbar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 12px',
-          borderBottom: '1px solid var(--line)',
-          background: 'var(--paper)',
-        }}
-      >
-        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)' }}>
-          {artifact.title}
-        </span>
+    <ArtifactCardShell
+      typeLabel="Document"
+      title={artifact.title}
+      sources={artifact.sources}
+      style={{ gridColumn: 'span 6' }}
+      headerRight={<>
         <Pill kind="info" dot>
           {DOC_TYPE_LABELS[artifact.doc_type] ?? artifact.doc_type}
         </Pill>
@@ -70,13 +54,12 @@ export default function DocumentCard({ artifact }: { artifact: DocumentArtifact 
             {sections.length} {isPitchDeck ? 'slides' : 'sections'}
           </span>
         )}
-        <span style={{ flex: 1 }} />
         <IconBtn d={I.copy} title={copied ? 'Copied!' : 'Copy markdown'} onClick={copyMarkdown} />
         <IconBtn d={I.download} title="Download .md" onClick={downloadMarkdown} />
         <IconBtn d={I.printer} title="Print / PDF" onClick={printPdf} />
-      </div>
-
-      <div style={{ display: 'flex', minHeight: 400 }}>
+      </>}
+    >
+      <div style={{ display: 'flex', minHeight: 400, border: '1px solid var(--line)', borderRadius: 'var(--r-m)', overflow: 'hidden' }}>
         {/* Section navigator */}
         {sections.length > 1 && (
           <div
@@ -114,7 +97,7 @@ export default function DocumentCard({ artifact }: { artifact: DocumentArtifact 
           </div>
         )}
 
-        {/* Content area — renders markdown as pre-wrapped text */}
+        {/* Content area */}
         <div
           className="lp-scroll"
           style={{
@@ -138,14 +121,11 @@ export default function DocumentCard({ artifact }: { artifact: DocumentArtifact 
           )}
         </div>
       </div>
-    </div>
+    </ArtifactCardShell>
   );
 }
 
-/**
- * Renders markdown-like text as formatted React elements.
- * No dangerouslySetInnerHTML — builds nodes from parsed lines.
- */
+/** Renders markdown-like text as safe React elements (no raw HTML injection). */
 function MarkdownBlock({ text }: { text: string }) {
   const lines = text.split('\n');
   const elements: React.ReactNode[] = [];

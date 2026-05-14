@@ -198,7 +198,7 @@ function ArtifactCard({ data }: { data: Record<string, unknown> }) {
 
   if (type === 'action-suggestion') {
     const status = String(data.status || 'pending');
-    const statusKind = status === 'sent' ? 'ok' : status === 'approved' ? 'info' : 'warn';
+    const statusKind = status === 'sent' ? 'ok' : status === 'applied' ? 'info' : 'warn';
     return (
       <div className="lp-card" style={{ padding: 12 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>

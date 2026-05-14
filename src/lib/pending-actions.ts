@@ -1,10 +1,10 @@
 /**
- * Pending Actions — the approval inbox state machine.
+ * Pending Actions — the review inbox state machine.
  *
  * Every autonomous draft produced by the AI co-founder (outreach email,
  * LinkedIn post, proposed hypothesis, etc.) lands here as `status='pending'`.
- * The founder reviews in the inbox UI and either approves, edits, or rejects.
- * Approval triggers execution (via Composio once PR #6 lands, local outbox
+ * The founder reviews in the inbox UI and either applies, edits, or rejects.
+ * Applying triggers execution (via Composio once PR #6 lands, local outbox
  * until then).
  *
  * This file owns the state machine — API routes call these functions rather
@@ -79,12 +79,12 @@ function rowToAction(row: PendingActionRow): PendingAction {
 // =============================================================================
 
 const TRANSITIONS: Record<PendingActionStatus, PendingActionStatus[]> = {
-  pending: ['approved', 'edited', 'rejected'],
-  edited: ['approved', 'edited', 'rejected'],
-  approved: ['sent', 'failed'],
+  pending: ['applied', 'edited', 'rejected'],
+  edited: ['applied', 'edited', 'rejected'],
+  applied: ['sent', 'failed'],
   rejected: [],
   sent: [],
-  failed: ['approved'],
+  failed: ['applied'],
 };
 
 export function canTransition(from: PendingActionStatus, to: PendingActionStatus): boolean {
@@ -136,7 +136,9 @@ export async function createPendingAction(input: CreatePendingActionInput): Prom
     now,
     now,
   );
-  return (await getPendingAction(id))!;
+  const result = await getPendingAction(id);
+  if (!result) throw new Error(`Failed to read back pending action ${id} after write`);
+  return result;
 }
 
 // =============================================================================
@@ -198,11 +200,13 @@ async function applyTransition(
   const sets = ['status = ?', 'updated_at = ?', ...extraUpdates.map(u => `${u.key} = ?`)];
   const params: unknown[] = [to, now, ...extraUpdates.map(u => u.value), id];
   await run(`UPDATE pending_actions SET ${sets.join(', ')} WHERE id = ?`, ...params);
-  return (await getPendingAction(id))!;
+  const result = await getPendingAction(id);
+  if (!result) throw new Error(`Failed to read back pending action ${id} after write`);
+  return result;
 }
 
-export async function approvePendingAction(id: string): Promise<PendingAction> {
-  return applyTransition(id, 'approved');
+export async function applyPendingAction(id: string): Promise<PendingAction> {
+  return applyTransition(id, 'applied');
 }
 
 export async function editPendingAction(id: string, editedPayload: Record<string, unknown>): Promise<PendingAction> {
@@ -250,7 +254,7 @@ export async function markActionFailed(id: string, error: string): Promise<Pendi
 export interface InboxSummary {
   pending: number;
   edited: number;
-  approved_awaiting_send: number;
+  applied_awaiting_send: number;
   sent_last_7d: number;
   rejected_last_7d: number;
 }
@@ -277,7 +281,7 @@ export async function inboxSummary(projectId: string): Promise<InboxSummary> {
   return {
     pending: byStatus.pending || 0,
     edited: byStatus.edited || 0,
-    approved_awaiting_send: byStatus.approved || 0,
+    applied_awaiting_send: byStatus.applied || 0,
     sent_last_7d: recentByStatus.sent || 0,
     rejected_last_7d: recentByStatus.rejected || 0,
   };

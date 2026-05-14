@@ -71,8 +71,8 @@ export async function captureWorkflow(input: {
     return null;
   }
 
-  // One pending_action per step so the founder can approve/edit/reject each
-  // individually in the existing approval inbox. Rationale + payload carry
+  // One pending_action per step so the founder can apply/edit/reject each
+  // individually in the existing review inbox. Rationale + payload carry
   // enough context for the UI to render without a join back to workflow_plans.
   const actionIds: string[] = [];
   for (let idx = 0; idx < artifact.steps.length; idx++) {

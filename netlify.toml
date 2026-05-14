@@ -1,5 +1,6 @@
 [build]
   command = "npm run build"
+  publish = ".next"
 
 # Netlify auto-detects Next.js and uses its built-in runtime (v5).
 # No explicit plugin needed — @netlify/plugin-nextjs is deprecated.
@@ -7,6 +8,14 @@
 [functions]
   external_node_modules = ["ws", "@mariozechner/pi-ai", "@mariozechner/pi-agent-core"]
   node_bundler = "esbuild"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
 
 [context.production.environment]
   NODE_ENV = "production"

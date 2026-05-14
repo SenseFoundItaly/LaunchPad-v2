@@ -20,20 +20,25 @@ export type EventType =
   | 'manual_note'
   | 'fact_recorded'
   | 'fact_dismissed'
-  | 'fact_approved'
+  | 'fact_applied'
   | 'fact_rejected'
-  | 'knowledge_approved'
+  | 'knowledge_applied'
   | 'knowledge_rejected'
+  | 'knowledge_reverted'
   | 'heartbeat_reflection'
-  | 'action_approved'
+  | 'action_applied'
   | 'action_rejected'
   | 'action_dismissed'
   | 'workflow_proposed'
   | 'task_proposed'
   | 'artifact_rejected_no_sources'
-  | 'monitor_approved'
+  | 'monitor_applied'
   | 'budget_changed'
-  | 'task_expanded';
+  | 'task_expanded'
+  | 'alert_acknowledged'
+  | 'alert_dismissed'
+  | 'alert_promoted'
+  | 'alert_reverted';
 
 export interface MemoryEvent {
   id: string;
@@ -52,9 +57,11 @@ export interface RecordEventInput {
 }
 
 /**
- * Append a new memory event. Returns the event id.
+ * Append a new memory event.
  * Non-throwing: logs and returns empty string on failure so a broken write
  * never blocks the caller's primary action.
+ *
+ * @returns UUID on success, '' on failure.
  */
 export async function recordEvent(input: RecordEventInput): Promise<string> {
   try {

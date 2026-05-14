@@ -10,7 +10,7 @@ import { useChat } from '@/hooks/useChat';
  *
  * The agent behind this drawer has access to the full project-scoped tool
  * set (list_ecosystem_alerts, list_pending_actions, list_graph_nodes,
- * get_project_metrics, get_project_summary, queue_draft_for_approval)
+ * get_project_metrics, get_project_summary, queue_draft_for_review)
  * plus the generic web tools (web_search, read_url, calculate).
  *
  * UX rules:

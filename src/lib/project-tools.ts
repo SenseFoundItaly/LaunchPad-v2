@@ -11,9 +11,9 @@
  *   so the LLM can never read another project's data, even by passing a
  *   different id as an arg.
  * - Writes are DELIBERATELY limited to `create_pending_action`. The agent
- *   can queue drafts for founder approval but cannot directly mutate domain
+ *   can queue drafts for founder review but cannot directly mutate domain
  *   tables (ecosystem_alerts, metrics, investors, etc.). This preserves the
- *   approval-first positioning locked in the plan.
+ *   apply-first positioning locked in the plan.
  *
  * Composition: pi-tools.ts's getTools() stays as the base generic tool set
  * (web_search, read_url, calculate). chat/route.ts merges both sets:
@@ -92,7 +92,7 @@ const listPendingActions = (ctx: ToolContext): AgentTool => ({
   label: 'Approval Inbox',
   description: 'List pending_actions in the founder\'s approval inbox — drafts the co-founder has queued for decision (emails, LinkedIn posts, growth hypotheses, graph updates). Use when asked about decisions waiting, the inbox, or what is queued.',
   parameters: Type.Object({
-    status: Type.Optional(Type.String({ description: 'Filter by status: pending, edited, approved, sent, rejected, failed. Default: pending,edited (awaiting decision).' })),
+    status: Type.Optional(Type.String({ description: 'Filter by status: pending, edited, applied, sent, rejected, failed. Default: pending,edited (awaiting decision).' })),
     limit: Type.Optional(Type.Number({ description: 'Max rows. Default 20, max 50.' })),
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
@@ -135,7 +135,7 @@ const listGraphNodes = (ctx: ToolContext): AgentTool => ({
     const p = params as { node_type?: string; limit?: number };
     const limit = Math.max(1, Math.min(100, p.limit ?? 30));
 
-    const conditions = ['project_id = ?', "reviewed_state = 'approved'"];
+    const conditions = ['project_id = ?', "reviewed_state = 'applied'"];
     const args: unknown[] = [ctx.projectId];
     if (p.node_type) {
       conditions.push('node_type = ?');
@@ -359,7 +359,7 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
 });
 
 // =============================================================================
-// Writes — deliberately limited to queueing drafts for approval
+// Writes — deliberately limited to queueing drafts for review
 // =============================================================================
 
 const VALID_ACTION_TYPES: readonly PendingActionType[] = [
@@ -370,9 +370,9 @@ const VALID_ACTION_TYPES: readonly PendingActionType[] = [
 ];
 
 const createPendingActionTool = (ctx: ToolContext): AgentTool => ({
-  name: 'queue_draft_for_approval',
+  name: 'queue_draft_for_review',
   label: 'Queue Draft',
-  description: 'Queue a draft (email, LinkedIn post, hypothesis, graph update) for founder approval. The founder sees it in their inbox and can approve, edit, or reject.',
+  description: 'Queue a draft (email, LinkedIn post, hypothesis, graph update) for founder review. The founder sees it in their inbox and can apply, edit, or reject.',
   parameters: Type.Object({
     action_type: Type.String({ description: `One of: ${VALID_ACTION_TYPES.join(', ')}` }),
     title: Type.String({ description: 'One-line summary of what this action does.' }),
@@ -412,7 +412,7 @@ const createPendingActionTool = (ctx: ToolContext): AgentTool => ({
       return {
         content: [{
           type: 'text',
-          text: `Draft queued. Action id: ${action.id}. The founder will see "${p.title}" in their approval inbox and can approve, edit, or reject with one click.`,
+          text: `Draft queued. Action id: ${action.id}. The founder will see "${p.title}" in their inbox and can apply, edit, or reject with one click.`,
         }],
         details: { action_id: action.id, action_type: p.action_type },
       };
@@ -433,13 +433,13 @@ const createPendingActionTool = (ctx: ToolContext): AgentTool => ({
 //   1. A pending_actions row (action_type='configure_monitor') — the
 //      persistent inbox entry.
 //   2. An artifact response that the chat stream renders inline as a
-//      MonitorProposalCard with Approve/Edit/Dismiss controls.
+//      MonitorProposalCard with Apply/Edit/Dismiss controls.
 //
 // Dedup runs before creation:
 //   - L1 (SQL) — hard rules, always enforced: (risk_id, kind) uniqueness,
 //     URL overlap, cap of 10 active monitors per project.
 //   - L2 (Haiku semantic classifier) — overridable with explicit reason,
-//     which surfaces as a warning banner on the founder's approval card.
+//     which surfaces as a warning banner on the founder's review card.
 //
 // On L1 rejection: the tool returns a plain error text to the agent (no
 // artifact emitted) — the agent should surface the existing monitor to the
@@ -466,7 +466,7 @@ const SCHEDULE_TO_MONTHLY_RUNS: Record<'hourly' | 'daily' | 'weekly', number> = 
 
 // Balanced-tier cost per run. Empirical from llm_usage_logs averages for
 // monitor-agent task — covers system prompt + web_search tool outputs +
-// alert parsing. Surfaces on the approval card as a plain-English cost.
+// alert parsing. Surfaces on the review card as a plain-English cost.
 const BALANCED_COST_PER_RUN_EUR = 0.0055;
 
 function estimateMonthlyCostEur(schedule: 'hourly' | 'daily' | 'weekly'): number {
@@ -477,7 +477,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
   name: 'propose_monitor',
   label: 'Propose Monitor',
   description:
-    'Propose a recurring ecosystem monitor tied to a specific named risk. Dedup runs automatically. The founder sees an inline approval card with Approve/Edit/Dismiss.',
+    'Propose a recurring ecosystem monitor tied to a specific named risk. Dedup runs automatically. The founder sees an inline review card with Apply/Edit/Dismiss.',
   parameters: Type.Object({
     name: Type.String({ description: 'Human-readable ≤60 chars. Example: "HubSpot free-tier launch watch"' }),
     kind: Type.String({ description: `One of: ${VALID_MONITOR_KINDS.join(', ')}` }),
@@ -488,7 +488,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
     linked_risk_id: Type.String({ description: 'Required. risk_audit risk id (e.g., "risk_004") OR the literal string "ad_hoc" when the monitor comes from a founder chat quote rather than a formal risk entry.' }),
     linked_quote: Type.Optional(Type.String({ description: 'Required when linked_risk_id="ad_hoc". Verbatim founder statement from chat, so the provenance is never broken.' })),
     dedup_override: Type.Optional(Type.Boolean({ description: 'Set true to bypass the L2 semantic classifier after a previous call returned semantic_duplicate. Requires override_reason.' })),
-    override_reason: Type.Optional(Type.String({ description: 'Public justification for dedup_override. Shown on the founder\'s approval card — never a silent bypass.' })),
+    override_reason: Type.Optional(Type.String({ description: 'Public justification for dedup_override. Shown on the founder\'s review card — never a silent bypass.' })),
     sources: Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] array per the mandatory-sources schema. Must contain at least one entry citing the risk or founder quote that motivated this monitor. Use type:"internal" with ref:"memory_fact" + ref_id for risk citations; type:"user" with quote for founder statements.' }),
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
@@ -586,7 +586,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
 
     // Create the pending_actions row. The payload mirrors the artifact
     // shape exactly so the configure_monitor executor can pull straight
-    // from it when the founder approves.
+    // from it when the founder applies.
     const pendingActionPayload = {
       name: p.name,
       kind: p.kind,
@@ -624,7 +624,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
     // Emit the artifact. The chat route's artifact parser will extract
     // this from the response text and persist it normally (with the
     // sources requirement enforced by the parser). The MonitorProposalCard
-    // picks up pending_action_id so Approve / Dismiss round-trip properly.
+    // picks up pending_action_id so Apply / Dismiss round-trip properly.
     const artifactId = `mon_prop_${pendingAction.id.slice(-12)}`;
     const artifactBody: Record<string, unknown> = {
       action: 'create',
@@ -654,7 +654,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
           type: 'text',
           text:
             `Monitor proposal queued (pending_action ${pendingAction.id}). ` +
-            `Emit the following artifact block VERBATIM in your reply to the founder so the inline Approve/Edit/Dismiss card renders:\n\n${artifactBlock}`,
+            `Emit the following artifact block VERBATIM in your reply to the founder so the inline Apply/Edit/Dismiss card renders:\n\n${artifactBlock}`,
         },
       ],
       details: {
@@ -673,8 +673,8 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
 // credits-empty error has just surfaced and they want to keep working, this
 // tool creates a pending_actions row + emits an inline BudgetProposalCard.
 // The executor (configureBudget) UPSERTs project_budgets.cap_llm_usd for the
-// current period_month on approval. Caps are NEVER raised silently — every
-// change requires explicit founder approval through the inline card.
+// current period_month on apply. Caps are NEVER raised silently — every
+// change requires explicit founder review through the inline card.
 // =============================================================================
 
 const BUDGET_DEFAULT_CAP_USD = 5.00;
@@ -685,10 +685,10 @@ const proposeBudgetChangeTool = (ctx: ToolContext): AgentTool => ({
   name: 'propose_budget_change',
   label: 'Propose Budget Change',
   description:
-    'Propose a change to the project\'s monthly LLM budget cap (USD). The founder sees an inline approval card with current → proposed delta. Cite the founder quote or credits-empty error in sources.',
+    'Propose a change to the project\'s monthly LLM budget cap (USD). The founder sees an inline review card with current → proposed delta. Cite the founder quote or credits-empty error in sources.',
   parameters: Type.Object({
-    proposed_cap_usd: Type.Number({ description: 'New monthly cap in USD. Must be > 0 and ≤ 100. The founder can edit on the card before approving if they want a different number.' }),
-    reason: Type.String({ description: 'One sentence explaining why this cap makes sense (e.g., "running out mid-week — bumping to absorb daily heartbeat + 2 monitor runs"). Shown verbatim on the approval card.' }),
+    proposed_cap_usd: Type.Number({ description: 'New monthly cap in USD. Must be > 0 and ≤ 100. The founder can edit on the card before applying if they want a different number.' }),
+    reason: Type.String({ description: 'One sentence explaining why this cap makes sense (e.g., "running out mid-week — bumping to absorb daily heartbeat + 2 monitor runs"). Shown verbatim on the review card.' }),
     estimated_monthly_cost_usd: Type.Optional(Type.Number({ description: 'Optional projection of expected spend at the proposed cap, based on founder activity. Surfaces on the card.' })),
     sources: Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] array. Required: cite the founder quote (type:"user" with verbatim quote) or the credits-empty observation (type:"internal" ref:"chat_turn") that motivated this proposal.' }),
   }),
@@ -714,7 +714,7 @@ const proposeBudgetChangeTool = (ctx: ToolContext): AgentTool => ({
     }
     if (p.proposed_cap_usd > BUDGET_MAX_PROPOSAL_USD) {
       return {
-        content: [{ type: 'text', text: `proposed_cap_usd cannot exceed $${BUDGET_MAX_PROPOSAL_USD} via this tool. If the founder needs more, they can edit the card before approving.` }],
+        content: [{ type: 'text', text: `proposed_cap_usd cannot exceed $${BUDGET_MAX_PROPOSAL_USD} via this tool. If the founder needs more, they can edit the card before applying.` }],
         details: { error: true },
       };
     }
@@ -803,7 +803,7 @@ const proposeBudgetChangeTool = (ctx: ToolContext): AgentTool => ({
           type: 'text',
           text:
             `Budget proposal queued (pending_action ${pendingAction.id}). ` +
-            `Emit the following artifact block VERBATIM in your reply so the inline Approve/Edit/Dismiss card renders:\n\n${artifactBlock}`,
+            `Emit the following artifact block VERBATIM in your reply so the inline Apply/Edit/Dismiss card renders:\n\n${artifactBlock}`,
         },
       ],
       details: {
@@ -925,7 +925,7 @@ const createTaskTool = (ctx: ToolContext): AgentTool => ({
 });
 
 // =============================================================================
-// propose_watch_source — in-chat watch source proposal with approval flow.
+// propose_watch_source — in-chat watch source proposal with apply flow.
 // =============================================================================
 
 const VALID_WS_SCHEDULES = ['hourly', 'daily', 'weekly', 'manual'] as const;
@@ -934,13 +934,13 @@ const proposeWatchSourceTool = (ctx: ToolContext): AgentTool => ({
   name: 'propose_watch_source',
   label: 'Propose Watch Source',
   description:
-    'Propose tracking a specific URL for content changes. The founder sees an inline approval card. After approval the URL is scraped on the chosen schedule.',
+    'Propose tracking a specific URL for content changes. The founder sees an inline review card. After applying, the URL is scraped on the chosen schedule.',
   parameters: Type.Object({
     url: Type.String({ description: 'Exact URL to track. Must be a valid HTTP/HTTPS URL.' }),
     label: Type.String({ description: 'Human-readable label ≤80 chars. Example: "Stripe Pricing Page"' }),
     category: Type.String({ description: `One of: ${[...VALID_CATEGORIES].join(', ')}` }),
     schedule: Type.String({ description: 'hourly | daily | weekly | manual. Pick based on expected change frequency.' }),
-    rationale: Type.String({ description: 'Why this URL matters for the founder. Shown on the approval card.' }),
+    rationale: Type.String({ description: 'Why this URL matters for the founder. Shown on the review card.' }),
     sources: Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] array. Cite the founder quote or analysis motivating this watch source.' }),
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
@@ -1037,7 +1037,7 @@ const proposeWatchSourceTool = (ctx: ToolContext): AgentTool => ({
           type: 'text',
           text:
             `Watch source proposal queued (pending_action ${pendingAction.id}). ` +
-            `Emit the following artifact block VERBATIM in your reply so the inline approval card renders:\n\n${artifactBlock}`,
+            `Emit the following artifact block VERBATIM in your reply so the inline review card renders:\n\n${artifactBlock}`,
         },
       ],
       details: {
@@ -1049,7 +1049,7 @@ const proposeWatchSourceTool = (ctx: ToolContext): AgentTool => ({
 });
 
 // =============================================================================
-// create_signal — direct signal injection from chat (no approval needed).
+// create_signal — direct signal injection from chat (no review needed).
 // =============================================================================
 
 const VALID_ALERT_TYPES: ReadonlySet<string> = new Set([
@@ -1062,7 +1062,7 @@ const createSignalTool = (ctx: ToolContext): AgentTool => ({
   name: 'create_signal',
   label: 'Create Signal',
   description:
-    'Inject a signal (ecosystem alert) into the feed from chat. The signal is created with pending review state — it appears in the feed but the founder can approve or dismiss it. Use when the founder shares intel worth capturing.',
+    'Inject a signal (ecosystem alert) into the feed from chat. The signal is created with pending review state — it appears in the feed but the founder can apply or dismiss it. Use when the founder shares intel worth capturing.',
   parameters: Type.Object({
     headline: Type.String({ description: 'Signal headline ≤200 chars. Example: "Acme raises $10M Series A"' }),
     body: Type.Optional(Type.String({ description: 'Optional longer description / context.' })),
@@ -1136,7 +1136,7 @@ const createSignalTool = (ctx: ToolContext): AgentTool => ({
       entity_type: 'ecosystem_alert',
       headline: `Chat-created signal: ${p.headline.trim().slice(0, 120)}`,
       metadata: { alert_type: p.alert_type, relevance_score: p.relevance_score },
-    }).catch(() => {});
+    }).catch(err => console.warn('[create_ecosystem_signal] logSignalActivity failed:', (err as Error).message));
 
     return {
       content: [

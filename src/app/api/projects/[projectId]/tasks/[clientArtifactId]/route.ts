@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { query, run, get } from '@/lib/db';
 import {
   getPendingAction,
-  approvePendingAction,
+  applyPendingAction,
   rejectPendingAction,
   markActionSent,
   InvalidTransitionError,
@@ -61,6 +62,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string; clientArtifactId: string }> },
 ) {
   const { projectId, clientArtifactId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const row = await findByClientArtifactId(projectId, clientArtifactId);
   if (!row) return error('Task not found for this artifact id', 404);
   const action = await getPendingAction(row.id);
@@ -71,7 +74,7 @@ export async function GET(
  * POST body: { action: 'done' | 'snooze' | 'dismiss' | 'expand',
  *              snooze_hours?: number, reason?: string }
  *
- *   done    → approve + markSent (founder acknowledges; nothing external to dispatch)
+ *   done    → apply + markSent (founder acknowledges; nothing external to dispatch)
  *   snooze  → mutate payload.snooze_until (status stays pending)
  *   dismiss → reject (preference learning hook in /actions route does NOT fire here —
  *             a dismissed task is not a rejected agent draft, it's a founder TODO they
@@ -87,6 +90,8 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string; clientArtifactId: string }> },
 ) {
   const { projectId, clientArtifactId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -101,16 +106,18 @@ export async function POST(
   try {
     switch (action) {
       case 'done': {
-        // approve→sent in one POST. The state machine forbids
+        // apply→sent in one POST. The state machine forbids
         // pending→sent directly, hence the two-step transition.
         if (row.status === 'pending' || row.status === 'edited') {
-          await approvePendingAction(row.id);
+          await applyPendingAction(row.id);
         }
         const updated = await markActionSent(row.id, { target: 'task_completed' });
         return json(updated);
       }
       case 'snooze': {
-        const hours = typeof body?.snooze_hours === 'number' ? body.snooze_hours : 24;
+        const hours = typeof body?.snooze_hours === 'number'
+          ? Math.max(1, Math.min(168, body.snooze_hours))
+          : 24;
         const until = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
         const payload = row.payload ? { ...row.payload } : {};
         payload.snooze_until = until;
@@ -124,7 +131,7 @@ export async function POST(
         return json(updated);
       }
       case 'dismiss': {
-        const updated = await rejectPendingAction(row.id, typeof body?.reason === 'string' ? body.reason : undefined);
+        const updated = await rejectPendingAction(row.id, typeof body?.reason === 'string' ? body.reason.slice(0, 500) : undefined);
         return json(updated);
       }
       case 'expand': {

@@ -84,11 +84,11 @@ export async function GET(
   );
 
   // Pending summary counts for a quick glance
-  const pendingSummaryRow = (await query<{ pending: number; edited: number; approved: number; sent_7d: number }>(
+  const pendingSummaryRow = (await query<{ pending: number; edited: number; applied: number; sent_7d: number }>(
     `SELECT
        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
        SUM(CASE WHEN status = 'edited' THEN 1 ELSE 0 END) as edited,
-       SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
+       SUM(CASE WHEN status = 'applied' THEN 1 ELSE 0 END) as applied,
        SUM(CASE WHEN status = 'sent' AND updated_at >= ? THEN 1 ELSE 0 END) as sent_7d
      FROM pending_actions WHERE project_id = ?`,
     new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -110,32 +110,33 @@ export async function GET(
   ))[0];
 
   // --- Computed metrics: live snapshot values from existing platform tables ---
+  // Returns null on query failure so the UI can show "unavailable" instead of fake 0.
   const [knowledgeCount, skillsCompleted, signals7d, actionsSent7d] = await Promise.all([
     query<{ cnt: number }>(
-      `SELECT COUNT(*) as cnt FROM graph_nodes WHERE project_id = ? AND reviewed_state = 'approved'`,
+      `SELECT COUNT(*) as cnt FROM graph_nodes WHERE project_id = ? AND reviewed_state = 'applied'`,
       projectId,
-    ).then(rows => rows[0]?.cnt ?? 0).catch(() => 0),
+    ).then(rows => rows[0]?.cnt ?? 0).catch((e) => { console.warn('[dashboard] graph_nodes count failed:', e); return null as number | null; }),
     query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM skill_completions WHERE project_id = ? AND status = 'completed'`,
       projectId,
-    ).then(rows => rows[0]?.cnt ?? 0).catch(() => 0),
+    ).then(rows => rows[0]?.cnt ?? 0).catch((e) => { console.warn('[dashboard] skill_completions count failed:', e); return null as number | null; }),
     query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM ecosystem_alerts WHERE project_id = ? AND created_at >= ? AND relevance_score >= 0.6 AND reviewed_state != 'dismissed'`,
       projectId,
       new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-    ).then(rows => rows[0]?.cnt ?? 0).catch(() => 0),
+    ).then(rows => rows[0]?.cnt ?? 0).catch((e) => { console.warn('[dashboard] ecosystem_alerts count failed:', e); return null as number | null; }),
     query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM pending_actions WHERE project_id = ? AND status = 'sent' AND updated_at >= ?`,
       projectId,
       new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-    ).then(rows => rows[0]?.cnt ?? 0).catch(() => 0),
+    ).then(rows => rows[0]?.cnt ?? 0).catch((e) => { console.warn('[dashboard] pending_actions count failed:', e); return null as number | null; }),
   ]);
 
   // Readiness score: completed skills as a percentage of canonical STAGES total
   const totalSkills = STAGES.reduce((sum, s) => sum + s.skills.length, 0);
-  const readinessScore = totalSkills > 0
+  const readinessScore = skillsCompleted !== null && totalSkills > 0
     ? Math.round((skillsCompleted / totalSkills) * 100)
-    : 0;
+    : null;
 
   const computed_metrics = [
     { name: 'Readiness Score', type: 'percentage', value: readinessScore },
@@ -154,7 +155,7 @@ export async function GET(
     // New ecosystem + inbox + budget data
     top_ecosystem_alerts: topEcosystemAlerts,
     pending_decisions: pendingDecisions,
-    pending_summary: pendingSummaryRow || { pending: 0, edited: 0, approved: 0, sent_7d: 0 },
+    pending_summary: pendingSummaryRow || { pending: 0, edited: 0, applied: 0, sent_7d: 0 },
     budget: budget || {
       current_llm_usd: 0,
       warn_llm_usd: 4.00,

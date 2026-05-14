@@ -52,10 +52,26 @@ export async function GET(
     ...args,
   );
 
+  // Aggregate LLM cost per step for monitor/cron activity in the same time window.
+  // The `step` column in llm_usage_logs contains values like 'cron.ecosystem.competitors',
+  // 'cron.heartbeat', etc. — grouping by step gives per-monitor cost attribution.
+  const costByStep = await query<{ step: string; total_cost_usd: number; call_count: number }>(
+    `SELECT step, SUM(total_cost_usd) AS total_cost_usd, COUNT(*) AS call_count
+     FROM llm_usage_logs
+     WHERE project_id = ? AND created_at >= ? AND step IS NOT NULL AND step LIKE 'cron.%'
+     GROUP BY step
+     ORDER BY total_cost_usd DESC`,
+    projectId, since,
+  ).catch((err) => {
+    console.warn('[signal-logs] cost aggregation failed:', (err as Error).message);
+    return [];
+  });
+
   return json({
     logs,
     total: totalRow?.count ?? 0,
     limit,
     offset,
+    cost_by_step: costByStep,
   });
 }

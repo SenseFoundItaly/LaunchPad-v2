@@ -31,9 +31,10 @@ interface ProjectContext {
 }
 
 // Module-level cache: (message-normalized + projectId + current_step) → ranked ids.
-// Short-lived; cleared every ~5 minutes to pick up any new skills or
-// skill-description edits.
-const CACHE_MS = 5 * 60 * 1000;
+// 30-min TTL — skill descriptions don't change mid-session and classifier
+// calls are ~$0.0003 each, so a longer TTL saves ~$0.005 per repeated query
+// without staleness risk.
+const CACHE_MS = 30 * 60 * 1000;
 interface CacheEntry {
   ids: string[];
   expiresAt: number;

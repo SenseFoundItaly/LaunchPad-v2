@@ -43,7 +43,7 @@ const LANE_LABEL: Record<ActionLane, string> = {
 const LANE_ORDER: ActionLane[] = ['todo', 'approval', 'notification'];
 
 const AGENT_OPTIONS = ['any', 'Scout', 'Chief', 'Analyst', 'Outreach', 'Designer', 'Architect'] as const;
-const STATUS_OPTIONS: Array<'any' | PendingActionStatus> = ['any', 'pending', 'edited', 'approved', 'sent', 'rejected', 'failed'];
+const STATUS_OPTIONS: Array<'any' | PendingActionStatus> = ['any', 'pending', 'edited', 'applied', 'sent', 'rejected', 'failed'];
 
 // =============================================================================
 // Page
@@ -52,7 +52,7 @@ const STATUS_OPTIONS: Array<'any' | PendingActionStatus> = ['any', 'pending', 'e
 interface InboxSummary {
   pending: number;
   edited: number;
-  approved_awaiting_send: number;
+  applied_awaiting_send: number;
   sent_last_7d: number;
   rejected_last_7d: number;
 }
@@ -90,23 +90,23 @@ export default function TicketsPage({
   const fetchAll = useCallback(async () => {
     setError(null);
     try {
-      const res = await fetch(`/api/projects/${projectId}/actions?status=pending,edited,approved,rejected,sent,failed&limit=200`);
+      const res = await fetch(`/api/projects/${projectId}/actions?status=pending,edited,applied,rejected,sent,failed&limit=200`);
       const body: InboxResponse = await res.json();
       if (!body.success || !body.data) throw new Error(body.error || 'Fetch failed');
-      setActions(body.data.actions ?? []);
+      const fetched = body.data.actions ?? [];
+      setActions(fetched);
       setSummary(body.data.summary);
-      // Keep selection if still in list; else pick first
-      if (selectedId && !body.data.actions.find(a => a.id === selectedId)) {
-        setSelectedId(body.data.actions[0]?.id || null);
-      } else if (!selectedId && body.data.actions.length > 0) {
-        setSelectedId(body.data.actions[0].id);
-      }
+      // Auto-select first row if nothing selected
+      setSelectedId((prev) => {
+        if (prev && fetched.find(a => a.id === prev)) return prev;
+        return fetched[0]?.id ?? null;
+      });
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [projectId, selectedId]);
+  }, [projectId]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -176,7 +176,7 @@ export default function TicketsPage({
     setTypeFilter('any');
   }
 
-  async function transition(actionId: string, verb: 'approve' | 'reject' | 'mark_sent', extras: Record<string, unknown> = {}) {
+  async function transition(actionId: string, verb: 'apply' | 'reject' | 'mark_sent', extras: Record<string, unknown> = {}) {
     try {
       const res = await fetch(`/api/projects/${projectId}/actions/${actionId}`, {
         method: 'POST',
@@ -464,7 +464,7 @@ function FilterSelect({
 const STATUS_PILL: Record<PendingActionStatus, PillKind> = {
   pending: 'live',
   edited: 'info',
-  approved: 'ok',
+  applied: 'ok',
   sent: 'ok',
   rejected: 'n',
   failed: 'warn',
@@ -502,7 +502,7 @@ function TicketsTable({
   if (rows.length === 0) {
     const emptyCopy: Record<ActionLane, string> = {
       todo: 'No active TODOs. The co-founder creates tasks when it spots something you need to do.',
-      approval: 'No drafts awaiting approval. Drafts queue here when the agent prepares an outreach email, monitor config, or hypothesis.',
+      approval: 'No drafts awaiting review. Drafts queue here when the agent prepares an outreach email, monitor config, or hypothesis.',
       notification: 'No new notifications. The system posts here when it auto-refreshes a stale skill or completes a background job.',
     };
     return (
@@ -599,7 +599,7 @@ function TicketsTable({
             </span>
             <Pill
               kind={STATUS_PILL[r.status] || 'n'}
-              dot={r.status === 'pending' || r.status === 'approved' || r.status === 'sent'}
+              dot={r.status === 'pending' || r.status === 'applied' || r.status === 'sent'}
             >
               {r.status}
             </Pill>
@@ -644,11 +644,11 @@ function TicketDetail({
   onTransition,
 }: {
   action: PendingAction;
-  onTransition: (id: string, verb: 'approve' | 'reject' | 'mark_sent') => Promise<void>;
+  onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
 }) {
   const agent = agentFromType(action.action_type);
   const canAct = action.status === 'pending' || action.status === 'edited';
-  const awaitingClick = action.status === 'approved';
+  const awaitingClick = action.status === 'applied';
 
   return (
     <div
@@ -743,8 +743,8 @@ function TicketDetail({
 // Lane-specific verb set. The underlying API contract is the same (transition
 // verbs against /actions/[actionId]) but the labels + ordering reflect what
 // the founder is actually doing in each lane:
-//   TODO         → Mark done (approve) | Snooze (edit) | Dismiss (reject)
-//   APPROVAL     → Approve | Reject — same as before
+//   TODO         → Mark done (apply) | Snooze (edit) | Dismiss (reject)
+//   APPROVAL     → Apply | Reject — same as before
 //   NOTIFICATION → Acknowledge (reject = clear from inbox)
 function LaneAwareActions({
   action,
@@ -755,7 +755,7 @@ function LaneAwareActions({
   action: PendingAction;
   canAct: boolean;
   awaitingClick: boolean;
-  onTransition: (id: string, verb: 'approve' | 'reject' | 'mark_sent') => Promise<void>;
+  onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
 }) {
   const lane = laneFor(action.action_type);
 
@@ -805,7 +805,7 @@ function LaneAwareActions({
     return (
       <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <button
-          onClick={() => onTransition(action.id, 'approve')}
+          onClick={() => onTransition(action.id, 'apply')}
           style={{ ...btnGhost, justifyContent: 'flex-start', color: 'var(--moss)' }}
         >
           <Icon d={I.check} size={12} /> Mark done
@@ -824,10 +824,10 @@ function LaneAwareActions({
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <button
-        onClick={() => onTransition(action.id, 'approve')}
+        onClick={() => onTransition(action.id, 'apply')}
         style={{ ...btnGhost, justifyContent: 'flex-start' }}
       >
-        <Icon d={I.check} size={12} /> Approve
+        <Icon d={I.check} size={12} /> Apply
       </button>
       <button
         onClick={() => onTransition(action.id, 'reject')}
@@ -878,7 +878,7 @@ function agentFromType(type: PendingActionType): string {
     // approval just flips status (no executor). Treat as "Architect" agent —
     // the chat agent proposed it as part of a multi-step plan.
     workflow_step: 'Architect',
-    // configure_monitor: in-chat monitor proposal awaiting founder approval.
+    // configure_monitor: in-chat monitor proposal awaiting founder review.
     // Treat as "Scout" — same family as proposed_graph_update, both about
     // populating the project's observation layer.
     configure_monitor: 'Scout',
@@ -904,7 +904,7 @@ function progressFromStatus(status: PendingActionStatus): number {
   const map: Record<PendingActionStatus, number> = {
     pending: 0,
     edited: 0.3,
-    approved: 0.6,
+    applied: 0.6,
     sent: 1,
     rejected: 0,
     failed: 0.5,
@@ -963,18 +963,18 @@ function buildActivity(a: PendingAction): ActivityEvent[] {
   if (a.edited_payload) {
     events.push({
       t: timeAgo(a.updated_at),
-      who: 'Luca',
+      who: 'You',
       k: 'human',
-      m: 'Edited payload before approval',
+      m: 'Edited payload before applying',
     });
   }
 
-  if (a.status === 'approved' || a.status === 'sent') {
+  if (a.status === 'applied' || a.status === 'sent') {
     events.push({
       t: a.executed_at ? timeAgo(a.executed_at) : timeAgo(a.updated_at),
-      who: 'Luca',
+      who: 'You',
       k: 'human',
-      m: 'Approved',
+      m: 'Applied',
     });
   }
 
@@ -990,7 +990,7 @@ function buildActivity(a: PendingAction): ActivityEvent[] {
   if (a.status === 'rejected') {
     events.push({
       t: timeAgo(a.updated_at),
-      who: 'Luca',
+      who: 'You',
       k: 'human',
       m: 'Rejected',
     });

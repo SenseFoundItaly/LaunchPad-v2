@@ -11,7 +11,7 @@ import type { PendingAction } from '@/types';
 
 interface PendingSectionProps {
   projectId: string;
-  onAction: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
+  onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
   locale: 'en' | 'it';
   onCountChange?: (n: number) => void;
 }
@@ -27,7 +27,7 @@ interface ActionsResponse {
 
 const LANE_BUTTONS: Record<ActionLane, Array<{ verb: string; label: { en: string; it: string }; primary?: boolean }>> = {
   approval: [
-    { verb: 'approve', label: { en: 'Approve', it: 'Approva' }, primary: true },
+    { verb: 'apply', label: { en: 'Apply', it: 'Applica' }, primary: true },
     { verb: 'reject', label: { en: 'Reject', it: 'Rifiuta' } },
   ],
   todo: [
@@ -64,8 +64,8 @@ export function PendingSection({ projectId, onAction, locale, onCountChange }: P
       const res = await fetch(
         `/api/projects/${projectId}/actions?status=pending,edited&limit=50`,
       );
-      const body: ActionsResponse = await res.json();
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body: ActionsResponse = await res.json();
       const list = Array.isArray(body.actions) ? body.actions : [];
       setActions(list);
       onCountChangeRef.current?.(list.length);
@@ -81,7 +81,11 @@ export function PendingSection({ projectId, onAction, locale, onCountChange }: P
     refetch();
     const handler = () => refetch();
     window.addEventListener('lp-actions-changed', handler);
-    return () => window.removeEventListener('lp-actions-changed', handler);
+    const intervalId = setInterval(refetch, 30_000);
+    return () => {
+      window.removeEventListener('lp-actions-changed', handler);
+      clearInterval(intervalId);
+    };
   }, [refetch]);
 
   return (
@@ -142,7 +146,7 @@ function PendingCard({
   locale,
 }: {
   action: PendingAction;
-  onAction: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
+  onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
   locale: 'en' | 'it';
 }) {
   const [busy, setBusy] = useState(false);
@@ -154,12 +158,12 @@ function PendingCard({
     if (busy) return;
     setBusy(true);
     try {
-      const actionVerb = verb === 'approve' || verb === 'done' || verb === 'acknowledge'
-        ? 'action:approve'
+      const actionVerb = verb === 'apply' || verb === 'done' || verb === 'acknowledge'
+        ? 'action:apply'
         : 'action:reject';
       await onAction(actionVerb, { pending_action_id: action.id });
-    } catch {
-      // Card stays visible on error; user can retry
+    } catch (err) {
+      console.warn('[PendingCard] action failed:', (err as Error).message);
     } finally {
       setBusy(false);
     }

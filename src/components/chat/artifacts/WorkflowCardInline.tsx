@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { WorkflowCard } from '@/types/artifacts';
-import SourcesFooter from './SourcesFooter';
+import ArtifactCardShell from './ArtifactCardShell';
 
 interface WorkflowCardInlineProps {
   artifact: WorkflowCard;
   onWorkflowDiscovered: (workflow: WorkflowCard) => void;
-  onAction: (action: string, payload: Record<string, unknown>) => void;
+  onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -60,17 +60,19 @@ export default function WorkflowCardInline({
   const pct = total > 0 ? (doneCount / total) * 100 : 0;
 
   return (
-    <div className="my-3 bg-zinc-800/50 border border-zinc-700 rounded-lg p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs text-zinc-500 font-mono">[WF]</span>
-        <h4 className="text-sm font-semibold text-zinc-100 flex-1">{artifact.title}</h4>
+    <ArtifactCardShell
+      typeLabel="Workflow"
+      title={artifact.title}
+      sources={artifact.sources}
+      headerRight={<>
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[artifact.category] || 'bg-zinc-500/20 text-zinc-400'}`}>
           {artifact.category}
         </span>
         <span className={`text-xs font-medium ${PRIORITY_COLORS[artifact.priority] || 'text-zinc-400'}`}>
           {artifact.priority}
         </span>
-      </div>
+      </>}
+    >
       <p className="text-sm text-zinc-300 mb-3">{artifact.description}</p>
 
       {/* Progress bar */}
@@ -121,7 +123,6 @@ export default function WorkflowCardInline({
           Execute
         </button>
       </div>
-      <SourcesFooter sources={artifact.sources} />
-    </div>
+    </ArtifactCardShell>
   );
 }

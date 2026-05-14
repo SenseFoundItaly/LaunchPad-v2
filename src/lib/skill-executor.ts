@@ -244,7 +244,7 @@ export async function runSkill(
 
   // Timeline event. Heartbeat narration uses memory_events.
   try {
-    recordEvent({
+    await recordEvent({
       userId: opts.ownerUserId,
       projectId,
       eventType: 'skill_completed',

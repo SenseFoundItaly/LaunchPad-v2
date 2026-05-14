@@ -1,7 +1,12 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { json } from '@/lib/api-helpers';
-import type { SignalTimelineEntry } from '@/types';
+import { json, error } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
+import type { SignalTimelineEntry, EcosystemAlertState } from '@/types';
+
+const VALID_ALERT_STATES = new Set<EcosystemAlertState>([
+  'pending', 'acknowledged', 'dismissed', 'promoted_to_action',
+]);
 
 /**
  * GET /api/projects/[projectId]/signals
@@ -11,6 +16,7 @@ import type { SignalTimelineEntry } from '@/types';
  *   - type: filter by alert_type (e.g., competitor_activity)
  *   - significance: filter by significance level
  *   - source: 'monitor' | 'watch_source' | 'all' (default: 'all')
+ *   - state: filter alerts by reviewed_state (e.g., pending, acknowledged)
  *   - days: lookback period (default: 30)
  *   - limit: max results (default: 50)
  */
@@ -19,13 +25,24 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+
   const url = new URL(request.url);
 
   const typeFilter = url.searchParams.get('type');
   const significanceFilter = url.searchParams.get('significance');
   const sourceFilter = url.searchParams.get('source') || 'all';
+  const stateFilter = url.searchParams.get('state');
   const days = parseInt(url.searchParams.get('days') || '30', 10);
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200);
+
+  if (stateFilter && !VALID_ALERT_STATES.has(stateFilter as EcosystemAlertState)) {
+    return error(
+      `Invalid state filter "${stateFilter}". Must be one of: ${[...VALID_ALERT_STATES].join(', ')}`,
+      400,
+    );
+  }
 
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
@@ -37,6 +54,15 @@ export async function GET(
   if (sourceFilter === 'all' || sourceFilter === 'monitor') {
     let alertWhere = 'ea.project_id = ? AND ea.created_at >= ?';
     allParams.push(projectId, cutoff);
+
+    if (stateFilter) {
+      // Explicit state requested — use only that filter (e.g. ?state=dismissed for audit view)
+      alertWhere += ' AND ea.reviewed_state = ?';
+      allParams.push(stateFilter);
+    } else {
+      // Default: exclude dismissed alerts from the feed
+      alertWhere += " AND ea.reviewed_state != 'dismissed'";
+    }
 
     if (typeFilter) {
       alertWhere += ' AND ea.alert_type = ?';
@@ -74,6 +100,7 @@ export async function GET(
         ea.relevance_score,
         ea.created_at AS timestamp,
         ea.alert_type,
+        ea.reviewed_state,
         NULL AS change_status,
         NULL AS diff_preview
       FROM ecosystem_alerts ea
@@ -103,6 +130,7 @@ export async function GET(
         NULL::numeric AS relevance_score,
         sc.detected_at AS timestamp,
         NULL AS alert_type,
+        NULL AS reviewed_state,
         sc.change_status,
         LEFT(sc.raw_diff, 200) AS diff_preview
       FROM source_changes sc

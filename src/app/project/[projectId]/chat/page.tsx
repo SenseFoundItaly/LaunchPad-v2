@@ -11,7 +11,7 @@
  *     message (via src/lib/artifact-parser.ts)
  *
  * Data flows from useChat (project-scoped tools already wired via PR #8/#9).
- * The agent can list_ecosystem_alerts, get_project_metrics, queue_draft_for_approval, etc.
+ * The agent can list_ecosystem_alerts, get_project_metrics, queue_draft_for_review, etc.
  * without changing this component.
  */
 
@@ -106,10 +106,13 @@ export default function CopilotChatPage({
   // Race-guard: a stale response (e.g. user switched threads mid-fetch) is
   // ignored so we never show another thread's messages.
   useEffect(() => {
-    let cancelled = false;
-    api.get<HistoryResp>(`/api/chat/history?project_id=${projectId}&step=${encodeURIComponent(step)}`)
+    const controller = new AbortController();
+    api.get<HistoryResp>(
+      `/api/chat/history?project_id=${projectId}&step=${encodeURIComponent(step)}`,
+      { signal: controller.signal, timeout: 15_000 },
+    )
       .then(({ data }) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         const restored = data.success && Array.isArray(data.data) && data.data.length > 0
           ? data.data.map((m, i) => ({
             id: m.id ?? `restored_${i}`,
@@ -121,14 +124,16 @@ export default function CopilotChatPage({
           : [];
         setMessages(restored);
       })
-      .catch(() => {
-        if (!cancelled) setMessages([]);
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        console.warn('[chat] history fetch failed:', (err as Error).message);
+        setMessages([]);
       })
       .finally(() => {
-        if (!cancelled) setHistoryLoaded(true);
+        if (!controller.signal.aborted) setHistoryLoaded(true);
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [projectId, step, setMessages]);
 
@@ -188,15 +193,15 @@ export default function CopilotChatPage({
    * a real handler at the page level. This is the missing wire.
    *
    * Currently routes two monitor-proposal actions:
-   *   - 'monitor:approve' → POST /api/projects/{id}/actions/{actionId}
-   *     with transition='approve' (+ optional edited_payload for
-   *     Edit-before-approve flows). The configure_monitor executor fires
+   *   - 'monitor:apply' → POST /api/projects/{id}/actions/{actionId}
+   *     with transition='apply' (+ optional edited_payload for
+   *     Edit-before-apply flows). The configure_monitor executor fires
    *     server-side and creates the monitors row.
    *   - 'monitor:dismiss' → transition='reject' (marks pending_action as
    *     rejected; records a preference fact so the agent learns).
    *
    * Throws on non-2xx so the calling card can flip to its error state.
-   * Returns void on success so MonitorProposalCard's resolved-approved /
+   * Returns void on success so MonitorProposalCard's resolved-applied /
    * resolved-dismissed transitions fire.
    *
    * Other artifact actions (select-option, trigger-action, etc.) stay
@@ -205,10 +210,10 @@ export default function CopilotChatPage({
    */
   const handleArtifactAction = useCallback(
     async (action: string, payload: Record<string, unknown>): Promise<void> => {
-      // Knowledge item approve/reject (facts, graph_nodes, tabular_reviews)
-      if (action === 'knowledge:approve') {
+      // Knowledge item apply/reject (facts, graph_nodes, tabular_reviews)
+      if (action === 'knowledge:apply') {
         const itemId = String(payload.item_id ?? '');
-        const state = String(payload.state ?? 'approved');
+        const state = String(payload.state ?? 'applied');
         if (!itemId) throw new Error('Missing item_id on knowledge action');
         const res = await fetch(
           `/api/projects/${projectId}/knowledge/${itemId}`,
@@ -225,11 +230,11 @@ export default function CopilotChatPage({
         return;
       }
 
-      // Generic pending-action approve/reject from PendingSection
-      if (action === 'action:approve' || action === 'action:reject') {
+      // Generic pending-action apply/reject from PendingSection
+      if (action === 'action:apply' || action === 'action:reject') {
         const pendingActionId = String(payload.pending_action_id ?? '');
         if (!pendingActionId) throw new Error(`Missing pending_action_id on ${action}`);
-        const transition = action === 'action:approve' ? 'approve' : 'reject';
+        const transition = action === 'action:apply' ? 'apply' : 'reject';
         const res = await fetch(
           `/api/projects/${projectId}/actions/${pendingActionId}`,
           {
@@ -248,18 +253,18 @@ export default function CopilotChatPage({
         return;
       }
       if (
-        action === 'monitor:approve' || action === 'monitor:dismiss' ||
-        action === 'budget:approve' || action === 'budget:dismiss'
+        action === 'monitor:apply' || action === 'monitor:dismiss' ||
+        action === 'budget:apply' || action === 'budget:dismiss'
       ) {
         const pendingActionId = String(payload.pending_action_id ?? '');
         if (!pendingActionId) throw new Error(`Missing pending_action_id on ${action}`);
-        const isApprove = action === 'monitor:approve' || action === 'budget:approve';
-        const transition = isApprove ? 'approve' : 'reject';
+        const isApply = action === 'monitor:apply' || action === 'budget:apply';
+        const transition = isApply ? 'apply' : 'reject';
         const body: Record<string, unknown> = { transition };
-        if (isApprove && payload.overrides) {
+        if (isApply && payload.overrides) {
           body.edited_payload = payload.overrides;
         }
-        if (!isApprove && typeof payload.reason === 'string') {
+        if (!isApply && typeof payload.reason === 'string') {
           body.reason = payload.reason;
         }
         const res = await fetch(
@@ -278,7 +283,7 @@ export default function CopilotChatPage({
           // Notify PendingSection so it picks up changes from inline chat cards.
           window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
           // Budget cap changed → CreditsBadge listens for this event to refetch.
-          if (action === 'budget:approve') {
+          if (action === 'budget:apply') {
             window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
           }
         }
@@ -553,7 +558,7 @@ function ChatEmptyState({
       'Avvia il flusso Solve',
       'Cosa si è mosso nel mio ecosistema questa settimana?',
       'Riassumi i miei numeri e la mia runway',
-      'Cosa ho nell\'inbox da approvare?',
+      'Cosa ho nell\'inbox?',
     ]
     : [
       'Start the Solve flow',
@@ -3078,7 +3083,7 @@ function ArtifactCard({
   artifact: Artifact;
   onAction: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
 }) {
-  // Self-contained interactive proposal cards (Approve / Edit / Dismiss) want
+  // Self-contained interactive proposal cards (Apply / Edit / Dismiss) want
   // full width without the generic card chrome around them. Render bare —
   // ArtifactRenderer routes the type to its dedicated card component.
   if (artifact.type === 'monitor-proposal' || artifact.type === 'budget-proposal') {
@@ -3086,7 +3091,7 @@ function ArtifactCard({
       <div style={{ gridColumn: 'span 6' }}>
         <ArtifactRenderer
           artifact={artifact}
-          onAction={(a, p) => { void onAction(a, p); }}
+          onAction={(a, p) => onAction(a, p)}
           onEntityDiscovered={() => { /* canvas already shows the card; no-op */ }}
           onWorkflowDiscovered={() => { /* canvas already shows the card; no-op */ }}
         />
@@ -3163,7 +3168,7 @@ function ArtifactBody({
   return (
     <ArtifactRenderer
       artifact={artifact}
-      onAction={(a, p) => { void onAction(a, p); }}
+      onAction={(a, p) => onAction(a, p)}
       onEntityDiscovered={() => { /* canvas already shows the card; no-op */ }}
       onWorkflowDiscovered={() => { /* canvas already shows the card; no-op */ }}
     />

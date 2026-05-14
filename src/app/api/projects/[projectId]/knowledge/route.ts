@@ -37,7 +37,7 @@ export async function GET(
 
   const stateFilter = stateParam === 'all'
     ? ''
-    : ` AND reviewed_state = '${stateParam === 'approved' ? 'approved' : stateParam === 'rejected' ? 'rejected' : 'pending'}'`;
+    : ` AND reviewed_state = '${stateParam === 'applied' ? 'applied' : stateParam === 'rejected' ? 'rejected' : 'pending'}'`;
 
   // Query all three tables in parallel
   const [facts, nodes, reviews] = await Promise.all([

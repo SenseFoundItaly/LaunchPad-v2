@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
-import type { ComparisonTable as ComparisonTableType, ColumnType, ReviewedState } from '@/types/artifacts';
-import { usePersistedArtifact } from '@/hooks/usePersistedArtifact';
-import SourcesFooter from './SourcesFooter';
+import type { ComparisonTable as ComparisonTableType, ColumnType } from '@/types/artifacts';
+import { useReviewState } from '@/hooks/useReviewState';
+import ReviewControls from './ReviewControls';
+import ArtifactCardShell from './ArtifactCardShell';
 
 interface ComparisonTableProps {
   artifact: ComparisonTableType;
-  onAction?: (action: string, payload: Record<string, unknown>) => void;
+  onAction?: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }
 
 /**
@@ -42,12 +42,12 @@ function formatCell(value: string | number, colType: ColumnType | undefined): Re
       const num = typeof value === 'number' ? value : parseFloat(String(value));
       if (isNaN(num)) return String(value);
       const clamped = Math.max(0, Math.min(10, num));
-      const pct = (clamped / 10) * 100;
+      const pctVal = (clamped / 10) * 100;
       const color = clamped >= 7 ? 'bg-emerald-500' : clamped >= 4 ? 'bg-amber-500' : 'bg-red-500';
       return (
         <div className="flex items-center gap-2">
           <div className="w-16 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+            <div className={`h-full rounded-full ${color}`} style={{ width: `${pctVal}%` }} />
           </div>
           <span className="text-xs font-mono">{num.toFixed(1)}</span>
         </div>
@@ -81,34 +81,28 @@ function formatCell(value: string | number, colType: ColumnType | undefined): Re
 export default function ComparisonTable({ artifact, onAction }: ComparisonTableProps) {
   const colTypes = artifact.column_types;
   const hasReviewId = Boolean(artifact.review_id);
-  const persisted = usePersistedArtifact(artifact.id, {
-    persisted_id: artifact.persisted_id,
-    reviewed_state: artifact.reviewed_state,
+
+  const review = useReviewState({
+    artifactId: artifact.id,
+    persistedId: artifact.persisted_id,
+    reviewedState: artifact.reviewed_state,
+    type: 'tabular_review',
+    itemId: artifact.review_id,
+    defaultState: hasReviewId ? 'pending' : 'applied',
+    onAction,
   });
-  const [reviewState, setReviewState] = useState<ReviewedState>(
-    artifact.reviewed_state ?? (hasReviewId ? 'pending' : 'approved'),
-  );
-
-  const persistedId = persisted?.persisted_id ?? artifact.persisted_id;
-
-  function handleReview(state: 'approved' | 'rejected') {
-    setReviewState(state);
-    onAction?.('knowledge:approve', {
-      item_id: artifact.review_id ?? persistedId ?? artifact.id,
-      type: 'tabular_review',
-      state,
-    });
-  }
-
-  const isRejected = reviewState === 'rejected';
-  const isPending = reviewState === 'pending';
-  const isApproved = reviewState === 'approved';
 
   return (
-    <div className={`my-3 overflow-x-auto transition-opacity ${isRejected ? 'opacity-40' : ''}`}>
-      {artifact.title && (
-        <h4 className="text-sm font-semibold text-zinc-100 mb-2">{artifact.title}</h4>
-      )}
+    <ArtifactCardShell
+      typeLabel="Comparison"
+      title={artifact.title || 'Comparison'}
+      sources={artifact.sources}
+      dimmed={review.isRejected}
+      className="overflow-x-auto"
+      headerRight={hasReviewId ? (
+        <ReviewControls reviewState={review.reviewState} onReview={review.handleReview} />
+      ) : undefined}
+    >
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="bg-zinc-800">
@@ -143,41 +137,6 @@ export default function ComparisonTable({ artifact, onAction }: ComparisonTableP
           ))}
         </tbody>
       </table>
-      <SourcesFooter sources={artifact.sources} />
-
-      {/* Approve/reject footer for tabular reviews */}
-      {hasReviewId && (
-        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-zinc-700/50">
-          {isApproved && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 font-medium flex items-center gap-1">
-              <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              Approved
-            </span>
-          )}
-          {isRejected && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-medium flex items-center gap-1">
-              <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-              Rejected
-            </span>
-          )}
-          {isPending && (
-            <>
-              <button
-                onClick={() => handleReview('approved')}
-                className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors font-medium"
-              >
-                Approve
-              </button>
-              <button
-                onClick={() => handleReview('rejected')}
-                className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-700/50 text-zinc-500 hover:text-red-400 hover:bg-red-500/20 transition-colors font-medium"
-              >
-                Reject
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
+    </ArtifactCardShell>
   );
 }

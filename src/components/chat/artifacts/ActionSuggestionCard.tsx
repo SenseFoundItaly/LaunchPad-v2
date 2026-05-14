@@ -1,11 +1,11 @@
 'use client';
 
 import type { ActionSuggestion } from '@/types/artifacts';
-import SourcesFooter from './SourcesFooter';
+import ArtifactCardShell from './ArtifactCardShell';
 
 interface ActionSuggestionCardProps {
   artifact: ActionSuggestion;
-  onAction: (action: string, payload: Record<string, unknown>) => void;
+  onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }
 
 export default function ActionSuggestionCard({
@@ -13,8 +13,11 @@ export default function ActionSuggestionCard({
   onAction,
 }: ActionSuggestionCardProps) {
   return (
-    <div className="my-3 bg-zinc-800/50 border border-zinc-700 rounded-lg p-4">
-      <h4 className="text-sm font-semibold text-zinc-100 mb-1">{artifact.title}</h4>
+    <ArtifactCardShell
+      typeLabel="Action"
+      title={artifact.title}
+      sources={artifact.sources}
+    >
       <p className="text-sm text-zinc-300 mb-3">{artifact.description}</p>
       <button
         type="button"
@@ -31,7 +34,6 @@ export default function ActionSuggestionCard({
       >
         {artifact.action_label}
       </button>
-      <SourcesFooter sources={artifact.sources} />
-    </div>
+    </ArtifactCardShell>
   );
 }

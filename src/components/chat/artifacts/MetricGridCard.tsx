@@ -2,11 +2,11 @@
 
 import { useState } from 'react';
 import type { MetricGrid } from '@/types/artifacts';
-import SourcesFooter from './SourcesFooter';
+import ArtifactCardShell from './ArtifactCardShell';
 
 interface MetricGridCardProps {
   artifact: MetricGrid;
-  onAction?: (action: string, payload: Record<string, unknown>) => void;
+  onAction?: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }
 
 export default function MetricGridCard({ artifact, onAction }: MetricGridCardProps) {
@@ -28,8 +28,11 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
   }
 
   return (
-    <div className="my-3">
-      {artifact.title && <h4 className="text-xs font-semibold text-zinc-400 mb-2">{artifact.title}</h4>}
+    <ArtifactCardShell
+      typeLabel="Metrics"
+      title={artifact.title || ''}
+      sources={artifact.sources}
+    >
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         {metrics.map((m, i) => (
           <div key={i} className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3 group">
@@ -60,7 +63,6 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
           </div>
         ))}
       </div>
-      <SourcesFooter sources={artifact.sources} />
-    </div>
+    </ArtifactCardShell>
   );
 }

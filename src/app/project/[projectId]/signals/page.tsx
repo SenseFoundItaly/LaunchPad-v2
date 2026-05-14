@@ -17,6 +17,7 @@ import { SignalsFilterBar } from '@/components/signals/SignalsFilterBar';
 import { SignalsTable, getImpact, matchCompetitor } from '@/components/signals/SignalsTable';
 import type { SortField, SortDir } from '@/components/signals/SignalsTable';
 import { SourcesView } from '@/components/signals/SourcesView';
+import { LogView } from '@/components/signals/LogView';
 import type { SignalTimelineEntry, WatchSource, IntelligenceBrief, CompetitorProfile } from '@/types';
 
 export default function SignalsPage({ params }: { params: Promise<{ projectId: string }> }) {
@@ -101,6 +102,32 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
   }, [fetchSignals, fetchSources, fetchBriefs, fetchCompetitors]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Triage handler for ecosystem alerts
+  const handleTriageAlert = useCallback(async (
+    alertId: string,
+    state: 'acknowledged' | 'dismissed' | 'promoted_to_action',
+  ) => {
+    if (state === 'promoted_to_action') {
+      if (!window.confirm('Mark this alert as promoted?')) return;
+    }
+    // Optimistic update
+    setSignals((prev) =>
+      state === 'dismissed'
+        ? prev.filter((s) => s.id !== alertId)
+        : prev.map((s) => s.id === alertId ? { ...s, reviewed_state: state } : s)
+    );
+    try {
+      const res = await fetch(`/api/projects/${projectId}/knowledge/${alertId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state }),
+      });
+      if (!res.ok) void fetchSignals();
+    } catch {
+      void fetchSignals();
+    }
+  }, [projectId, fetchSignals]);
 
   // Competitor names for matching
   const competitorNames = useMemo(() => competitors.map((c) => c.name), [competitors]);
@@ -279,16 +306,19 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
                   sortDir={sortDir}
                   onSort={handleSort}
                   competitorNames={competitorNames}
+                  onTriageAlert={handleTriageAlert}
                 />
               )}
             </>
-          ) : (
+          ) : view === 'sources' ? (
             <SourcesView
               sources={sources}
               projectId={projectId}
               onRefresh={fetchAll}
               loading={loading}
             />
+          ) : (
+            <LogView projectId={projectId} />
           )}
         </div>
       </div>

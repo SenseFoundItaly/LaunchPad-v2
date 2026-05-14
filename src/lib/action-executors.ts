@@ -1,12 +1,12 @@
 /**
  * Action Executors — the Phase 0 "sent" transition implementation.
  *
- * When a founder approves a pending_action, this module is the dispatch
- * layer that turns "approved" intent into an actual effect. Two classes of
+ * When a founder applies a pending_action, this module is the dispatch
+ * layer that turns "applied" intent into an actual effect. Two classes of
  * action:
  *
  *   1. STRUCTURED actions — write directly to a domain table
- *      (growth_iterations, investor_interactions, graph_nodes). Approval
+ *      (growth_iterations, investor_interactions, graph_nodes). Applying
  *      transitions straight to 'sent' atomically.
  *
  *   2. COMMUNICATION actions (email, LinkedIn post, LinkedIn DM, interview
@@ -16,7 +16,7 @@
  *      UI. No Composio / Resend dependency needed at Phase 0.
  *
  * Why click-to-send (option B) instead of autopilot (option C):
- *   - Approval-first positioning is locked (plan §5). The founder's click on
+ *   - Apply-first positioning is locked (plan §5). The founder's click on
  *     "Open in LinkedIn" is another intentional act — matches the SOUL "you
  *     are not a decision-maker" principle.
  *   - No external API keys needed for beta. Phase 1 Composio/Resend
@@ -300,11 +300,11 @@ const proposedLandingCopy: ActionHandler = async () => ({
 });
 
 /**
- * `configure_monitor` executor — converts an approved monitor-proposal
+ * `configure_monitor` executor — converts an applied monitor-proposal
  * pending_action into an actual active row in the `monitors` table.
  *
  * Re-runs L1 dedup as a defence against races: between "founder saw the
- * approval card" and "founder clicked Approve", another propose_monitor
+ * review card" and "founder clicked Apply", another propose_monitor
  * call could have landed a semantically-same monitor. L1 is cheap and
  * always enforced so this second check costs ~5ms and prevents the
  * occasional dupe.
@@ -318,12 +318,12 @@ const proposedLandingCopy: ActionHandler = async () => ({
  *   - linked_risk_id + linked_quote + kind + urls_to_track + sources all
  *     flow to the new columns added in the Phase D monitor-dedup migration.
  *   - dedup_hash is computed fresh here rather than trusting the
- *     pending_action payload — the payload could be days old when approved.
+ *     pending_action payload — the payload could be days old when applied.
  */
 const configureMonitor: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
 
-  // Extract + shape-check the monitor spec from the approved payload. If
+  // Extract + shape-check the monitor spec from the applied payload. If
   // the founder edited fields via the chat artifact's Edit mode, those
   // edits already landed in `edited_payload` via effectivePayload().
   const name = String(payload.name ?? action.title);
@@ -345,10 +345,10 @@ const configureMonitor: ActionHandler = async (action) => {
   const prompt = typeof payload.prompt === 'string' ? payload.prompt : null;
 
   // Race-guard: re-run L1 dedup. L2 semantic check is skipped here because
-  // the founder has already seen + approved the proposal (any semantic
+  // the founder has already seen + applied the proposal (any semantic
   // overlap warning was surfaced at propose time and either accepted or
   // overridden). L1 rules remain hard — they catch the race where another
-  // approval landed concurrently for the same risk+kind.
+  // apply landed concurrently for the same risk+kind.
   const dedup = await checkDedup(action.project_id, {
     name,
     kind,
@@ -362,16 +362,21 @@ const configureMonitor: ActionHandler = async (action) => {
   if (!dedup.ok) {
     return {
       ok: false,
-      error: `Monitor dedup failed at approval time: ${dedup.error}`,
+      error: `Monitor dedup failed at apply time: ${dedup.error}`,
     };
   }
 
   const monitorId = generateId('mon');
   const now = new Date().toISOString();
-  // next_run starts "now" so the new monitor enters the cron eligibility
-  // set on the next /api/cron tick instead of waiting a full schedule
-  // period. last_run stays NULL until the first actual run lands.
-  const nextRun = calculateNextRun(schedule) ?? now;
+  // Grace period: delay first run by 1 hour so the founder can review,
+  // edit, or delete the new monitor before it first fires.
+  const gracePeriodMs = 60 * 60 * 1000; // 1 hour
+  const graceDate = new Date(Date.now() + gracePeriodMs);
+  const scheduledNextRun = calculateNextRun(schedule);
+  // Pick whichever is later: the schedule's next_run or the grace period.
+  const nextRun = scheduledNextRun && new Date(scheduledNextRun) > graceDate
+    ? scheduledNextRun
+    : graceDate.toISOString();
   const dedupHash = dedup.dedup_hash ?? computeDedupHash(urls, q);
 
   await run(
@@ -405,7 +410,7 @@ const configureMonitor: ActionHandler = async (action) => {
     sourcesJson,
   );
 
-  // Audit trail — the approval chain (propose → pending_action → approve →
+  // Audit trail — the apply chain (propose → pending_action → apply →
   // monitor row) is now queryable across memory_events. Feeds into the
   // founder's timeline + future HEARTBEAT portfolio review (B3).
   try {
@@ -415,7 +420,7 @@ const configureMonitor: ActionHandler = async (action) => {
       // text in payload if the chat route recorded it; safest to skip here.
       userId: (payload.approving_user_id as string) || 'system',
       projectId: action.project_id,
-      eventType: 'monitor_approved',
+      eventType: 'monitor_applied',
       payload: {
         monitor_id: monitorId,
         linked_risk_id: linkedRiskId,
@@ -424,8 +429,8 @@ const configureMonitor: ActionHandler = async (action) => {
         dedup_override: !!dedupOverrideReason,
       },
     });
-  } catch {
-    // non-fatal — observability only
+  } catch (err) {
+    console.warn('[configureMonitor] audit event failed:', (err as Error).message);
   }
 
   return {
@@ -439,7 +444,7 @@ const configureMonitor: ActionHandler = async (action) => {
 };
 
 /**
- * `configure_budget` executor — UPSERTs the founder-approved monthly cap
+ * `configure_budget` executor — UPSERTs the founder-applied monthly cap
  * into project_budgets for the current period_month.
  *
  * The proposed cap was put on the table by `propose_budget_change`. The
@@ -515,8 +520,8 @@ const configureBudget: ActionHandler = async (action) => {
         reason,
       },
     });
-  } catch {
-    // observability only
+  } catch (err) {
+    console.warn('[configureBudget] audit event failed:', (err as Error).message);
   }
 
   return {
@@ -531,7 +536,7 @@ const configureBudget: ActionHandler = async (action) => {
 };
 
 /**
- * `configure_watch_source` executor — converts an approved watch-source
+ * `configure_watch_source` executor — converts an applied watch-source
  * proposal into an active row in the `watch_sources` table.
  *
  * Validates URL format and checks for duplicate URLs in the same project.
@@ -589,7 +594,7 @@ const configureWatchSource: ActionHandler = async (action) => {
     entity_type: 'watch_source',
     headline: `Watch source created: ${label} (${url})`,
     metadata: { category, schedule, source: 'chat_approval' },
-  }).catch(() => {});
+  }).catch(err => console.warn('[configureWatchSource] logSignalActivity failed:', (err as Error).message));
 
   return {
     ok: true,
@@ -614,11 +619,11 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   configure_budget: configureBudget,
   configure_watch_source: configureWatchSource,
   // workflow_step is intentionally unmapped — each step is a placeholder
-  // row, not an auto-executable action. Founder approval just flips status
+  // row, not an auto-executable action. Founder apply just flips status
   // without a domain effect.
 };
 
-export async function executeApprovedAction(action: PendingAction): Promise<ExecutorResult> {
+export async function executeAppliedAction(action: PendingAction): Promise<ExecutorResult> {
   const handler = REGISTRY[action.action_type];
   if (!handler) {
     return {

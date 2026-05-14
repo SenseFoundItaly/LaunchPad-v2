@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { get, query } from '@/lib/db';
 import { listFacts } from '@/lib/memory/facts';
 import { STAGES } from '@/lib/stages';
@@ -10,13 +11,13 @@ import type { SkillData } from '@/hooks/useSkillStatus';
  * GET /api/projects/{projectId}/intelligence
  *
  * Aggregates the durable knowledge layer for the Canvas → Intelligence tab:
- *   - facts:  top memory_facts (confidence DESC, approved)
+ *   - facts:  top memory_facts (confidence DESC, applied)
  *   - alerts: top ecosystem_alerts (relevance DESC, pending review)
  *   - score:  latest scores row
  *   - nodes:  recent graph_nodes
  *
- * No auth wrapper — matches the pattern of /actions and /tasks. Project scope
- * is enforced by `WHERE project_id = ?` everywhere.
+ * Auth: tryProjectAccess gate (same as /actions, /tasks, etc.). Project scope
+ * is additionally enforced by `WHERE project_id = ?` everywhere.
  *
  * userId for `listFacts()` comes from projects.owner_user_id (since memory
  * facts are per-user-per-project, and the project canonical owner is the
@@ -86,6 +87,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   const project = await get<{ id: string; owner_user_id: string | null }>(
     'SELECT id, owner_user_id FROM projects WHERE id = ?',
@@ -120,7 +123,7 @@ export async function GET(
   const nodes = await query<NodeRow>(
     `SELECT id, name, node_type, summary, created_at
      FROM graph_nodes
-     WHERE project_id = ? AND reviewed_state = 'approved'
+     WHERE project_id = ? AND reviewed_state = 'applied'
      ORDER BY created_at DESC
      LIMIT 5`,
     projectId,

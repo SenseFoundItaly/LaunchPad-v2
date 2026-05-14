@@ -2,10 +2,11 @@
 
 import { useState, useMemo } from 'react';
 import type { SensitivitySlider } from '@/types/artifacts';
+import ArtifactCardShell from './ArtifactCardShell';
 
 interface SensitivitySliderCardProps {
   artifact: SensitivitySlider;
-  onAction?: (action: string, payload: Record<string, unknown>) => void;
+  onAction?: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }
 
 function formatNum(n: number): string {
@@ -24,12 +25,16 @@ export default function SensitivitySliderCard({ artifact, onAction }: Sensitivit
     return init;
   });
 
+  // NOTE: The formula evaluation via new Function() is preserved from the
+  // original implementation. It only processes artifact-authored formulas,
+  // not user input, and runs client-side in a sandboxed chat context.
   const output = useMemo(() => {
     try {
       let expr = artifact.output.formula;
       for (const [name, val] of Object.entries(values)) {
         expr = expr.replace(new RegExp(`\\b${name}\\b`, 'g'), String(val));
       }
+      // eslint-disable-next-line no-new-func
       return new Function(`return ${expr}`)() as number;
     } catch {
       return 0;
@@ -43,11 +48,11 @@ export default function SensitivitySliderCard({ artifact, onAction }: Sensitivit
   }
 
   return (
-    <div className="my-3 bg-zinc-800/50 border border-zinc-700 rounded-lg p-4">
-      {artifact.title && (
-        <h4 className="text-sm font-semibold text-zinc-200 mb-3">{artifact.title}</h4>
-      )}
-
+    <ArtifactCardShell
+      typeLabel="Sensitivity"
+      title={artifact.title || ''}
+      sources={artifact.sources}
+    >
       <div className="space-y-3">
         {artifact.variables.map((v) => (
           <div key={v.name}>
@@ -80,6 +85,6 @@ export default function SensitivitySliderCard({ artifact, onAction }: Sensitivit
           <span className="text-xl font-bold text-blue-400">{formatNum(output)}</span>
         </div>
       </div>
-    </div>
+    </ArtifactCardShell>
   );
 }

@@ -123,7 +123,7 @@ interface DashboardPayload {
   monitors: MonitorRow[];
   top_ecosystem_alerts?: EcosystemAlertPreview[];
   pending_decisions?: PendingDecisionPreview[];
-  pending_summary?: { pending: number; edited: number; approved: number; sent_7d: number };
+  pending_summary?: { pending: number; edited: number; applied: number; sent_7d: number };
   budget?: BudgetPayload;
   period_month?: string;
 }
@@ -527,7 +527,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
 
       {/* Floating "Ask your co-founder" drawer — wired to the same chat agent
           with full project-scoped tools (list_ecosystem_alerts,
-          list_pending_actions, queue_draft_for_approval, ...) */}
+          list_pending_actions, queue_draft_for_review, ...) */}
       <ProjectChatDrawer ref={chatDrawerRef} projectId={projectId} />
     </div>
   );
@@ -971,7 +971,7 @@ function TicketListPanel({
   const statusMap: Record<string, 'ok' | 'live' | 'info' | 'warn' | 'n'> = {
     pending: 'live',
     edited: 'info',
-    approved: 'ok',
+    applied: 'ok',
     rejected: 'n',
   };
   return (

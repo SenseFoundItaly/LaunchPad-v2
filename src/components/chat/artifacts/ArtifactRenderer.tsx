@@ -15,12 +15,12 @@ import BudgetProposalCard from './BudgetProposalCard';
 import HtmlPreviewCard from './HtmlPreviewCard';
 import DocumentCard from './DocumentCard';
 import SolveProgressCard from './SolveProgressCard';
-import SourcesFooter from './SourcesFooter';
+import ArtifactCardShell from './ArtifactCardShell';
 import { RadarChart, BarChart, PieChart, GaugeChart, ScoreCard } from '@/components/charts';
 
 interface ArtifactRendererProps {
   artifact: Artifact;
-  onAction: (action: string, payload: Record<string, unknown>) => void;
+  onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
   onEntityDiscovered: (entity: EntityCard) => void;
   onWorkflowDiscovered?: (workflow: WorkflowCard) => void;
 }
@@ -52,43 +52,35 @@ export default function ArtifactRenderer({
           onAction={onAction}
         />
       );
-    // Charts don't own their own wrapper div, so we wrap each in a small
-    // container + SourcesFooter. Keeping the chart component untouched
-    // means the chart stays usable elsewhere without a forced sources prop.
     case 'radar-chart':
       return (
-        <div>
-          <RadarChart data={artifact.data} title={artifact.title} />
-          <SourcesFooter sources={artifact.sources} />
-        </div>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources}>
+          <RadarChart data={artifact.data} />
+        </ArtifactCardShell>
       );
     case 'bar-chart':
       return (
-        <div>
-          <BarChart data={artifact.data} title={artifact.title} />
-          <SourcesFooter sources={artifact.sources} />
-        </div>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources}>
+          <BarChart data={artifact.data} />
+        </ArtifactCardShell>
       );
     case 'pie-chart':
       return (
-        <div>
-          <PieChart data={artifact.data} title={artifact.title} />
-          <SourcesFooter sources={artifact.sources} />
-        </div>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources}>
+          <PieChart data={artifact.data} />
+        </ArtifactCardShell>
       );
     case 'gauge-chart':
       return (
-        <div>
-          <GaugeChart score={artifact.score} maxScore={artifact.maxScore} label={artifact.title} verdict={artifact.verdict} />
-          <SourcesFooter sources={artifact.sources} />
-        </div>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources}>
+          <GaugeChart score={artifact.score} maxScore={artifact.maxScore} verdict={artifact.verdict} />
+        </ArtifactCardShell>
       );
     case 'score-card':
       return (
-        <div>
-          <ScoreCard title={artifact.title} score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />
-          <SourcesFooter sources={artifact.sources} />
-        </div>
+        <ArtifactCardShell typeLabel="Score" title={artifact.title} sources={artifact.sources}>
+          <ScoreCard title="" score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />
+        </ArtifactCardShell>
       );
     case 'metric-grid':
       return <MetricGridCard artifact={artifact} onAction={onAction} />;

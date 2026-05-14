@@ -73,7 +73,7 @@ export async function buildMemoryContext(
     parts.push('');
   }
 
-  // 4. Founder inbox (pending approvals — non-task actions awaiting decision)
+  // 4. Founder inbox (pending review items — non-task actions awaiting decision)
   try {
     const inbox = await query<{
       action_type: string; title: string; estimated_impact: string | null;
@@ -95,7 +95,11 @@ export async function buildMemoryContext(
       }
       parts.push('');
     }
-  } catch { /* non-fatal */ }
+  } catch (err) {
+    console.warn('[memory] founder inbox section failed:', (err as Error).message);
+    parts.push('## Founder inbox — [load failed]');
+    parts.push('');
+  }
 
   // 5. Open tasks (task-type actions the founder is tracking)
   try {
@@ -126,7 +130,11 @@ export async function buildMemoryContext(
       }
       parts.push('');
     }
-  } catch { /* non-fatal */ }
+  } catch (err) {
+    console.warn('[memory] open tasks section failed:', (err as Error).message);
+    parts.push('## Open tasks — [load failed]');
+    parts.push('');
+  }
 
   // 6. Active intelligence briefs (highest-value synthesized intelligence)
   try {
@@ -154,11 +162,17 @@ export async function buildMemoryContext(
           if (urgent.length > 0) {
             parts.push(`  URGENT: ${urgent.map((a: { action?: string; title?: string }) => a.action || a.title).join('; ')}`);
           }
-        } catch { /* ignore malformed */ }
+        } catch (parseErr) {
+          console.warn('[memory] malformed recommended_actions JSON:', (parseErr as Error).message);
+        }
       }
       parts.push('');
     }
-  } catch { /* non-fatal */ }
+  } catch (err) {
+    console.warn('[memory] intelligence briefs section failed:', (err as Error).message);
+    parts.push('## Active intelligence briefs — [load failed]');
+    parts.push('');
+  }
 
   // 7. Top risks from risk audit
   try {
@@ -187,7 +201,11 @@ export async function buildMemoryContext(
         parts.push('');
       }
     }
-  } catch { /* non-fatal */ }
+  } catch (err) {
+    console.warn('[memory] risk audit section failed:', (err as Error).message);
+    parts.push('## Top risks — [load failed]');
+    parts.push('');
+  }
 
   // 8. Knowledge graph summary
   const graphSummary = await summarizeGraph(projectId, maxGraphNodes);
@@ -232,7 +250,7 @@ function summarizeEvent(type: string, payload: unknown): string {
 
 async function summarizeGraph(projectId: string, maxNodes: number): Promise<string | null> {
   const nodeCounts = await query<{ node_type: string; count: number }>(
-    "SELECT node_type, COUNT(*) as count FROM graph_nodes WHERE project_id = ? AND reviewed_state = 'approved' GROUP BY node_type",
+    "SELECT node_type, COUNT(*) as count FROM graph_nodes WHERE project_id = ? AND reviewed_state = 'applied' GROUP BY node_type",
     projectId,
   );
   if (nodeCounts.length === 0) return null;
@@ -242,8 +260,8 @@ async function summarizeGraph(projectId: string, maxNodes: number): Promise<stri
   }>(
     `SELECT s.name as source_name, t.name as target_name, e.relation, e.weight
      FROM graph_edges e
-     JOIN graph_nodes s ON s.id = e.source_node_id AND s.reviewed_state = 'approved'
-     JOIN graph_nodes t ON t.id = e.target_node_id AND t.reviewed_state = 'approved'
+     JOIN graph_nodes s ON s.id = e.source_node_id AND s.reviewed_state = 'applied'
+     JOIN graph_nodes t ON t.id = e.target_node_id AND t.reviewed_state = 'applied'
      WHERE e.project_id = ?
      ORDER BY e.weight DESC LIMIT ?`,
     projectId,

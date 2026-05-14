@@ -13,11 +13,18 @@ interface LogEntry {
   created_at: string;
 }
 
+interface CostByStep {
+  step: string;
+  total_cost_usd: number;
+  call_count: number;
+}
+
 interface LogResponse {
   logs: LogEntry[];
   total: number;
   limit: number;
   offset: number;
+  cost_by_step?: CostByStep[];
 }
 
 const EVENT_PILL_KIND: Record<string, 'ok' | 'warn' | 'n'> = {
@@ -32,6 +39,10 @@ const EVENT_PILL_KIND: Record<string, 'ok' | 'warn' | 'n'> = {
   signal_promoted: 'ok',
   watch_source_error: 'warn',
   monitor_failed: 'warn',
+  alert_acknowledged: 'n',
+  alert_dismissed: 'n',
+  alert_promoted: 'ok',
+  alert_reverted: 'warn',
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -46,6 +57,10 @@ const EVENT_LABELS: Record<string, string> = {
   monitor_failed: 'monitor fail',
   classification_completed: 'classified',
   brief_generated: 'brief',
+  alert_acknowledged: 'alert ack',
+  alert_dismissed: 'alert dismiss',
+  alert_promoted: 'alert promo',
+  alert_reverted: 'alert revert',
 };
 
 function relativeTime(dateStr: string): string {
@@ -91,6 +106,7 @@ const EVENT_TYPES = [
   'all', 'signal_created', 'signal_auto_created_from_chat',
   'watch_source_scraped', 'watch_source_created', 'watch_source_error',
   'monitor_ran', 'monitor_failed', 'classification_completed', 'brief_generated',
+  'alert_acknowledged', 'alert_dismissed', 'alert_promoted', 'alert_reverted',
 ];
 
 interface LogViewProps {
@@ -100,6 +116,7 @@ interface LogViewProps {
 export function LogView({ projectId }: LogViewProps) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [total, setTotal] = useState(0);
+  const [costByStep, setCostByStep] = useState<CostByStep[]>([]);
   const [loading, setLoading] = useState(true);
   const [eventTypeFilter, setEventTypeFilter] = useState('all');
   const [lastFetchedAt, setLastFetchedAt] = useState(0);
@@ -116,6 +133,7 @@ export function LogView({ projectId }: LogViewProps) {
       if (body.success && body.data) {
         setLogs(body.data.logs || []);
         setTotal(body.data.total || 0);
+        setCostByStep(body.data.cost_by_step || []);
       }
     } catch { /* partial data ok */ }
     setLoading(false);
@@ -193,6 +211,53 @@ export function LogView({ projectId }: LogViewProps) {
           )}
         </span>
       </div>
+
+      {/* Cost attribution strip */}
+      {costByStep.length > 0 && (
+        <div
+          style={{
+            padding: '8px 20px',
+            borderBottom: '1px solid var(--line)',
+            display: 'flex',
+            gap: 12,
+            flexWrap: 'wrap',
+            alignItems: 'center',
+          }}
+        >
+          <span
+            className="lp-mono"
+            style={{ fontSize: 10, color: 'var(--ink-4)', textTransform: 'uppercase' }}
+          >
+            Cost (30d)
+          </span>
+          {costByStep.map((cs) => {
+            const label = cs.step.replace(/^cron\./, '').replace(/\./g, ' / ');
+            return (
+              <span
+                key={cs.step}
+                className="lp-mono"
+                style={{
+                  fontSize: 10,
+                  color: 'var(--ink-3)',
+                  background: 'var(--paper-2)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 4,
+                  padding: '2px 6px',
+                }}
+                title={`${cs.call_count} calls`}
+              >
+                {label}: ${cs.total_cost_usd.toFixed(3)}
+              </span>
+            );
+          })}
+          <span
+            className="lp-mono"
+            style={{ fontSize: 10, color: 'var(--ink-5)', marginLeft: 'auto' }}
+          >
+            total: ${costByStep.reduce((s, c) => s + c.total_cost_usd, 0).toFixed(3)}
+          </span>
+        </div>
+      )}
 
       {/* Log timeline */}
       <div style={{ flex: 1, overflow: 'auto', padding: '8px 20px' }}>

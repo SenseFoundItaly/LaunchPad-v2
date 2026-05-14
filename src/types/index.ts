@@ -349,15 +349,15 @@ export type PendingActionType =
   | 'proposed_investor_followup'
   | 'proposed_graph_update'
   | 'workflow_step'                 // chat-proposed workflow step, one row per step
-  | 'configure_monitor'             // chat-proposed ecosystem monitor awaiting founder approval
-  | 'configure_budget'              // chat-proposed monthly LLM budget cap change awaiting founder approval
-  | 'configure_watch_source'        // chat-proposed watch source awaiting founder approval
+  | 'configure_monitor'             // chat-proposed ecosystem monitor awaiting founder review
+  | 'configure_budget'              // chat-proposed monthly LLM budget cap change awaiting founder review
+  | 'configure_watch_source'        // chat-proposed watch source awaiting founder review
   | 'skill_rerun_result'            // heartbeat-executor refreshed a stale analytical skill — surfaces new score in inbox
   | 'task';                         // chat-proposed founder task (TODO) — Mark done / Snooze / Dismiss
 
 export type PendingActionStatus =
   | 'pending'
-  | 'approved'
+  | 'applied'
   | 'edited'
   | 'rejected'
   | 'sent'
@@ -458,6 +458,7 @@ export interface SignalTimelineEntry {
   relevance_score?: number;
   timestamp: string;
   alert_type?: string;
+  reviewed_state?: EcosystemAlertState | null;
   change_status?: ChangeStatus;
   diff_preview?: string | null;
 }

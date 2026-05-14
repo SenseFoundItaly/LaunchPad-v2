@@ -3,13 +3,43 @@ import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 import { streamSimple, getModel, getEnvApiKey } from '@mariozechner/pi-ai';
 import type { Message, Usage } from '@mariozechner/pi-ai';
 import { join } from 'path';
-import { mkdirSync, readFileSync, appendFileSync, existsSync } from 'fs';
+import { mkdirSync, readFileSync, appendFileSync, existsSync, readdirSync, statSync, rmSync } from 'fs';
 import { getTools } from './pi-tools';
 import { pickModel, type TaskLabel } from './llm/router';
 
 const DEFAULT_PROVIDER = (process.env.PI_PROVIDER || 'anthropic') as 'anthropic' | 'openai';
 const DEFAULT_MODEL_ID = process.env.PI_MODEL || (DEFAULT_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
 const SESSIONS_DIR = process.env.LAUNCHPAD_SESSIONS_DIR || join(process.env.HOME || '/tmp', '.launchpad', 'sessions');
+
+// ─── Stale session cleanup ───
+// Runs once per process lifecycle. Deletes session directories with
+// session.jsonl older than 30 days.
+let _sessionsCleaned = false;
+const STALE_SESSION_DAYS = 30;
+
+function cleanStaleSessions() {
+  if (_sessionsCleaned) return;
+  _sessionsCleaned = true;
+  try {
+    if (!existsSync(SESSIONS_DIR)) return;
+    const threshold = Date.now() - STALE_SESSION_DAYS * 24 * 60 * 60 * 1000;
+    const dirs = readdirSync(SESSIONS_DIR);
+    for (const dir of dirs) {
+      const sessionFile = join(SESSIONS_DIR, dir, 'session.jsonl');
+      try {
+        if (!existsSync(sessionFile)) continue;
+        const stat = statSync(sessionFile);
+        if (stat.mtimeMs < threshold) {
+          rmSync(join(SESSIONS_DIR, dir), { recursive: true, force: true });
+        }
+      } catch {
+        // Skip individual dirs that fail — non-fatal.
+      }
+    }
+  } catch (err) {
+    console.warn('[pi-agent] stale session cleanup failed (non-fatal):', err);
+  }
+}
 
 /**
  * Prompt caching note (Anthropic only):
@@ -149,8 +179,8 @@ export interface RunAgentOptions {
   /**
    * Hard cap on tool calls per turn. After this many tool_execution_start
    * events, the agent is aborted. Prevents runaway cost from agentic loops
-   * that ignore the prompt-level "max 4 tool calls" instruction.
-   * Default: 4.
+   * that ignore the prompt-level "max 8 tool calls" instruction.
+   * Default: 8.
    */
   maxToolCalls?: number;
   /**
@@ -168,6 +198,7 @@ export interface RunAgentResult {
 
 /** Run Pi Agent and collect full response (non-streaming). */
 export async function runAgent(prompt: string, options: RunAgentOptions = {}): Promise<RunAgentResult> {
+  cleanStaleSessions();
   const model = resolveModel(options.task);
   const agent = new Agent({
     streamFn: streamSimple,
@@ -245,6 +276,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
   stream: ReadableStream;
   cleanup: () => void;
 } {
+  cleanStaleSessions();
   const model = resolveModel(options.task);
   const encoder = new TextEncoder();
   let agent: Agent;

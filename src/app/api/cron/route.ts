@@ -253,6 +253,9 @@ async function proposeHeartbeatTasks(args: {
 function requireCronAuth(request: NextRequest): { ok: true } | { ok: false; response: Response } {
   const expected = process.env.CRON_SECRET;
   if (!expected) {
+    if (process.env.NODE_ENV === 'production') {
+      return { ok: false, response: error('CRON_SECRET not configured — cron disabled in production', 403) };
+    }
     // Dev mode: no secret configured, allow all traffic.
     return { ok: true };
   }
@@ -434,7 +437,7 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
       entity_type: 'monitor_run',
       headline: `Monitor "${monitor.name}" completed — ${persistResult?.alerts_inserted ?? 0} alerts`,
       metadata: { monitor_id: monitor.id, alerts_inserted: persistResult?.alerts_inserted ?? 0 },
-    }).catch(() => {});
+    }).catch(err => console.warn('[cron] logSignalActivity failed:', (err as Error).message));
 
     return {
       monitor_id: monitor.id,
@@ -458,7 +461,7 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
       entity_type: 'monitor_run',
       headline: `Monitor "${monitor.name}" failed: ${(err as Error).message.slice(0, 120)}`,
       metadata: { monitor_id: monitor.id },
-    }).catch(() => {});
+    }).catch(err => console.warn('[cron] logSignalActivity failed:', (err as Error).message));
 
     return { monitor_id: monitor.id, name: monitor.name, status: 'failed' };
   }

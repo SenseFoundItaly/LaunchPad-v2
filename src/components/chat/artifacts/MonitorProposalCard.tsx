@@ -1,25 +1,25 @@
 'use client';
 
 /**
- * MonitorProposalCard — the in-chat approval UX for a propose_monitor call.
+ * MonitorProposalCard — the in-chat apply UX for a propose_monitor call.
  *
  * States:
  *   - collapsed (default): name + kind chip + schedule + cost + linked-risk
- *     badge + [Approve] [Edit] [Dismiss] row
+ *     badge + [Apply] [Edit] [Dismiss] row
  *   - expanded-edit: same card + editable fields for schedule / URLs /
- *     alert_threshold with [Save & Approve] [Cancel] row
- *   - resolved-approved: faded card with checkmark + "Monitor active"
+ *     alert_threshold with [Save & Apply] [Cancel] row
+ *   - resolved-applied: faded card with checkmark + "Monitor active"
  *   - resolved-dismissed: faded card with X + "Dismissed"
  *   - resolved-error: red banner with the server error message
  *
  * Action callback protocol (matches the pattern of OptionSetCard /
  * ActionSuggestionCard — routed through ChatMessage.onArtifactAction → page
  * handler):
- *   - 'monitor:approve' { pending_action_id, overrides? }
+ *   - 'monitor:apply' { pending_action_id, overrides? }
  *   - 'monitor:dismiss' { pending_action_id, reason? }
  *
  * The page-level handler POSTs to /api/projects/{id}/actions/{actionId}
- * with {transition: 'approve', edited_payload: overrides} or
+ * with {transition: 'apply', edited_payload: overrides} or
  * {transition: 'reject', reason}. Card optimistically transitions to
  * resolved state; if the server returns an error, card shows the red
  * banner and re-enables the buttons.
@@ -28,10 +28,11 @@
 import { useState } from 'react';
 import type { MonitorProposalArtifact } from '@/types/artifacts';
 import SourcesFooter from './SourcesFooter';
+import ArtifactCardShell from './ArtifactCardShell';
 
 interface MonitorProposalCardProps {
   artifact: MonitorProposalArtifact;
-  onAction: (action: string, payload: Record<string, unknown>) => void;
+  onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }
 
 const KIND_COLORS: Record<string, string> = {
@@ -50,7 +51,7 @@ const SCHEDULE_LABELS: Record<'hourly' | 'daily' | 'weekly', string> = {
   weekly: 'Weekly',
 };
 
-type CardState = 'collapsed' | 'editing' | 'approving' | 'dismissing' | 'approved' | 'dismissed' | 'error';
+type CardState = 'collapsed' | 'editing' | 'applying' | 'dismissing' | 'applied' | 'dismissed' | 'error';
 
 export default function MonitorProposalCard({ artifact, onAction }: MonitorProposalCardProps) {
   const [state, setState] = useState<CardState>('collapsed');
@@ -65,8 +66,8 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
 
   const kindColor = KIND_COLORS[artifact.kind] ?? KIND_COLORS.custom;
 
-  async function handleApprove(withOverrides: boolean) {
-    setState('approving');
+  async function handleApply(withOverrides: boolean) {
+    setState('applying');
     setServerError(null);
     let overrides: Record<string, unknown> | undefined;
     if (withOverrides) {
@@ -81,19 +82,8 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
       };
     }
     try {
-      // Caller is expected to return a Promise that resolves on server success
-      // or throws on error. OptionSetCard / ActionSuggestionCard fire-and-
-      // forget today; for monitor approval we need the outcome so we can
-      // show approved/error state. The handler contract allows this — the
-      // page-level wrapper returns a Promise.
-      const result = (onAction as unknown as (a: string, p: Record<string, unknown>) => Promise<unknown> | void)(
-        'monitor:approve',
-        { pending_action_id: artifact.pending_action_id, overrides },
-      );
-      if (result && typeof (result as Promise<unknown>).then === 'function') {
-        await result;
-      }
-      setState('approved');
+      await onAction('monitor:apply', { pending_action_id: artifact.pending_action_id, overrides });
+      setState('applied');
     } catch (err) {
       setServerError((err as Error).message);
       setState('error');
@@ -104,13 +94,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
     setState('dismissing');
     setServerError(null);
     try {
-      const result = (onAction as unknown as (a: string, p: Record<string, unknown>) => Promise<unknown> | void)(
-        'monitor:dismiss',
-        { pending_action_id: artifact.pending_action_id },
-      );
-      if (result && typeof (result as Promise<unknown>).then === 'function') {
-        await result;
-      }
+      await onAction('monitor:dismiss', { pending_action_id: artifact.pending_action_id });
       setState('dismissed');
     } catch (err) {
       setServerError((err as Error).message);
@@ -118,15 +102,14 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
     }
   }
 
-  // Resolved states — faded card with a compact status line. SourcesFooter
-  // still renders so the founder can click through to see what motivated
-  // the proposal even after resolution.
-  if (state === 'approved') {
+  // Resolved states — faded card with a compact status line. These bypass
+  // the shell and render directly as minimal single-line UI.
+  if (state === 'applied') {
     return (
       <div className="my-3 bg-zinc-800/30 border border-green-500/20 rounded-lg p-3 opacity-75">
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-green-400 font-mono">✓</span>
-          <span className="text-zinc-300">Monitor approved:</span>
+          <span className="text-green-400 font-mono">{'\u2713'}</span>
+          <span className="text-zinc-300">Monitor applied:</span>
           <span className="text-zinc-100 font-medium">{artifact.name}</span>
           <span className="text-zinc-500 text-xs ml-auto">will run next cron tick</span>
         </div>
@@ -138,7 +121,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
     return (
       <div className="my-3 bg-zinc-800/20 border border-zinc-700/40 rounded-lg p-3 opacity-60">
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-zinc-500 font-mono">✗</span>
+          <span className="text-zinc-500 font-mono">{'\u2717'}</span>
           <span className="text-zinc-400">Dismissed:</span>
           <span className="text-zinc-500">{artifact.name}</span>
         </div>
@@ -147,24 +130,24 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
   }
 
   return (
-    <div className="my-3 bg-zinc-800/50 border border-zinc-700 rounded-lg p-4">
-      {/* Header: name + kind chip + schedule badge */}
-      <div className="flex items-center gap-2 mb-1 flex-wrap">
-        <span className="text-xs uppercase tracking-wider text-zinc-500 font-mono">Monitor proposal</span>
+    <ArtifactCardShell
+      typeLabel="Monitor proposal"
+      title={artifact.name}
+      sources={artifact.sources}
+      collapsible={false}
+      headerRight={<>
         <span className={`text-[10px] px-2 py-0.5 rounded-full border ${kindColor}`}>
           {artifact.kind}
         </span>
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-700/50 text-zinc-300">
           {SCHEDULE_LABELS[artifact.schedule]}
         </span>
-        <span className="text-[10px] text-zinc-500 ml-auto">
-          ~€{artifact.estimated_monthly_cost_eur.toFixed(2)}/mo
+        <span className="text-[10px] text-zinc-500">
+          ~{'\u20AC'}{artifact.estimated_monthly_cost_eur.toFixed(2)}/mo
         </span>
-      </div>
-
-      <h4 className="text-sm font-semibold text-zinc-100 mb-1">{artifact.name}</h4>
-
-      {/* Derisking breadcrumb — always visible so the founder knows WHY */}
+      </>}
+    >
+      {/* Derisking breadcrumb */}
       <div className="text-[11px] text-zinc-400 mb-2">
         <span className="text-zinc-500">Derisking: </span>
         <span className="font-mono text-zinc-300">{artifact.linked_risk_id}</span>
@@ -173,7 +156,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
         )}
       </div>
 
-      {/* Overlap warning — prominent red banner when agent bypassed L2 dedup */}
+      {/* Overlap warning */}
       {artifact.overlap_warning && (
         <div className="mb-2 p-2 bg-red-950/40 border border-red-500/40 rounded text-[11px]">
           <div className="font-semibold text-red-400 mb-0.5">
@@ -187,8 +170,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
         </div>
       )}
 
-      {/* Threshold — the actual "when does this fire" line. Shown editable
-          in edit mode, read-only in collapsed mode. */}
+      {/* Threshold — editable in edit mode, read-only otherwise */}
       {state === 'editing' ? (
         <div className="space-y-2 mb-3">
           <div>
@@ -214,7 +196,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
           </div>
           <div>
             <label className="text-[10px] text-zinc-500 uppercase tracking-wider block mb-1">
-              URLs to track (one per line, ≤5)
+              URLs to track (one per line, 5 max)
             </label>
             <textarea
               value={editUrlsRaw}
@@ -242,23 +224,23 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
         </>
       )}
 
-      {/* Server error — red banner with message + re-enabled buttons */}
+      {/* Server error */}
       {state === 'error' && serverError && (
         <div className="mb-2 p-2 bg-red-950/40 border border-red-500/40 rounded text-[11px] text-red-300">
-          Approval failed: {serverError}
+          Apply failed: {serverError}
         </div>
       )}
 
-      {/* Action buttons — differ per state */}
+      {/* Action buttons */}
       <div className="flex items-center gap-2 pt-2 border-t border-zinc-700/50">
         {state === 'editing' ? (
           <>
             <button
               type="button"
-              onClick={() => handleApprove(true)}
+              onClick={() => handleApply(true)}
               className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors"
             >
-              Save &amp; approve
+              Save &amp; apply
             </button>
             <button
               type="button"
@@ -272,15 +254,15 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
           <>
             <button
               type="button"
-              disabled={state === 'approving'}
-              onClick={() => handleApprove(false)}
+              disabled={state === 'applying'}
+              onClick={() => handleApply(false)}
               className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-md transition-colors"
             >
-              {state === 'approving' ? 'Approving…' : 'Approve'}
+              {state === 'applying' ? 'Applying...' : 'Apply'}
             </button>
             <button
               type="button"
-              disabled={state === 'approving' || state === 'dismissing'}
+              disabled={state === 'applying' || state === 'dismissing'}
               onClick={() => setState('editing')}
               className="text-xs px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-zinc-200 rounded-md transition-colors"
             >
@@ -288,17 +270,15 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
             </button>
             <button
               type="button"
-              disabled={state === 'approving' || state === 'dismissing'}
+              disabled={state === 'applying' || state === 'dismissing'}
               onClick={handleDismiss}
               className="text-xs px-3 py-1.5 text-zinc-400 hover:text-zinc-200 disabled:opacity-50 transition-colors ml-auto"
             >
-              {state === 'dismissing' ? 'Dismissing…' : 'Dismiss'}
+              {state === 'dismissing' ? 'Dismissing...' : 'Dismiss'}
             </button>
           </>
         )}
       </div>
-
-      <SourcesFooter sources={artifact.sources} />
-    </div>
+    </ArtifactCardShell>
   );
 }

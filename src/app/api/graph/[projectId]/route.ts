@@ -11,11 +11,14 @@ export async function GET(
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
 
-  const rows = await query('SELECT id FROM projects WHERE id = $1', projectId);
+  const rows = await query('SELECT id FROM projects WHERE id = ?', projectId);
   if (rows.length === 0) {return error('Project not found', 404);}
 
-  const nodes = await query('SELECT * FROM graph_nodes WHERE project_id = $1 ORDER BY created_at', projectId);
-  const edges = await query('SELECT * FROM graph_edges WHERE project_id = $1 ORDER BY created_at', projectId);
+  const nodes = await query(
+    "SELECT * FROM graph_nodes WHERE project_id = ? AND reviewed_state = 'applied' ORDER BY created_at",
+    projectId,
+  );
+  const edges = await query('SELECT * FROM graph_edges WHERE project_id = ? ORDER BY created_at', projectId);
 
   // attributes is JSONB — postgres.js returns it already parsed
   const parsedNodes = nodes.map((n: Record<string, unknown>) => ({
@@ -23,15 +26,22 @@ export async function GET(
     attributes: n.attributes || {},
   }));
 
+  // Only include edges where both endpoints are applied (visible) nodes
+  const appliedNodeIds = new Set(parsedNodes.map((n: Record<string, unknown>) => n.id));
+
   // Map edge fields to match GraphEdge interface (source/target instead of source_node_id/target_node_id)
-  const parsedEdges = edges.map((e: Record<string, unknown>) => ({
-    id: e.id,
-    source: e.source_node_id,
-    target: e.target_node_id,
-    relation: e.relation,
-    label: e.label,
-    weight: e.weight,
-  }));
+  const parsedEdges = edges
+    .filter((e: Record<string, unknown>) =>
+      appliedNodeIds.has(e.source_node_id as string) && appliedNodeIds.has(e.target_node_id as string),
+    )
+    .map((e: Record<string, unknown>) => ({
+      id: e.id,
+      source: e.source_node_id,
+      target: e.target_node_id,
+      relation: e.relation,
+      label: e.label,
+      weight: e.weight,
+    }));
 
   return json({ nodes: parsedNodes, edges: parsedEdges });
 }

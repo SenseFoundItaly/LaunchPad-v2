@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { json } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { query } from '@/lib/db';
 import { typesForLane } from '@/lib/pending-actions';
 
@@ -7,7 +8,7 @@ import { typesForLane } from '@/lib/pending-actions';
  * GET /api/projects/{projectId}/approvals
  *
  * Returns open approval-lane pending_actions — things the agent DRAFTED that
- * the founder needs to Approve / Edit / Reject (monitor configs, budget caps,
+ * the founder needs to Apply / Edit / Reject (monitor configs, budget caps,
  * workflow steps, draft emails/posts/DMs, proposed hypotheses / interview
  * questions / landing copy / investor followups / graph updates).
  *
@@ -31,13 +32,15 @@ interface ActionRow {
   updated_at: string;
 }
 
-const VALID_STATUSES = new Set(['pending', 'edited', 'approved', 'sent', 'rejected', 'failed']);
+const VALID_STATUSES = new Set(['pending', 'edited', 'applied', 'sent', 'rejected', 'failed']);
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const url = new URL(request.url);
   const statusParam = url.searchParams.get('status');
   const statuses = statusParam

@@ -14,6 +14,7 @@ import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
 import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
 import { isProjectCapped } from '@/lib/cost-meter';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
 import { pickModel, type TaskLabel } from '@/lib/llm/router';
@@ -257,6 +258,21 @@ export async function POST(request: NextRequest) {
     throw e;
   }
 
+  // Rate limit: 10 burst, ~30/min sustained (0.5 tokens/sec refill)
+  const rl = checkRateLimit(`chat:${userId}`, 10, 0.5);
+  if (!rl.allowed) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Too many requests. Please slow down.' }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': String(rl.retryAfterSeconds ?? 2),
+        },
+      },
+    );
+  }
+
   const body = await request.json();
   if (!body) {
     return new Response(
@@ -494,7 +510,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Collect artifact→persisted_id mappings so the done-event can
-        // enrich client artifacts with server-assigned IDs for approve/reject.
+        // enrich client artifacts with server-assigned IDs for apply/reject.
         const persistedMap: Record<string, { persisted_id: string; reviewed_state: string }> = {};
 
         // Memory: chat_turn event + fact artifact extraction.
@@ -562,8 +578,8 @@ export async function POST(request: NextRequest) {
               }
             } else if (seg.artifact.type === 'workflow-card') {
               // Persist the proposed workflow + expand into pending_actions
-              // so the founder can approve/edit each step from the inbox.
-              captureWorkflow({
+              // so the founder can apply/edit each step from the inbox.
+              await captureWorkflow({
                 userId,
                 projectId: project_id,
                 artifact: seg.artifact as WorkflowCard,
@@ -597,7 +613,7 @@ export async function POST(request: NextRequest) {
         // Emit done event with cost + credits so the client can show per-message credits
         try {
           const donePayload: Record<string, unknown> = { done: true };
-          // Include persisted artifact IDs so the client can wire approve/reject
+          // Include persisted artifact IDs so the client can wire apply/reject
           if (Object.keys(persistedMap).length > 0) {
             donePayload.persisted_artifacts = persistedMap;
           }
@@ -650,7 +666,8 @@ export async function POST(request: NextRequest) {
         const { text: directResponseText, usage: dUsage } = await chatWithUsage(fullMessages, provider);
         const latencyMs = Date.now() - directStart;
         const cost = estimateCost(provider, model, dUsage);
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: directResponseText })}\n\n`));
+        const fallbackNotice = '\n\n---\n*[Running in limited mode — project tools unavailable. Responses are based on general knowledge, not your project data. Please retry if this persists.]*\n';
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: directResponseText + fallbackNotice })}\n\n`));
         await logUsageToSQLite(project_id, null, step, provider, model, dUsage, cost, latencyMs);
         logToLangfuse(
           { projectId: project_id, step, provider: provider as 'anthropic' | 'openai', model },

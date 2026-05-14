@@ -2,7 +2,7 @@
 
 import { Pill } from '@/components/design/primitives';
 import type { PillKind } from '@/components/design/primitives';
-import type { SignalTimelineEntry } from '@/types';
+import type { SignalTimelineEntry, EcosystemAlertState } from '@/types';
 
 export type SortField = 'timestamp' | 'impact';
 export type SortDir = 'asc' | 'desc';
@@ -13,6 +13,7 @@ interface SignalsTableProps {
   sortDir: SortDir;
   onSort: (field: SortField) => void;
   competitorNames: string[];
+  onTriageAlert?: (alertId: string, state: 'acknowledged' | 'dismissed' | 'promoted_to_action') => void;
 }
 
 // Impact thresholds from relevance_score
@@ -77,7 +78,7 @@ function platformLabel(signal: SignalTimelineEntry): string {
   return 'Monitor';
 }
 
-export function SignalsTable({ signals, sortField, sortDir, onSort, competitorNames }: SignalsTableProps) {
+export function SignalsTable({ signals, sortField, sortDir, onSort, competitorNames, onTriageAlert }: SignalsTableProps) {
   const headerStyle: React.CSSProperties = {
     position: 'sticky',
     top: 0,
@@ -122,13 +123,14 @@ export function SignalsTable({ signals, sortField, sortDir, onSort, competitorNa
             <th style={{ ...headerStyle, width: 110 }}>Platform</th>
             <th style={{ ...headerStyle }}>Signal</th>
             {sortableHeader('impact', 'Impact', 90)}
+            <th style={{ ...headerStyle, width: 140 }}>Status</th>
           </tr>
         </thead>
         <tbody>
           {signals.length === 0 ? (
             <tr>
               <td
-                colSpan={5}
+                colSpan={6}
                 style={{ padding: 40, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}
               >
                 No signals match the current filters.
@@ -200,12 +202,87 @@ export function SignalsTable({ signals, sortField, sortDir, onSort, competitorNa
                   <td style={{ padding: '10px 10px' }}>
                     <Pill kind={cfg.pill}>{cfg.label}</Pill>
                   </td>
+
+                  {/* Status / Triage */}
+                  <td style={{ padding: '10px 10px' }}>
+                    {s.type === 'ecosystem_alert' ? (
+                      <TriageCell
+                        reviewedState={s.reviewed_state ?? 'pending'}
+                        onTriage={onTriageAlert ? (state) => onTriageAlert(s.id, state) : undefined}
+                      />
+                    ) : (
+                      <span style={{ color: 'var(--ink-5)' }}>&mdash;</span>
+                    )}
+                  </td>
                 </tr>
               );
             })
           )}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ── Triage cell for ecosystem_alert rows ──
+
+const triageBtnBase: React.CSSProperties = {
+  all: 'unset',
+  cursor: 'pointer',
+  fontSize: 10,
+  fontWeight: 600,
+  borderRadius: 9999,
+  padding: '2px 8px',
+  whiteSpace: 'nowrap',
+  lineHeight: '18px',
+  transition: 'opacity 0.15s',
+};
+
+function TriageCell({
+  reviewedState,
+  onTriage,
+}: {
+  reviewedState: EcosystemAlertState;
+  onTriage?: (state: 'acknowledged' | 'dismissed' | 'promoted_to_action') => void;
+}) {
+  if (reviewedState === 'acknowledged') {
+    return <Pill kind="n">Seen</Pill>;
+  }
+  if (reviewedState === 'promoted_to_action') {
+    return <Pill kind="ok">Promoted</Pill>;
+  }
+  if (reviewedState === 'dismissed') {
+    return <span style={{ color: 'var(--ink-5)', fontSize: 11 }}>Dismissed</span>;
+  }
+  // pending — show action buttons
+  if (!onTriage) return null;
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      <button
+        style={{ ...triageBtnBase, background: 'var(--ink-5)', color: 'var(--paper)' }}
+        onClick={() => onTriage('acknowledged')}
+        title="Acknowledge — mark as seen"
+      >
+        Ack
+      </button>
+      <button
+        style={{ ...triageBtnBase, background: 'var(--line-2)', color: 'var(--ink-3)' }}
+        onClick={() => onTriage('dismissed')}
+        title="Dismiss — remove from feed"
+      >
+        Dismiss
+      </button>
+      <button
+        style={{
+          ...triageBtnBase,
+          background: 'rgba(74, 222, 128, 0.15)',
+          color: 'rgb(74, 222, 128)',
+        }}
+        onClick={() => onTriage('promoted_to_action')}
+        title="Promote to action item"
+      >
+        Promote
+      </button>
     </div>
   );
 }

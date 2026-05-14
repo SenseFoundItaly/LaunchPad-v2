@@ -43,9 +43,9 @@ export interface RecordFactInput {
  * a duplicate. Also writes a memory_event(type='fact_recorded').
  *
  * New facts are inserted with reviewed_state='pending' so they require
- * founder approval before entering agent context.
+ * founder review before entering agent context.
  *
- * Returns the fact id. Non-throwing (warns + returns '' on failure).
+ * @returns UUID on success, '' on failure.
  */
 export async function recordFact(input: RecordFactInput): Promise<string> {
   try {
@@ -114,7 +114,7 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
 
 export interface ListFactsOpts {
   limit?: number;
-  /** Filter by reviewed states. Defaults to ['approved'] for agent context. */
+  /** Filter by reviewed states. Defaults to ['applied'] for agent context. */
   states?: ReviewedState[];
   kinds?: FactKind[];
   minConfidence?: number;
@@ -125,7 +125,7 @@ export async function listFacts(
   projectId: string,
   opts: ListFactsOpts = {},
 ): Promise<MemoryFact[]> {
-  const { limit = 20, states = ['approved'], kinds, minConfidence } = opts;
+  const { limit = 20, states = ['applied'], kinds, minConfidence } = opts;
   const clauses: string[] = ['user_id = ?', 'project_id = ?'];
   const params: unknown[] = [userId, projectId];
   if (states.length > 0) {
@@ -158,7 +158,7 @@ export async function listFacts(
 export async function reviewFact(
   factId: string,
   userId: string,
-  state: 'approved' | 'rejected',
+  state: 'applied' | 'rejected',
 ): Promise<boolean> {
   try {
     const fact = await get<{ project_id: string; fact: string }>(
@@ -176,7 +176,7 @@ export async function reviewFact(
     await recordEvent({
       userId,
       projectId: fact.project_id,
-      eventType: state === 'approved' ? 'fact_approved' : 'fact_rejected',
+      eventType: state === 'applied' ? 'fact_applied' : 'fact_rejected',
       payload: { factId, preview: fact.fact.slice(0, 120) },
     });
     return true;

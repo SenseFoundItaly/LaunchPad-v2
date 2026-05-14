@@ -146,7 +146,7 @@ function renderBriefHtml(input: BriefEmailInput): string {
     <p style="margin:24px 0 0 0;">
       <a href="${APP_URL}/project/${input.projectId}/actions"
          style="display:inline-block;padding:10px 16px;background:#111;color:#fff;text-decoration:none;border-radius:6px;font-size:14px;">
-        Open approval inbox
+        Open Inbox
       </a>
     </p>
   </div>

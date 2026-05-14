@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import {
   createPendingAction,
   inboxSummary,
@@ -9,7 +10,7 @@ import {
 import type { PendingActionStatus, PendingActionType } from '@/types';
 
 const VALID_STATUS: PendingActionStatus[] = [
-  'pending', 'edited', 'approved', 'rejected', 'sent', 'failed',
+  'pending', 'edited', 'applied', 'rejected', 'sent', 'failed',
 ];
 
 const VALID_TYPES: PendingActionType[] = [
@@ -28,6 +29,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const url = new URL(request.url);
   const statusParam = url.searchParams.get('status');
   const limitParam = url.searchParams.get('limit');
@@ -43,8 +46,10 @@ export async function GET(
   const limit = limitParam ? parseInt(limitParam, 10) : 50;
   if (Number.isNaN(limit)) return error('Invalid limit');
 
-  const actions = listPendingActions({ project_id: projectId, status, limit });
-  const summary = inboxSummary(projectId);
+  const [actions, summary] = await Promise.all([
+    listPendingActions({ project_id: projectId, status, limit }),
+    inboxSummary(projectId),
+  ]);
   return json({ actions, summary });
 }
 
@@ -58,6 +63,8 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const body = await request.json() as Partial<CreatePendingActionInput>;
 
   if (!body?.action_type || !VALID_TYPES.includes(body.action_type)) {
@@ -70,13 +77,18 @@ export async function POST(
     return error('payload must be an object');
   }
 
-  const action = createPendingAction({
+  const VALID_IMPACTS = ['low', 'medium', 'high'] as const;
+  const sanitizedImpact = VALID_IMPACTS.includes(body.estimated_impact as any)
+    ? body.estimated_impact
+    : undefined;
+
+  const action = await createPendingAction({
     project_id: projectId,
     action_type: body.action_type,
     title: body.title,
     payload: body.payload,
-    rationale: body.rationale,
-    estimated_impact: body.estimated_impact,
+    rationale: typeof body.rationale === 'string' ? body.rationale.slice(0, 500) : body.rationale,
+    estimated_impact: sanitizedImpact,
     monitor_run_id: body.monitor_run_id,
     ecosystem_alert_id: body.ecosystem_alert_id,
     execution_target: body.execution_target,

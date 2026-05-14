@@ -1,16 +1,17 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { query } from '@/lib/db';
 import {
   getPendingAction,
-  approvePendingAction,
+  applyPendingAction,
   editPendingAction,
   rejectPendingAction,
   markActionSent,
   markActionFailed,
   InvalidTransitionError,
 } from '@/lib/pending-actions';
-import { executeApprovedAction } from '@/lib/action-executors';
+import { executeAppliedAction } from '@/lib/action-executors';
 import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 
@@ -22,6 +23,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string; actionId: string }> },
 ) {
   const { projectId, actionId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const action = await getPendingAction(actionId);
   if (!action) return error('Action not found', 404);
   if (action.project_id !== projectId) return error('Action does not belong to this project', 403);
@@ -30,7 +33,7 @@ export async function GET(
 
 /**
  * POST /api/projects/{projectId}/actions/{actionId}
- * Body: { transition: 'approve' | 'edit' | 'reject' | 'mark_sent' | 'mark_failed',
+ * Body: { transition: 'apply' | 'edit' | 'reject' | 'mark_sent' | 'mark_failed',
  *         edited_payload?, reason?, result?, error? }
  *
  * This is a single endpoint for all state-machine transitions. Using a
@@ -42,6 +45,8 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string; actionId: string }> },
 ) {
   const { projectId, actionId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const body = await request.json();
   const transition = body?.transition as string;
 
@@ -54,26 +59,26 @@ export async function POST(
   try {
     let updated;
     switch (transition) {
-      case 'approve': {
-        // If the founder edited fields on the inline approval card before
-        // hitting Approve (monitor schedule, budget cap, etc.), persist the
+      case 'apply': {
+        // If the founder edited fields on the inline review card before
+        // hitting Apply (monitor schedule, budget cap, etc.), persist the
         // edits FIRST so effectivePayload() in the executor sees them.
-        // Skipping this would silently drop "Save & approve" overrides.
+        // Skipping this would silently drop "Save & apply" overrides.
         if (body.edited_payload && typeof body.edited_payload === 'object') {
           await editPendingAction(actionId, body.edited_payload);
         }
 
-        // 1. Transition pending/edited → approved
-        updated = await approvePendingAction(actionId);
+        // 1. Transition pending/edited → applied
+        updated = await applyPendingAction(actionId);
 
         // 2. Dispatch to the type-specific handler. Structured handlers
         //    ("direct") write a row to a domain table and we chain straight
         //    to 'sent'. Click-to-send handlers return a URL and we stay at
-        //    'approved' until the founder confirms the click via a
+        //    'applied' until the founder confirms the click via a
         //    follow-up mark_sent call. Outbox handlers (no URL, no direct
         //    write) we also chain to 'sent' since the founder's
-        //    "approve" click IS the acknowledgment.
-        const result = await executeApprovedAction(updated);
+        //    "apply" click IS the acknowledgment.
+        const result = await executeAppliedAction(updated);
         if (!result.ok) {
           updated = await markActionFailed(actionId, result.error || 'Handler returned not-ok');
           return json({ ...updated, deliverable: null, execution_error: result.error });
@@ -87,7 +92,7 @@ export async function POST(
             response: result.deliverable?.narrative,
           });
         }
-        // For 'click-to-send', status stays 'approved' — UI shows the URL
+        // For 'click-to-send', status stays 'applied' — UI shows the URL
         // and a "Mark as sent" button the founder hits after clicking.
         return json({ ...updated, deliverable: result.deliverable });
       }
@@ -98,7 +103,7 @@ export async function POST(
         updated = await editPendingAction(actionId, body.edited_payload);
         break;
       case 'reject': {
-        updated = await rejectPendingAction(actionId, body.reason);
+        updated = await rejectPendingAction(actionId, typeof body.reason === 'string' ? body.reason.slice(0, 500) : body.reason);
         // Preference learning: the agent proposed something the founder
         // didn't want. Record a low-confidence 'preference' fact so future
         // buildMemoryContext calls include "user rejected X" in the prompt,
@@ -143,7 +148,7 @@ export async function POST(
         updated = await markActionFailed(actionId, body.error || 'Unknown error');
         break;
       default:
-        return error(`Unknown transition: ${transition}. Must be one of: approve, edit, reject, mark_sent, mark_failed`);
+        return error(`Unknown transition: ${transition}. Must be one of: apply, edit, reject, mark_sent, mark_failed`);
     }
     return json(updated);
   } catch (err) {

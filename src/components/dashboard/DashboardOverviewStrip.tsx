@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import type { EcosystemAlertState } from '@/types';
 
 /**
  * Ecosystem + Pending + Budget strip that sits at the top of the dashboard.
@@ -17,7 +18,7 @@ interface EcosystemAlertPreview {
   source_url: string | null;
   relevance_score: number;
   confidence: number;
-  reviewed_state: string;
+  reviewed_state: EcosystemAlertState;
   created_at: string;
 }
 
@@ -34,7 +35,7 @@ interface PendingDecisionPreview {
 interface PendingSummary {
   pending: number;
   edited: number;
-  approved: number;
+  applied: number;
   sent_7d: number;
 }
 
@@ -56,11 +57,11 @@ export interface DashboardOverviewData {
 export default function DashboardOverviewStrip({
   projectId,
   data,
-  onApprove,
+  onApply,
 }: {
   projectId: string;
   data: DashboardOverviewData;
-  onApprove?: (actionId: string) => void;
+  onApply?: (actionId: string) => void;
 }) {
   const { top_ecosystem_alerts, pending_decisions, pending_summary, budget } = data;
 
@@ -74,7 +75,7 @@ export default function DashboardOverviewStrip({
         decisions={pending_decisions}
         summary={pending_summary}
         projectId={projectId}
-        onApprove={onApprove}
+        onApply={onApply}
       />
 
       {/* Budget meter */}
@@ -86,6 +87,13 @@ export default function DashboardOverviewStrip({
 // =============================================================================
 // Ecosystem card
 // =============================================================================
+
+const ALERT_STATE_BADGE: Record<EcosystemAlertState, { label: string; classes: string } | null> = {
+  pending: null,
+  acknowledged: { label: 'Seen', classes: 'bg-zinc-600/30 text-zinc-400' },
+  dismissed: null,
+  promoted_to_action: { label: 'Promoted', classes: 'bg-emerald-500/20 text-emerald-400' },
+};
 
 function EcosystemCard({
   alerts,
@@ -126,6 +134,11 @@ function EcosystemCard({
                 <span className="text-[10px] font-mono text-blue-400">
                   {a.relevance_score.toFixed(2)}
                 </span>
+                {ALERT_STATE_BADGE[a.reviewed_state] && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${ALERT_STATE_BADGE[a.reviewed_state]!.classes}`}>
+                    {ALERT_STATE_BADGE[a.reviewed_state]!.label}
+                  </span>
+                )}
               </div>
               <div className="text-sm text-zinc-100 line-clamp-2">{a.headline}</div>
               {a.source_url && (
@@ -155,12 +168,12 @@ function PendingDecisionsCard({
   decisions,
   summary,
   projectId,
-  onApprove,
+  onApply,
 }: {
   decisions: PendingDecisionPreview[];
   summary: PendingSummary;
   projectId: string;
-  onApprove?: (actionId: string) => void;
+  onApply?: (actionId: string) => void;
 }) {
   const totalOpen = summary.pending + summary.edited;
   return (
@@ -205,13 +218,13 @@ function PendingDecisionsCard({
                   </div>
                   <div className="text-sm text-zinc-100 line-clamp-2">{d.title}</div>
                 </div>
-                {onApprove && (
+                {onApply && (
                   <button
-                    onClick={() => onApprove(d.id)}
+                    onClick={() => onApply(d.id)}
                     className="shrink-0 px-2 py-1 text-[10px] rounded-md bg-emerald-600 hover:bg-emerald-500 text-white"
-                    aria-label={`Approva ${d.title}`}
+                    aria-label={`Applica ${d.title}`}
                   >
-                    Approva
+                    Applica
                   </button>
                 )}
               </div>

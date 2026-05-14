@@ -46,6 +46,8 @@ export default function HomePage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [expandedSignals, setExpandedSignals] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +79,7 @@ export default function HomePage() {
   async function handleCreate() {
     if (!newName.trim()) return;
     setCreating(true);
+    setCreateError(null);
     try {
       const { data } = await api.post('/api/projects', {
         name: newName.trim(),
@@ -84,11 +87,44 @@ export default function HomePage() {
       });
       if (data.success && data.data) {
         router.push(`/project/${data.data.project_id || data.data.id}/chat`);
+      } else {
+        setCreateError(data.error || 'Failed to create project');
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      setCreateError((err as Error).message || 'Network error — please try again');
     }
     setCreating(false);
+  }
+
+  function toggleSignal(id: string) {
+    setExpandedSignals((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function getOneLiner(msg: string): { text: string; truncated: boolean } {
+    const sep = msg.indexOf('---');
+    const nl = msg.indexOf('\n');
+    let end = msg.length;
+    if (sep > 0 && sep < end) end = sep;
+    if (nl > 0 && nl < end) end = nl;
+    const line = msg.slice(0, end).trim();
+    if (line.length > 120) return { text: line.slice(0, 120).trimEnd() + '…', truncated: true };
+    return { text: line, truncated: line.length < msg.trim().length };
+  }
+
+  function relativeTime(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
   }
 
   const severityKind = (s: string): 'ok' | 'warn' | 'live' | 'n' =>
@@ -334,7 +370,7 @@ export default function HomePage() {
                         {creating ? 'Creating…' : 'Create'}
                       </button>
                       <button
-                        onClick={() => setShowCreate(false)}
+                        onClick={() => { setShowCreate(false); setNewName(''); setNewDesc(''); setCreateError(null); }}
                         style={{
                           padding: '7px 10px',
                           background: 'transparent',
@@ -349,6 +385,11 @@ export default function HomePage() {
                         Cancel
                       </button>
                     </div>
+                    {createError && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--clay, #c0392b)' }}>
+                        {createError}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -367,31 +408,107 @@ export default function HomePage() {
                     >
                       Recent signals
                     </div>
-                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                      {signals.map((s) => (
-                        <div
-                          key={s.id}
-                          className="lp-card"
-                          style={{ padding: '10px 14px', maxWidth: 320 }}
-                        >
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 6,
-                              marginBottom: 4,
-                            }}
-                          >
-                            <Pill kind={severityKind(s.severity)}>{s.severity}</Pill>
-                            <span style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-                              {s.project_name}
-                            </span>
+                    <div
+                      style={{
+                        border: '1px solid var(--line)',
+                        borderRadius: 'var(--r-m)',
+                        overflow: 'hidden',
+                        background: 'var(--surface)',
+                      }}
+                    >
+                      {signals.map((s, i) => {
+                        const expanded = expandedSignals.has(s.id);
+                        const { text, truncated } = getOneLiner(s.message);
+                        return (
+                          <div key={s.id}>
+                            <div
+                              onClick={() => truncated && toggleSignal(s.id)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                padding: '8px 12px',
+                                borderBottom:
+                                  i < signals.length - 1 || expanded
+                                    ? '1px solid var(--line)'
+                                    : 'none',
+                                cursor: truncated ? 'pointer' : 'default',
+                                transition: 'background .1s',
+                              }}
+                              className={truncated ? 'lp-rail-item' : undefined}
+                            >
+                              <Pill kind={severityKind(s.severity)}>{s.severity}</Pill>
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  color: 'var(--ink-4)',
+                                  flexShrink: 0,
+                                  fontFamily: 'var(--f-mono)',
+                                }}
+                              >
+                                {s.project_name}
+                              </span>
+                              <span
+                                style={{
+                                  flex: 1,
+                                  minWidth: 0,
+                                  fontSize: 12.5,
+                                  color: 'var(--ink-2)',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {text}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  color: 'var(--ink-5)',
+                                  flexShrink: 0,
+                                  fontFamily: 'var(--f-mono)',
+                                }}
+                              >
+                                {relativeTime(s.created_at)}
+                              </span>
+                              {truncated && (
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    color: 'var(--ink-5)',
+                                    flexShrink: 0,
+                                    transition: 'transform .15s',
+                                    transform: expanded ? 'rotate(90deg)' : 'none',
+                                    display: 'inline-block',
+                                  }}
+                                >
+                                  ▸
+                                </span>
+                              )}
+                            </div>
+                            {expanded && (
+                              <div
+                                style={{
+                                  padding: '10px 12px 12px',
+                                  borderBottom:
+                                    i < signals.length - 1
+                                      ? '1px solid var(--line)'
+                                      : 'none',
+                                  fontSize: 12,
+                                  color: 'var(--ink-3)',
+                                  lineHeight: 1.5,
+                                  whiteSpace: 'pre-wrap',
+                                  maxHeight: 300,
+                                  overflowY: 'auto',
+                                  background: 'var(--paper-2)',
+                                }}
+                              >
+                                {s.message}
+                              </div>
+                            )}
                           </div>
-                          <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.45 }}>
-                            {s.message}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}

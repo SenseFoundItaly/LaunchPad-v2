@@ -4,7 +4,7 @@ import type { OptionSet } from '@/types/artifacts';
 
 interface OptionSetCardProps {
   artifact: OptionSet;
-  onAction: (action: string, payload: Record<string, unknown>) => void;
+  onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }
 
 export default function OptionSetCard({ artifact, onAction }: OptionSetCardProps) {

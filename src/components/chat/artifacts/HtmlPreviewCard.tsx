@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import type { HtmlPreviewArtifact } from '@/types/artifacts';
 import { IconBtn, I, Pill } from '@/components/design/primitives';
+import ArtifactCardShell from './ArtifactCardShell';
 
 const VIEWPORTS: { id: 'desktop' | 'tablet' | 'mobile'; label: string; width: number }[] = [
   { id: 'desktop', label: 'Desktop', width: 1280 },
@@ -41,32 +42,13 @@ export default function HtmlPreviewCard({ artifact }: { artifact: HtmlPreviewArt
   }
 
   return (
-    <div
-      style={{
-        gridColumn: 'span 6',
-        border: '1px solid var(--line)',
-        borderRadius: 'var(--r-m)',
-        overflow: 'hidden',
-        background: 'var(--surface)',
-      }}
-    >
-      {/* Toolbar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 12px',
-          borderBottom: '1px solid var(--line)',
-          background: 'var(--paper)',
-        }}
-      >
-        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)' }}>
-          {artifact.title}
-        </span>
+    <ArtifactCardShell
+      typeLabel="Preview"
+      title={artifact.title}
+      sources={artifact.sources}
+      style={{ gridColumn: 'span 6' }}
+      headerRight={<>
         <Pill kind="ok" dot>html</Pill>
-        <span style={{ flex: 1 }} />
-
         {/* Viewport toggles */}
         {VIEWPORTS.map((vp) => (
           <button
@@ -86,14 +68,12 @@ export default function HtmlPreviewCard({ artifact }: { artifact: HtmlPreviewArt
             {vp.label} ({vp.width})
           </button>
         ))}
-
         <span style={{ width: 1, height: 16, background: 'var(--line-2)' }} />
-
         <IconBtn d={I.copy} title={copied ? 'Copied!' : 'Copy HTML'} onClick={copyHtml} />
         <IconBtn d={I.download} title="Download .html" onClick={downloadHtml} />
         <IconBtn d={I.external} title="Open in new tab" onClick={openInNewTab} />
-      </div>
-
+      </>}
+    >
       {/* Preview iframe */}
       <div
         style={{
@@ -102,12 +82,14 @@ export default function HtmlPreviewCard({ artifact }: { artifact: HtmlPreviewArt
           background: 'var(--paper-2)',
           padding: viewport === 'desktop' ? 0 : 16,
           minHeight: 400,
+          borderRadius: 'var(--r-m)',
+          overflow: 'hidden',
         }}
       >
         <iframe
           ref={iframeRef}
           srcDoc={artifact.html}
-          sandbox="allow-scripts"
+          sandbox=""
           title={artifact.title}
           style={{
             width: viewport === 'desktop' ? '100%' : currentVp.width,
@@ -119,6 +101,6 @@ export default function HtmlPreviewCard({ artifact }: { artifact: HtmlPreviewArt
           }}
         />
       </div>
-    </div>
+    </ArtifactCardShell>
   );
 }

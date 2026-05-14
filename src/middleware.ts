@@ -20,7 +20,25 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
 
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
 export async function middleware(req: NextRequest) {
+  // CSRF mitigation: reject mutating API requests without JSON Content-Type.
+  // Browsers cannot set Content-Type: application/json from plain form
+  // submissions, so this blocks cross-origin form-based CSRF attacks.
+  // Exempt /api/auth/* (session management uses cookies, not JSON bodies).
+  if (
+    MUTATING_METHODS.has(req.method) &&
+    req.nextUrl.pathname.startsWith('/api/') &&
+    !req.nextUrl.pathname.startsWith('/api/auth/') &&
+    !req.headers.get('content-type')?.includes('application/json')
+  ) {
+    return new NextResponse(
+      JSON.stringify({ error: 'Content-Type must be application/json' }),
+      { status: 415, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   let response = NextResponse.next({ request: req });
 
   // Only bootstrap Supabase if the env vars are set. If they're missing
