@@ -68,7 +68,7 @@ export default function UsagePage({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+      <div className="flex items-center justify-center h-full text-ink-5 text-sm">
         Loading usage data...
       </div>
     );
@@ -122,32 +122,32 @@ export default function UsagePage({
 
         {/* Summary cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-            <div className="text-xs text-zinc-400 uppercase tracking-wider mb-1">
+          <div className="bg-paper border border-line rounded-xl p-4">
+            <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
               Total Cost
             </div>
             <div className="text-2xl font-bold text-white">
               {formatCost(summary?.total_cost_usd ?? 0)}
             </div>
           </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-            <div className="text-xs text-zinc-400 uppercase tracking-wider mb-1">
+          <div className="bg-paper border border-line rounded-xl p-4">
+            <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
               Total Tokens
             </div>
             <div className="text-2xl font-bold text-white">
               {formatTokens(summary?.total_tokens ?? 0)}
             </div>
           </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-            <div className="text-xs text-zinc-400 uppercase tracking-wider mb-1">
+          <div className="bg-paper border border-line rounded-xl p-4">
+            <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
               Input Tokens
             </div>
             <div className="text-2xl font-bold text-white">
               {formatTokens(summary?.total_input_tokens ?? 0)}
             </div>
           </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-            <div className="text-xs text-zinc-400 uppercase tracking-wider mb-1">
+          <div className="bg-paper border border-line rounded-xl p-4">
+            <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
               API Calls
             </div>
             <div className="text-2xl font-bold text-white">
@@ -158,26 +158,26 @@ export default function UsagePage({
 
         {/* Cost by skill chart */}
         {chartData.length > 0 && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-8">
+          <div className="bg-paper border border-line rounded-xl p-6 mb-8">
             <h4 className="text-sm font-medium text-white mb-4">Cost by Skill</h4>
             <BarChart data={chartData} title="" height={Math.max(200, chartData.length * 40)} />
           </div>
         )}
 
         {/* Recent calls table */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-zinc-800">
+        <div className="bg-paper border border-line rounded-xl overflow-hidden">
+          <div className="px-6 py-4 border-b border-line">
             <h4 className="text-sm font-medium text-white">Recent Calls</h4>
           </div>
           {logs.length === 0 ? (
-            <div className="px-6 py-12 text-center text-zinc-500 text-sm">
+            <div className="px-6 py-12 text-center text-ink-5 text-sm">
               No LLM usage recorded yet. Usage will appear here as you interact with skills and the workspace.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-zinc-800 text-zinc-400 text-xs uppercase tracking-wider">
+                  <tr className="border-b border-line text-ink-4 text-xs uppercase tracking-wider">
                     <th className="px-4 py-3 text-left">Time</th>
                     <th className="px-4 py-3 text-left">Skill / Step</th>
                     <th className="px-4 py-3 text-left">Provider</th>
@@ -189,11 +189,11 @@ export default function UsagePage({
                 </thead>
                 <tbody>
                   {logs.map((log) => (
-                    <tr key={log.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
-                      <td className="px-4 py-3 text-zinc-400 whitespace-nowrap">
+                    <tr key={log.id} className="border-b border-line/50 hover:bg-paper-2/30 transition-colors">
+                      <td className="px-4 py-3 text-ink-4 whitespace-nowrap">
                         {formatTime(log.created_at)}
                       </td>
-                      <td className="px-4 py-3 text-zinc-300">
+                      <td className="px-4 py-3 text-ink-3">
                         {log.skill_id || log.step || '--'}
                       </td>
                       <td className="px-4 py-3">
@@ -201,22 +201,22 @@ export default function UsagePage({
                           log.provider === 'anthropic'
                             ? 'bg-orange-500/20 text-orange-400'
                             : log.provider === 'openai'
-                              ? 'bg-green-500/20 text-green-400'
-                              : 'bg-blue-500/20 text-blue-400'
+                              ? 'bg-moss/20 text-moss'
+                              : 'bg-moss/20 text-moss'
                         }`}>
                           {log.provider}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-zinc-400 text-xs">
+                      <td className="px-4 py-3 text-ink-4 text-xs">
                         {log.model || '--'}
                       </td>
-                      <td className="px-4 py-3 text-right text-zinc-300 tabular-nums">
+                      <td className="px-4 py-3 text-right text-ink-3 tabular-nums">
                         {formatTokens(log.input_tokens + log.output_tokens)}
                       </td>
-                      <td className="px-4 py-3 text-right text-zinc-300 tabular-nums">
+                      <td className="px-4 py-3 text-right text-ink-3 tabular-nums">
                         {formatCost(log.total_cost_usd)}
                       </td>
-                      <td className="px-4 py-3 text-right text-zinc-400 tabular-nums">
+                      <td className="px-4 py-3 text-right text-ink-4 tabular-nums">
                         {formatLatency(log.latency_ms)}
                       </td>
                     </tr>

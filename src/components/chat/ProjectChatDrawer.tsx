@@ -104,10 +104,10 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium shadow-lg shadow-blue-500/30 flex items-center gap-2 transition-transform hover:scale-105"
+          className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-moss hover:bg-moss/80 text-white text-sm font-medium shadow-lg shadow-moss/30 flex items-center gap-2 transition-transform hover:scale-105"
           aria-label="Apri chat con il co-founder"
         >
-          <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-moss animate-pulse" />
           {triggerLabel}
         </button>
       )}
@@ -121,20 +121,20 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
             onClick={() => setOpen(false)}
           />
 
-          <aside className="fixed top-0 right-0 z-50 h-full w-full md:w-[440px] bg-zinc-950 border-l border-zinc-800 flex flex-col shadow-2xl">
+          <aside className="fixed top-0 right-0 z-50 h-full w-full md:w-[440px] bg-surface-sunk border-l border-line flex flex-col shadow-2xl">
             {/* Header */}
-            <header className="shrink-0 px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+            <header className="shrink-0 px-5 py-4 border-b border-line flex items-center justify-between">
               <div>
-                <div className="text-[10px] uppercase tracking-widest text-zinc-500">
+                <div className="text-[10px] uppercase tracking-widest text-ink-5">
                   Co-founder
                 </div>
-                <h2 className="text-sm font-semibold text-zinc-100">
+                <h2 className="text-sm font-semibold text-ink">
                   Parla con il tuo progetto
                 </h2>
               </div>
               <button
                 onClick={() => setOpen(false)}
-                className="text-zinc-500 hover:text-zinc-300 text-xl leading-none"
+                className="text-ink-5 hover:text-ink-3 text-xl leading-none"
                 aria-label="Chiudi chat"
               >
                 &times;
@@ -154,12 +154,12 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
                 ))
               )}
               {isStreaming && messages[messages.length - 1]?.role === 'assistant' && messages[messages.length - 1]?.content === '' && (
-                <div className="text-xs text-zinc-500 italic">Sto pensando…</div>
+                <div className="text-xs text-ink-5 italic">Sto pensando…</div>
               )}
             </div>
 
             {/* Input */}
-            <div className="shrink-0 border-t border-zinc-800 px-4 py-3">
+            <div className="shrink-0 border-t border-line px-4 py-3">
               <div className="flex items-end gap-2">
                 <textarea
                   value={input}
@@ -168,18 +168,18 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
                   placeholder="Chiedi qualcosa sul tuo progetto…"
                   rows={2}
                   disabled={isStreaming}
-                  className="flex-1 resize-none px-3 py-2 text-sm bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-600"
+                  className="flex-1 resize-none px-3 py-2 text-sm bg-paper border border-line rounded-lg text-ink placeholder-ink-6 outline-none focus:border-ink-6"
                 />
                 <button
                   onClick={handleSend}
                   disabled={isStreaming || !input.trim()}
-                  className="shrink-0 px-4 py-2 text-sm rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white"
+                  className="shrink-0 px-4 py-2 text-sm rounded-lg bg-moss hover:bg-moss/80 disabled:bg-paper-2 disabled:text-ink-6 text-white"
                   aria-label="Invia messaggio"
                 >
                   {isStreaming ? '…' : 'Invia'}
                 </button>
               </div>
-              <div className="text-[10px] text-zinc-600 mt-2">
+              <div className="text-[10px] text-ink-6 mt-2">
                 Invio = invia · Shift+Invio = nuova riga · ESC = chiudi
               </div>
             </div>
@@ -211,8 +211,8 @@ function MessageBubble({
       <div
         className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
           isUser
-            ? 'bg-blue-600 text-white rounded-br-sm'
-            : 'bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-bl-sm'
+            ? 'bg-moss text-white rounded-br-sm'
+            : 'bg-paper border border-line text-ink rounded-bl-sm'
         }`}
       >
         {/* Tool activity (above assistant content) */}
@@ -223,10 +223,10 @@ function MessageBubble({
                 key={t.id}
                 className={`text-[10px] px-2 py-0.5 rounded-full ${
                   t.status === 'running'
-                    ? 'bg-blue-500/20 text-blue-300 animate-pulse'
+                    ? 'bg-sky/20 text-sky animate-pulse'
                     : t.status === 'error'
-                      ? 'bg-red-500/20 text-red-300'
-                      : 'bg-zinc-800 text-zinc-400'
+                      ? 'bg-clay/20 text-clay'
+                      : 'bg-paper-2 text-ink-4'
                 }`}
               >
                 {t.name}
@@ -249,7 +249,7 @@ function EmptyState({
 }) {
   return (
     <div className="py-6">
-      <p className="text-sm text-zinc-400 mb-3">
+      <p className="text-sm text-ink-4 mb-3">
         Parla con il tuo progetto. Ho accesso a metriche, ecosystem alert, inbox e knowledge graph — chiedimi qualsiasi cosa.
       </p>
       <div className="space-y-1.5">
@@ -257,7 +257,7 @@ function EmptyState({
           <button
             key={p}
             onClick={() => onPick(p)}
-            className="w-full text-left px-3 py-2 text-xs rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 transition-colors"
+            className="w-full text-left px-3 py-2 text-xs rounded-lg bg-paper hover:bg-paper-2 text-ink-3 border border-line transition-colors"
           >
             {p}
           </button>

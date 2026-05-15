@@ -37,7 +37,7 @@ export default function ChatPanel({
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+          <div className="flex items-center justify-center h-full text-ink-5 text-sm">
             {emptyMessage}
           </div>
         ) : (
@@ -58,11 +58,11 @@ export default function ChatPanel({
         )}
         {isStreaming && messages.length > 0 && messages[messages.length - 1].content === '' && (
           <div className="flex justify-start mb-4">
-            <div className="bg-zinc-800 rounded-2xl rounded-bl-md px-4 py-3">
+            <div className="bg-paper-2 rounded-2xl rounded-bl-md px-4 py-3">
               <div className="flex gap-1">
-                <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <span className="w-2 h-2 bg-ink-5 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 bg-ink-5 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 bg-ink-5 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
             </div>
           </div>

@@ -20,7 +20,7 @@ export default function StepNav({ projectId, currentStep }: StepNavProps) {
   const pathname = usePathname();
 
   return (
-    <nav className="flex items-center gap-1 px-6 py-3 bg-zinc-900 border-b border-zinc-800 overflow-x-auto">
+    <nav className="flex items-center gap-1 px-6 py-3 bg-paper border-b border-line overflow-x-auto">
       {STEPS.map((step, i) => {
         const href = `/project/${projectId}/${step.path}`;
         const isActive = pathname?.includes(step.path);
@@ -30,27 +30,27 @@ export default function StepNav({ projectId, currentStep }: StepNavProps) {
         return (
           <div key={step.num} className="flex items-center">
             {i > 0 && (
-              <div className={`w-8 h-px mx-1 ${isCompleted ? 'bg-blue-500' : 'bg-zinc-700'}`} />
+              <div className={`w-8 h-px mx-1 ${isCompleted ? 'bg-moss' : 'bg-paper-3'}`} />
             )}
             <Link
               href={href}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
                 isActive
-                  ? 'bg-blue-500/20 text-blue-400'
+                  ? 'bg-moss/20 text-moss'
                   : isCompleted
-                    ? 'text-zinc-300 hover:bg-zinc-800'
+                    ? 'text-ink-3 hover:bg-paper-2'
                     : isAccessible
-                      ? 'text-zinc-400 hover:bg-zinc-800'
-                      : 'text-zinc-600 cursor-default'
+                      ? 'text-ink-4 hover:bg-paper-2'
+                      : 'text-ink-6 cursor-default'
               }`}
             >
               <span
                 className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium ${
                   isActive
-                    ? 'bg-blue-500 text-white'
+                    ? 'bg-moss text-white'
                     : isCompleted
-                      ? 'bg-blue-500/30 text-blue-400'
-                      : 'bg-zinc-800 text-zinc-500'
+                      ? 'bg-moss/30 text-moss'
+                      : 'bg-paper-2 text-ink-5'
                 }`}
               >
                 {isCompleted ? '+' : step.num}

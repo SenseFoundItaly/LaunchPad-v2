@@ -9,20 +9,20 @@ import type { SimulationResult, SimulatedPersona } from '@/types';
 function PersonaCard({ persona }: { persona: SimulatedPersona }) {
   const [expanded, setExpanded] = useState(false);
   const sentimentColor = {
-    positive: 'bg-green-500/20 text-green-400',
-    neutral: 'bg-yellow-500/20 text-yellow-400',
-    negative: 'bg-red-500/20 text-red-400',
+    positive: 'bg-moss/20 text-moss',
+    neutral: 'bg-accent/20 text-accent',
+    negative: 'bg-clay/20 text-clay',
   }[persona.sentiment];
 
   const roleColor = {
-    customer: 'text-blue-400',
-    investor: 'text-purple-400',
+    customer: 'text-moss',
+    investor: 'text-plum',
     expert: 'text-cyan-400',
     competitor: 'text-orange-400',
-  }[persona.role] || 'text-zinc-400';
+  }[persona.role] || 'text-ink-4';
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+    <div className="bg-paper border border-line rounded-xl p-4">
       <div className="flex items-start justify-between mb-2">
         <div>
           <h5 className="text-white font-medium">{persona.name}</h5>
@@ -30,20 +30,20 @@ function PersonaCard({ persona }: { persona: SimulatedPersona }) {
         </div>
         <span className={`text-xs px-2 py-0.5 rounded-full ${sentimentColor}`}>{persona.sentiment}</span>
       </div>
-      <p className="text-xs text-zinc-500 mb-2">{persona.demographics}</p>
-      <p className={`text-sm text-zinc-300 ${!expanded ? 'line-clamp-3' : ''}`}>{persona.feedback}</p>
+      <p className="text-xs text-ink-5 mb-2">{persona.demographics}</p>
+      <p className={`text-sm text-ink-3 ${!expanded ? 'line-clamp-3' : ''}`}>{persona.feedback}</p>
       {persona.feedback.length > 200 && (
-        <button onClick={() => setExpanded(!expanded)} className="text-xs text-blue-400 mt-1">
+        <button onClick={() => setExpanded(!expanded)} className="text-xs text-moss mt-1">
           {expanded ? 'Show less' : 'Show more'}
         </button>
       )}
       {persona.willingness_to_pay && (
-        <div className="text-xs text-green-400 mt-2">Willingness to pay: {persona.willingness_to_pay}</div>
+        <div className="text-xs text-moss mt-2">Willingness to pay: {persona.willingness_to_pay}</div>
       )}
       {persona.concerns.length > 0 && (
         <div className="mt-2">
-          <span className="text-xs text-red-400">Concerns: </span>
-          <span className="text-xs text-zinc-400">{persona.concerns.join(', ')}</span>
+          <span className="text-xs text-clay">Concerns: </span>
+          <span className="text-xs text-ink-4">{persona.concerns.join(', ')}</span>
         </div>
       )}
     </div>
@@ -91,26 +91,26 @@ export default function SimulationPage({
           <button
             onClick={runSimulation}
             disabled={isRunning}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+            className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
           >
             {isRunning ? `Simulating... ${task?.progress || 0}%` : simulation ? 'Re-simulate' : 'Run Simulation'}
           </button>
         </div>
 
         {isRunning && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+          <div className="bg-paper border border-line rounded-xl p-6 mb-6">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm text-zinc-300">{task?.message || 'Processing...'}</span>
+              <div className="w-4 h-4 border-2 border-moss border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm text-ink-3">{task?.message || 'Processing...'}</span>
             </div>
-            <div className="w-full h-2 bg-zinc-800 rounded-full">
-              <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${task?.progress || 0}%` }} />
+            <div className="w-full h-2 bg-paper-2 rounded-full">
+              <div className="h-full bg-moss rounded-full transition-all" style={{ width: `${task?.progress || 0}%` }} />
             </div>
           </div>
         )}
 
         {task?.status === 'failed' && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 text-red-400 text-sm">
+          <div className="bg-clay/10 border border-clay/30 rounded-xl p-4 mb-6 text-clay text-sm">
             {task.error}
           </div>
         )}
@@ -119,18 +119,18 @@ export default function SimulationPage({
           <>
             {/* Summary */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                <h4 className="text-sm font-medium text-zinc-400 mb-2">Market Reception</h4>
-                <p className="text-sm text-zinc-200">{simulation.market_reception_summary}</p>
+              <div className="bg-paper border border-line rounded-xl p-4">
+                <h4 className="text-sm font-medium text-ink-4 mb-2">Market Reception</h4>
+                <p className="text-sm text-ink-2">{simulation.market_reception_summary}</p>
               </div>
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                <h4 className="text-sm font-medium text-zinc-400 mb-2">Investor Sentiment</h4>
-                <p className="text-sm text-zinc-200">{simulation.investor_sentiment}</p>
+              <div className="bg-paper border border-line rounded-xl p-4">
+                <h4 className="text-sm font-medium text-ink-4 mb-2">Investor Sentiment</h4>
+                <p className="text-sm text-ink-2">{simulation.investor_sentiment}</p>
               </div>
             </div>
 
             {/* Personas */}
-            <h4 className="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-3">Simulated Personas</h4>
+            <h4 className="text-sm font-medium text-ink-4 uppercase tracking-wider mb-3">Simulated Personas</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               {simulation.personas.map((persona) => (
                 <PersonaCard key={persona.id} persona={persona} />
@@ -138,25 +138,25 @@ export default function SimulationPage({
             </div>
 
             {/* Risk Scenarios */}
-            <h4 className="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-3">Risk Scenarios</h4>
+            <h4 className="text-sm font-medium text-ink-4 uppercase tracking-wider mb-3">Risk Scenarios</h4>
             <div className="space-y-3">
               {simulation.risk_scenarios.map((risk) => (
-                <div key={risk.title} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                <div key={risk.title} className="bg-paper border border-line rounded-xl p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <h5 className="text-white font-medium text-sm">{risk.title}</h5>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      risk.probability === 'high' ? 'bg-red-500/20 text-red-400' :
-                      risk.probability === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                      'bg-green-500/20 text-green-400'
+                      risk.probability === 'high' ? 'bg-clay/20 text-clay' :
+                      risk.probability === 'medium' ? 'bg-accent/20 text-accent' :
+                      'bg-moss/20 text-moss'
                     }`}>P: {risk.probability}</span>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      risk.impact === 'high' ? 'bg-red-500/20 text-red-400' :
-                      risk.impact === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                      'bg-green-500/20 text-green-400'
+                      risk.impact === 'high' ? 'bg-clay/20 text-clay' :
+                      risk.impact === 'medium' ? 'bg-accent/20 text-accent' :
+                      'bg-moss/20 text-moss'
                     }`}>I: {risk.impact}</span>
                   </div>
-                  <p className="text-xs text-zinc-400 mb-2">{risk.description}</p>
-                  <p className="text-xs text-blue-400">Mitigation: {risk.mitigation}</p>
+                  <p className="text-xs text-ink-4 mb-2">{risk.description}</p>
+                  <p className="text-xs text-moss">Mitigation: {risk.mitigation}</p>
                 </div>
               ))}
             </div>
@@ -164,7 +164,7 @@ export default function SimulationPage({
         )}
 
         {!simulation && !isRunning && !loading && (
-          <div className="text-center py-20 text-zinc-500">
+          <div className="text-center py-20 text-ink-5">
             <p>Run a simulation to see how the market would react to your idea.</p>
           </div>
         )}

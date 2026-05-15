@@ -57,8 +57,8 @@ export default function SensitivitySliderCard({ artifact, onAction }: Sensitivit
         {artifact.variables.map((v) => (
           <div key={v.name}>
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-zinc-400">{v.name}</span>
-              <span className="text-xs font-bold text-white">
+              <span className="text-xs text-ink-4">{v.name}</span>
+              <span className="text-xs font-bold text-ink">
                 {v.unit === '$' ? formatNum(values[v.name]) : v.unit === '%' ? `${values[v.name]}%` : values[v.name]}
               </span>
             </div>
@@ -69,9 +69,9 @@ export default function SensitivitySliderCard({ artifact, onAction }: Sensitivit
               step={(v.max - v.min) / 100}
               value={values[v.name]}
               onChange={(e) => handleChange(v.name, parseFloat(e.target.value))}
-              className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+              className="w-full h-1.5 bg-paper-3 rounded-full appearance-none cursor-pointer accent-moss"
             />
-            <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5">
+            <div className="flex justify-between text-[10px] text-ink-6 mt-0.5">
               <span>{v.unit === '$' ? formatNum(v.min) : v.min}</span>
               <span>{v.unit === '$' ? formatNum(v.max) : v.max}</span>
             </div>
@@ -79,10 +79,10 @@ export default function SensitivitySliderCard({ artifact, onAction }: Sensitivit
         ))}
       </div>
 
-      <div className="mt-4 pt-3 border-t border-zinc-700">
+      <div className="mt-4 pt-3 border-t border-line-2">
         <div className="flex items-center justify-between">
-          <span className="text-xs text-zinc-400">{artifact.output.label}</span>
-          <span className="text-xl font-bold text-blue-400">{formatNum(output)}</span>
+          <span className="text-xs text-ink-4">{artifact.output.label}</span>
+          <span className="text-xl font-bold text-moss">{formatNum(output)}</span>
         </div>
       </div>
     </ArtifactCardShell>

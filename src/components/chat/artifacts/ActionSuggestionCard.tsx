@@ -18,7 +18,7 @@ export default function ActionSuggestionCard({
       title={artifact.title}
       sources={artifact.sources}
     >
-      <p className="text-sm text-zinc-300 mb-3">{artifact.description}</p>
+      <p className="text-sm text-ink-3 mb-3">{artifact.description}</p>
       <button
         type="button"
         onClick={() =>
@@ -30,7 +30,7 @@ export default function ActionSuggestionCard({
             action_payload: artifact.action_payload ?? {},
           })
         }
-        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg transition-all duration-200 hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-moss rounded-lg transition-all duration-200 hover:bg-moss/80 focus:outline-none focus:ring-2 focus:ring-moss/40"
       >
         {artifact.action_label}
       </button>

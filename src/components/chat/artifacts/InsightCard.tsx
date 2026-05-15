@@ -27,9 +27,9 @@ const CATEGORY_LABELS: Record<InsightCardType['category'], string> = {
 };
 
 const CONFIDENCE_STYLES: Record<InsightCardType['confidence'], string> = {
-  high: 'bg-green-500/20 text-green-400',
-  medium: 'bg-yellow-500/20 text-yellow-400',
-  low: 'bg-zinc-500/20 text-zinc-400',
+  high: 'bg-moss-wash text-moss',
+  medium: 'bg-accent-wash text-accent',
+  low: 'bg-ink-5/20 text-ink-4',
 };
 
 export default function InsightCard({ artifact, onAction }: InsightCardProps) {
@@ -57,7 +57,7 @@ export default function InsightCard({ artifact, onAction }: InsightCardProps) {
         <ReviewControls reviewState={review.reviewState} onReview={review.handleReview} />
       </>}
     >
-      <p className={`text-sm leading-relaxed ${review.isRejected ? 'text-zinc-600' : 'text-zinc-300'}`}>
+      <p className={`text-sm leading-relaxed ${review.isRejected ? 'text-ink-6' : 'text-ink-3'}`}>
         {artifact.body}
       </p>
     </ArtifactCardShell>

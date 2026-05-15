@@ -49,7 +49,7 @@ export default function ArtifactCardShell({
 
   return (
     <div
-      className={`my-3 bg-zinc-800/50 border border-zinc-700 rounded-lg transition-opacity ${
+      className={`my-3 bg-paper-2/50 border border-line-2 rounded-lg transition-opacity ${
         dimmed ? 'opacity-40' : ''
       } ${collapsed ? 'p-2.5' : 'p-4'} ${outerClassName || ''}`}
       style={style}
@@ -58,11 +58,11 @@ export default function ArtifactCardShell({
       <div
         className={`flex items-center gap-2 ${collapsed ? '' : 'mb-2'}`}
       >
-        <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-mono shrink-0">
+        <span className="text-[10px] uppercase tracking-wider text-ink-5 font-mono shrink-0">
           {typeLabel}
         </span>
         {title && (
-          <span className="text-sm font-semibold text-zinc-100 truncate">
+          <span className="text-sm font-semibold text-ink truncate">
             {title}
           </span>
         )}
@@ -76,7 +76,7 @@ export default function ArtifactCardShell({
           <button
             type="button"
             onClick={() => setCollapsed((c) => !c)}
-            className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 shrink-0"
+            className="text-ink-5 hover:text-ink-3 transition-colors p-0.5 shrink-0"
             aria-label={collapsed ? 'Expand card' : 'Collapse card'}
           >
             <svg

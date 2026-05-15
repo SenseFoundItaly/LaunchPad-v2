@@ -19,10 +19,10 @@ interface ChatMessageProps {
 
 function ArtifactPendingShimmer() {
   return (
-    <div className="my-3 bg-zinc-800/50 border border-zinc-700 rounded-lg p-4 animate-pulse">
-      <div className="h-3 w-24 bg-zinc-700 rounded mb-2" />
-      <div className="h-3 w-full bg-zinc-700 rounded mb-1.5" />
-      <div className="h-3 w-3/4 bg-zinc-700 rounded" />
+    <div className="my-3 bg-paper-2/50 border border-line-2 rounded-lg p-4 animate-pulse">
+      <div className="h-3 w-24 bg-paper-3 rounded mb-2" />
+      <div className="h-3 w-full bg-paper-3 rounded mb-1.5" />
+      <div className="h-3 w-3/4 bg-paper-3 rounded" />
     </div>
   );
 }
@@ -37,25 +37,25 @@ function FormattedText({ content }: { content: string }) {
         if (line.trim().startsWith('{"type"') || line.trim().startsWith('{"prompt"') || line.trim().startsWith('{"title"')) {
           try { JSON.parse(line.trim()); return null; } catch { /* not JSON, render normally */ }
         }
-        if (line.startsWith('# ')) return <h2 key={i} className="text-base font-bold text-white mt-3 mb-1">{renderInline(line.slice(2))}</h2>;
-        if (line.startsWith('## ')) return <h3 key={i} className="text-sm font-semibold text-zinc-100 mt-2 mb-0.5">{renderInline(line.slice(3))}</h3>;
-        if (line.startsWith('### ')) return <h4 key={i} className="text-sm font-medium text-zinc-200 mt-1.5">{renderInline(line.slice(4))}</h4>;
+        if (line.startsWith('# ')) return <h2 key={i} className="text-base font-bold text-ink mt-3 mb-1">{renderInline(line.slice(2))}</h2>;
+        if (line.startsWith('## ')) return <h3 key={i} className="text-sm font-semibold text-ink mt-2 mb-0.5">{renderInline(line.slice(3))}</h3>;
+        if (line.startsWith('### ')) return <h4 key={i} className="text-sm font-medium text-ink-2 mt-1.5">{renderInline(line.slice(4))}</h4>;
         if (line.startsWith('---') || line.match(/^[━═─]{3,}/)) {
-          return <hr key={i} className="border-zinc-700 my-2" />;
+          return <hr key={i} className="border-line-2 my-2" />;
         }
         // Section headers like ━━━ 1. PROBLEM ━━━
         if (line.match(/^[━═─]+\s*.+\s*[━═─]+$/)) {
           const title = line.replace(/[━═─]/g, '').trim();
           return (
-            <div key={i} className="mt-4 mb-2 py-1.5 px-3 bg-zinc-700/30 rounded-md">
-              <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider">{title}</span>
+            <div key={i} className="mt-4 mb-2 py-1.5 px-3 bg-paper-3/30 rounded-md">
+              <span className="text-xs font-bold text-ink-3 uppercase tracking-wider">{title}</span>
             </div>
           );
         }
         if (line.startsWith('- ') || line.startsWith('* ')) {
           return (
             <div key={i} className="flex gap-2 text-sm">
-              <span className="text-zinc-500 shrink-0">&bull;</span>
+              <span className="text-ink-5 shrink-0">&bull;</span>
               <span>{renderInline(line.slice(2))}</span>
             </div>
           );
@@ -65,7 +65,7 @@ function FormattedText({ content }: { content: string }) {
           const text = line.trimStart().replace(/^(\u2192|->)\s*/, '');
           return (
             <div key={i} className="flex gap-2 text-sm pl-1">
-              <span className="text-blue-400 shrink-0">&rarr;</span>
+              <span className="text-moss shrink-0">&rarr;</span>
               <span>{renderInline(text)}</span>
             </div>
           );
@@ -76,7 +76,7 @@ function FormattedText({ content }: { content: string }) {
           const text = line.slice(2);
           return (
             <div key={i} className="flex gap-2 text-sm mt-1">
-              <span className="text-blue-400 font-bold shrink-0">{num}</span>
+              <span className="text-moss font-bold shrink-0">{num}</span>
               <span>{renderInline(text)}</span>
             </div>
           );
@@ -119,8 +119,8 @@ function CitationChip({ raw }: { raw: string }) {
     const target = scope.querySelector(`[data-source-index="${first}"]`) as HTMLElement | null;
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      target.classList.add('ring-2', 'ring-blue-400');
-      setTimeout(() => target.classList.remove('ring-2', 'ring-blue-400'), 1500);
+      target.classList.add('ring-2', 'ring-moss');
+      setTimeout(() => target.classList.remove('ring-2', 'ring-moss'), 1500);
     }
   }
   return (
@@ -128,7 +128,7 @@ function CitationChip({ raw }: { raw: string }) {
       <a
         href={`#source-${first ?? '1'}`}
         onClick={handleClick}
-        className="inline-block text-[10px] font-mono px-1 mx-0.5 rounded bg-blue-500/15 text-blue-300 hover:bg-blue-500/30 transition-colors cursor-pointer no-underline"
+        className="inline-block text-[10px] font-mono px-1 mx-0.5 rounded bg-sky/15 text-sky hover:bg-sky/30 transition-colors cursor-pointer no-underline"
       >
         {raw}
       </a>
@@ -145,7 +145,7 @@ function renderInline(text: string): React.ReactNode {
     if (part.startsWith('**') && part.endsWith('**')) {
       const inner = part.slice(2, -2);
       return (
-        <strong key={i} className="font-semibold text-zinc-100">
+        <strong key={i} className="font-semibold text-ink">
           {splitCitations(inner, `${i}-b`)}
         </strong>
       );
@@ -189,12 +189,12 @@ function ArtifactErrorCard({ reason, artifact_type }: { reason: string; artifact
   const isDev = process.env.NODE_ENV !== 'production';
   if (isDev) {
     return (
-      <div className="my-3 bg-red-950/30 border border-red-500/40 rounded-lg p-3 text-xs">
-        <div className="font-semibold text-red-400 mb-1">
+      <div className="my-3 bg-clay/10 border border-clay/40 rounded-lg p-3 text-xs">
+        <div className="font-semibold text-clay mb-1">
           Artifact rejected{artifact_type ? ` (${artifact_type})` : ''}
         </div>
-        <div className="text-red-300/80">{reason}</div>
-        <div className="text-red-300/60 mt-1 text-[10px]">
+        <div className="text-clay/80">{reason}</div>
+        <div className="text-clay/60 mt-1 text-[10px]">
           The agent produced a card without citing sources. It was discarded to prevent unsourced
           claims from entering your project data. Re-run if you need this analysis.
         </div>
@@ -202,7 +202,7 @@ function ArtifactErrorCard({ reason, artifact_type }: { reason: string; artifact
     );
   }
   return (
-    <div className="my-2 text-xs text-red-400/70 italic">
+    <div className="my-2 text-xs text-clay/70 italic">
       (One unsourced {artifact_type ?? 'artifact'} discarded.)
     </div>
   );
@@ -239,8 +239,8 @@ export default function ChatMessage({
       <div
         className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
-            ? 'bg-blue-600 text-white rounded-br-md'
-            : 'bg-zinc-800 text-zinc-200 rounded-bl-md'
+            ? 'bg-moss text-white rounded-br-md'
+            : 'bg-paper-2 text-ink-2 rounded-bl-md'
         }`}
       >
         {!isUser && message.tools && message.tools.length > 0 && (

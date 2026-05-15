@@ -15,10 +15,10 @@ interface Monitor {
 }
 
 const TYPE_STYLES: Record<string, string> = {
-  health: 'bg-green-500/20 text-green-400',
-  competitor: 'bg-red-500/20 text-red-400',
-  market: 'bg-blue-500/20 text-blue-400',
-  news: 'bg-purple-500/20 text-purple-400',
+  health: 'bg-moss-wash text-moss',
+  competitor: 'bg-clay/20 text-clay',
+  market: 'bg-sky/20 text-sky',
+  news: 'bg-plum/20 text-plum',
 };
 
 function timeAgo(ts: string | null): string {
@@ -89,29 +89,29 @@ export default function MonitorCard({
     }
   }
 
-  const badge = TYPE_STYLES[monitor.type] || 'bg-zinc-500/20 text-zinc-400';
+  const badge = TYPE_STYLES[monitor.type] || 'bg-ink-5/20 text-ink-4';
   const preview = monitor.last_result?.slice(0, 200);
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+    <div className="bg-paper border border-line rounded-xl overflow-hidden">
       <div className="p-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${badge}`}>{monitor.type}</span>
-            <span className="text-[10px] text-zinc-600">{monitor.schedule}</span>
+            <span className="text-[10px] text-ink-6">{monitor.schedule}</span>
           </div>
-          <span className={`text-[10px] font-medium ${monitor.status === 'active' ? 'text-green-400' : 'text-zinc-500'}`}>
+          <span className={`text-[10px] font-medium ${monitor.status === 'active' ? 'text-moss' : 'text-ink-5'}`}>
             {monitor.status}
           </span>
         </div>
 
-        <h4 className="text-sm font-medium text-white mb-1">{monitor.name}</h4>
-        <p className="text-[10px] text-zinc-600 mb-2">Last run: {timeAgo(monitor.last_run)}</p>
+        <h4 className="text-sm font-medium text-ink mb-1">{monitor.name}</h4>
+        <p className="text-[10px] text-ink-6 mb-2">Last run: {timeAgo(monitor.last_run)}</p>
 
         {/* Last result preview */}
         {preview && !showOutput && (
-          <p className="text-xs text-zinc-500 mb-3 line-clamp-2">{preview}...</p>
+          <p className="text-xs text-ink-5 mb-3 line-clamp-2">{preview}...</p>
         )}
 
         {/* Actions */}
@@ -119,25 +119,25 @@ export default function MonitorCard({
           <button
             onClick={handleRun}
             disabled={running}
-            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-600 text-zinc-200 rounded-lg text-xs font-medium transition-colors"
+            className="px-3 py-1.5 bg-paper-2 hover:bg-paper-3 disabled:bg-paper-2 disabled:text-ink-6 text-ink-2 rounded-lg text-xs font-medium transition-colors"
           >
             {running ? (
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                <span className="w-3 h-3 border-2 border-ink-4 border-t-transparent rounded-full animate-spin" />
                 Running...
               </span>
             ) : 'Run now'}
           </button>
           <button
             onClick={() => onConfigure?.(monitor)}
-            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg text-xs transition-colors"
+            className="px-3 py-1.5 bg-paper-2 hover:bg-paper-3 text-ink-4 rounded-lg text-xs transition-colors"
           >
             Configure
           </button>
           {showOutput && !running && (
             <button
               onClick={() => setShowOutput(false)}
-              className="px-2 py-1.5 text-xs text-zinc-600 hover:text-zinc-400"
+              className="px-2 py-1.5 text-xs text-ink-6 hover:text-ink-4"
             >
               Hide
             </button>
@@ -147,9 +147,9 @@ export default function MonitorCard({
 
       {/* Streaming output */}
       {showOutput && streamOutput && (
-        <div className="border-t border-zinc-800 px-4 py-3 bg-zinc-950/50 max-h-64 overflow-y-auto">
-          <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Output</div>
-          <div className="text-xs text-zinc-300 whitespace-pre-wrap leading-relaxed">{streamOutput}</div>
+        <div className="border-t border-line px-4 py-3 bg-surface-sunk/50 max-h-64 overflow-y-auto">
+          <div className="text-[10px] text-ink-5 uppercase tracking-wider mb-1">Output</div>
+          <div className="text-xs text-ink-3 whitespace-pre-wrap leading-relaxed">{streamOutput}</div>
         </div>
       )}
     </div>

@@ -21,9 +21,9 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
-  high: 'text-red-400',
-  medium: 'text-yellow-400',
-  low: 'text-zinc-400',
+  high: 'text-clay',
+  medium: 'text-accent',
+  low: 'text-ink-4',
 };
 
 export default function WorkflowCardInline({
@@ -65,25 +65,25 @@ export default function WorkflowCardInline({
       title={artifact.title}
       sources={artifact.sources}
       headerRight={<>
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[artifact.category] || 'bg-zinc-500/20 text-zinc-400'}`}>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[artifact.category] || 'bg-ink-5/20 text-ink-4'}`}>
           {artifact.category}
         </span>
-        <span className={`text-xs font-medium ${PRIORITY_COLORS[artifact.priority] || 'text-zinc-400'}`}>
+        <span className={`text-xs font-medium ${PRIORITY_COLORS[artifact.priority] || 'text-ink-4'}`}>
           {artifact.priority}
         </span>
       </>}
     >
-      <p className="text-sm text-zinc-300 mb-3">{artifact.description}</p>
+      <p className="text-sm text-ink-3 mb-3">{artifact.description}</p>
 
       {/* Progress bar */}
       {total > 0 && (
         <div className="mb-3">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-zinc-500">{doneCount} of {total} completed</span>
-            <span className="text-[10px] text-zinc-500">{Math.round(pct)}%</span>
+            <span className="text-[10px] text-ink-5">{doneCount} of {total} completed</span>
+            <span className="text-[10px] text-ink-5">{Math.round(pct)}%</span>
           </div>
-          <div className="w-full h-1.5 bg-zinc-700 rounded-full overflow-hidden">
-            <div className="h-full bg-green-500 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+          <div className="w-full h-1.5 bg-paper-3 rounded-full overflow-hidden">
+            <div className="h-full bg-moss rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
           </div>
         </div>
       )}
@@ -101,12 +101,12 @@ export default function WorkflowCardInline({
               >
                 <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0 transition-colors ${
                   isDone
-                    ? 'bg-green-500/20 border-green-500 text-green-400'
-                    : 'border-zinc-600 group-hover:border-zinc-400'
+                    ? 'bg-moss-wash border-moss text-moss'
+                    : 'border-ink-6 group-hover:border-ink-4'
                 }`}>
                   {isDone ? '+' : ''}
                 </span>
-                <span className={`transition-colors ${isDone ? 'text-zinc-600 line-through' : 'text-zinc-400 group-hover:text-zinc-300'}`}>
+                <span className={`transition-colors ${isDone ? 'text-ink-6 line-through' : 'text-ink-4 group-hover:text-ink-3'}`}>
                   {step}
                 </span>
               </button>
@@ -118,7 +118,7 @@ export default function WorkflowCardInline({
       <div className="flex items-center justify-end">
         <button
           onClick={() => onAction('trigger-workflow', { title: artifact.title, steps: artifact.steps })}
-          className="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors"
+          className="text-xs px-3 py-1 bg-moss hover:bg-moss/80 text-white rounded-md transition-colors"
         >
           Execute
         </button>

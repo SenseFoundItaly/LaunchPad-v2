@@ -139,18 +139,18 @@ export default function PendingKnowledgeList({ projectId }: PendingKnowledgeList
   }
 
   if (loading) {
-    return <div className="text-xs text-zinc-500 py-2">Loading...</div>;
+    return <div className="text-xs text-ink-5 py-2">Loading...</div>;
   }
 
   if (items.length === 0) {
     return (
       <div className="space-y-2">
         {partialError && (
-          <div className="p-2 bg-red-950/40 border border-red-500/40 rounded text-[11px] text-red-300">
+          <div className="p-2 bg-clay/10 border border-clay/40 rounded text-[11px] text-clay">
             {partialError}
           </div>
         )}
-        <div className="text-xs text-zinc-500 py-2">
+        <div className="text-xs text-ink-5 py-2">
           No pending items
         </div>
       </div>
@@ -160,19 +160,19 @@ export default function PendingKnowledgeList({ projectId }: PendingKnowledgeList
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-zinc-400">
+        <span className="text-xs text-ink-4">
           {items.length} pending item{items.length !== 1 ? 's' : ''}
         </span>
         <button
           onClick={() => void handleApplyAll()}
-          className="text-[10px] px-2 py-0.5 rounded bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors font-medium"
+          className="text-[10px] px-2 py-0.5 rounded bg-moss-wash text-moss hover:bg-moss/30 transition-colors font-medium"
         >
           Apply All
         </button>
       </div>
 
       {partialError && (
-        <div className="p-2 bg-red-950/40 border border-red-500/40 rounded text-[11px] text-red-300">
+        <div className="p-2 bg-clay/10 border border-clay/40 rounded text-[11px] text-clay">
           {partialError}
         </div>
       )}
@@ -180,33 +180,33 @@ export default function PendingKnowledgeList({ projectId }: PendingKnowledgeList
       {items.map((item) => (
         <div
           key={item.id}
-          className="flex items-start gap-2 bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2"
+          className="flex items-start gap-2 bg-paper-2/50 border border-line-2 rounded-lg px-3 py-2"
         >
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 mb-0.5">
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${TYPE_COLORS[item.type] ?? 'bg-zinc-500/20 text-zinc-400'}`}>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${TYPE_COLORS[item.type] ?? 'bg-ink-5/20 text-ink-4'}`}>
                 {TYPE_LABELS[item.type] ?? item.type}
               </span>
               {item.kind && item.kind !== 'review' && (
-                <span className="text-[10px] text-zinc-500">{item.kind}</span>
+                <span className="text-[10px] text-ink-5">{item.kind}</span>
               )}
             </div>
-            <p className="text-xs text-zinc-200 truncate">{item.title}</p>
+            <p className="text-xs text-ink-2 truncate">{item.title}</p>
             {item.detail && (
-              <p className="text-[10px] text-zinc-500 mt-0.5 line-clamp-2">{item.detail}</p>
+              <p className="text-[10px] text-ink-5 mt-0.5 line-clamp-2">{item.detail}</p>
             )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0 pt-0.5">
             <button
               onClick={() => void handleReview(item.id, 'applied')}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-moss-wash text-moss hover:bg-moss/30 transition-colors"
               title="Apply"
             >
               <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
             <button
               onClick={() => void handleReview(item.id, 'rejected')}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700/50 text-zinc-500 hover:text-red-400 hover:bg-red-500/20 transition-colors"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-paper-3/50 text-ink-5 hover:text-clay hover:bg-clay/20 transition-colors"
               title="Reject"
             >
               <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
@@ -220,9 +220,9 @@ export default function PendingKnowledgeList({ projectId }: PendingKnowledgeList
           {undoQueue.map((entry) => (
             <div
               key={entry.item.id}
-              className="flex items-center justify-between bg-zinc-700/40 border border-zinc-600 rounded px-2.5 py-1.5"
+              className="flex items-center justify-between bg-paper-3/40 border border-line-2 rounded px-2.5 py-1.5"
             >
-              <span className="text-[10px] text-zinc-400 truncate flex-1 mr-2">
+              <span className="text-[10px] text-ink-4 truncate flex-1 mr-2">
                 {entry.state === 'applied' ? 'Applied' : 'Rejected'}: {entry.item.title}
               </span>
               <button

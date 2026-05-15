@@ -27,7 +27,7 @@ export default function ProjectLayout({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+      <div className="flex items-center justify-center h-full text-ink-5 text-sm">
         Loading...
       </div>
     );
@@ -35,7 +35,7 @@ export default function ProjectLayout({
 
   if (error || !project) {
     return (
-      <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+      <div className="flex items-center justify-center h-full text-ink-5 text-sm">
         {error || 'Project not found'}
       </div>
     );

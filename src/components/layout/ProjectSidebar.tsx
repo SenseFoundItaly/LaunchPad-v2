@@ -46,12 +46,12 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
 
   function statusDot(status: string | undefined) {
     if (status === 'completed') {
-      return <span className="w-3.5 h-3.5 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-[9px] font-bold">+</span>;
+      return <span className="w-3.5 h-3.5 rounded-full bg-moss-wash text-moss flex items-center justify-center text-[9px] font-bold">+</span>;
     }
     if (status === 'stale') {
-      return <span className="w-3.5 h-3.5 rounded-full bg-yellow-500/20 text-yellow-400 flex items-center justify-center text-[9px] font-bold">!</span>;
+      return <span className="w-3.5 h-3.5 rounded-full bg-accent-wash text-accent flex items-center justify-center text-[9px] font-bold">!</span>;
     }
-    return <span className="w-3.5 h-3.5 rounded-full border border-zinc-700" />;
+    return <span className="w-3.5 h-3.5 rounded-full border border-line-2" />;
   }
 
   function handleSkillClick(skill: SkillDef, e: React.MouseEvent) {
@@ -65,14 +65,14 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
 
   return (
     <>
-      <aside className="w-56 shrink-0 bg-zinc-950 border-r border-zinc-800 flex flex-col h-full">
+      <aside className="w-56 shrink-0 bg-surface-sunk border-r border-line flex flex-col h-full">
         {/* Project header */}
-        <div className="px-4 py-4 border-b border-zinc-800">
-          <Link href="/" className="text-xs text-zinc-500 hover:text-zinc-400 transition-colors">
+        <div className="px-4 py-4 border-b border-line">
+          <Link href="/" className="text-xs text-ink-5 hover:text-ink-4 transition-colors">
             &larr; Projects
           </Link>
           {projectName && (
-            <h2 className="text-sm font-medium text-zinc-200 mt-2 truncate" title={projectName}>
+            <h2 className="text-sm font-medium text-ink-2 mt-2 truncate" title={projectName}>
               {projectName}
             </h2>
           )}
@@ -88,8 +88,8 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
             href={`/project/${projectId}/dashboard`}
             className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
               isActive('dashboard')
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+                ? 'bg-paper-2 text-ink'
+                : 'text-ink-3 hover:bg-paper hover:text-ink'
             }`}
           >
             <span className="w-4 text-center text-xs">◇</span>
@@ -97,15 +97,15 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
           </Link>
 
           {/* Group: this week (ecosystem cadence) */}
-          <div className="pt-2 pb-1 px-2.5 text-[10px] uppercase tracking-wider text-zinc-600">
+          <div className="pt-2 pb-1 px-2.5 text-[10px] uppercase tracking-wider text-ink-6">
             Questa settimana
           </div>
           <Link
             href={`/project/${projectId}/brief`}
             className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
               isActive('brief')
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+                ? 'bg-paper-2 text-ink'
+                : 'text-ink-3 hover:bg-paper hover:text-ink'
             }`}
           >
             <span className="w-4 text-center text-xs">B</span>
@@ -115,8 +115,8 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
             href={`/project/${projectId}/actions`}
             className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
               isActive('actions')
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+                ? 'bg-paper-2 text-ink'
+                : 'text-ink-3 hover:bg-paper hover:text-ink'
             }`}
           >
             <span className="w-4 text-center text-xs">I</span>
@@ -124,15 +124,15 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
           </Link>
 
           {/* Group: workspace + output */}
-          <div className="pt-2 pb-1 px-2.5 text-[10px] uppercase tracking-wider text-zinc-600">
+          <div className="pt-2 pb-1 px-2.5 text-[10px] uppercase tracking-wider text-ink-6">
             Workspace
           </div>
           <Link
             href={`/project/${projectId}/chat`}
             className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
               isActive('chat')
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+                ? 'bg-paper-2 text-ink'
+                : 'text-ink-3 hover:bg-paper hover:text-ink'
             }`}
           >
             <span className="w-4 text-center text-xs">/</span>
@@ -142,8 +142,8 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
             href={`/project/${projectId}/drafts`}
             className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
               isActive('drafts')
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+                ? 'bg-paper-2 text-ink'
+                : 'text-ink-3 hover:bg-paper hover:text-ink'
             }`}
           >
             <span className="w-4 text-center text-xs">D</span>
@@ -153,8 +153,8 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
             href={`/project/${projectId}/usage`}
             className={`flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium transition-colors ${
               isActive('usage')
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+                ? 'bg-paper-2 text-ink'
+                : 'text-ink-3 hover:bg-paper hover:text-ink'
             }`}
           >
             <span className="w-4 text-center text-xs">U</span>
@@ -174,18 +174,18 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
               <div key={stage.number}>
                 <button
                   onClick={() => toggleStage(stage.number)}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors hover:bg-zinc-900 group"
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors hover:bg-paper group"
                 >
                   <span className={`text-[10px] font-bold ${colors.text}`}>{stage.number}</span>
                   <span className={`flex-1 text-[11px] font-semibold uppercase tracking-wider ${
-                    allDone ? 'text-green-400/70' : colors.text
+                    allDone ? 'text-moss/70' : colors.text
                   }`}>
                     {stage.name}
                   </span>
-                  <span className="text-[10px] text-zinc-600">
+                  <span className="text-[10px] text-ink-6">
                     {completion.completed}/{completion.total}
                   </span>
-                  <span className="text-[10px] text-zinc-600 transition-transform" style={{
+                  <span className="text-[10px] text-ink-6 transition-transform" style={{
                     transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
                   }}>
                     v
@@ -204,14 +204,14 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
                           onClick={(e) => handleSkillClick(skill, e)}
                           className={`flex items-center gap-2 px-2 py-1 rounded-md text-[13px] transition-colors group/skill ${
                             completed
-                              ? 'text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100'
-                              : 'text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300'
+                              ? 'text-ink-3 hover:bg-paper hover:text-ink'
+                              : 'text-ink-5 hover:bg-paper hover:text-ink-3'
                           }`}
                         >
                           {statusDot(status)}
                           <span className="truncate flex-1">{skill.label}</span>
                           {completed && (
-                            <span className="text-[10px] text-zinc-600 opacity-0 group-hover/skill:opacity-100 transition-opacity">
+                            <span className="text-[10px] text-ink-6 opacity-0 group-hover/skill:opacity-100 transition-opacity">
                               View
                             </span>
                           )}
@@ -227,22 +227,22 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
 
         {/* Readiness footer — skill-scoring radar (moved from /intelligence
             so /intelligence can host the new knowledge-graph view). */}
-        <Link href={`/project/${projectId}/readiness`} className="block px-4 py-3 border-t border-zinc-800 hover:bg-zinc-900 transition-colors">
+        <Link href={`/project/${projectId}/readiness`} className="block px-4 py-3 border-t border-line hover:bg-paper transition-colors">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Readiness</span>
+            <span className="text-[10px] text-ink-5 uppercase tracking-wider">Readiness</span>
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-zinc-300">{scoring.score.toFixed(1)}/10</span>
+              <span className="text-xs font-bold text-ink-3">{scoring.score.toFixed(1)}/10</span>
               <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
-                scoring.score >= 8 ? 'bg-green-500/20 text-green-400'
-                : scoring.score >= 6 ? 'bg-emerald-500/20 text-emerald-400'
-                : scoring.score >= 4 ? 'bg-yellow-500/20 text-yellow-400'
-                : 'bg-red-500/20 text-red-400'
+                scoring.score >= 8 ? 'bg-moss-wash text-moss'
+                : scoring.score >= 6 ? 'bg-moss/20 text-moss'
+                : scoring.score >= 4 ? 'bg-accent-wash text-accent'
+                : 'bg-clay/20 text-clay'
               }`}>
                 {scoring.verdict}
               </span>
             </div>
           </div>
-          <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+          <div className="w-full h-1.5 bg-paper-2 rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{
@@ -257,7 +257,7 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
               }}
             />
           </div>
-          <div className="text-[10px] text-zinc-600 mt-2">View all stages &rarr;</div>
+          <div className="text-[10px] text-ink-6 mt-2">View all stages &rarr;</div>
         </Link>
       </aside>
 

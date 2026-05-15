@@ -333,19 +333,19 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search nodes..."
-          className="px-3 py-1.5 bg-zinc-900/80 backdrop-blur-sm border border-zinc-800 rounded-lg text-xs text-zinc-300 placeholder-zinc-600 outline-none focus:border-zinc-600 w-48"
+          className="px-3 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-xs text-ink-3 placeholder-ink-6 outline-none focus:border-ink-6 w-48"
         />
         <div className="flex-1" />
         <button
           onClick={() => setIsFullscreen(!isFullscreen)}
-          className="px-2 py-1.5 bg-zinc-900/80 backdrop-blur-sm border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+          className="px-2 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-xs text-ink-4 hover:text-ink-2 transition-colors"
         >
           {isFullscreen ? 'Exit' : 'Expand'}
         </button>
         {isFullscreen && (
           <button
             onClick={() => setIsFullscreen(false)}
-            className="px-2 py-1.5 bg-zinc-900/80 backdrop-blur-sm border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-zinc-200"
+            className="px-2 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-xs text-ink-4 hover:text-ink-2"
           >
             ESC
           </button>
@@ -353,7 +353,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
       </div>
 
       {nodes.length === 0 ? (
-        <div className="absolute inset-0 flex items-center justify-center text-zinc-500 text-sm">
+        <div className="absolute inset-0 flex items-center justify-center text-ink-5 text-sm">
           Knowledge graph will populate as you chat
         </div>
       ) : (

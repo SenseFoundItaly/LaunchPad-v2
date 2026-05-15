@@ -160,19 +160,19 @@ export default function JourneyPage({
   function milestoneStatusIcon(status: Milestone['status']) {
     switch (status) {
       case 'completed':
-        return { icon: '\u2713', cls: 'bg-green-500 text-white' };
+        return { icon: '\u2713', cls: 'bg-moss text-white' };
       case 'in_progress':
-        return { icon: '\u25B6', cls: 'bg-blue-500 text-white' };
+        return { icon: '\u25B6', cls: 'bg-moss text-white' };
       case 'skipped':
-        return { icon: '\u2014', cls: 'bg-zinc-600 text-zinc-400' };
+        return { icon: '\u2014', cls: 'bg-ink-6 text-ink-4' };
       default:
-        return { icon: '\u25CB', cls: 'bg-zinc-800 text-zinc-500' };
+        return { icon: '\u25CB', cls: 'bg-paper-2 text-ink-5' };
     }
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+      <div className="flex items-center justify-center h-full text-ink-5 text-sm">
         Loading journey data...
       </div>
     );
@@ -188,14 +188,14 @@ export default function JourneyPage({
 
         {/* Task Progress */}
         {isRunning && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+          <div className="bg-paper border border-line rounded-xl p-6 mb-6">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm text-zinc-300">{task?.message || 'Processing...'}</span>
+              <div className="w-4 h-4 border-2 border-moss border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm text-ink-3">{task?.message || 'Processing...'}</span>
             </div>
-            <div className="w-full h-2 bg-zinc-800 rounded-full">
+            <div className="w-full h-2 bg-paper-2 rounded-full">
               <div
-                className="h-full bg-blue-500 rounded-full transition-all"
+                className="h-full bg-moss rounded-full transition-all"
                 style={{ width: `${task?.progress || 0}%` }}
               />
             </div>
@@ -203,13 +203,13 @@ export default function JourneyPage({
         )}
 
         {task?.status === 'failed' && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 text-red-400 text-sm">
+          <div className="bg-clay/10 border border-clay/30 rounded-xl p-4 mb-6 text-clay text-sm">
             {task.error}
           </div>
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 border-b border-zinc-800 pb-px">
+        <div className="flex gap-1 mb-6 border-b border-line pb-px">
           {([
             { key: 'timeline', label: 'Timeline' },
             { key: 'updates', label: 'Updates' },
@@ -220,8 +220,8 @@ export default function JourneyPage({
               onClick={() => setActiveTab(tab.key)}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
                 activeTab === tab.key
-                  ? 'text-blue-400 bg-blue-500/10 border-b-2 border-blue-500'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                  ? 'text-moss bg-moss/10 border-b-2 border-moss'
+                  : 'text-ink-4 hover:text-ink-2 hover:bg-paper-2'
               }`}
             >
               {tab.label}
@@ -233,8 +233,8 @@ export default function JourneyPage({
         {activeTab === 'timeline' && (
           <div>
             {/* Stage Selector */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-6">
-              <h4 className="text-xs text-zinc-400 mb-3 uppercase tracking-wider">Current Stage</h4>
+            <div className="bg-paper border border-line rounded-xl p-4 mb-6">
+              <h4 className="text-xs text-ink-4 mb-3 uppercase tracking-wider">Current Stage</h4>
               <div className="flex items-center gap-2">
                 {STAGES.map((stage, i) => {
                   const isCurrent = stageInfo?.current_stage === stage;
@@ -246,7 +246,7 @@ export default function JourneyPage({
                       {i > 0 && (
                         <div
                           className={`w-8 h-px mx-1 ${
-                            isPast ? 'bg-blue-500' : 'bg-zinc-700'
+                            isPast ? 'bg-moss' : 'bg-paper-3'
                           }`}
                         />
                       )}
@@ -254,10 +254,10 @@ export default function JourneyPage({
                         onClick={() => setStage(stage)}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                           isCurrent
-                            ? 'bg-blue-500 text-white'
+                            ? 'bg-moss text-white'
                             : isPast
-                              ? 'bg-blue-500/20 text-blue-400'
-                              : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300'
+                              ? 'bg-moss/20 text-moss'
+                              : 'bg-paper-2 text-ink-5 hover:bg-paper-3 hover:text-ink-3'
                         }`}
                       >
                         {STAGE_LABELS[stage]}
@@ -273,7 +273,7 @@ export default function JourneyPage({
               <button
                 onClick={generateMilestones}
                 disabled={isRunning}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
               >
                 {isRunning ? 'Generating...' : 'Generate Milestones'}
               </button>
@@ -287,7 +287,7 @@ export default function JourneyPage({
                   return (
                     <div
                       key={milestone.milestone_id}
-                      className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-start gap-4"
+                      className="bg-paper border border-line rounded-xl p-4 flex items-start gap-4"
                     >
                       <button
                         onClick={() => toggleMilestoneStatus(milestone)}
@@ -299,14 +299,14 @@ export default function JourneyPage({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <h5 className="text-sm font-medium text-white">{milestone.title}</h5>
-                          <span className="text-xs text-zinc-500">Week {milestone.week}</span>
+                          <span className="text-xs text-ink-5">Week {milestone.week}</span>
                           {milestone.phase && (
-                            <span className="text-xs text-zinc-600">{milestone.phase}</span>
+                            <span className="text-xs text-ink-6">{milestone.phase}</span>
                           )}
                         </div>
-                        <p className="text-xs text-zinc-400 mt-1">{milestone.description}</p>
+                        <p className="text-xs text-ink-4 mt-1">{milestone.description}</p>
                         {milestone.completed_at && (
-                          <span className="text-xs text-green-500 mt-1 inline-block">
+                          <span className="text-xs text-moss mt-1 inline-block">
                             Completed: {milestone.completed_at}
                           </span>
                         )}
@@ -316,7 +316,7 @@ export default function JourneyPage({
                 })}
               </div>
             ) : (
-              <div className="text-center py-12 text-zinc-500 text-sm">
+              <div className="text-center py-12 text-ink-5 text-sm">
                 No milestones yet. Set your stage and generate milestones.
               </div>
             )}
@@ -330,13 +330,13 @@ export default function JourneyPage({
               <button
                 onClick={autoGenerateUpdate}
                 disabled={isRunning}
-                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 text-zinc-300 rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-paper-2 hover:bg-paper-3 disabled:bg-paper-2 text-ink-3 rounded-lg text-sm font-medium transition-colors"
               >
                 Auto-Generate from Metrics
               </button>
               <button
                 onClick={() => setShowUpdateForm(!showUpdateForm)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss text-white rounded-lg text-sm font-medium transition-colors"
               >
                 + New Update
               </button>
@@ -344,55 +344,55 @@ export default function JourneyPage({
 
             {/* New Update Form */}
             {showUpdateForm && (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+              <div className="bg-paper border border-line rounded-xl p-6 mb-6">
                 <h4 className="text-sm font-medium text-white mb-4">New Startup Update</h4>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Period</label>
+                    <label className="block text-xs text-ink-4 mb-1">Period</label>
                     <input
                       type="text"
                       value={updateForm.period}
                       onChange={(e) => setUpdateForm({ ...updateForm, period: e.target.value })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                       placeholder="e.g., Week 12, March 2026"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">
+                    <label className="block text-xs text-ink-4 mb-1">
                       Highlights (one per line)
                     </label>
                     <textarea
                       value={updateForm.highlights}
                       onChange={(e) => setUpdateForm({ ...updateForm, highlights: e.target.value })}
                       rows={3}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss resize-none"
                       placeholder="What went well this period?"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">
+                    <label className="block text-xs text-ink-4 mb-1">
                       Challenges (one per line)
                     </label>
                     <textarea
                       value={updateForm.challenges}
                       onChange={(e) => setUpdateForm({ ...updateForm, challenges: e.target.value })}
                       rows={3}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss resize-none"
                       placeholder="What challenges did you face?"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Asks (one per line)</label>
+                    <label className="block text-xs text-ink-4 mb-1">Asks (one per line)</label>
                     <textarea
                       value={updateForm.asks}
                       onChange={(e) => setUpdateForm({ ...updateForm, asks: e.target.value })}
                       rows={2}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss resize-none"
                       placeholder="What help do you need?"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-2">
+                    <label className="block text-xs text-ink-4 mb-2">
                       Team Morale: {updateForm.morale}/10
                     </label>
                     <input
@@ -403,7 +403,7 @@ export default function JourneyPage({
                       onChange={(e) => setUpdateForm({ ...updateForm, morale: Number(e.target.value) })}
                       className="w-full accent-blue-500"
                     />
-                    <div className="flex justify-between text-xs text-zinc-600 mt-1">
+                    <div className="flex justify-between text-xs text-ink-6 mt-1">
                       <span>1</span>
                       <span>5</span>
                       <span>10</span>
@@ -412,14 +412,14 @@ export default function JourneyPage({
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => setShowUpdateForm(false)}
-                      className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+                      className="px-4 py-2 text-sm text-ink-4 hover:text-ink-2 transition-colors"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={submitUpdate}
                       disabled={!updateForm.period}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+                      className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
                     >
                       Submit Update
                     </button>
@@ -434,36 +434,36 @@ export default function JourneyPage({
                 {[...updates].toReversed().map((update) => (
                   <div
                     key={update.update_id}
-                    className="bg-zinc-900 border border-zinc-800 rounded-xl p-4"
+                    className="bg-paper border border-line rounded-xl p-4"
                   >
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-3">
                         <h4 className="text-white font-medium">{update.period}</h4>
                         <div className="flex items-center gap-1">
-                          <span className="text-xs text-zinc-400">Morale:</span>
+                          <span className="text-xs text-ink-4">Morale:</span>
                           <span
                             className={`text-xs font-medium ${
                               update.morale >= 7
-                                ? 'text-green-400'
+                                ? 'text-moss'
                                 : update.morale >= 4
-                                  ? 'text-yellow-400'
-                                  : 'text-red-400'
+                                  ? 'text-accent'
+                                  : 'text-clay'
                             }`}
                           >
                             {update.morale}/10
                           </span>
                         </div>
                       </div>
-                      <span className="text-xs text-zinc-500">{update.date}</span>
+                      <span className="text-xs text-ink-5">{update.date}</span>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                       {update.highlights && update.highlights.length > 0 && (
                         <div>
-                          <h5 className="text-xs font-medium text-green-400 mb-1">Highlights</h5>
+                          <h5 className="text-xs font-medium text-moss mb-1">Highlights</h5>
                           <ul className="space-y-0.5">
                             {update.highlights.map((h, i) => (
-                              <li key={i} className="text-xs text-zinc-300">
+                              <li key={i} className="text-xs text-ink-3">
                                 - {h}
                               </li>
                             ))}
@@ -472,10 +472,10 @@ export default function JourneyPage({
                       )}
                       {update.challenges && update.challenges.length > 0 && (
                         <div>
-                          <h5 className="text-xs font-medium text-yellow-400 mb-1">Challenges</h5>
+                          <h5 className="text-xs font-medium text-accent mb-1">Challenges</h5>
                           <ul className="space-y-0.5">
                             {update.challenges.map((c, i) => (
-                              <li key={i} className="text-xs text-zinc-300">
+                              <li key={i} className="text-xs text-ink-3">
                                 - {c}
                               </li>
                             ))}
@@ -484,10 +484,10 @@ export default function JourneyPage({
                       )}
                       {update.asks && update.asks.length > 0 && (
                         <div>
-                          <h5 className="text-xs font-medium text-blue-400 mb-1">Asks</h5>
+                          <h5 className="text-xs font-medium text-moss mb-1">Asks</h5>
                           <ul className="space-y-0.5">
                             {update.asks.map((a, i) => (
-                              <li key={i} className="text-xs text-zinc-300">
+                              <li key={i} className="text-xs text-ink-3">
                                 - {a}
                               </li>
                             ))}
@@ -497,16 +497,16 @@ export default function JourneyPage({
                     </div>
 
                     {update.generated_summary && (
-                      <div className="mt-3 bg-zinc-800/50 rounded-lg p-3">
-                        <h5 className="text-xs font-medium text-zinc-400 mb-1">AI Summary</h5>
-                        <p className="text-xs text-zinc-300">{update.generated_summary}</p>
+                      <div className="mt-3 bg-paper-2/50 rounded-lg p-3">
+                        <h5 className="text-xs font-medium text-ink-4 mb-1">AI Summary</h5>
+                        <p className="text-xs text-ink-3">{update.generated_summary}</p>
                       </div>
                     )}
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-center py-12 text-zinc-500 text-sm">
+              <div className="text-center py-12 text-ink-5 text-sm">
                 No updates yet. Create your first startup update to start tracking progress.
               </div>
             )}
@@ -520,7 +520,7 @@ export default function JourneyPage({
               <button
                 onClick={generateScalingPlan}
                 disabled={isRunning}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
               >
                 {isRunning ? 'Generating...' : 'Generate Scaling Plan'}
               </button>
@@ -531,32 +531,32 @@ export default function JourneyPage({
                 {scalingPlan.months.map((month) => (
                   <div
                     key={month.month}
-                    className="bg-zinc-900 border border-zinc-800 rounded-xl p-4"
+                    className="bg-paper border border-line rounded-xl p-4"
                   >
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="text-white font-medium">Month {month.month}</h4>
                       <span
                         className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                           month.status === 'completed'
-                            ? 'text-green-400 bg-green-500/10'
+                            ? 'text-moss bg-moss/10'
                             : month.status === 'in_progress'
-                              ? 'text-blue-400 bg-blue-500/10'
-                              : 'text-zinc-400 bg-zinc-800'
+                              ? 'text-moss bg-moss/10'
+                              : 'text-ink-4 bg-paper-2'
                         }`}
                       >
                         {month.status || 'planned'}
                       </span>
                     </div>
-                    <div className="bg-zinc-800/50 rounded-lg px-3 py-2 mb-3">
-                      <div className="text-xs text-zinc-400">Focus</div>
+                    <div className="bg-paper-2/50 rounded-lg px-3 py-2 mb-3">
+                      <div className="text-xs text-ink-4">Focus</div>
                       <div className="text-sm text-white">{month.focus}</div>
                     </div>
                     {month.goals && month.goals.length > 0 && (
                       <div className="mb-3">
-                        <h5 className="text-xs font-medium text-green-400 mb-1">Goals</h5>
+                        <h5 className="text-xs font-medium text-moss mb-1">Goals</h5>
                         <ul className="space-y-0.5">
                           {month.goals.map((g, i) => (
-                            <li key={i} className="text-xs text-zinc-300">
+                            <li key={i} className="text-xs text-ink-3">
                               - {g}
                             </li>
                           ))}
@@ -565,10 +565,10 @@ export default function JourneyPage({
                     )}
                     {month.risks && month.risks.length > 0 && (
                       <div>
-                        <h5 className="text-xs font-medium text-red-400 mb-1">Risks</h5>
+                        <h5 className="text-xs font-medium text-clay mb-1">Risks</h5>
                         <ul className="space-y-0.5">
                           {month.risks.map((r, i) => (
-                            <li key={i} className="text-xs text-zinc-300">
+                            <li key={i} className="text-xs text-ink-3">
                               - {r}
                             </li>
                           ))}
@@ -579,7 +579,7 @@ export default function JourneyPage({
                 ))}
               </div>
             ) : (
-              <div className="text-center py-12 text-zinc-500 text-sm">
+              <div className="text-center py-12 text-ink-5 text-sm">
                 No scaling plan yet. Generate one based on your current stage and metrics.
               </div>
             )}

@@ -79,13 +79,13 @@ export default function PartnerOnboardingPage({
   const locale = partner?.locale || 'en';
 
   if (loading) {
-    return <div className="h-screen flex items-center justify-center text-zinc-500 text-sm">Caricamento…</div>;
+    return <div className="h-screen flex items-center justify-center text-ink-5 text-sm">Caricamento…</div>;
   }
 
   const copy = locale === 'it' ? COPY_IT : COPY_EN;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center px-6 py-10">
+    <div className="min-h-screen bg-surface-sunk text-ink flex items-center justify-center px-6 py-10">
       <div className="w-full max-w-lg">
         <header className="mb-8 text-center">
           <div
@@ -94,21 +94,21 @@ export default function PartnerOnboardingPage({
           >
             {partnerName}
           </div>
-          <h1 className="text-3xl font-semibold text-zinc-100 mb-3">{copy.title}</h1>
-          <p className="text-zinc-400 leading-relaxed">
+          <h1 className="text-3xl font-semibold text-ink mb-3">{copy.title}</h1>
+          <p className="text-ink-4 leading-relaxed">
             {copy.subtitle(partnerName)}
           </p>
         </header>
 
         {!partner && (
-          <div className="mb-6 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-300">
+          <div className="mb-6 rounded-lg border border-amber-500/20 bg-accent/5 p-3 text-xs text-accent">
             {copy.unknownPartner}
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs uppercase tracking-wider text-zinc-500 mb-2">
+            <label className="block text-xs uppercase tracking-wider text-ink-5 mb-2">
               {copy.nameLabel}
             </label>
             <input
@@ -116,12 +116,12 @@ export default function PartnerOnboardingPage({
               onChange={e => setName(e.target.value)}
               placeholder={copy.namePlaceholder}
               required
-              className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-600"
+              className="w-full px-4 py-3 bg-paper border border-line rounded-lg text-ink placeholder-zinc-600 outline-none focus:border-line-2"
             />
           </div>
 
           <div>
-            <label className="block text-xs uppercase tracking-wider text-zinc-500 mb-2">
+            <label className="block text-xs uppercase tracking-wider text-ink-5 mb-2">
               {copy.descLabel}
             </label>
             <textarea
@@ -129,17 +129,17 @@ export default function PartnerOnboardingPage({
               onChange={e => setDescription(e.target.value)}
               placeholder={copy.descPlaceholder}
               rows={3}
-              className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 outline-none focus:border-zinc-600 resize-none"
+              className="w-full px-4 py-3 bg-paper border border-line rounded-lg text-ink placeholder-zinc-600 outline-none focus:border-line-2 resize-none"
             />
           </div>
 
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-xs text-zinc-500">
-            <div className="mb-1 text-zinc-400">{copy.languageLabel}</div>
+          <div className="rounded-lg border border-line bg-paper/40 p-3 text-xs text-ink-5">
+            <div className="mb-1 text-ink-4">{copy.languageLabel}</div>
             <div>{locale === 'it' ? 'Italiano' : 'English'} · {copy.languageNote(partnerName)}</div>
           </div>
 
           {error && (
-            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-sm text-red-300">
+            <div className="rounded-lg border border-clay/20 bg-clay/5 p-3 text-sm text-clay">
               {error}
             </div>
           )}
@@ -154,7 +154,7 @@ export default function PartnerOnboardingPage({
           </button>
         </form>
 
-        <footer className="mt-8 text-center text-xs text-zinc-600">
+        <footer className="mt-8 text-center text-xs text-ink-6">
           {copy.footer}
         </footer>
       </div>

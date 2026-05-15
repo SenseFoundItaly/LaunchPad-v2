@@ -208,7 +208,7 @@ export function stageColors(color: string) {
     amber:   { text: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/30',   dot: 'bg-amber-400' },
     emerald: { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', dot: 'bg-emerald-400' },
     cyan:    { text: 'text-cyan-400',    bg: 'bg-cyan-500/10',    border: 'border-cyan-500/30',    dot: 'bg-cyan-400' },
-    zinc:    { text: 'text-zinc-400',    bg: 'bg-zinc-500/10',    border: 'border-zinc-500/30',    dot: 'bg-zinc-400' },
+    zinc:    { text: 'text-ink-4',       bg: 'bg-ink-5/10',       border: 'border-ink-5/30',       dot: 'bg-ink-4' },
   };
   return map[color] || map.zinc;
 }

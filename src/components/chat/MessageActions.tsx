@@ -42,7 +42,7 @@ export default function MessageActions({ content, onRetry, align }: MessageActio
         type="button"
         onClick={handleCopy}
         title={copied ? 'Copied!' : 'Copy message'}
-        className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-200 px-1.5 py-0.5 rounded hover:bg-zinc-700/40 transition-colors"
+        className="flex items-center gap-1 text-[11px] text-ink-5 hover:text-ink-2 px-1.5 py-0.5 rounded hover:bg-paper-3/40 transition-colors"
       >
         {copied ? (
           <>
@@ -61,7 +61,7 @@ export default function MessageActions({ content, onRetry, align }: MessageActio
           type="button"
           onClick={onRetry}
           title="Resend this message"
-          className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-200 px-1.5 py-0.5 rounded hover:bg-zinc-700/40 transition-colors"
+          className="flex items-center gap-1 text-[11px] text-ink-5 hover:text-ink-2 px-1.5 py-0.5 rounded hover:bg-paper-3/40 transition-colors"
         >
           <RetryIcon />
           <span>Retry</span>

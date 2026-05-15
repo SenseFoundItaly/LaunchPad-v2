@@ -25,15 +25,15 @@ export default function AppHeader() {
   }
 
   return (
-    <header className="h-12 border-b border-zinc-800 bg-zinc-950 flex items-center px-6 shrink-0">
+    <header className="h-12 border-b border-line bg-surface-sunk flex items-center px-6 shrink-0">
       <Link href="/" className="flex items-center gap-2">
-        <div className="w-6 h-6 rounded-md bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
+        <div className="w-6 h-6 rounded-md bg-gradient-to-br from-moss to-plum flex items-center justify-center">
           <span className="text-white text-xs font-bold">L</span>
         </div>
-        <span className="text-white font-semibold tracking-tight text-sm">LaunchPad</span>
+        <span className="text-ink font-semibold tracking-tight text-sm">LaunchPad</span>
       </Link>
       {projectId && (
-        <span className="ml-3 text-zinc-600 text-sm">/</span>
+        <span className="ml-3 text-ink-6 text-sm">/</span>
       )}
     </header>
   );

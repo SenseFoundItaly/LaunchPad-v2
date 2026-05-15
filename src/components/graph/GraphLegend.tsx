@@ -24,7 +24,7 @@ export default function GraphLegend({ activeTypes, hiddenTypes, onToggleType, no
   return (
     <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between z-10">
       {/* Type filters */}
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900/80 backdrop-blur-sm border border-zinc-800 rounded-lg flex-wrap">
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg flex-wrap">
         {types.map((type) => {
           const hidden = hiddenTypes.has(type);
           return (
@@ -38,7 +38,7 @@ export default function GraphLegend({ activeTypes, hiddenTypes, onToggleType, no
                 className="inline-block w-2 h-2 rounded-full flex-shrink-0"
                 style={{ backgroundColor: NODE_COLORS[type] }}
               />
-              <span className="text-[10px] text-zinc-400 whitespace-nowrap">
+              <span className="text-[10px] text-ink-4 whitespace-nowrap">
                 {type.replace(/_/g, ' ')}
               </span>
             </button>
@@ -47,8 +47,8 @@ export default function GraphLegend({ activeTypes, hiddenTypes, onToggleType, no
       </div>
 
       {/* Stats */}
-      <div className="px-2 py-1 bg-zinc-900/80 backdrop-blur-sm border border-zinc-800 rounded-lg ml-2 shrink-0">
-        <span className="text-[10px] text-zinc-500">{nodeCount} nodes | {edgeCount} edges</span>
+      <div className="px-2 py-1 bg-paper/80 backdrop-blur-sm border border-line rounded-lg ml-2 shrink-0">
+        <span className="text-[10px] text-ink-5">{nodeCount} nodes | {edgeCount} edges</span>
       </div>
     </div>
   );

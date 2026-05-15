@@ -36,13 +36,13 @@ interface MonitorProposalCardProps {
 }
 
 const KIND_COLORS: Record<string, string> = {
-  competitor: 'bg-red-500/20 text-red-300 border-red-500/30',
+  competitor: 'bg-red-500/20 text-clay border-red-500/30',
   regulation: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
   market: 'bg-green-500/20 text-green-300 border-green-500/30',
   partner: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
   technology: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
   funding: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-  custom: 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30',
+  custom: 'bg-ink-5/20 text-ink-3 border-ink-5/30',
 };
 
 const SCHEDULE_LABELS: Record<'hourly' | 'daily' | 'weekly', string> = {
@@ -106,12 +106,12 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
   // the shell and render directly as minimal single-line UI.
   if (state === 'applied') {
     return (
-      <div className="my-3 bg-zinc-800/30 border border-green-500/20 rounded-lg p-3 opacity-75">
+      <div className="my-3 bg-paper-2/30 border border-moss/20 rounded-lg p-3 opacity-75">
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-green-400 font-mono">{'\u2713'}</span>
-          <span className="text-zinc-300">Monitor applied:</span>
-          <span className="text-zinc-100 font-medium">{artifact.name}</span>
-          <span className="text-zinc-500 text-xs ml-auto">will run next cron tick</span>
+          <span className="text-moss font-mono">{'\u2713'}</span>
+          <span className="text-ink-3">Monitor applied:</span>
+          <span className="text-ink font-medium">{artifact.name}</span>
+          <span className="text-ink-5 text-xs ml-auto">will run next cron tick</span>
         </div>
         <SourcesFooter sources={artifact.sources} compact />
       </div>
@@ -119,11 +119,11 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
   }
   if (state === 'dismissed') {
     return (
-      <div className="my-3 bg-zinc-800/20 border border-zinc-700/40 rounded-lg p-3 opacity-60">
+      <div className="my-3 bg-paper-2/20 border border-line-2 rounded-lg p-3 opacity-60">
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-zinc-500 font-mono">{'\u2717'}</span>
-          <span className="text-zinc-400">Dismissed:</span>
-          <span className="text-zinc-500">{artifact.name}</span>
+          <span className="text-ink-5 font-mono">{'\u2717'}</span>
+          <span className="text-ink-4">Dismissed:</span>
+          <span className="text-ink-5">{artifact.name}</span>
         </div>
       </div>
     );
@@ -139,34 +139,34 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
         <span className={`text-[10px] px-2 py-0.5 rounded-full border ${kindColor}`}>
           {artifact.kind}
         </span>
-        <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-700/50 text-zinc-300">
+        <span className="text-[10px] px-2 py-0.5 rounded-full bg-paper-3/50 text-ink-3">
           {SCHEDULE_LABELS[artifact.schedule]}
         </span>
-        <span className="text-[10px] text-zinc-500">
+        <span className="text-[10px] text-ink-5">
           ~{'\u20AC'}{artifact.estimated_monthly_cost_eur.toFixed(2)}/mo
         </span>
       </>}
     >
       {/* Derisking breadcrumb */}
-      <div className="text-[11px] text-zinc-400 mb-2">
-        <span className="text-zinc-500">Derisking: </span>
-        <span className="font-mono text-zinc-300">{artifact.linked_risk_id}</span>
+      <div className="text-[11px] text-ink-4 mb-2">
+        <span className="text-ink-5">Derisking: </span>
+        <span className="font-mono text-ink-3">{artifact.linked_risk_id}</span>
         {artifact.linked_quote && (
-          <span className="text-zinc-500"> — &ldquo;{artifact.linked_quote}&rdquo;</span>
+          <span className="text-ink-5"> — &ldquo;{artifact.linked_quote}&rdquo;</span>
         )}
       </div>
 
       {/* Overlap warning */}
       {artifact.overlap_warning && (
-        <div className="mb-2 p-2 bg-red-950/40 border border-red-500/40 rounded text-[11px]">
-          <div className="font-semibold text-red-400 mb-0.5">
+        <div className="mb-2 p-2 bg-clay/10 border border-clay/40 rounded text-[11px]">
+          <div className="font-semibold text-clay mb-0.5">
             Dedup warning — agent bypassed semantic overlap check
           </div>
-          <div className="text-red-300/80">
+          <div className="text-clay/80">
             Matches existing monitor <span className="font-mono">{artifact.overlap_warning.existing_name}</span>
             {' '}(score {artifact.overlap_warning.overlap_score.toFixed(2)})
           </div>
-          <div className="text-red-300/70 mt-1">Reason: {artifact.overlap_warning.reason}</div>
+          <div className="text-clay/70 mt-1">Reason: {artifact.overlap_warning.reason}</div>
         </div>
       )}
 
@@ -174,11 +174,11 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
       {state === 'editing' ? (
         <div className="space-y-2 mb-3">
           <div>
-            <label className="text-[10px] text-zinc-500 uppercase tracking-wider block mb-1">Schedule</label>
+            <label className="text-[10px] text-ink-5 uppercase tracking-wider block mb-1">Schedule</label>
             <select
               value={editSchedule}
               onChange={(e) => setEditSchedule(e.target.value as 'hourly' | 'daily' | 'weekly')}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100"
+              className="w-full bg-paper border border-line-2 rounded px-2 py-1 text-sm text-ink"
             >
               <option value="hourly">Hourly</option>
               <option value="daily">Daily</option>
@@ -186,36 +186,36 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
             </select>
           </div>
           <div>
-            <label className="text-[10px] text-zinc-500 uppercase tracking-wider block mb-1">Alert threshold</label>
+            <label className="text-[10px] text-ink-5 uppercase tracking-wider block mb-1">Alert threshold</label>
             <textarea
               value={editThreshold}
               onChange={(e) => setEditThreshold(e.target.value)}
               rows={2}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 resize-y"
+              className="w-full bg-paper border border-line-2 rounded px-2 py-1 text-sm text-ink resize-y"
             />
           </div>
           <div>
-            <label className="text-[10px] text-zinc-500 uppercase tracking-wider block mb-1">
+            <label className="text-[10px] text-ink-5 uppercase tracking-wider block mb-1">
               URLs to track (one per line, 5 max)
             </label>
             <textarea
               value={editUrlsRaw}
               onChange={(e) => setEditUrlsRaw(e.target.value)}
               rows={Math.min(5, Math.max(2, editUrlsRaw.split('\n').length))}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-100 font-mono resize-y"
+              className="w-full bg-paper border border-line-2 rounded px-2 py-1 text-xs text-ink font-mono resize-y"
               placeholder="https://example.com/pricing"
             />
           </div>
         </div>
       ) : (
         <>
-          <div className="text-xs text-zinc-300 mb-2">
-            <span className="text-zinc-500">Alerts when:</span> {artifact.alert_threshold}
+          <div className="text-xs text-ink-3 mb-2">
+            <span className="text-ink-5">Alerts when:</span> {artifact.alert_threshold}
           </div>
           {artifact.urls_to_track && artifact.urls_to_track.length > 0 && (
-            <div className="text-[11px] text-zinc-500 mb-2">
+            <div className="text-[11px] text-ink-5 mb-2">
               {artifact.urls_to_track.length === 1 ? 'URL:' : `${artifact.urls_to_track.length} URLs:`}{' '}
-              <span className="font-mono text-zinc-400 break-all">
+              <span className="font-mono text-ink-4 break-all">
                 {artifact.urls_to_track.slice(0, 2).join(', ')}
                 {artifact.urls_to_track.length > 2 && ` (+${artifact.urls_to_track.length - 2} more)`}
               </span>
@@ -226,26 +226,26 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
 
       {/* Server error */}
       {state === 'error' && serverError && (
-        <div className="mb-2 p-2 bg-red-950/40 border border-red-500/40 rounded text-[11px] text-red-300">
+        <div className="mb-2 p-2 bg-clay/10 border border-clay/40 rounded text-[11px] text-clay">
           Apply failed: {serverError}
         </div>
       )}
 
       {/* Action buttons */}
-      <div className="flex items-center gap-2 pt-2 border-t border-zinc-700/50">
+      <div className="flex items-center gap-2 pt-2 border-t border-line-2">
         {state === 'editing' ? (
           <>
             <button
               type="button"
               onClick={() => handleApply(true)}
-              className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors"
+              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 text-white rounded-md transition-colors"
             >
               Save &amp; apply
             </button>
             <button
               type="button"
               onClick={() => setState('collapsed')}
-              className="text-xs px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded-md transition-colors"
+              className="text-xs px-3 py-1.5 bg-paper-3 hover:bg-paper-3/80 text-ink-2 rounded-md transition-colors"
             >
               Cancel
             </button>
@@ -256,7 +256,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
               type="button"
               disabled={state === 'applying'}
               onClick={() => handleApply(false)}
-              className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-md transition-colors"
+              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 disabled:opacity-50 text-white rounded-md transition-colors"
             >
               {state === 'applying' ? 'Applying...' : 'Apply'}
             </button>
@@ -264,7 +264,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
               type="button"
               disabled={state === 'applying' || state === 'dismissing'}
               onClick={() => setState('editing')}
-              className="text-xs px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-zinc-200 rounded-md transition-colors"
+              className="text-xs px-3 py-1.5 bg-paper-3 hover:bg-paper-3/80 disabled:opacity-50 text-ink-2 rounded-md transition-colors"
             >
               Edit
             </button>
@@ -272,7 +272,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
               type="button"
               disabled={state === 'applying' || state === 'dismissing'}
               onClick={handleDismiss}
-              className="text-xs px-3 py-1.5 text-zinc-400 hover:text-zinc-200 disabled:opacity-50 transition-colors ml-auto"
+              className="text-xs px-3 py-1.5 text-ink-4 hover:text-ink-2 disabled:opacity-50 transition-colors ml-auto"
             >
               {state === 'dismissing' ? 'Dismissing...' : 'Dismiss'}
             </button>

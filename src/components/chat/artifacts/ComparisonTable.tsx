@@ -33,7 +33,7 @@ function formatCell(value: string | number, colType: ColumnType | undefined): Re
       // If the value is already 0-100, display as-is. If 0-1, multiply by 100.
       const pct = Math.abs(num) <= 1 ? num * 100 : num;
       return (
-        <span className={pct >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+        <span className={pct >= 0 ? 'text-moss' : 'text-clay'}>
           {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
         </span>
       );
@@ -43,10 +43,10 @@ function formatCell(value: string | number, colType: ColumnType | undefined): Re
       if (isNaN(num)) return String(value);
       const clamped = Math.max(0, Math.min(10, num));
       const pctVal = (clamped / 10) * 100;
-      const color = clamped >= 7 ? 'bg-emerald-500' : clamped >= 4 ? 'bg-amber-500' : 'bg-red-500';
+      const color = clamped >= 7 ? 'bg-moss' : clamped >= 4 ? 'bg-accent' : 'bg-clay';
       return (
         <div className="flex items-center gap-2">
-          <div className="w-16 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+          <div className="w-16 h-1.5 bg-paper-3 rounded-full overflow-hidden">
             <div className={`h-full rounded-full ${color}`} style={{ width: `${pctVal}%` }} />
           </div>
           <span className="text-xs font-mono">{num.toFixed(1)}</span>
@@ -67,7 +67,7 @@ function formatCell(value: string | number, colType: ColumnType | undefined): Re
           href={str}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+          className="text-sky hover:text-sky/80 underline underline-offset-2"
         >
           {display}
         </a>
@@ -105,14 +105,14 @@ export default function ComparisonTable({ artifact, onAction }: ComparisonTableP
     >
       <table className="w-full text-sm border-collapse">
         <thead>
-          <tr className="bg-zinc-800">
-            <th className="text-left px-3 py-2 text-zinc-400 font-medium border border-zinc-700 rounded-tl-md">
+          <tr className="bg-paper-2">
+            <th className="text-left px-3 py-2 text-ink-4 font-medium border border-line-2 rounded-tl-md">
               &nbsp;
             </th>
             {artifact.columns.map((col) => (
               <th
                 key={col}
-                className="text-left px-3 py-2 text-zinc-400 font-medium border border-zinc-700"
+                className="text-left px-3 py-2 text-ink-4 font-medium border border-line-2"
               >
                 {col}
               </th>
@@ -121,14 +121,14 @@ export default function ComparisonTable({ artifact, onAction }: ComparisonTableP
         </thead>
         <tbody>
           {artifact.rows.map((row) => (
-            <tr key={row.label} className="bg-zinc-900 hover:bg-zinc-800/60 transition-colors">
-              <td className="px-3 py-2 text-zinc-200 font-medium border border-zinc-700">
+            <tr key={row.label} className="bg-paper hover:bg-paper-2/60 transition-colors">
+              <td className="px-3 py-2 text-ink-2 font-medium border border-line-2">
                 {row.label}
               </td>
               {row.values.map((value, idx) => (
                 <td
                   key={`${row.label}-${artifact.columns[idx]}`}
-                  className="px-3 py-2 text-zinc-300 border border-zinc-700"
+                  className="px-3 py-2 text-ink-3 border border-line-2"
                 >
                   {formatCell(value, colTypes?.[idx])}
                 </td>

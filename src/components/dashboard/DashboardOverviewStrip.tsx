@@ -90,9 +90,9 @@ export default function DashboardOverviewStrip({
 
 const ALERT_STATE_BADGE: Record<EcosystemAlertState, { label: string; classes: string } | null> = {
   pending: null,
-  acknowledged: { label: 'Seen', classes: 'bg-zinc-600/30 text-zinc-400' },
+  acknowledged: { label: 'Seen', classes: 'bg-ink-6/30 text-ink-4' },
   dismissed: null,
-  promoted_to_action: { label: 'Promoted', classes: 'bg-emerald-500/20 text-emerald-400' },
+  promoted_to_action: { label: 'Promoted', classes: 'bg-moss/20 text-emerald-400' },
 };
 
 function EcosystemCard({
@@ -103,35 +103,35 @@ function EcosystemCard({
   projectId: string;
 }) {
   return (
-    <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
+    <div className="rounded-xl border border-sky/20 bg-sky/5 p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
+          <span className="w-1.5 h-1.5 rounded-full bg-sky" />
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-3">
             Ecosystem — si è mosso
           </h3>
         </div>
         <Link
           href={`/project/${projectId}/brief`}
-          className="text-xs text-blue-400 hover:text-blue-300"
+          className="text-xs text-sky hover:text-sky/80"
         >
           Brief completo →
         </Link>
       </div>
 
       {alerts.length === 0 ? (
-        <div className="text-xs text-zinc-500 py-6 text-center">
+        <div className="text-xs text-ink-5 py-6 text-center">
           Nessun segnale sopra la soglia di rilevanza nelle ultime 2 settimane.
         </div>
       ) : (
         <div className="space-y-2">
           {alerts.slice(0, 3).map(a => (
-            <div key={a.id} className="rounded-lg bg-zinc-900/60 border border-zinc-800 p-3">
+            <div key={a.id} className="rounded-lg bg-paper/60 border border-line p-3">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] text-zinc-500 uppercase tracking-wider">
+                <span className="text-[10px] text-ink-5 uppercase tracking-wider">
                   {humanizeAlertType(a.alert_type)}
                 </span>
-                <span className="text-[10px] font-mono text-blue-400">
+                <span className="text-[10px] font-mono text-sky">
                   {a.relevance_score.toFixed(2)}
                 </span>
                 {ALERT_STATE_BADGE[a.reviewed_state] && (
@@ -140,13 +140,13 @@ function EcosystemCard({
                   </span>
                 )}
               </div>
-              <div className="text-sm text-zinc-100 line-clamp-2">{a.headline}</div>
+              <div className="text-sm text-ink line-clamp-2">{a.headline}</div>
               {a.source_url && (
                 <a
                   href={a.source_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[10px] text-zinc-500 hover:text-zinc-300 mt-1 inline-block"
+                  className="text-[10px] text-ink-5 hover:text-ink-3 mt-1 inline-block"
                   onClick={e => e.stopPropagation()}
                 >
                   {safeHostname(a.source_url)} ↗
@@ -177,15 +177,15 @@ function PendingDecisionsCard({
 }) {
   const totalOpen = summary.pending + summary.edited;
   return (
-    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+    <div className="rounded-xl border border-accent/20 bg-accent/5 p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
+          <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-3">
             Decisioni in attesa
           </h3>
           {totalOpen > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-semibold">
+            <span className="px-1.5 py-0.5 rounded-full bg-accent/20 text-amber-300 text-[10px] font-semibold">
               {totalOpen}
             </span>
           )}
@@ -199,29 +199,29 @@ function PendingDecisionsCard({
       </div>
 
       {decisions.length === 0 ? (
-        <div className="text-xs text-zinc-500 py-6 text-center">
+        <div className="text-xs text-ink-5 py-6 text-center">
           Nessuna decisione in attesa. Il co-founder ha fatto un buon lavoro a restare silente.
         </div>
       ) : (
         <div className="space-y-2">
           {decisions.slice(0, 3).map(d => (
-            <div key={d.id} className="rounded-lg bg-zinc-900/60 border border-zinc-800 p-3">
+            <div key={d.id} className="rounded-lg bg-paper/60 border border-line p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] text-zinc-500 uppercase tracking-wider">
+                    <span className="text-[10px] text-ink-5 uppercase tracking-wider">
                       {humanizeActionType(d.action_type)}
                     </span>
                     {d.estimated_impact && (
                       <span className="text-[10px] text-amber-400">· {d.estimated_impact}</span>
                     )}
                   </div>
-                  <div className="text-sm text-zinc-100 line-clamp-2">{d.title}</div>
+                  <div className="text-sm text-ink line-clamp-2">{d.title}</div>
                 </div>
                 {onApply && (
                   <button
                     onClick={() => onApply(d.id)}
-                    className="shrink-0 px-2 py-1 text-[10px] rounded-md bg-emerald-600 hover:bg-emerald-500 text-white"
+                    className="shrink-0 px-2 py-1 text-[10px] rounded-md bg-moss hover:bg-moss/80 text-white"
                     aria-label={`Applica ${d.title}`}
                   >
                     Applica
@@ -234,7 +234,7 @@ function PendingDecisionsCard({
       )}
 
       {summary.sent_7d > 0 && (
-        <div className="mt-3 pt-3 border-t border-zinc-800 text-[10px] text-zinc-500">
+        <div className="mt-3 pt-3 border-t border-line text-[10px] text-ink-5">
           {summary.sent_7d} azion{summary.sent_7d === 1 ? 'e eseguita' : 'i eseguite'} negli ultimi 7 giorni
         </div>
       )}
@@ -251,32 +251,32 @@ function BudgetCard({ budget, periodMonth }: { budget: Budget; periodMonth: stri
   const isWarn = budget.current_llm_usd >= budget.warn_llm_usd;
   const isCapped = budget.current_llm_usd >= budget.cap_llm_usd;
 
-  const fillColor = isCapped ? 'bg-red-500' : isWarn ? 'bg-amber-500' : 'bg-emerald-500';
-  const trackColor = isCapped ? 'border-red-500/30 bg-red-500/5' : isWarn ? 'border-amber-500/30 bg-amber-500/5' : 'border-zinc-800 bg-zinc-900/60';
+  const fillColor = isCapped ? 'bg-clay' : isWarn ? 'bg-accent' : 'bg-moss';
+  const trackColor = isCapped ? 'border-clay/30 bg-clay/5' : isWarn ? 'border-accent/30 bg-accent/5' : 'border-line bg-paper/60';
 
   return (
     <div className={`rounded-xl border ${trackColor} p-4`}>
       <div className="flex items-center gap-2 mb-3">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
+        <span className="w-1.5 h-1.5 rounded-full bg-moss" />
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-3">
           Budget LLM — {periodMonth}
         </h3>
       </div>
 
       <div className="space-y-2">
         <div className="flex items-baseline justify-between">
-          <span className="text-xl font-mono text-zinc-100">
+          <span className="text-xl font-mono text-ink">
             ${budget.current_llm_usd.toFixed(3)}
           </span>
-          <span className="text-xs text-zinc-500">/ ${budget.cap_llm_usd.toFixed(2)}</span>
+          <span className="text-xs text-ink-5">/ ${budget.cap_llm_usd.toFixed(2)}</span>
         </div>
-        <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
+        <div className="h-2 rounded-full bg-paper-2 overflow-hidden">
           <div
             className={`h-full rounded-full transition-all ${fillColor}`}
             style={{ width: `${Math.min(100, pct)}%` }}
           />
         </div>
-        <div className="text-[10px] text-zinc-500">
+        <div className="text-[10px] text-ink-5">
           {isCapped
             ? '⚠ Cap raggiunto — observe-only in Phase 0'
             : isWarn

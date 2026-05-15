@@ -50,7 +50,7 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} ${jetbrainsMono.variable} theme-ink h-full antialiased dark`}
     >
-      <body className="h-full flex flex-col bg-zinc-950 text-zinc-100">
+      <body className="h-full flex flex-col bg-paper text-ink">
         <AppHeader />
         <main className="flex-1 overflow-hidden">{children}</main>
       </body>

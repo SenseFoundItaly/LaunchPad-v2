@@ -117,23 +117,23 @@ export default function GrowthPage({
   function statusColor(status: GrowthIteration['status']) {
     switch (status) {
       case 'proposed':
-        return 'text-blue-400 bg-blue-500/10';
+        return 'text-moss bg-moss/10';
       case 'testing':
-        return 'text-yellow-400 bg-yellow-500/10';
+        return 'text-accent bg-accent/10';
       case 'tested':
-        return 'text-zinc-300 bg-zinc-700/50';
+        return 'text-ink-3 bg-paper-3/50';
       case 'adopted':
-        return 'text-green-400 bg-green-500/10';
+        return 'text-moss bg-moss/10';
       case 'rejected':
-        return 'text-red-400 bg-red-500/10';
+        return 'text-clay bg-clay/10';
       default:
-        return 'text-zinc-400 bg-zinc-800';
+        return 'text-ink-4 bg-paper-2';
     }
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+      <div className="flex items-center justify-center h-full text-ink-5 text-sm">
         Loading growth loops...
       </div>
     );
@@ -147,7 +147,7 @@ export default function GrowthPage({
           <h3 className="text-lg font-semibold text-white">Growth Intelligence</h3>
           <button
             onClick={() => setShowNewLoop(!showNewLoop)}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+            className="px-4 py-2 bg-moss hover:bg-moss text-white rounded-lg text-sm font-medium transition-colors"
           >
             + New Loop
           </button>
@@ -155,17 +155,17 @@ export default function GrowthPage({
 
         {/* Task Progress */}
         {isRunning && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+          <div className="bg-paper border border-line rounded-xl p-6 mb-6">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm text-zinc-300">
+              <div className="w-4 h-4 border-2 border-moss border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm text-ink-3">
                 {taskAction === 'experiment' ? 'Generating experiment...' : 'Synthesizing learnings...'}
                 {task?.message && ` ${task.message}`}
               </span>
             </div>
-            <div className="w-full h-2 bg-zinc-800 rounded-full">
+            <div className="w-full h-2 bg-paper-2 rounded-full">
               <div
-                className="h-full bg-blue-500 rounded-full transition-all"
+                className="h-full bg-moss rounded-full transition-all"
                 style={{ width: `${task?.progress || 0}%` }}
               />
             </div>
@@ -173,32 +173,32 @@ export default function GrowthPage({
         )}
 
         {task?.status === 'failed' && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 text-red-400 text-sm">
+          <div className="bg-clay/10 border border-clay/30 rounded-xl p-4 mb-6 text-clay text-sm">
             {task.error}
           </div>
         )}
 
         {/* New Loop Form */}
         {showNewLoop && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+          <div className="bg-paper border border-line rounded-xl p-6 mb-6">
             <h4 className="text-sm font-medium text-white mb-4">Create Growth Loop</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Metric Name</label>
+                <label className="block text-xs text-ink-4 mb-1">Metric Name</label>
                 <input
                   type="text"
                   value={loopForm.metric_name}
                   onChange={(e) => setLoopForm({ ...loopForm, metric_name: e.target.value })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                   placeholder="e.g., Conversion Rate"
                 />
               </div>
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Optimization Target</label>
+                <label className="block text-xs text-ink-4 mb-1">Optimization Target</label>
                 <select
                   value={loopForm.optimization_target}
                   onChange={(e) => setLoopForm({ ...loopForm, optimization_target: e.target.value })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                 >
                   {OPTIMIZATION_TARGETS.map((t) => (
                     <option key={t} value={t}>
@@ -208,26 +208,26 @@ export default function GrowthPage({
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Baseline Value</label>
+                <label className="block text-xs text-ink-4 mb-1">Baseline Value</label>
                 <input
                   type="number"
                   value={loopForm.baseline_value}
                   onChange={(e) => setLoopForm({ ...loopForm, baseline_value: Number(e.target.value) })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                 />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button
                 onClick={() => setShowNewLoop(false)}
-                className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+                className="px-4 py-2 text-sm text-ink-4 hover:text-ink-2 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={createLoop}
                 disabled={!loopForm.metric_name}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
               >
                 Create Loop
               </button>
@@ -240,16 +240,16 @@ export default function GrowthPage({
           <div>
             <button
               onClick={() => setSelectedLoop(null)}
-              className="text-sm text-blue-400 hover:text-blue-300 mb-4 flex items-center gap-1 transition-colors"
+              className="text-sm text-moss hover:text-moss/70 mb-4 flex items-center gap-1 transition-colors"
             >
               &larr; Back to all loops
             </button>
 
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+            <div className="bg-paper border border-line rounded-xl p-6 mb-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h4 className="text-white font-medium">{activeLoop.metric_name}</h4>
-                  <p className="text-xs text-zinc-400 mt-1">
+                  <p className="text-xs text-ink-4 mt-1">
                     Target: {activeLoop.optimization_target} | Status: {activeLoop.status}
                   </p>
                 </div>
@@ -257,14 +257,14 @@ export default function GrowthPage({
                   <button
                     onClick={() => synthesizeLearnings(activeLoop.loop_id)}
                     disabled={isRunning}
-                    className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 text-zinc-300 rounded-lg text-sm transition-colors"
+                    className="px-3 py-1.5 bg-paper-2 hover:bg-paper-3 disabled:bg-paper-2 text-ink-3 rounded-lg text-sm transition-colors"
                   >
                     Synthesize Learnings
                   </button>
                   <button
                     onClick={() => generateExperiment(activeLoop.loop_id)}
                     disabled={isRunning}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm transition-colors"
+                    className="px-3 py-1.5 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm transition-colors"
                   >
                     Generate Next Experiment
                   </button>
@@ -272,22 +272,22 @@ export default function GrowthPage({
               </div>
 
               <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="bg-zinc-800/50 rounded-lg p-3">
-                  <div className="text-xs text-zinc-400 mb-1">Baseline</div>
+                <div className="bg-paper-2/50 rounded-lg p-3">
+                  <div className="text-xs text-ink-4 mb-1">Baseline</div>
                   <div className="text-lg font-semibold text-white">{activeLoop.baseline_value}</div>
                 </div>
-                <div className="bg-zinc-800/50 rounded-lg p-3">
-                  <div className="text-xs text-zinc-400 mb-1">Current Best</div>
-                  <div className="text-lg font-semibold text-green-400">
+                <div className="bg-paper-2/50 rounded-lg p-3">
+                  <div className="text-xs text-ink-4 mb-1">Current Best</div>
+                  <div className="text-lg font-semibold text-moss">
                     {activeLoop.current_best_value}
                   </div>
                 </div>
               </div>
 
               {activeLoop.accumulated_learnings && (
-                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-4">
-                  <h5 className="text-xs font-medium text-blue-400 mb-1">Accumulated Learnings</h5>
-                  <p className="text-sm text-zinc-300 whitespace-pre-wrap">
+                <div className="bg-moss/10 border border-moss/30 rounded-lg p-4 mb-4">
+                  <h5 className="text-xs font-medium text-moss mb-1">Accumulated Learnings</h5>
+                  <p className="text-sm text-ink-3 whitespace-pre-wrap">
                     {activeLoop.accumulated_learnings}
                   </p>
                 </div>
@@ -300,7 +300,7 @@ export default function GrowthPage({
               {(activeLoop.iterations || []).map((iter) => (
                 <div
                   key={iter.iteration_id}
-                  className="bg-zinc-900 border border-zinc-800 rounded-xl p-4"
+                  className="bg-paper border border-line rounded-xl p-4"
                 >
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
@@ -309,12 +309,12 @@ export default function GrowthPage({
                       >
                         {iter.status}
                       </span>
-                      <span className="text-xs text-zinc-500">{iter.created_at}</span>
+                      <span className="text-xs text-ink-5">{iter.created_at}</span>
                     </div>
                     {iter.improvement_pct !== null && (
                       <span
                         className={`text-sm font-medium ${
-                          iter.improvement_pct >= 0 ? 'text-green-400' : 'text-red-400'
+                          iter.improvement_pct >= 0 ? 'text-moss' : 'text-clay'
                         }`}
                       >
                         {iter.improvement_pct >= 0 ? '+' : ''}
@@ -323,18 +323,18 @@ export default function GrowthPage({
                     )}
                   </div>
 
-                  <p className="text-sm text-zinc-200 mb-3">{iter.hypothesis}</p>
+                  <p className="text-sm text-ink-2 mb-3">{iter.hypothesis}</p>
 
                   {/* Proposed Changes */}
                   {iter.proposed_changes && iter.proposed_changes.length > 0 && (
                     <div className="space-y-2 mb-3">
                       {iter.proposed_changes.map((change, i) => (
                         <div key={i} className="grid grid-cols-3 gap-2 text-xs">
-                          <div className="text-zinc-400 font-medium">{change.element}</div>
-                          <div className="bg-red-500/10 text-red-300 rounded px-2 py-1">
+                          <div className="text-ink-4 font-medium">{change.element}</div>
+                          <div className="bg-clay/10 text-clay rounded px-2 py-1">
                             {change.current}
                           </div>
-                          <div className="bg-green-500/10 text-green-300 rounded px-2 py-1">
+                          <div className="bg-moss/10 text-moss rounded px-2 py-1">
                             {change.proposed}
                           </div>
                         </div>
@@ -343,7 +343,7 @@ export default function GrowthPage({
                   )}
 
                   {iter.learnings && (
-                    <p className="text-xs text-zinc-400 mt-2">Learnings: {iter.learnings}</p>
+                    <p className="text-xs text-ink-4 mt-2">Learnings: {iter.learnings}</p>
                   )}
 
                   {/* Log Result Button */}
@@ -357,7 +357,7 @@ export default function GrowthPage({
                           adopted: false,
                         })
                       }
-                      className="mt-3 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs transition-colors"
+                      className="mt-3 px-3 py-1.5 bg-paper-2 hover:bg-paper-3 text-ink-3 rounded-lg text-xs transition-colors"
                     >
                       Log Result
                     </button>
@@ -365,21 +365,21 @@ export default function GrowthPage({
 
                   {/* Result Form */}
                   {resultForm && resultForm.iterationId === iter.iteration_id && (
-                    <div className="mt-3 bg-zinc-800/50 rounded-lg p-4">
+                    <div className="mt-3 bg-paper-2/50 rounded-lg p-4">
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-xs text-zinc-400 mb-1">Result Value</label>
+                          <label className="block text-xs text-ink-4 mb-1">Result Value</label>
                           <input
                             type="number"
                             value={resultForm.result_value}
                             onChange={(e) =>
                               setResultForm({ ...resultForm, result_value: Number(e.target.value) })
                             }
-                            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                            className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                           />
                         </div>
                         <div className="flex items-end gap-3">
-                          <label className="flex items-center gap-2 text-sm text-zinc-300">
+                          <label className="flex items-center gap-2 text-sm text-ink-3">
                             <input
                               type="checkbox"
                               checked={resultForm.adopted}
@@ -395,13 +395,13 @@ export default function GrowthPage({
                       <div className="flex justify-end gap-2 mt-3">
                         <button
                           onClick={() => setResultForm(null)}
-                          className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+                          className="px-3 py-1.5 text-xs text-ink-4 hover:text-ink-2 transition-colors"
                         >
                           Cancel
                         </button>
                         <button
                           onClick={logResult}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors"
+                          className="px-3 py-1.5 bg-moss hover:bg-moss text-white rounded-lg text-xs font-medium transition-colors"
                         >
                           Save Result
                         </button>
@@ -413,7 +413,7 @@ export default function GrowthPage({
             </div>
 
             {(activeLoop.iterations || []).length === 0 && (
-              <div className="text-center py-12 text-zinc-500 text-sm">
+              <div className="text-center py-12 text-ink-5 text-sm">
                 No iterations yet. Click &quot;Generate Next Experiment&quot; to start.
               </div>
             )}
@@ -427,43 +427,43 @@ export default function GrowthPage({
                   <button
                     key={loop.loop_id}
                     onClick={() => setSelectedLoop(loop.loop_id)}
-                    className="w-full text-left bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-700 transition-colors"
+                    className="w-full text-left bg-paper border border-line rounded-xl p-4 hover:border-line-2 transition-colors"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-white font-medium">{loop.metric_name}</h4>
                       <span
                         className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                           loop.status === 'active'
-                            ? 'text-green-400 bg-green-500/10'
+                            ? 'text-moss bg-moss/10'
                             : loop.status === 'paused'
-                              ? 'text-yellow-400 bg-yellow-500/10'
-                              : 'text-zinc-400 bg-zinc-800'
+                              ? 'text-accent bg-accent/10'
+                              : 'text-ink-4 bg-paper-2'
                         }`}
                       >
                         {loop.status}
                       </span>
                     </div>
                     <div className="flex items-center gap-6 text-sm">
-                      <span className="text-zinc-400">
-                        Target: <span className="text-zinc-200">{loop.optimization_target}</span>
+                      <span className="text-ink-4">
+                        Target: <span className="text-ink-2">{loop.optimization_target}</span>
                       </span>
-                      <span className="text-zinc-400">
-                        Baseline: <span className="text-zinc-200">{loop.baseline_value}</span>
+                      <span className="text-ink-4">
+                        Baseline: <span className="text-ink-2">{loop.baseline_value}</span>
                       </span>
-                      <span className="text-zinc-400">
+                      <span className="text-ink-4">
                         Best:{' '}
-                        <span className="text-green-400">{loop.current_best_value}</span>
+                        <span className="text-moss">{loop.current_best_value}</span>
                       </span>
-                      <span className="text-zinc-400">
+                      <span className="text-ink-4">
                         Iterations:{' '}
-                        <span className="text-zinc-200">{(loop.iterations || []).length}</span>
+                        <span className="text-ink-2">{(loop.iterations || []).length}</span>
                       </span>
                     </div>
                   </button>
                 ))}
               </div>
             ) : (
-              <div className="text-center py-20 text-zinc-500">
+              <div className="text-center py-20 text-ink-5">
                 <p>No growth loops yet.</p>
                 <p className="text-sm mt-1">
                   Create a loop to start running AI-powered growth experiments.

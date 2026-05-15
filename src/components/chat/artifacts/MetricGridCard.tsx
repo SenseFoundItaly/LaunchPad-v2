@@ -35,8 +35,8 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
     >
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         {metrics.map((m, i) => (
-          <div key={i} className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3 group">
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider">{m.label}</div>
+          <div key={i} className="bg-paper-2/50 border border-line-2 rounded-lg p-3 group">
+            <div className="text-[10px] text-ink-5 uppercase tracking-wider">{m.label}</div>
             {editingIdx === i ? (
               <input
                 autoFocus
@@ -44,11 +44,11 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
                 onChange={(e) => setEditValue(e.target.value)}
                 onBlur={() => commitEdit(i)}
                 onKeyDown={(e) => e.key === 'Enter' && commitEdit(i)}
-                className="text-lg font-bold text-white mt-1 bg-zinc-900 border border-blue-500 rounded px-1 w-full outline-none"
+                className="text-lg font-bold text-ink mt-1 bg-paper border border-moss rounded px-1 w-full outline-none"
               />
             ) : (
               <div
-                className="text-lg font-bold text-white mt-1 cursor-pointer hover:text-blue-400 transition-colors"
+                className="text-lg font-bold text-ink mt-1 cursor-pointer hover:text-moss transition-colors"
                 onClick={() => startEdit(i)}
                 title="Click to edit"
               >
@@ -56,7 +56,7 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
               </div>
             )}
             {m.change && (
-              <div className={`text-xs mt-0.5 ${m.change.startsWith('-') ? 'text-red-400' : 'text-green-400'}`}>
+              <div className={`text-xs mt-0.5 ${m.change.startsWith('-') ? 'text-clay' : 'text-moss'}`}>
                 {m.change}
               </div>
             )}

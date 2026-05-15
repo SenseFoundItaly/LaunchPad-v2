@@ -142,11 +142,11 @@ export default function CopilotChatPage({
   // React StrictMode re-mounts and thread switches.
   const autoStartedRef = useRef(false);
   useEffect(() => {
-    if (historyLoaded && messages.length === 0 && !autoStartedRef.current && !isStreaming) {
+    if (historyLoaded && messages.length === 0 && !autoStartedRef.current && !isStreaming && project) {
       autoStartedRef.current = true;
-      sendMessage('Start the Solve flow');
+      sendMessage(locale === 'it' ? 'Avvia il flusso Solve' : 'Start the Solve flow');
     }
-  }, [historyLoaded, messages.length, isStreaming, sendMessage]);
+  }, [historyLoaded, messages.length, isStreaming, sendMessage, project, locale]);
 
   // Auto-scroll to newest
   useEffect(() => {

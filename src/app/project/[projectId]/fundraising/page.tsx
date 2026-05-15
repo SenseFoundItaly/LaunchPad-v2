@@ -175,7 +175,7 @@ export default function FundraisingPage({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+      <div className="flex items-center justify-center h-full text-ink-5 text-sm">
         Loading fundraising data...
       </div>
     );
@@ -191,14 +191,14 @@ export default function FundraisingPage({
 
         {/* Task Progress */}
         {isRunning && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+          <div className="bg-paper border border-line rounded-xl p-6 mb-6">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm text-zinc-300">{task?.message || 'Processing...'}</span>
+              <div className="w-4 h-4 border-2 border-moss border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm text-ink-3">{task?.message || 'Processing...'}</span>
             </div>
-            <div className="w-full h-2 bg-zinc-800 rounded-full">
+            <div className="w-full h-2 bg-paper-2 rounded-full">
               <div
-                className="h-full bg-blue-500 rounded-full transition-all"
+                className="h-full bg-moss rounded-full transition-all"
                 style={{ width: `${task?.progress || 0}%` }}
               />
             </div>
@@ -206,13 +206,13 @@ export default function FundraisingPage({
         )}
 
         {task?.status === 'failed' && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 text-red-400 text-sm">
+          <div className="bg-clay/10 border border-clay/30 rounded-xl p-4 mb-6 text-clay text-sm">
             {task.error}
           </div>
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 border-b border-zinc-800 pb-px">
+        <div className="flex gap-1 mb-6 border-b border-line pb-px">
           {([
             { key: 'pipeline', label: 'Pipeline' },
             { key: 'pitch', label: 'Pitch' },
@@ -223,8 +223,8 @@ export default function FundraisingPage({
               onClick={() => setActiveTab(tab.key)}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
                 activeTab === tab.key
-                  ? 'text-blue-400 bg-blue-500/10 border-b-2 border-blue-500'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                  ? 'text-moss bg-moss/10 border-b-2 border-moss'
+                  : 'text-ink-4 hover:text-ink-2 hover:bg-paper-2'
               }`}
             >
               {tab.label}
@@ -238,7 +238,7 @@ export default function FundraisingPage({
             <div className="flex justify-end mb-4">
               <button
                 onClick={() => setShowAddInvestor(!showAddInvestor)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss text-white rounded-lg text-sm font-medium transition-colors"
               >
                 + Add Investor
               </button>
@@ -246,25 +246,25 @@ export default function FundraisingPage({
 
             {/* Add Investor Form */}
             {showAddInvestor && (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+              <div className="bg-paper border border-line rounded-xl p-6 mb-6">
                 <h4 className="text-sm font-medium text-white mb-4">Add Investor</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Name</label>
+                    <label className="block text-xs text-ink-4 mb-1">Name</label>
                     <input
                       type="text"
                       value={investorForm.name}
                       onChange={(e) => setInvestorForm({ ...investorForm, name: e.target.value })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                       placeholder="Fund or Angel name"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Type</label>
+                    <label className="block text-xs text-ink-4 mb-1">Type</label>
                     <select
                       value={investorForm.type}
                       onChange={(e) => setInvestorForm({ ...investorForm, type: e.target.value })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                     >
                       <option value="VC">VC</option>
                       <option value="Angel">Angel</option>
@@ -274,53 +274,53 @@ export default function FundraisingPage({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Check Size ($)</label>
+                    <label className="block text-xs text-ink-4 mb-1">Check Size ($)</label>
                     <input
                       type="number"
                       value={investorForm.check_size}
                       onChange={(e) => setInvestorForm({ ...investorForm, check_size: Number(e.target.value) })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Contact Name</label>
+                    <label className="block text-xs text-ink-4 mb-1">Contact Name</label>
                     <input
                       type="text"
                       value={investorForm.contact_name}
                       onChange={(e) => setInvestorForm({ ...investorForm, contact_name: e.target.value })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Contact Email</label>
+                    <label className="block text-xs text-ink-4 mb-1">Contact Email</label>
                     <input
                       type="email"
                       value={investorForm.contact_email}
                       onChange={(e) => setInvestorForm({ ...investorForm, contact_email: e.target.value })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Notes</label>
+                    <label className="block text-xs text-ink-4 mb-1">Notes</label>
                     <input
                       type="text"
                       value={investorForm.notes}
                       onChange={(e) => setInvestorForm({ ...investorForm, notes: e.target.value })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                     />
                   </div>
                 </div>
                 <div className="flex justify-end gap-2 mt-4">
                   <button
                     onClick={() => setShowAddInvestor(false)}
-                    className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+                    className="px-4 py-2 text-sm text-ink-4 hover:text-ink-2 transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={addInvestor}
                     disabled={!investorForm.name}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+                    className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
                   >
                     Add
                   </button>
@@ -335,12 +335,12 @@ export default function FundraisingPage({
                 return (
                   <div
                     key={stage}
-                    className="flex-shrink-0 w-56 bg-zinc-900/50 border border-zinc-800 rounded-xl"
+                    className="flex-shrink-0 w-56 bg-paper/50 border border-line rounded-xl"
                   >
-                    <div className="px-3 py-2 border-b border-zinc-800">
+                    <div className="px-3 py-2 border-b border-line">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-zinc-300">{stage}</span>
-                        <span className="text-xs text-zinc-500">{stageInvestors.length}</span>
+                        <span className="text-xs font-medium text-ink-3">{stage}</span>
+                        <span className="text-xs text-ink-5">{stageInvestors.length}</span>
                       </div>
                     </div>
                     <div className="p-2 space-y-2 min-h-[100px]">
@@ -352,34 +352,34 @@ export default function FundraisingPage({
                                 expandedInvestor === investor.investor_id ? null : investor.investor_id
                               )
                             }
-                            className="w-full text-left bg-zinc-800 hover:bg-zinc-750 rounded-lg p-3 transition-colors"
+                            className="w-full text-left bg-paper-2 hover:bg-paper-3 rounded-lg p-3 transition-colors"
                           >
                             <div className="text-sm text-white font-medium truncate">
                               {investor.name}
                             </div>
-                            <div className="text-xs text-zinc-400 mt-1">{investor.type}</div>
+                            <div className="text-xs text-ink-4 mt-1">{investor.type}</div>
                             {investor.check_size > 0 && (
-                              <div className="text-xs text-zinc-500 mt-0.5">
+                              <div className="text-xs text-ink-5 mt-0.5">
                                 ${investor.check_size.toLocaleString()}
                               </div>
                             )}
-                            <div className="text-xs text-zinc-600 mt-1">
+                            <div className="text-xs text-ink-6 mt-1">
                               {getLastInteractionDate(investor)}
                             </div>
                           </button>
 
                           {/* Expanded Investor Detail */}
                           {expandedInvestor === investor.investor_id && (
-                            <div className="mt-2 bg-zinc-800/50 rounded-lg p-3 space-y-3">
+                            <div className="mt-2 bg-paper-2/50 rounded-lg p-3 space-y-3">
                               {/* Move stage buttons */}
                               <div>
-                                <label className="block text-xs text-zinc-400 mb-1">Move to:</label>
+                                <label className="block text-xs text-ink-4 mb-1">Move to:</label>
                                 <div className="flex flex-wrap gap-1">
                                   {PIPELINE_STAGES.filter((s) => s !== stage).map((s) => (
                                     <button
                                       key={s}
                                       onClick={() => moveInvestorStage(investor.investor_id, s)}
-                                      className="px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-xs transition-colors"
+                                      className="px-2 py-0.5 bg-paper-3 hover:bg-line-2 text-ink-3 rounded text-xs transition-colors"
                                     >
                                       {s}
                                     </button>
@@ -388,17 +388,17 @@ export default function FundraisingPage({
                               </div>
 
                               {investor.notes && (
-                                <p className="text-xs text-zinc-400">{investor.notes}</p>
+                                <p className="text-xs text-ink-4">{investor.notes}</p>
                               )}
 
                               {/* Interaction History */}
                               {investor.interactions && investor.interactions.length > 0 && (
                                 <div>
-                                  <div className="text-xs text-zinc-400 mb-1">Interactions:</div>
+                                  <div className="text-xs text-ink-4 mb-1">Interactions:</div>
                                   <div className="space-y-1">
                                     {investor.interactions.slice(-3).map((inter: InvestorInteraction, i: number) => (
-                                      <div key={i} className="text-xs text-zinc-500">
-                                        <span className="text-zinc-400">{inter.date}</span> -{' '}
+                                      <div key={i} className="text-xs text-ink-5">
+                                        <span className="text-ink-4">{inter.date}</span> -{' '}
                                         {inter.type}: {inter.summary}
                                       </div>
                                     ))}
@@ -414,7 +414,7 @@ export default function FundraisingPage({
                                     onChange={(e) =>
                                       setInteractionForm({ ...interactionForm, type: e.target.value })
                                     }
-                                    className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-xs text-white"
+                                    className="w-full bg-paper-3 border border-line-2 rounded px-2 py-1 text-xs text-white"
                                   >
                                     <option value="email">Email</option>
                                     <option value="call">Call</option>
@@ -429,7 +429,7 @@ export default function FundraisingPage({
                                       setInteractionForm({ ...interactionForm, summary: e.target.value })
                                     }
                                     placeholder="Summary"
-                                    className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-xs text-white"
+                                    className="w-full bg-paper-3 border border-line-2 rounded px-2 py-1 text-xs text-white"
                                   />
                                   <input
                                     type="text"
@@ -438,7 +438,7 @@ export default function FundraisingPage({
                                       setInteractionForm({ ...interactionForm, next_step: e.target.value })
                                     }
                                     placeholder="Next step"
-                                    className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-xs text-white"
+                                    className="w-full bg-paper-3 border border-line-2 rounded px-2 py-1 text-xs text-white"
                                   />
                                   <div className="flex gap-1">
                                     <button
@@ -451,13 +451,13 @@ export default function FundraisingPage({
                                           next_step_date: '',
                                         })
                                       }
-                                      className="px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200"
+                                      className="px-2 py-1 text-xs text-ink-4 hover:text-ink-2"
                                     >
                                       Cancel
                                     </button>
                                     <button
                                       onClick={addInteraction}
-                                      className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs"
+                                      className="px-2 py-1 bg-moss hover:bg-moss text-white rounded text-xs"
                                     >
                                       Save
                                     </button>
@@ -471,7 +471,7 @@ export default function FundraisingPage({
                                       investorId: investor.investor_id,
                                     })
                                   }
-                                  className="text-xs text-blue-400 hover:text-blue-300"
+                                  className="text-xs text-moss hover:text-moss/70"
                                 >
                                   + Add Interaction
                                 </button>
@@ -487,7 +487,7 @@ export default function FundraisingPage({
             </div>
 
             {investors.length === 0 && (
-              <div className="text-center py-12 text-zinc-500 text-sm">
+              <div className="text-center py-12 text-ink-5 text-sm">
                 No investors in your pipeline yet. Add investors to start tracking.
               </div>
             )}
@@ -501,7 +501,7 @@ export default function FundraisingPage({
               <button
                 onClick={iteratePitch}
                 disabled={isRunning}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
               >
                 {isRunning ? 'Iterating...' : 'Iterate Pitch'}
               </button>
@@ -514,8 +514,8 @@ export default function FundraisingPage({
                   .map((version, i) => (
                     <div
                       key={version.version_id}
-                      className={`bg-zinc-900 border rounded-xl p-4 ${
-                        i === 0 ? 'border-blue-500/30' : 'border-zinc-800'
+                      className={`bg-paper border rounded-xl p-4 ${
+                        i === 0 ? 'border-moss/30' : 'border-line'
                       }`}
                     >
                       <button
@@ -530,26 +530,26 @@ export default function FundraisingPage({
                               Version {version.version_number}
                             </span>
                             {i === 0 && (
-                              <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full text-xs">
+                              <span className="px-2 py-0.5 bg-moss/20 text-moss rounded-full text-xs">
                                 Latest
                               </span>
                             )}
                           </div>
-                          <span className="text-xs text-zinc-500">{version.created_at}</span>
+                          <span className="text-xs text-ink-5">{version.created_at}</span>
                         </div>
                         {version.feedback_summary && (
-                          <p className="text-sm text-zinc-400 mt-2">{version.feedback_summary}</p>
+                          <p className="text-sm text-ink-4 mt-2">{version.feedback_summary}</p>
                         )}
                       </button>
 
                       {expandedPitch === version.version_id && (
                         <div className="mt-4 space-y-3">
                           {version.changelog && version.changelog.length > 0 && (
-                            <div className="bg-zinc-800/50 rounded-lg p-3">
-                              <h5 className="text-xs font-medium text-zinc-400 mb-2">Changes</h5>
+                            <div className="bg-paper-2/50 rounded-lg p-3">
+                              <h5 className="text-xs font-medium text-ink-4 mb-2">Changes</h5>
                               <ul className="space-y-1">
                                 {version.changelog.map((change, ci) => (
-                                  <li key={ci} className="text-xs text-zinc-300">
+                                  <li key={ci} className="text-xs text-ink-3">
                                     - {change}
                                   </li>
                                 ))}
@@ -558,13 +558,13 @@ export default function FundraisingPage({
                           )}
                           {version.slides &&
                             version.slides.map((slide, si) => (
-                              <div key={si} className="bg-zinc-800/50 rounded-lg p-3">
-                                <h5 className="text-xs font-medium text-blue-400 mb-1">
+                              <div key={si} className="bg-paper-2/50 rounded-lg p-3">
+                                <h5 className="text-xs font-medium text-moss mb-1">
                                   {slide.slide}
                                 </h5>
-                                <p className="text-sm text-zinc-300">{slide.content}</p>
+                                <p className="text-sm text-ink-3">{slide.content}</p>
                                 {slide.speaker_notes && (
-                                  <p className="text-xs text-zinc-500 mt-2 italic">
+                                  <p className="text-xs text-ink-5 mt-2 italic">
                                     Notes: {slide.speaker_notes}
                                   </p>
                                 )}
@@ -576,7 +576,7 @@ export default function FundraisingPage({
                   ))}
               </div>
             ) : (
-              <div className="text-center py-12 text-zinc-500 text-sm">
+              <div className="text-center py-12 text-ink-5 text-sm">
                 No pitch versions yet. Click &quot;Iterate Pitch&quot; to generate your first pitch deck.
               </div>
             )}
@@ -589,7 +589,7 @@ export default function FundraisingPage({
             <div className="flex justify-end mb-4">
               <button
                 onClick={() => setShowAddTermSheet(!showAddTermSheet)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss text-white rounded-lg text-sm font-medium transition-colors"
               >
                 + Add Term Sheet
               </button>
@@ -597,15 +597,15 @@ export default function FundraisingPage({
 
             {/* Add Term Sheet Form */}
             {showAddTermSheet && (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+              <div className="bg-paper border border-line rounded-xl p-6 mb-6">
                 <h4 className="text-sm font-medium text-white mb-4">Add Term Sheet</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Investor</label>
+                    <label className="block text-xs text-ink-4 mb-1">Investor</label>
                     <select
                       value={termSheetForm.investor_id}
                       onChange={(e) => setTermSheetForm({ ...termSheetForm, investor_id: e.target.value })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                     >
                       <option value="">Select investor</option>
                       {investors.map((inv) => (
@@ -616,29 +616,29 @@ export default function FundraisingPage({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Valuation ($)</label>
+                    <label className="block text-xs text-ink-4 mb-1">Valuation ($)</label>
                     <input
                       type="number"
                       value={termSheetForm.valuation}
                       onChange={(e) => setTermSheetForm({ ...termSheetForm, valuation: Number(e.target.value) })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Amount ($)</label>
+                    <label className="block text-xs text-ink-4 mb-1">Amount ($)</label>
                     <input
                       type="number"
                       value={termSheetForm.amount}
                       onChange={(e) => setTermSheetForm({ ...termSheetForm, amount: Number(e.target.value) })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Instrument</label>
+                    <label className="block text-xs text-ink-4 mb-1">Instrument</label>
                     <select
                       value={termSheetForm.instrument}
                       onChange={(e) => setTermSheetForm({ ...termSheetForm, instrument: e.target.value })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                     >
                       <option value="SAFE">SAFE</option>
                       <option value="Convertible Note">Convertible Note</option>
@@ -646,12 +646,12 @@ export default function FundraisingPage({
                     </select>
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-xs text-zinc-400 mb-1">Key Terms</label>
+                    <label className="block text-xs text-ink-4 mb-1">Key Terms</label>
                     <input
                       type="text"
                       value={termSheetForm.key_terms}
                       onChange={(e) => setTermSheetForm({ ...termSheetForm, key_terms: e.target.value })}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
                       placeholder="e.g., MFN, pro-rata rights"
                     />
                   </div>
@@ -659,13 +659,13 @@ export default function FundraisingPage({
                 <div className="flex justify-end gap-2 mt-4">
                   <button
                     onClick={() => setShowAddTermSheet(false)}
-                    className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+                    className="px-4 py-2 text-sm text-ink-4 hover:text-ink-2 transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={addTermSheet}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+                    className="px-4 py-2 bg-moss hover:bg-moss text-white rounded-lg text-sm font-medium transition-colors"
                   >
                     Add
                   </button>
@@ -680,23 +680,23 @@ export default function FundraisingPage({
                   return (
                     <div
                       key={ts.term_sheet_id}
-                      className="bg-zinc-900 border border-zinc-800 rounded-xl p-4"
+                      className="bg-paper border border-line rounded-xl p-4"
                     >
                       <div className="flex items-center justify-between mb-3">
                         <div>
                           <h4 className="text-white font-medium">
                             {investor?.name || 'Unknown Investor'}
                           </h4>
-                          <span className="text-xs text-zinc-500">{ts.received_at}</span>
+                          <span className="text-xs text-ink-5">{ts.received_at}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span
                             className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                               ts.status === 'accepted'
-                                ? 'text-green-400 bg-green-500/10'
+                                ? 'text-moss bg-moss/10'
                                 : ts.status === 'rejected'
-                                  ? 'text-red-400 bg-red-500/10'
-                                  : 'text-yellow-400 bg-yellow-500/10'
+                                  ? 'text-clay bg-clay/10'
+                                  : 'text-accent bg-accent/10'
                             }`}
                           >
                             {ts.status || 'pending'}
@@ -704,7 +704,7 @@ export default function FundraisingPage({
                           <button
                             onClick={() => analyzeTermSheet(ts.term_sheet_id)}
                             disabled={isRunning}
-                            className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800 text-zinc-300 rounded-lg text-xs transition-colors"
+                            className="px-3 py-1 bg-paper-2 hover:bg-paper-3 disabled:bg-paper-2 text-ink-3 rounded-lg text-xs transition-colors"
                           >
                             Analyze
                           </button>
@@ -712,30 +712,30 @@ export default function FundraisingPage({
                       </div>
                       <div className="grid grid-cols-3 gap-4 text-sm">
                         <div>
-                          <div className="text-xs text-zinc-400">Valuation</div>
+                          <div className="text-xs text-ink-4">Valuation</div>
                           <div className="text-white">${ts.valuation.toLocaleString()}</div>
                         </div>
                         <div>
-                          <div className="text-xs text-zinc-400">Amount</div>
+                          <div className="text-xs text-ink-4">Amount</div>
                           <div className="text-white">${ts.amount.toLocaleString()}</div>
                         </div>
                         <div>
-                          <div className="text-xs text-zinc-400">Instrument</div>
+                          <div className="text-xs text-ink-4">Instrument</div>
                           <div className="text-white">{ts.instrument}</div>
                         </div>
                       </div>
                       {ts.key_terms && (
-                        <p className="text-xs text-zinc-400 mt-2">Terms: {ts.key_terms}</p>
+                        <p className="text-xs text-ink-4 mt-2">Terms: {ts.key_terms}</p>
                       )}
                       {ts.notes && (
-                        <p className="text-xs text-zinc-500 mt-1">{ts.notes}</p>
+                        <p className="text-xs text-ink-5 mt-1">{ts.notes}</p>
                       )}
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="text-center py-12 text-zinc-500 text-sm">
+              <div className="text-center py-12 text-ink-5 text-sm">
                 No term sheets yet. Add them as you receive offers.
               </div>
             )}

@@ -29,7 +29,7 @@ const ENTITY_TYPE_COLORS: Record<string, string> = {
 };
 
 function getTypeColor(entityType: string): string {
-  return ENTITY_TYPE_COLORS[entityType] ?? 'bg-zinc-500/20 text-zinc-400';
+  return ENTITY_TYPE_COLORS[entityType] ?? 'bg-ink-5/20 text-ink-4';
 }
 
 export default function EntityCardInline({
@@ -69,11 +69,11 @@ export default function EntityCardInline({
         <ReviewControls reviewState={review.reviewState} onReview={review.handleReview} />
       </>}
     >
-      <p className={`text-sm leading-relaxed mb-2 ${review.isRejected ? 'text-zinc-600' : 'text-zinc-300'}`}>
+      <p className={`text-sm leading-relaxed mb-2 ${review.isRejected ? 'text-ink-6' : 'text-ink-3'}`}>
         {artifact.summary}
       </p>
       {!review.isRejected && (
-        <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+        <div className="flex items-center gap-1.5 text-xs text-ink-5">
           {review.isPending ? 'Pending review' : 'Added to graph'}
         </div>
       )}

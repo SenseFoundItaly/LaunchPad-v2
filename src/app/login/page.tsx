@@ -66,7 +66,7 @@ function LoginForm() {
         {status === 'sending' ? 'Sending...' : 'Email me a login link'}
       </button>
       {error && (
-        <div className="text-sm text-red-400">{error}</div>
+        <div className="text-sm text-clay">{error}</div>
       )}
     </form>
   );
@@ -76,9 +76,9 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-neutral-950 text-neutral-100 px-4">
       <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-semibold mb-2">LaunchPad</h1>
+        <h1 className="text-2xl font-semibold mb-2">SENSEFOUND</h1>
         <p className="text-sm text-neutral-400 mb-6">
-          Sign in with a magic link. We&apos;ll email you a one-time login.
+          Sign in with a magic link. We&apos;ll send a secure one-time login to your inbox.
         </p>
         <Suspense fallback={<div className="text-sm text-neutral-500">Loading…</div>}>
           <LoginForm />

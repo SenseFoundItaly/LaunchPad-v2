@@ -23,7 +23,7 @@ export default function SourceBadges({ skillId, skillStatus }: SourceBadgesProps
 
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-[10px] text-zinc-600">Sources:</span>
+      <span className="text-[10px] text-ink-6">Sources:</span>
       {sources.map((srcId) => {
         const completed = skillStatus[srcId] === 'completed';
         return (
@@ -31,8 +31,8 @@ export default function SourceBadges({ skillId, skillStatus }: SourceBadgesProps
             key={srcId}
             className={`text-[10px] px-1.5 py-0.5 rounded-full ${
               completed
-                ? 'bg-green-500/20 text-green-400'
-                : 'bg-zinc-700/50 text-zinc-500'
+                ? 'bg-moss-wash text-moss'
+                : 'bg-paper-3/50 text-ink-5'
             }`}
           >
             {getSkillLabel(srcId)} {completed ? '+' : '-'}

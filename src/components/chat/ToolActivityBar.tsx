@@ -68,25 +68,25 @@ export default function ToolActivityBar({ tools }: { tools: ToolActivity[] }) {
             key={tool.id}
             className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-all ${
               isRunning
-                ? 'bg-blue-500/10 border border-blue-500/20 text-blue-400'
+                ? 'bg-sky/10 border border-sky/20 text-sky'
                 : isError
-                  ? 'bg-red-500/10 border border-red-500/20 text-red-400'
-                  : 'bg-zinc-800/50 border border-zinc-700/30 text-zinc-500'
+                  ? 'bg-clay/10 border border-clay/20 text-clay'
+                  : 'bg-paper-2/50 border border-line-2 text-ink-5'
             }`}
           >
             {isRunning && (
-              <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
+              <span className="w-2 h-2 rounded-full bg-sky animate-pulse shrink-0" />
             )}
             {!isRunning && !isError && (
-              <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+              <span className="w-2 h-2 rounded-full bg-moss shrink-0" />
             )}
             {isError && (
-              <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />
+              <span className="w-2 h-2 rounded-full bg-clay shrink-0" />
             )}
             <ToolIcon name={tool.name} />
             <span className="font-medium">{label}</span>
             {detail && (
-              <span className={`max-w-[200px] truncate ${isRunning ? 'text-blue-300/70' : 'text-zinc-600'}`}>
+              <span className={`max-w-[200px] truncate ${isRunning ? 'text-sky/70' : 'text-ink-6'}`}>
                 {detail}
               </span>
             )}

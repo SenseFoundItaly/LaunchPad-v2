@@ -38,11 +38,11 @@ const TYPE_ICONS: Record<Source['type'], string> = {
 };
 
 const TYPE_COLORS: Record<Source['type'], string> = {
-  web: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
-  skill: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
-  internal: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-  user: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  inference: 'bg-zinc-500/15 text-zinc-300 border-zinc-500/30',
+  web: 'bg-sky/15 text-sky border-sky/30',
+  skill: 'bg-plum/15 text-plum border-plum/30',
+  internal: 'bg-moss/15 text-moss border-moss/30',
+  user: 'bg-accent/15 text-accent border-accent/30',
+  inference: 'bg-ink-5/15 text-ink-3 border-ink-5/30',
 };
 
 function truncate(s: string, max: number): string {
@@ -104,22 +104,20 @@ export default function SourcesFooter({
   label = 'Sources',
   compact = false,
 }: SourcesFooterProps) {
-  // Only display web sources — internal/skill/user/inference sources are kept
-  // in the data layer for traceability but hidden from the founder's view.
-  const webSources = Array.isArray(sources) ? sources.filter((s) => s.type === 'web') : [];
-  if (webSources.length === 0) return null;
+  const visibleSources = Array.isArray(sources) ? sources : [];
+  if (visibleSources.length === 0) return null;
 
   const chipBase = compact
     ? 'text-[10px] px-1.5 py-0.5 gap-1'
     : 'text-[11px] px-2 py-0.5 gap-1.5';
 
   return (
-    <div className="mt-3 pt-2 border-t border-zinc-700/50">
+    <div className="mt-3 pt-2 border-t border-line-2">
       <div className="flex items-center flex-wrap gap-1.5">
-        <span className="text-[10px] uppercase tracking-wider text-zinc-500 mr-1">
+        <span className="text-[10px] uppercase tracking-wider text-ink-5 mr-1">
           {label}
         </span>
-        {webSources.map((src, idx) => {
+        {visibleSources.map((src, idx) => {
           const href = hrefFor(src);
           const title = truncate(src.title, compact ? 28 : 48);
           const tooltip = tooltipFor(src);
@@ -132,7 +130,7 @@ export default function SourcesFooter({
 
           const content = (
             <>
-              <span className="font-mono text-zinc-500">{indexTag}</span>
+              <span className="font-mono text-ink-5">{indexTag}</span>
               <span className="opacity-60 font-mono text-[9px]">{typeTag}</span>
               <span className="truncate max-w-[180px]">{title}</span>
             </>

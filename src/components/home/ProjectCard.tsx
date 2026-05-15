@@ -19,18 +19,18 @@ export default function ProjectCard({
   const pct = totalSkills > 0 ? Math.round((skillsCompleted / totalSkills) * 100) : 0;
   const score = (skillsCompleted / totalSkills) * 10;
   const verdict = score >= 8 ? 'STRONG GO' : score >= 6 ? 'GO' : score >= 4 ? 'CAUTION' : 'NOT READY';
-  const verdictColor = score >= 8 ? 'bg-green-500/20 text-green-400'
-    : score >= 6 ? 'bg-emerald-500/20 text-emerald-400'
-    : score >= 4 ? 'bg-yellow-500/20 text-yellow-400'
-    : 'bg-red-500/20 text-red-400';
+  const verdictColor = score >= 8 ? 'bg-moss-wash text-moss'
+    : score >= 6 ? 'bg-moss/20 text-moss'
+    : score >= 4 ? 'bg-accent-wash text-accent'
+    : 'bg-clay/20 text-clay';
 
   return (
     <div
       onClick={() => router.push(`/project/${projectId}/chat`)}
-      className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 cursor-pointer hover:border-zinc-700 transition-colors group"
+      className="bg-paper border border-line rounded-xl p-5 cursor-pointer hover:border-line-2 transition-colors group"
     >
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-semibold text-white group-hover:text-blue-400 transition-colors truncate flex-1">
+        <h3 className="text-sm font-semibold text-ink group-hover:text-moss transition-colors truncate flex-1">
           {name}
         </h3>
         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ml-2 shrink-0 ${verdictColor}`}>
@@ -39,16 +39,16 @@ export default function ProjectCard({
       </div>
 
       {description && (
-        <p className="text-xs text-zinc-500 mb-3 line-clamp-1">{description}</p>
+        <p className="text-xs text-ink-5 mb-3 line-clamp-1">{description}</p>
       )}
 
       {/* Progress bar */}
       <div className="mb-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-[10px] text-zinc-600">{skillsCompleted}/{totalSkills} skills</span>
-          <span className="text-[10px] text-zinc-600">{pct}%</span>
+          <span className="text-[10px] text-ink-6">{skillsCompleted}/{totalSkills} skills</span>
+          <span className="text-[10px] text-ink-6">{pct}%</span>
         </div>
-        <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+        <div className="w-full h-1.5 bg-paper-2 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all"
             style={{
@@ -60,7 +60,7 @@ export default function ProjectCard({
       </div>
 
       {/* Bottom stats */}
-      <div className="flex items-center justify-between text-[10px] text-zinc-600">
+      <div className="flex items-center justify-between text-[10px] text-ink-6">
         <span>{weeklyAlerts > 0 ? `${weeklyAlerts} alert${weeklyAlerts > 1 ? 's' : ''} this week` : 'No alerts'}</span>
         <span>{new Date(createdAt).toLocaleDateString()}</span>
       </div>

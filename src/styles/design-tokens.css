@@ -4,10 +4,10 @@
 */
 
 :root {
-  /* base — warm paper */
-  --paper: #F4F1EA;
-  --paper-2: #EBE6DB;
-  --paper-3: #DED8C9;
+  /* base — warm paper (SenseFound V1.1 cream) */
+  --paper: #FAF5EE;
+  --paper-2: #F0EBE0;
+  --paper-3: #E5DFCF;
   --ink: #16140F;
   --ink-2: #2A2620;
   --ink-3: #4A453C;
@@ -20,8 +20,8 @@
   --surface-sunk: #EEE9DD;
 
   /* accents (shared chroma, vary hue) */
-  --moss: oklch(0.58 0.08 145);       /* ok / running */
-  --moss-wash: oklch(0.94 0.03 140);
+  --moss: oklch(0.58 0.06 155);       /* ok / running — sage-teal per brand */
+  --moss-wash: oklch(0.94 0.02 155);
   --clay: oklch(0.58 0.12 28);        /* warn */
   --sky: oklch(0.60 0.09 235);        /* info */
   --sky-wash: oklch(0.94 0.02 235);
@@ -31,8 +31,8 @@
   --f-sans: var(--font-inter), -apple-system, system-ui, sans-serif;
   --f-display: var(--font-inter), -apple-system, system-ui, sans-serif; /* all-sans */
   --f-mono: var(--font-jetbrains-mono), 'SF Mono', ui-monospace, monospace;
-  --accent-h: 52; /* hue knob — driven by Tweaks */
-  --accent: oklch(0.72 0.18 var(--accent-h));
+  --accent-h: 30; /* hue knob — peach/coral per brand */
+  --accent: oklch(0.72 0.14 var(--accent-h));
   --accent-ink: oklch(0.36 0.12 var(--accent-h));
   --accent-wash: oklch(0.94 0.05 var(--accent-h));
 
@@ -46,7 +46,7 @@
 
 /* Dark theme (inverted paper) */
 .theme-ink {
-  --paper: #14130F;
+  --paper: #16140F;
   --paper-2: #1C1B16;
   --paper-3: #25231C;
   --ink: #F2EEE4;
@@ -60,7 +60,7 @@
   --surface: #1A1813;
   --surface-sunk: #0F0E0A;
   --accent-wash: oklch(0.28 0.06 60);
-  --moss-wash: oklch(0.25 0.04 145);
+  --moss-wash: oklch(0.25 0.03 155);
   --sky-wash: oklch(0.25 0.03 235);
   --shadow-card: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.4);
   --shadow-lift: 0 2px 8px rgba(0,0,0,.5), 0 20px 48px rgba(0,0,0,.6);
@@ -114,3 +114,19 @@
 .lp-frame * { box-sizing: border-box; }
 .lp-rail-item:hover { background: var(--surface); color: var(--ink); }
 .lp-inline-option:hover { border-color: var(--ink-4) !important; background: var(--paper-2) !important; }
+
+/* bracket motif — from SenseFound logomark */
+.lp-brackets { position: relative; }
+.lp-brackets::before,
+.lp-brackets::after {
+  content: '';
+  position: absolute;
+  width: var(--bracket-size, 12px);
+  height: var(--bracket-size, 12px);
+  border-color: var(--bracket-color, var(--moss));
+  border-style: solid;
+  border-width: 0;
+  pointer-events: none;
+}
+.lp-brackets::before { top: 0; left: 0; border-top-width: 2px; border-left-width: 2px; }
+.lp-brackets::after { bottom: 0; right: 0; border-bottom-width: 2px; border-right-width: 2px; }

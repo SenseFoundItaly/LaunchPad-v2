@@ -85,14 +85,14 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
   // Resolved states bypass the shell — render minimal single-line UI.
   if (state === 'applied') {
     return (
-      <div className="my-3 bg-zinc-800/30 border border-green-500/20 rounded-lg p-3 opacity-75">
+      <div className="my-3 bg-paper-2/30 border border-moss/20 rounded-lg p-3 opacity-75">
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-green-400 font-mono">{'\u2713'}</span>
-          <span className="text-zinc-300">Budget cap updated:</span>
-          <span className="text-zinc-100 font-medium">
+          <span className="text-moss font-mono">{'\u2713'}</span>
+          <span className="text-ink-3">Budget cap updated:</span>
+          <span className="text-ink font-medium">
             {fmtUsd(artifact.current_cap_usd)} {'\u2192'} {fmtUsd(artifact.proposed_cap_usd)}
           </span>
-          <span className="text-zinc-500 text-xs ml-auto">effective immediately</span>
+          <span className="text-ink-5 text-xs ml-auto">effective immediately</span>
         </div>
         <SourcesFooter sources={artifact.sources} compact />
       </div>
@@ -100,11 +100,11 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
   }
   if (state === 'dismissed') {
     return (
-      <div className="my-3 bg-zinc-800/20 border border-zinc-700/40 rounded-lg p-3 opacity-60">
+      <div className="my-3 bg-paper-2/20 border border-line-2 rounded-lg p-3 opacity-60">
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-zinc-500 font-mono">{'\u2717'}</span>
-          <span className="text-zinc-400">Dismissed budget proposal</span>
-          <span className="text-zinc-500 ml-auto">cap stays at {fmtUsd(artifact.current_cap_usd)}</span>
+          <span className="text-ink-5 font-mono">{'\u2717'}</span>
+          <span className="text-ink-4">Dismissed budget proposal</span>
+          <span className="text-ink-5 ml-auto">cap stays at {fmtUsd(artifact.current_cap_usd)}</span>
         </div>
       </div>
     );
@@ -121,21 +121,21 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
           {direction}
         </span>
         {artifact.estimated_monthly_cost_usd != null && (
-          <span className="text-[10px] text-zinc-500">
+          <span className="text-[10px] text-ink-5">
             est. {fmtUsd(artifact.estimated_monthly_cost_usd)}/mo
           </span>
         )}
       </>}
     >
-      <div className="text-[11px] text-zinc-400 mb-3">
-        <span className="text-zinc-500">Reason: </span>
-        <span className="text-zinc-300">{artifact.reason}</span>
+      <div className="text-[11px] text-ink-4 mb-3">
+        <span className="text-ink-5">Reason: </span>
+        <span className="text-ink-3">{artifact.reason}</span>
       </div>
 
       {state === 'editing' ? (
         <div className="space-y-2 mb-3">
           <div>
-            <label className="text-[10px] text-zinc-500 uppercase tracking-wider block mb-1">
+            <label className="text-[10px] text-ink-5 uppercase tracking-wider block mb-1">
               Proposed cap (USD/month)
             </label>
             <input
@@ -159,34 +159,34 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
                   }
                 }
               }}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 font-mono"
+              className="w-full bg-paper border border-line-2 rounded px-2 py-1 text-sm text-ink font-mono"
             />
-            {capError && <p className="text-[10px] text-red-400 mt-0.5">{capError}</p>}
+            {capError && <p className="text-[10px] text-clay mt-0.5">{capError}</p>}
           </div>
         </div>
       ) : null}
 
       {state === 'error' && serverError && (
-        <div className="mb-2 p-2 bg-red-950/40 border border-red-500/40 rounded text-[11px] text-red-300">
+        <div className="mb-2 p-2 bg-clay/10 border border-clay/40 rounded text-[11px] text-clay">
           {serverError}
         </div>
       )}
 
-      <div className="flex items-center gap-2 pt-2 border-t border-zinc-700/50">
+      <div className="flex items-center gap-2 pt-2 border-t border-line-2">
         {state === 'editing' ? (
           <>
             <button
               type="button"
               disabled={!!capError}
               onClick={() => handleApply(true)}
-              className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md transition-colors"
+              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md transition-colors"
             >
               Save &amp; apply
             </button>
             <button
               type="button"
               onClick={() => { setCapError(null); setState('collapsed'); }}
-              className="text-xs px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded-md transition-colors"
+              className="text-xs px-3 py-1.5 bg-paper-3 hover:bg-paper-3/80 text-ink-2 rounded-md transition-colors"
             >
               Cancel
             </button>
@@ -197,7 +197,7 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
               type="button"
               disabled={state === 'applying'}
               onClick={() => handleApply(false)}
-              className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-md transition-colors"
+              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 disabled:opacity-50 text-white rounded-md transition-colors"
             >
               {state === 'applying' ? 'Applying...' : 'Apply'}
             </button>
@@ -205,7 +205,7 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
               type="button"
               disabled={state === 'applying' || state === 'dismissing'}
               onClick={() => setState('editing')}
-              className="text-xs px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-zinc-200 rounded-md transition-colors"
+              className="text-xs px-3 py-1.5 bg-paper-3 hover:bg-paper-3/80 disabled:opacity-50 text-ink-2 rounded-md transition-colors"
             >
               Edit
             </button>
@@ -213,7 +213,7 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
               type="button"
               disabled={state === 'applying' || state === 'dismissing'}
               onClick={handleDismiss}
-              className="text-xs px-3 py-1.5 text-zinc-400 hover:text-zinc-200 disabled:opacity-50 transition-colors ml-auto"
+              className="text-xs px-3 py-1.5 text-ink-4 hover:text-ink-2 disabled:opacity-50 transition-colors ml-auto"
             >
               {state === 'dismissing' ? 'Dismissing...' : 'Dismiss'}
             </button>

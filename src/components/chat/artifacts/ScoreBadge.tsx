@@ -31,7 +31,7 @@ export default function ScoreBadge({ artifact }: ScoreBadgeProps) {
           r={radius}
           fill="none"
           stroke="currentColor"
-          className="text-zinc-700"
+          className="text-paper-3"
           strokeWidth="3"
         />
         {/* Score arc */}
@@ -54,12 +54,12 @@ export default function ScoreBadge({ artifact }: ScoreBadgeProps) {
           y="21"
           textAnchor="middle"
           dominantBaseline="middle"
-          className="text-[10px] font-semibold fill-zinc-200"
+          className="text-[10px] font-semibold fill-ink-2"
         >
           {artifact.score}
         </text>
       </svg>
-      <span className="text-xs text-zinc-400">
+      <span className="text-xs text-ink-4">
         {artifact.label} ({artifact.score}/{artifact.max})
       </span>
     </span>

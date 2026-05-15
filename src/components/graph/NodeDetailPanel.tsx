@@ -19,12 +19,12 @@ export default function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps)
 
   return (
     <div
-      className="absolute top-0 right-0 w-80 h-full bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto z-10 animate-in slide-in-from-right duration-200"
+      className="absolute top-0 right-0 w-80 h-full bg-paper border-l border-line p-4 overflow-y-auto z-10 animate-in slide-in-from-right duration-200"
     >
       {/* Close button */}
       <button
         onClick={onClose}
-        className="absolute top-3 right-3 text-zinc-500 hover:text-zinc-300 transition-colors"
+        className="absolute top-3 right-3 text-ink-5 hover:text-ink-3 transition-colors"
         aria-label="Close panel"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -34,7 +34,7 @@ export default function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps)
       </button>
 
       {/* Node name */}
-      <h3 className="text-lg font-semibold text-zinc-100 pr-6 mb-2">
+      <h3 className="text-lg font-semibold text-ink pr-6 mb-2">
         {node.name}
       </h3>
 
@@ -53,10 +53,10 @@ export default function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps)
       {/* Summary */}
       {node.summary && (
         <div className="mb-4">
-          <h4 className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">
+          <h4 className="text-xs font-medium text-ink-5 uppercase tracking-wider mb-1">
             Summary
           </h4>
-          <p className="text-sm text-zinc-300 leading-relaxed">
+          <p className="text-sm text-ink-3 leading-relaxed">
             {node.summary}
           </p>
         </div>
@@ -65,14 +65,14 @@ export default function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps)
       {/* Attributes */}
       {attrEntries.length > 0 && (
         <div>
-          <h4 className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">
+          <h4 className="text-xs font-medium text-ink-5 uppercase tracking-wider mb-2">
             Attributes
           </h4>
           <div className="space-y-2">
             {attrEntries.map(([key, value]) => (
               <div key={key} className="flex flex-col">
-                <span className="text-xs text-zinc-500">{key}</span>
-                <span className="text-sm text-zinc-300">
+                <span className="text-xs text-ink-5">{key}</span>
+                <span className="text-sm text-ink-3">
                   {typeof value === 'object' ? JSON.stringify(value) : String(value)}
                 </span>
               </div>

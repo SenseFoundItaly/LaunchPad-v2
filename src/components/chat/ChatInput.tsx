@@ -38,7 +38,7 @@ export default function ChatInput({ onSend, disabled, placeholder = 'Type your m
   };
 
   return (
-    <div className="border-t border-zinc-800 p-4 bg-zinc-950">
+    <div className="border-t border-line p-4 bg-surface-sunk">
       <div className="flex items-end gap-2">
         <textarea
           ref={textareaRef}
@@ -49,12 +49,12 @@ export default function ChatInput({ onSend, disabled, placeholder = 'Type your m
           placeholder={placeholder}
           disabled={disabled}
           rows={1}
-          className="flex-1 bg-zinc-900 text-zinc-200 rounded-xl px-4 py-3 text-sm resize-none border border-zinc-700 focus:border-blue-500 focus:outline-none placeholder:text-zinc-500 disabled:opacity-50"
+          className="flex-1 bg-paper text-ink-2 rounded-xl px-4 py-3 text-sm resize-none border border-line-2 focus:border-moss focus:outline-none placeholder:text-ink-5 disabled:opacity-50"
         />
         <button
           onClick={handleSend}
           disabled={disabled || !input.trim()}
-          className="h-10 px-4 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-xl text-sm font-medium transition-colors"
+          className="h-10 px-4 bg-moss hover:bg-moss/80 disabled:bg-paper-3 disabled:text-ink-5 text-white rounded-xl text-sm font-medium transition-colors"
         >
           Send
         </button>

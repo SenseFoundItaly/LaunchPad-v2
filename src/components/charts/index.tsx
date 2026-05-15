@@ -13,12 +13,12 @@ const AXIS_TICK = { fontSize: 11, fill: '#71717a' };
 function DarkTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color?: string }>; label?: string }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg bg-zinc-800 px-3 py-2 text-sm shadow-lg border border-zinc-700">
-      {label && <p className="text-zinc-300 mb-1 font-medium">{label}</p>}
+    <div className="rounded-lg bg-paper-2 px-3 py-2 text-sm shadow-lg border border-line-2">
+      {label && <p className="text-ink-3 mb-1 font-medium">{label}</p>}
       {payload.map((entry, i) => (
         <div key={i} className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
-          <span className="text-white font-medium">{entry.value}</span>
+          <span className="text-ink font-medium">{entry.value}</span>
         </div>
       ))}
     </div>
@@ -34,7 +34,7 @@ export function BarChart({ data, height = 250, title }: {
   if (!data?.length) return null;
   return (
     <div className="my-3">
-      {title && <h4 className="text-xs font-semibold text-zinc-400 mb-2">{title}</h4>}
+      {title && <h4 className="text-xs font-semibold text-ink-4 mb-2">{title}</h4>}
       <ResponsiveContainer width="100%" height={height}>
         <RBarChart data={data} layout="vertical" margin={{ left: 10, right: 30 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
@@ -61,7 +61,7 @@ export function RadarChart({ data, height = 280, title }: {
   if (!data?.length) return null;
   return (
     <div className="my-3">
-      {title && <h4 className="text-xs font-semibold text-zinc-400 mb-2">{title}</h4>}
+      {title && <h4 className="text-xs font-semibold text-ink-4 mb-2">{title}</h4>}
       <ResponsiveContainer width="100%" height={height}>
         <RRadarChart data={data}>
           <PolarGrid stroke="#3f3f46" />
@@ -84,7 +84,7 @@ export function PieChart({ data, height = 250, title, donut = true }: {
   if (!data?.length) return null;
   return (
     <div className="my-3">
-      {title && <h4 className="text-xs font-semibold text-zinc-400 mb-2">{title}</h4>}
+      {title && <h4 className="text-xs font-semibold text-ink-4 mb-2">{title}</h4>}
       <ResponsiveContainer width="100%" height={height}>
         <RPieChart>
           <Pie
@@ -118,10 +118,10 @@ export function GaugeChart({ score, maxScore = 10, label, verdict }: {
 }) {
   const pct = Math.min(score / maxScore, 1);
   const color = pct >= 0.7 ? '#10b981' : pct >= 0.5 ? '#f59e0b' : '#ef4444';
-  const verdictColor = verdict === 'GO' || verdict === 'strong_go' ? 'text-green-400 bg-green-500/20'
-    : verdict === 'CAUTION' || verdict === 'conditional' ? 'text-yellow-400 bg-yellow-500/20'
-    : verdict === 'NO-GO' || verdict === 'no_go' ? 'text-red-400 bg-red-500/20'
-    : 'text-blue-400 bg-blue-500/20';
+  const verdictColor = verdict === 'GO' || verdict === 'strong_go' ? 'text-moss bg-moss-wash'
+    : verdict === 'CAUTION' || verdict === 'conditional' ? 'text-accent bg-accent-wash'
+    : verdict === 'NO-GO' || verdict === 'no_go' ? 'text-clay bg-clay/20'
+    : 'text-sky bg-sky-wash';
 
   return (
     <div className="my-3 flex flex-col items-center">
@@ -150,7 +150,7 @@ export function GaugeChart({ score, maxScore = 10, label, verdict }: {
           / {maxScore}
         </text>
       </svg>
-      {label && <span className="text-xs text-zinc-400 mt-1">{label}</span>}
+      {label && <span className="text-xs text-ink-4 mt-1">{label}</span>}
       {verdict && (
         <span className={`text-xs font-bold px-3 py-1 rounded-full mt-2 ${verdictColor}`}>
           {verdict.replace('_', ' ').toUpperCase()}
@@ -187,7 +187,7 @@ export function ProgressRing({ value, size = 60, label }: {
           {value}%
         </text>
       </svg>
-      {label && <span className="text-[10px] text-zinc-500">{label}</span>}
+      {label && <span className="text-[10px] text-ink-5">{label}</span>}
     </div>
   );
 }
@@ -203,22 +203,22 @@ export function ScoreCard({ title, score, maxScore = 10, description, onChange, 
 }) {
   const displayScore = score;
   const pct = displayScore / maxScore;
-  const color = pct >= 0.7 ? 'text-green-400' : pct >= 0.5 ? 'text-yellow-400' : 'text-red-400';
-  const bg = pct >= 0.7 ? 'bg-green-500/10 border-green-500/30' : pct >= 0.5 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30';
+  const color = pct >= 0.7 ? 'text-moss' : pct >= 0.5 ? 'text-accent' : 'text-clay';
+  const bg = pct >= 0.7 ? 'bg-moss/10 border-moss/30' : pct >= 0.5 ? 'bg-accent/10 border-accent/30' : 'bg-clay/10 border-clay/30';
   const barColor = pct >= 0.7 ? '#10b981' : pct >= 0.5 ? '#f59e0b' : '#ef4444';
 
   return (
     <div className={`rounded-lg border p-3 ${bg}`}>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-xs text-zinc-400">{title}</span>
+        <span className="text-xs text-ink-4">{title}</span>
         <div className="flex items-center gap-2">
           {originalScore !== undefined && originalScore !== displayScore && (
-            <span className="text-xs text-zinc-600 line-through">{originalScore.toFixed(1)}</span>
+            <span className="text-xs text-ink-6 line-through">{originalScore.toFixed(1)}</span>
           )}
           <span className={`text-lg font-bold ${color}`}>{displayScore.toFixed(1)}</span>
         </div>
       </div>
-      {description && <p className="text-[11px] text-zinc-500">{description}</p>}
+      {description && <p className="text-[11px] text-ink-5">{description}</p>}
       <div className="mt-2 w-full h-1.5 bg-black/20 rounded-full overflow-hidden">
         <div className="h-full rounded-full transition-all" style={{ width: `${pct * 100}%`, backgroundColor: barColor }} />
       </div>
@@ -230,7 +230,7 @@ export function ScoreCard({ title, score, maxScore = 10, description, onChange, 
           step={0.1}
           value={displayScore}
           onChange={(e) => onChange(parseFloat(e.target.value))}
-          className="w-full mt-2 h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+          className="w-full mt-2 h-1 bg-paper-3 rounded-full appearance-none cursor-pointer accent-moss"
         />
       )}
     </div>
