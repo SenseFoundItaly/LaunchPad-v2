@@ -30,18 +30,18 @@
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
     "uuid": "^13.0.0",
-    "tailwindcss": "^4",
     "@tailwindcss/postcss": "^4",
-    "ws": "^8.20.0"
-  },
-  "devDependencies": {
-    "@netlify/plugin-nextjs": "^5.15.11",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/ws": "^8.18.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@netlify/plugin-nextjs": "^5.15.11",
     "eslint": "^9",
-    "eslint-config-next": "16.2.1",
-    "typescript": "^5"
+    "eslint-config-next": "16.2.1"
   }
 }
