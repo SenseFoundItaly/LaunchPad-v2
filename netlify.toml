@@ -20,3 +20,4 @@
 [context.production.environment]
   NODE_ENV = "production"
   NEXT_TELEMETRY_DISABLED = "1"
+  NODE_VERSION = "20"
