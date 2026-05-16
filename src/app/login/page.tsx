@@ -25,9 +25,10 @@ function LoginForm() {
     setError(null);
     const supabase = getSupabaseBrowser();
     const redirectTo = `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(nextPath)}`;
+    const locale = navigator.language.slice(0, 2);
     const { error: err } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: redirectTo },
+      options: { emailRedirectTo: redirectTo, data: { locale } },
     });
     if (err) {
       setStatus('error');

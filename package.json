@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "backfill:default-user": "node scripts/backfill-default-user.cjs",
-    "db:migrate": "npx tsx db/migrate.ts"
+    "db:migrate": "npx tsx db/migrate.ts",
+    "deploy": "bash scripts/deploy.sh",
+    "deploy:prod": "bash scripts/deploy.sh --prod"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
