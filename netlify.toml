@@ -1,16 +1,13 @@
 [build]
-  command = "rm -rf .next .netlify/functions-internal && npm run build"
+  command = "npm run build"
   publish = ".next"
 
 [build.environment]
   NODE_VERSION = "20"
 
-# Netlify auto-detects Next.js and uses its built-in runtime (v5).
-# No explicit plugin needed — @netlify/plugin-nextjs is deprecated.
-
-[functions]
-  external_node_modules = ["ws", "@mariozechner/pi-ai", "@mariozechner/pi-agent-core"]
-  node_bundler = "esbuild"
+# Netlify auto-detects Next.js and uses the OpenNext adapter.
+# serverExternalPackages in next.config.ts handles ws/pi-ai/pi-agent-core.
+# Do NOT add a [functions] section — it overrides the adapter's bundling.
 
 [[headers]]
   for = "/*"
