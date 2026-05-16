@@ -2,6 +2,9 @@
   command = "npm run build"
   publish = ".next"
 
+[build.environment]
+  NODE_VERSION = "20"
+
 # Netlify auto-detects Next.js and uses its built-in runtime (v5).
 # No explicit plugin needed — @netlify/plugin-nextjs is deprecated.
 
@@ -20,4 +23,3 @@
 [context.production.environment]
   NODE_ENV = "production"
   NEXT_TELEMETRY_DISABLED = "1"
-  NODE_VERSION = "20"
