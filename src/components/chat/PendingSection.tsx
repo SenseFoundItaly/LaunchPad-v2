@@ -41,7 +41,7 @@ const LANE_BUTTONS: Record<ActionLane, Array<{ verb: string; label: { en: string
 
 const TYPE_CHIP_STYLES: Record<string, { bg: string; fg: string }> = {
   approval: { bg: 'var(--accent)', fg: 'var(--ink)' },
-  todo: { bg: 'var(--sky)', fg: '#FFF' },
+  todo: { bg: 'var(--sky)', fg: 'var(--on-accent)' },
   notification: { bg: 'var(--paper-3)', fg: 'var(--ink-3)' },
 };
 

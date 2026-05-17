@@ -54,7 +54,7 @@ export default function ChatInput({ onSend, disabled, placeholder = 'Type your m
         <button
           onClick={handleSend}
           disabled={disabled || !input.trim()}
-          className="h-10 px-4 bg-moss hover:bg-moss/80 disabled:bg-paper-3 disabled:text-ink-5 text-white rounded-xl text-sm font-medium transition-colors"
+          className="h-10 px-4 bg-moss hover:bg-moss/80 disabled:bg-paper-3 disabled:text-ink-5 text-paper rounded-xl text-sm font-medium transition-colors"
         >
           Send
         </button>

@@ -7,8 +7,8 @@ import {
   PieChart as RPieChart, Pie,
 } from 'recharts';
 
-const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899'];
-const AXIS_TICK = { fontSize: 11, fill: '#71717a' };
+const COLORS = ['var(--sky)', 'var(--plum)', 'var(--moss)', 'var(--cat-gold)', 'var(--clay)', 'var(--cat-teal)', 'var(--cat-rose)'];
+const AXIS_TICK = { fontSize: 11, fill: 'var(--ink-5)' };
 
 function DarkTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color?: string }>; label?: string }) {
   if (!active || !payload?.length) return null;
@@ -37,7 +37,7 @@ export function BarChart({ data, height = 250, title }: {
       {title && <h4 className="text-xs font-semibold text-ink-4 mb-2">{title}</h4>}
       <ResponsiveContainer width="100%" height={height}>
         <RBarChart data={data} layout="vertical" margin={{ left: 10, right: 30 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
           <XAxis type="number" tick={AXIS_TICK} domain={[0, 'auto']} />
           <YAxis type="category" dataKey="name" tick={AXIS_TICK} width={100} />
           <Tooltip content={<DarkTooltip />} />
@@ -64,10 +64,10 @@ export function RadarChart({ data, height = 280, title }: {
       {title && <h4 className="text-xs font-semibold text-ink-4 mb-2">{title}</h4>}
       <ResponsiveContainer width="100%" height={height}>
         <RRadarChart data={data}>
-          <PolarGrid stroke="#3f3f46" />
-          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: '#a1a1aa' }} />
-          <PolarRadiusAxis tick={{ fontSize: 9, fill: '#71717a' }} domain={[0, 10]} />
-          <Radar dataKey="value" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} strokeWidth={2} />
+          <PolarGrid stroke="var(--line-2)" />
+          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: 'var(--ink-4)' }} />
+          <PolarRadiusAxis tick={{ fontSize: 9, fill: 'var(--ink-5)' }} domain={[0, 10]} />
+          <Radar dataKey="value" stroke="var(--sky)" fill="var(--sky)" fillOpacity={0.3} strokeWidth={2} />
         </RRadarChart>
       </ResponsiveContainer>
     </div>
@@ -96,7 +96,7 @@ export function PieChart({ data, height = 250, title, donut = true }: {
             innerRadius={donut ? 50 : 0}
             outerRadius={80}
             label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-            labelLine={{ stroke: '#52525b' }}
+            labelLine={{ stroke: 'var(--ink-5)' }}
           >
             {data.map((entry, i) => (
               <Cell key={i} fill={entry.color || COLORS[i % COLORS.length]} />
@@ -117,7 +117,7 @@ export function GaugeChart({ score, maxScore = 10, label, verdict }: {
   verdict?: string;
 }) {
   const pct = Math.min(score / maxScore, 1);
-  const color = pct >= 0.7 ? '#10b981' : pct >= 0.5 ? '#f59e0b' : '#ef4444';
+  const color = pct >= 0.7 ? 'var(--moss)' : pct >= 0.5 ? 'var(--cat-gold)' : 'var(--clay)';
   const verdictColor = verdict === 'GO' || verdict === 'strong_go' ? 'text-moss bg-moss-wash'
     : verdict === 'CAUTION' || verdict === 'conditional' ? 'text-accent bg-accent-wash'
     : verdict === 'NO-GO' || verdict === 'no_go' ? 'text-clay bg-clay/20'
@@ -130,7 +130,7 @@ export function GaugeChart({ score, maxScore = 10, label, verdict }: {
         <path
           d="M 15 85 A 65 65 0 0 1 145 85"
           fill="none"
-          stroke="#27272a"
+          stroke="var(--line)"
           strokeWidth="12"
           strokeLinecap="round"
         />
@@ -143,10 +143,10 @@ export function GaugeChart({ score, maxScore = 10, label, verdict }: {
           strokeLinecap="round"
           strokeDasharray={`${pct * 204} 204`}
         />
-        <text x="80" y="75" textAnchor="middle" className="text-2xl font-bold" fill="white">
+        <text x="80" y="75" textAnchor="middle" className="text-2xl font-bold" fill="var(--ink)">
           {score.toFixed(1)}
         </text>
-        <text x="80" y="88" textAnchor="middle" className="text-xs" fill="#71717a">
+        <text x="80" y="88" textAnchor="middle" className="text-xs" fill="var(--ink-5)">
           / {maxScore}
         </text>
       </svg>
@@ -169,12 +169,12 @@ export function ProgressRing({ value, size = 60, label }: {
   const radius = (size - 8) / 2;
   const circ = 2 * Math.PI * radius;
   const pct = Math.min(value / 100, 1);
-  const color = pct >= 0.7 ? '#10b981' : pct >= 0.5 ? '#f59e0b' : '#ef4444';
+  const color = pct >= 0.7 ? 'var(--moss)' : pct >= 0.5 ? 'var(--cat-gold)' : 'var(--clay)';
 
   return (
     <div className="flex flex-col items-center gap-1">
       <svg width={size} height={size}>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#27272a" strokeWidth="4" />
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--line)" strokeWidth="4" />
         <circle
           cx={size / 2} cy={size / 2} r={radius}
           fill="none" stroke={color} strokeWidth="4"
@@ -183,7 +183,7 @@ export function ProgressRing({ value, size = 60, label }: {
           strokeLinecap="round"
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
-        <text x={size / 2} y={size / 2 + 4} textAnchor="middle" fill="white" fontSize="13" fontWeight="bold">
+        <text x={size / 2} y={size / 2 + 4} textAnchor="middle" fill="var(--ink)" fontSize="13" fontWeight="bold">
           {value}%
         </text>
       </svg>
@@ -205,7 +205,7 @@ export function ScoreCard({ title, score, maxScore = 10, description, onChange, 
   const pct = displayScore / maxScore;
   const color = pct >= 0.7 ? 'text-moss' : pct >= 0.5 ? 'text-accent' : 'text-clay';
   const bg = pct >= 0.7 ? 'bg-moss/10 border-moss/30' : pct >= 0.5 ? 'bg-accent/10 border-accent/30' : 'bg-clay/10 border-clay/30';
-  const barColor = pct >= 0.7 ? '#10b981' : pct >= 0.5 ? '#f59e0b' : '#ef4444';
+  const barColor = pct >= 0.7 ? 'var(--moss)' : pct >= 0.5 ? 'var(--cat-gold)' : 'var(--clay)';
 
   return (
     <div className={`rounded-lg border p-3 ${bg}`}>

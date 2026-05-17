@@ -17,15 +17,15 @@ function PersonaCard({ persona }: { persona: SimulatedPersona }) {
   const roleColor = {
     customer: 'text-moss',
     investor: 'text-plum',
-    expert: 'text-cyan-400',
-    competitor: 'text-orange-400',
+    expert: 'text-sky',
+    competitor: 'text-accent',
   }[persona.role] || 'text-ink-4';
 
   return (
     <div className="bg-paper border border-line rounded-xl p-4">
       <div className="flex items-start justify-between mb-2">
         <div>
-          <h5 className="text-white font-medium">{persona.name}</h5>
+          <h5 className="text-ink font-medium">{persona.name}</h5>
           <span className={`text-xs ${roleColor}`}>{persona.role} - {persona.profession}</span>
         </div>
         <span className={`text-xs px-2 py-0.5 rounded-full ${sentimentColor}`}>{persona.sentiment}</span>
@@ -87,11 +87,11 @@ export default function SimulationPage({
     <div className="h-full overflow-y-auto p-6">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-white">Market Simulation</h3>
+          <h3 className="text-lg font-semibold text-ink">Market Simulation</h3>
           <button
             onClick={runSimulation}
             disabled={isRunning}
-            className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
+            className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-paper rounded-lg text-sm font-medium transition-colors"
           >
             {isRunning ? `Simulating... ${task?.progress || 0}%` : simulation ? 'Re-simulate' : 'Run Simulation'}
           </button>
@@ -143,7 +143,7 @@ export default function SimulationPage({
               {simulation.risk_scenarios.map((risk) => (
                 <div key={risk.title} className="bg-paper border border-line rounded-xl p-4">
                   <div className="flex items-center gap-2 mb-2">
-                    <h5 className="text-white font-medium text-sm">{risk.title}</h5>
+                    <h5 className="text-ink font-medium text-sm">{risk.title}</h5>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
                       risk.probability === 'high' ? 'bg-clay/20 text-clay' :
                       risk.probability === 'medium' ? 'bg-accent/20 text-accent' :

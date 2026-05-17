@@ -248,12 +248,12 @@ export default function ProjectSidebar({ projectId, projectName }: ProjectSideba
               style={{
                 width: `${(scoring.score / 10) * 100}%`,
                 background: scoring.score < 3
-                  ? '#ef4444'
+                  ? 'var(--clay)'
                   : scoring.score < 6
-                    ? '#f59e0b'
+                    ? 'var(--cat-gold)'
                     : scoring.score < 8
-                      ? '#3b82f6'
-                      : '#10b981',
+                      ? 'var(--sky)'
+                      : 'var(--moss)',
               }}
             />
           </div>

@@ -36,13 +36,13 @@ export default function RadarChart({ dimensions, size = 300 }: RadarChartProps) 
       g.append('circle')
         .attr('r', r)
         .attr('fill', 'none')
-        .attr('stroke', '#333')
+        .attr('stroke', 'var(--line-2)')
         .attr('stroke-width', 0.5);
 
       g.append('text')
         .attr('x', 4)
         .attr('y', -r)
-        .attr('fill', '#666')
+        .attr('fill', 'var(--ink-5)')
         .attr('font-size', '10px')
         .text(`${(level / levels) * 100}`);
     }
@@ -58,7 +58,7 @@ export default function RadarChart({ dimensions, size = 300 }: RadarChartProps) 
         .attr('y1', 0)
         .attr('x2', x)
         .attr('y2', y)
-        .attr('stroke', '#444')
+        .attr('stroke', 'var(--line)')
         .attr('stroke-width', 0.5);
 
       const labelX = Math.cos(angle) * (radius + 30);
@@ -69,7 +69,7 @@ export default function RadarChart({ dimensions, size = 300 }: RadarChartProps) 
         .attr('y', labelY)
         .attr('text-anchor', 'middle')
         .attr('dominant-baseline', 'middle')
-        .attr('fill', '#aaa')
+        .attr('fill', 'var(--ink-4)')
         .attr('font-size', '11px')
         .text(dim.name.split(' ')[0]);
     });
@@ -84,8 +84,8 @@ export default function RadarChart({ dimensions, size = 300 }: RadarChartProps) 
     g.append('path')
       .datum(dimensions)
       .attr('d', lineGen)
-      .attr('fill', 'rgba(59, 130, 246, 0.2)')
-      .attr('stroke', '#3b82f6')
+      .attr('fill', 'oklch(0.62 0.14 250 / 0.2)')
+      .attr('stroke', 'var(--sky)')
       .attr('stroke-width', 2);
 
     // Data points
@@ -97,8 +97,8 @@ export default function RadarChart({ dimensions, size = 300 }: RadarChartProps) 
         .attr('cx', Math.cos(angle) * r)
         .attr('cy', Math.sin(angle) * r)
         .attr('r', 4)
-        .attr('fill', '#3b82f6')
-        .attr('stroke', '#fff')
+        .attr('fill', 'var(--sky)')
+        .attr('stroke', 'var(--on-accent)')
         .attr('stroke-width', 1.5);
     });
   }, [dimensions, size]);

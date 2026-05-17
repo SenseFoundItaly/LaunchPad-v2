@@ -1,6 +1,7 @@
 'use client';
 
 import type { ScoreBadge as ScoreBadgeType } from '@/types/artifacts';
+import { scoreColor } from '@/lib/brand-palette';
 
 interface ScoreBadgeProps {
   artifact: ScoreBadgeType;
@@ -8,9 +9,7 @@ interface ScoreBadgeProps {
 
 function getScoreColor(score: number, max: number): string {
   const pct = max > 0 ? score / max : 0;
-  if (pct >= 0.75) {return '#22c55e';} // green-500
-  if (pct >= 0.5) {return '#eab308';} // yellow-500
-  return '#ef4444'; // red-500
+  return scoreColor(pct);
 }
 
 export default function ScoreBadge({ artifact }: ScoreBadgeProps) {

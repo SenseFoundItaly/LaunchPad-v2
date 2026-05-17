@@ -12,24 +12,10 @@ interface EntityCardInlineProps {
   onAction?: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }
 
-const ENTITY_TYPE_COLORS: Record<string, string> = {
-  competitor: 'bg-red-500/20 text-red-400',
-  technology: 'bg-cyan-500/20 text-cyan-400',
-  market_segment: 'bg-green-500/20 text-green-400',
-  persona: 'bg-yellow-500/20 text-yellow-400',
-  risk: 'bg-orange-500/20 text-orange-400',
-  trend: 'bg-purple-500/20 text-purple-400',
-  company: 'bg-blue-500/20 text-blue-400',
-  compliance: 'bg-pink-500/20 text-pink-400',
-  regulation: 'bg-rose-500/20 text-rose-400',
-  partner: 'bg-teal-500/20 text-teal-400',
-  funding_source: 'bg-lime-500/20 text-lime-400',
-  feature: 'bg-violet-500/20 text-violet-400',
-  metric: 'bg-sky-500/20 text-sky-400',
-};
+import { entityPalette } from '@/lib/brand-palette';
 
 function getTypeColor(entityType: string): string {
-  return ENTITY_TYPE_COLORS[entityType] ?? 'bg-ink-5/20 text-ink-4';
+  return entityPalette(entityType).chip;
 }
 
 export default function EntityCardInline({

@@ -40,7 +40,7 @@ function LoginForm() {
 
   if (status === 'sent') {
     return (
-      <div className="rounded border border-emerald-800 bg-emerald-950/50 p-4 text-sm">
+      <div className="rounded border border-moss/30 bg-moss-wash p-4 text-sm">
         Check <span className="font-medium">{email}</span> — we sent a login link.
         Open it on this device to finish signing in.
       </div>
@@ -56,13 +56,13 @@ function LoginForm() {
         placeholder="you@company.com"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
-        className="w-full rounded bg-neutral-900 border border-neutral-800 px-3 py-2 text-sm outline-none focus:border-neutral-600"
+        className="w-full rounded bg-surface border border-line-2 px-3 py-2 text-sm text-ink outline-none focus:border-ink-4"
         disabled={status === 'sending'}
       />
       <button
         type="submit"
         disabled={status === 'sending'}
-        className="w-full rounded bg-neutral-100 text-neutral-900 py-2 text-sm font-medium disabled:opacity-50"
+        className="w-full rounded bg-ink text-paper py-2 text-sm font-medium disabled:opacity-50"
       >
         {status === 'sending' ? 'Sending...' : 'Email me a login link'}
       </button>
@@ -75,13 +75,13 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-neutral-950 text-neutral-100 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-paper text-ink px-4">
       <div className="w-full max-w-sm">
         <h1 className="text-2xl font-semibold mb-2">SENSEFOUND</h1>
-        <p className="text-sm text-neutral-400 mb-6">
+        <p className="text-sm text-ink-4 mb-6">
           Sign in with a magic link. We&apos;ll send a secure one-time login to your inbox.
         </p>
-        <Suspense fallback={<div className="text-sm text-neutral-500">Loading…</div>}>
+        <Suspense fallback={<div className="text-sm text-ink-5">Loading…</div>}>
           <LoginForm />
         </Suspense>
       </div>

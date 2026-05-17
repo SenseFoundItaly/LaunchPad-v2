@@ -118,7 +118,7 @@ export default function UsagePage({
   return (
     <div className="h-full overflow-y-auto p-6">
       <div className="max-w-5xl mx-auto">
-        <h3 className="text-lg font-semibold text-white mb-6">LLM Usage</h3>
+        <h3 className="text-lg font-semibold text-ink mb-6">LLM Usage</h3>
 
         {/* Summary cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -126,7 +126,7 @@ export default function UsagePage({
             <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
               Total Cost
             </div>
-            <div className="text-2xl font-bold text-white">
+            <div className="text-2xl font-bold text-ink">
               {formatCost(summary?.total_cost_usd ?? 0)}
             </div>
           </div>
@@ -134,7 +134,7 @@ export default function UsagePage({
             <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
               Total Tokens
             </div>
-            <div className="text-2xl font-bold text-white">
+            <div className="text-2xl font-bold text-ink">
               {formatTokens(summary?.total_tokens ?? 0)}
             </div>
           </div>
@@ -142,7 +142,7 @@ export default function UsagePage({
             <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
               Input Tokens
             </div>
-            <div className="text-2xl font-bold text-white">
+            <div className="text-2xl font-bold text-ink">
               {formatTokens(summary?.total_input_tokens ?? 0)}
             </div>
           </div>
@@ -150,7 +150,7 @@ export default function UsagePage({
             <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
               API Calls
             </div>
-            <div className="text-2xl font-bold text-white">
+            <div className="text-2xl font-bold text-ink">
               {summary?.call_count ?? 0}
             </div>
           </div>
@@ -159,7 +159,7 @@ export default function UsagePage({
         {/* Cost by skill chart */}
         {chartData.length > 0 && (
           <div className="bg-paper border border-line rounded-xl p-6 mb-8">
-            <h4 className="text-sm font-medium text-white mb-4">Cost by Skill</h4>
+            <h4 className="text-sm font-medium text-ink mb-4">Cost by Skill</h4>
             <BarChart data={chartData} title="" height={Math.max(200, chartData.length * 40)} />
           </div>
         )}
@@ -167,7 +167,7 @@ export default function UsagePage({
         {/* Recent calls table */}
         <div className="bg-paper border border-line rounded-xl overflow-hidden">
           <div className="px-6 py-4 border-b border-line">
-            <h4 className="text-sm font-medium text-white">Recent Calls</h4>
+            <h4 className="text-sm font-medium text-ink">Recent Calls</h4>
           </div>
           {logs.length === 0 ? (
             <div className="px-6 py-12 text-center text-ink-5 text-sm">
@@ -199,7 +199,7 @@ export default function UsagePage({
                       <td className="px-4 py-3">
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                           log.provider === 'anthropic'
-                            ? 'bg-orange-500/20 text-orange-400'
+                            ? 'bg-accent/20 text-accent'
                             : log.provider === 'openai'
                               ? 'bg-moss/20 text-moss'
                               : 'bg-moss/20 text-moss'

@@ -45,11 +45,11 @@ export default function ScoringPage({
     <div className="h-full overflow-y-auto p-6">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-white">Startup Scoring</h3>
+          <h3 className="text-lg font-semibold text-ink">Startup Scoring</h3>
           <button
             onClick={runScoring}
             disabled={isRunning}
-            className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
+            className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-paper rounded-lg text-sm font-medium transition-colors"
           >
             {isRunning ? `Scoring... ${task?.progress || 0}%` : scores ? 'Re-score' : 'Run Scoring'}
           </button>
@@ -76,7 +76,7 @@ export default function ScoringPage({
         {scores && (
           <>
             <div className="bg-paper border border-line rounded-xl p-6 mb-6 flex flex-col items-center">
-              <div className="text-4xl font-bold text-white mb-1">{scores.overall_score}</div>
+              <div className="text-4xl font-bold text-ink mb-1">{scores.overall_score}</div>
               <div className="text-sm text-ink-4 mb-6">Overall Score</div>
               <RadarChart dimensions={scores.dimensions} size={350} />
             </div>

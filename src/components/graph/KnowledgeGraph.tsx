@@ -135,7 +135,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
       return { source: s, target: t, id: e.id, relation: e.relation, curvature, rawData: e };
     });
 
-    const getColor = (type: string) => NODE_COLORS[type] || '#999';
+    const getColor = (type: string) => NODE_COLORS[type] || 'var(--ink-5)';
 
     // Cluster targets
     const clusterX = (type: string) => {
@@ -193,7 +193,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
     const linkGroup = g.append('g');
     const link = linkGroup.selectAll<SVGPathElement, SimLink>('path')
       .data(simLinks).enter().append('path')
-      .attr('stroke', '#444').attr('stroke-width', 1.5).attr('fill', 'none').attr('opacity', 0.4)
+      .attr('stroke', 'var(--line)').attr('stroke-width', 1.5).attr('fill', 'none').attr('opacity', 0.4)
       .style('cursor', 'pointer');
 
     // Edge labels — hidden by default, shown on hover
@@ -203,18 +203,18 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
     linkLabelGroup.append('rect').attr('fill', 'rgba(24,24,27,0.9)').attr('rx', 3).attr('ry', 3);
     linkLabelGroup.append('text')
       .text(d => d.relation.replace(/_/g, ' '))
-      .attr('font-size', '8px').attr('fill', '#888').attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+      .attr('font-size', '8px').attr('fill', 'var(--ink-4)').attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
       .style('font-family', 'system-ui');
 
     // Show label on link hover
     link.on('mouseenter', function (_e, d) {
       const idx = simLinks.indexOf(d);
       d3.select(linkLabelGroup.nodes()[idx]).style('opacity', 1);
-      d3.select(this).attr('stroke', '#666').attr('stroke-width', 2.5).attr('opacity', 0.8);
+      d3.select(this).attr('stroke', 'var(--ink-4)').attr('stroke-width', 2.5).attr('opacity', 0.8);
     }).on('mouseleave', function (_e, d) {
       const idx = simLinks.indexOf(d);
       d3.select(linkLabelGroup.nodes()[idx]).style('opacity', 0);
-      d3.select(this).attr('stroke', '#444').attr('stroke-width', 1.5).attr('opacity', 0.4);
+      d3.select(this).attr('stroke', 'var(--line)').attr('stroke-width', 1.5).attr('opacity', 0.4);
     }).on('click', (event, d) => {
       event.stopPropagation();
       onEdgeClick?.(d.rawData);
@@ -226,10 +226,10 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
       .data(simNodes).enter().append('circle')
       .attr('r', d => d.node_type === 'your_startup' ? 14 : 10)
       .attr('fill', d => getColor(d.node_type))
-      .attr('stroke', d => d.node_type === 'your_startup' ? '#3b82f6' : '#27272a')
+      .attr('stroke', d => d.node_type === 'your_startup' ? 'var(--sky)' : 'var(--line)')
       .attr('stroke-width', d => d.node_type === 'your_startup' ? 3 : 2)
       .style('cursor', 'pointer')
-      .style('filter', d => d.node_type === 'your_startup' ? 'drop-shadow(0 0 8px rgba(255,255,255,0.5))' : 'none')
+      .style('filter', d => d.node_type === 'your_startup' ? 'drop-shadow(0 0 8px var(--ink-5))' : 'none')
       .call(d3.drag<SVGCircleElement, SimNode>()
         .on('start', (event, d) => {
           d.fx = d.x; d.fy = d.y;
@@ -261,7 +261,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
         node.attr('opacity', n => connectedIds.has(n.id) ? 1 : 0.15);
         nodeGroup.selectAll<SVGTextElement, SimNode>('text').attr('opacity', n => connectedIds.has(n.id) ? 1 : 0.15);
         link.attr('opacity', l => ((l.source as SimNode).id === d.id || (l.target as SimNode).id === d.id) ? 0.8 : 0.05)
-          .attr('stroke', l => ((l.source as SimNode).id === d.id || (l.target as SimNode).id === d.id) ? '#ec4899' : '#444');
+          .attr('stroke', l => ((l.source as SimNode).id === d.id || (l.target as SimNode).id === d.id) ? 'var(--accent)' : 'var(--line)');
         // Show labels for connected edges
         linkLabelGroup.style('opacity', (_l, i) => {
           const sl = simLinks[i];
@@ -274,7 +274,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
     nodeGroup.selectAll<SVGTextElement, SimNode>('text')
       .data(simNodes).enter().append('text')
       .text(d => d.name.length > 18 ? d.name.substring(0, 18) + '..' : d.name)
-      .attr('font-size', '10px').attr('fill', '#a1a1aa').attr('font-weight', '500')
+      .attr('font-size', '10px').attr('fill', 'var(--ink-4)').attr('font-weight', '500')
       .attr('dx', 16).attr('dy', 4)
       .style('pointer-events', 'none').style('font-family', 'system-ui');
 
@@ -309,7 +309,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
       setSelectedNodeId(null);
       node.attr('opacity', 1);
       nodeGroup.selectAll<SVGTextElement, SimNode>('text').attr('opacity', 1);
-      link.attr('stroke', '#444').attr('stroke-width', 1.5).attr('opacity', 0.4);
+      link.attr('stroke', 'var(--line)').attr('stroke-width', 1.5).attr('opacity', 0.4);
       linkLabelGroup.style('opacity', 0);
       onNodeClick?.(null as unknown as GraphNode);
     });
@@ -322,8 +322,8 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
 
   const graphContent = (
     <div ref={containerRef} className={`w-full h-full relative ${isFullscreen ? 'fixed inset-0 z-50' : ''}`} style={{
-      backgroundColor: '#0a0a0b',
-      backgroundImage: 'radial-gradient(#27272a 1px, transparent 1px)',
+      backgroundColor: 'var(--paper)',
+      backgroundImage: 'radial-gradient(var(--line) 1px, transparent 1px)',
       backgroundSize: '20px 20px',
     }}>
       {/* Controls bar */}

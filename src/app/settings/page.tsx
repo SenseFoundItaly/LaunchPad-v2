@@ -149,22 +149,22 @@ export default function SettingsPage() {
       <header className="h-12 border-b border-line bg-surface-sunk flex items-center px-6">
         <Link href="/" className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-md bg-gradient-to-br from-moss to-plum flex items-center justify-center">
-            <span className="text-white text-xs font-bold">L</span>
+            <span className="text-paper text-xs font-bold">L</span>
           </div>
-          <span className="text-white font-semibold tracking-tight text-sm">LaunchPad</span>
+          <span className="text-ink font-semibold tracking-tight text-sm">LaunchPad</span>
         </Link>
         <span className="ml-3 text-ink-6 text-sm">/</span>
         <span className="ml-2 text-ink-4 text-sm">Settings</span>
       </header>
 
       <div className="max-w-2xl mx-auto py-8 px-6">
-        <h1 className="text-xl font-semibold text-white mb-8">Settings</h1>
+        <h1 className="text-xl font-semibold text-ink mb-8">Settings</h1>
 
         {/* ═══ API Keys Section ═══ */}
         <section className="mb-10">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-sm font-medium text-white">API Keys</h2>
+              <h2 className="text-sm font-medium text-ink">API Keys</h2>
               <p className="text-xs text-ink-5 mt-0.5">
                 Use your own API keys for LLM calls (BYOK). Keys are encrypted at rest.
               </p>
@@ -172,7 +172,7 @@ export default function SettingsPage() {
             {!addingKey && (
               <button
                 onClick={() => setAddingKey(true)}
-                className="text-xs px-3 py-1.5 rounded-md bg-moss text-white hover:bg-moss transition-colors"
+                className="text-xs px-3 py-1.5 rounded-md bg-moss text-paper hover:bg-moss transition-colors"
               >
                 Add Key
               </button>
@@ -199,7 +199,7 @@ export default function SettingsPage() {
                   <div className="flex items-center gap-3">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                       k.provider === 'anthropic'
-                        ? 'bg-orange-500/20 text-orange-400'
+                        ? 'bg-accent/20 text-accent'
                         : k.provider === 'openai'
                           ? 'bg-moss/20 text-moss'
                           : 'bg-moss/20 text-moss'
@@ -213,7 +213,7 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     {k.validated_at && (
-                      <span className="text-[10px] text-emerald-500">Validated</span>
+                      <span className="text-[10px] text-moss">Validated</span>
                     )}
                     <button
                       onClick={() => handleDeleteKey(k.id)}
@@ -278,7 +278,7 @@ export default function SettingsPage() {
                 <button
                   onClick={handleAddKey}
                   disabled={keySaving}
-                  className="text-xs px-3 py-1.5 rounded-md bg-moss text-white hover:bg-moss disabled:opacity-50 transition-colors"
+                  className="text-xs px-3 py-1.5 rounded-md bg-moss text-paper hover:bg-moss disabled:opacity-50 transition-colors"
                 >
                   {keySaving ? 'Validating...' : 'Save Key'}
                 </button>
@@ -289,7 +289,7 @@ export default function SettingsPage() {
 
         {/* ═══ Model Preference Section ═══ */}
         <section className="mb-10">
-          <h2 className="text-sm font-medium text-white mb-1">Preferred Model</h2>
+          <h2 className="text-sm font-medium text-ink mb-1">Preferred Model</h2>
           <p className="text-xs text-ink-5 mb-4">
             Override the system's automatic model routing. When set, all chat messages use this model.
             Leave on "System Default" for automatic tier-based routing.
@@ -308,7 +308,7 @@ export default function SettingsPage() {
                     checked={prefs?.preferred_model === null}
                     onChange={() => handleModelChange(null)}
                     disabled={prefsSaving}
-                    className="accent-blue-500"
+                    className="accent-moss"
                   />
                   <div>
                     <span className="text-sm text-ink-2">System Default</span>
@@ -328,7 +328,7 @@ export default function SettingsPage() {
                       checked={prefs.preferred_model === m.key}
                       onChange={() => handleModelChange(m.key)}
                       disabled={prefsSaving}
-                      className="accent-blue-500"
+                      className="accent-moss"
                     />
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-ink-2">{m.id}</span>

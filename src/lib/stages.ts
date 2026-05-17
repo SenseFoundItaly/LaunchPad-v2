@@ -202,13 +202,13 @@ export const SKILL_SOURCES: Record<string, string[]> = {
 /** Color utility for Tailwind classes */
 export function stageColors(color: string) {
   const map: Record<string, { text: string; bg: string; border: string; dot: string }> = {
-    blue:    { text: 'text-blue-400',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    dot: 'bg-blue-400' },
-    purple:  { text: 'text-purple-400',  bg: 'bg-purple-500/10',  border: 'border-purple-500/30',  dot: 'bg-purple-400' },
-    rose:    { text: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    dot: 'bg-rose-400' },
-    amber:   { text: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/30',   dot: 'bg-amber-400' },
-    emerald: { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', dot: 'bg-emerald-400' },
-    cyan:    { text: 'text-cyan-400',    bg: 'bg-cyan-500/10',    border: 'border-cyan-500/30',    dot: 'bg-cyan-400' },
-    zinc:    { text: 'text-ink-4',       bg: 'bg-ink-5/10',       border: 'border-ink-5/30',       dot: 'bg-ink-4' },
+    blue:    { text: 'text-sky',       bg: 'bg-sky/10',       border: 'border-sky/30',       dot: 'bg-sky' },
+    purple:  { text: 'text-plum',      bg: 'bg-plum/10',      border: 'border-plum/30',      dot: 'bg-plum' },
+    rose:    { text: 'text-cat-rose',  bg: 'bg-cat-rose/10',  border: 'border-cat-rose/30',  dot: 'bg-cat-rose' },
+    amber:   { text: 'text-accent',    bg: 'bg-accent/10',    border: 'border-accent/30',    dot: 'bg-accent' },
+    emerald: { text: 'text-moss',      bg: 'bg-moss/10',      border: 'border-moss/30',      dot: 'bg-moss' },
+    cyan:    { text: 'text-cat-teal',  bg: 'bg-cat-teal/10',  border: 'border-cat-teal/30',  dot: 'bg-cat-teal' },
+    zinc:    { text: 'text-ink-4',     bg: 'bg-ink-5/10',     border: 'border-ink-5/30',     dot: 'bg-ink-4' },
   };
   return map[color] || map.zinc;
 }

@@ -41,18 +41,18 @@ export interface KnowledgeGraphData {
 }
 
 export const NODE_COLORS: Record<string, string> = {
-  your_startup: '#ffffff',
-  competitor: '#ef4444',     // red
-  technology: '#06b6d4',     // cyan
-  market_segment: '#22c55e', // green
-  persona: '#f59e0b',        // amber
-  risk: '#f97316',           // orange
-  trend: '#a855f7',          // purple
-  company: '#3b82f6',        // blue
-  compliance: '#ec4899',     // pink
-  regulation: '#e11d48',     // rose
-  partner: '#14b8a6',        // teal
-  funding_source: '#84cc16', // lime
-  feature: '#8b5cf6',        // violet
-  metric: '#0ea5e9',         // sky
+  your_startup: 'var(--ink)',
+  competitor: 'var(--clay)',
+  technology: 'var(--cat-teal)',
+  market_segment: 'var(--moss)',
+  persona: 'var(--cat-gold)',
+  risk: 'var(--cat-rose)',
+  trend: 'var(--plum)',
+  company: 'var(--sky)',
+  compliance: 'var(--cat-rose)',
+  regulation: 'var(--cat-rose)',
+  partner: 'var(--cat-teal)',
+  funding_source: 'var(--moss)',
+  feature: 'var(--plum)',
+  metric: 'var(--sky)',
 };

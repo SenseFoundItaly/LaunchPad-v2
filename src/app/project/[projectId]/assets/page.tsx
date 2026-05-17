@@ -73,7 +73,7 @@ export default function AssetsPage({
     <div className="h-full overflow-y-auto p-6">
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
-          <h3 className="text-lg font-semibold text-white">Generated Assets</h3>
+          <h3 className="text-lg font-semibold text-ink">Generated Assets</h3>
           <p className="text-sm text-ink-4 mt-1">
             {completedSkills.length} document{completedSkills.length !== 1 ? 's' : ''} generated from your validation pipeline
           </p>

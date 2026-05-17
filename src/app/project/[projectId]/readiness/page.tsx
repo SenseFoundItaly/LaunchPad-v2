@@ -50,7 +50,7 @@ interface RiskAudit {
 function severityStyle(sev?: string) {
   const s = (sev ?? '').toLowerCase();
   if (s === 'critical') return 'bg-clay/20 text-clay';
-  if (s === 'high') return 'bg-orange-500/20 text-orange-400';
+  if (s === 'high') return 'bg-accent/20 text-accent';
   if (s === 'medium') return 'bg-accent/20 text-accent';
   return 'bg-ink-5/20 text-ink-4';
 }
@@ -113,7 +113,7 @@ function RiskAuditCard({ projectId }: { projectId: string }) {
     <div className="bg-paper border border-line rounded-xl p-5 mb-6">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="text-sm font-semibold text-white">Risk Audit</h3>
+          <h3 className="text-sm font-semibold text-ink">Risk Audit</h3>
           <p className="text-xs text-ink-5 mt-0.5">
             {risks.length > 0
               ? `${risks.length} risks identified${generatedAt ? ` · ${new Date(generatedAt).toLocaleString()}` : ''}`
@@ -123,7 +123,7 @@ function RiskAuditCard({ projectId }: { projectId: string }) {
         <button
           onClick={runAudit}
           disabled={running}
-          className="text-xs px-3 py-1.5 bg-moss hover:bg-moss disabled:opacity-50 text-white rounded-md transition-colors"
+          className="text-xs px-3 py-1.5 bg-moss hover:bg-moss disabled:opacity-50 text-paper rounded-md transition-colors"
         >
           {running ? 'Auditing...' : risks.length > 0 ? 'Re-run' : 'Run audit'}
         </button>
@@ -295,8 +295,9 @@ function useSectionData(projectId: string) {
 
 function verdictStyle(v: string) {
   if (v === 'STRONG GO') return 'bg-moss/20 text-moss';
-  if (v === 'GO') return 'bg-emerald-500/20 text-emerald-400';
+  if (v === 'GO') return 'bg-moss/20 text-moss';
   if (v === 'CAUTION') return 'bg-accent/20 text-accent';
+  if (v === '—') return 'bg-ink-5/20 text-ink-4';
   return 'bg-clay/20 text-clay';
 }
 
@@ -327,7 +328,7 @@ export default function IntelligencePage({ params }: { params: Promise<{ project
           <div className="bg-paper border border-line rounded-xl p-5">
             <div className="flex items-center gap-4 mb-3">
               <div className="flex items-center gap-2">
-                <span className="text-3xl font-bold text-white">{scoring.score.toFixed(1)}</span>
+                <span className="text-3xl font-bold text-ink">{scoring.score.toFixed(1)}</span>
                 <span className="text-sm text-ink-5">/10</span>
               </div>
               <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${verdictStyle(scoring.verdict)}`}>
@@ -376,9 +377,9 @@ export default function IntelligencePage({ params }: { params: Promise<{ project
                 >
                   <span className={`text-sm font-bold ${hasCompleted ? colors.text : 'text-ink-6'}`}>{stage.number}</span>
                   <span className={`text-sm font-semibold flex-1 ${hasCompleted ? colors.text : 'text-ink-6'}`}>{stage.name}</span>
-                  <span className="text-lg font-bold text-white">{(ss?.score || 0).toFixed(1)}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${verdictStyle(ss?.verdict || 'NOT READY')}`}>
-                    {ss?.verdict || 'NOT READY'}
+                  <span className="text-lg font-bold text-ink">{(ss?.score || 0).toFixed(1)}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${verdictStyle(ss?.verdict || '—')}`}>
+                    {ss?.verdict || '—'}
                   </span>
                   <span className="text-[10px] text-ink-6">{comp.completed}/{comp.total}</span>
                   <span className="text-xs text-ink-6">{isOpen ? 'v' : '>'}</span>
@@ -418,7 +419,7 @@ export default function IntelligencePage({ params }: { params: Promise<{ project
                               <span className="text-sm text-ink-5">{skill.label}</span>
                               <Link
                                 href={`/project/${projectId}/${skill.route}`}
-                                className="text-xs px-3 py-1.5 bg-moss hover:bg-moss text-white rounded-lg transition-colors"
+                                className="text-xs px-3 py-1.5 bg-moss hover:bg-moss text-paper rounded-lg transition-colors"
                               >
                                 Run {skill.label}
                               </Link>
@@ -433,7 +434,7 @@ export default function IntelligencePage({ params }: { params: Promise<{ project
                           {/* Skill header */}
                           <div className="flex items-center gap-3">
                             <span className="text-sm font-semibold text-ink-2 flex-1">{skill.label}</span>
-                            <span className="text-sm font-bold text-white">{(skillScore?.total || 0).toFixed(1)}/10</span>
+                            <span className="text-sm font-bold text-ink">{(skillScore?.total || 0).toFixed(1)}/10</span>
                           </div>
 
                           {/* Key take */}
@@ -450,7 +451,7 @@ export default function IntelligencePage({ params }: { params: Promise<{ project
                                 </span>
                               ))}
                               {highlights.verdict && (
-                                <span className="text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20">
+                                <span className="text-[10px] px-2 py-0.5 bg-moss/10 text-moss rounded-full border border-moss/30">
                                   {highlights.verdict}
                                 </span>
                               )}

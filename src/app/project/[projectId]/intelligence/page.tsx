@@ -48,7 +48,7 @@ const TYPE_COLOR: Record<string, string> = {
   market_segment: 'var(--sky)',
   technology: 'var(--moss)',
   trend: 'var(--moss)',
-  risk: 'oklch(0.60 0.14 20)',
+  risk: 'var(--clay)',
   persona: 'var(--plum)',
   partner: 'var(--sky)',
   ip_alert: 'var(--accent)',
@@ -56,8 +56,8 @@ const TYPE_COLOR: Record<string, string> = {
   feature: 'var(--ink-3)',
   metric: 'var(--ink-4)',
   company: 'var(--ink-3)',
-  compliance: 'oklch(0.55 0.1 40)',
-  regulation: 'oklch(0.55 0.1 40)',
+  compliance: 'var(--cat-rose)',
+  regulation: 'var(--cat-rose)',
   funding_source: 'var(--sky)',
 };
 

@@ -144,10 +144,10 @@ export default function GrowthPage({
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-white">Growth Intelligence</h3>
+          <h3 className="text-lg font-semibold text-ink">Growth Intelligence</h3>
           <button
             onClick={() => setShowNewLoop(!showNewLoop)}
-            className="px-4 py-2 bg-moss hover:bg-moss text-white rounded-lg text-sm font-medium transition-colors"
+            className="px-4 py-2 bg-moss hover:bg-moss text-paper rounded-lg text-sm font-medium transition-colors"
           >
             + New Loop
           </button>
@@ -181,7 +181,7 @@ export default function GrowthPage({
         {/* New Loop Form */}
         {showNewLoop && (
           <div className="bg-paper border border-line rounded-xl p-6 mb-6">
-            <h4 className="text-sm font-medium text-white mb-4">Create Growth Loop</h4>
+            <h4 className="text-sm font-medium text-ink mb-4">Create Growth Loop</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs text-ink-4 mb-1">Metric Name</label>
@@ -189,7 +189,7 @@ export default function GrowthPage({
                   type="text"
                   value={loopForm.metric_name}
                   onChange={(e) => setLoopForm({ ...loopForm, metric_name: e.target.value })}
-                  className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
+                  className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss"
                   placeholder="e.g., Conversion Rate"
                 />
               </div>
@@ -198,7 +198,7 @@ export default function GrowthPage({
                 <select
                   value={loopForm.optimization_target}
                   onChange={(e) => setLoopForm({ ...loopForm, optimization_target: e.target.value })}
-                  className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
+                  className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss"
                 >
                   {OPTIMIZATION_TARGETS.map((t) => (
                     <option key={t} value={t}>
@@ -213,7 +213,7 @@ export default function GrowthPage({
                   type="number"
                   value={loopForm.baseline_value}
                   onChange={(e) => setLoopForm({ ...loopForm, baseline_value: Number(e.target.value) })}
-                  className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
+                  className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss"
                 />
               </div>
             </div>
@@ -227,7 +227,7 @@ export default function GrowthPage({
               <button
                 onClick={createLoop}
                 disabled={!loopForm.metric_name}
-                className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-paper rounded-lg text-sm font-medium transition-colors"
               >
                 Create Loop
               </button>
@@ -248,7 +248,7 @@ export default function GrowthPage({
             <div className="bg-paper border border-line rounded-xl p-6 mb-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h4 className="text-white font-medium">{activeLoop.metric_name}</h4>
+                  <h4 className="text-ink font-medium">{activeLoop.metric_name}</h4>
                   <p className="text-xs text-ink-4 mt-1">
                     Target: {activeLoop.optimization_target} | Status: {activeLoop.status}
                   </p>
@@ -264,7 +264,7 @@ export default function GrowthPage({
                   <button
                     onClick={() => generateExperiment(activeLoop.loop_id)}
                     disabled={isRunning}
-                    className="px-3 py-1.5 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm transition-colors"
+                    className="px-3 py-1.5 bg-moss hover:bg-moss disabled:bg-paper-3 text-paper rounded-lg text-sm transition-colors"
                   >
                     Generate Next Experiment
                   </button>
@@ -274,7 +274,7 @@ export default function GrowthPage({
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div className="bg-paper-2/50 rounded-lg p-3">
                   <div className="text-xs text-ink-4 mb-1">Baseline</div>
-                  <div className="text-lg font-semibold text-white">{activeLoop.baseline_value}</div>
+                  <div className="text-lg font-semibold text-ink">{activeLoop.baseline_value}</div>
                 </div>
                 <div className="bg-paper-2/50 rounded-lg p-3">
                   <div className="text-xs text-ink-4 mb-1">Current Best</div>
@@ -295,7 +295,7 @@ export default function GrowthPage({
             </div>
 
             {/* Iterations Timeline */}
-            <h4 className="text-sm font-medium text-white mb-4">Iteration Timeline</h4>
+            <h4 className="text-sm font-medium text-ink mb-4">Iteration Timeline</h4>
             <div className="space-y-4">
               {(activeLoop.iterations || []).map((iter) => (
                 <div
@@ -375,7 +375,7 @@ export default function GrowthPage({
                             onChange={(e) =>
                               setResultForm({ ...resultForm, result_value: Number(e.target.value) })
                             }
-                            className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
+                            className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss"
                           />
                         </div>
                         <div className="flex items-end gap-3">
@@ -401,7 +401,7 @@ export default function GrowthPage({
                         </button>
                         <button
                           onClick={logResult}
-                          className="px-3 py-1.5 bg-moss hover:bg-moss text-white rounded-lg text-xs font-medium transition-colors"
+                          className="px-3 py-1.5 bg-moss hover:bg-moss text-paper rounded-lg text-xs font-medium transition-colors"
                         >
                           Save Result
                         </button>
@@ -430,7 +430,7 @@ export default function GrowthPage({
                     className="w-full text-left bg-paper border border-line rounded-xl p-4 hover:border-line-2 transition-colors"
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-white font-medium">{loop.metric_name}</h4>
+                      <h4 className="text-ink font-medium">{loop.metric_name}</h4>
                       <span
                         className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                           loop.status === 'active'

@@ -22,6 +22,7 @@
 import { use, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import api from '@/api';
+import { updateProject } from '@/api/projects';
 import { useProject } from '@/hooks/useProject';
 import ProjectChatDrawer from '@/components/chat/ProjectChatDrawer';
 import type { ChatDrawerHandle } from '@/components/chat/ProjectChatDrawer';
@@ -175,7 +176,7 @@ interface LlmUsageGroupRow {
 
 export default function DashboardPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = use(params);
-  const { project } = useProject(projectId);
+  const { project, refresh } = useProject(projectId);
 
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
   const [usageGroups, setUsageGroups] = useState<LlmUsageGroupRow[]>([]);
@@ -189,10 +190,65 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
   const { count: inboxBadge } = useOpenActionCount(projectId);
   const chatDrawerRef = useRef<ChatDrawerHandle>(null);
 
+  // Inline-editable subtitle state
+  const [editingSubtitle, setEditingSubtitle] = useState(false);
+  const [editStatus, setEditStatus] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+
+  // Inline-editable name state (greeting)
+  const [editingName, setEditingName] = useState(false);
+  const [editName, setEditName] = useState('');
+
   const handleTicketClick = useCallback((ticket: PendingDecisionPreview) => {
     const message = `Review and resolve ticket ${ticket.id}.\n\nTicket title: """${ticket.title}"""`;
     chatDrawerRef.current?.openAndSend(message);
   }, []);
+
+  const startEditingSubtitle = useCallback(() => {
+    setEditStatus(project?.status || '');
+    setEditDescription(project?.description || '');
+    setEditingSubtitle(true);
+  }, [project]);
+
+  const saveSubtitle = useCallback(async () => {
+    setEditingSubtitle(false);
+    const status = editStatus.trim();
+    const description = editDescription.trim();
+    if (status !== (project?.status || '') || description !== (project?.description || '')) {
+      await updateProject(projectId, { status, description });
+      refresh();
+    }
+  }, [editStatus, editDescription, project, projectId, refresh]);
+
+  const handleSubtitleBlur = useCallback((e: React.FocusEvent) => {
+    const related = e.relatedTarget as HTMLElement | null;
+    if (related?.hasAttribute('data-subtitle-input')) return;
+    saveSubtitle();
+  }, [saveSubtitle]);
+
+  const handleSubtitleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveSubtitle(); }
+    if (e.key === 'Escape') { e.preventDefault(); setEditingSubtitle(false); }
+  }, [saveSubtitle]);
+
+  const startEditingName = useCallback(() => {
+    setEditName(project?.name || '');
+    setEditingName(true);
+  }, [project]);
+
+  const saveName = useCallback(async () => {
+    setEditingName(false);
+    const name = editName.trim();
+    if (name !== (project?.name || '')) {
+      await updateProject(projectId, { name });
+      refresh();
+    }
+  }, [editName, project, projectId, refresh]);
+
+  const handleNameKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveName(); }
+    if (e.key === 'Escape') { e.preventDefault(); setEditingName(false); }
+  }, [saveName]);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -323,7 +379,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
   return (
     <div className="lp-frame">
       <TopBar
-        breadcrumb={[project?.name || 'Project', locale === 'it' ? 'Command Center' : 'Command Center']}
+        breadcrumb={[project?.name || '', locale === 'it' ? 'Command Center' : 'Command Center']}
         right={
           <>
             <Pill kind={overnightAgentCount > 0 ? 'live' : 'n'} dot={overnightAgentCount > 0}>
@@ -357,15 +413,92 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
                     letterSpacing: 1,
                     textTransform: 'uppercase',
                     marginBottom: 8,
+                    minHeight: 14,
+                    cursor: 'pointer',
                   }}
+                  onClick={!editingSubtitle ? startEditingSubtitle : undefined}
                 >
-                  {project?.status || 'project'} · {project?.description?.slice(0, 60) || (locale === 'it' ? 'pre-seed' : 'pre-seed')}
+                  {editingSubtitle ? (
+                    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                      <input
+                        data-subtitle-input
+                        autoFocus
+                        value={editStatus}
+                        onChange={(e) => setEditStatus(e.target.value)}
+                        onBlur={handleSubtitleBlur}
+                        onKeyDown={handleSubtitleKeyDown}
+                        placeholder="status"
+                        style={{
+                          all: 'unset',
+                          font: 'inherit',
+                          letterSpacing: 'inherit',
+                          textTransform: 'inherit',
+                          borderBottom: '1px solid var(--ink-5)',
+                          width: 80,
+                          paddingBottom: 1,
+                        }}
+                      />
+                      <span style={{ opacity: 0.4 }}>·</span>
+                      <input
+                        data-subtitle-input
+                        value={editDescription}
+                        onChange={(e) => setEditDescription(e.target.value)}
+                        onBlur={handleSubtitleBlur}
+                        onKeyDown={handleSubtitleKeyDown}
+                        placeholder="description"
+                        style={{
+                          all: 'unset',
+                          font: 'inherit',
+                          letterSpacing: 'inherit',
+                          textTransform: 'inherit',
+                          borderBottom: '1px solid var(--ink-5)',
+                          width: 200,
+                          paddingBottom: 1,
+                        }}
+                      />
+                    </span>
+                  ) : (
+                    <>
+                      {project?.status}
+                      {project?.status && project?.description ? ' · ' : ''}
+                      {project?.description?.slice(0, 60)}
+                    </>
+                  )}
                 </div>
                 <h1
                   className="lp-serif"
-                  style={{ fontSize: 44, fontWeight: 400, letterSpacing: -1.2, margin: 0, lineHeight: 1 }}
+                  style={{ fontSize: 44, fontWeight: 400, letterSpacing: -1.2, margin: 0, lineHeight: 1, cursor: 'pointer' }}
+                  onClick={!editingName ? startEditingName : undefined}
                 >
-                  {greeting}, {project?.name?.split(' ')[0] || 'founder'}.
+                  {editingName ? (
+                    <span>
+                      {greeting},{' '}
+                      <input
+                        autoFocus
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        onBlur={() => saveName()}
+                        onKeyDown={handleNameKeyDown}
+                        placeholder="name"
+                        style={{
+                          all: 'unset',
+                          font: 'inherit',
+                          fontSize: 'inherit',
+                          fontWeight: 'inherit',
+                          letterSpacing: 'inherit',
+                          lineHeight: 'inherit',
+                          borderBottom: '2px solid var(--ink-5)',
+                          width: Math.max(80, editName.length * 24),
+                          paddingBottom: 2,
+                        }}
+                      />
+                      .
+                    </span>
+                  ) : (
+                    <>
+                      {greeting}{project?.name ? `, ${project.name.split(' ')[0]}` : ''}.
+                    </>
+                  )}
                 </h1>
                 <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10, maxWidth: 620 }}>
                   {buildMastheadNarrative(payload, overnightToolCalls, locale)}
@@ -382,8 +515,8 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
                   <span
                     className="lp-kbd"
                     style={{
-                      background: 'rgba(255,255,255,.12)',
-                      borderColor: 'rgba(255,255,255,.2)',
+                      background: 'var(--line)',
+                      borderColor: 'var(--line-2)',
                       color: 'var(--paper)',
                     }}
                   >
@@ -812,7 +945,7 @@ function HeartbeatSection({
                       height: 18,
                       borderRadius: 4,
                       background: agentColor(e.agent),
-                      color: '#fff',
+                      color: 'var(--on-accent)',
                       fontSize: 9,
                       fontWeight: 600,
                       display: 'flex',
@@ -882,7 +1015,7 @@ function ActivityRow({
     SCAN: 'var(--sky)',
     CEO: 'var(--plum)',
     TASK: 'var(--moss)',
-    ALERT: 'oklch(0.60 0.14 20)',
+    ALERT: 'var(--clay)',
     CHIEF: 'var(--ink-3)',
     YOU: 'var(--ink-4)',
     DRAFT: 'var(--ink-5)',
@@ -1052,7 +1185,7 @@ function MiniGraph({ nodes }: { nodes: GraphNodeRow[] }) {
     market_segment: 'var(--sky)',
     technology: 'var(--moss)',
     trend: 'var(--moss)',
-    risk: 'oklch(0.60 0.14 20)',
+    risk: 'var(--clay)',
     persona: 'var(--plum)',
     partner: 'var(--sky)',
   };
@@ -1159,9 +1292,9 @@ function MiniGraph({ nodes }: { nodes: GraphNodeRow[] }) {
 
 const VERDICT_DOT: Record<string, string> = {
   'STRONG GO': 'var(--moss)',
-  'GO': '#34d399',
-  'CAUTION': '#fbbf24',
-  'NOT READY': 'oklch(0.60 0.14 20)',
+  'GO': 'var(--moss)',
+  'CAUTION': 'var(--cat-gold)',
+  'NOT READY': 'var(--clay)',
 };
 
 const VERDICT_PILL: Record<string, 'ok' | 'warn' | 'n' | 'live'> = {
@@ -1262,8 +1395,8 @@ function ReadinessWidget({
                         background: sec.score >= 7
                           ? 'var(--moss)'
                           : sec.score >= 5
-                            ? '#fbbf24'
-                            : 'oklch(0.60 0.14 20)',
+                            ? 'var(--cat-gold)'
+                            : 'var(--clay)',
                         opacity: 0.8,
                       }}
                     />
@@ -1354,7 +1487,7 @@ function MilestoneList({
             }}
           >
             {it.status === 'completed' && (
-              <Icon d={I.check} size={9} style={{ color: '#fff', strokeWidth: 2 }} />
+              <Icon d={I.check} size={9} style={{ color: 'var(--on-accent)', strokeWidth: 2 }} />
             )}
           </span>
           <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', width: 32 }}>
@@ -1610,17 +1743,17 @@ function roleFromType(type: string): string {
 
 function agentColor(name: string): string {
   const map: Record<string, string> = {
-    Scout: '#7a8b4a',
-    Chief: '#4a5a7a',
-    Analyst: '#7a5a4a',
-    Outreach: '#7a4a6a',
-    Designer: '#4a7a7a',
-    Recruiter: '#5a7a4a',
-    Listener: '#4a6a7a',
-    Social: '#6a4a7a',
-    Agent: '#6b6558',
+    Scout: 'var(--moss)',
+    Chief: 'var(--sky)',
+    Analyst: 'var(--clay)',
+    Outreach: 'var(--plum)',
+    Designer: 'var(--cat-teal)',
+    Recruiter: 'var(--moss)',
+    Listener: 'var(--sky)',
+    Social: 'var(--plum)',
+    Agent: 'var(--ink-3)',
   };
-  return map[name] || '#555';
+  return map[name] || 'var(--ink-5)';
 }
 
 function safeHost(url: string): string {

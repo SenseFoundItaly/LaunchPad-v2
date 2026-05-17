@@ -29,21 +29,12 @@ import { useState } from 'react';
 import type { MonitorProposalArtifact } from '@/types/artifacts';
 import SourcesFooter from './SourcesFooter';
 import ArtifactCardShell from './ArtifactCardShell';
+import { monitorPalette } from '@/lib/brand-palette';
 
 interface MonitorProposalCardProps {
   artifact: MonitorProposalArtifact;
   onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }
-
-const KIND_COLORS: Record<string, string> = {
-  competitor: 'bg-red-500/20 text-clay border-red-500/30',
-  regulation: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
-  market: 'bg-green-500/20 text-green-300 border-green-500/30',
-  partner: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
-  technology: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
-  funding: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-  custom: 'bg-ink-5/20 text-ink-3 border-ink-5/30',
-};
 
 const SCHEDULE_LABELS: Record<'hourly' | 'daily' | 'weekly', string> = {
   hourly: 'Hourly',
@@ -64,7 +55,8 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
     (artifact.urls_to_track ?? []).join('\n'),
   );
 
-  const kindColor = KIND_COLORS[artifact.kind] ?? KIND_COLORS.custom;
+  const mp = monitorPalette(artifact.kind);
+  const kindColor = `${mp.chip} border-line-2`;
 
   async function handleApply(withOverrides: boolean) {
     setState('applying');
@@ -238,7 +230,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
             <button
               type="button"
               onClick={() => handleApply(true)}
-              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 text-white rounded-md transition-colors"
+              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 text-paper rounded-md transition-colors"
             >
               Save &amp; apply
             </button>
@@ -256,7 +248,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
               type="button"
               disabled={state === 'applying'}
               onClick={() => handleApply(false)}
-              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 disabled:opacity-50 text-white rounded-md transition-colors"
+              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 disabled:opacity-50 text-paper rounded-md transition-colors"
             >
               {state === 'applying' ? 'Applying...' : 'Apply'}
             </button>

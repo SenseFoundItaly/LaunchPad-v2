@@ -33,9 +33,9 @@ interface TaskExpansion {
 
 const TASK_PRIORITY_ORDER: TaskListItem['priority'][] = ['critical', 'high', 'medium', 'low'];
 const TASK_PRIORITY_STYLES: Record<string, { bg: string; fg: string; label: string }> = {
-  critical: { bg: 'var(--clay)',     fg: '#FFF',          label: 'Critical' },
-  high:     { bg: 'var(--accent)',   fg: 'var(--ink)',    label: 'High' },
-  medium:   { bg: 'var(--sky)',      fg: '#FFF',          label: 'Medium' },
+  critical: { bg: 'var(--clay)',     fg: 'var(--on-accent)', label: 'Critical' },
+  high:     { bg: 'var(--accent)',   fg: 'var(--ink)',       label: 'High' },
+  medium:   { bg: 'var(--sky)',      fg: 'var(--on-accent)', label: 'Medium' },
   low:      { bg: 'var(--paper-3)',  fg: 'var(--ink-3)',  label: 'Low' },
 };
 

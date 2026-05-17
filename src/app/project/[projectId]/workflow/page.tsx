@@ -121,7 +121,7 @@ export default function WorkflowPage({
   return (
     <div className="lp-frame">
       <TopBar
-        breadcrumb={['Project', 'Workflows', plan?.name || 'No active workflow']}
+        breadcrumb={['', 'Workflows', plan?.name || '']}
         right={
           plan ? (
             <>
@@ -244,7 +244,7 @@ function PipelineHeader({ plan }: { plan: Plan }) {
           <Icon d={I.history} size={12} /> rerun
         </button>
         {running && (
-          <button style={{ ...btnPrimary, background: 'oklch(0.58 0.14 20)' }}>
+          <button style={{ ...btnPrimary, background: 'var(--clay)' }}>
             <Icon d={I.stop} size={12} /> stop
           </button>
         )}
@@ -320,7 +320,7 @@ function PipelineDag({ plan }: { plan: Plan }) {
                       marginTop: 8,
                       height: 3,
                       borderRadius: 2,
-                      background: 'rgba(255,255,255,0.6)',
+                      background: 'var(--line-2)',
                       overflow: 'hidden',
                     }}
                   >
@@ -400,7 +400,7 @@ function PipelineLog({ executions }: { executions: Execution[] }) {
               : e.status === 'failed' || e.status === 'error' ? 'var(--clay)'
               : e.status === 'running' ? 'var(--sky)'
               : 'var(--ink-4)';
-          const toolName = e.tool_id || 'unknown';
+          const toolName = e.tool_id || '';
           const out = e.output ? summarizeOutput(e.output) : e.error || null;
           return (
             <div
@@ -425,7 +425,7 @@ function PipelineLog({ executions }: { executions: Execution[] }) {
                     height: 14,
                     borderRadius: 3,
                     background: 'var(--ink-4)',
-                    color: '#fff',
+                    color: 'var(--on-accent)',
                     fontSize: 8,
                     fontWeight: 600,
                     display: 'flex',

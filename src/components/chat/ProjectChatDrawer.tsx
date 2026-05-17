@@ -104,7 +104,7 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-moss hover:bg-moss/80 text-white text-sm font-medium shadow-lg shadow-moss/30 flex items-center gap-2 transition-transform hover:scale-105"
+          className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-moss hover:bg-moss/80 text-paper text-sm font-medium shadow-lg shadow-moss/30 flex items-center gap-2 transition-transform hover:scale-105"
           aria-label="Apri chat con il co-founder"
         >
           <span className="w-2 h-2 rounded-full bg-moss animate-pulse" />
@@ -173,7 +173,7 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
                 <button
                   onClick={handleSend}
                   disabled={isStreaming || !input.trim()}
-                  className="shrink-0 px-4 py-2 text-sm rounded-lg bg-moss hover:bg-moss/80 disabled:bg-paper-2 disabled:text-ink-6 text-white"
+                  className="shrink-0 px-4 py-2 text-sm rounded-lg bg-moss hover:bg-moss/80 disabled:bg-paper-2 disabled:text-ink-6 text-paper"
                   aria-label="Invia messaggio"
                 >
                   {isStreaming ? '…' : 'Invia'}
@@ -211,7 +211,7 @@ function MessageBubble({
       <div
         className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
           isUser
-            ? 'bg-moss text-white rounded-br-sm'
+            ? 'bg-moss text-paper rounded-br-sm'
             : 'bg-paper border border-line text-ink rounded-bl-sm'
         }`}
       >

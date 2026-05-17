@@ -92,7 +92,7 @@ const ALERT_STATE_BADGE: Record<EcosystemAlertState, { label: string; classes: s
   pending: null,
   acknowledged: { label: 'Seen', classes: 'bg-ink-6/30 text-ink-4' },
   dismissed: null,
-  promoted_to_action: { label: 'Promoted', classes: 'bg-moss/20 text-emerald-400' },
+  promoted_to_action: { label: 'Promoted', classes: 'bg-moss/20 text-moss' },
 };
 
 function EcosystemCard({
@@ -185,14 +185,14 @@ function PendingDecisionsCard({
             Decisioni in attesa
           </h3>
           {totalOpen > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full bg-accent/20 text-amber-300 text-[10px] font-semibold">
+            <span className="px-1.5 py-0.5 rounded-full bg-accent/20 text-accent text-[10px] font-semibold">
               {totalOpen}
             </span>
           )}
         </div>
         <Link
           href={`/project/${projectId}/actions`}
-          className="text-xs text-amber-400 hover:text-amber-300"
+          className="text-xs text-accent hover:text-accent-ink"
         >
           Inbox →
         </Link>
@@ -213,7 +213,7 @@ function PendingDecisionsCard({
                       {humanizeActionType(d.action_type)}
                     </span>
                     {d.estimated_impact && (
-                      <span className="text-[10px] text-amber-400">· {d.estimated_impact}</span>
+                      <span className="text-[10px] text-accent">· {d.estimated_impact}</span>
                     )}
                   </div>
                   <div className="text-sm text-ink line-clamp-2">{d.title}</div>
@@ -221,7 +221,7 @@ function PendingDecisionsCard({
                 {onApply && (
                   <button
                     onClick={() => onApply(d.id)}
-                    className="shrink-0 px-2 py-1 text-[10px] rounded-md bg-moss hover:bg-moss/80 text-white"
+                    className="shrink-0 px-2 py-1 text-[10px] rounded-md bg-moss hover:bg-moss/80 text-paper"
                     aria-label={`Applica ${d.title}`}
                   >
                     Applica

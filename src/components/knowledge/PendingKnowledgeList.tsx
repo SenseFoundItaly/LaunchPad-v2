@@ -26,9 +26,9 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 const TYPE_COLORS: Record<string, string> = {
-  fact: 'bg-amber-500/20 text-amber-400',
-  graph_node: 'bg-cyan-500/20 text-cyan-400',
-  tabular_review: 'bg-violet-500/20 text-violet-400',
+  fact: 'bg-accent/20 text-accent',
+  graph_node: 'bg-cat-teal/20 text-cat-teal',
+  tabular_review: 'bg-plum/20 text-plum',
 };
 
 interface PendingKnowledgeListProps {
@@ -227,7 +227,7 @@ export default function PendingKnowledgeList({ projectId }: PendingKnowledgeList
               </span>
               <button
                 onClick={() => void handleUndo(entry.item.id)}
-                className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors font-medium flex-shrink-0"
+                className="text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors font-medium flex-shrink-0"
               >
                 Undo
               </button>

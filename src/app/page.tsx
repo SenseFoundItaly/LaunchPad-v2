@@ -11,8 +11,8 @@ interface DashboardProject {
   project_id: string;
   name: string;
   description: string;
-  skills_completed: number;
-  total_skills: number;
+  analyses_completed: number;
+  total_analyses: number;
   weekly_alerts: number;
   created_at: string;
 }
@@ -28,7 +28,7 @@ interface DashboardSignal {
 
 interface DashboardStats {
   total_projects: number;
-  total_skills_completed: number;
+  total_analyses_completed: number;
   total_alerts_this_week: number;
 }
 
@@ -38,7 +38,7 @@ export default function HomePage() {
   const [signals, setSignals] = useState<DashboardSignal[]>([]);
   const [stats, setStats] = useState<DashboardStats>({
     total_projects: 0,
-    total_skills_completed: 0,
+    total_analyses_completed: 0,
     total_alerts_this_week: 0,
   });
   const [loading, setLoading] = useState(true);
@@ -61,7 +61,7 @@ export default function HomePage() {
           setStats(
             data.data.stats || {
               total_projects: 0,
-              total_skills_completed: 0,
+              total_analyses_completed: 0,
               total_alerts_this_week: 0,
             },
           );
@@ -222,7 +222,7 @@ export default function HomePage() {
                       fontSize: 9,
                       fontFamily: 'var(--f-mono)',
                       color: 'var(--clay)',
-                      background: 'oklch(0.94 0.05 40)',
+                      background: 'var(--accent-wash)',
                       padding: '1px 4px',
                       borderRadius: 4,
                     }}
@@ -287,7 +287,7 @@ export default function HomePage() {
             </h1>
             <span style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-              {stats.total_skills_completed} skills completed ·{' '}
+              {stats.total_analyses_completed} analyses completed ·{' '}
               {stats.total_alerts_this_week} signals this week
             </span>
           </div>
@@ -621,7 +621,7 @@ export default function HomePage() {
                               }}
                             >
                               <span>
-                                {p.skills_completed}/{p.total_skills} skills
+                                {Math.round((p.analyses_completed / p.total_analyses) * 100)}% validated
                               </span>
                               <span>·</span>
                               <span>

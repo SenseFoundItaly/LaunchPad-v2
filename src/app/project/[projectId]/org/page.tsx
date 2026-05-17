@@ -379,7 +379,7 @@ function OrgChart({ agents, loading }: { agents: Agent[]; loading: boolean }) {
                   borderRadius: 5,
                   background: a.status === 'placeholder' ? 'transparent' : agentColor(a.name),
                   border: a.status === 'placeholder' ? '1px dashed var(--ink-6)' : 'none',
-                  color: a.status === 'placeholder' ? 'var(--ink-5)' : '#fff',
+                  color: a.status === 'placeholder' ? 'var(--ink-5)' : 'var(--on-accent)',
                   fontSize: 10,
                   fontWeight: 600,
                   display: 'flex',
@@ -481,7 +481,7 @@ function AgentNode({
         y={cy - 1}
         fontSize="10.5"
         fontWeight={600}
-        fill={placeholder ? 'var(--ink-5)' : '#fff'}
+        fill={placeholder ? 'var(--ink-5)' : 'var(--on-accent)'}
         textAnchor="middle"
       >
         {name}
@@ -490,7 +490,7 @@ function AgentNode({
         x={cx}
         y={cy + 10}
         fontSize="8.5"
-        fill={placeholder ? 'var(--ink-5)' : 'rgba(255,255,255,.7)'}
+        fill={placeholder ? 'var(--ink-5)' : 'var(--ink-4)'}
         textAnchor="middle"
         fontFamily="var(--f-mono)"
         letterSpacing=".5"
@@ -704,11 +704,11 @@ function GoalRow({
 
 function agentColor(name: string): string {
   const map: Record<string, string> = {
-    Scout: '#7a8b4a',
-    Chief: '#4a5a7a',
-    Analyst: '#7a5a4a',
-    Outreach: '#7a4a6a',
-    Designer: '#4a7a7a',
+    Scout: 'var(--moss)',
+    Chief: 'var(--sky)',
+    Analyst: 'var(--clay)',
+    Outreach: 'var(--plum)',
+    Designer: 'var(--cat-teal)',
   };
-  return map[name] || '#555';
+  return map[name] || 'var(--ink-5)';
 }

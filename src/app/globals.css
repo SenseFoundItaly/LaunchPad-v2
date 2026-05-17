@@ -29,6 +29,15 @@
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-accent-wash: var(--accent-wash);
+  --color-cat-teal: var(--cat-teal);
+  --color-cat-gold: var(--cat-gold);
+  --color-cat-rose: var(--cat-rose);
+  --color-cat-teal-wash: var(--cat-teal-wash);
+  --color-cat-gold-wash: var(--cat-gold-wash);
+  --color-cat-rose-wash: var(--cat-rose-wash);
+  --color-clay-wash: var(--clay-wash);
+  --color-plum-wash: var(--plum-wash);
+  --color-on-accent: var(--on-accent);
   /* fonts */
   --font-sans: var(--f-sans);
   --font-mono: var(--f-mono);

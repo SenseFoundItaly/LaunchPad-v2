@@ -82,7 +82,7 @@ export default function SkillDetailPanel({ skill, data, projectId, skillStatus, 
               <p className="text-xs text-ink-6 mb-4">Click below to start this validation step</p>
               <Link
                 href={`/project/${projectId}/${skill.route}`}
-                className="px-4 py-2 bg-moss hover:bg-moss/80 text-white text-sm rounded-lg transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss/80 text-paper text-sm rounded-lg transition-colors"
                 onClick={onClose}
               >
                 Run {skill.label}

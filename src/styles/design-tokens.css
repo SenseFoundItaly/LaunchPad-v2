@@ -36,6 +36,17 @@
   --accent-ink: oklch(0.36 0.12 var(--accent-h));
   --accent-wash: oklch(0.94 0.05 var(--accent-h));
 
+  /* categorical palette — brand-safe alternatives to raw Tailwind colors */
+  --cat-teal: oklch(0.58 0.08 185);
+  --cat-gold: oklch(0.65 0.10 80);
+  --cat-rose: oklch(0.58 0.10 5);
+  --cat-teal-wash: oklch(0.94 0.02 185);
+  --cat-gold-wash: oklch(0.94 0.03 80);
+  --cat-rose-wash: oklch(0.94 0.02 5);
+  --clay-wash: oklch(0.94 0.04 28);
+  --plum-wash: oklch(0.94 0.03 325);
+  --on-accent: #FAF5EE;
+
   /* geometry */
   --r-s: 4px;
   --r-m: 6px;
@@ -64,6 +75,12 @@
   --sky-wash: oklch(0.25 0.03 235);
   --shadow-card: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.4);
   --shadow-lift: 0 2px 8px rgba(0,0,0,.5), 0 20px 48px rgba(0,0,0,.6);
+  --cat-teal-wash: oklch(0.25 0.03 185);
+  --cat-gold-wash: oklch(0.28 0.04 80);
+  --cat-rose-wash: oklch(0.25 0.03 5);
+  --clay-wash: oklch(0.25 0.04 28);
+  --plum-wash: oklch(0.25 0.03 325);
+  --on-accent: #FAF5EE;
 }
 
 /* element primitives */

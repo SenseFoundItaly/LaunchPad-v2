@@ -160,9 +160,9 @@ export default function JourneyPage({
   function milestoneStatusIcon(status: Milestone['status']) {
     switch (status) {
       case 'completed':
-        return { icon: '\u2713', cls: 'bg-moss text-white' };
+        return { icon: '\u2713', cls: 'bg-moss text-paper' };
       case 'in_progress':
-        return { icon: '\u25B6', cls: 'bg-moss text-white' };
+        return { icon: '\u25B6', cls: 'bg-moss text-paper' };
       case 'skipped':
         return { icon: '\u2014', cls: 'bg-ink-6 text-ink-4' };
       default:
@@ -183,7 +183,7 @@ export default function JourneyPage({
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-white">Startup Journey</h3>
+          <h3 className="text-lg font-semibold text-ink">Startup Journey</h3>
         </div>
 
         {/* Task Progress */}
@@ -254,7 +254,7 @@ export default function JourneyPage({
                         onClick={() => setStage(stage)}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                           isCurrent
-                            ? 'bg-moss text-white'
+                            ? 'bg-moss text-paper'
                             : isPast
                               ? 'bg-moss/20 text-moss'
                               : 'bg-paper-2 text-ink-5 hover:bg-paper-3 hover:text-ink-3'
@@ -273,7 +273,7 @@ export default function JourneyPage({
               <button
                 onClick={generateMilestones}
                 disabled={isRunning}
-                className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-paper rounded-lg text-sm font-medium transition-colors"
               >
                 {isRunning ? 'Generating...' : 'Generate Milestones'}
               </button>
@@ -298,7 +298,7 @@ export default function JourneyPage({
                       </button>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <h5 className="text-sm font-medium text-white">{milestone.title}</h5>
+                          <h5 className="text-sm font-medium text-ink">{milestone.title}</h5>
                           <span className="text-xs text-ink-5">Week {milestone.week}</span>
                           {milestone.phase && (
                             <span className="text-xs text-ink-6">{milestone.phase}</span>
@@ -336,7 +336,7 @@ export default function JourneyPage({
               </button>
               <button
                 onClick={() => setShowUpdateForm(!showUpdateForm)}
-                className="px-4 py-2 bg-moss hover:bg-moss text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss text-paper rounded-lg text-sm font-medium transition-colors"
               >
                 + New Update
               </button>
@@ -345,7 +345,7 @@ export default function JourneyPage({
             {/* New Update Form */}
             {showUpdateForm && (
               <div className="bg-paper border border-line rounded-xl p-6 mb-6">
-                <h4 className="text-sm font-medium text-white mb-4">New Startup Update</h4>
+                <h4 className="text-sm font-medium text-ink mb-4">New Startup Update</h4>
                 <div className="space-y-4">
                   <div>
                     <label className="block text-xs text-ink-4 mb-1">Period</label>
@@ -353,7 +353,7 @@ export default function JourneyPage({
                       type="text"
                       value={updateForm.period}
                       onChange={(e) => setUpdateForm({ ...updateForm, period: e.target.value })}
-                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss"
                       placeholder="e.g., Week 12, March 2026"
                     />
                   </div>
@@ -365,7 +365,7 @@ export default function JourneyPage({
                       value={updateForm.highlights}
                       onChange={(e) => setUpdateForm({ ...updateForm, highlights: e.target.value })}
                       rows={3}
-                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss resize-none"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss resize-none"
                       placeholder="What went well this period?"
                     />
                   </div>
@@ -377,7 +377,7 @@ export default function JourneyPage({
                       value={updateForm.challenges}
                       onChange={(e) => setUpdateForm({ ...updateForm, challenges: e.target.value })}
                       rows={3}
-                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss resize-none"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss resize-none"
                       placeholder="What challenges did you face?"
                     />
                   </div>
@@ -387,7 +387,7 @@ export default function JourneyPage({
                       value={updateForm.asks}
                       onChange={(e) => setUpdateForm({ ...updateForm, asks: e.target.value })}
                       rows={2}
-                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-moss resize-none"
+                      className="w-full bg-paper-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss resize-none"
                       placeholder="What help do you need?"
                     />
                   </div>
@@ -401,7 +401,7 @@ export default function JourneyPage({
                       max={10}
                       value={updateForm.morale}
                       onChange={(e) => setUpdateForm({ ...updateForm, morale: Number(e.target.value) })}
-                      className="w-full accent-blue-500"
+                      className="w-full accent-moss"
                     />
                     <div className="flex justify-between text-xs text-ink-6 mt-1">
                       <span>1</span>
@@ -419,7 +419,7 @@ export default function JourneyPage({
                     <button
                       onClick={submitUpdate}
                       disabled={!updateForm.period}
-                      className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
+                      className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-paper rounded-lg text-sm font-medium transition-colors"
                     >
                       Submit Update
                     </button>
@@ -438,7 +438,7 @@ export default function JourneyPage({
                   >
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-3">
-                        <h4 className="text-white font-medium">{update.period}</h4>
+                        <h4 className="text-ink font-medium">{update.period}</h4>
                         <div className="flex items-center gap-1">
                           <span className="text-xs text-ink-4">Morale:</span>
                           <span
@@ -520,7 +520,7 @@ export default function JourneyPage({
               <button
                 onClick={generateScalingPlan}
                 disabled={isRunning}
-                className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss disabled:bg-paper-3 text-paper rounded-lg text-sm font-medium transition-colors"
               >
                 {isRunning ? 'Generating...' : 'Generate Scaling Plan'}
               </button>
@@ -534,7 +534,7 @@ export default function JourneyPage({
                     className="bg-paper border border-line rounded-xl p-4"
                   >
                     <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-white font-medium">Month {month.month}</h4>
+                      <h4 className="text-ink font-medium">Month {month.month}</h4>
                       <span
                         className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                           month.status === 'completed'
@@ -544,12 +544,12 @@ export default function JourneyPage({
                               : 'text-ink-4 bg-paper-2'
                         }`}
                       >
-                        {month.status || 'planned'}
+                        {month.status || ''}
                       </span>
                     </div>
                     <div className="bg-paper-2/50 rounded-lg px-3 py-2 mb-3">
                       <div className="text-xs text-ink-4">Focus</div>
-                      <div className="text-sm text-white">{month.focus}</div>
+                      <div className="text-sm text-ink">{month.focus}</div>
                     </div>
                     {month.goals && month.goals.length > 0 && (
                       <div className="mb-3">

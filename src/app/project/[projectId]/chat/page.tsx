@@ -28,6 +28,9 @@ import { ContextPanel } from '@/components/chat/ContextPanel';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
+import { buildContextMarkdown } from '@/lib/context-export';
+import type { ContextExportData } from '@/lib/context-export';
+import { openPrintPreview } from '@/lib/print-utils';
 import {
   Pill,
   StatusBar,
@@ -57,6 +60,174 @@ function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artif
 interface HistoryResp {
   success: boolean;
   data?: Array<{ id: string; role: string; content: string; timestamp: string; tools_json?: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// ContextExportBtn — download / print context snapshot
+// ---------------------------------------------------------------------------
+
+function ContextExportBtn({
+  projectId,
+  project,
+  messages,
+  artifacts,
+  disabled,
+}: {
+  projectId: string;
+  project: { name: string; status: string } | null;
+  messages: Array<{ role: string; content: string; timestamp?: string }>;
+  artifacts: Artifact[];
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  async function gatherData(): Promise<ContextExportData> {
+    const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const artifactList = artifacts.map((a) => ({ type: a.type, title: (a as unknown as { title?: string }).title || a.id }));
+
+    try {
+      const res = await fetch(`/api/projects/${projectId}/context-export`);
+      const body = await res.json();
+      if (res.ok && body?.data) {
+        const d = body.data;
+        return {
+          project: { name: d.project?.name || project?.name || '', description: d.project?.description, status: d.project?.status || project?.status || '' },
+          date,
+          score: d.score ?? null,
+          stages: d.stages ?? [],
+          facts: d.facts ?? [],
+          alerts: d.alerts ?? [],
+          nodes: d.nodes ?? [],
+          briefs: d.briefs ?? [],
+          tasks: d.tasks ?? [],
+          risks: d.risks ?? [],
+          artifacts: artifactList,
+          messages: d.messages ?? messages.map((m) => ({ role: m.role, content: m.content, timestamp: m.timestamp })),
+        };
+      }
+    } catch { /* fallback below */ }
+
+    // Fallback: export whatever is available client-side
+    return {
+      project: { name: project?.name || '', status: project?.status || '' },
+      date,
+      score: null,
+      stages: [],
+      facts: [],
+      alerts: [],
+      nodes: [],
+      briefs: [],
+      tasks: [],
+      risks: [],
+      artifacts: artifactList,
+      messages: messages.map((m) => ({ role: m.role, content: m.content, timestamp: m.timestamp })),
+    };
+  }
+
+  async function handleDownload() {
+    setOpen(false);
+    const data = await gatherData();
+    const md = buildContextMarkdown(data);
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(project?.name || 'export').replace(/\s+/g, '-').toLowerCase()}-context-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handlePrint() {
+    setOpen(false);
+    const data = await gatherData();
+    const md = buildContextMarkdown(data);
+    openPrintPreview(`${project?.name || 'Context'}`, md);
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <IconBtn
+        d={I.download}
+        title="Export context"
+        onClick={() => setOpen((v) => !v)}
+        style={disabled ? { opacity: 0.4, pointerEvents: 'none' } : undefined}
+      />
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: '100%',
+            marginTop: 4,
+            width: 170,
+            background: 'var(--surface)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--r-m)',
+            boxShadow: '0 4px 12px rgba(0,0,0,.12)',
+            zIndex: 50,
+            padding: '4px 0',
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleDownload}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              padding: '8px 12px',
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--ink-2)',
+              fontFamily: 'var(--f-sans)',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => { (e.currentTarget.style.background = 'var(--paper-2)'); }}
+            onMouseLeave={(e) => { (e.currentTarget.style.background = 'transparent'); }}
+          >
+            <Icon d={I.download} size={14} stroke={1.4} />
+            Download .md
+          </button>
+          <button
+            type="button"
+            onClick={handlePrint}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              padding: '8px 12px',
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--ink-2)',
+              fontFamily: 'var(--f-sans)',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => { (e.currentTarget.style.background = 'var(--paper-2)'); }}
+            onMouseLeave={(e) => { (e.currentTarget.style.background = 'transparent'); }}
+          >
+            <Icon d={I.printer} size={14} stroke={1.4} />
+            Print / PDF
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function CopilotChatPage({
@@ -363,13 +534,20 @@ export default function CopilotChatPage({
   return (
     <div className="lp-frame">
       <TopBar
-        breadcrumb={[project?.name || 'Project', 'Co-pilot']}
+        breadcrumb={[project?.name || '', 'Co-pilot']}
         right={
           <>
             {isStreaming && <Pill kind="live" dot>streaming</Pill>}
             <span className="lp-mono" style={{ fontSize: 10 }}>
               ctx · {messages.length} msgs
             </span>
+            <ContextExportBtn
+              projectId={projectId}
+              project={project}
+              messages={messages}
+              artifacts={canvasArtifacts}
+              disabled={isStreaming}
+            />
             <CreditsBadge projectId={projectId} />
           </>
         }
@@ -533,7 +711,7 @@ function ChatHeader({
         className="lp-serif"
         style={{ fontSize: 20, fontWeight: 400, letterSpacing: -0.3, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}
       >
-        {p?.name || 'Your project'}
+        {p?.name || ''}
         <span className="lp-dot lp-pulse" style={{ background: 'var(--moss)', width: 6, height: 6 }} />
       </h2>
       <div
@@ -662,8 +840,8 @@ function Msg({
             width: 18,
             height: 18,
             borderRadius: 4,
-            background: '#4a5a7a',
-            color: '#fff',
+            background: 'var(--sky)',
+            color: 'var(--on-accent)',
             fontSize: 9,
             fontWeight: 600,
             display: 'flex',
@@ -684,7 +862,7 @@ function Msg({
               background: tools[0].status === 'running'
                 ? 'var(--accent-wash)'
                 : tools[0].status === 'error'
-                  ? 'oklch(0.94 0.05 40)'
+                  ? 'var(--accent-wash)'
                   : 'var(--paper-2)',
               color: tools[0].status === 'running'
                 ? 'var(--accent-ink)'
@@ -728,7 +906,7 @@ function Msg({
                 background: t.status === 'running'
                   ? 'var(--accent-wash)'
                   : t.status === 'error'
-                    ? 'oklch(0.94 0.05 40)'
+                    ? 'var(--accent-wash)'
                     : 'var(--paper-2)',
                 color: t.status === 'running'
                   ? 'var(--accent-ink)'
@@ -1058,9 +1236,9 @@ function InlineArtifact({
 // Resolves to /api/projects/[projectId]/tasks/[clientArtifactId] via
 // handleArtifactAction.
 const TASK_PRIORITY_STYLES: Record<string, { bg: string; fg: string; label: string }> = {
-  critical: { bg: 'var(--clay)',     fg: '#FFF',          label: 'Critical' },
-  high:     { bg: 'var(--accent)',   fg: 'var(--ink)',    label: 'High' },
-  medium:   { bg: 'var(--sky)',      fg: '#FFF',          label: 'Medium' },
+  critical: { bg: 'var(--clay)',     fg: 'var(--on-accent)', label: 'Critical' },
+  high:     { bg: 'var(--accent)',   fg: 'var(--ink)',       label: 'High' },
+  medium:   { bg: 'var(--sky)',      fg: 'var(--on-accent)', label: 'Medium' },
   low:      { bg: 'var(--paper-3)',  fg: 'var(--ink-3)',  label: 'Low' },
 };
 
@@ -1655,8 +1833,8 @@ function ChatComposer({
             <span
               className="lp-kbd"
               style={{
-                background: 'rgba(255,255,255,.12)',
-                borderColor: 'rgba(255,255,255,.2)',
+                background: 'var(--line)',
+                borderColor: 'var(--line-2)',
                 color: 'var(--paper)',
               }}
             >
@@ -2463,7 +2641,7 @@ function IntelligenceTab({ projectId, locale }: { projectId: string; locale: 'en
                   style={{
                     width: '100%',
                     display: 'grid',
-                    gridTemplateColumns: '20px 1fr 80px 60px 90px 14px',
+                    gridTemplateColumns: '20px 1fr 80px 90px 14px',
                     alignItems: 'center',
                     gap: 10,
                     padding: '10px 12px',
@@ -2497,14 +2675,6 @@ function IntelligenceTab({ projectId, locale }: { projectId: string; locale: 'en
                       transition: 'width 200ms ease',
                     }} />
                   </div>
-                  <span style={{
-                    fontFamily: 'var(--f-mono)',
-                    fontSize: 11,
-                    color: 'var(--ink-3)',
-                    textAlign: 'right',
-                  }}>
-                    {s.skills_completed}/{s.skills_total}
-                  </span>
                   <span
                     className="lp-chip"
                     style={{
@@ -2536,11 +2706,11 @@ function IntelligenceTab({ projectId, locale }: { projectId: string; locale: 'en
                         {s.last_signal.label} · {relativeTime(s.last_signal.at, locale)}
                       </div>
                     )}
-                    {s.skills_completed === 0 && (
+                    {s.completion_ratio === 0 && (
                       <div style={{ fontSize: 11, color: 'var(--ink-5)', fontStyle: 'italic', marginBottom: 6 }}>
                         {locale === 'it'
-                          ? 'Stadio non avviato — esegui le skill da Readiness.'
-                          : 'Stage not started — run its skills in Readiness.'}
+                          ? 'Stadio non avviato — avvia la validazione da Readiness.'
+                          : 'Stage not started — begin validation in Readiness.'}
                       </div>
                     )}
                     <a

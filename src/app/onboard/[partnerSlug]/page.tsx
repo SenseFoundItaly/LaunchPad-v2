@@ -101,7 +101,7 @@ export default function PartnerOnboardingPage({
         </header>
 
         {!partner && (
-          <div className="mb-6 rounded-lg border border-amber-500/20 bg-accent/5 p-3 text-xs text-accent">
+          <div className="mb-6 rounded-lg border border-accent/20 bg-accent/5 p-3 text-xs text-accent">
             {copy.unknownPartner}
           </div>
         )}
@@ -116,7 +116,7 @@ export default function PartnerOnboardingPage({
               onChange={e => setName(e.target.value)}
               placeholder={copy.namePlaceholder}
               required
-              className="w-full px-4 py-3 bg-paper border border-line rounded-lg text-ink placeholder-zinc-600 outline-none focus:border-line-2"
+              className="w-full px-4 py-3 bg-paper border border-line rounded-lg text-ink placeholder-ink-5 outline-none focus:border-line-2"
             />
           </div>
 
@@ -129,7 +129,7 @@ export default function PartnerOnboardingPage({
               onChange={e => setDescription(e.target.value)}
               placeholder={copy.descPlaceholder}
               rows={3}
-              className="w-full px-4 py-3 bg-paper border border-line rounded-lg text-ink placeholder-zinc-600 outline-none focus:border-line-2 resize-none"
+              className="w-full px-4 py-3 bg-paper border border-line rounded-lg text-ink placeholder-ink-5 outline-none focus:border-line-2 resize-none"
             />
           </div>
 
@@ -147,7 +147,7 @@ export default function PartnerOnboardingPage({
           <button
             type="submit"
             disabled={submitting || !name.trim()}
-            className="w-full py-3 rounded-lg text-white font-medium transition-colors disabled:opacity-50"
+            className="w-full py-3 rounded-lg text-paper font-medium transition-colors disabled:opacity-50"
             style={{ backgroundColor: primary }}
           >
             {submitting ? copy.submitting : copy.submit}

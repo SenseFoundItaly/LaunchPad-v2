@@ -10,15 +10,7 @@ interface WorkflowCardInlineProps {
   onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }
 
-const CATEGORY_COLORS: Record<string, string> = {
-  hiring: 'bg-amber-500/20 text-amber-400',
-  marketing: 'bg-blue-500/20 text-blue-400',
-  fundraising: 'bg-green-500/20 text-green-400',
-  product: 'bg-violet-500/20 text-violet-400',
-  legal: 'bg-rose-500/20 text-rose-400',
-  operations: 'bg-cyan-500/20 text-cyan-400',
-  sales: 'bg-orange-500/20 text-orange-400',
-};
+import { workflowPalette } from '@/lib/brand-palette';
 
 const PRIORITY_COLORS: Record<string, string> = {
   high: 'text-clay',
@@ -65,7 +57,7 @@ export default function WorkflowCardInline({
       title={artifact.title}
       sources={artifact.sources}
       headerRight={<>
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[artifact.category] || 'bg-ink-5/20 text-ink-4'}`}>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${workflowPalette(artifact.category).chip}`}>
           {artifact.category}
         </span>
         <span className={`text-xs font-medium ${PRIORITY_COLORS[artifact.priority] || 'text-ink-4'}`}>
@@ -118,7 +110,7 @@ export default function WorkflowCardInline({
       <div className="flex items-center justify-end">
         <button
           onClick={() => onAction('trigger-workflow', { title: artifact.title, steps: artifact.steps })}
-          className="text-xs px-3 py-1 bg-moss hover:bg-moss/80 text-white rounded-md transition-colors"
+          className="text-xs px-3 py-1 bg-moss hover:bg-moss/80 text-paper rounded-md transition-colors"
         >
           Execute
         </button>

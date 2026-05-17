@@ -11,11 +11,11 @@ interface InsightCardProps {
 }
 
 const CATEGORY_COLORS: Record<InsightCardType['category'], string> = {
-  competitor: 'bg-red-500',
-  market: 'bg-green-500',
-  risk: 'bg-orange-500',
-  opportunity: 'bg-blue-500',
-  technology: 'bg-cyan-500',
+  competitor: 'bg-clay',
+  market: 'bg-moss',
+  risk: 'bg-cat-rose',
+  opportunity: 'bg-sky',
+  technology: 'bg-cat-teal',
 };
 
 const CATEGORY_LABELS: Record<InsightCardType['category'], string> = {

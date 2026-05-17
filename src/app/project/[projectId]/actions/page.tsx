@@ -584,7 +584,7 @@ function TicketsTable({
                   height: 14,
                   borderRadius: 3,
                   background: agentColor(agent),
-                  color: '#fff',
+                  color: 'var(--on-accent)',
                   fontSize: 8,
                   fontWeight: 600,
                   display: 'flex',
@@ -812,7 +812,7 @@ function LaneAwareActions({
         </button>
         <button
           onClick={() => onTransition(action.id, 'reject')}
-          style={{ ...btnGhost, justifyContent: 'flex-start', color: 'oklch(0.55 0.14 20)' }}
+          style={{ ...btnGhost, justifyContent: 'flex-start', color: 'var(--clay)' }}
         >
           <Icon d={I.stop} size={12} /> Dismiss
         </button>
@@ -831,7 +831,7 @@ function LaneAwareActions({
       </button>
       <button
         onClick={() => onTransition(action.id, 'reject')}
-        style={{ ...btnGhost, justifyContent: 'flex-start', color: 'oklch(0.55 0.14 20)' }}
+        style={{ ...btnGhost, justifyContent: 'flex-start', color: 'var(--clay)' }}
       >
         <Icon d={I.stop} size={12} /> Reject
       </button>
@@ -914,14 +914,14 @@ function progressFromStatus(status: PendingActionStatus): number {
 
 function agentColor(name: string): string {
   const map: Record<string, string> = {
-    Scout: '#7a8b4a',
-    Chief: '#4a5a7a',
-    Analyst: '#7a5a4a',
-    Outreach: '#7a4a6a',
-    Designer: '#4a7a7a',
-    Agent: '#6b6558',
+    Scout: 'var(--moss)',
+    Chief: 'var(--sky)',
+    Analyst: 'var(--clay)',
+    Outreach: 'var(--plum)',
+    Designer: 'var(--cat-teal)',
+    Agent: 'var(--ink-3)',
   };
-  return map[name] || '#555';
+  return map[name] || 'var(--ink-5)';
 }
 
 function timeAgo(iso: string): string {

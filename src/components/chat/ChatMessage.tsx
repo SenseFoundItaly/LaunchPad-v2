@@ -239,7 +239,7 @@ export default function ChatMessage({
       <div
         className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
-            ? 'bg-moss text-white rounded-br-md'
+            ? 'bg-moss text-paper rounded-br-md'
             : 'bg-paper-2 text-ink-2 rounded-bl-md'
         }`}
       >

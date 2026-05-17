@@ -53,7 +53,7 @@ export default function ProjectCard({
             className="h-full rounded-full transition-all"
             style={{
               width: `${pct}%`,
-              backgroundColor: pct >= 70 ? '#10b981' : pct >= 40 ? '#f59e0b' : '#ef4444',
+              backgroundColor: pct >= 70 ? 'var(--moss)' : pct >= 40 ? 'var(--cat-gold)' : 'var(--clay)',
             }}
           />
         </div>

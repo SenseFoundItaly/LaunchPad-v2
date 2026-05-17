@@ -117,7 +117,7 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
       sources={artifact.sources}
       collapsible={false}
       headerRight={<>
-        <span className="text-[10px] px-2 py-0.5 rounded-full border bg-amber-500/20 text-amber-300 border-amber-500/30">
+        <span className="text-[10px] px-2 py-0.5 rounded-full border bg-cat-gold-wash text-cat-gold border-line-2">
           {direction}
         </span>
         {artifact.estimated_monthly_cost_usd != null && (
@@ -179,7 +179,7 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
               type="button"
               disabled={!!capError}
               onClick={() => handleApply(true)}
-              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md transition-colors"
+              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 disabled:opacity-50 disabled:cursor-not-allowed text-paper rounded-md transition-colors"
             >
               Save &amp; apply
             </button>
@@ -197,7 +197,7 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
               type="button"
               disabled={state === 'applying'}
               onClick={() => handleApply(false)}
-              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 disabled:opacity-50 text-white rounded-md transition-colors"
+              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 disabled:opacity-50 text-paper rounded-md transition-colors"
             >
               {state === 'applying' ? 'Applying...' : 'Apply'}
             </button>

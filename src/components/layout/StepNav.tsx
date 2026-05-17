@@ -47,7 +47,7 @@ export default function StepNav({ projectId, currentStep }: StepNavProps) {
               <span
                 className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium ${
                   isActive
-                    ? 'bg-moss text-white'
+                    ? 'bg-moss text-paper'
                     : isCompleted
                       ? 'bg-moss/30 text-moss'
                       : 'bg-paper-2 text-ink-5'
