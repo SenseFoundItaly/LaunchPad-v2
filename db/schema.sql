@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS projects (
   locale VARCHAR DEFAULT 'en',
   owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   org_id TEXT REFERENCES organizations(id) ON DELETE SET NULL,
+  settings JSONB DEFAULT '{}',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

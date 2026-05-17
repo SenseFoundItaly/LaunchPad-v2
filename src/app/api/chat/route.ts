@@ -290,8 +290,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const projects = await query<{ id: string; name: string; description: string; current_step: number }>(
-    'SELECT id, name, description, current_step FROM projects WHERE id = ?', project_id
+  const projects = await query<{ id: string; name: string; description: string; current_step: number; settings: { rich_context?: boolean } | null }>(
+    'SELECT id, name, description, current_step, settings FROM projects WHERE id = ?', project_id
   );
   if (projects.length === 0) {
     return new Response(
@@ -312,7 +312,9 @@ export async function POST(request: NextRequest) {
   // Memory context — curated facts + recent events + graph summary + completed
   // skills — lets the agent remember across sessions AND across chat "steps"
   // within a project (see sessionId change below).
-  const memoryContext = await buildMemoryContext(userId, project_id);
+  const memoryContext = await buildMemoryContext(userId, project_id, {
+    enriched: projects[0].settings?.rich_context === true,
+  });
 
   // Build system prompt: SOUL + AGENTS personality first (locale-aware),
   // then ARTIFACT_INSTRUCTIONS, then per-project context + memory + recently-

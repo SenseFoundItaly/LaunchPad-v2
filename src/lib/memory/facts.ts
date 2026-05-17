@@ -24,6 +24,7 @@ export interface MemoryFact {
   reviewed_state: ReviewedState;
   created_at: string;
   updated_at: string;
+  sources?: unknown[] | null;
 }
 
 export interface RecordFactInput {
@@ -118,6 +119,8 @@ export interface ListFactsOpts {
   states?: ReviewedState[];
   kinds?: FactKind[];
   minConfidence?: number;
+  /** When true, include the sources JSONB column in results. */
+  includeSources?: boolean;
 }
 
 export async function listFacts(
@@ -125,7 +128,7 @@ export async function listFacts(
   projectId: string,
   opts: ListFactsOpts = {},
 ): Promise<MemoryFact[]> {
-  const { limit = 20, states = ['applied'], kinds, minConfidence } = opts;
+  const { limit = 20, states = ['applied'], kinds, minConfidence, includeSources } = opts;
   const clauses: string[] = ['user_id = ?', 'project_id = ?'];
   const params: unknown[] = [userId, projectId];
   if (states.length > 0) {
@@ -140,8 +143,9 @@ export async function listFacts(
     clauses.push('confidence >= ?');
     params.push(minConfidence);
   }
+  const sourcesCol = includeSources ? ', sources' : '';
   const sql = `SELECT id, user_id, project_id, fact, kind, source_type, source_id,
-                      confidence, reviewed_state, created_at, updated_at
+                      confidence, reviewed_state, created_at, updated_at${sourcesCol}
                FROM memory_facts
                WHERE ${clauses.join(' AND ')}
                ORDER BY updated_at DESC
