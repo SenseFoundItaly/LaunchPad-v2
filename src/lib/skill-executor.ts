@@ -54,7 +54,6 @@ const SKILLS_DIR = join(process.cwd(), 'launchpad-skills');
 interface SkillFrontmatter {
   name: string;
   description: string;
-  model_tier?: 'cheap' | 'balanced' | 'premium';
 }
 
 interface ParsedSkillBody {

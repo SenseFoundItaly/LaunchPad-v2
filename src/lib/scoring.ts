@@ -2,6 +2,37 @@ import { STAGES, SKILL_SOURCES } from './stages';
 import type { SkillData } from '@/hooks/useSkillStatus';
 import type { SectionScore } from '@/lib/section-scoring';
 
+// ---------------------------------------------------------------------------
+// scoreStage() TTL cache — avoids recomputing the same stage score when
+// called by multiple callers (context-export, intelligence, stage-readiness,
+// scoreOverall) within a short window with the same skill data.
+// ---------------------------------------------------------------------------
+interface CacheEntry<T> { value: T; expiresAt: number }
+
+const STAGE_CACHE = new Map<string, CacheEntry<StageScore>>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_MAX_SIZE = 100;
+
+function buildScoreCacheKey(stageNumber: number, skillMap: Record<string, SkillData>): string {
+  const stage = STAGES.find(s => s.number === stageNumber);
+  if (!stage) return `${stageNumber}|_`;
+  const parts = stage.skills.map(s => {
+    const d = skillMap[s.id];
+    const status = d?.status ?? 'not_run';
+    const len = d?.summary?.length ?? 0;
+    return `${s.id}:${status}:${len}`;
+  });
+  return `${stageNumber}|${parts.join(',')}`;
+}
+
+function evictExpiredEntries(): void {
+  if (STAGE_CACHE.size <= CACHE_MAX_SIZE) return;
+  const now = Date.now();
+  for (const [key, entry] of STAGE_CACHE) {
+    if (entry.expiresAt < now) STAGE_CACHE.delete(key);
+  }
+}
+
 export interface SkillScore {
   completion: number;
   evidenceDepth: number;
@@ -154,8 +185,23 @@ export function scoreSkill(skillId: string, skillMap: Record<string, SkillData>)
   return skillScore;
 }
 
-/** Score an entire stage */
+/** Score an entire stage (cached with 5-min TTL) */
 export function scoreStage(stageNumber: number, skillMap: Record<string, SkillData>): StageScore {
+  const cacheKey = buildScoreCacheKey(stageNumber, skillMap);
+  const now = Date.now();
+
+  const cached = STAGE_CACHE.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.value;
+
+  const result = computeStageScore(stageNumber, skillMap);
+
+  evictExpiredEntries();
+  STAGE_CACHE.set(cacheKey, { value: result, expiresAt: now + CACHE_TTL_MS });
+
+  return result;
+}
+
+function computeStageScore(stageNumber: number, skillMap: Record<string, SkillData>): StageScore {
   const stage = STAGES.find(s => s.number === stageNumber);
   if (!stage) return { score: 0, skills: {}, verdict: 'NOT READY', recommendations: [] };
 

@@ -186,7 +186,7 @@ export function IntelligenceSection({ projectId, locale }: { projectId: string; 
                   style={{
                     width: '100%',
                     display: 'grid',
-                    gridTemplateColumns: '20px 1fr 80px 60px 90px 14px',
+                    gridTemplateColumns: '20px 1fr 80px 90px 14px',
                     alignItems: 'center',
                     gap: 10,
                     padding: '10px 12px',
@@ -220,14 +220,6 @@ export function IntelligenceSection({ projectId, locale }: { projectId: string; 
                       transition: 'width 200ms ease',
                     }} />
                   </div>
-                  <span style={{
-                    fontFamily: 'var(--f-mono)',
-                    fontSize: 11,
-                    color: 'var(--ink-3)',
-                    textAlign: 'right',
-                  }}>
-                    {s.skills_completed}/{s.skills_total}
-                  </span>
                   <span
                     className="lp-chip"
                     style={{
@@ -259,11 +251,11 @@ export function IntelligenceSection({ projectId, locale }: { projectId: string; 
                         {s.last_signal.label} \u00b7 {relativeTime(s.last_signal.at, locale)}
                       </div>
                     )}
-                    {s.skills_completed === 0 && (
+                    {s.completion_ratio === 0 && (
                       <div style={{ fontSize: 11, color: 'var(--ink-5)', fontStyle: 'italic', marginBottom: 6 }}>
                         {locale === 'it'
-                          ? 'Stadio non avviato \u2014 esegui le skill da Readiness.'
-                          : 'Stage not started \u2014 run its skills in Readiness.'}
+                          ? 'Stadio non avviato \u2014 avvia la validazione da Readiness.'
+                          : 'Stage not started \u2014 begin validation in Readiness.'}
                       </div>
                     )}
                     <a

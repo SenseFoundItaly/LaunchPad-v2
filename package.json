@@ -10,7 +10,8 @@
     "backfill:default-user": "node scripts/backfill-default-user.cjs",
     "db:migrate": "npx tsx db/migrate.ts",
     "deploy": "bash scripts/deploy.sh",
-    "deploy:prod": "bash scripts/deploy.sh --prod"
+    "deploy:preview": "bash scripts/deploy.sh --preview",
+    "deploy:dry": "bash scripts/deploy.sh --dry-run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

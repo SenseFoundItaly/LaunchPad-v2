@@ -618,9 +618,13 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   configure_monitor: configureMonitor,
   configure_budget: configureBudget,
   configure_watch_source: configureWatchSource,
-  // workflow_step is intentionally unmapped — each step is a placeholder
-  // row, not an auto-executable action. Founder apply just flips status
-  // without a domain effect.
+  workflow_step: async (_pa) => ({
+    ok: true,
+    deliverable: {
+      mode: 'direct' as const,
+      narrative: 'Workflow step acknowledged',
+    },
+  }),
 };
 
 export async function executeAppliedAction(action: PendingAction): Promise<ExecutorResult> {

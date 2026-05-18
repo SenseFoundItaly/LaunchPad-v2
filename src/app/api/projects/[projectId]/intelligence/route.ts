@@ -66,7 +66,9 @@ interface StageSummary {
   completion_ratio: number;
   overall_score: number;
   verdict: StageVerdict;
+  /** @deprecated Use completion_ratio instead. Kept for backward compat. */
   skills_total: number;
+  /** @deprecated Use completion_ratio instead. Kept for backward compat. */
   skills_completed: number;
   last_signal: { type: string; label: string; at: string } | null;
 }

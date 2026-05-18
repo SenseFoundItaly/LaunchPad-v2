@@ -156,7 +156,7 @@ export function buildContextMarkdown(data: ContextExportData): string {
       if (f.sources && Array.isArray(f.sources) && f.sources.length > 0) {
         const sourceNames = f.sources.map((s: unknown) => {
           const src = s as Record<string, unknown>;
-          return src.title || src.type || 'unknown';
+          return src.title || src.type || '';
         }).join(', ');
         lines.push(`  Sources: ${sourceNames}`);
       }
@@ -224,7 +224,7 @@ export function buildContextMarkdown(data: ContextExportData): string {
     lines.push('*No open tasks.*');
   } else {
     for (const t of data.tasks) {
-      lines.push(`- [${t.priority || 'medium'}] ${t.title}`);
+      lines.push(`- [${t.priority || '—'}] ${t.title}`);
       if (t.rationale) lines.push(`  *Rationale:* ${cap(t.rationale, 200)}`);
     }
   }

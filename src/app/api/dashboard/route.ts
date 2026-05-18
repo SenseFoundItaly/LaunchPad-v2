@@ -1,6 +1,7 @@
 import { query } from '@/lib/db';
 import { json } from '@/lib/api-helpers';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
+import { STAGES } from '@/lib/stages';
 
 /** Cross-project dashboard data for the homepage command center */
 export async function GET() {
@@ -51,8 +52,8 @@ export async function GET() {
     name: p.name,
     description: p.description,
     status: p.status,
-    skills_completed: skillMap[p.id] || 0,
-    total_skills: 17,
+    analyses_completed: skillMap[p.id] || 0,
+    total_analyses: STAGES.reduce((sum, s) => sum + s.skills.length, 0),
     weekly_alerts: weeklyMap[p.id] || 0,
     created_at: p.created_at,
   }));
@@ -63,7 +64,7 @@ export async function GET() {
 
   const enrichedAlerts = alerts.map(a => ({
     ...a,
-    project_name: projectNames[a.project_id] || 'Unknown',
+    project_name: projectNames[a.project_id] || '',
   }));
 
   return json({
@@ -71,7 +72,7 @@ export async function GET() {
     signals: enrichedAlerts,
     stats: {
       total_projects: projects.length,
-      total_skills_completed: Object.values(skillMap).reduce((a, b) => a + b, 0),
+      total_analyses_completed: Object.values(skillMap).reduce((a, b) => a + b, 0),
       total_alerts_this_week: Object.values(weeklyMap).reduce((a, b) => a + b, 0),
     },
   });

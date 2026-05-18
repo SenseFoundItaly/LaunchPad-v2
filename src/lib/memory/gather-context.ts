@@ -301,7 +301,7 @@ export async function gatherProjectContext(
           const imp = typeof r.impact === 'number' ? r.impact : 0.5;
           return {
             id: String(r.id || r.risk_id || '?'),
-            title: String(r.title || r.name || 'Unnamed'),
+            title: String(r.title || r.name || '(untitled)'),
             probability: prob,
             impact: imp,
             severity: prob * imp,

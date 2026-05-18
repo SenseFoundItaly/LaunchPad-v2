@@ -1274,7 +1274,7 @@ const getRiskAudit = (ctx: ToolContext): AgentTool => ({
       const lines: string[] = [];
       const id = r.id || r.risk_id || `risk_${i + 1}`;
       const dimension = r.dimension || r.category || 'unclassified';
-      lines.push(`${i + 1}. [${id} · ${dimension}] ${r.title || r.name || 'Unnamed risk'}`);
+      lines.push(`${i + 1}. [${id} · ${dimension}] ${r.title || r.name || '(untitled)'}`);
       lines.push(`   Probability: ${(prob * 100).toFixed(0)}% · Impact: ${(impact * 100).toFixed(0)}% · Severity: ${(severity * 100).toFixed(0)}%`);
       if (r.description) lines.push(`   ${(r.description as string).slice(0, 200)}`);
       if (r.mitigation) lines.push(`   Mitigation: ${(r.mitigation as string).slice(0, 150)}`);

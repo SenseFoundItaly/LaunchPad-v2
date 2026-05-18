@@ -96,6 +96,9 @@ export default function ArtifactRenderer({
       return <DocumentCard artifact={artifact} />;
     case 'solve-progress':
       return <SolveProgressCard artifact={artifact} />;
+    case 'task':  // Inline-only — rendered by InlineArtifact → TaskCard in chat/page.tsx
+    case 'fact':  // Server-only — intercepted by chat route, never sent to client
+      return null;
     default:
       return null;
   }

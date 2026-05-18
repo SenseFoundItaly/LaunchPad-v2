@@ -20,6 +20,14 @@ export async function deleteProject(projectId: string): Promise<void> {
   await api.delete(`/api/projects/${projectId}`);
 }
 
+export async function updateProject(
+  projectId: string,
+  fields: Partial<Pick<Project, 'name' | 'description' | 'status'>>,
+): Promise<Project> {
+  const { data } = await api.put<ApiResponse<Project>>(`/api/projects/${projectId}`, fields);
+  return data.data;
+}
+
 export async function getStepData<T>(projectId: string, stepName: string): Promise<T | null> {
   const { data } = await api.get<ApiResponse<T | null>>(`/api/projects/${projectId}/step/${stepName}`);
   return data.data;

@@ -104,7 +104,7 @@ export function formatMemoryContextMarkdown(ctx: ProjectContext): string {
     parts.push('## Open tasks');
     for (const t of ctx.tasks) {
       const rationale = t.rationale ? ` — ${t.rationale.slice(0, 80)}` : '';
-      parts.push(`- [${t.priority || 'medium'}] ${t.title}${rationale}`);
+      parts.push(`- [${t.priority || '—'}] ${t.title}${rationale}`);
     }
     parts.push('');
   } else if (ctx.failedSections.includes('tasks')) {

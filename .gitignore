@@ -15,3 +15,7 @@ data/
 
 # Playwright MCP snapshots
 .playwright-mcp/
+
+# Supabase CLI artifacts
+supabase/.temp/
+deno.lock
