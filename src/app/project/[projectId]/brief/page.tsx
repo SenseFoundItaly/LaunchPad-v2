@@ -80,7 +80,7 @@ export default function MondayBriefPage({
               fontSize: 12,
               borderRadius: 'var(--r-m)',
               background: triggering ? 'var(--paper-3)' : 'var(--accent)',
-              color: triggering ? 'var(--ink-5)' : 'var(--accent-ink)',
+              color: triggering ? 'var(--ink-5)' : 'var(--on-accent)',
               border: 'none',
               cursor: triggering ? 'default' : 'pointer',
               fontWeight: 500,
@@ -117,12 +117,12 @@ export default function MondayBriefPage({
 // =============================================================================
 
 const SECTION_ACCENTS: Record<string, { border: string; bg: string; dot: string }> = {
-  movements:        { border: 'oklch(0.65 0.18 240 / 0.2)', bg: 'oklch(0.65 0.18 240 / 0.04)', dot: 'oklch(0.65 0.18 240)' },
-  strategic_intel:  { border: 'oklch(0.65 0.18 300 / 0.2)', bg: 'oklch(0.65 0.18 300 / 0.04)', dot: 'oklch(0.65 0.18 300)' },
-  decisions_needed: { border: 'oklch(0.75 0.15 60 / 0.2)',  bg: 'oklch(0.75 0.15 60 / 0.04)',  dot: 'oklch(0.75 0.15 60)' },
-  actions_taken:    { border: 'oklch(0.70 0.15 155 / 0.2)', bg: 'oklch(0.70 0.15 155 / 0.04)', dot: 'oklch(0.70 0.15 155)' },
-  metrics:          { border: 'oklch(0.65 0.18 20 / 0.2)',  bg: 'oklch(0.65 0.18 20 / 0.04)',  dot: 'oklch(0.65 0.18 20)' },
-  fundraising:      { border: 'var(--line)',                 bg: 'var(--surface-sunk)',          dot: 'var(--ink-5)' },
+  movements:        { border: 'color-mix(in oklch, var(--brief-blue) 20%, transparent)',   bg: 'color-mix(in oklch, var(--brief-blue) 4%, transparent)',   dot: 'var(--brief-blue)' },
+  strategic_intel:  { border: 'color-mix(in oklch, var(--brief-violet) 20%, transparent)', bg: 'color-mix(in oklch, var(--brief-violet) 4%, transparent)', dot: 'var(--brief-violet)' },
+  decisions_needed: { border: 'color-mix(in oklch, var(--brief-gold) 20%, transparent)',   bg: 'color-mix(in oklch, var(--brief-gold) 4%, transparent)',   dot: 'var(--brief-gold)' },
+  actions_taken:    { border: 'color-mix(in oklch, var(--brief-sage) 20%, transparent)',   bg: 'color-mix(in oklch, var(--brief-sage) 4%, transparent)',   dot: 'var(--brief-sage)' },
+  metrics:          { border: 'color-mix(in oklch, var(--brief-coral) 20%, transparent)',  bg: 'color-mix(in oklch, var(--brief-coral) 4%, transparent)',  dot: 'var(--brief-coral)' },
+  fundraising:      { border: 'var(--line)',                                               bg: 'var(--surface-sunk)',                                     dot: 'var(--ink-5)' },
 };
 
 function sectionAccent(kind: string) {
@@ -312,7 +312,7 @@ function EmptyState({ onScan, triggering }: { onScan: () => void; triggering: bo
           fontSize: 12,
           borderRadius: 'var(--r-m)',
           background: triggering ? 'var(--paper-3)' : 'var(--accent)',
-          color: triggering ? 'var(--ink-5)' : 'var(--accent-ink)',
+          color: triggering ? 'var(--ink-5)' : 'var(--on-accent)',
           border: 'none',
           cursor: triggering ? 'default' : 'pointer',
           fontWeight: 500,

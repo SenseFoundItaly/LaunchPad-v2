@@ -1,23 +1,10 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono, Inter, JetBrains_Mono } from 'next/font/google';
+import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import '../styles/design-tokens.css';
 import AppHeader from '@/components/layout/AppHeader';
 
-// Legacy fonts (Tailwind-styled pages still reference --font-geist-*).
-// Keeping both so migration is gradual — see src/components/design/* for the
-// new Inter/JetBrains-backed design system.
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-});
-
-// New design system fonts — tokens.css expects Inter + JetBrains Mono.
+// Design system fonts — tokens.css expects Inter + JetBrains Mono.
 // next/font injects proper preloads, self-hosts the files, no FOIT.
 const inter = Inter({
   variable: '--font-inter',
@@ -48,7 +35,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} ${jetbrainsMono.variable} theme-ink h-full antialiased dark`}
+      className={`${inter.variable} ${jetbrainsMono.variable} theme-ink h-full antialiased dark`}
     >
       <body className="h-full flex flex-col bg-paper text-ink">
         <AppHeader />

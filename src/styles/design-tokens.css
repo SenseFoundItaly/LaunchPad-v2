@@ -47,6 +47,15 @@
   --plum-wash: oklch(0.94 0.03 325);
   --on-accent: #FAF5EE;
 
+  /* brief section accents */
+  --brief-blue: oklch(0.65 0.18 240);
+  --brief-violet: oklch(0.65 0.18 300);
+  --brief-gold: oklch(0.75 0.15 60);
+  --brief-sage: oklch(0.70 0.15 155);
+  --brief-coral: oklch(0.65 0.18 20);
+  /* brand spec: Light Sage */
+  --sage-light: oklch(0.82 0.04 155);
+
   /* geometry */
   --r-s: 4px;
   --r-m: 6px;
@@ -147,3 +156,17 @@
 }
 .lp-brackets::before { top: 0; left: 0; border-top-width: 2px; border-left-width: 2px; }
 .lp-brackets::after { bottom: 0; right: 0; border-bottom-width: 2px; border-right-width: 2px; }
+
+/* Prose — lightweight markdown formatting for signal / heartbeat expanded bodies */
+.lp-prose { font-size: 12px; line-height: 1.55; color: var(--ink-3); }
+.lp-prose p { margin: 0 0 8px; }
+.lp-prose p:last-child { margin-bottom: 0; }
+.lp-prose strong, .lp-prose b { color: var(--ink-2); font-weight: 600; }
+.lp-prose a { color: var(--accent-ink); text-decoration: none; }
+.lp-prose a:hover { text-decoration: underline; }
+.lp-prose ul, .lp-prose ol { margin: 4px 0 8px; padding-left: 18px; }
+.lp-prose li { margin-bottom: 2px; }
+.lp-prose h1, .lp-prose h2, .lp-prose h3, .lp-prose h4 { font-size: 12px; font-weight: 600; color: var(--ink-2); margin: 10px 0 4px; }
+.lp-prose code { font-family: var(--f-mono); font-size: 11px; background: var(--paper-3); padding: 1px 4px; border-radius: 3px; }
+.lp-prose pre { font-family: var(--f-mono); font-size: 11px; background: var(--paper-3); padding: 8px 10px; border-radius: var(--r-m); overflow-x: auto; margin: 6px 0; }
+.lp-prose blockquote { border-left: 2px solid var(--line-2); margin: 6px 0; padding-left: 10px; color: var(--ink-4); }

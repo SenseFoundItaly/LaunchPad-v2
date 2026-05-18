@@ -239,7 +239,7 @@ function NavRailItem({ item, projectId, active, badge, streaming }: { item: NavI
             height: 14,
             borderRadius: 7,
             background: 'var(--clay)',
-            color: '#FFF',
+            color: 'var(--on-accent)',
             fontSize: 9,
             fontWeight: 700,
             fontFamily: 'var(--f-mono)',
@@ -341,7 +341,7 @@ function MoreMenu({ projectId, isActive }: { projectId: string; isActive: (item:
             background: 'var(--surface)',
             border: '1px solid var(--line)',
             borderRadius: 'var(--r-m)',
-            boxShadow: '0 4px 16px rgba(0,0,0,.12)',
+            boxShadow: 'var(--shadow-card)',
             padding: '6px 0',
             zIndex: 100,
           }}
