@@ -52,7 +52,7 @@ interface WatchSourceRow {
 // Component
 // =============================================================================
 
-const SCHEDULES = ['hourly', 'daily', 'weekly', 'monthly', 'manual'] as const;
+const SCHEDULES = ['daily', 'weekly', 'monthly', 'manual'] as const;
 
 export default function CronSettingsPanel({
   projectId,
@@ -189,7 +189,7 @@ export default function CronSettingsPanel({
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <Stat label="Last run" value={formatRelative(cronbeat.last_run.started_at)} />
                       <Stat label="Duration" value={cronbeat.last_run.duration_ms != null ? `${(cronbeat.last_run.duration_ms / 1000).toFixed(1)}s` : '—'} />
-                      <Stat label="Monitors" value={String(cronbeat.last_run.monitors_ran)} />
+                      <Stat label="Monitors ran" value={String(cronbeat.last_run.monitors_ran)} />
                       <Stat label="Watch sources" value={String(cronbeat.last_run.watch_sources_processed)} />
                       <Stat label="Heartbeats" value={String(cronbeat.last_run.heartbeats_ran)} />
                       <Stat label="Status" value={cronbeat.last_run.status} />
@@ -248,14 +248,14 @@ export default function CronSettingsPanel({
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <select
-                            value={m.schedule}
+                            value={SCHEDULES.includes(m.schedule as typeof SCHEDULES[number]) ? m.schedule : 'daily'}
                             onChange={(e) => handleScheduleChange(m.id, e.target.value)}
                             style={{
                               fontSize: 11,
                               padding: '2px 6px',
                               borderRadius: 'var(--r-m)',
                               border: '1px solid var(--line)',
-                              background: 'var(--paper)',
+                              background: m.schedule === 'hourly' ? 'var(--amber-wash, #fff3cd)' : 'var(--paper)',
                               color: 'var(--ink-3)',
                               cursor: 'pointer',
                             }}

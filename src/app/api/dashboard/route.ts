@@ -30,9 +30,9 @@ export async function GET() {
   // Recent alerts across all projects (last 20)
   const alerts = await query<{
     id: string; project_id: string; type: string; severity: string;
-    message: string; created_at: string;
+    message: string; created_at: string; source_url: string | null;
   }>(
-    `SELECT a.id, a.project_id, a.type, a.severity, a.message, a.created_at
+    `SELECT a.id, a.project_id, a.type, a.severity, a.message, a.created_at, a.source_url
      FROM alerts a WHERE a.dismissed = false
      ORDER BY a.created_at DESC LIMIT 20`
   );

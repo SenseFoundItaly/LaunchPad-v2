@@ -20,6 +20,7 @@
  */
 
 import { use, useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import Link from 'next/link';
 import api from '@/api';
 import { updateProject } from '@/api/projects';
@@ -730,6 +731,7 @@ type HeartbeatEvent = {
   tag: string;
   kind: 'live' | 'ok' | 'info' | 'warn' | 'n';
   full?: string;
+  sourceUrl?: string;
 };
 
 interface ActivityApiEvent {
@@ -780,6 +782,7 @@ function HeartbeatSection({
         tag: `${(alert.relevance_score * 100).toFixed(0)}% rilevante`,
         kind: alert.relevance_score > 0.8 ? 'live' : alert.relevance_score > 0.6 ? 'ok' : 'n',
         full: alert.body || undefined,
+        sourceUrl: alert.source_url || undefined,
       });
     }
 
@@ -963,11 +966,41 @@ function HeartbeatSection({
                 </span>
                 <span style={{ fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   <span style={{ color: 'var(--ink-2)' }}>{e.msg}</span>
-                  {e.target && <span style={{ color: 'var(--ink-4)' }}> — {e.target}</span>}
+                  {e.target && (
+                    e.sourceUrl ? (
+                      <a
+                        href={e.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(ev) => ev.stopPropagation()}
+                        style={{ color: 'var(--ink-4)', marginLeft: 4, textDecoration: 'none' }}
+                      >
+                        — {e.target} ↗
+                      </a>
+                    ) : (
+                      <span style={{ color: 'var(--ink-4)' }}> — {e.target}</span>
+                    )
+                  )}
                 </span>
-                <Pill kind={e.kind} dot={e.kind !== 'n'}>
-                  {e.tag}
-                </Pill>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Pill kind={e.kind} dot={e.kind !== 'n'}>
+                    {e.tag}
+                  </Pill>
+                  {e.full && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: 'var(--ink-5)',
+                        transition: 'transform .15s',
+                        transform: expandedIdx === i ? 'rotate(90deg)' : 'none',
+                        display: 'inline-block',
+                        flexShrink: 0,
+                      }}
+                    >
+                      ▸
+                    </span>
+                  )}
+                </span>
               </div>
               {/* Expanded body */}
               {expandedIdx === i && e.full && (
@@ -980,16 +1013,43 @@ function HeartbeatSection({
                     borderRadius: '0 var(--r-m) var(--r-m) 0',
                     maxHeight: 300,
                     overflowY: 'auto',
-                    fontFamily: 'var(--f-mono)',
-                    fontSize: 11,
+                    fontSize: 12,
                     lineHeight: 1.5,
                     color: 'var(--ink-3)',
-                    whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word',
                     borderBottom: i < condensedEvents.length - 1 ? '1px solid var(--line)' : 'none',
                   }}
                 >
-                  {e.full}
+                  {e.sourceUrl && (
+                    <a
+                      href={e.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        fontSize: 11,
+                        color: 'var(--accent-ink)',
+                        marginBottom: 8,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      <Icon d={I.globe} size={10} />
+                      Source: {safeHost(e.sourceUrl)} ↗
+                    </a>
+                  )}
+                  <div className="lp-prose">
+                    <ReactMarkdown
+                      components={{
+                        a: ({ children, href, ...props }) => (
+                          <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
+                        ),
+                      }}
+                    >
+                      {e.full}
+                    </ReactMarkdown>
+                  </div>
                 </div>
               )}
             </div>
@@ -1063,16 +1123,24 @@ function ActivityRow({
             borderRadius: '0 var(--r-m) var(--r-m) 0',
             maxHeight: 300,
             overflowY: 'auto',
-            fontFamily: 'var(--f-mono)',
-            fontSize: 11,
+            fontSize: 12,
             lineHeight: 1.5,
             color: 'var(--ink-3)',
-            whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
             borderBottom: !isLast ? '1px solid var(--line)' : 'none',
           }}
         >
-          {event.body}
+          <div className="lp-prose">
+            <ReactMarkdown
+              components={{
+                a: ({ children, href, ...props }) => (
+                  <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
+                ),
+              }}
+            >
+              {event.body}
+            </ReactMarkdown>
+          </div>
         </div>
       )}
     </div>

@@ -23,6 +23,7 @@ import {
   extractEcosystemAlerts,
   persistEcosystemAlerts,
   type PersistResult,
+  type ParsedEcosystemAlert,
 } from '@/lib/ecosystem-alert-parser';
 import { processWatchSourcesCron } from '@/lib/watch-source-processor';
 import type { ProcessResult as WatchSourceResult } from '@/lib/watch-source-processor';
@@ -357,9 +358,11 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
     // table). Generic monitors fall through to the free-text alert path.
     let persistResult: PersistResult | null = null;
     let parseErrors = 0;
+    let parsedAlerts: ParsedEcosystemAlert[] = [];
 
     if (monitor.type.startsWith('ecosystem.')) {
       const { parsed, errors } = extractEcosystemAlerts(result);
+      parsedAlerts = parsed;
       parseErrors = errors.length;
       if (errors.length > 0) {
         console.warn(`[cron] ${monitor.type} produced ${errors.length} unparseable artifact(s) — first reason:`, errors[0].reason);
@@ -395,10 +398,15 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
       severity = deriveSeverity(result);
     }
 
+    // Pick the top source_url from parsed ecosystem alerts (if any).
+    const topSourceUrl = parsedAlerts.length > 0
+      ? ([...parsedAlerts].sort((a, b) => b.relevance_score - a.relevance_score)[0]?.source_url ?? null)
+      : null;
+
     await run(
-      `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at)
-       VALUES (?, ?, ?, ?, ?, false, ?)`,
-      alertId, monitor.project_id, monitor.type, severity, cleanMessage || 'Monitor completed', runAt,
+      `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at, source_url)
+       VALUES (?, ?, ?, ?, ?, false, ?, ?)`,
+      alertId, monitor.project_id, monitor.type, severity, cleanMessage || 'Monitor completed', runAt, topSourceUrl,
     );
 
     // Memory: surface this monitor outcome to the per-user timeline so
@@ -784,8 +792,8 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
          ORDER BY created_at DESC LIMIT 10`,
         project.id,
       );
-      const alerts = await query<{ headline: string; relevance_score: number; created_at: string }>(
-        `SELECT headline, relevance_score, created_at FROM ecosystem_alerts
+      const alerts = await query<{ headline: string; relevance_score: number; created_at: string; source_url: string | null }>(
+        `SELECT headline, relevance_score, created_at, source_url FROM ecosystem_alerts
          WHERE project_id = ? AND reviewed_state = 'pending'
          ORDER BY relevance_score DESC LIMIT 10`,
         project.id,
@@ -809,7 +817,7 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
         locale,
         context: 'cron',
         tail: 'You are running the daily HEARTBEAT reflection. Open with the score-delta line from "## Readiness delta" as your first sentence verbatim — do not paraphrase. Then produce a concise (120-250 word) summary of: (1) what changed in the last 24h, (2) what the founder should prioritize today, (3) any risks the approval inbox is surfacing. NO emoji. Plain text. End with one explicit "next action" suggestion.',
-        projectContext: `## Readiness delta\n${scoreDelta.line}\n\n${memCtx}\n\n## Pending actions\n${pending.map((p) => `- [${p.status}] ${p.title}`).join('\n') || '(none)'}\n\n## Ecosystem alerts (unreviewed)\n${alerts.map((a) => `- ${a.relevance_score.toFixed(2)}  ${a.headline}`).join('\n') || '(none)'}\n\n## Active intelligence briefs\n${activeBriefs.map((b) => `- ${b.entity_name ? `[${b.entity_name}] ` : ''}${b.title}${b.temporal_prediction ? ` (prediction: ${b.temporal_prediction})` : ''}`).join('\n') || '(none)'}`,
+        projectContext: `## Readiness delta\n${scoreDelta.line}\n\n${memCtx}\n\n## Pending actions\n${pending.map((p) => `- [${p.status}] ${p.title}`).join('\n') || '(none)'}\n\n## Ecosystem alerts (unreviewed)\n${alerts.map((a) => `- ${a.relevance_score.toFixed(2)}  ${a.headline}${a.source_url ? ` (${a.source_url})` : ''}`).join('\n') || '(none)'}\n\n## Active intelligence briefs\n${activeBriefs.map((b) => `- ${b.entity_name ? `[${b.entity_name}] ` : ''}${b.title}${b.temporal_prediction ? ` (prediction: ${b.temporal_prediction})` : ''}`).join('\n') || '(none)'}`,
       });
 
       const startedAt = Date.now();

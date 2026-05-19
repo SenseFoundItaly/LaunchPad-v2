@@ -264,7 +264,7 @@ export interface MonitorProposalArtifact extends ArtifactBase {
 
   name: string;
   kind: 'competitor' | 'regulation' | 'market' | 'partner' | 'technology' | 'funding' | 'custom';
-  schedule: 'hourly' | 'daily' | 'weekly';
+  schedule: 'daily' | 'weekly';
   query?: string;
   urls_to_track?: string[];
   alert_threshold: string;

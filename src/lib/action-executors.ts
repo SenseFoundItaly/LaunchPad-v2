@@ -328,7 +328,7 @@ const configureMonitor: ActionHandler = async (action) => {
   // edits already landed in `edited_payload` via effectivePayload().
   const name = String(payload.name ?? action.title);
   const kind = String(payload.kind ?? 'custom');
-  const schedule = String(payload.schedule ?? 'weekly') as 'hourly' | 'daily' | 'weekly';
+  const schedule = String(payload.schedule ?? 'weekly') as 'daily' | 'weekly';
   const q = typeof payload.query === 'string' ? payload.query : undefined;
   const urls = Array.isArray(payload.urls_to_track)
     ? payload.urls_to_track.filter((u): u is string => typeof u === 'string')

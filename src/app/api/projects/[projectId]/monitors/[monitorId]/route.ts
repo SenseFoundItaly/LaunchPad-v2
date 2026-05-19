@@ -15,7 +15,7 @@ interface MonitorRow {
   next_run: string | null;
 }
 
-const VALID_SCHEDULES = new Set(['hourly', 'daily', 'weekly', 'monthly', 'manual']);
+const VALID_SCHEDULES = new Set(['daily', 'weekly', 'monthly', 'manual']);
 const VALID_STATUSES = new Set(['active', 'paused']);
 
 /**

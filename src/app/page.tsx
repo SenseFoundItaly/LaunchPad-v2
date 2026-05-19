@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import ReactMarkdown from 'react-markdown';
 import api from '@/api';
 import { TopBar } from '@/components/design/chrome';
 import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
@@ -24,6 +25,7 @@ interface DashboardSignal {
   severity: string;
   message: string;
   created_at: string;
+  source_url?: string | null;
 }
 
 interface DashboardStats {
@@ -460,6 +462,11 @@ export default function HomePage() {
                                 }}
                               >
                                 {text}
+                                {s.source_url && (
+                                  <span style={{ fontSize: 10, color: 'var(--ink-5)', marginLeft: 6 }}>
+                                    {safeHost(s.source_url)} ↗
+                                  </span>
+                                )}
                               </span>
                               <span
                                 style={{
@@ -497,13 +504,41 @@ export default function HomePage() {
                                   fontSize: 12,
                                   color: 'var(--ink-3)',
                                   lineHeight: 1.5,
-                                  whiteSpace: 'pre-wrap',
                                   maxHeight: 300,
                                   overflowY: 'auto',
                                   background: 'var(--paper-2)',
                                 }}
                               >
-                                {s.message}
+                                {s.source_url && (
+                                  <a
+                                    href={s.source_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      fontSize: 11,
+                                      color: 'var(--accent-ink)',
+                                      marginBottom: 8,
+                                      textDecoration: 'none',
+                                    }}
+                                  >
+                                    <Icon d={I.globe} size={10} />
+                                    {safeHost(s.source_url)} ↗
+                                  </a>
+                                )}
+                                <div className="lp-prose">
+                                  <ReactMarkdown
+                                    components={{
+                                      a: ({ children, href, ...props }) => (
+                                        <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
+                                      ),
+                                    }}
+                                  >
+                                    {s.message}
+                                  </ReactMarkdown>
+                                </div>
                               </div>
                             )}
                           </div>
@@ -695,4 +730,8 @@ export default function HomePage() {
       />
     </div>
   );
+}
+
+function safeHost(url: string): string {
+  try { return new URL(url).hostname; } catch { return url.slice(0, 40); }
 }

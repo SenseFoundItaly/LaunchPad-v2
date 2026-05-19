@@ -298,9 +298,9 @@ async function maybeEmitBudgetWarning(projectId: string, periodMonth: string, bu
   const pct = ((budget.current_llm_usd / budget.cap_llm_usd) * 100).toFixed(0);
   const msg = `LLM budget for ${periodMonth} at ${pct}% of cap ($${budget.current_llm_usd.toFixed(3)} / $${budget.cap_llm_usd.toFixed(2)}). Observe-only for now — no calls blocked.`;
   await run(
-    `INSERT INTO alerts (id, project_id, type, severity, message, dismissed)
-     VALUES (?, ?, 'budget_warning', 'warning', ?, false)`,
-    alertId, projectId, msg,
+    `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, source_url)
+     VALUES (?, ?, 'budget_warning', 'warning', ?, false, ?)`,
+    alertId, projectId, msg, null,
   );
 }
 

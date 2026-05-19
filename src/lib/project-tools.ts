@@ -458,8 +458,7 @@ const VALID_MONITOR_KINDS = [
 ] as const;
 type MonitorKind = typeof VALID_MONITOR_KINDS[number];
 
-const SCHEDULE_TO_MONTHLY_RUNS: Record<'hourly' | 'daily' | 'weekly', number> = {
-  hourly: 24 * 30,  // ~720
+const SCHEDULE_TO_MONTHLY_RUNS: Record<'daily' | 'weekly', number> = {
   daily: 30,
   weekly: 4.3,
 };
@@ -469,7 +468,7 @@ const SCHEDULE_TO_MONTHLY_RUNS: Record<'hourly' | 'daily' | 'weekly', number> = 
 // alert parsing. Surfaces on the review card as a plain-English cost.
 const BALANCED_COST_PER_RUN_EUR = 0.0055;
 
-function estimateMonthlyCostEur(schedule: 'hourly' | 'daily' | 'weekly'): number {
+function estimateMonthlyCostEur(schedule: 'daily' | 'weekly'): number {
   return +(SCHEDULE_TO_MONTHLY_RUNS[schedule] * BALANCED_COST_PER_RUN_EUR).toFixed(2);
 }
 
@@ -481,7 +480,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
   parameters: Type.Object({
     name: Type.String({ description: 'Human-readable ≤60 chars. Example: "HubSpot free-tier launch watch"' }),
     kind: Type.String({ description: `One of: ${VALID_MONITOR_KINDS.join(', ')}` }),
-    schedule: Type.String({ description: 'hourly | daily | weekly. Pick based on signal urgency — regulation changes weekly, competitor pricing daily, breaking news hourly.' }),
+    schedule: Type.String({ description: 'daily | weekly. Pick based on signal urgency — regulation changes weekly, competitor pricing daily.' }),
     query: Type.Optional(Type.String({ description: 'Search query the monitor runs each cycle. Prefer urls_to_track when you have specific pages.' })),
     urls_to_track: Type.Optional(Type.Array(Type.String(), { description: 'Specific URLs the monitor scrapes each cycle, ≤5. Preferred over query when you know the canonical source.' })),
     alert_threshold: Type.String({ description: 'Plain-English trigger: "new delegated act mentioning GPAI", "pricing page shows free tier", "funding announcement > $50M".' }),
@@ -513,9 +512,9 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
         details: { error: true },
       };
     }
-    if (p.schedule !== 'hourly' && p.schedule !== 'daily' && p.schedule !== 'weekly') {
+    if (p.schedule !== 'daily' && p.schedule !== 'weekly') {
       return {
-        content: [{ type: 'text', text: `Invalid schedule "${p.schedule}". Must be hourly | daily | weekly.` }],
+        content: [{ type: 'text', text: `Invalid schedule "${p.schedule}". Must be daily | weekly.` }],
         details: { error: true },
       };
     }
@@ -538,7 +537,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
       };
     }
 
-    const schedule = p.schedule as 'hourly' | 'daily' | 'weekly';
+    const schedule = p.schedule as 'daily' | 'weekly';
 
     // Dedup pipeline — L1 SQL rules + L2 semantic classifier. See
     // src/lib/monitor-dedup.ts for the full contract.

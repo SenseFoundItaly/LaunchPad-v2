@@ -32,7 +32,7 @@ export const MAX_ACTIVE_MONITORS_PER_PROJECT = 10;
 export interface MonitorProposalInput {
   name: string;
   kind: string;
-  schedule: 'hourly' | 'daily' | 'weekly';
+  schedule: 'daily' | 'weekly';
   query?: string;
   urls_to_track?: string[];
   alert_threshold: string;

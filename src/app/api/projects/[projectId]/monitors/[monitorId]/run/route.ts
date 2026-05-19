@@ -131,8 +131,10 @@ export async function POST(_request: NextRequest, { params }: Params) {
             // divergence between scheduled and manual behavior.
             let ecosystemAlertsInserted = 0;
             let pendingActionsCreated = 0;
+            let parsedAlerts: { source_url: string | null; relevance_score: number }[] = [];
             if (monitorType.startsWith('ecosystem.')) {
               const { parsed, errors } = extractEcosystemAlerts(fullResponse);
+              parsedAlerts = parsed;
               if (errors.length > 0) {
                 console.warn(`[monitor/run] ${monitorType} produced ${errors.length} unparseable artifact(s) — first reason:`, errors[0].reason);
               }
@@ -164,10 +166,14 @@ export async function POST(_request: NextRequest, { params }: Params) {
             else if (ecosystemAlertsInserted > 0) severity = 'info';
             else severity = deriveSeverity(fullResponse);
 
+            const topSourceUrl = parsedAlerts.length > 0
+              ? ([...parsedAlerts].sort((a, b) => b.relevance_score - a.relevance_score)[0]?.source_url ?? null)
+              : null;
+
             await run(
-              `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at)
-               VALUES (?, ?, ?, ?, ?, false, ?)`,
-              alertId, projectId, monitorType, severity, cleanMessage || 'Monitor completed', now,
+              `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at, source_url)
+               VALUES (?, ?, ?, ?, ?, false, ?, ?)`,
+              alertId, projectId, monitorType, severity, cleanMessage || 'Monitor completed', now, topSourceUrl,
             );
 
             // Memory: record monitor outcome for the project owner's timeline.

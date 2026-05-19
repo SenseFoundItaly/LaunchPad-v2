@@ -52,14 +52,15 @@ export async function POST(
         for (const alert of r.alerts as Record<string, unknown>[]) {
           const alertId = generateId('alt');
           await run(
-            `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at)
-             VALUES (?, ?, ?, ?, ?, false, ?)`,
+            `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at, source_url)
+             VALUES (?, ?, ?, ?, ?, false, ?, ?)`,
             alertId,
             projectId,
             (alert.category as string) || 'other',
             (alert.severity as string) || 'info',
             `${alert.title}: ${alert.message}`,
             new Date().toISOString(),
+            null,
           );
         }
       }
