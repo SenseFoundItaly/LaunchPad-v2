@@ -117,6 +117,7 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
       title={`Monthly LLM cap: ${fmtUsd(artifact.current_cap_usd)} ${arrow} ${fmtUsd(artifact.proposed_cap_usd)}`}
       sources={artifact.sources}
       collapsible={false}
+      aiGenerated
       headerRight={<>
         <span className="text-[10px] px-2 py-0.5 rounded-full border bg-cat-gold-wash text-cat-gold border-line-2">
           {direction}
@@ -197,6 +198,8 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
           onEdit={() => setState('editing')}
           errorMessage={serverError ?? undefined}
           variant="footer"
+          destination="Budget"
+          impactHint="Cap updated immediately"
         />
       )}
     </ArtifactCardShell>

@@ -122,16 +122,18 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'home',    iconKey: 'home',    label: 'Home',     route: 'dashboard' },
-  { id: 'chat',    iconKey: 'chat',    label: 'Co-pilot', route: 'chat' },
-  { id: 'signals', iconKey: 'signal',  label: 'Signals',  route: 'signals' },
-  { id: 'inbox',   iconKey: 'tickets', label: 'Inbox',    route: 'actions' },
+  { id: 'home',    iconKey: 'home',     label: 'Home',     route: 'dashboard' },
+  { id: 'chat',    iconKey: 'chat',     label: 'Co-pilot', route: 'chat' },
+  { id: 'signals', iconKey: 'signal',   label: 'Signals',  route: 'signals' },
+  { id: 'inbox',   iconKey: 'tickets',  label: 'Inbox',    route: 'actions' },
+  { id: 'drafts',  iconKey: 'envelope', label: 'Drafts',   route: 'drafts' },
 ];
 
 const MORE_ITEMS: NavItem[] = [
-  { id: 'graph', iconKey: 'graph', label: 'Intelligence', route: 'intelligence' },
-  { id: 'pipe',  iconKey: 'pipe',  label: 'Pipeline',     route: 'workflow' },
-  { id: 'fund',  iconKey: 'fund',  label: 'Raise',        route: 'fundraising' },
+  { id: 'knowledge', iconKey: 'book',  label: 'Knowledge',    route: 'knowledge' },
+  { id: 'graph',     iconKey: 'graph', label: 'Intelligence', route: 'intelligence' },
+  { id: 'pipe',      iconKey: 'pipe',  label: 'Pipeline',     route: 'workflow' },
+  { id: 'fund',      iconKey: 'fund',  label: 'Raise',        route: 'fundraising' },
 ];
 
 export interface NavRailProps {

@@ -43,6 +43,7 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
       title={artifact.title || ''}
       sources={artifact.sources}
       dimmed={review.isRejected}
+      aiGenerated
       footer={
         <UnifiedReviewControls
           lane="approval"
@@ -50,6 +51,8 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
           onApply={() => review.handleReview('applied')}
           onReject={() => review.handleReview('rejected')}
           variant="footer"
+          destination="Facts"
+          impactHint="Will inform future AI responses"
         />
       }
     >

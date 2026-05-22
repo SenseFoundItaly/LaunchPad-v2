@@ -84,6 +84,12 @@ export const I = {
   expand: 'M3 10v3h3m8-3v3h-3M3 6V3h3m8 3V3h-3',
   collapse: 'M3 10l3-3m5 6h3v-3M3 6l3 3m5-6h3v3',
   printer: 'M5 2v3H2v6h3v3h6v-3h3V5h-3V2H5zm0 3h6v2H5V5zm0 5h6v3H5v-3z',
+  envelope: 'M2 4h12v8H2zm0 0l6 4 6-4',
+  book: 'M2 3h5a2 2 0 0 1 2 2v9a1.5 1.5 0 0 0-1.5-1.5H2zm12 0H9a2 2 0 0 0-2 2v9a1.5 1.5 0 0 1 1.5-1.5H14z',
+  trash: 'M3 5h10l-.8 8a1 1 0 0 1-1 .9H5.8a1 1 0 0 1-1-.9zm1-2h8m-5 0v-1h2v1m-4 4v4m3-4v4',
+  edit: 'M11 2l3 3-8 8H3v-3z',
+  grip: 'M5 4h.01M5 8h.01M5 12h.01M9 4h.01M9 8h.01M9 12h.01',
+  package: 'M2 4l6-2 6 2v8l-6 2-6-2zm0 0l6 2 6-2M8 6v8',
 } as const;
 
 export type IconKey = keyof typeof I;

@@ -29,6 +29,8 @@ interface ArtifactCardShellProps {
   outerClassName?: string;
   /** Inline styles on the outer container (e.g. gridColumn: 'span 6') */
   style?: React.CSSProperties;
+  /** Show a small "AI" badge in the header to indicate AI-generated content */
+  aiGenerated?: boolean;
 }
 
 export default function ArtifactCardShell({
@@ -44,6 +46,7 @@ export default function ArtifactCardShell({
   className,
   outerClassName,
   style,
+  aiGenerated = false,
 }: ArtifactCardShellProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
@@ -61,6 +64,11 @@ export default function ArtifactCardShell({
         <span className="text-[10px] uppercase tracking-wider text-ink-5 font-mono shrink-0">
           {typeLabel}
         </span>
+        {aiGenerated && (
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-plum-wash text-plum font-mono uppercase tracking-wider shrink-0">
+            AI
+          </span>
+        )}
         {title && (
           <span className="text-sm font-semibold text-ink truncate">
             {title}

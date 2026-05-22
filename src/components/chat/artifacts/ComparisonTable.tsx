@@ -96,6 +96,7 @@ export default function ComparisonTable({ artifact, onAction }: ComparisonTableP
       title={artifact.title || 'Comparison'}
       sources={artifact.sources}
       dimmed={review.isRejected}
+      aiGenerated
       className="overflow-x-auto"
       footer={
         <UnifiedReviewControls
@@ -104,6 +105,8 @@ export default function ComparisonTable({ artifact, onAction }: ComparisonTableP
           onApply={() => review.handleReview('applied')}
           onReject={() => review.handleReview('rejected')}
           variant="footer"
+          destination="Reviews"
+          impactHint="Saved as reviewed comparison"
         />
       }
     >

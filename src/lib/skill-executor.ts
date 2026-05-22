@@ -224,6 +224,31 @@ export async function runSkill(
   const completedAt = new Date().toISOString();
   const sectionScores = computeSectionScoresFromSummary(skillId, text);
 
+  // Version history: copy current output to a versioned row before overwriting.
+  try {
+    const prev = await query<{ summary: string; completed_at: string }>(
+      `SELECT summary, completed_at FROM skill_completions
+       WHERE project_id = ? AND skill_id = ? AND status = 'completed'`,
+      projectId, skillId,
+    );
+    if (prev[0]?.summary) {
+      const ts = prev[0].completed_at?.replace(/[:.]/g, '-') || Date.now().toString();
+      const versionedId = `${skillId}_v${ts}`;
+      await run(
+        `INSERT INTO skill_completions (id, project_id, skill_id, status, summary, completed_at)
+         VALUES (?, ?, ?, 'completed', ?, ?)
+         ON CONFLICT DO NOTHING`,
+        generateId('skv'),
+        projectId,
+        versionedId,
+        prev[0].summary,
+        prev[0].completed_at,
+      );
+    }
+  } catch (err) {
+    console.warn('[skill-executor] version snapshot failed:', (err as Error).message);
+  }
+
   await run(
     `INSERT INTO skill_completions (id, project_id, skill_id, status, summary, section_scores, completed_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)

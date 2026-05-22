@@ -127,6 +127,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
       title={artifact.name}
       sources={artifact.sources}
       collapsible={false}
+      aiGenerated
       headerRight={<>
         <span className={`text-[10px] px-2 py-0.5 rounded-full border ${kindColor}`}>
           {artifact.kind}
@@ -245,6 +246,8 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
           onEdit={() => setState('editing')}
           errorMessage={serverError ?? undefined}
           variant="footer"
+          destination="Active Monitors"
+          impactHint="Runs on next scheduled tick"
         />
       )}
     </ArtifactCardShell>

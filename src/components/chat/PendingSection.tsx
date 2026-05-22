@@ -40,6 +40,23 @@ const LANE_BUTTONS: Record<ActionLane, Array<{ verb: string; label: { en: string
   ],
 };
 
+const ACTION_DESTINATION: Record<string, { destination: string; impact: string }> = {
+  task:                         { destination: 'Tasks',           impact: 'Added to your task list' },
+  configure_monitor:            { destination: 'Monitors',        impact: 'Monitor will activate' },
+  configure_budget:             { destination: 'Budget',          impact: 'Cap updated immediately' },
+  configure_watch_source:       { destination: 'Watch Sources',   impact: 'Source tracking begins' },
+  draft_email:                  { destination: 'Drafts',          impact: 'Ready to send' },
+  draft_linkedin_post:          { destination: 'Drafts',          impact: 'Ready to publish' },
+  draft_linkedin_dm:            { destination: 'Drafts',          impact: 'Ready to send' },
+  proposed_hypothesis:          { destination: 'Knowledge',       impact: 'Informs future AI responses' },
+  proposed_interview_question:  { destination: 'Knowledge',       impact: 'Informs future AI responses' },
+  proposed_landing_copy:        { destination: 'Knowledge',       impact: 'Informs future AI responses' },
+  proposed_investor_followup:   { destination: 'Knowledge',       impact: 'Informs future AI responses' },
+  proposed_graph_update:        { destination: 'Knowledge Graph', impact: 'Updates entity connections' },
+  workflow_step:                { destination: 'Workflow',        impact: 'Step marked complete' },
+  skill_rerun_result:           { destination: 'Results',         impact: 'Acknowledged' },
+};
+
 const TYPE_CHIP_STYLES: Record<string, { bg: string; fg: string }> = {
   approval: { bg: 'var(--accent)', fg: 'var(--ink)' },
   todo: { bg: 'var(--sky)', fg: 'var(--on-accent)' },
@@ -185,6 +202,7 @@ function PendingCard({
 
   const buttons = LANE_BUTTONS[lane];
   const hasReject = buttons.some((b) => !b.primary);
+  const dest = ACTION_DESTINATION[action.action_type];
 
   const title = action.title.length > 80 ? action.title.slice(0, 77) + '\u2026' : action.title;
 
@@ -232,6 +250,8 @@ function PendingCard({
         onReject={hasReject ? handleReject : undefined}
         errorMessage={error ?? undefined}
         variant="footer"
+        destination={dest?.destination}
+        impactHint={dest?.impact}
       />
     </div>
   );

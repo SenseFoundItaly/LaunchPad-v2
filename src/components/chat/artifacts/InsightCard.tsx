@@ -47,6 +47,7 @@ export default function InsightCard({ artifact, onAction }: InsightCardProps) {
       title={artifact.title}
       sources={artifact.sources}
       dimmed={review.isRejected}
+      aiGenerated
       headerRight={<>
         <span className={`w-2.5 h-2.5 rounded-full ${CATEGORY_COLORS[artifact.category]}`} />
         <span
@@ -62,6 +63,8 @@ export default function InsightCard({ artifact, onAction }: InsightCardProps) {
           onApply={() => review.handleReview('applied')}
           onReject={() => review.handleReview('rejected')}
           variant="footer"
+          destination="Facts"
+          impactHint="Will inform future AI responses"
         />
       }
     >

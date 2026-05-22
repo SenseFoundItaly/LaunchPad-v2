@@ -46,6 +46,7 @@ export default function EntityCardInline({
       title={artifact.name}
       sources={artifact.sources}
       dimmed={review.isRejected}
+      aiGenerated
       headerRight={<>
         <span
           className={`text-xs px-2 py-0.5 rounded-full font-medium ${getTypeColor(artifact.entity_type)}`}
@@ -57,6 +58,8 @@ export default function EntityCardInline({
           state={review.reviewState}
           onApply={() => review.handleReview('applied')}
           onReject={() => review.handleReview('rejected')}
+          destination="Knowledge Graph"
+          impactHint="Added as entity — influences connections"
         />
       </>}
     >

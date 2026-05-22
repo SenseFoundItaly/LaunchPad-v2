@@ -23,6 +23,10 @@ export interface UnifiedReviewControlsProps {
   errorMessage?: string;
   /** 'inline' renders compact pills for header placement; 'footer' renders large buttons */
   variant?: 'inline' | 'footer';
+  /** Where data goes when applied, e.g. "Knowledge Graph" */
+  destination?: string;
+  /** Brief impact description, e.g. "Will inform future AI responses" */
+  impactHint?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +91,8 @@ export default function UnifiedReviewControls({
   onEdit,
   errorMessage,
   variant = 'inline',
+  destination,
+  impactHint,
 }: UnifiedReviewControlsProps) {
   const isFooter = variant === 'footer';
 
@@ -163,7 +169,19 @@ export default function UnifiedReviewControls({
   // --- Pending: action buttons --------------------------------------------
   if (isFooter) {
     return (
-      <div className="flex items-center gap-3 pt-3 mt-3 border-t border-line-2">
+      <div className="pt-3 mt-3 border-t border-line-2">
+        {destination && (
+          <div className="flex items-center gap-1.5 mb-2 text-[10px]">
+            <span className="font-mono text-ink-4">{'\u2192'} {destination}</span>
+            {impactHint && (
+              <>
+                <span className="text-ink-5">{'\u00B7'}</span>
+                <span className="text-ink-5">{impactHint}</span>
+              </>
+            )}
+          </div>
+        )}
+        <div className="flex items-center gap-3">
         <button
           onClick={onApply}
           className="flex-1 text-sm px-4 py-2.5 rounded-lg inline-flex items-center justify-center gap-2 bg-moss-wash text-moss hover:bg-moss/30 transition-colors font-semibold"
@@ -188,15 +206,21 @@ export default function UnifiedReviewControls({
             {REJECT_LABELS[lane]}
           </button>
         )}
+        </div>
       </div>
     );
   }
 
   // inline variant
+  const inlineTooltip = destination
+    ? `\u2192 ${destination}${impactHint ? ` \u2014 ${impactHint}` : ''}`
+    : undefined;
+
   return (
     <>
       <button
         onClick={onApply}
+        title={inlineTooltip}
         className="text-[10px] px-2 py-0.5 rounded-full bg-moss-wash text-moss hover:bg-moss/30 transition-colors font-medium"
       >
         {APPLY_LABELS[lane]}

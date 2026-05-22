@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
-import { json, error } from '@/lib/api-helpers';
-import { query } from '@/lib/db';
+import { json, error, generateId } from '@/lib/api-helpers';
+import { query, run, get } from '@/lib/db';
 import { requireUser, AuthError } from '@/lib/auth/require-user';
 
 interface KnowledgeItem {
@@ -104,4 +104,56 @@ export async function GET(
   const pendingCount = items.filter((i) => i.reviewed_state === 'pending').length;
 
   return json({ items, pending_count: pendingCount });
+}
+
+/**
+ * POST /api/projects/{projectId}/knowledge
+ *
+ * Manually create a knowledge fact. Body: { title, detail?, kind }
+ * - kind = 'usp_statement' is a special case: upserts a single USP row.
+ * - All other kinds create a new fact with reviewed_state = 'applied'.
+ */
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> },
+) {
+  let userId: string;
+  try {
+    ({ userId } = await requireUser());
+  } catch (e) {
+    if (e instanceof AuthError) return error(e.message, e.status);
+    throw e;
+  }
+
+  const { projectId } = await params;
+  const body = await request.json().catch(() => null);
+  if (!body?.title) return error('title is required', 400);
+
+  const title = String(body.title).trim();
+  const detail = body.detail ? String(body.detail).trim() : null;
+  const kind = body.kind ? String(body.kind).trim() : 'observation';
+  const factText = detail ? `${title}\n\n${detail}` : title;
+
+  // USP: upsert single row
+  if (kind === 'usp_statement') {
+    const existing = await get<{ id: string }>(
+      `SELECT id FROM memory_facts WHERE project_id = ? AND user_id = ? AND kind = 'usp_statement' LIMIT 1`,
+      projectId, userId,
+    );
+    if (existing) {
+      await run(
+        `UPDATE memory_facts SET fact = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        factText, existing.id,
+      );
+      return json({ id: existing.id, kind, updated: true });
+    }
+  }
+
+  const id = generateId('fact');
+  await run(
+    `INSERT INTO memory_facts (id, project_id, user_id, fact, kind, reviewed_state, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'applied', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    id, projectId, userId, factText, kind,
+  );
+  return json({ id, kind, created: true }, 201);
 }

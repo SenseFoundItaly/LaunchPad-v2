@@ -19,6 +19,7 @@
 import { use, useEffect, useState, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import api from '@/api';
 import { updateProject } from '@/api/projects';
 import { useProject } from '@/hooks/useProject';
@@ -193,9 +194,10 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
   const [editingName, setEditingName] = useState(false);
   const [editName, setEditName] = useState('');
 
-  const handleTicketClick = useCallback((_ticket: PendingDecisionPreview) => {
-    // Previously opened the co-founder chat drawer; now a no-op.
-  }, []);
+  const router = useRouter();
+  const handleTicketClick = useCallback((ticket: PendingDecisionPreview) => {
+    router.push(`/project/${projectId}/actions?ticket=${ticket.id}`);
+  }, [router, projectId]);
 
   const startEditingSubtitle = useCallback(() => {
     setEditStatus(project?.status || '');
@@ -574,8 +576,8 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
                   ? `${graphNodes.length} ${locale === 'it' ? 'nodi' : 'nodes'}`
                   : undefined}
                 right={
-                  <Link href={`/project/${projectId}/graph`} style={linkStyle}>
-                    {locale === 'it' ? 'grafo' : 'graph'}
+                  <Link href={`/project/${projectId}/knowledge`} style={linkStyle}>
+                    {locale === 'it' ? 'vedi tutto' : 'view all'}
                     <Icon d={I.arrow} size={10} />
                   </Link>
                 }

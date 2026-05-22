@@ -85,6 +85,9 @@ export default function IntelligenceGraphPage({
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
+  const [zoom, setZoom] = useState(100);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -116,6 +119,26 @@ export default function IntelligenceGraphPage({
   // Recent nodes (last 3)
   const recent = [...nodes].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 3);
 
+  // Filtered nodes: hide types + search highlight
+  const filteredNodes = useMemo(() => {
+    return nodes.filter((n) => !hiddenTypes.has(n.node_type));
+  }, [nodes, hiddenTypes]);
+
+  const searchMatchIds = useMemo(() => {
+    if (!searchQuery.trim()) return null;
+    const q = searchQuery.toLowerCase();
+    return new Set(nodes.filter((n) => n.name.toLowerCase().includes(q)).map((n) => n.id));
+  }, [nodes, searchQuery]);
+
+  const toggleType = useCallback((type: string) => {
+    setHiddenTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  }, []);
+
   return (
     <div className="lp-frame">
       <TopBar
@@ -135,7 +158,7 @@ export default function IntelligenceGraphPage({
             overflow: 'auto',
           }}
         >
-          <GraphFilters typeCounts={typeCounts} recent={recent} onSelectRecent={setSelectedId} />
+          <GraphFilters typeCounts={typeCounts} recent={recent} onSelectRecent={setSelectedId} hiddenTypes={hiddenTypes} onToggleType={toggleType} />
         </div>
 
         {/* Canvas */}
@@ -152,12 +175,21 @@ export default function IntelligenceGraphPage({
           ) : (
             <>
               <GraphCanvas
-                nodes={nodes}
+                nodes={filteredNodes}
                 edges={edges}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
+                searchMatchIds={searchMatchIds}
+                zoom={zoom}
               />
-              <GraphToolbar />
+              <GraphToolbar
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                zoom={zoom}
+                onZoomIn={() => setZoom((z) => Math.min(200, z + 20))}
+                onZoomOut={() => setZoom((z) => Math.max(40, z - 20))}
+                onZoomReset={() => setZoom(100)}
+              />
             </>
           )}
         </div>
@@ -206,10 +238,14 @@ function GraphFilters({
   typeCounts,
   recent,
   onSelectRecent,
+  hiddenTypes,
+  onToggleType,
 }: {
   typeCounts: Record<string, number>;
   recent: GraphNode[];
   onSelectRecent: (id: string) => void;
+  hiddenTypes: Set<string>;
+  onToggleType: (type: string) => void;
 }) {
   return (
     <div style={{ padding: 14 }}>
@@ -227,9 +263,12 @@ function GraphFilters({
       </div>
       {Object.entries(typeCounts)
         .sort((a, b) => b[1] - a[1])
-        .map(([k, n]) => (
+        .map(([k, n]) => {
+          const visible = !hiddenTypes.has(k);
+          return (
           <label
             key={k}
+            onClick={() => onToggleType(k)}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -238,6 +277,7 @@ function GraphFilters({
               fontSize: 12,
               cursor: 'pointer',
               borderRadius: 4,
+              opacity: visible ? 1 : 0.4,
             }}
           >
             <span
@@ -246,13 +286,13 @@ function GraphFilters({
                 height: 12,
                 borderRadius: 3,
                 border: '1px solid var(--line-2)',
-                background: 'var(--paper-2)',
+                background: visible ? 'var(--paper-2)' : 'transparent',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
-              <Icon d={I.check} size={8} style={{ color: 'var(--ink)' }} />
+              {visible && <Icon d={I.check} size={8} style={{ color: 'var(--ink)' }} />}
             </span>
             <span
               className="lp-dot"
@@ -265,7 +305,8 @@ function GraphFilters({
               {n}
             </span>
           </label>
-        ))}
+          );
+        })}
 
       {Object.keys(typeCounts).length === 0 && (
         <div style={{ fontSize: 11, color: 'var(--ink-5)', padding: 8 }}>
@@ -328,16 +369,25 @@ function GraphCanvas({
   edges,
   selectedId,
   onSelect,
+  searchMatchIds,
+  zoom,
 }: {
   nodes: GraphNode[];
   edges: GraphEdge[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  searchMatchIds: Set<string> | null;
+  zoom: number;
 }) {
   const W = 840;
   const H = 600;
   const cx = W / 2;
   const cy = H / 2;
+  const scale = 100 / zoom;
+  const vbW = W * scale;
+  const vbH = H * scale;
+  const vbX = (W - vbW) / 2;
+  const vbY = (H - vbH) / 2;
 
   // Layout: self nodes at center, others on concentric rings grouped by type
   const positioned = useMemo(() => {
@@ -377,7 +427,7 @@ function GraphCanvas({
   }, [nodes, cx, cy]);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: '100%', display: 'block' }}>
+    <svg viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`} style={{ width: '100%', height: '100%', display: 'block' }}>
       <defs>
         <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
           <circle cx="1" cy="1" r="0.6" fill="var(--ink-6)" opacity="0.4" />
@@ -408,6 +458,8 @@ function GraphCanvas({
       {Object.entries(positioned).map(([id, p]) => {
         const n = p.node;
         const sel = id === selectedId;
+        const isMatch = searchMatchIds ? searchMatchIds.has(id) : false;
+        const dimmed = searchMatchIds !== null && !isMatch;
         const color = TYPE_COLOR[n.node_type] || 'var(--ink-5)';
         const isSelf = n.node_type === 'your_startup';
         return (
@@ -415,6 +467,7 @@ function GraphCanvas({
             key={id}
             style={{ cursor: 'pointer' }}
             onClick={() => onSelect(id)}
+            opacity={dimmed ? 0.2 : 1}
           >
             {isSelf && (
               <circle
@@ -426,6 +479,17 @@ function GraphCanvas({
                 strokeWidth="0.8"
                 opacity="0.3"
                 strokeDasharray="2 2"
+              />
+            )}
+            {isMatch && (
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={p.r + 5}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth="2"
+                opacity="0.6"
               />
             )}
             <circle cx={p.x} cy={p.y} r={p.r} fill={color} opacity={isSelf ? 1 : 0.9} />
@@ -443,9 +507,9 @@ function GraphCanvas({
               x={p.x}
               y={p.y + p.r + 14}
               fontSize="11"
-              fill="var(--ink-2)"
+              fill={isMatch ? 'var(--accent-ink)' : 'var(--ink-2)'}
               textAnchor="middle"
-              fontWeight={isSelf ? 600 : 400}
+              fontWeight={isSelf || isMatch ? 600 : 400}
               style={{ pointerEvents: 'none' }}
             >
               {n.name.slice(0, 22)}
@@ -457,7 +521,23 @@ function GraphCanvas({
   );
 }
 
-function GraphToolbar() {
+function GraphToolbar({
+  searchQuery,
+  onSearchChange,
+  zoom,
+  onZoomIn,
+  onZoomOut,
+  onZoomReset,
+}: {
+  searchQuery: string;
+  onSearchChange: (q: string) => void;
+  zoom: number;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onZoomReset: () => void;
+}) {
+  const [searchOpen, setSearchOpen] = useState(false);
+
   return (
     <div
       style={{
@@ -471,30 +551,66 @@ function GraphToolbar() {
         border: '1px solid var(--line)',
         borderRadius: 6,
         boxShadow: 'var(--shadow-card)',
+        alignItems: 'center',
       }}
     >
-      <IconBtn d={I.search} title="Search" />
-      <IconBtn d={I.filter} title="Filter" />
-      <IconBtn d={I.layers} title="Layout" />
-      <span style={{ width: 1, background: 'var(--line)' }} />
-      <span
+      <IconBtn
+        d={I.search}
+        title="Search nodes"
+        active={searchOpen}
+        onClick={() => {
+          setSearchOpen((v) => !v);
+          if (searchOpen) onSearchChange('');
+        }}
+      />
+      {searchOpen && (
+        <input
+          autoFocus
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Search nodes…"
+          style={{
+            width: 140,
+            height: 24,
+            padding: '0 8px',
+            fontSize: 11,
+            border: '1px solid var(--line-2)',
+            borderRadius: 4,
+            background: 'var(--paper)',
+            color: 'var(--ink)',
+            fontFamily: 'var(--f-mono)',
+            outline: 'none',
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { setSearchOpen(false); onSearchChange(''); }
+          }}
+        />
+      )}
+      <span style={{ width: 1, height: 20, background: 'var(--line)' }} />
+      <button
+        onClick={onZoomOut}
+        title="Zoom out"
         className="lp-mono"
-        style={{ padding: '0 8px', fontSize: 11, color: 'var(--ink-4)', alignSelf: 'center' }}
+        style={{ padding: '0 8px', fontSize: 11, color: 'var(--ink-4)', cursor: 'pointer', background: 'none', border: 'none' }}
       >
         −
-      </span>
-      <span
+      </button>
+      <button
+        onClick={onZoomReset}
+        title="Reset zoom"
         className="lp-mono"
-        style={{ padding: '0 8px', fontSize: 11, color: 'var(--ink-2)', alignSelf: 'center' }}
+        style={{ padding: '0 4px', fontSize: 11, color: 'var(--ink-2)', cursor: 'pointer', background: 'none', border: 'none', minWidth: 36, textAlign: 'center' }}
       >
-        100%
-      </span>
-      <span
+        {zoom}%
+      </button>
+      <button
+        onClick={onZoomIn}
+        title="Zoom in"
         className="lp-mono"
-        style={{ padding: '0 8px', fontSize: 11, color: 'var(--ink-4)', alignSelf: 'center' }}
+        style={{ padding: '0 8px', fontSize: 11, color: 'var(--ink-4)', cursor: 'pointer', background: 'none', border: 'none' }}
       >
         +
-      </span>
+      </button>
     </div>
   );
 }
