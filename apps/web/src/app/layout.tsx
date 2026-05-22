@@ -1,21 +1,20 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
-import AppHeader from '@/components/layout/AppHeader';
 
-const geistSans = Geist({
+const inter = Inter({
   variable: '--font-geist-sans',
   subsets: ['latin'],
 });
 
-const geistMono = Geist_Mono({
+const jetbrainsMono = JetBrains_Mono({
   variable: '--font-geist-mono',
   subsets: ['latin'],
 });
 
 export const metadata: Metadata = {
-  title: 'LaunchPad - Startup OS',
-  description: 'Shape, evaluate, and launch your startup idea',
+  title: 'LaunchPad - Your AI Co-Pilot for Building AI-Native Startups',
+  description: 'The intelligence platform that guides founders through their journey of building AI-native startups. From idea validation to fundraising.',
 };
 
 export default function RootLayout({
@@ -26,11 +25,10 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased bg-background`}
     >
-      <body className="h-full flex flex-col bg-zinc-950 text-zinc-100">
-        <AppHeader />
-        <main className="flex-1 overflow-hidden">{children}</main>
+      <body className="h-full flex flex-col font-sans">
+        {children}
       </body>
     </html>
   );
