@@ -97,7 +97,7 @@ export default function HtmlPreviewCard({ artifact }: { artifact: HtmlPreviewArt
             height: 600,
             border: viewport === 'desktop' ? 'none' : '1px solid var(--line)',
             borderRadius: viewport === 'desktop' ? 0 : 8,
-            background: '#fff',
+            background: 'var(--surface)',
           }}
         />
       </div>

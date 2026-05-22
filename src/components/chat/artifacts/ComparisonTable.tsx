@@ -2,7 +2,7 @@
 
 import type { ComparisonTable as ComparisonTableType, ColumnType } from '@/types/artifacts';
 import { useReviewState } from '@/hooks/useReviewState';
-import ReviewControls from './ReviewControls';
+import UnifiedReviewControls from './UnifiedReviewControls';
 import ArtifactCardShell from './ArtifactCardShell';
 
 interface ComparisonTableProps {
@@ -80,7 +80,6 @@ function formatCell(value: string | number, colType: ColumnType | undefined): Re
 
 export default function ComparisonTable({ artifact, onAction }: ComparisonTableProps) {
   const colTypes = artifact.column_types;
-  const hasReviewId = Boolean(artifact.review_id);
 
   const review = useReviewState({
     artifactId: artifact.id,
@@ -88,7 +87,6 @@ export default function ComparisonTable({ artifact, onAction }: ComparisonTableP
     reviewedState: artifact.reviewed_state,
     type: 'tabular_review',
     itemId: artifact.review_id,
-    defaultState: hasReviewId ? 'pending' : 'applied',
     onAction,
   });
 
@@ -99,9 +97,15 @@ export default function ComparisonTable({ artifact, onAction }: ComparisonTableP
       sources={artifact.sources}
       dimmed={review.isRejected}
       className="overflow-x-auto"
-      headerRight={hasReviewId ? (
-        <ReviewControls reviewState={review.reviewState} onReview={review.handleReview} />
-      ) : undefined}
+      footer={
+        <UnifiedReviewControls
+          lane="approval"
+          state={review.reviewState}
+          onApply={() => review.handleReview('applied')}
+          onReject={() => review.handleReview('rejected')}
+          variant="footer"
+        />
+      }
     >
       <table className="w-full text-sm border-collapse">
         <thead>

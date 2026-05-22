@@ -29,6 +29,7 @@ import { useState } from 'react';
 import type { MonitorProposalArtifact } from '@/types/artifacts';
 import SourcesFooter from './SourcesFooter';
 import ArtifactCardShell from './ArtifactCardShell';
+import UnifiedReviewControls from './UnifiedReviewControls';
 import { monitorPalette } from '@/lib/brand-palette';
 
 interface MonitorProposalCardProps {
@@ -214,61 +215,38 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
         </>
       )}
 
-      {/* Server error */}
-      {state === 'error' && serverError && (
-        <div className="mb-2 p-2 bg-clay/10 border border-clay/40 rounded text-[11px] text-clay">
-          Apply failed: {serverError}
-        </div>
-      )}
-
       {/* Action buttons */}
-      <div className="flex items-center gap-2 pt-2 border-t border-line-2">
-        {state === 'editing' ? (
-          <>
-            <button
-              type="button"
-              onClick={() => handleApply(true)}
-              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 text-paper rounded-md transition-colors"
-            >
-              Save &amp; apply
-            </button>
-            <button
-              type="button"
-              onClick={() => setState('collapsed')}
-              className="text-xs px-3 py-1.5 bg-paper-3 hover:bg-paper-3/80 text-ink-2 rounded-md transition-colors"
-            >
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              disabled={state === 'applying'}
-              onClick={() => handleApply(false)}
-              className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 disabled:opacity-50 text-paper rounded-md transition-colors"
-            >
-              {state === 'applying' ? 'Applying...' : 'Apply'}
-            </button>
-            <button
-              type="button"
-              disabled={state === 'applying' || state === 'dismissing'}
-              onClick={() => setState('editing')}
-              className="text-xs px-3 py-1.5 bg-paper-3 hover:bg-paper-3/80 disabled:opacity-50 text-ink-2 rounded-md transition-colors"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              disabled={state === 'applying' || state === 'dismissing'}
-              onClick={handleDismiss}
-              className="text-xs px-3 py-1.5 text-ink-4 hover:text-ink-2 disabled:opacity-50 transition-colors ml-auto"
-            >
-              {state === 'dismissing' ? 'Dismissing...' : 'Dismiss'}
-            </button>
-          </>
-        )}
-      </div>
+      {state === 'editing' ? (
+        <div className="flex items-center gap-2 pt-2 border-t border-line-2">
+          <button
+            type="button"
+            onClick={() => handleApply(true)}
+            className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 text-paper rounded-md transition-colors"
+          >
+            Save &amp; apply
+          </button>
+          <button
+            type="button"
+            onClick={() => setState('collapsed')}
+            className="text-xs px-3 py-1.5 bg-paper-3 hover:bg-paper-3/80 text-ink-2 rounded-md transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <UnifiedReviewControls
+          lane="approval"
+          state={
+            state === 'applying' || state === 'dismissing' ? 'busy' :
+            state === 'error' ? 'error' : 'pending'
+          }
+          onApply={() => handleApply(false)}
+          onReject={handleDismiss}
+          onEdit={() => setState('editing')}
+          errorMessage={serverError ?? undefined}
+          variant="footer"
+        />
+      )}
     </ArtifactCardShell>
   );
 }

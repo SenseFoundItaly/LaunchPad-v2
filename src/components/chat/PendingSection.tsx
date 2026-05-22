@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Pill } from '@/components/design/primitives';
 import { laneFor, type ActionLane } from '@/lib/action-lanes';
+import UnifiedReviewControls from '@/components/chat/artifacts/UnifiedReviewControls';
 import type { PendingAction } from '@/types';
 
 // =============================================================================
@@ -150,24 +151,40 @@ function PendingCard({
   locale: 'en' | 'it';
 }) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const lane = laneFor(action.action_type);
-  const buttons = LANE_BUTTONS[lane];
   const chipStyle = TYPE_CHIP_STYLES[lane] ?? TYPE_CHIP_STYLES.approval;
 
-  async function handleClick(verb: string) {
+  async function handleApply() {
     if (busy) return;
     setBusy(true);
+    setError(null);
     try {
-      const actionVerb = verb === 'apply' || verb === 'done' || verb === 'acknowledge'
-        ? 'action:apply'
-        : 'action:reject';
-      await onAction(actionVerb, { pending_action_id: action.id });
+      await onAction('action:apply', { pending_action_id: action.id });
     } catch (err) {
+      setError((err as Error).message);
       console.warn('[PendingCard] action failed:', (err as Error).message);
     } finally {
       setBusy(false);
     }
   }
+
+  async function handleReject() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onAction('action:reject', { pending_action_id: action.id });
+    } catch (err) {
+      setError((err as Error).message);
+      console.warn('[PendingCard] action failed:', (err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const buttons = LANE_BUTTONS[lane];
+  const hasReject = buttons.some((b) => !b.primary);
 
   const title = action.title.length > 80 ? action.title.slice(0, 77) + '\u2026' : action.title;
 
@@ -208,30 +225,14 @@ function PendingCard({
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 6 }}>
-        {buttons.map((btn) => (
-          <button
-            key={btn.verb}
-            type="button"
-            disabled={busy}
-            onClick={() => handleClick(btn.verb)}
-            style={{
-              flex: btn.primary ? 1 : undefined,
-              padding: '5px 8px',
-              borderRadius: 'var(--r-m)',
-              background: btn.primary ? 'var(--ink)' : 'transparent',
-              color: btn.primary ? 'var(--paper)' : 'var(--ink-4)',
-              border: btn.primary ? 'none' : '1px solid var(--line-2)',
-              cursor: busy ? 'wait' : 'pointer',
-              fontSize: 11,
-              fontFamily: 'inherit',
-              opacity: busy ? 0.6 : 1,
-            }}
-          >
-            {btn.label[locale]}
-          </button>
-        ))}
-      </div>
+      <UnifiedReviewControls
+        lane={lane}
+        state={busy ? 'busy' : error ? 'error' : 'pending'}
+        onApply={handleApply}
+        onReject={hasReject ? handleReject : undefined}
+        errorMessage={error ?? undefined}
+        variant="footer"
+      />
     </div>
   );
 }

@@ -49,14 +49,14 @@ export default function ArtifactCardShell({
 
   return (
     <div
-      className={`my-3 bg-paper-2/50 border border-line-2 rounded-lg transition-opacity ${
+      className={`my-2 bg-paper-2/50 border border-line-2 rounded-lg transition-opacity ${
         dimmed ? 'opacity-40' : ''
-      } ${collapsed ? 'p-2.5' : 'p-4'} ${outerClassName || ''}`}
+      } ${collapsed ? 'p-2' : 'px-3 py-2.5'} ${outerClassName || ''}`}
       style={style}
     >
       {/* Header row */}
       <div
-        className={`flex items-center gap-2 ${collapsed ? '' : 'mb-2'}`}
+        className={`flex items-center gap-2 ${collapsed ? '' : 'mb-1.5'}`}
       >
         <span className="text-[10px] uppercase tracking-wider text-ink-5 font-mono shrink-0">
           {typeLabel}

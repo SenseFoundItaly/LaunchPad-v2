@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import type { EntityCard } from '@/types/artifacts';
 import { useReviewState } from '@/hooks/useReviewState';
-import ReviewControls from './ReviewControls';
+import UnifiedReviewControls from './UnifiedReviewControls';
 import ArtifactCardShell from './ArtifactCardShell';
 
 interface EntityCardInlineProps {
@@ -52,7 +52,12 @@ export default function EntityCardInline({
         >
           {artifact.entity_type.replace(/_/g, ' ')}
         </span>
-        <ReviewControls reviewState={review.reviewState} onReview={review.handleReview} />
+        <UnifiedReviewControls
+          lane="approval"
+          state={review.reviewState}
+          onApply={() => review.handleReview('applied')}
+          onReject={() => review.handleReview('rejected')}
+        />
       </>}
     >
       <p className={`text-sm leading-relaxed mb-2 ${review.isRejected ? 'text-ink-6' : 'text-ink-3'}`}>

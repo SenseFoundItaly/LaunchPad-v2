@@ -117,6 +117,13 @@
 .lp-msg-row:focus-within .lp-msg-actions { opacity: 1 !important; }
 .lp-msg-action-btn:hover { background: var(--paper-2) !important; color: var(--ink-2) !important; }
 
+/* Turn-linked canvas: flash highlight when back-link scrolls to source message */
+@keyframes lp-flash-bg {
+  0%   { background-color: var(--accent-wash); }
+  100% { background-color: transparent; }
+}
+.lp-flash { animation: lp-flash-bg 1.2s ease-out; border-radius: var(--r-m); }
+
 /* Markdown prose inside assistant bubbles */
 .lp-md p { margin: 0 0 6px; }
 .lp-md p:last-child { margin-bottom: 0; }

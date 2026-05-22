@@ -104,7 +104,8 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-moss hover:bg-moss/80 text-paper text-sm font-medium shadow-lg shadow-moss/30 flex items-center gap-2 transition-transform hover:scale-105"
+          className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-moss hover:bg-moss/80 text-paper text-sm font-medium flex items-center gap-2 transition-transform hover:scale-105"
+          style={{ boxShadow: 'var(--shadow-card)' }}
           aria-label="Apri chat con il co-founder"
         >
           <span className="w-2 h-2 rounded-full bg-moss animate-pulse" />
@@ -121,7 +122,7 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
             onClick={() => setOpen(false)}
           />
 
-          <aside className="fixed top-0 right-0 z-50 h-full w-full md:w-[440px] bg-surface-sunk border-l border-line flex flex-col shadow-2xl">
+          <aside className="fixed top-0 right-0 z-50 h-full w-full md:w-[440px] bg-surface-sunk border-l border-line flex flex-col" style={{ boxShadow: 'var(--shadow-lift)' }}>
             {/* Header */}
             <header className="shrink-0 px-5 py-4 border-b border-line flex items-center justify-between">
               <div>

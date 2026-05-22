@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import type { MetricGrid } from '@/types/artifacts';
+import { useReviewState } from '@/hooks/useReviewState';
+import UnifiedReviewControls from './UnifiedReviewControls';
 import ArtifactCardShell from './ArtifactCardShell';
 
 interface MetricGridCardProps {
@@ -13,6 +15,14 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
   const [metrics, setMetrics] = useState(artifact.metrics);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
+
+  const review = useReviewState({
+    artifactId: artifact.id,
+    persistedId: artifact.persisted_id,
+    reviewedState: artifact.reviewed_state,
+    type: 'fact',
+    onAction,
+  });
 
   function startEdit(idx: number) {
     setEditingIdx(idx);
@@ -32,6 +42,16 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
       typeLabel="Metrics"
       title={artifact.title || ''}
       sources={artifact.sources}
+      dimmed={review.isRejected}
+      footer={
+        <UnifiedReviewControls
+          lane="approval"
+          state={review.reviewState}
+          onApply={() => review.handleReview('applied')}
+          onReject={() => review.handleReview('rejected')}
+          variant="footer"
+        />
+      }
     >
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         {metrics.map((m, i) => (

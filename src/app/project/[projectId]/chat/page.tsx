@@ -28,6 +28,8 @@ import { ContextPanel } from '@/components/chat/ContextPanel';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
+import { useIntelligenceBriefs, matchBriefs } from '@/hooks/useIntelligenceBriefs';
+import { IntelligenceBriefCard } from '@/components/signals/IntelligenceBriefCard';
 import { buildContextMarkdown } from '@/lib/context-export';
 import type { ContextExportData } from '@/lib/context-export';
 import { openPrintPreview } from '@/lib/print-utils';
@@ -246,10 +248,20 @@ export default function CopilotChatPage({
   const { messages, isStreaming, sendMessage, setMessages, messageCosts } = useChat(projectId, step);
   const [input, setInput] = useState('');
   const [historyLoaded, setHistoryLoaded] = useState(false);
-  // Canvas tabs — Latest (this turn's artifacts), Tasks (durable TODO list),
-  // Intelligence (durable facts/alerts/score/nodes aggregated over time).
-  const [canvasTab, setCanvasTab] = useState<CanvasTab>('latest');
+  // Canvas mode — richer than a simple tab. Tracks focused turn and supports
+  // brief drill-in. The CanvasHeader still sees 'latest'|'context' for tabs.
+  const [canvasMode, setCanvasMode] = useState<CanvasMode>({ type: 'latest', focusedTurn: null });
+  const canvasTab: CanvasTab = canvasMode.type === 'context' ? 'context' : 'latest';
+  // Manual tab click suppresses auto-transitions for 10s so the user doesn't
+  // get yanked away while reading.
+  const autoSuppressedUntilRef = useRef(0);
+  const setCanvasTab = useCallback((tab: CanvasTab) => {
+    autoSuppressedUntilRef.current = Date.now() + 10_000;
+    setCanvasMode(tab === 'context' ? { type: 'context' } : { type: 'latest', focusedTurn: null });
+  }, []);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Turn-linked canvas: which chat message is hovered (null = none).
+  const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   const { count: inboxBadge } = useOpenActionCount(projectId);
 
   // Fire lp-actions-changed immediately when streaming ends so PendingSection
@@ -263,10 +275,13 @@ export default function CopilotChatPage({
   }, [isStreaming, projectId]);
 
   // Auto-switch to Context tab when the agent creates new pending actions.
+  // Suppressed for 10s after a manual tab click.
   const prevInboxBadgeRef = useRef(0);
   useEffect(() => {
     if (!isStreaming && inboxBadge > prevInboxBadgeRef.current) {
-      setCanvasTab('context');
+      if (Date.now() >= autoSuppressedUntilRef.current) {
+        setCanvasMode({ type: 'context' });
+      }
     }
     prevInboxBadgeRef.current = inboxBadge;
   }, [inboxBadge, isStreaming]);
@@ -328,9 +343,19 @@ export default function CopilotChatPage({
   // the chat bubble; everything else goes to the right Canvas.
   // Inline cards are kept per-message so the user can still interact with old
   // CTAs after the agent has streamed a follow-up.
-  const { canvasArtifacts, inlineArtifactsByMsgId } = useMemo(() => {
+  //
+  // CanvasEntry tracks provenance: which message produced which artifact and
+  // which turn (sequential assistant-message index) it belongs to. This
+  // powers turn-divider chips and hover-highlighting in the canvas.
+  interface CanvasEntry {
+    artifact: Artifact;
+    sourceMessageId: string;
+    turnIndex: number;
+  }
+  const { canvasEntries, canvasArtifacts, inlineArtifactsByMsgId } = useMemo(() => {
     const inlineMap = new Map<string, Artifact[]>();
-    const canvasById = new Map<string, Artifact>();
+    const canvasById = new Map<string, CanvasEntry>();
+    let turnIndex = 0;
     for (const m of messages) {
       if (m.role !== 'assistant' || !m.content) continue;
       const split = classifyArtifacts(m.content);
@@ -339,15 +364,28 @@ export default function CopilotChatPage({
       // with the same artifact id overwrite earlier ones (e.g. solve-progress
       // updates use the same id "solve_1").
       for (const a of split.canvas) {
-        canvasById.set(a.id, a);
+        canvasById.set(a.id, { artifact: a, sourceMessageId: m.id, turnIndex });
       }
+      if (split.canvas.length > 0) turnIndex++;
     }
-    const canvas = Array.from(canvasById.values());
-    return { canvasArtifacts: canvas, inlineArtifactsByMsgId: inlineMap };
+    const entries = Array.from(canvasById.values());
+    return {
+      canvasEntries: entries,
+      canvasArtifacts: entries.map((e) => e.artifact),
+      inlineArtifactsByMsgId: inlineMap,
+    };
   }, [messages]);
 
   // Detect solve-progress artifacts for inline display in the canvas grid
   const hasSolveProgress = canvasArtifacts.some((a) => a.type === 'solve-progress');
+
+  // Intelligence briefs — proactive surfacing of correlation data matched
+  // against entity-cards currently visible in the canvas.
+  const { briefs } = useIntelligenceBriefs(projectId);
+  const matchedBriefs = useMemo(
+    () => matchBriefs(briefs, canvasEntries),
+    [briefs, canvasEntries],
+  );
 
   function handleSend() {
     const v = input.trim();
@@ -587,6 +625,7 @@ export default function CopilotChatPage({
               messages.map((m) => (
                 <Msg
                   key={m.id}
+                  messageId={m.id}
                   who={m.role === 'user' ? 'user' : 'ai'}
                   agent="Chief"
                   streaming={m.role === 'assistant' && isStreaming && m === messages[messages.length - 1]}
@@ -595,6 +634,8 @@ export default function CopilotChatPage({
                   inlineArtifacts={inlineArtifactsByMsgId.get(m.id)}
                   onArtifactAction={handleArtifactAction}
                   onQuickReply={!isStreaming ? sendMessage : undefined}
+                  onMouseEnter={() => setFocusedMessageId(m.id)}
+                  onMouseLeave={() => setFocusedMessageId((prev) => prev === m.id ? null : prev)}
                   // Retry only for user messages; disabled while streaming
                   // to prevent double-sends. Reuses sendMessage so the
                   // retried turn goes through the same memory-context +
@@ -648,6 +689,8 @@ export default function CopilotChatPage({
             locale={locale}
             tab={canvasTab}
             onTabChange={setCanvasTab}
+            briefCount={matchedBriefs.length}
+            streaming={isStreaming}
           />
           {canvasTab === 'latest' && (
             <div
@@ -668,14 +711,62 @@ export default function CopilotChatPage({
                   <InlineSolveProgress messages={messages} locale={locale} />
                 </div>
               )}
-              {canvasArtifacts.filter((a) => a.type !== 'solve-progress').length === 0 && !hasSolveProgress ? (
+              {/* Matched intelligence briefs — proactive surfacing */}
+              {matchedBriefs.length > 0 && (
+                <div style={{ gridColumn: 'span 6' }}>
+                  <div className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', letterSpacing: 0.5, marginBottom: 6 }}>
+                    RELATED INTELLIGENCE
+                  </div>
+                  {matchedBriefs.map((b) => (
+                    <IntelligenceBriefCard key={b.id} brief={b} />
+                  ))}
+                </div>
+              )}
+              {canvasEntries.filter((e) => e.artifact.type !== 'solve-progress').length === 0 && !hasSolveProgress ? (
                 <CanvasEmptyState locale={locale} />
               ) : (
-                canvasArtifacts
-                  .filter((a) => a.type !== 'solve-progress')
-                  .map((a, i) => (
-                    <ArtifactCard key={i} artifact={a} onAction={handleArtifactAction} />
-                  ))
+                (() => {
+                  const filtered = canvasEntries.filter((e) => e.artifact.type !== 'solve-progress');
+                  const nodes: React.ReactNode[] = [];
+                  let prevTurn = -1;
+                  for (let i = 0; i < filtered.length; i++) {
+                    const entry = filtered[i];
+                    // Turn divider chip between groups (only when no message is focused)
+                    if (entry.turnIndex !== prevTurn && !focusedMessageId) {
+                      nodes.push(
+                        <div key={`turn-${entry.turnIndex}`} style={{ gridColumn: 'span 6', display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' }}>
+                          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+                          <span className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-5)', letterSpacing: 0.5 }}>
+                            Turn {entry.turnIndex + 1}
+                          </span>
+                          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+                        </div>,
+                      );
+                      prevTurn = entry.turnIndex;
+                    }
+                    // Highlight / dim based on focused message
+                    const isFocused = focusedMessageId && entry.sourceMessageId === focusedMessageId;
+                    const isDimmed = focusedMessageId && !isFocused;
+                    nodes.push(
+                      <ArtifactCard
+                        key={entry.artifact.id}
+                        artifact={entry.artifact}
+                        onAction={handleArtifactAction}
+                        highlighted={!!isFocused}
+                        dimmed={!!isDimmed}
+                        onBackLink={() => {
+                          const el = document.querySelector(`[data-message-id="${entry.sourceMessageId}"]`);
+                          if (el) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            el.classList.add('lp-flash');
+                            setTimeout(() => el.classList.remove('lp-flash'), 1200);
+                          }
+                        }}
+                      />,
+                    );
+                  }
+                  return nodes;
+                })()
               )}
             </div>
           )}
@@ -778,6 +869,7 @@ function ChatEmptyState({
 }
 
 function Msg({
+  messageId,
   who,
   agent,
   streaming,
@@ -788,7 +880,10 @@ function Msg({
   onArtifactAction,
   onQuickReply,
   onRetry,
+  onMouseEnter,
+  onMouseLeave,
 }: {
+  messageId: string;
   who: 'user' | 'ai';
   agent: string;
   streaming?: boolean;
@@ -805,6 +900,9 @@ function Msg({
   onQuickReply?: (text: string) => void;
   /** Provided only for user messages to resubmit. Undefined while streaming. */
   onRetry?: (content: string) => void;
+  /** Turn-linked canvas: hover handlers for message↔canvas linking */
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }) {
   const [toolsExpanded, setToolsExpanded] = useState(false);
 
@@ -812,6 +910,9 @@ function Msg({
     return (
       <div
         className="lp-msg-row"
+        data-message-id={messageId}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
         style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginBottom: 16 }}
       >
         <div
@@ -833,7 +934,7 @@ function Msg({
     );
   }
   return (
-    <div style={{ marginBottom: 18 }}>
+    <div data-message-id={messageId} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ marginBottom: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <span
           style={{
@@ -1984,6 +2085,14 @@ function ComposerMenu({
 // =============================================================================
 
 type CanvasTab = 'latest' | 'context';
+
+// Phase 4 — richer canvas mode type. The simple CanvasTab persists for the
+// CanvasHeader component (which only cares about 'latest' | 'context'), while
+// CanvasMode adds focusedTurn and brief drill-in capability.
+type CanvasMode =
+  | { type: 'latest'; focusedTurn: string | null }
+  | { type: 'context' }
+  | { type: 'brief'; briefId: string };
 
 // ─── TasksTab ─────────────────────────────────────────────────────────────────
 //
@@ -3156,11 +3265,17 @@ function CanvasHeader({
   locale,
   tab,
   onTabChange,
+  briefCount = 0,
+  streaming = false,
 }: {
   count: number;
   locale: 'en' | 'it';
   tab: CanvasTab;
   onTabChange: (next: CanvasTab) => void;
+  /** Number of matched intelligence briefs currently visible */
+  briefCount?: number;
+  /** Whether the chat is currently streaming */
+  streaming?: boolean;
 }) {
   const tabs: { id: CanvasTab; label: { en: string; it: string } }[] = [
     { id: 'latest',  label: { en: 'Canvas',  it: 'Canvas' } },
@@ -3194,12 +3309,49 @@ function CanvasHeader({
               background: active ? 'var(--accent)' : 'var(--paper)',
               color: active ? 'var(--ink)' : 'var(--ink-3)',
               fontWeight: active ? 600 : 400,
+              position: 'relative',
             }}
           >
             {t.label[locale]}
+            {/* Streaming pulse on Latest tab */}
+            {t.id === 'latest' && streaming && (
+              <span
+                className="lp-dot lp-pulse"
+                style={{
+                  position: 'absolute',
+                  top: -2,
+                  right: -2,
+                  width: 6,
+                  height: 6,
+                  background: 'var(--accent)',
+                }}
+              />
+            )}
           </button>
         );
       })}
+      {/* Intelligence briefs chip */}
+      {briefCount > 0 && (
+        <span
+          className="lp-mono"
+          style={{
+            fontSize: 10,
+            color: 'var(--plum)',
+            background: 'oklch(0.95 0.02 310)',
+            padding: '2px 8px',
+            borderRadius: 999,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2a7 7 0 0 1 7 7c0 3-2 5.5-4 7l-1 3H10l-1-3c-2-1.5-4-4-4-7a7 7 0 0 1 7-7z" />
+            <path d="M10 19h4" />
+          </svg>
+          {briefCount} brief{briefCount === 1 ? '' : 's'}
+        </span>
+      )}
       <span style={{ flex: 1 }} />
       {tab === 'latest' && (
         <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
@@ -3249,16 +3401,32 @@ function CanvasEmptyState({ locale }: { locale: 'en' | 'it' }) {
 function ArtifactCard({
   artifact,
   onAction,
+  highlighted,
+  dimmed,
+  onBackLink,
 }: {
   artifact: Artifact;
   onAction: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
+  /** Turn-linked: ring highlight when source message is hovered */
+  highlighted?: boolean;
+  /** Turn-linked: dim when a different message is hovered */
+  dimmed?: boolean;
+  /** Scroll-to-source callback for the back-link icon */
+  onBackLink?: () => void;
 }) {
   // Self-contained interactive proposal cards (Apply / Edit / Dismiss) want
   // full width without the generic card chrome around them. Render bare —
   // ArtifactRenderer routes the type to its dedicated card component.
   if (artifact.type === 'monitor-proposal' || artifact.type === 'budget-proposal') {
     return (
-      <div style={{ gridColumn: 'span 6' }}>
+      <div
+        style={{
+          gridColumn: 'span 6',
+          opacity: dimmed ? 0.35 : 1,
+          transition: 'opacity 150ms ease',
+        }}
+        className={highlighted ? 'ring-2 ring-accent rounded-lg' : ''}
+      >
         <ArtifactRenderer
           artifact={artifact}
           onAction={(a, p) => onAction(a, p)}
@@ -3295,7 +3463,14 @@ function ArtifactCard({
   };
 
   return (
-    <div className="lp-card" style={{ gridColumn: `span ${span}` }}>
+    <div
+      className={`lp-card ${highlighted ? 'ring-2 ring-accent' : ''}`}
+      style={{
+        gridColumn: `span ${span}`,
+        opacity: dimmed ? 0.35 : 1,
+        transition: 'opacity 150ms ease',
+      }}
+    >
       <div
         style={{
           padding: '10px 14px',
@@ -3315,6 +3490,34 @@ function ArtifactCard({
           {humanizeType(artifact.type)}
         </span>
         <span style={{ flex: 1 }} />
+        {onBackLink && (
+          <button
+            type="button"
+            onClick={onBackLink}
+            title="Scroll to source message"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 20,
+              height: 20,
+              padding: 0,
+              border: 'none',
+              borderRadius: 4,
+              background: 'transparent',
+              color: 'var(--ink-5)',
+              cursor: 'pointer',
+              transition: 'color 100ms',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--ink-5)'; }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+          </button>
+        )}
         <Icon d={I.more} size={13} style={{ color: 'var(--ink-5)' }} />
       </div>
       <div style={{ padding: 14, fontSize: 12, color: 'var(--ink-3)' }}>

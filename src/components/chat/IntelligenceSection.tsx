@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { Pill } from '@/components/design/primitives';
+import { IntelligenceBriefCard } from '@/components/signals/IntelligenceBriefCard';
+import type { IntelligenceBrief } from '@/types';
 
 // =============================================================================
 // Types
@@ -93,6 +95,8 @@ export function IntelligenceSection({ projectId, locale }: { projectId: string; 
   const [error, setError] = useState<string | null>(null);
   const [expandedStage, setExpandedStage] = useState<string | null>(null);
   const [showRecent, setShowRecent] = useState(false);
+  const [activeBriefs, setActiveBriefs] = useState<IntelligenceBrief[]>([]);
+  const [briefsExpanded, setBriefsExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,13 +104,26 @@ export function IntelligenceSection({ projectId, locale }: { projectId: string; 
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/projects/${projectId}/intelligence`);
-        const body = await res.json();
-        if (!res.ok || body?.success === false) {
-          throw new Error(body?.error || `HTTP ${res.status}`);
+        // Parallel fetch: intelligence data + active briefs
+        const [intelRes, briefsRes] = await Promise.all([
+          fetch(`/api/projects/${projectId}/intelligence`),
+          fetch(`/api/projects/${projectId}/intelligence-briefs?status=active`),
+        ]);
+        const intelBody = await intelRes.json();
+        if (!intelRes.ok || intelBody?.success === false) {
+          throw new Error(intelBody?.error || `HTTP ${intelRes.status}`);
         }
-        const inner = body?.data ?? body;
+        const inner = intelBody?.data ?? intelBody;
         if (!cancelled) setData(inner);
+
+        // Briefs are non-blocking — failure shouldn't hide the main data.
+        try {
+          const briefsBody = await briefsRes.json();
+          const briefsData = briefsBody?.data ?? briefsBody;
+          if (!cancelled) setActiveBriefs(Array.isArray(briefsData) ? briefsData : []);
+        } catch {
+          if (!cancelled) setActiveBriefs([]);
+        }
       } catch (err) {
         if (!cancelled) setError((err as Error).message);
       } finally {
@@ -276,6 +293,42 @@ export function IntelligenceSection({ projectId, locale }: { projectId: string; 
           })
         )}
       </div>
+
+      {/* Intelligence briefs — collapsible, above recent signals */}
+      {activeBriefs.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            onClick={() => setBriefsExpanded((v) => !v)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--ink-3)',
+              padding: '6px 0',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span>{briefsExpanded ? '\u25be' : '\u25b8'}</span>
+            <span className="lp-serif">
+              {locale === 'it' ? 'Briefing attivi' : 'Active briefs'}
+            </span>
+            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10.5, color: 'var(--ink-5)' }}>
+              ({activeBriefs.length})
+            </span>
+          </button>
+          {briefsExpanded && (
+            <div style={{ marginTop: 6, background: 'var(--paper)', borderRadius: 'var(--r-m)', overflow: 'hidden', border: '1px solid var(--line)' }}>
+              {activeBriefs.map((b) => (
+                <IntelligenceBriefCard key={b.id} brief={b} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Recent signals — collapsed by default */}
       <button

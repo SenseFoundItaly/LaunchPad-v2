@@ -2,7 +2,7 @@
 
 import type { InsightCard as InsightCardType } from '@/types/artifacts';
 import { useReviewState } from '@/hooks/useReviewState';
-import ReviewControls from './ReviewControls';
+import UnifiedReviewControls from './UnifiedReviewControls';
 import ArtifactCardShell from './ArtifactCardShell';
 
 interface InsightCardProps {
@@ -54,8 +54,16 @@ export default function InsightCard({ artifact, onAction }: InsightCardProps) {
         >
           {artifact.confidence}
         </span>
-        <ReviewControls reviewState={review.reviewState} onReview={review.handleReview} />
       </>}
+      footer={
+        <UnifiedReviewControls
+          lane="approval"
+          state={review.reviewState}
+          onApply={() => review.handleReview('applied')}
+          onReject={() => review.handleReview('rejected')}
+          variant="footer"
+        />
+      }
     >
       <p className={`text-sm leading-relaxed ${review.isRejected ? 'text-ink-6' : 'text-ink-3'}`}>
         {artifact.body}
