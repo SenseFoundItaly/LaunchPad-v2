@@ -63,7 +63,7 @@ export default function ToolTriggerCard({ artifact, onAction, projectId }: ToolT
           <h4 className="font-semibold text-gray-900 text-sm">{artifact.label}</h4>
           <p className="text-gray-600 text-xs mt-0.5">{artifact.description}</p>
           {result && (
-            <div className={`mt-2 text-xs px-2 py-1 rounded ${result.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+            <div className={`mt-2 text-xs px-2 py-1 rounded ${result.success ? 'bg-moss-wash text-moss' : 'bg-clay-wash text-clay'}`}>
               {result.success
                 ? `Done! ${result.draftId ? 'Draft created.' : 'Completed.'}`
                 : `Error: ${result.error}`}
@@ -78,7 +78,7 @@ export default function ToolTriggerCard({ artifact, onAction, projectId }: ToolT
         <button
           onClick={handleExecute}
           disabled={executing}
-          className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-ink hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {executing ? 'Running...' : 'Execute'}
         </button>

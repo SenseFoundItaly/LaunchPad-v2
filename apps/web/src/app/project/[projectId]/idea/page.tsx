@@ -254,17 +254,17 @@ export default function IdeaPage({
     <div className="flex h-full">
       {/* Chat — main area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-950/50 flex items-center gap-3">
-          <h2 className="text-sm font-medium text-white truncate">{project?.name}</h2>
-          <span className="text-xs text-zinc-500">AI Workspace</span>
+        <div className="px-4 py-2 border-b border-line bg-paper/50 flex items-center gap-3">
+          <h2 className="text-sm font-medium text-ink truncate">{project?.name}</h2>
+          <span className="text-xs text-ink-5">AI Workspace</span>
         </div>
         <div className="flex-1 overflow-hidden">
           <ChatPanel
             messages={messages}
             onSend={sendMessage}
             isStreaming={isStreaming}
-            placeholder="What are you building?"
-            emptyMessage="Tell me about your startup. I'll map the landscape, find competitors, and help you build your strategy."
+            placeholder="What assumption should we test next?"
+            emptyMessage="Describe your idea. I'll map the landscape, surface competitors, and stress-test your assumptions — so you find fatal flaws early."
             onArtifactAction={handleArtifactAction}
             onEntityDiscovered={handleEntityDiscovered}
             onWorkflowDiscovered={handleWorkflowDiscovered}
@@ -274,28 +274,28 @@ export default function IdeaPage({
 
       {/* Resize handle */}
       <div
-        className="w-1 hover:w-1.5 bg-zinc-800 hover:bg-blue-500/50 cursor-col-resize shrink-0 transition-colors"
+        className="w-1 hover:w-1.5 bg-paper-3 hover:bg-moss/50 cursor-col-resize shrink-0 transition-colors"
         onMouseDown={handleResizeStart}
       />
 
       {/* Intelligent Sidebar */}
-      <div className="flex flex-col bg-zinc-950 shrink-0" style={{ width: sidebarWidth }}>
+      <div className="flex flex-col bg-paper shrink-0" style={{ width: sidebarWidth }}>
         {/* Sidebar tabs */}
-        <div className="flex border-b border-zinc-800 px-2 pt-2">
+        <div className="flex border-b border-line px-2 pt-2">
           {sidebarTabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setSidebarMode(tab.key)}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t-lg transition-colors ${
                 sidebarMode === tab.key
-                  ? 'bg-zinc-900 text-white border border-zinc-800 border-b-zinc-900 -mb-px'
-                  : 'text-zinc-500 hover:text-zinc-300'
+                  ? 'bg-paper-2 text-ink border border-line border-b-paper-2 -mb-px'
+                  : 'text-ink-5 hover:text-ink-3'
               }`}
             >
               {tab.label}
               {tab.count !== undefined && tab.count > 0 && (
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                  sidebarMode === tab.key ? 'bg-blue-500/20 text-blue-400' : 'bg-zinc-800 text-zinc-500'
+                  sidebarMode === tab.key ? 'bg-sky-wash text-sky' : 'bg-paper-3 text-ink-5'
                 }`}>
                   {tab.count}
                 </span>
@@ -325,10 +325,10 @@ export default function IdeaPage({
           {sidebarMode === 'metrics' && (
             <div className="p-4 overflow-y-auto h-full">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-white">Key Metrics</h3>
+                <h3 className="text-sm font-medium text-ink">Key Metrics</h3>
                 <button
                   onClick={() => sendMessage('Show me my current metrics and runway analysis.')}
-                  className="text-xs text-blue-400 hover:text-blue-300"
+                  className="text-xs text-sky hover:text-sky"
                 >
                   Analyze
                 </button>
@@ -336,21 +336,21 @@ export default function IdeaPage({
               {metrics.length > 0 ? (
                 <div className="space-y-2">
                   {metrics.map((m, i) => (
-                    <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 flex items-center justify-between">
-                      <span className="text-sm text-zinc-300">{m.name}</span>
+                    <div key={i} className="bg-paper-2 border border-line rounded-lg p-3 flex items-center justify-between">
+                      <span className="text-sm text-ink-3">{m.name}</span>
                       <div className="text-right">
-                        <div className="text-sm font-medium text-white">{m.value.toLocaleString()}</div>
-                        <div className={`text-xs ${m.growth.startsWith('-') ? 'text-red-400' : 'text-green-400'}`}>{m.growth}</div>
+                        <div className="text-sm font-medium text-ink">{m.value.toLocaleString()}</div>
+                        <div className={`text-xs ${m.growth.startsWith('-') ? 'text-clay' : 'text-moss'}`}>{m.growth}</div>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <p className="text-zinc-500 text-sm mb-2">No metrics tracked yet</p>
+                  <p className="text-ink-5 text-sm mb-2">No metrics tracked yet</p>
                   <button
                     onClick={() => sendMessage('Help me define the key metrics I should track for my startup.')}
-                    className="text-xs text-blue-400 hover:text-blue-300"
+                    className="text-xs text-sky hover:text-sky"
                   >
                     Ask AI to suggest metrics
                   </button>
@@ -363,7 +363,7 @@ export default function IdeaPage({
           {sidebarMode === 'workflows' && (
             <div className="p-4 overflow-y-auto h-full">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-white">Workflows</h3>
+                <h3 className="text-sm font-medium text-ink">Workflows</h3>
               </div>
               {workflows.length > 0 ? (
                 <div className="space-y-3">
@@ -373,32 +373,32 @@ export default function IdeaPage({
                     return (
                       <div key={priority}>
                         <div className={`text-xs font-medium mb-2 ${
-                          priority === 'high' ? 'text-red-400' : priority === 'medium' ? 'text-yellow-400' : 'text-zinc-500'
+                          priority === 'high' ? 'text-clay' : priority === 'medium' ? 'text-accent' : 'text-ink-5'
                         }`}>
                           {priority.toUpperCase()} PRIORITY
                         </div>
                         {filtered.map((wf, i) => (
-                          <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 mb-2">
+                          <div key={i} className="bg-paper-2 border border-line rounded-lg p-3 mb-2">
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="text-sm font-medium text-white flex-1">{wf.title}</span>
+                              <span className="text-sm font-medium text-ink flex-1">{wf.title}</span>
                               <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                                { hiring: 'bg-amber-500/20 text-amber-400', marketing: 'bg-blue-500/20 text-blue-400',
-                                  fundraising: 'bg-green-500/20 text-green-400', product: 'bg-violet-500/20 text-violet-400',
-                                  legal: 'bg-rose-500/20 text-rose-400', operations: 'bg-cyan-500/20 text-cyan-400',
-                                  sales: 'bg-orange-500/20 text-orange-400' }[wf.category] || 'bg-zinc-700 text-zinc-400'
+                                { hiring: 'bg-accent-wash text-accent', marketing: 'bg-sky-wash text-sky',
+                                  fundraising: 'bg-moss-wash text-moss', product: 'bg-plum-wash text-plum',
+                                  legal: 'bg-cat-rose-wash text-cat-rose', operations: 'bg-cat-teal-wash text-cat-teal',
+                                  sales: 'bg-cat-gold-wash text-cat-gold' }[wf.category] || 'bg-ink-6 text-ink-4'
                               }`}>{wf.category}</span>
                             </div>
-                            <p className="text-xs text-zinc-400 mb-2">{wf.description}</p>
+                            <p className="text-xs text-ink-4 mb-2">{wf.description}</p>
                             {wf.steps && wf.steps.length > 0 && (
                               <div className="space-y-1 mb-2">
                                 {wf.steps.slice(0, 4).map((step, j) => (
-                                  <div key={j} className="flex items-center gap-1.5 text-[11px] text-zinc-500">
-                                    <span className="w-3 h-3 rounded border border-zinc-700 shrink-0" />
+                                  <div key={j} className="flex items-center gap-1.5 text-[11px] text-ink-5">
+                                    <span className="w-3 h-3 rounded border border-line-2 shrink-0" />
                                     {step}
                                   </div>
                                 ))}
                                 {wf.steps.length > 4 && (
-                                  <div className="text-[11px] text-zinc-600">+{wf.steps.length - 4} more steps</div>
+                                  <div className="text-[11px] text-ink-6">+{wf.steps.length - 4} more steps</div>
                                 )}
                               </div>
                             )}
@@ -406,7 +406,7 @@ export default function IdeaPage({
                               onClick={() => {
                                 sendMessage(`Execute workflow: "${wf.title}"\nSteps: ${wf.steps.join(', ')}\n\nWalk me through each step with specifics.`);
                               }}
-                              className="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors"
+                              className="text-xs px-3 py-1 bg-moss hover:bg-moss/80 text-on-accent rounded-md transition-colors"
                             >
                               Execute
                             </button>
@@ -418,8 +418,8 @@ export default function IdeaPage({
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <p className="text-zinc-500 text-sm mb-2">No workflows yet</p>
-                  <p className="text-zinc-600 text-xs">The AI will suggest actionable workflows as you chat</p>
+                  <p className="text-ink-5 text-sm mb-2">No workflows yet</p>
+                  <p className="text-ink-6 text-xs">The AI will suggest actionable workflows as you chat</p>
                 </div>
               )}
             </div>
@@ -429,10 +429,10 @@ export default function IdeaPage({
           {sidebarMode === 'pipeline' && (
             <div className="p-4 overflow-y-auto h-full">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-white">Investor Pipeline</h3>
+                <h3 className="text-sm font-medium text-ink">Investor Pipeline</h3>
                 <button
                   onClick={() => sendMessage('Help me build my fundraising strategy and target investor list.')}
-                  className="text-xs text-blue-400 hover:text-blue-300"
+                  className="text-xs text-sky hover:text-sky"
                 >
                   Build List
                 </button>
@@ -440,28 +440,28 @@ export default function IdeaPage({
               {investors.length > 0 ? (
                 <div className="space-y-2">
                   {investors.map((inv, i) => (
-                    <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
+                    <div key={i} className="bg-paper-2 border border-line rounded-lg p-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-white">{inv.name}</span>
+                        <span className="text-sm text-ink">{inv.name}</span>
                         <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          inv.stage === 'committed' ? 'bg-green-500/20 text-green-400' :
-                          inv.stage === 'term_sheet' ? 'bg-blue-500/20 text-blue-400' :
-                          inv.stage === 'passed' ? 'bg-red-500/20 text-red-400' :
-                          'bg-zinc-700 text-zinc-400'
+                          inv.stage === 'committed' ? 'bg-moss-wash text-moss' :
+                          inv.stage === 'term_sheet' ? 'bg-sky-wash text-sky' :
+                          inv.stage === 'passed' ? 'bg-clay-wash text-clay' :
+                          'bg-ink-6 text-ink-4'
                         }`}>{inv.stage}</span>
                       </div>
                       {inv.check_size > 0 && (
-                        <div className="text-xs text-zinc-500 mt-1">${(inv.check_size / 1000).toFixed(0)}K</div>
+                        <div className="text-xs text-ink-5 mt-1">${(inv.check_size / 1000).toFixed(0)}K</div>
                       )}
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <p className="text-zinc-500 text-sm mb-2">No investors tracked yet</p>
+                  <p className="text-ink-5 text-sm mb-2">No investors tracked yet</p>
                   <button
                     onClick={() => sendMessage('I want to start fundraising. Help me identify the right investors for my startup.')}
-                    className="text-xs text-blue-400 hover:text-blue-300"
+                    className="text-xs text-sky hover:text-sky"
                   >
                     Start fundraising discussion
                   </button>

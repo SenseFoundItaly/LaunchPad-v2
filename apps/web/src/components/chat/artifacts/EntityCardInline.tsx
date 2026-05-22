@@ -9,23 +9,23 @@ interface EntityCardInlineProps {
 }
 
 const ENTITY_TYPE_COLORS: Record<string, string> = {
-  competitor: 'bg-red-500/20 text-red-400',
-  technology: 'bg-cyan-500/20 text-cyan-400',
-  market_segment: 'bg-green-500/20 text-green-400',
-  persona: 'bg-yellow-500/20 text-yellow-400',
-  risk: 'bg-orange-500/20 text-orange-400',
-  trend: 'bg-purple-500/20 text-purple-400',
-  company: 'bg-blue-500/20 text-blue-400',
+  competitor: 'bg-clay-wash text-clay',
+  technology: 'bg-cat-teal-wash text-cat-teal',
+  market_segment: 'bg-moss-wash text-moss',
+  persona: 'bg-accent-wash text-accent',
+  risk: 'bg-cat-gold-wash text-cat-gold',
+  trend: 'bg-plum-wash text-plum',
+  company: 'bg-sky-wash text-sky',
   compliance: 'bg-pink-500/20 text-pink-400',
-  regulation: 'bg-rose-500/20 text-rose-400',
+  regulation: 'bg-cat-rose-wash text-cat-rose',
   partner: 'bg-teal-500/20 text-teal-400',
   funding_source: 'bg-lime-500/20 text-lime-400',
-  feature: 'bg-violet-500/20 text-violet-400',
+  feature: 'bg-plum-wash text-plum',
   metric: 'bg-sky-500/20 text-sky-400',
 };
 
 function getTypeColor(entityType: string): string {
-  return ENTITY_TYPE_COLORS[entityType] ?? 'bg-zinc-500/20 text-zinc-400';
+  return ENTITY_TYPE_COLORS[entityType] ?? 'bg-ink-5/20 text-ink-4';
 }
 
 export default function EntityCardInline({
@@ -42,17 +42,17 @@ export default function EntityCardInline({
   }, [artifact, onEntityDiscovered]);
 
   return (
-    <div className="my-3 bg-zinc-800/50 border border-zinc-700 rounded-lg p-4">
+    <div className="my-3 bg-paper-3/50 border border-line-2 rounded-lg p-4">
       <div className="flex items-center gap-2 mb-2">
-        <h4 className="text-sm font-semibold text-zinc-100">{artifact.name}</h4>
+        <h4 className="text-sm font-semibold text-ink">{artifact.name}</h4>
         <span
           className={`text-xs px-2 py-0.5 rounded-full font-medium ${getTypeColor(artifact.entity_type)}`}
         >
           {artifact.entity_type.replace(/_/g, ' ')}
         </span>
       </div>
-      <p className="text-sm text-zinc-300 leading-relaxed mb-2">{artifact.summary}</p>
-      <div className="flex items-center gap-1.5 text-xs text-green-400/80">
+      <p className="text-sm text-ink-3 leading-relaxed mb-2">{artifact.summary}</p>
+      <div className="flex items-center gap-1.5 text-xs text-moss/80">
         <svg
           width="12"
           height="12"

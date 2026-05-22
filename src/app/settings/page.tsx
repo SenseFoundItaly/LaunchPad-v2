@@ -149,9 +149,9 @@ export default function SettingsPage() {
       <header className="h-12 border-b border-line bg-surface-sunk flex items-center px-6">
         <Link href="/" className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-md bg-gradient-to-br from-moss to-plum flex items-center justify-center">
-            <span className="text-paper text-xs font-bold">L</span>
+            <span className="text-paper text-xs font-bold">S</span>
           </div>
-          <span className="text-ink font-semibold tracking-tight text-sm">LaunchPad</span>
+          <span className="text-ink font-semibold tracking-tight text-sm">SenseFound</span>
         </Link>
         <span className="ml-3 text-ink-6 text-sm">/</span>
         <span className="ml-2 text-ink-4 text-sm">Settings</span>
@@ -186,7 +186,7 @@ export default function SettingsPage() {
             <div className="bg-paper border border-line rounded-xl p-6 text-center">
               <p className="text-sm text-ink-4">No API keys configured.</p>
               <p className="text-xs text-ink-6 mt-1">
-                LaunchPad uses system keys by default. Add your own to use your API quota.
+                SenseFound uses system keys by default. Add your own to use your API quota.
               </p>
             </div>
           ) : (

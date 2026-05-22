@@ -19,8 +19,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'LaunchPad - Startup OS',
-  description: 'Shape, evaluate, and launch your startup idea',
+  title: 'SenseFound — Courage Through Clarity',
+  description: 'Validate your startup idea with evidence. Find fatal flaws early — when pivoting is still possible, not painful.',
 };
 
 export default function RootLayout({

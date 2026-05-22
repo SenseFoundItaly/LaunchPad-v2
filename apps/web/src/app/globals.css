@@ -1,27 +1,50 @@
 @import "tailwindcss";
+@import "../../../../src/styles/design-tokens.css";
 
 @theme inline {
-  --color-background: #09090b;
-  --color-foreground: #fafafa;
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* neutrals — bridged from design-tokens.css */
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-paper-3: var(--paper-3);
+  --color-surface: var(--surface);
+  --color-surface-sunk: var(--surface-sunk);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-ink-5: var(--ink-5);
+  --color-ink-6: var(--ink-6);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  /* semantic accents */
+  --color-moss: var(--moss);
+  --color-moss-wash: var(--moss-wash);
+  --color-clay: var(--clay);
+  --color-clay-wash: var(--clay-wash);
+  --color-sky: var(--sky);
+  --color-sky-wash: var(--sky-wash);
+  --color-plum: var(--plum);
+  --color-plum-wash: var(--plum-wash);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-wash: var(--accent-wash);
+  --color-cat-teal: var(--cat-teal);
+  --color-cat-gold: var(--cat-gold);
+  --color-cat-rose: var(--cat-rose);
+  --color-cat-teal-wash: var(--cat-teal-wash);
+  --color-cat-gold-wash: var(--cat-gold-wash);
+  --color-cat-rose-wash: var(--cat-rose-wash);
+  --color-on-accent: var(--on-accent);
+  /* fonts */
+  --font-sans: var(--f-sans);
+  --font-mono: var(--f-mono);
 }
 
 body {
-  background: var(--color-background);
-  color: var(--color-foreground);
+  background: var(--paper);
+  color: var(--ink);
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #3f3f46;
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
-}
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
@@ -22,10 +22,14 @@ interface DashboardSignal {
   id: string;
   project_id: string;
   project_name: string;
+  alert_type: string;
+  alert_type_label: string;
+  headline: string;
+  body: string;
   severity: string;
-  message: string;
-  created_at: string;
+  relevance_score: number;
   source_url?: string | null;
+  created_at: string;
 }
 
 interface DashboardStats {
@@ -50,6 +54,19 @@ export default function HomePage() {
   const [newDesc, setNewDesc] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [expandedSignals, setExpandedSignals] = useState<Set<string>>(new Set());
+  const [showSignals, setShowSignals] = useState(false);
+  const signalPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showSignals) return;
+    function handleClick(e: MouseEvent) {
+      if (signalPanelRef.current && !signalPanelRef.current.contains(e.target as Node)) {
+        setShowSignals(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showSignals]);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,15 +124,9 @@ export default function HomePage() {
     });
   }
 
-  function getOneLiner(msg: string): { text: string; truncated: boolean } {
-    const sep = msg.indexOf('---');
-    const nl = msg.indexOf('\n');
-    let end = msg.length;
-    if (sep > 0 && sep < end) end = sep;
-    if (nl > 0 && nl < end) end = nl;
-    const line = msg.slice(0, end).trim();
-    if (line.length > 120) return { text: line.slice(0, 120).trimEnd() + '…', truncated: true };
-    return { text: line, truncated: line.length < msg.trim().length };
+  function getOneLiner(headline: string): string {
+    if (headline.length > 120) return headline.slice(0, 120).trimEnd() + '…';
+    return headline;
   }
 
   function relativeTime(iso: string): string {
@@ -289,9 +300,188 @@ export default function HomePage() {
             </h1>
             <span style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-              {stats.total_analyses_completed} analyses completed ·{' '}
-              {stats.total_alerts_this_week} signals this week
+              {stats.total_analyses_completed} analyses completed
             </span>
+            <div ref={signalPanelRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowSignals((v) => !v)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  fontFamily: 'var(--f-mono)',
+                  color: signals.length > 0 ? 'var(--clay)' : 'var(--ink-4)',
+                  background: signals.length > 0 ? 'var(--accent-wash)' : 'var(--surface)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--r-m)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                {stats.total_alerts_this_week} signal{stats.total_alerts_this_week !== 1 ? 's' : ''}
+              </button>
+
+              {showSignals && signals.length > 0 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 6px)',
+                    right: 0,
+                    width: 480,
+                    maxHeight: 420,
+                    overflowY: 'auto',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--line)',
+                    borderRadius: 'var(--r-m)',
+                    boxShadow: '0 8px 24px rgba(0,0,0,.12)',
+                    zIndex: 100,
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      fontSize: 10,
+                      color: 'var(--ink-5)',
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.5,
+                      fontFamily: 'var(--f-mono)',
+                      borderBottom: '1px solid var(--line)',
+                    }}
+                  >
+                    Recent signals
+                  </div>
+                  {signals.map((s, i) => {
+                    const expanded = expandedSignals.has(s.id);
+                    const hasDetail = s.body.length > 0;
+                    return (
+                      <div key={s.id}>
+                        <div
+                          onClick={() => hasDetail && toggleSignal(s.id)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '8px 12px',
+                            borderBottom:
+                              i < signals.length - 1 || expanded
+                                ? '1px solid var(--line)'
+                                : 'none',
+                            cursor: hasDetail ? 'pointer' : 'default',
+                            transition: 'background .1s',
+                          }}
+                          className={hasDetail ? 'lp-rail-item' : undefined}
+                        >
+                          <Pill kind={severityKind(s.severity)}>{s.severity}</Pill>
+                          <Pill kind="n">{s.alert_type_label}</Pill>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: 'var(--ink-4)',
+                              flexShrink: 0,
+                              fontFamily: 'var(--f-mono)',
+                            }}
+                          >
+                            {s.project_name}
+                          </span>
+                          <span
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              fontSize: 12.5,
+                              color: 'var(--ink-2)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {getOneLiner(s.headline)}
+                            {s.source_url && (
+                              <span style={{ fontSize: 10, color: 'var(--ink-5)', marginLeft: 6 }}>
+                                {safeHost(s.source_url)} ↗
+                              </span>
+                            )}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              color: 'var(--ink-5)',
+                              flexShrink: 0,
+                              fontFamily: 'var(--f-mono)',
+                            }}
+                          >
+                            {relativeTime(s.created_at)}
+                          </span>
+                          {hasDetail && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: 'var(--ink-5)',
+                                flexShrink: 0,
+                                transition: 'transform .15s',
+                                transform: expanded ? 'rotate(90deg)' : 'none',
+                                display: 'inline-block',
+                              }}
+                            >
+                              ▸
+                            </span>
+                          )}
+                        </div>
+                        {expanded && (
+                          <div
+                            style={{
+                              padding: '10px 12px 12px',
+                              borderBottom:
+                                i < signals.length - 1
+                                  ? '1px solid var(--line)'
+                                  : 'none',
+                              fontSize: 12,
+                              color: 'var(--ink-3)',
+                              lineHeight: 1.5,
+                              maxHeight: 300,
+                              overflowY: 'auto',
+                              background: 'var(--paper-2)',
+                            }}
+                          >
+                            {s.source_url && (
+                              <a
+                                href={s.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  fontSize: 11,
+                                  color: 'var(--accent-ink)',
+                                  marginBottom: 8,
+                                  textDecoration: 'none',
+                                }}
+                              >
+                                <Icon d={I.globe} size={10} />
+                                {safeHost(s.source_url)} ↗
+                              </a>
+                            )}
+                            <div className="lp-prose">
+                              <ReactMarkdown
+                                components={{
+                                  a: ({ children, href, ...props }) => (
+                                    <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
+                                  ),
+                                }}
+                              >
+                                {s.body}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
@@ -392,159 +582,6 @@ export default function HomePage() {
                         {createError}
                       </div>
                     )}
-                  </div>
-                )}
-
-                {/* Signals */}
-                {signals.length > 0 && (
-                  <div style={{ marginBottom: 24 }}>
-                    <div
-                      style={{
-                        fontSize: 10,
-                        color: 'var(--ink-5)',
-                        textTransform: 'uppercase',
-                        letterSpacing: 0.5,
-                        fontFamily: 'var(--f-mono)',
-                        marginBottom: 10,
-                      }}
-                    >
-                      Recent signals
-                    </div>
-                    <div
-                      style={{
-                        border: '1px solid var(--line)',
-                        borderRadius: 'var(--r-m)',
-                        overflow: 'hidden',
-                        background: 'var(--surface)',
-                      }}
-                    >
-                      {signals.map((s, i) => {
-                        const expanded = expandedSignals.has(s.id);
-                        const { text, truncated } = getOneLiner(s.message);
-                        return (
-                          <div key={s.id}>
-                            <div
-                              onClick={() => truncated && toggleSignal(s.id)}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                padding: '8px 12px',
-                                borderBottom:
-                                  i < signals.length - 1 || expanded
-                                    ? '1px solid var(--line)'
-                                    : 'none',
-                                cursor: truncated ? 'pointer' : 'default',
-                                transition: 'background .1s',
-                              }}
-                              className={truncated ? 'lp-rail-item' : undefined}
-                            >
-                              <Pill kind={severityKind(s.severity)}>{s.severity}</Pill>
-                              <span
-                                style={{
-                                  fontSize: 11,
-                                  color: 'var(--ink-4)',
-                                  flexShrink: 0,
-                                  fontFamily: 'var(--f-mono)',
-                                }}
-                              >
-                                {s.project_name}
-                              </span>
-                              <span
-                                style={{
-                                  flex: 1,
-                                  minWidth: 0,
-                                  fontSize: 12.5,
-                                  color: 'var(--ink-2)',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {text}
-                                {s.source_url && (
-                                  <span style={{ fontSize: 10, color: 'var(--ink-5)', marginLeft: 6 }}>
-                                    {safeHost(s.source_url)} ↗
-                                  </span>
-                                )}
-                              </span>
-                              <span
-                                style={{
-                                  fontSize: 10,
-                                  color: 'var(--ink-5)',
-                                  flexShrink: 0,
-                                  fontFamily: 'var(--f-mono)',
-                                }}
-                              >
-                                {relativeTime(s.created_at)}
-                              </span>
-                              {truncated && (
-                                <span
-                                  style={{
-                                    fontSize: 10,
-                                    color: 'var(--ink-5)',
-                                    flexShrink: 0,
-                                    transition: 'transform .15s',
-                                    transform: expanded ? 'rotate(90deg)' : 'none',
-                                    display: 'inline-block',
-                                  }}
-                                >
-                                  ▸
-                                </span>
-                              )}
-                            </div>
-                            {expanded && (
-                              <div
-                                style={{
-                                  padding: '10px 12px 12px',
-                                  borderBottom:
-                                    i < signals.length - 1
-                                      ? '1px solid var(--line)'
-                                      : 'none',
-                                  fontSize: 12,
-                                  color: 'var(--ink-3)',
-                                  lineHeight: 1.5,
-                                  maxHeight: 300,
-                                  overflowY: 'auto',
-                                  background: 'var(--paper-2)',
-                                }}
-                              >
-                                {s.source_url && (
-                                  <a
-                                    href={s.source_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: 4,
-                                      fontSize: 11,
-                                      color: 'var(--accent-ink)',
-                                      marginBottom: 8,
-                                      textDecoration: 'none',
-                                    }}
-                                  >
-                                    <Icon d={I.globe} size={10} />
-                                    {safeHost(s.source_url)} ↗
-                                  </a>
-                                )}
-                                <div className="lp-prose">
-                                  <ReactMarkdown
-                                    components={{
-                                      a: ({ children, href, ...props }) => (
-                                        <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
-                                      ),
-                                    }}
-                                  >
-                                    {s.message}
-                                  </ReactMarkdown>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
                   </div>
                 )}
 

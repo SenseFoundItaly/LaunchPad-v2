@@ -8,9 +8,9 @@ interface ScoreBadgeProps {
 
 function getScoreColor(score: number, max: number): string {
   const pct = max > 0 ? score / max : 0;
-  if (pct >= 0.75) {return '#22c55e';} // green-500
-  if (pct >= 0.5) {return '#eab308';} // yellow-500
-  return '#ef4444'; // red-500
+  if (pct >= 0.75) {return 'var(--moss)';}
+  if (pct >= 0.5) {return 'var(--accent)';}
+  return 'var(--clay)';
 }
 
 export default function ScoreBadge({ artifact }: ScoreBadgeProps) {
@@ -31,7 +31,7 @@ export default function ScoreBadge({ artifact }: ScoreBadgeProps) {
           r={radius}
           fill="none"
           stroke="currentColor"
-          className="text-zinc-700"
+          className="text-ink-6"
           strokeWidth="3"
         />
         {/* Score arc */}
@@ -40,7 +40,7 @@ export default function ScoreBadge({ artifact }: ScoreBadgeProps) {
           cy="20"
           r={radius}
           fill="none"
-          stroke={color}
+          style={{ stroke: color }}
           strokeWidth="3"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
@@ -54,12 +54,12 @@ export default function ScoreBadge({ artifact }: ScoreBadgeProps) {
           y="21"
           textAnchor="middle"
           dominantBaseline="middle"
-          className="text-[10px] font-semibold fill-zinc-200"
+          className="text-[10px] font-semibold fill-ink-2"
         >
           {artifact.score}
         </text>
       </svg>
-      <span className="text-xs text-zinc-400">
+      <span className="text-xs text-ink-4">
         {artifact.label} ({artifact.score}/{artifact.max})
       </span>
     </span>

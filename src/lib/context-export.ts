@@ -274,7 +274,7 @@ export function buildContextMarkdown(data: ContextExportData): string {
   }
 
   lines.push('---');
-  lines.push('*Exported from LaunchPad*');
+  lines.push('*Exported from SenseFound*');
 
   return lines.join('\n');
 }

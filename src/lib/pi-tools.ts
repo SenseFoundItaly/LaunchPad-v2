@@ -135,7 +135,7 @@ async function ddgSearchFallback(query: string, reason: string): Promise<AgentTo
   try {
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LaunchPad/1.0)' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SenseFound/1.0)' },
       signal: AbortSignal.timeout(15_000),
     });
     const html = await res.text();
@@ -252,7 +252,7 @@ async function rawFetchFallback(target: string, reason: string): Promise<AgentTo
   try {
     const res = await fetch(target, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; LaunchPad/1.0)',
+        'User-Agent': 'Mozilla/5.0 (compatible; SenseFound/1.0)',
         Accept: 'text/html,application/json,text/plain',
       },
       signal: AbortSignal.timeout(15_000),

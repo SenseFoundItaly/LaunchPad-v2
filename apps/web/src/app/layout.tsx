@@ -1,21 +1,23 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import AppHeader from '@/components/layout/AppHeader';
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
+const inter = Inter({
+  variable: '--font-inter',
   subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
 });
 
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
+const jetbrainsMono = JetBrains_Mono({
+  variable: '--font-jetbrains-mono',
   subsets: ['latin'],
+  weight: ['400', '500'],
 });
 
 export const metadata: Metadata = {
-  title: 'LaunchPad - Startup OS',
-  description: 'Shape, evaluate, and launch your startup idea',
+  title: 'SenseFound — Courage Through Clarity',
+  description: 'Validate your startup idea with evidence. Find fatal flaws early — when pivoting is still possible, not painful.',
 };
 
 export default function RootLayout({
@@ -26,9 +28,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={`${inter.variable} ${jetbrainsMono.variable} theme-ink h-full antialiased dark`}
     >
-      <body className="h-full flex flex-col bg-zinc-950 text-zinc-100">
+      <body className="h-full flex flex-col bg-paper text-ink">
         <AppHeader />
         <main className="flex-1 overflow-hidden">{children}</main>
       </body>

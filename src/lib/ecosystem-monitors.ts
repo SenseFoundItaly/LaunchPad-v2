@@ -525,7 +525,7 @@ export async function seedEcosystemMonitorsForProject(projectId: string): Promis
 
     await run(
       `INSERT INTO monitors (id, project_id, type, name, schedule, config, prompt, status, next_run, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?)`,
       id,
       projectId,
       template.type,

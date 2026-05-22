@@ -113,7 +113,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
       };
     });
 
-    const getColor = (type: string) => NODE_COLORS[type] || '#999';
+    const getColor = (type: string) => NODE_COLORS[type] || 'var(--ink-5)';
 
     // Force simulation (MiroFish settings)
     const simulation = d3.forceSimulation<SimNode>(simNodes)
@@ -188,15 +188,15 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
     const link = linkGroup.selectAll<SVGPathElement, SimLink>('path')
       .data(simLinks)
       .enter().append('path')
-      .attr('stroke', '#555')
+      .style('stroke', 'var(--ink-5)')
       .attr('stroke-width', 1.5)
       .attr('fill', 'none')
       .attr('opacity', 0.6)
       .style('cursor', 'pointer')
       .on('click', (event, d) => {
         event.stopPropagation();
-        link.attr('stroke', '#555').attr('stroke-width', 1.5);
-        d3.select(event.currentTarget as SVGPathElement).attr('stroke', '#3b82f6').attr('stroke-width', 3);
+        link.style('stroke', 'var(--ink-5)').attr('stroke-width', 1.5);
+        d3.select(event.currentTarget as SVGPathElement).style('stroke', 'var(--sky)').attr('stroke-width', 3);
         onEdgeClick?.(d.rawData);
       });
 
@@ -204,7 +204,8 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
     const linkLabelBg = linkGroup.selectAll<SVGRectElement, SimLink>('rect')
       .data(simLinks)
       .enter().append('rect')
-      .attr('fill', 'rgba(24,24,27,0.9)')
+      .style('fill', 'var(--paper)')
+      .style('opacity', '0.9')
       .attr('rx', 3).attr('ry', 3)
       .style('pointer-events', 'none');
 
@@ -214,7 +215,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
       .enter().append('text')
       .text(d => d.relation.replace(/_/g, ' '))
       .attr('font-size', '8px')
-      .attr('fill', '#888')
+      .style('fill', 'var(--ink-4)')
       .attr('text-anchor', 'middle')
       .attr('dominant-baseline', 'middle')
       .style('pointer-events', 'none')
@@ -227,8 +228,8 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
       .data(simNodes)
       .enter().append('circle')
       .attr('r', d => d.node_type === 'your_startup' ? 14 : 10)
-      .attr('fill', d => getColor(d.node_type))
-      .attr('stroke', d => d.node_type === 'your_startup' ? '#3b82f6' : '#27272a')
+      .style('fill', d => getColor(d.node_type))
+      .style('stroke', d => d.node_type === 'your_startup' ? 'var(--sky)' : 'var(--paper-3)')
       .attr('stroke-width', d => d.node_type === 'your_startup' ? 3 : 2)
       .style('cursor', 'pointer')
       .style('filter', d => d.node_type === 'your_startup' ? 'drop-shadow(0 0 8px rgba(255,255,255,0.5))' : 'none')
@@ -254,13 +255,13 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
       .on('click', (event, d) => {
         event.stopPropagation();
         // Reset all
-        node.attr('stroke', (n: SimNode) => n.node_type === 'your_startup' ? '#3b82f6' : '#27272a')
+        node.style('stroke', (n: SimNode) => n.node_type === 'your_startup' ? 'var(--sky)' : 'var(--paper-3)')
           .attr('stroke-width', (n: SimNode) => n.node_type === 'your_startup' ? 3 : 2);
-        link.attr('stroke', '#555').attr('stroke-width', 1.5);
+        link.style('stroke', 'var(--ink-5)').attr('stroke-width', 1.5);
         // Highlight selected + connected edges
-        d3.select(event.currentTarget as SVGCircleElement).attr('stroke', '#ec4899').attr('stroke-width', 4);
+        d3.select(event.currentTarget as SVGCircleElement).style('stroke', 'var(--accent)').attr('stroke-width', 4);
         link.filter((l: SimLink) => (l.source as SimNode).id === d.id || (l.target as SimNode).id === d.id)
-          .attr('stroke', '#ec4899').attr('stroke-width', 2.5);
+          .style('stroke', 'var(--accent)').attr('stroke-width', 2.5);
         onNodeClick?.(d.rawData);
       })
       .on('mouseenter', (event, d) => {
@@ -277,7 +278,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
       .enter().append('text')
       .text(d => d.name.length > 14 ? d.name.substring(0, 14) + '...' : d.name)
       .attr('font-size', '10px')
-      .attr('fill', '#a1a1aa')
+      .style('fill', 'var(--ink-4)')
       .attr('font-weight', '500')
       .attr('dx', 16)
       .attr('dy', 4)
@@ -313,9 +314,9 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
 
     // Click background to deselect
     svg.on('click', () => {
-      node.attr('stroke', (d: SimNode) => d.node_type === 'your_startup' ? '#3b82f6' : '#27272a')
+      node.style('stroke', (d: SimNode) => d.node_type === 'your_startup' ? 'var(--sky)' : 'var(--paper-3)')
         .attr('stroke-width', (d: SimNode) => d.node_type === 'your_startup' ? 3 : 2);
-      link.attr('stroke', '#555').attr('stroke-width', 1.5);
+      link.style('stroke', 'var(--ink-5)').attr('stroke-width', 1.5);
       onNodeClick?.(null as unknown as GraphNode);
     });
 
@@ -324,12 +325,12 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
 
   return (
     <div ref={containerRef} className="w-full h-full relative" style={{
-      backgroundColor: '#0a0a0b',
-      backgroundImage: 'radial-gradient(#27272a 1px, transparent 1px)',
+      backgroundColor: 'var(--paper)',
+      backgroundImage: 'radial-gradient(var(--paper-3) 1px, transparent 1px)',
       backgroundSize: '20px 20px',
     }}>
       {nodes.length === 0 ? (
-        <div className="absolute inset-0 flex items-center justify-center text-zinc-500 text-sm">
+        <div className="absolute inset-0 flex items-center justify-center text-ink-5 text-sm">
           Knowledge graph will populate as you chat
         </div>
       ) : (

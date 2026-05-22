@@ -18,4 +18,11 @@ data/
 
 # Supabase CLI artifacts
 supabase/.temp/
+supabase/supabase/
 deno.lock
+
+# Next.js auto-generated type declarations
+next-env.d.ts
+
+# TypeScript build cache
+tsconfig.tsbuildinfo

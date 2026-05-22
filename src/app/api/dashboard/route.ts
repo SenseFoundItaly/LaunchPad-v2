@@ -27,20 +27,23 @@ export async function GET() {
   const skillMap: Record<string, number> = {};
   for (const s of skillCounts) skillMap[s.project_id] = s.count;
 
-  // Recent alerts across all projects (last 20)
+  // Recent ecosystem signals across all projects (last 20)
   const alerts = await query<{
-    id: string; project_id: string; type: string; severity: string;
-    message: string; created_at: string; source_url: string | null;
+    id: string; project_id: string; alert_type: string; headline: string;
+    body: string; source_url: string | null; relevance_score: number;
+    confidence: number; created_at: string;
   }>(
-    `SELECT a.id, a.project_id, a.type, a.severity, a.message, a.created_at, a.source_url
-     FROM alerts a WHERE a.dismissed = false
-     ORDER BY a.created_at DESC LIMIT 20`
+    `SELECT id, project_id, alert_type, headline, body, source_url,
+            relevance_score, confidence, created_at
+     FROM ecosystem_alerts
+     WHERE reviewed_state != 'dismissed'
+     ORDER BY created_at DESC LIMIT 20`
   );
 
-  // Weekly alert counts per project
+  // Weekly signal counts per project
   const weeklyAlerts = await query<{ project_id: string; count: number }>(
-    `SELECT project_id, COUNT(*) as count FROM alerts
-     WHERE created_at > NOW() - INTERVAL '7 days' AND dismissed = false
+    `SELECT project_id, COUNT(*) as count FROM ecosystem_alerts
+     WHERE created_at > NOW() - INTERVAL '7 days' AND reviewed_state != 'dismissed'
      GROUP BY project_id`
   );
   const weeklyMap: Record<string, number> = {};
@@ -62,9 +65,29 @@ export async function GET() {
   const projectNames: Record<string, string> = {};
   for (const p of projects) projectNames[p.id] = p.name;
 
+  const ALERT_TYPE_LABELS: Record<string, string> = {
+    competitor_activity: 'Competitor',
+    trend_signal: 'Trend',
+    market_shift: 'Market',
+    regulatory_change: 'Regulatory',
+    funding_event: 'Funding',
+    partnership: 'Partnership',
+    product_launch: 'Launch',
+    talent_move: 'Talent',
+  };
+
   const enrichedAlerts = alerts.map(a => ({
-    ...a,
+    id: a.id,
+    project_id: a.project_id,
     project_name: projectNames[a.project_id] || '',
+    alert_type: a.alert_type,
+    alert_type_label: ALERT_TYPE_LABELS[a.alert_type] || a.alert_type.replace(/_/g, ' '),
+    headline: a.headline,
+    body: a.body,
+    severity: a.relevance_score >= 0.8 ? 'high' : a.relevance_score >= 0.5 ? 'medium' : 'low',
+    relevance_score: a.relevance_score,
+    source_url: a.source_url,
+    created_at: a.created_at,
   }));
 
   return json({

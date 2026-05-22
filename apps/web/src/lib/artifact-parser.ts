@@ -1,9 +1,16 @@
 import type { Artifact } from '@/types/artifacts';
 
+export interface CitationSource {
+  type: string;
+  title: string;
+  url?: string;
+}
+
 export type MessageSegment =
   | { type: 'text'; content: string }
   | { type: 'artifact'; artifact: Artifact; raw: string }
-  | { type: 'artifact-pending'; raw: string };
+  | { type: 'artifact-pending'; raw: string }
+  | { type: 'citations'; sources: CitationSource[] };
 
 /**
  * Try to parse a single artifact block from raw text.
@@ -37,11 +44,38 @@ function tryParseArtifact(raw: string): Artifact | null {
   } catch { return null; }
 }
 
+/**
+ * Extract a <CITATIONS> JSON block from the response.
+ * Returns parsed sources or null if absent / malformed.
+ */
+function tryParseCitations(text: string): CitationSource[] | null {
+  const match = text.match(/<CITATIONS>\s*([\s\S]*?)\s*<\/CITATIONS>/);
+  if (!match) return null;
+  let parsed: unknown;
+  try { parsed = JSON.parse(match[1]); } catch { return null; }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  const valid: CitationSource[] = [];
+  for (const s of parsed) {
+    if (s && typeof s === 'object' && typeof s.title === 'string' && s.title.length > 0) {
+      valid.push(s as CitationSource);
+    }
+  }
+  return valid.length > 0 ? valid : null;
+}
+
+function stripCitationsBlock(text: string): string {
+  return text.replace(/<CITATIONS>\s*[\s\S]*?\s*<\/CITATIONS>/, '').trim();
+}
+
 export function parseMessageContent(content: string): MessageSegment[] {
   const segments: MessageSegment[] = [];
 
+  // Extract prose-level citations before splitting on artifacts.
+  const proseCitations = tryParseCitations(content);
+  const cleaned = proseCitations ? stripCitationsBlock(content) : content;
+
   // Split on :::artifact boundaries
-  const parts = content.split(/(:::artifact[\s\S]*?:::)/g);
+  const parts = cleaned.split(/(:::artifact[\s\S]*?:::)/g);
 
   for (const part of parts) {
     if (part.startsWith(':::artifact')) {
@@ -65,25 +99,28 @@ export function parseMessageContent(content: string): MessageSegment[] {
   }
 
   // Handle case where last segment is an unclosed artifact block
-  // The split regex might not catch it — check if content ends with an open block
   if (segments.length === 0 || (segments.length === 1 && segments[0].type === 'text')) {
-    const openIdx = content.lastIndexOf(':::artifact');
+    const openIdx = cleaned.lastIndexOf(':::artifact');
     if (openIdx !== -1) {
-      const after = content.slice(openIdx);
+      const after = cleaned.slice(openIdx);
       const hasClose = after.includes('\n:::') || (after.endsWith(':::') && after.length > 15);
       if (!hasClose) {
-        // Split text before the pending artifact
-        const textBefore = content.slice(0, openIdx).trim();
+        const textBefore = cleaned.slice(0, openIdx).trim();
         const result: MessageSegment[] = [];
         if (textBefore) {result.push({ type: 'text', content: textBefore });}
         result.push({ type: 'artifact-pending', raw: after });
+        if (proseCitations) result.push({ type: 'citations', sources: proseCitations });
         return result;
       }
     }
   }
 
-  if (segments.length === 0 && content.trim()) {
-    segments.push({ type: 'text', content: content.trim() });
+  if (segments.length === 0 && cleaned.trim()) {
+    segments.push({ type: 'text', content: cleaned.trim() });
+  }
+
+  if (proseCitations) {
+    segments.push({ type: 'citations', sources: proseCitations });
   }
 
   return segments;

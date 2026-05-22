@@ -1,7 +1,7 @@
 /**
  * Task-complexity-based model router.
  *
- * Every LLM call in LaunchPad tags itself with a `TaskLabel` describing what
+ * Every LLM call in SenseFound tags itself with a `TaskLabel` describing what
  * kind of work it's doing. The router maps labels to tiers, and tiers to
  * concrete {provider, model} tuples. This gives us three levers:
  *

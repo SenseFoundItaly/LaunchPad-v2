@@ -3,7 +3,7 @@ import { chatJSON } from '@/lib/llm';
 import { listTools } from '@/lib/tools/registry';
 import type { WorkflowStep } from '@/lib/tools/types';
 
-const PLANNER_PROMPT = `You are a workflow planner for LaunchPad, a startup OS.
+const PLANNER_PROMPT = `You are a workflow planner for SenseFound, an evidence-based startup validation tool.
 Given a user request and the list of available tools, decompose the request into a sequence of tool invocations.
 
 Available tools will be provided as JSON. Each tool has a name, description, category, and input_schema.

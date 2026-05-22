@@ -155,26 +155,22 @@ export async function POST(_request: NextRequest, { params }: Params) {
               }
             }
 
-            // 4. Founder-facing alerts row. Severity reflects the outcome:
-            // warning if structured parsing surfaced auto-queued actions,
-            // info for parsed-but-no-action, fallthrough to text heuristic
-            // for non-ecosystem monitors.
-            const alertId = generateId('alrt');
+            // 4. Founder-facing alerts row — only when the monitor produced
+            // valid structured signals. Skip when parsedAlerts is empty to
+            // avoid inserting raw LLM noise.
             const cleanMessage = fullResponse.replace(/:::artifact[\s\S]*?:::/g, '').trim().slice(0, 500);
-            let severity: 'critical' | 'warning' | 'info';
-            if (pendingActionsCreated > 0) severity = 'warning';
-            else if (ecosystemAlertsInserted > 0) severity = 'info';
-            else severity = deriveSeverity(fullResponse);
+            let alertId: string | null = null;
+            const severity: 'critical' | 'warning' | 'info' = 'info';
+            if (parsedAlerts.length > 0) {
+              alertId = generateId('alrt');
+              const topSourceUrl = ([...parsedAlerts].sort((a, b) => b.relevance_score - a.relevance_score)[0]?.source_url ?? null);
 
-            const topSourceUrl = parsedAlerts.length > 0
-              ? ([...parsedAlerts].sort((a, b) => b.relevance_score - a.relevance_score)[0]?.source_url ?? null)
-              : null;
-
-            await run(
-              `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at, source_url)
-               VALUES (?, ?, ?, ?, ?, false, ?, ?)`,
-              alertId, projectId, monitorType, severity, cleanMessage || 'Monitor completed', now, topSourceUrl,
-            );
+              await run(
+                `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at, source_url)
+                 VALUES (?, ?, ?, ?, ?, false, ?, ?)`,
+                alertId, projectId, monitorType, severity, cleanMessage || 'Monitor completed', now, topSourceUrl,
+              );
+            }
 
             // Memory: record monitor outcome for the project owner's timeline.
             // Non-fatal on failure.

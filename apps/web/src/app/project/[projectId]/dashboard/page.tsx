@@ -139,14 +139,14 @@ export default function DashboardPage({
 
     return (
       <svg width={width} height={height} className="inline-block">
-        <polyline fill="none" stroke="#3b82f6" strokeWidth="1.5" points={points} />
+        <polyline fill="none" style={{ stroke: 'var(--moss)' }} strokeWidth="1.5" points={points} />
       </svg>
     );
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+      <div className="flex items-center justify-center h-full text-ink-5 text-sm">
         Loading dashboard...
       </div>
     );
@@ -157,18 +157,18 @@ export default function DashboardPage({
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-white">Command Center</h3>
+          <h3 className="text-lg font-semibold text-ink">Signal Dashboard</h3>
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowMetricForm(!showMetricForm)}
-              className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-sm font-medium transition-colors"
+              className="px-4 py-2 bg-paper-3 hover:bg-ink-6 text-ink-2 rounded-lg text-sm font-medium transition-colors"
             >
               + Add Metric
             </button>
             <button
               onClick={runAnalysis}
               disabled={isRunning}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+              className="px-4 py-2 bg-moss hover:bg-moss/80 disabled:bg-paper-3 text-on-accent rounded-lg text-sm font-medium transition-colors"
             >
               {isRunning ? `Analyzing... ${task?.progress || 0}%` : 'Run AI Analysis'}
             </button>
@@ -177,14 +177,14 @@ export default function DashboardPage({
 
         {/* Task Progress */}
         {isRunning && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+          <div className="bg-paper-2 border border-line rounded-xl p-6 mb-6">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm text-zinc-300">{task?.message || 'Running analysis...'}</span>
+              <div className="w-4 h-4 border-2 border-sky border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm text-ink-3">{task?.message || 'Running analysis...'}</span>
             </div>
-            <div className="w-full h-2 bg-zinc-800 rounded-full">
+            <div className="w-full h-2 bg-paper-3 rounded-full">
               <div
-                className="h-full bg-blue-500 rounded-full transition-all"
+                className="h-full bg-moss rounded-full transition-all"
                 style={{ width: `${task?.progress || 0}%` }}
               />
             </div>
@@ -192,7 +192,7 @@ export default function DashboardPage({
         )}
 
         {task?.status === 'failed' && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 text-red-400 text-sm">
+          <div className="bg-clay-wash border border-clay/30 rounded-xl p-4 mb-6 text-clay text-sm">
             {task.error}
           </div>
         )}
@@ -207,16 +207,16 @@ export default function DashboardPage({
                   key={alert.alert_id}
                   className={`flex items-center justify-between rounded-xl p-4 text-sm ${
                     alert.severity === 'critical'
-                      ? 'bg-red-500/10 border border-red-500/30 text-red-400'
+                      ? 'bg-clay-wash border border-clay/30 text-clay'
                       : alert.severity === 'warning'
-                        ? 'bg-yellow-500/10 border border-yellow-500/30 text-yellow-400'
-                        : 'bg-blue-500/10 border border-blue-500/30 text-blue-400'
+                        ? 'bg-accent-wash border border-accent/30 text-accent'
+                        : 'bg-sky-wash border border-sky/30 text-sky'
                   }`}
                 >
                   <span>{alert.message}</span>
                   <button
                     onClick={() => dismissAlert(alert.alert_id)}
-                    className="text-zinc-500 hover:text-zinc-300 ml-4"
+                    className="text-ink-5 hover:text-ink-3 ml-4"
                   >
                     Dismiss
                   </button>
@@ -227,25 +227,25 @@ export default function DashboardPage({
 
         {/* Add Metric Form */}
         {showMetricForm && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-            <h4 className="text-sm font-medium text-white mb-4">Add New Metric</h4>
+          <div className="bg-paper-2 border border-line rounded-xl p-6 mb-6">
+            <h4 className="text-sm font-medium text-ink mb-4">Add New Metric</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Name</label>
+                <label className="block text-xs text-ink-4 mb-1">Name</label>
                 <input
                   type="text"
                   value={metricForm.name}
                   onChange={(e) => setMetricForm({ ...metricForm, name: e.target.value })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-paper-3 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss"
                   placeholder="e.g., Monthly Revenue"
                 />
               </div>
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Type</label>
+                <label className="block text-xs text-ink-4 mb-1">Type</label>
                 <select
                   value={metricForm.type}
                   onChange={(e) => setMetricForm({ ...metricForm, type: e.target.value as MetricDefinition['type'] })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-paper-3 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss"
                 >
                   <option value="currency">Currency</option>
                   <option value="count">Count</option>
@@ -254,26 +254,26 @@ export default function DashboardPage({
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-zinc-400 mb-1">Target Growth Rate (%)</label>
+                <label className="block text-xs text-ink-4 mb-1">Target Growth Rate (%)</label>
                 <input
                   type="number"
                   value={metricForm.target_growth_rate}
                   onChange={(e) => setMetricForm({ ...metricForm, target_growth_rate: Number(e.target.value) })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-paper-3 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss"
                 />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button
                 onClick={() => setShowMetricForm(false)}
-                className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+                className="px-4 py-2 text-sm text-ink-4 hover:text-ink-2 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={addMetric}
                 disabled={!metricForm.name}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss/80 disabled:bg-paper-3 text-on-accent rounded-lg text-sm font-medium transition-colors"
               >
                 Add Metric
               </button>
@@ -290,15 +290,15 @@ export default function DashboardPage({
               return (
                 <div
                   key={metric.metric_id}
-                  className="bg-zinc-900 border border-zinc-800 rounded-xl p-4"
+                  className="bg-paper-2 border border-line rounded-xl p-4"
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-zinc-400 uppercase tracking-wider">{metric.name}</span>
-                    <span className="text-xs text-zinc-600">{metric.type}</span>
+                    <span className="text-xs text-ink-4 uppercase tracking-wider">{metric.name}</span>
+                    <span className="text-xs text-ink-6">{metric.type}</span>
                   </div>
                   <div className="flex items-end justify-between">
                     <div>
-                      <div className="text-2xl font-bold text-white">
+                      <div className="text-2xl font-bold text-ink">
                         {latest !== null
                           ? metric.type === 'currency'
                             ? `$${latest.toLocaleString()}`
@@ -310,7 +310,7 @@ export default function DashboardPage({
                       {growth !== null && (
                         <span
                           className={`text-xs font-medium ${
-                            growth >= 0 ? 'text-green-400' : 'text-red-400'
+                            growth >= 0 ? 'text-moss' : 'text-clay'
                           }`}
                         >
                           {growth >= 0 ? '+' : ''}
@@ -320,7 +320,7 @@ export default function DashboardPage({
                     </div>
                     {renderSparkline(metric.entries || [])}
                   </div>
-                  <div className="mt-2 text-xs text-zinc-500">
+                  <div className="mt-2 text-xs text-ink-5">
                     Target: {metric.target_growth_rate}% growth
                   </div>
                 </div>
@@ -330,9 +330,9 @@ export default function DashboardPage({
         )}
 
         {/* Burn Rate / Runway */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+        <div className="bg-paper-2 border border-line rounded-xl p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h4 className="text-sm font-medium text-white">Burn Rate & Runway</h4>
+            <h4 className="text-sm font-medium text-ink">Burn Rate & Runway</h4>
             <button
               onClick={() => {
                 if (burnRate) {
@@ -340,7 +340,7 @@ export default function DashboardPage({
                 }
                 setShowBurnForm(!showBurnForm);
               }}
-              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              className="text-xs text-sky hover:text-sky transition-colors"
             >
               {showBurnForm ? 'Cancel' : 'Edit'}
             </button>
@@ -350,28 +350,28 @@ export default function DashboardPage({
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs text-zinc-400 mb-1">Monthly Burn ($)</label>
+                  <label className="block text-xs text-ink-4 mb-1">Monthly Burn ($)</label>
                   <input
                     type="number"
                     value={burnForm.monthly_burn}
                     onChange={(e) => setBurnForm({ ...burnForm, monthly_burn: Number(e.target.value) })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-paper-3 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-zinc-400 mb-1">Cash on Hand ($)</label>
+                  <label className="block text-xs text-ink-4 mb-1">Cash on Hand ($)</label>
                   <input
                     type="number"
                     value={burnForm.cash_on_hand}
                     onChange={(e) => setBurnForm({ ...burnForm, cash_on_hand: Number(e.target.value) })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-paper-3 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-moss"
                   />
                 </div>
               </div>
               <div className="flex justify-end">
                 <button
                   onClick={saveBurnRate}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+                  className="px-4 py-2 bg-moss hover:bg-moss/80 text-on-accent rounded-lg text-sm font-medium transition-colors"
                 >
                   Save
                 </button>
@@ -380,26 +380,26 @@ export default function DashboardPage({
           ) : burnRate ? (
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <div className="text-xs text-zinc-400 mb-1">Monthly Burn</div>
-                <div className="text-lg font-semibold text-white">
+                <div className="text-xs text-ink-4 mb-1">Monthly Burn</div>
+                <div className="text-lg font-semibold text-ink">
                   ${burnRate.monthly_burn.toLocaleString()}
                 </div>
               </div>
               <div>
-                <div className="text-xs text-zinc-400 mb-1">Cash on Hand</div>
-                <div className="text-lg font-semibold text-white">
+                <div className="text-xs text-ink-4 mb-1">Cash on Hand</div>
+                <div className="text-lg font-semibold text-ink">
                   ${burnRate.cash_on_hand.toLocaleString()}
                 </div>
               </div>
               <div>
-                <div className="text-xs text-zinc-400 mb-1">Runway</div>
+                <div className="text-xs text-ink-4 mb-1">Runway</div>
                 <div
                   className={`text-lg font-semibold ${
                     runway !== null && runway < 6
-                      ? 'text-red-400'
+                      ? 'text-clay'
                       : runway !== null && runway < 12
-                        ? 'text-yellow-400'
-                        : 'text-green-400'
+                        ? 'text-accent'
+                        : 'text-moss'
                   }`}
                 >
                   {runway !== null ? `${runway} months` : '--'}
@@ -407,7 +407,7 @@ export default function DashboardPage({
               </div>
             </div>
           ) : (
-            <div className="text-sm text-zinc-500">
+            <div className="text-sm text-ink-5">
               No burn rate data yet. Click Edit to add your financials.
             </div>
           )}
@@ -415,49 +415,49 @@ export default function DashboardPage({
 
         {/* AI Analysis */}
         {analysis && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-            <h4 className="text-sm font-medium text-white mb-4">AI Health Analysis</h4>
+          <div className="bg-paper-2 border border-line rounded-xl p-6 mb-6">
+            <h4 className="text-sm font-medium text-ink mb-4">AI Health Analysis</h4>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               <div className="text-center">
                 <div
                   className={`text-3xl font-bold ${
                     analysis.health_score >= 70
-                      ? 'text-green-400'
+                      ? 'text-moss'
                       : analysis.health_score >= 40
-                        ? 'text-yellow-400'
-                        : 'text-red-400'
+                        ? 'text-accent'
+                        : 'text-clay'
                   }`}
                 >
                   {analysis.health_score}
                 </div>
-                <div className="text-xs text-zinc-400 mt-1">Health Score</div>
+                <div className="text-xs text-ink-4 mt-1">Health Score</div>
               </div>
               <div className="text-center">
-                <div className="text-sm font-medium text-white">{analysis.trajectory}</div>
-                <div className="text-xs text-zinc-400 mt-1">Trajectory</div>
+                <div className="text-sm font-medium text-ink">{analysis.trajectory}</div>
+                <div className="text-xs text-ink-4 mt-1">Trajectory</div>
               </div>
               <div className="text-center">
-                <div className="text-sm font-medium text-red-400">{analysis.top_concern}</div>
-                <div className="text-xs text-zinc-400 mt-1">Top Concern</div>
+                <div className="text-sm font-medium text-clay">{analysis.top_concern}</div>
+                <div className="text-xs text-ink-4 mt-1">Top Concern</div>
               </div>
               <div className="text-center">
-                <div className="text-sm font-medium text-green-400">{analysis.top_opportunity}</div>
-                <div className="text-xs text-zinc-400 mt-1">Top Opportunity</div>
+                <div className="text-sm font-medium text-moss">{analysis.top_opportunity}</div>
+                <div className="text-xs text-ink-4 mt-1">Top Opportunity</div>
               </div>
             </div>
-            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-              <h5 className="text-xs font-medium text-blue-400 mb-1">Weekly Advice</h5>
-              <p className="text-sm text-zinc-300">{analysis.weekly_advice}</p>
+            <div className="bg-sky-wash border border-sky/30 rounded-lg p-4">
+              <h5 className="text-xs font-medium text-sky mb-1">Weekly Advice</h5>
+              <p className="text-sm text-ink-3">{analysis.weekly_advice}</p>
             </div>
           </div>
         )}
 
         {/* Empty State */}
         {metrics.length === 0 && !burnRate && !analysis && (
-          <div className="text-center py-20 text-zinc-500">
-            <p>Your command center is empty.</p>
+          <div className="text-center py-20 text-ink-5">
+            <p>No signals tracked yet.</p>
             <p className="text-sm mt-1">
-              Add metrics and burn rate data to track your startup health.
+              Add metrics and burn rate data to monitor your venture&apos;s health with real evidence.
             </p>
           </div>
         )}

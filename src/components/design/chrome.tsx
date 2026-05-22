@@ -71,7 +71,7 @@ export function TopBar({ breadcrumb, right }: TopBarProps) {
               <path d="M2 2l6 6M2 8l6-6" />
             </svg>
           </div>
-          <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: -0.1 }}>LaunchPad</span>
+          <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: -0.1 }}>SenseFound</span>
           <span style={{ fontSize: 11, color: 'var(--ink-5)', fontFamily: 'var(--f-mono)' }}>
             / sensefound
           </span>

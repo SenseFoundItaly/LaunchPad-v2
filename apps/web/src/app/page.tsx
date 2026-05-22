@@ -47,16 +47,16 @@ export default function Dashboard() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'workflow_complete': return 'bg-green-500/20 text-green-400';
-      case 'simulated': return 'bg-purple-500/20 text-purple-400';
-      case 'researched': return 'bg-cyan-500/20 text-cyan-400';
-      case 'scored': return 'bg-yellow-500/20 text-yellow-400';
-      case 'idea_shaped': return 'bg-blue-500/20 text-blue-400';
-      default: return 'bg-zinc-500/20 text-zinc-400';
+      case 'workflow_complete': return 'bg-moss-wash text-moss';
+      case 'simulated': return 'bg-plum-wash text-plum';
+      case 'researched': return 'bg-cat-teal-wash text-cat-teal';
+      case 'scored': return 'bg-accent-wash text-accent';
+      case 'idea_shaped': return 'bg-sky-wash text-sky';
+      default: return 'bg-ink-5/20 text-ink-4';
     }
   };
 
-  const stepLabels = ['', 'Idea', 'Scoring', 'Research', 'Simulation', 'Workflow'];
+  const stepLabels = ['', 'Idea', 'Score', 'Evidence', 'Stress Test', 'Action Plan'];
   const stepPaths = ['', 'idea', 'scoring', 'research', 'simulation', 'workflow'];
 
   return (
@@ -64,26 +64,26 @@ export default function Dashboard() {
       <div className="max-w-5xl mx-auto px-6 py-10">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-white">LaunchPad</h1>
-            <p className="text-zinc-400 text-sm mt-1">Shape, evaluate, and launch your startup idea</p>
+            <h1 className="text-2xl font-bold text-ink">SenseFound</h1>
+            <p className="text-ink-4 text-sm mt-1">Courage Through Clarity — validate before you build</p>
           </div>
           <button
             onClick={() => setShowNew(true)}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+            className="px-4 py-2 bg-moss hover:bg-moss/80 text-on-accent rounded-lg text-sm font-medium transition-colors"
           >
-            + New Project
+            + New Validation
           </button>
         </div>
 
         {showNew && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-            <h2 className="text-lg font-semibold text-white mb-4">New Startup Project</h2>
+          <div className="bg-paper-2 border border-line rounded-xl p-6 mb-6">
+            <h2 className="text-lg font-semibold text-ink mb-4">New Validation Project</h2>
             <input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="Project name (e.g., AI-powered meal planner)"
-              className="w-full bg-zinc-800 text-zinc-200 rounded-lg px-4 py-2.5 text-sm border border-zinc-700 focus:border-blue-500 focus:outline-none mb-3 placeholder:text-zinc-500"
+              placeholder="Idea to validate (e.g., AI-powered meal planner)"
+              className="w-full bg-paper-3 text-ink-2 rounded-lg px-4 py-2.5 text-sm border border-line-2 focus:border-moss focus:outline-none mb-3 placeholder:text-ink-5"
               autoFocus
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
             />
@@ -92,19 +92,19 @@ export default function Dashboard() {
               onChange={(e) => setNewDesc(e.target.value)}
               placeholder="Brief description (optional)"
               rows={2}
-              className="w-full bg-zinc-800 text-zinc-200 rounded-lg px-4 py-2.5 text-sm border border-zinc-700 focus:border-blue-500 focus:outline-none mb-4 placeholder:text-zinc-500 resize-none"
+              className="w-full bg-paper-3 text-ink-2 rounded-lg px-4 py-2.5 text-sm border border-line-2 focus:border-moss focus:outline-none mb-4 placeholder:text-ink-5 resize-none"
             />
             <div className="flex gap-2">
               <button
                 onClick={handleCreate}
                 disabled={!newName.trim()}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-moss hover:bg-moss/80 disabled:bg-paper-3 text-on-accent rounded-lg text-sm font-medium transition-colors"
               >
-                Create & Start
+                Begin Validation
               </button>
               <button
                 onClick={() => { setShowNew(false); setNewName(''); setNewDesc(''); }}
-                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm transition-colors"
+                className="px-4 py-2 bg-paper-3 hover:bg-ink-6 text-ink-3 rounded-lg text-sm transition-colors"
               >
                 Cancel
               </button>
@@ -113,11 +113,11 @@ export default function Dashboard() {
         )}
 
         {loading ? (
-          <div className="text-zinc-500 text-sm">Loading projects...</div>
+          <div className="text-ink-5 text-sm">Loading projects...</div>
         ) : projects.length === 0 && !showNew ? (
           <div className="text-center py-20">
-            <p className="text-zinc-500 text-lg mb-2">No projects yet</p>
-            <p className="text-zinc-600 text-sm">Create one to get started.</p>
+            <p className="text-ink-5 text-lg mb-2">No ideas under validation</p>
+            <p className="text-ink-6 text-sm">Start a project to stress-test your assumptions with evidence.</p>
           </div>
         ) : (
           <div className="grid gap-4">
@@ -125,15 +125,15 @@ export default function Dashboard() {
               <div
                 key={project.project_id}
                 onClick={() => router.push(`/project/${project.project_id}/${stepPaths[project.current_step] || 'idea'}`)}
-                className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 cursor-pointer hover:border-zinc-700 transition-colors group"
+                className="bg-paper-2 border border-line rounded-xl p-5 cursor-pointer hover:border-line-2 transition-colors group"
               >
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="text-white font-medium group-hover:text-blue-400 transition-colors">
+                    <h3 className="text-ink font-medium group-hover:text-sky transition-colors">
                       {project.name}
                     </h3>
                     {project.description && (
-                      <p className="text-zinc-500 text-sm mt-1">{project.description}</p>
+                      <p className="text-ink-5 text-sm mt-1">{project.description}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
@@ -142,7 +142,7 @@ export default function Dashboard() {
                     </span>
                     <button
                       onClick={(e) => handleDelete(e, project.project_id)}
-                      className="text-zinc-600 hover:text-red-400 text-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="text-ink-6 hover:text-clay text-sm opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       Delete
                     </button>
@@ -152,7 +152,7 @@ export default function Dashboard() {
                   {[1, 2, 3, 4, 5].map((step) => (
                     <div
                       key={step}
-                      className={`h-1 flex-1 rounded-full ${step <= project.current_step ? 'bg-blue-500' : 'bg-zinc-800'}`}
+                      className={`h-1 flex-1 rounded-full ${step <= project.current_step ? 'bg-moss' : 'bg-paper-3'}`}
                     />
                   ))}
                 </div>

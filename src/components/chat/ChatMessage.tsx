@@ -28,12 +28,17 @@ function ArtifactPendingShimmer() {
 }
 
 function FormattedText({ content }: { content: string }) {
+  // Strip any <CITATIONS> blocks that survived the parser (e.g. partial
+  // matches during streaming, encoding edge cases). Belt-and-suspenders.
+  const cleaned = content.replace(/<CITATIONS>[\s\S]*?<\/CITATIONS>/g, '').trim();
+  if (!cleaned) return null;
   return (
     <div className="space-y-1.5">
-      {content.split('\n').map((line, i) => {
+      {cleaned.split('\n').map((line, i) => {
         if (!line.trim()) return <div key={i} className="h-2" />;
-        // Hide leaked artifact syntax
+        // Hide leaked artifact / citation syntax
         if (line.includes(':::artifact') || line.includes(':::') && line.trim() === ':::') return null;
+        if (line.trim().startsWith('<CITATIONS>') || line.trim().startsWith('</CITATIONS>')) return null;
         if (line.trim().startsWith('{"type"') || line.trim().startsWith('{"prompt"') || line.trim().startsWith('{"title"')) {
           try { JSON.parse(line.trim()); return null; } catch { /* not JSON, render normally */ }
         }

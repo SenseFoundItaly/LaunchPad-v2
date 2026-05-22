@@ -5,7 +5,7 @@ import { chatStream } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
 
 // Artifact instructions prepended to every message
-const ARTIFACT_INSTRUCTIONS = `[You are LaunchPad, a proactive startup advisor. MANDATORY: Use :::artifact{} blocks.
+const ARTIFACT_INSTRUCTIONS = `[You are SenseFound, an evidence-based validation advisor. Your tone is scientific, protective, and honest — help founders find fatal flaws early. MANDATORY: Use :::artifact{} blocks.
 
 entity-card for entities: :::artifact{"type":"entity-card","id":"ent_ID"}\n{"name":"X","entity_type":"competitor","summary":"...","attributes":{}}\n:::
 option-set for choices: :::artifact{"type":"option-set","id":"opt_ID"}\n{"prompt":"?","options":[{"id":"a","label":"A","description":"..."}]}\n:::

@@ -73,11 +73,11 @@ export default function DraftEditor({ draftId, projectId }: DraftEditorProps) {
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center h-full text-zinc-500 text-sm">Loading draft...</div>;
+    return <div className="flex items-center justify-center h-full text-ink-5 text-sm">Loading draft...</div>;
   }
 
   if (!draft) {
-    return <div className="flex items-center justify-center h-full text-zinc-500 text-sm">Draft not found</div>;
+    return <div className="flex items-center justify-center h-full text-ink-5 text-sm">Draft not found</div>;
   }
 
   const currentVersion = draft.versions.find((v) => v.version_number === selectedVersion);
@@ -86,14 +86,14 @@ export default function DraftEditor({ draftId, projectId }: DraftEditorProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-line">
         <div>
-          <h3 className="text-sm font-semibold text-white">{draft.name}</h3>
+          <h3 className="text-sm font-semibold text-ink">{draft.name}</h3>
           <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-[11px] text-zinc-500">{draft.draft_type}</span>
-            <span className="text-[11px] text-zinc-600">v{draft.current_version}</span>
+            <span className="text-[11px] text-ink-5">{draft.draft_type}</span>
+            <span className="text-[11px] text-ink-6">v{draft.current_version}</span>
             {draft.published_url && (
-              <a href={draft.published_url} target="_blank" rel="noopener" className="text-[11px] text-blue-400 hover:underline">
+              <a href={draft.published_url} target="_blank" rel="noopener" className="text-[11px] text-sky hover:underline">
                 Published
               </a>
             )}
@@ -102,7 +102,7 @@ export default function DraftEditor({ draftId, projectId }: DraftEditorProps) {
         <div className="flex gap-2">
           <button
             onClick={() => setShowPublish(true)}
-            className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded-md text-xs font-medium transition-colors"
+            className="px-3 py-1.5 bg-moss hover:bg-moss/80 text-on-accent rounded-md text-xs font-medium transition-colors"
           >
             Publish
           </button>
@@ -110,15 +110,15 @@ export default function DraftEditor({ draftId, projectId }: DraftEditorProps) {
       </div>
 
       {/* Version timeline */}
-      <div className="flex gap-1 px-4 py-2 border-b border-zinc-800 overflow-x-auto">
+      <div className="flex gap-1 px-4 py-2 border-b border-line overflow-x-auto">
         {draft.versions.map((v) => (
           <button
             key={v.id}
             onClick={() => setSelectedVersion(v.version_number)}
             className={`shrink-0 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
               selectedVersion === v.version_number
-                ? 'bg-blue-600 text-white'
-                : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                ? 'bg-moss text-on-accent'
+                : 'bg-paper-3 text-ink-4 hover:text-ink-2'
             }`}
           >
             v{v.version_number}
@@ -131,14 +131,14 @@ export default function DraftEditor({ draftId, projectId }: DraftEditorProps) {
         {previewHtml ? (
           <DraftPreview html={previewHtml} />
         ) : (
-          <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+          <div className="flex items-center justify-center h-full text-ink-5 text-sm">
             No preview available for this version
           </div>
         )}
       </div>
 
       {/* Iterate bar */}
-      <div className="border-t border-zinc-800 px-4 py-3">
+      <div className="border-t border-line px-4 py-3">
         <div className="flex gap-2">
           <input
             type="text"
@@ -146,18 +146,18 @@ export default function DraftEditor({ draftId, projectId }: DraftEditorProps) {
             onChange={(e) => setFeedback(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) handleIterate(); }}
             placeholder="Describe changes... (e.g., 'make the hero section more compelling')"
-            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+            className="flex-1 bg-paper-3 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink-2 placeholder-ink-5 focus:outline-none focus:border-moss"
           />
           <button
             onClick={handleIterate}
             disabled={iterating || !feedback.trim()}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+            className="px-4 py-2 bg-moss hover:bg-moss/80 disabled:bg-paper-3 text-on-accent rounded-lg text-sm font-medium transition-colors"
           >
             {iterating ? 'Iterating...' : 'Iterate'}
           </button>
         </div>
         {currentVersion?.changelog && (
-          <p className="text-[11px] text-zinc-500 mt-1.5">
+          <p className="text-[11px] text-ink-5 mt-1.5">
             Last change: {currentVersion.changelog}
           </p>
         )}

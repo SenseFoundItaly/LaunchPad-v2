@@ -10,19 +10,19 @@ interface WorkflowCardInlineProps {
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
-  hiring: 'bg-amber-500/20 text-amber-400',
-  marketing: 'bg-blue-500/20 text-blue-400',
-  fundraising: 'bg-green-500/20 text-green-400',
-  product: 'bg-violet-500/20 text-violet-400',
-  legal: 'bg-rose-500/20 text-rose-400',
-  operations: 'bg-cyan-500/20 text-cyan-400',
-  sales: 'bg-orange-500/20 text-orange-400',
+  hiring: 'bg-accent-wash text-accent',
+  marketing: 'bg-sky-wash text-sky',
+  fundraising: 'bg-moss-wash text-moss',
+  product: 'bg-plum-wash text-plum',
+  legal: 'bg-cat-rose-wash text-cat-rose',
+  operations: 'bg-cat-teal-wash text-cat-teal',
+  sales: 'bg-cat-gold-wash text-cat-gold',
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
-  high: 'text-red-400',
-  medium: 'text-yellow-400',
-  low: 'text-zinc-400',
+  high: 'text-clay',
+  medium: 'text-accent',
+  low: 'text-ink-4',
 };
 
 export default function WorkflowCardInline({
@@ -40,30 +40,30 @@ export default function WorkflowCardInline({
   }, [artifact, onWorkflowDiscovered]);
 
   return (
-    <div className="my-3 bg-zinc-800/50 border border-zinc-700 rounded-lg p-4">
+    <div className="my-3 bg-paper-3/50 border border-line-2 rounded-lg p-4">
       <div className="flex items-center gap-2 mb-2">
         <span className="text-sm">&#9881;</span>
-        <h4 className="text-sm font-semibold text-zinc-100 flex-1">{artifact.title}</h4>
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[artifact.category] || 'bg-zinc-500/20 text-zinc-400'}`}>
+        <h4 className="text-sm font-semibold text-ink flex-1">{artifact.title}</h4>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[artifact.category] || 'bg-ink-5/20 text-ink-4'}`}>
           {artifact.category}
         </span>
-        <span className={`text-xs font-medium ${PRIORITY_COLORS[artifact.priority] || 'text-zinc-400'}`}>
+        <span className={`text-xs font-medium ${PRIORITY_COLORS[artifact.priority] || 'text-ink-4'}`}>
           {artifact.priority}
         </span>
       </div>
-      <p className="text-sm text-zinc-300 mb-3">{artifact.description}</p>
+      <p className="text-sm text-ink-3 mb-3">{artifact.description}</p>
       {artifact.steps && artifact.steps.length > 0 && (
         <div className="space-y-1 mb-3">
           {artifact.steps.map((step, i) => (
-            <div key={i} className="flex items-center gap-2 text-xs text-zinc-400">
-              <span className="w-4 h-4 rounded border border-zinc-600 flex items-center justify-center text-[10px] shrink-0">{i + 1}</span>
+            <div key={i} className="flex items-center gap-2 text-xs text-ink-4">
+              <span className="w-4 h-4 rounded border border-line-2 flex items-center justify-center text-[10px] shrink-0">{i + 1}</span>
               {step}
             </div>
           ))}
         </div>
       )}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-xs text-green-400/80">
+        <div className="flex items-center gap-1.5 text-xs text-moss/80">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="flex-shrink-0">
             <path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -71,7 +71,7 @@ export default function WorkflowCardInline({
         </div>
         <button
           onClick={() => onAction('trigger-workflow', { title: artifact.title, steps: artifact.steps })}
-          className="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors"
+          className="text-xs px-3 py-1 bg-moss hover:bg-moss/80 text-on-accent rounded-md transition-colors"
         >
           Execute
         </button>

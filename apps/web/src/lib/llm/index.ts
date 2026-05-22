@@ -1,8 +1,18 @@
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let _openai: OpenAI | null = null;
+let _anthropic: Anthropic | null = null;
+
+function getOpenAI() {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _openai;
+}
+
+function getAnthropic() {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _anthropic;
+}
 
 type Message = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -18,7 +28,7 @@ export async function chat(
       .map((m) => m.content)
       .join('\n');
     const msgs = messages.filter((m) => m.role !== 'system');
-    const response = await anthropic.messages.create({
+    const response = await getAnthropic().messages.create({
       model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
       system,
       messages: msgs as Anthropic.MessageParam[],
@@ -28,7 +38,7 @@ export async function chat(
     return response.content[0].type === 'text' ? response.content[0].text : '';
   }
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: process.env.OPENAI_MODEL || 'gpt-4o',
     messages,
     temperature,
@@ -61,7 +71,7 @@ export async function* chatStream(
       .map((m) => m.content)
       .join('\n');
     const msgs = messages.filter((m) => m.role !== 'system');
-    const stream = anthropic.messages.stream({
+    const stream = getAnthropic().messages.stream({
       model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
       system,
       messages: msgs as Anthropic.MessageParam[],
@@ -76,7 +86,7 @@ export async function* chatStream(
     return;
   }
 
-  const stream = await openai.chat.completions.create({
+  const stream = await getOpenAI().chat.completions.create({
     model: process.env.OPENAI_MODEL || 'gpt-4o',
     messages,
     temperature,

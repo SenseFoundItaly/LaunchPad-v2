@@ -383,31 +383,22 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
       }
     }
 
-    // Always produce a founder-facing `alerts` row for dashboard surfacing.
-    // For ecosystem monitors, the severity is derived from whether any
-    // high-relevance findings were surfaced. For generic monitors, fall back
-    // to text-based severity heuristic.
-    const alertId = generateId('alrt');
+    // Only produce a founder-facing `alerts` row when the monitor actually
+    // found structured signals. When parsedAlerts is empty the LLM produced
+    // no valid artifact blocks — inserting that raw prose is noise.
     const cleanMessage = result.replace(/:::artifact[\s\S]*?:::/g, '').trim().slice(0, 500);
-    let severity: 'critical' | 'warning' | 'info';
-    if (persistResult && persistResult.pending_actions_created > 0) {
-      severity = 'warning';
-    } else if (persistResult && persistResult.alerts_inserted > 0) {
-      severity = 'info';
-    } else {
-      severity = deriveSeverity(result);
+    const severity: 'critical' | 'warning' | 'info' = 'info';
+
+    if (parsedAlerts.length > 0) {
+      const alertId = generateId('alrt');
+      const topSourceUrl = ([...parsedAlerts].sort((a, b) => b.relevance_score - a.relevance_score)[0]?.source_url ?? null);
+
+      await run(
+        `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at, source_url)
+         VALUES (?, ?, ?, ?, ?, false, ?, ?)`,
+        alertId, monitor.project_id, monitor.type, severity, cleanMessage || 'Monitor completed', runAt, topSourceUrl,
+      );
     }
-
-    // Pick the top source_url from parsed ecosystem alerts (if any).
-    const topSourceUrl = parsedAlerts.length > 0
-      ? ([...parsedAlerts].sort((a, b) => b.relevance_score - a.relevance_score)[0]?.source_url ?? null)
-      : null;
-
-    await run(
-      `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, created_at, source_url)
-       VALUES (?, ?, ?, ?, ?, false, ?, ?)`,
-      alertId, monitor.project_id, monitor.type, severity, cleanMessage || 'Monitor completed', runAt, topSourceUrl,
-    );
 
     // Memory: surface this monitor outcome to the per-user timeline so
     // buildMemoryContext() + the HEARTBEAT reflection include it automatically.

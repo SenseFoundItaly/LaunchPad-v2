@@ -11,22 +11,17 @@
  *   - Next up: milestones table
  *   - Budget: llm_usage_logs grouped by step, with per-row spend bars
  *
- * The floating ProjectChatDrawer stays mounted at the bottom-right so the
- * founder can "Ask your co-founder" from this screen.
- *
  * Visual design uses CSS custom properties from src/styles/design-tokens.css
  * (theme-ink applied globally in root layout). Tailwind is not used here —
  * this is a full-bleed design-system page.
  */
 
-import { use, useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { use, useEffect, useState, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import Link from 'next/link';
 import api from '@/api';
 import { updateProject } from '@/api/projects';
 import { useProject } from '@/hooks/useProject';
-import ProjectChatDrawer from '@/components/chat/ProjectChatDrawer';
-import type { ChatDrawerHandle } from '@/components/chat/ProjectChatDrawer';
 import PendingKnowledgeList from '@/components/knowledge/PendingKnowledgeList';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
@@ -189,8 +184,6 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
   const [readinessError, setReadinessError] = useState(false);
   const [loading, setLoading] = useState(true);
   const { count: inboxBadge } = useOpenActionCount(projectId);
-  const chatDrawerRef = useRef<ChatDrawerHandle>(null);
-
   // Inline-editable subtitle state
   const [editingSubtitle, setEditingSubtitle] = useState(false);
   const [editStatus, setEditStatus] = useState('');
@@ -200,9 +193,8 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
   const [editingName, setEditingName] = useState(false);
   const [editName, setEditName] = useState('');
 
-  const handleTicketClick = useCallback((ticket: PendingDecisionPreview) => {
-    const message = `Review and resolve ticket ${ticket.id}.\n\nTicket title: """${ticket.title}"""`;
-    chatDrawerRef.current?.openAndSend(message);
+  const handleTicketClick = useCallback((_ticket: PendingDecisionPreview) => {
+    // Previously opened the co-founder chat drawer; now a no-op.
   }, []);
 
   const startEditingSubtitle = useCallback(() => {
@@ -348,7 +340,6 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
     : (hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening');
 
   const overnightAgentCount = payload?.monitors.filter(m => m.status === 'active').length ?? 0;
-  const overnightToolCalls = Math.min(99, payload?.monitors.length ?? 0);
 
   const statusBarBudget = payload?.budget
     ? `budget · $${payload.budget.current_llm_usd.toFixed(2)} / $${payload.budget.cap_llm_usd.toFixed(2)} mo`
@@ -502,27 +493,13 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
                   )}
                 </h1>
                 <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10, maxWidth: 620 }}>
-                  {buildMastheadNarrative(payload, overnightToolCalls, locale)}
+                  {buildMastheadNarrative(payload, locale)}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <Link href={`/project/${projectId}/brief`} style={btnGhost}>
                   <Icon d={I.history} size={13} />
                   {locale === 'it' ? 'Monday Brief' : 'Weekly brief'}
-                </Link>
-                <Link href={`/project/${projectId}/chat`} style={btnPrimary}>
-                  <Icon d={I.sparkles} size={13} />
-                  {locale === 'it' ? 'Chiedi al co-pilot' : 'Ask co-pilot'}
-                  <span
-                    className="lp-kbd"
-                    style={{
-                      background: 'var(--line)',
-                      borderColor: 'var(--line-2)',
-                      color: 'var(--paper)',
-                    }}
-                  >
-                    ⌘K
-                  </span>
                 </Link>
               </div>
             </div>
@@ -604,7 +581,7 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
                 }
               >
                 {graphNodes.length > 0 && <MiniGraph nodes={graphNodes} />}
-                <PendingKnowledgeList projectId={projectId} />
+                <PendingKnowledgeList projectId={projectId} locale={locale} />
               </Panel>
             </div>
 
@@ -659,10 +636,6 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
         onClose={() => setCronPanelOpen(false)}
       />
 
-      {/* Floating "Ask your co-founder" drawer — wired to the same chat agent
-          with full project-scoped tools (list_ecosystem_alerts,
-          list_pending_actions, queue_draft_for_review, ...) */}
-      <ProjectChatDrawer ref={chatDrawerRef} projectId={projectId} />
     </div>
   );
 }
@@ -673,7 +646,6 @@ export default function DashboardPage({ params }: { params: Promise<{ projectId:
 
 function buildMastheadNarrative(
   payload: DashboardPayload | null,
-  toolCalls: number,
   locale: 'en' | 'it',
 ): React.ReactNode {
   if (!payload) {
@@ -685,13 +657,18 @@ function buildMastheadNarrative(
   const pendingCount = (payload.pending_summary?.pending ?? 0) + (payload.pending_summary?.edited ?? 0);
   const agentCount = payload.monitors.filter(m => m.status === 'active').length;
 
+  // Count monitors that have actually run (last_run is set)
+  const ranCount = payload.monitors.filter(m => m.status === 'active' && m.last_run).length;
+
   if (locale === 'it') {
     const parts: React.ReactNode[] = [];
-    if (agentCount > 0) {
-      parts.push(<span key="a"><b style={{ color: 'var(--ink)' }}>{agentCount} monitor</b> attivi hanno fatto <b style={{ color: 'var(--ink)' }}>{toolCalls} chiamate tool</b> di notte. </span>);
+    if (ranCount > 0) {
+      parts.push(<span key="a"><b style={{ color: 'var(--ink)' }}>{ranCount} monitor</b> {ranCount === 1 ? 'attivo ha' : 'attivi hanno'} completato {ranCount === 1 ? 'uno scan' : 'i loro scan'}. </span>);
+    } else if (agentCount > 0) {
+      parts.push(<span key="a"><b style={{ color: 'var(--ink)' }}>{agentCount} monitor</b> {agentCount === 1 ? 'configurato' : 'configurati'} — in attesa del primo ciclo cron. </span>);
     }
     if (alertCount > 0) {
-      parts.push(<span key="b">Ecosystem ha fatto emergere <i style={{ color: 'var(--accent-ink)', fontStyle: 'normal' }}>{alertCount} segnali</i>. </span>);
+      parts.push(<span key="b">Ecosystem ha fatto emergere <i style={{ color: 'var(--accent-ink)', fontStyle: 'normal' }}>{alertCount} {alertCount === 1 ? 'segnale' : 'segnali'}</i>. </span>);
     }
     if (pendingCount > 0) {
       parts.push(<span key="c">Hai <b style={{ color: 'var(--ink)' }}>{pendingCount} decision{pendingCount === 1 ? 'e' : 'i'} in attesa</b>.</span>);
@@ -703,8 +680,10 @@ function buildMastheadNarrative(
   }
 
   const parts: React.ReactNode[] = [];
-  if (agentCount > 0) {
-    parts.push(<span key="a"><b style={{ color: 'var(--ink)' }}>{agentCount} agent{agentCount === 1 ? '' : 's'}</b> made <b style={{ color: 'var(--ink)' }}>{toolCalls} tool calls</b> overnight. </span>);
+  if (ranCount > 0) {
+    parts.push(<span key="a"><b style={{ color: 'var(--ink)' }}>{ranCount} agent{ranCount === 1 ? '' : 's'}</b> completed {ranCount === 1 ? 'a scan' : 'their scans'}. </span>);
+  } else if (agentCount > 0) {
+    parts.push(<span key="a"><b style={{ color: 'var(--ink)' }}>{agentCount} monitor{agentCount === 1 ? '' : 's'}</b> configured — awaiting first cron cycle. </span>);
   }
   if (alertCount > 0) {
     parts.push(<span key="b">Ecosystem surfaced <i style={{ color: 'var(--accent-ink)', fontStyle: 'normal' }}>{alertCount} signal{alertCount === 1 ? '' : 's'}</i>. </span>);
@@ -1842,22 +1821,6 @@ function formatWallClock(iso: string, locale: 'en' | 'it'): string {
 // =============================================================================
 // Local style constants
 // =============================================================================
-
-const btnPrimary: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '7px 12px 7px 11px',
-  borderRadius: 'var(--r-m)',
-  background: 'var(--ink)',
-  color: 'var(--paper)',
-  border: 'none',
-  cursor: 'pointer',
-  fontSize: 12,
-  fontFamily: 'var(--f-sans)',
-  fontWeight: 500,
-  textDecoration: 'none',
-};
 
 const btnGhost: React.CSSProperties = {
   display: 'flex',

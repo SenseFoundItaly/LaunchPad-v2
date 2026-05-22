@@ -30,27 +30,27 @@ export default function PublishDialog({ draftId, draftName, onPublish, onClose }
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-full max-w-md">
-        <h3 className="text-white font-semibold mb-4">Publish Draft</h3>
+      <div className="bg-paper-2 border border-line-2 rounded-xl p-6 w-full max-w-md">
+        <h3 className="text-ink font-semibold mb-4">Publish Draft</h3>
 
-        <label className="block text-sm text-zinc-400 mb-1">URL Slug</label>
+        <label className="block text-sm text-ink-4 mb-1">URL Slug</label>
         <div className="flex items-center gap-1 mb-2">
-          <span className="text-xs text-zinc-500">/published/</span>
+          <span className="text-xs text-ink-5">/published/</span>
           <input
             type="text"
             value={slug}
             onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-            className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
+            className="flex-1 bg-paper-3 border border-line-2 rounded px-3 py-1.5 text-sm text-ink-2 focus:outline-none focus:border-moss"
             placeholder="my-startup-page"
           />
         </div>
 
-        <p className="text-xs text-zinc-500 mb-4">
-          Your page will be available at <span className="text-zinc-300">/published/{slug || '...'}</span>
+        <p className="text-xs text-ink-5 mb-4">
+          Your page will be available at <span className="text-ink-3">/published/{slug || '...'}</span>
         </p>
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2 mb-4 text-red-400 text-xs">
+          <div className="bg-clay-wash border border-clay/30 rounded px-3 py-2 mb-4 text-clay text-xs">
             {error}
           </div>
         )}
@@ -58,14 +58,14 @@ export default function PublishDialog({ draftId, draftName, onPublish, onClose }
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="px-4 py-2 text-sm text-ink-4 hover:text-ink-2 transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handlePublish}
             disabled={!slug || publishing}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+            className="px-4 py-2 bg-moss hover:bg-moss/80 disabled:bg-paper-3 text-on-accent rounded-lg text-sm font-medium transition-colors"
           >
             {publishing ? 'Publishing...' : 'Publish'}
           </button>

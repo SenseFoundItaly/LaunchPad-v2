@@ -69,31 +69,31 @@ export default function DraftsPage({
   return (
     <div className="flex h-full">
       {/* Left panel — draft list */}
-      <div className="w-72 shrink-0 border-r border-zinc-800 flex flex-col h-full">
-        <div className="px-4 py-3 border-b border-zinc-800">
+      <div className="w-72 shrink-0 border-r border-line flex flex-col h-full">
+        <div className="px-4 py-3 border-b border-line">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-white">Drafts</h3>
-            <span className="text-xs text-zinc-500">{drafts.length}</span>
+            <h3 className="text-sm font-semibold text-ink">Drafts</h3>
+            <span className="text-xs text-ink-5">{drafts.length}</span>
           </div>
         </div>
 
         {/* Quick generate buttons */}
-        <div className="px-3 py-2 border-b border-zinc-800 space-y-1">
+        <div className="px-3 py-2 border-b border-line space-y-1">
           <button
             onClick={handleGenerateLandingPage}
-            className="w-full text-left px-2.5 py-1.5 rounded-md text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors"
+            className="w-full text-left px-2.5 py-1.5 rounded-md text-xs text-ink-4 hover:bg-paper-3 hover:text-ink-2 transition-colors"
           >
             + Landing Page
           </button>
           <button
             onClick={handleGeneratePitchDeck}
-            className="w-full text-left px-2.5 py-1.5 rounded-md text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors"
+            className="w-full text-left px-2.5 py-1.5 rounded-md text-xs text-ink-4 hover:bg-paper-3 hover:text-ink-2 transition-colors"
           >
             + Pitch Deck
           </button>
           <button
             onClick={handleGenerateOnePager}
-            className="w-full text-left px-2.5 py-1.5 rounded-md text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors"
+            className="w-full text-left px-2.5 py-1.5 rounded-md text-xs text-ink-4 hover:bg-paper-3 hover:text-ink-2 transition-colors"
           >
             + One-Pager
           </button>
@@ -101,7 +101,7 @@ export default function DraftsPage({
 
         <div className="flex-1 overflow-y-auto p-3">
           {loading ? (
-            <div className="text-center py-8 text-zinc-500 text-sm">Loading...</div>
+            <div className="text-center py-8 text-ink-5 text-sm">Loading...</div>
           ) : (
             <DraftList
               drafts={drafts}
@@ -117,10 +117,10 @@ export default function DraftsPage({
         {selectedDraftId ? (
           <DraftEditor draftId={selectedDraftId} projectId={projectId} />
         ) : (
-          <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+          <div className="flex items-center justify-center h-full text-ink-5 text-sm">
             <div className="text-center">
               <p>Select a draft or generate a new one.</p>
-              <p className="mt-1 text-xs">You can also generate drafts from the chat.</p>
+              <p className="mt-1 text-xs">Drafts are generated from your validated findings — not guesswork.</p>
             </div>
           </div>
         )}

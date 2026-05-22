@@ -141,7 +141,6 @@ export async function GET(
   const computed_metrics = [
     { name: 'Readiness Score', type: 'percentage', value: readinessScore },
     { name: 'Knowledge Nodes', type: 'count', value: knowledgeCount },
-    { name: 'Skills Completed', type: 'count', value: skillsCompleted },
     { name: 'Signals (7d)', type: 'count', value: signals7d },
     { name: 'Actions Sent (7d)', type: 'count', value: actionsSent7d },
   ];
