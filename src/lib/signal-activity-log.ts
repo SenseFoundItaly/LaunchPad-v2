@@ -23,7 +23,8 @@ export type SignalEventType =
   | 'monitor_failed'
   | 'classification_completed'
   | 'brief_generated'
-  | 'signal_auto_created_from_chat';
+  | 'signal_auto_created_from_chat'
+  | 'watcher_accepted';
 
 export type SignalEntityType =
   | 'ecosystem_alert'

@@ -6,5 +6,5 @@ export default async function ProjectPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  redirect(`/project/${projectId}/chat`);
+  redirect(`/project/${projectId}/today`);
 }

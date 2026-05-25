@@ -1,16 +1,17 @@
 /**
  * Design-system chrome — TopBar + NavRail.
  *
- * The NavRail is wired to Next.js Link so nav items are real routes:
- *   home → /project/{id}/dashboard
- *   chat → /project/{id}/chat
- *   signals → /project/{id}/signals
- *   inbox → /project/{id}/actions
+ * Three-item nav (the 100× simplification). Everything else is reachable
+ * by URL but no longer takes nav real estate:
  *
- * Secondary routes live behind a "More" popover pinned above the user chip:
- *   graph → /project/{id}/intelligence
- *   pipe → /project/{id}/workflow
- *   fund → /project/{id}/fundraising
+ *   today   → /project/{id}/today    (briefs preview + inbox + pulse)
+ *   signals → /project/{id}/signals  (briefs + findings + watchers)
+ *   chat    → /project/{id}/chat     (co-pilot)
+ *
+ * Orphan routes still live under /project/{id}/* (workflow, journey,
+ * growth, simulation, readiness, scoring, brief, assets, org, research,
+ * fundraising, knowledge, intelligence, drafts, actions, dashboard) —
+ * accessible via direct URL only, slated for deletion in a follow-up.
  */
 
 'use client';
@@ -122,18 +123,9 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'home',    iconKey: 'home',     label: 'Home',     route: 'dashboard' },
-  { id: 'chat',    iconKey: 'chat',     label: 'Co-pilot', route: 'chat' },
-  { id: 'signals', iconKey: 'signal',   label: 'Signals',  route: 'signals' },
-  { id: 'inbox',   iconKey: 'tickets',  label: 'Inbox',    route: 'actions' },
-  { id: 'drafts',  iconKey: 'envelope', label: 'Drafts',   route: 'drafts' },
-];
-
-const MORE_ITEMS: NavItem[] = [
-  { id: 'knowledge', iconKey: 'book',  label: 'Knowledge',    route: 'knowledge' },
-  { id: 'graph',     iconKey: 'graph', label: 'Intelligence', route: 'intelligence' },
-  { id: 'pipe',      iconKey: 'pipe',  label: 'Pipeline',     route: 'workflow' },
-  { id: 'fund',      iconKey: 'fund',  label: 'Raise',        route: 'fundraising' },
+  { id: 'today',   iconKey: 'home',   label: 'Today',    route: 'today' },
+  { id: 'signals', iconKey: 'signal', label: 'Signals',  route: 'signals' },
+  { id: 'chat',    iconKey: 'chat',   label: 'Co-pilot', route: 'chat' },
 ];
 
 export interface NavRailProps {
@@ -174,13 +166,13 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
           item={it}
           projectId={projectId}
           active={isActive(it)}
-          badge={it.id === 'inbox' ? inboxBadge : undefined}
+          // Inbox lives on Today now — keep the count visible on the
+          // Today rail item so the user still sees a dot when something pends.
+          badge={it.id === 'today' ? inboxBadge : undefined}
           streaming={it.id === 'chat' ? chatStreaming : undefined}
         />
       ))}
       <div style={{ flex: 1 }} />
-      {/* More menu — opens popover with secondary nav items */}
-      <MoreMenu projectId={projectId} isActive={isActive} />
       {/* User chip — links to /settings for BYOK + model preferences */}
       <Link
         href="/settings"
@@ -282,100 +274,3 @@ function NavRailItem({ item, projectId, active, badge, streaming }: { item: NavI
   );
 }
 
-function MoreMenu({ projectId, isActive }: { projectId: string; isActive: (item: NavItem) => boolean }) {
-  const [open, setOpen] = React.useState(false);
-  const ref = React.useRef<HTMLDivElement>(null);
-
-  // Any MORE_ITEMS route active → highlight the More button
-  const moreActive = MORE_ITEMS.some(isActive);
-
-  React.useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
-
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        title="More"
-        style={{
-          width: 42,
-          padding: '8px 0',
-          borderRadius: 'var(--r-m)',
-          cursor: 'pointer',
-          background: open || moreActive ? 'var(--surface)' : 'transparent',
-          boxShadow: open || moreActive ? 'inset 0 0 0 1px var(--line)' : 'none',
-          color: open || moreActive ? 'var(--ink)' : 'var(--ink-4)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: 3,
-          border: 'none',
-          transition: 'background .12s, color .12s',
-          fontFamily: 'inherit',
-        }}
-      >
-        <Icon d={I.more} size={15} stroke={1.3} />
-        <span
-          style={{
-            fontSize: 9,
-            fontFamily: 'var(--f-mono)',
-            letterSpacing: -0.2,
-            textTransform: 'uppercase',
-          }}
-        >
-          More
-        </span>
-      </button>
-      {open && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 50,
-            bottom: 0,
-            width: 180,
-            background: 'var(--surface)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--r-m)',
-            boxShadow: 'var(--shadow-card)',
-            padding: '6px 0',
-            zIndex: 100,
-          }}
-        >
-          {MORE_ITEMS.map((it) => {
-            const on = isActive(it);
-            return (
-              <Link
-                key={it.id}
-                href={`/project/${projectId}/${it.route}`}
-                onClick={() => setOpen(false)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '8px 14px',
-                  textDecoration: 'none',
-                  color: on ? 'var(--ink)' : 'var(--ink-3)',
-                  fontWeight: on ? 600 : 400,
-                  fontSize: 12,
-                  fontFamily: 'var(--f-sans)',
-                  background: on ? 'var(--paper-2)' : 'transparent',
-                  transition: 'background .1s',
-                }}
-              >
-                <Icon d={I[it.iconKey]} size={14} stroke={1.2} />
-                {it.label}
-              </Link>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
