@@ -596,10 +596,10 @@ export default function KnowledgeReviewList({ projectId, locale, compact }: Know
         </div>
       )}
 
-      {/* View Intelligence CTA */}
+      {/* View Intelligence CTA — repointed to /signals (briefs surface) */}
       <div style={{ paddingTop: 4 }}>
         <Link
-          href={`/project/${projectId}/intelligence`}
+          href={`/project/${projectId}/signals`}
           className="text-xs text-accent-ink font-medium"
           style={{ textDecoration: 'none' }}
         >

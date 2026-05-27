@@ -275,17 +275,6 @@ export function IntelligenceSection({ projectId, locale }: { projectId: string; 
                           : 'Stage not started \u2014 begin validation in Readiness.'}
                       </div>
                     )}
-                    <a
-                      href={`/project/${projectId}/readiness#stage-${s.order}`}
-                      style={{
-                        fontSize: 11,
-                        color: 'var(--accent-ink)',
-                        textDecoration: 'none',
-                        fontFamily: 'var(--f-mono)',
-                      }}
-                    >
-                      {locale === 'it' ? 'Apri in Readiness \u2192' : 'Open in Readiness \u2192'}
-                    </a>
                   </div>
                 )}
               </div>

@@ -3,6 +3,9 @@
 import { use, useEffect, useState, useCallback } from 'react';
 import api from '@/api';
 import { BarChart } from '@/components/charts';
+import { TopBar, NavRail } from '@/components/design/chrome';
+import { StatusBar } from '@/components/design/primitives';
+import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import type { ApiResponse } from '@/types';
 
 interface UsageLog {
@@ -46,6 +49,7 @@ export default function UsagePage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
+  const { count: inboxBadge } = useOpenActionCount(projectId);
   const [data, setData] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -68,8 +72,15 @@ export default function UsagePage({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full text-ink-5 text-sm">
-        Loading usage data...
+      <div className="lp-frame">
+        <TopBar breadcrumb={['Project', 'Usage']} />
+        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+          <NavRail projectId={projectId} inboxBadge={inboxBadge} />
+          <div className="flex items-center justify-center flex-1 text-ink-5 text-sm">
+            Loading usage data...
+          </div>
+        </div>
+        <StatusBar heartbeatLabel="usage" gateway="pi-agent · anthropic" />
       </div>
     );
   }
@@ -116,9 +127,13 @@ export default function UsagePage({
   }
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <div className="max-w-5xl mx-auto">
-        <h3 className="text-lg font-semibold text-ink mb-6">LLM Usage</h3>
+    <div className="lp-frame">
+      <TopBar breadcrumb={['Project', 'Usage']} />
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <NavRail projectId={projectId} inboxBadge={inboxBadge} />
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-5xl mx-auto">
+            <h3 className="text-lg font-semibold text-ink mb-6">LLM Usage</h3>
 
         {/* Summary cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -225,8 +240,15 @@ export default function UsagePage({
               </table>
             </div>
           )}
+          </div>
+        </div>
         </div>
       </div>
+      <StatusBar
+        heartbeatLabel="usage · cost meter"
+        gateway="pi-agent · anthropic"
+        ctxLabel={`${data?.logs?.length || 0} log${(data?.logs?.length || 0) === 1 ? '' : 's'}`}
+      />
     </div>
   );
 }

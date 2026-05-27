@@ -1,10 +1,14 @@
 'use client';
 
 import { use } from 'react';
-import { usePathname } from 'next/navigation';
 import { useProject } from '@/hooks/useProject';
-import ProjectSidebar from '@/components/layout/ProjectSidebar';
 
+/**
+ * Project layout — minimal guard. Each project page renders its own
+ * TopBar + NavRail + StatusBar chrome, so the layout's only job is the
+ * project-loading + not-found gate. The legacy ProjectSidebar (and its
+ * 7-stage skill nav) was retired in the v2 simplification.
+ */
 export default function ProjectLayout({
   children,
   params,
@@ -12,18 +16,8 @@ export default function ProjectLayout({
   children: React.ReactNode;
   params: Promise<{ projectId: string }>;
 }) {
-  const { projectId } = use(params);
-  const { project, loading, error } = useProject(projectId);
-  const pathname = usePathname() || '';
-
-  // Routes that render their own full-bleed design-system chrome (TopBar +
-  // NavRail + StatusBar) — skip the legacy ProjectSidebar for these so we
-  // don't double-stack navigation. Extend this list as more pages port to
-  // the new design.
-  const fullBleedRoutes = ['dashboard', 'actions', 'chat', 'intelligence', 'workflow', 'org', 'signals', 'drafts', 'knowledge'];
-  const fullBleed = fullBleedRoutes.some((r) =>
-    pathname.includes(`/project/${projectId}/${r}`),
-  );
+  const { projectId: _projectId } = use(params);
+  const { project, loading, error } = useProject(_projectId);
 
   if (loading) {
     return (
@@ -41,14 +35,5 @@ export default function ProjectLayout({
     );
   }
 
-  if (fullBleed) {
-    return <div className="h-full">{children}</div>;
-  }
-
-  return (
-    <div className="flex h-full">
-      <ProjectSidebar projectId={projectId} projectName={project.name} />
-      <div className="flex-1 overflow-hidden">{children}</div>
-    </div>
-  );
+  return <div className="h-full">{children}</div>;
 }
