@@ -54,22 +54,40 @@ export interface CorrelationResult {
   skipped_reason?: string;
 }
 
+export interface CorrelationOptions {
+  /**
+   * Bypass the weekly cadence + signal-floor gates. Used by on-demand triggers
+   * (e.g. founder clicking "run intelligence now" from the Signals page) so a
+   * first-week project can see a brief without waiting for the 3-signal / 7-day
+   * window to elapse. Cron callers leave this false.
+   */
+  force?: boolean;
+}
+
 /**
- * Process correlations for a single project. Called from cron.
+ * Process correlations for a single project. Called from cron, or on-demand
+ * with `{ force: true }` to bypass the cadence + signal-count floors.
  */
-export async function processCorrelations(projectId: string): Promise<CorrelationResult> {
+export async function processCorrelations(
+  projectId: string,
+  opts: CorrelationOptions = {},
+): Promise<CorrelationResult> {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Skip if a brief was produced in the last 7 days (weekly cadence)
-  const recentBriefs = await query<{ id: string }>(
-    `SELECT id FROM intelligence_briefs
-     WHERE project_id = ? AND created_at >= ? AND brief_type = 'correlation'
-     LIMIT 1`,
-    projectId,
-    sevenDaysAgo,
-  );
-  if (recentBriefs.length > 0) {
-    return { project_id: projectId, briefs_created: 0, briefs_superseded: 0, skipped_reason: 'recent_brief_exists' };
+  // Skip if a brief was produced in the last 7 days (weekly cadence).
+  // Forced runs bypass this — a founder asking "what do you see?" shouldn't
+  // be told to come back next week.
+  if (!opts.force) {
+    const recentBriefs = await query<{ id: string }>(
+      `SELECT id FROM intelligence_briefs
+       WHERE project_id = ? AND created_at >= ? AND brief_type = 'correlation'
+       LIMIT 1`,
+      projectId,
+      sevenDaysAgo,
+    );
+    if (recentBriefs.length > 0) {
+      return { project_id: projectId, briefs_created: 0, briefs_superseded: 0, skipped_reason: 'recent_brief_exists' };
+    }
   }
 
   // Cost tracking (observe mode — no hard block)
@@ -100,8 +118,12 @@ export async function processCorrelations(projectId: string): Promise<Correlatio
     sevenDaysAgo,
   );
 
+  // Floor: the model needs at least 2 signals to call something a correlation.
+  // Was 3; lowered because a first-week project with 2 strong signals can
+  // produce a useful single-entity brief, and the prompt itself enforces
+  // "≥2 signal IDs per brief" so we don't trade quality for volume.
   const totalSignals = alerts.length + sourceChanges.length;
-  if (totalSignals < 3) {
+  if (totalSignals < 2) {
     return { project_id: projectId, briefs_created: 0, briefs_superseded: 0, skipped_reason: 'insufficient_signals' };
   }
 

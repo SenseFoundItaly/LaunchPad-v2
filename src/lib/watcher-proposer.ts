@@ -245,7 +245,12 @@ function extractAndValidate(raw: string, ctx: ProjectContextForProposer): Propos
   }
   if (!Array.isArray(parsed)) return [];
 
-  const existingLower = new Set(ctx.existingWatcherNames.map((n) => n.toLowerCase().trim()));
+  // Normalized name set for cross-proposal + against-existing dedupe.
+  // Punctuation, casing, and connector words ("the", "for", "a") collapse so
+  // "Track Stripe pricing" and "stripe-pricing-watcher" land on the same key.
+  const norm = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\b(the|a|an|for|on|of|watcher|track|monitor)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const seenKeys = new Set<string>(ctx.existingWatcherNames.map(norm));
   const accepted: ProposedWatcher[] = [];
 
   for (const item of parsed) {
@@ -254,11 +259,15 @@ function extractAndValidate(raw: string, ctx: ProjectContextForProposer): Propos
 
     const name = typeof o.name === 'string' ? o.name.trim().slice(0, 80) : '';
     if (!name) continue;
-    if (existingLower.has(name.toLowerCase())) continue;
+    const nameKey = norm(name);
+    if (!nameKey || seenKeys.has(nameKey)) continue;
 
     const topic = isOneOf(o.topic, VALID_TOPICS) ? (o.topic as WatcherTopic) : 'custom';
     const kind = isOneOf(o.kind, VALID_KINDS) ? (o.kind as WatcherKind) : 'scan';
-    const depth = isOneOf(o.depth, VALID_DEPTHS) ? (o.depth as WatcherDepth) : 'deep';
+    // Default to 'pulse' when the model omits depth — cheap URL diff is the
+    // safer default; 'deep' burns LLM budget per run and only pays off when
+    // the watcher specifically needs multi-source synthesis.
+    const depth = isOneOf(o.depth, VALID_DEPTHS) ? (o.depth as WatcherDepth) : 'pulse';
     const cadence = isOneOf(o.cadence, VALID_CADENCES) ? (o.cadence as WatcherCadence) : 'weekly';
 
     const rationale = typeof o.rationale === 'string' ? o.rationale.slice(0, 240) : '';
@@ -280,11 +289,35 @@ function extractAndValidate(raw: string, ctx: ProjectContextForProposer): Propos
     if (kind === 'scan' && (!inputs.keywords || inputs.keywords.length === 0)
                        && (!inputs.competitor_names || inputs.competitor_names.length === 0)) continue;
 
+    // Secondary dedupe: same topic + same primary input host = duplicate angle.
+    // Catches "Stripe pricing page" + "Stripe plans page diff" both proposing
+    // the same canonical domain, which the name-key alone would miss.
+    const primaryInputKey = buildPrimaryInputKey(topic, inputs);
+    if (primaryInputKey && seenKeys.has(primaryInputKey)) continue;
+
     accepted.push({ name, topic, kind, depth, cadence, rationale, inputs });
+    seenKeys.add(nameKey);
+    if (primaryInputKey) seenKeys.add(primaryInputKey);
     if (accepted.length >= 5) break;
   }
 
   return accepted;
+}
+
+function buildPrimaryInputKey(topic: WatcherTopic, inputs: ProposedWatcher['inputs']): string | null {
+  if (inputs.urls?.[0]) {
+    try {
+      const host = new URL(inputs.urls[0]).hostname.replace(/^www\./, '');
+      return `${topic}@${host}`;
+    } catch { /* malformed URL — fall through */ }
+  }
+  if (inputs.competitor_names?.[0]) {
+    return `${topic}@${inputs.competitor_names[0].toLowerCase().trim()}`;
+  }
+  if (inputs.keywords?.[0]) {
+    return `${topic}@${inputs.keywords[0].toLowerCase().trim()}`;
+  }
+  return null;
 }
 
 function isOneOf<T extends string>(v: unknown, allowed: T[]): boolean {
