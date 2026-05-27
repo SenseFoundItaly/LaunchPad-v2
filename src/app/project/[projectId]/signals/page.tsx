@@ -14,10 +14,10 @@ import { use, useEffect, useState, useCallback, useMemo } from 'react';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
-import { BriefCard } from '@/components/signals/v2/BriefCard';
-import { WatcherCard } from '@/components/signals/v2/WatcherCard';
-import { FindingRow } from '@/components/signals/v2/FindingRow';
-import { SuggestionsDrawer } from '@/components/signals/v2/SuggestionsDrawer';
+import { BriefCard } from '@/components/signals/BriefCard';
+import { WatcherCard } from '@/components/signals/WatcherCard';
+import { FindingRow } from '@/components/signals/FindingRow';
+import { SuggestionsDrawer } from '@/components/signals/SuggestionsDrawer';
 import type { Watcher, WatcherTopic } from '@/lib/watchers';
 
 interface TimelineBrief {
@@ -227,18 +227,7 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
                     icon={I.sparkles}
                   >
                     {briefs.map((b) => (
-                      <BriefCard
-                        key={b.id}
-                        title={b.title}
-                        narrative={b.narrative}
-                        temporal_prediction={b.temporal_prediction}
-                        entity_name={b.entity_name}
-                        confidence={b.confidence}
-                        evidence_count={b.evidence_count}
-                        sources_consulted={b.sources_consulted}
-                        recommended_actions={b.recommended_actions}
-                        created_at={b.created_at}
-                      />
+                      <BriefCard key={b.id} brief={b} />
                     ))}
                   </Section>
                 )}

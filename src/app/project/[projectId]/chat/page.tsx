@@ -29,7 +29,7 @@ import { TopBar, NavRail } from '@/components/design/chrome';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { useIntelligenceBriefs, matchBriefs } from '@/hooks/useIntelligenceBriefs';
-import { IntelligenceBriefCard } from '@/components/signals/IntelligenceBriefCard';
+import { BriefCard } from '@/components/signals/BriefCard';
 import { buildContextMarkdown } from '@/lib/context-export';
 import type { ContextExportData } from '@/lib/context-export';
 import { openPrintPreview } from '@/lib/print-utils';
@@ -718,7 +718,7 @@ export default function CopilotChatPage({
                     RELATED INTELLIGENCE
                   </div>
                   {matchedBriefs.map((b) => (
-                    <IntelligenceBriefCard key={b.id} brief={b} />
+                    <BriefCard key={b.id} brief={b} />
                   ))}
                 </div>
               )}

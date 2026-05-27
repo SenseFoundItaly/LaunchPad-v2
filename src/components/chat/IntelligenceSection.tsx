@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Pill } from '@/components/design/primitives';
-import { IntelligenceBriefCard } from '@/components/signals/IntelligenceBriefCard';
+import { BriefCard } from '@/components/signals/BriefCard';
 import type { IntelligenceBrief } from '@/types';
 
 // =============================================================================
@@ -312,7 +312,7 @@ export function IntelligenceSection({ projectId, locale }: { projectId: string; 
           {briefsExpanded && (
             <div style={{ marginTop: 6, background: 'var(--paper)', borderRadius: 'var(--r-m)', overflow: 'hidden', border: '1px solid var(--line)' }}>
               {activeBriefs.map((b) => (
-                <IntelligenceBriefCard key={b.id} brief={b} />
+                <BriefCard key={b.id} brief={b} />
               ))}
             </div>
           )}

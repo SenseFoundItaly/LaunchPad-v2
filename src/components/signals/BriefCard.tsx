@@ -4,45 +4,62 @@ import { Pill, Icon, I } from '@/components/design/primitives';
 import { DepthChip } from './DepthChip';
 import { EvidenceMeter } from './EvidenceMeter';
 
-interface BriefCardProps {
+/**
+ * Input shape — the union of fields the card actually reads. Accepts both:
+ *   - The bare IntelligenceBrief (from /api/projects/.../intelligence-briefs);
+ *     `evidence_count` falls back to `signal_count`, `sources_consulted` to 0.
+ *   - The richer TimelineBrief from /api/projects/.../timeline, which carries
+ *     a pre-computed `sources_consulted` and `evidence_count`.
+ *
+ * One object prop keeps call sites short and immune to field-addition churn.
+ */
+export interface BriefCardInput {
   title: string;
   narrative: string;
   temporal_prediction: string | null;
   entity_name: string | null;
   confidence: number;
-  evidence_count: number;
-  sources_consulted: number;
   recommended_actions: unknown[];
   created_at: string;
+  /** Signals folded into this brief — falls back to `signal_count` if absent. */
+  evidence_count?: number;
+  signal_count?: number;
+  /** Distinct source URLs across cited signals — defaults to 0 when not computed. */
+  sources_consulted?: number;
+}
+
+interface BriefCardProps {
+  brief: BriefCardInput;
 }
 
 /**
- * The top-of-page card. This is what the founder came for: a synthesized
- * narrative grounded in N signals + M sources, with an explicit prediction
- * and a "do this next" recommendation.
- *
- * Old UI showed `narrative` as a row in the feed alongside raw alerts —
- * which hid the very thing that makes briefs valuable. Here briefs are
- * first-class: full prose visible, prediction called out, evidence meter
- * adjacent to confidence.
+ * The top-of-page card. Synthesized narrative grounded in N signals + M sources,
+ * with explicit prediction and "do this next" recommendation. First-class
+ * surface — full prose, prediction called out, evidence meter footer.
  */
-export function BriefCard({
-  title,
-  narrative,
-  temporal_prediction,
-  entity_name,
-  confidence,
-  evidence_count,
-  sources_consulted,
-  recommended_actions,
-  created_at,
-}: BriefCardProps) {
+export function BriefCard({ brief }: BriefCardProps) {
+  const {
+    title,
+    narrative,
+    temporal_prediction,
+    entity_name,
+    confidence,
+    recommended_actions,
+    created_at,
+    signal_count,
+  } = brief;
+  const evidence_count = brief.evidence_count ?? signal_count ?? 0;
+  const sources_consulted = brief.sources_consulted ?? 0;
   const ageHours = (Date.now() - new Date(created_at).getTime()) / 3_600_000;
   const isFresh = ageHours < 24;
   const topAction =
     Array.isArray(recommended_actions) && recommended_actions.length > 0
-      ? (recommended_actions[0] as { title?: string; description?: string })
+      ? (recommended_actions[0] as { title?: string; description?: string; action?: string; rationale?: string })
       : null;
+  // IntelligenceBrief shape uses `action`/`rationale`; TimelineBrief shape uses
+  // `title`/`description`. Normalize so the callout renders for either.
+  const actionTitle = topAction?.title || topAction?.action || null;
+  const actionDescription = topAction?.description || topAction?.rationale || null;
 
   return (
     <article
@@ -119,7 +136,7 @@ export function BriefCard({
       )}
 
       {/* Recommended action */}
-      {topAction?.title && (
+      {actionTitle && (
         <div
           style={{
             display: 'flex',
@@ -138,9 +155,9 @@ export function BriefCard({
             <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 6 }}>
               Do next
             </span>
-            <strong style={{ fontWeight: 600 }}>{topAction.title}</strong>
-            {topAction.description && (
-              <span style={{ color: 'var(--ink-4)' }}> · {topAction.description}</span>
+            <strong style={{ fontWeight: 600 }}>{actionTitle}</strong>
+            {actionDescription && (
+              <span style={{ color: 'var(--ink-4)' }}> · {actionDescription}</span>
             )}
           </span>
         </div>
