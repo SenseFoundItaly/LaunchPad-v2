@@ -108,11 +108,16 @@ export async function GET(
   const searchRaw = url.searchParams.get('q')?.trim().toLowerCase() || '';
 
   // -------------------------------------------------------------------------
-  // Watchers (right-rail + topic grouping)
+  // Watchers (right-rail + topic grouping) + cold-start context check.
+  // The context flag drives the Today page's "tell me about you" card: when
+  // every source the proposer reads from (idea_canvas / research / graph_nodes)
+  // is empty, the proposer can only return [], so Today should ask for context
+  // up front instead of showing an empty Briefs panel.
   // -------------------------------------------------------------------------
-  const [watchers, topicCounts] = await Promise.all([
+  const [watchers, topicCounts, contextCheck] = await Promise.all([
     listWatchers(projectId),
     watcherTopicCounts(projectId),
+    checkContextComplete(projectId),
   ]);
 
   // Maps from origin_id to watcher meta so findings can be tagged.
@@ -262,7 +267,53 @@ export async function GET(
     watchers,
     topic_counts: topicCounts,
     window_days: days,
+    context: contextCheck,
   });
+}
+
+// ---------------------------------------------------------------------------
+// checkContextComplete — mirrors the proposer's hasContext gate so the UI can
+// show the same answer the proposer would compute. Single query, no joins.
+// ---------------------------------------------------------------------------
+
+async function checkContextComplete(projectId: string): Promise<{
+  has_idea: boolean;
+  has_competitors: boolean;
+  has_keywords: boolean;
+  complete: boolean;
+}> {
+  const [ideaRows, researchRows, keywordRows] = await Promise.all([
+    query<{ problem: string | null; solution: string | null }>(
+      'SELECT problem, solution FROM idea_canvas WHERE project_id = ?',
+      projectId,
+    ),
+    query<{ competitors: string | null }>(
+      'SELECT competitors FROM research WHERE project_id = ?',
+      projectId,
+    ),
+    query<{ n: string | number }>(
+      `SELECT COUNT(*) AS n FROM graph_nodes
+        WHERE project_id = ?
+          AND node_type IN ('market_segment', 'technology', 'trend')`,
+      projectId,
+    ),
+  ]);
+  const idea = ideaRows[0];
+  const has_idea = !!(idea?.problem?.trim() || idea?.solution?.trim());
+  let has_competitors = false;
+  if (researchRows[0]?.competitors) {
+    try {
+      const parsed = JSON.parse(researchRows[0].competitors);
+      has_competitors = Array.isArray(parsed) && parsed.length > 0;
+    } catch { /* malformed JSON — treat as absent */ }
+  }
+  const has_keywords = Number(keywordRows[0]?.n ?? 0) > 0;
+  return {
+    has_idea,
+    has_competitors,
+    has_keywords,
+    complete: has_idea || has_competitors || has_keywords,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -59,6 +59,14 @@ interface TimelinePayload {
   watchers: Watcher[];
   topic_counts: Record<string, number>;
   window_days: number;
+  // Cold-start flag — Signals page doesn't render the nudge card itself
+  // (Today owns that), but the field must be in the type to mirror the API.
+  context?: {
+    has_idea: boolean;
+    has_competitors: boolean;
+    has_keywords: boolean;
+    complete: boolean;
+  };
 }
 
 export default function SignalsPage({ params }: { params: Promise<{ projectId: string }> }) {

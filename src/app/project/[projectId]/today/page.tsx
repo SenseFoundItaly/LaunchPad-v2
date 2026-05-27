@@ -17,6 +17,7 @@ import Link from 'next/link';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
+import { ContextNudgeCard } from '@/components/today/ContextNudgeCard';
 import type { Watcher, WatcherTopic } from '@/lib/watchers';
 
 interface BriefRow {
@@ -47,6 +48,12 @@ interface TimelinePayload {
   watchers: Watcher[];
   topic_counts: Record<string, number>;
   window_days: number;
+  context: {
+    has_idea: boolean;
+    has_competitors: boolean;
+    has_keywords: boolean;
+    complete: boolean;
+  };
 }
 
 interface PendingAction {
@@ -156,6 +163,17 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
             <SkeletonRow />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 880 }}>
+              {timeline?.context && !timeline.context.complete && (
+                <ContextNudgeCard
+                  projectId={projectId}
+                  has={{
+                    has_idea: timeline.context.has_idea,
+                    has_competitors: timeline.context.has_competitors,
+                    has_keywords: timeline.context.has_keywords,
+                  }}
+                  onSaved={fetchAll}
+                />
+              )}
               <BriefsPanel projectId={projectId} briefs={briefs} />
               <InboxPanel projectId={projectId} actions={actions} totalCount={inboxBadge} />
               <PulsePanel
