@@ -78,6 +78,8 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
   const [search, setSearch] = useState('');
   const [selectedWatcherId, setSelectedWatcherId] = useState<string | null>(null);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  const [runningIntel, setRunningIntel] = useState(false);
+  const [runMessage, setRunMessage] = useState<string | null>(null);
 
   const fetchTimeline = useCallback(async (q: string) => {
     setLoading(true);
@@ -102,6 +104,35 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
     const t = setTimeout(() => { fetchTimeline(search); }, 250);
     return () => clearTimeout(t);
   }, [search, fetchTimeline]);
+
+  // Force-run the correlator (bypasses cadence + signal floors). Used by the
+  // "Generate brief now" button so a fresh project can see synthesis without
+  // waiting a week. Refetches the timeline on success so new briefs appear.
+  const runIntelligenceNow = useCallback(async () => {
+    setRunningIntel(true);
+    setRunMessage(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/intelligence/run`, {
+        method: 'POST',
+      });
+      const body = await res.json();
+      const data = body?.data ?? body;
+      if (!res.ok || body?.success === false) {
+        setRunMessage(body?.error || 'Couldn’t run intelligence.');
+      } else if (data?.briefs_created > 0) {
+        setRunMessage(`Created ${data.briefs_created} brief${data.briefs_created === 1 ? '' : 's'}.`);
+        await fetchTimeline(search);
+      } else {
+        setRunMessage(skipMessage(data?.skipped_reason));
+      }
+    } catch (e) {
+      setRunMessage((e as Error).message);
+    } finally {
+      setRunningIntel(false);
+      // Clear the toast after a beat so it doesn't stick around.
+      setTimeout(() => setRunMessage(null), 6000);
+    }
+  }, [projectId, search, fetchTimeline]);
 
   const briefs = payload?.briefs || [];
   const allFindings = payload?.findings || [];
@@ -219,18 +250,39 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
               <EmptyState text="Loading…" />
             ) : (
               <>
-                {/* Briefs section */}
-                {briefs.length > 0 && (
-                  <Section
-                    label="Today's briefs"
-                    sub={`${briefs.length} synthesis · last ${payload?.window_days ?? 14}d`}
-                    icon={I.sparkles}
-                  >
-                    {briefs.map((b) => (
-                      <BriefCard key={b.id} brief={b} />
-                    ))}
-                  </Section>
-                )}
+                {/* Briefs section — always renders so the "Generate now" CTA
+                    is reachable even when no briefs exist yet. */}
+                <Section
+                  label="Today's briefs"
+                  sub={
+                    briefs.length > 0
+                      ? `${briefs.length} synthesis · last ${payload?.window_days ?? 14}d`
+                      : undefined
+                  }
+                  icon={I.sparkles}
+                  action={
+                    watchers.length > 0 ? (
+                      <RunIntelButton
+                        running={runningIntel}
+                        message={runMessage}
+                        onClick={runIntelligenceNow}
+                        hasBriefs={briefs.length > 0}
+                      />
+                    ) : null
+                  }
+                >
+                  {briefs.length === 0 ? (
+                    <EmptyState
+                      text={
+                        watchers.length === 0
+                          ? 'No watchers yet — add some, then generate a brief.'
+                          : 'No briefs yet. The correlator runs weekly across your watchers, or generate one now.'
+                      }
+                    />
+                  ) : (
+                    briefs.map((b) => <BriefCard key={b.id} brief={b} />)
+                  )}
+                </Section>
 
                 {/* Raw findings */}
                 <Section
@@ -423,11 +475,14 @@ function Section({
   label,
   sub,
   icon,
+  action,
   children,
 }: {
   label: string;
   sub?: string;
   icon?: string;
+  /** Right-aligned slot in the header — used for the "Generate brief now" CTA. */
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -457,10 +512,83 @@ function Section({
             {sub}
           </span>
         )}
+        {action && <div style={{ marginLeft: 'auto' }}>{action}</div>}
       </div>
       {children}
     </section>
   );
+}
+
+/**
+ * "Generate brief now" trigger. Calls /intelligence/run (which uses
+ * processCorrelations with force:true so it bypasses the weekly cadence).
+ * Inline status message replaces the button text briefly on completion.
+ */
+function RunIntelButton({
+  running,
+  message,
+  onClick,
+  hasBriefs,
+}: {
+  running: boolean;
+  message: string | null;
+  onClick: () => void;
+  hasBriefs: boolean;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {message && (
+        <span
+          className="lp-mono"
+          style={{ fontSize: 10, color: 'var(--ink-4)' }}
+        >
+          {message}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={running}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 5,
+          fontSize: 11,
+          fontWeight: 600,
+          padding: '4px 10px',
+          border: '1px solid var(--line)',
+          borderRadius: 4,
+          background: hasBriefs ? 'var(--surface)' : 'var(--ink)',
+          color: hasBriefs ? 'var(--ink-3)' : 'var(--paper)',
+          cursor: running ? 'wait' : 'pointer',
+          opacity: running ? 0.7 : 1,
+          fontFamily: 'inherit',
+        }}
+      >
+        <Icon d={I.sparkles} size={10} stroke={1.4} />
+        {running ? 'Synthesizing…' : hasBriefs ? 'Refresh' : 'Generate brief now'}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Translate processCorrelations' skipped_reason into a founder-facing line.
+ * Returned briefs_created=0 always carries a reason — never leave the UI silent.
+ */
+function skipMessage(reason: string | undefined): string {
+  switch (reason) {
+    case 'insufficient_signals':
+      return 'Not enough signals yet — wait for a watcher to fire.';
+    case 'no_correlations_found':
+      return 'No correlations strong enough to brief.';
+    case 'llm_error':
+      return 'Synthesis failed — try again in a moment.';
+    case 'recent_brief_exists':
+      return 'A brief was just produced.';
+    default:
+      return 'Nothing new to brief.';
+  }
 }
 
 function EmptyState({ text }: { text: string }) {
