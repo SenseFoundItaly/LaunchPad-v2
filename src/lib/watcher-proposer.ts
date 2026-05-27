@@ -108,22 +108,30 @@ const VALID_CADENCES: WatcherCadence[] = ['daily', 'weekly', 'monthly'];
 const RULES_BLOCK = `
 RULES — follow strictly, no exceptions:
 
+VETO (the single hard rule — proposals violating this are silently dropped):
+- Every proposal MUST include at least one named URL in inputs.urls.
+- Keyword-only scans without a URL are forbidden, even if the keyword is highly
+  specific. The reason: keyword-scan noise is the #1 thing founders triage and
+  abandon. A URL anchors the watcher to something a human can verify and click.
+- 'kind' MUST be 'diff' or 'hybrid'. Pure 'scan' (URL-less keyword search) is
+  rejected by the validator — do not propose it.
+
 SPECIFICITY (the bar that disqualifies generics):
-- Each proposal MUST name a specific entity, URL, or query that ties to THIS project's context.
-  Bad: "Track competitor news".
-  Bad: "Monitor industry trends".
-  Good: "Stripe pricing page changes (target market: SMB fintech)".
-  Good: "USPTO filings citing 'differential privacy' + 'telemetry' (defends value prop)".
-- If you cannot point to a concrete entity from the context block, do not propose the watcher.
+- Each URL must point at a specific page that holds the answer:
+  ✓ https://stripe.com/pricing  (pricing page diff)
+  ✓ https://stripe.com/jobs/search?team=engineering  (eng hiring diff)
+  ✓ https://patents.google.com/?q=("differential+privacy"+"telemetry")  (IP search)
+  ✗ https://stripe.com  (homepage = no specific signal)
+  ✗ https://news.ycombinator.com  (generic feed = not tied to this project)
+- The URL must derive from THIS project's context block (a known competitor,
+  the target market, a stated value-prop term). Generic feeds get rejected.
 
 DEPTH SELECTION (deep is expensive, pulse is free):
-- depth = 'deep' (LLM synthesis with cited sources) ONLY when:
-    * Multi-source synthesis is needed (e.g. competitor strategy, regulatory landscape).
-    * Topic is competitors, ip, partnerships, funding, trends, or regulatory.
-- depth = 'pulse' (cheap URL hash diff) when:
-    * A single canonical URL holds the answer (pricing page, careers page, T&Cs).
-    * Topic is pricing, hiring, or a specific watch URL the founder named.
-- Default to 'pulse' when in doubt. Never propose 'deep' without naming the synthesis question.
+- depth = 'pulse' (cheap URL hash diff) is the DEFAULT for any single-page watcher.
+- depth = 'deep' (LLM synthesis with cited sources) ONLY when the URL is a
+  search/aggregator page (USPTO query, news search, Google results) where the
+  diff alone is uninformative without LLM interpretation.
+- When in doubt, choose 'pulse'. The cost asymmetry is ~50×.
 
 CADENCE (match the topic's natural rhythm):
 - daily   — pricing, sentiment, ads, breaking competitive moves.
@@ -131,21 +139,22 @@ CADENCE (match the topic's natural rhythm):
 - monthly — ip, regulatory, funding (low base-rate events).
 - Never propose hourly. Never propose 'manual' (defeats the point of a watcher).
 
-KIND CONSISTENCY (matches the inputs you provide):
-- kind = 'diff'   → MUST include inputs.urls (1-3 URLs), no LLM call per run.
-- kind = 'scan'   → MUST include inputs.keywords or inputs.competitor_names; no URLs.
-- kind = 'hybrid' → both urls AND keywords; reserved for "watch this page AND search for related news".
+KIND CONSISTENCY:
+- kind = 'diff'   → inputs.urls only (1-3 URLs). No LLM call per run.
+- kind = 'hybrid' → inputs.urls REQUIRED + keywords/competitors as filtering hints.
+- kind = 'scan'   → FORBIDDEN per the VETO above.
 
 DEDUPE (avoid near-duplicates of existing watchers):
-- The "Existing watchers" line lists what's already running. Skip any topic the founder already covers,
-  even if your proposed angle is slightly different. One competitor watcher beats two overlapping ones.
-- If a competitor is in 'Known competitors', do not propose a generic "Competitor news" watcher
-  for them — propose a SPECIFIC URL or angle that adds depth.
+- "Existing watchers" lists what's already running. Skip any topic the founder
+  already covers — one watcher per topic per entity, not two with overlapping angles.
+- If a competitor is in 'Known competitors', do not propose a generic watcher for
+  them — propose a SPECIFIC page (their pricing, their careers, their changelog).
 
 OUTPUT DISCIPLINE:
-- 3-5 proposals total. Quality > quantity. Returning 3 sharp watchers beats 5 mediocre ones.
-- Empty array [] is the right answer when the context is too thin or every angle is covered.
-- Rationale field MUST cite a specific context field (e.g. "covers value prop X" or "tracks competitor Y").
+- 3-5 proposals total. Quality > quantity. Returning 3 sharp watchers beats 5 mediocre.
+- Empty array [] is the right answer when context is too thin or every angle is covered.
+- Rationale field MUST cite a specific context field (e.g. "covers value prop X"
+  or "tracks competitor Y's pricing for ICP fit").
 - No emojis, no markdown, no prose outside the JSON array.
 `.trim();
 
@@ -284,10 +293,12 @@ function extractAndValidate(raw: string, ctx: ProjectContextForProposer): Propos
       inputs.competitor_names = inputsRaw.competitor_names.filter((c): c is string => typeof c === 'string').slice(0, 10);
     }
 
-    // Kind-consistency: diff/hybrid require urls; scan requires keywords or competitors.
-    if ((kind === 'diff' || kind === 'hybrid') && (!inputs.urls || inputs.urls.length === 0)) continue;
-    if (kind === 'scan' && (!inputs.keywords || inputs.keywords.length === 0)
-                       && (!inputs.competitor_names || inputs.competitor_names.length === 0)) continue;
+    // VETO: every accepted proposal must include at least one named URL.
+    // Pure 'scan' kind is rejected outright — the prompt forbids it but defend
+    // against models that ignore the rule. URL-less proposals are the #1 source
+    // of low-quality watcher noise; better to return fewer proposals than any.
+    if (!inputs.urls || inputs.urls.length === 0) continue;
+    if (kind === 'scan') continue;
 
     // Secondary dedupe: same topic + same primary input host = duplicate angle.
     // Catches "Stripe pricing page" + "Stripe plans page diff" both proposing

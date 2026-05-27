@@ -317,12 +317,22 @@ CROSS-TYPE CORRELATION PATTERNS (actively look for these):
 - product_launch + ip_filing = defensible moat being built, harder to compete directly
 
 RULES:
-1. Only synthesize when 2+ signals genuinely correlate — do not force connections
-2. Temporal predictions MUST include ranges (e.g. "60-90 days", "Q3-Q4 2026")
-3. Return an empty array [] if no meaningful correlations exist
-4. Each brief must be grounded in specific signal IDs
-5. Recommended actions must be concrete and time-bound
-6. Confidence should reflect the strength of correlation, not just signal count
+1. Only synthesize when 2+ signals genuinely correlate — do not force connections.
+2. Temporal predictions MUST include ranges (e.g. "60-90 days", "Q3-Q4 2026").
+3. Return an empty array [] if no meaningful correlations exist.
+4. Each brief must be grounded in specific signal IDs.
+5. Recommended actions must be concrete and time-bound.
+6. Confidence should reflect the strength of correlation, not just signal count.
+7. THE ICP-TIE RULE (hard requirement): the LAST SENTENCE of every narrative must
+   explicitly state how this signal affects THIS founder's stated moat. Use the
+   exact wording from the project context block (Problem / Solution / Target market
+   / Value proposition). Format:
+       "Threatens [founder's moat: <verbatim phrase>]."
+   or
+       "Strengthens [founder's moat: <verbatim phrase>]."
+   If you cannot make this tie honestly, DROP the brief — it is not strategic
+   intelligence, it is just news. Narratives without this clause will be
+   rejected downstream.
 
 Respond ONLY with a valid JSON array. No prose before or after.`;
 
@@ -399,6 +409,12 @@ function parseCorrelationResponse(text: string): CorrelationOutput[] {
     const title = typeof obj.title === 'string' ? obj.title.slice(0, 200) : '';
     const narrative = typeof obj.narrative === 'string' ? obj.narrative : '';
     if (!title || !narrative) continue;
+
+    // ICP-TIE: drop briefs whose narrative doesn't end with the explicit
+    // "[founder's moat: ...]" clause. Cheap structural check — the prompt
+    // teaches the model the exact format, and missing it almost always means
+    // the model fell back to generic "monitor closely" prose.
+    if (!/\[founder['’]s moat:[^\]]+\]/i.test(narrative)) continue;
 
     const signalIds = Array.isArray(obj.signal_ids_used)
       ? (obj.signal_ids_used as unknown[]).filter(s => typeof s === 'string') as string[]
