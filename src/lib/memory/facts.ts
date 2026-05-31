@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { get, query, run } from '@/lib/db';
 import { recordEvent } from './events';
+import { embed, toPgVector, EMBEDDING_MODEL } from './embeddings';
 import type { Source, ReviewedState } from '@/types/artifacts';
 
 /**
@@ -153,6 +154,56 @@ export async function listFacts(
   params.push(limit);
   const rows = await query<MemoryFact>(sql, ...params);
   return rows;
+}
+
+/**
+ * Embed a fact and store the resulting vector + model + timestamp. Fire-and-
+ * forget caller — failures are logged but never thrown so the calling
+ * mutation path stays atomic. The agent's retrieval gracefully falls back
+ * to BM25 + recency for unembedded rows.
+ *
+ * Called by:
+ *   - the universal knowledge PATCH endpoint when a fact transitions to
+ *     'applied' (the live founder-review path)
+ *   - scripts/backfill-embeddings.ts for one-shot historical embedding
+ */
+export async function embedAndStoreFact(factId: string, factText: string): Promise<void> {
+  try {
+    const vec = await embed(factText);
+    if (!vec) return; // No key, empty input, or provider error.
+    await run(
+      'UPDATE memory_facts SET embedding = ?::vector, embedding_model = ?, embedded_at = CURRENT_TIMESTAMP WHERE id = ?',
+      toPgVector(vec),
+      EMBEDDING_MODEL,
+      factId,
+    );
+  } catch (err) {
+    console.warn('[memory/facts] embedAndStoreFact failed:', (err as Error).message);
+  }
+}
+
+/**
+ * Parallel of embedAndStoreFact for graph_nodes. Concatenates name + summary
+ * so the embedding captures both the entity label and the descriptive text.
+ */
+export async function embedAndStoreNode(
+  nodeId: string,
+  name: string,
+  summary: string | null,
+): Promise<void> {
+  try {
+    const text = `${name}${summary ? `: ${summary}` : ''}`.trim();
+    const vec = await embed(text);
+    if (!vec) return;
+    await run(
+      'UPDATE graph_nodes SET embedding = ?::vector, embedding_model = ?, embedded_at = CURRENT_TIMESTAMP WHERE id = ?',
+      toPgVector(vec),
+      EMBEDDING_MODEL,
+      nodeId,
+    );
+  } catch (err) {
+    console.warn('[memory/facts] embedAndStoreNode failed:', (err as Error).message);
+  }
 }
 
 /**

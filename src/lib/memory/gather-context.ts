@@ -1,6 +1,7 @@
 import { get, query } from '@/lib/db';
 import { listFacts } from './facts';
 import { listEvents } from './events';
+import { retrieveFacts } from './retrieve';
 import type { MemoryFact } from './facts';
 import type { MemoryEvent } from './events';
 
@@ -24,6 +25,12 @@ export interface GatherLimits {
   /** When true, fetch enriched fields (rationale, labels, scores, etc.).
    *  undefined = read from project.settings.rich_context. */
   enriched?: boolean;
+  /** Optional search query for hybrid retrieval (BM25 + vector + RRF) over
+   *  memory_facts. When set, the facts section is sourced from
+   *  retrieveContext() instead of recency-ordered listFacts(). Pass the
+   *  founder's latest chat message here. Empty / omitted = legacy recency
+   *  ordering (the cron / heartbeat path). */
+  searchQuery?: string;
 }
 
 export interface ProjectSnapshot {
@@ -220,11 +227,22 @@ export async function gatherProjectContext(
       failedSections,
     ),
 
-    // facts
-    loadSection('facts', () =>
-      listFacts(factsUserId, projectId, { limit: maxFacts, includeSources: shouldEnrich }),
-      failedSections,
-    ),
+    // facts — hybrid retrieval (BM25 + vector + RRF) when a search query is
+    // supplied (chat path), recency-ordered listFacts otherwise (cron /
+    // heartbeat / export paths). Retrieval failures degrade silently to
+    // listFacts so the agent always gets *some* facts.
+    loadSection('facts', async () => {
+      const q = (limits.searchQuery ?? '').trim();
+      if (q) {
+        try {
+          const hits = await retrieveFacts(projectId, q, { k: maxFacts });
+          if (hits.length > 0) return hits;
+        } catch (err) {
+          console.warn('[gather-context] retrieveFacts failed, falling back to recency:', (err as Error).message);
+        }
+      }
+      return listFacts(factsUserId, projectId, { limit: maxFacts, includeSources: shouldEnrich });
+    }, failedSections),
 
     // events
     loadSection('events', () =>

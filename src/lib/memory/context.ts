@@ -11,6 +11,10 @@ export interface MemoryContextOptions {
   maxGraphNodes?: number;
   /** When true, fetch enriched fields. undefined = read from project.settings.rich_context. */
   enriched?: boolean;
+  /** Latest user message — when provided, swaps recency-ordered facts for
+   *  hybrid retrieval (BM25 + vector + RRF). Chat path should pass this.
+   *  Cron / export paths should leave it undefined. */
+  searchQuery?: string;
 }
 
 export async function buildMemoryContext(
@@ -23,6 +27,7 @@ export async function buildMemoryContext(
     maxEvents: opts.maxEvents ?? 15,
     maxGraphNodes: opts.maxGraphNodes ?? 10,
     enriched: opts.enriched,
+    searchQuery: opts.searchQuery,
   };
 
   const ctx = await gatherProjectContext(userId, projectId, limits);

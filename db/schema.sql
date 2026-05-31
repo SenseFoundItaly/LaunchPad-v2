@@ -501,8 +501,20 @@ CREATE TABLE IF NOT EXISTS graph_nodes (
   attributes JSONB,
   sources JSONB,
   reviewed_state VARCHAR DEFAULT 'pending',
+  -- Hybrid retrieval columns — parallel to memory_facts.
+  embedding vector(1536),
+  embedding_model TEXT,
+  embedded_at TIMESTAMP,
+  node_tsv tsvector GENERATED ALWAYS AS (
+    to_tsvector('english', coalesce(name, '') || ' ' || coalesce(summary, ''))
+  ) STORED,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_embedding_hnsw
+  ON graph_nodes USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_tsv
+  ON graph_nodes USING gin (node_tsv);
 
 CREATE TABLE IF NOT EXISTS graph_edges (
   id VARCHAR PRIMARY KEY,
@@ -615,6 +627,11 @@ CREATE INDEX IF NOT EXISTS idx_project_budgets_project_period
 -- =============================================================================
 -- Memory layer
 -- =============================================================================
+-- pgvector extension — required for memory_facts.embedding + graph_nodes.embedding.
+-- See db/migrations/006_pgvector_hybrid_retrieval.sql for the migration that
+-- adds embeddings to live deployments.
+CREATE EXTENSION IF NOT EXISTS vector;
+
 CREATE TABLE IF NOT EXISTS memory_facts (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -625,7 +642,13 @@ CREATE TABLE IF NOT EXISTS memory_facts (
   source_id TEXT,
   confidence DOUBLE PRECISION DEFAULT 1.0,
   reviewed_state VARCHAR DEFAULT 'pending',
-  embedding BYTEA,
+  -- Hybrid retrieval: 1536-dim OpenAI text-embedding-3-small vectors,
+  -- plus a generated tsvector for BM25 keyword ranking. See
+  -- src/lib/memory/retrieve.ts for the RRF consumer.
+  embedding vector(1536),
+  embedding_model TEXT,
+  embedded_at TIMESTAMP,
+  fact_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(fact, ''))) STORED,
   sources JSONB,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -633,6 +656,10 @@ CREATE TABLE IF NOT EXISTS memory_facts (
 
 CREATE INDEX IF NOT EXISTS idx_memory_facts_user_project
   ON memory_facts(user_id, project_id, reviewed_state, updated_at);
+CREATE INDEX IF NOT EXISTS idx_memory_facts_embedding_hnsw
+  ON memory_facts USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_memory_facts_tsv
+  ON memory_facts USING gin (fact_tsv);
 
 CREATE TABLE IF NOT EXISTS memory_events (
   id TEXT PRIMARY KEY,
