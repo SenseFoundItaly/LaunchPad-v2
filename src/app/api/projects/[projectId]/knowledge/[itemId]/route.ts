@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { get, run } from '@/lib/db';
 import { recordEvent, type EventType } from '@/lib/memory/events';
+import { embedAndStoreFact, embedAndStoreNode } from '@/lib/memory/facts';
 import { requireUser, AuthError } from '@/lib/auth/require-user';
 import type { ReviewedState } from '@/types/artifacts';
 import type { EcosystemAlertState } from '@/types';
@@ -126,6 +127,24 @@ export async function PATCH(
 
     // Perform the state transition (per-table query handles correct timestamp columns)
     await run(UPDATE_QUERIES[table], state, itemId);
+
+    // Embed-on-applied: only spend embedding tokens on rows the founder
+    // has explicitly accepted. Fire-and-forget — retrieval falls back to
+    // BM25 + recency if the embedding never lands (e.g. OPENAI_API_KEY
+    // unset, provider timeout, row deleted before completion).
+    if (state === 'applied') {
+      if (table === 'memory_facts') {
+        const row = await get<{ fact: string }>(
+          'SELECT fact FROM memory_facts WHERE id = ?', itemId,
+        );
+        if (row?.fact) void embedAndStoreFact(itemId, row.fact);
+      } else if (table === 'graph_nodes') {
+        const row = await get<{ name: string; summary: string | null }>(
+          'SELECT name, summary FROM graph_nodes WHERE id = ?', itemId,
+        );
+        if (row?.name) void embedAndStoreNode(itemId, row.name, row.summary);
+      }
+    }
 
     // Record audit event
     const eventType: EventType = isAlert

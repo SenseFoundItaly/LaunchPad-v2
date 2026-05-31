@@ -14,6 +14,25 @@ npm run dev                   # http://localhost:3000
 
 First login: the app uses Supabase Auth. See the [Supabase setup](#supabase-setup) section below.
 
+## Hybrid retrieval setup (new)
+
+The chat agent now reads facts from a hybrid BM25 + vector + RRF retriever
+instead of `ORDER BY updated_at DESC`. When the founder asks "what's our
+pricing?" the relevant 3-month-old decision surfaces alongside today's notes.
+
+One-time setup against your Postgres:
+
+```bash
+npx tsx db/migrate.ts                              # applies 006_pgvector_hybrid_retrieval.sql
+npx tsx scripts/backfill-embeddings.ts --dry-run   # show what would embed
+npx tsx scripts/backfill-embeddings.ts             # embed historical applied facts + graph nodes
+```
+
+Requires `OPENAI_API_KEY` for embeddings (`text-embedding-3-small`,
+$0.02/1M tokens — rounding error at current project sizes). Retrieval
+degrades gracefully to BM25-only if the key is missing or rows haven't
+been embedded yet.
+
 ## What It Does
 
 - **Proactive chat** grounded in your project memory — the agent remembers decisions, commitments, and preferences across sessions via a structured facts+events layer, not just chat transcripts.

@@ -312,8 +312,13 @@ export async function POST(request: NextRequest) {
   // Memory context — curated facts + recent events + graph summary + completed
   // skills — lets the agent remember across sessions AND across chat "steps"
   // within a project (see sessionId change below).
+  // Hybrid retrieval: pass the founder's latest message so the facts block
+  // is sourced from BM25 + vector + RRF over applied memory_facts instead
+  // of recency-ordered listFacts. Falls back to recency automatically when
+  // the query is empty (e.g. a fresh session) or retrieval fails.
   const memoryContext = await buildMemoryContext(userId, project_id, {
     enriched: projects[0].settings?.rich_context === true,
+    searchQuery: lastMessage,
   });
 
   // Build system prompt: SOUL + AGENTS personality first (locale-aware),
