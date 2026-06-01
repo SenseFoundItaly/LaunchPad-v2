@@ -2,11 +2,10 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { Icon, I, Pill } from '@/components/design/primitives';
-import { PendingSection } from './PendingSection';
+import { UnifiedInbox } from '@/components/inbox/UnifiedInbox';
 import { TasksSection } from './TasksSection';
 import { IntelligenceSection } from './IntelligenceSection';
 import { ActivitySection } from './ActivitySection';
-import KnowledgeReviewList from '@/components/knowledge/KnowledgeReviewList';
 
 // =============================================================================
 // ContextPanel — unified "Context" canvas tab with collapsible sections
@@ -105,35 +104,11 @@ export function ContextPanel({ projectId, locale, onAction }: ContextPanelProps)
             {isOpen && (
               <div style={{ padding: '12px 16px 16px' }}>
                 {section.id === 'pending' && (
-                  <>
-                    <PendingSection
-                      projectId={projectId}
-                      onAction={onAction}
-                      locale={locale}
-                      onCountChange={handlePendingCountChange}
-                    />
-                    <div style={{ marginTop: 12 }}>
-                      <div
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 600,
-                          color: 'var(--ink-4)',
-                          textTransform: 'uppercase',
-                          letterSpacing: 0.8,
-                          marginBottom: 8,
-                          paddingTop: 8,
-                          borderTop: '1px solid var(--line)',
-                        }}
-                      >
-                        {locale === 'it' ? 'Proposte di conoscenza AI' : 'AI Knowledge Proposals'}
-                      </div>
-                      <KnowledgeReviewList
-                        projectId={projectId}
-                        locale={locale}
-                        compact
-                      />
-                    </div>
-                  </>
+                  <UnifiedInbox
+                    projectId={projectId}
+                    locale={locale}
+                    onCountChange={handlePendingCountChange}
+                  />
                 )}
                 {section.id === 'tasks' && (
                   <TasksSection projectId={projectId} onAction={onAction} locale={locale} />

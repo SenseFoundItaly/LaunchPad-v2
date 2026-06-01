@@ -135,13 +135,17 @@ export async function GET(
     `SELECT ib.id, ib.brief_type, ib.entity_name, ib.title, ib.narrative,
             ib.temporal_prediction, ib.confidence, ib.signal_ids, ib.signal_count,
             ib.recommended_actions, ib.status, ib.created_at,
-            -- distinct source URLs across the alerts cited by this brief
+            -- distinct source URLs across the alerts cited by this brief.
+            -- Use jsonb_exists() instead of the jsonb-membership operator
+            -- because the project convertPlaceholders helper greedily
+            -- rewrites every question mark outside string literals into a
+            -- SQL parameter, which corrupts the operator.
             COALESCE((
               SELECT COUNT(DISTINCT ea.source_url)
               FROM ecosystem_alerts ea
               WHERE ea.project_id = ib.project_id
                 AND ea.source_url IS NOT NULL
-                AND ib.signal_ids::jsonb ? ea.id
+                AND jsonb_exists(ib.signal_ids::jsonb, ea.id)
             ), 0) AS sources_consulted
        FROM intelligence_briefs ib
       WHERE ib.project_id = ?
@@ -250,7 +254,9 @@ export async function GET(
   });
 
   let findings = [...alertFindings, ...changeFindings].sort((a, b) =>
-    b.created_at.localeCompare(a.created_at),
+    // postgres.js returns timestamps as Date objects, not strings — compare
+    // epoch ms so this works for both Date and ISO-string inputs.
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
 
   // Single search filter — replaces the old 6-filter UI.

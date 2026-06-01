@@ -97,8 +97,10 @@ export async function GET(
     })),
   ];
 
-  // Sort all items by created_at descending
-  items.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  // Sort all items by created_at descending. `postgres.js` returns timestamp
+  // columns as Date objects (not strings), so we compare epoch ms — works for
+  // both Date and ISO-string inputs.
+  items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   // Count pending across all tables
   const pendingCount = items.filter((i) => i.reviewed_state === 'pending').length;
