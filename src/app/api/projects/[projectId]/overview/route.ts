@@ -188,7 +188,11 @@ export async function GET(
       failedSections,
     ),
     loadSection('facts', () =>
-      listFacts(userId, projectId, { states: ['applied'], limit: 100 }),
+      // includeSources: the Knowledge page now renders an expandable
+      // source-chain audit row per fact (issue #22) so the founder can
+      // verify provenance. Cost is one extra JSONB column per fact —
+      // facts are capped at 100 here so the payload stays small.
+      listFacts(userId, projectId, { states: ['applied'], limit: 100, includeSources: true }),
       failedSections,
     ),
     loadSection('graph_nodes', () =>

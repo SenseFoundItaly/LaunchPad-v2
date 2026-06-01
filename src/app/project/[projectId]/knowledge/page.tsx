@@ -83,6 +83,22 @@ interface CompetitorEntry {
   source: 'research' | 'graph';
 }
 
+// Mirrors src/types/artifacts.ts Source — kept inline so the Knowledge page
+// has zero imports from the artifact pipeline. Each kind renders differently
+// in the SourceChain audit row (issue #22).
+type FactSource =
+  | { type: 'web'; title: string; url: string; accessed_at?: string; quote?: string }
+  | { type: 'skill'; title: string; skill_id: string; run_id?: string; quote?: string }
+  | {
+      type: 'internal';
+      title: string;
+      ref: 'graph_node' | 'score' | 'research' | 'memory_fact' | 'chat_turn';
+      ref_id: string;
+      quote?: string;
+    }
+  | { type: 'user'; title: string; chat_turn_id?: string; quote: string }
+  | { type: 'inference'; title: string; based_on: FactSource[]; reasoning: string };
+
 interface FactRow {
   id: string;
   fact: string;
@@ -91,6 +107,9 @@ interface FactRow {
   confidence: number;
   created_at: string;
   updated_at: string;
+  /** JSONB column from memory_facts. Provenance chain — every source that
+   *  contributed evidence for this fact. Rendered by SourceChain. */
+  sources?: FactSource[] | null;
 }
 
 interface GraphNodeRow {
@@ -981,19 +1000,203 @@ function FactGroup({ label, items }: { label: string; items: FactRow[] }) {
       {expanded && (
         <div style={{ padding: '0 14px 12px', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {items.map((f) => (
-            <div key={f.id} style={{ paddingTop: 10, borderTop: '1px dashed var(--line)', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{f.fact}</div>
-              <div style={{ display: 'flex', gap: 6, fontSize: 10, color: 'var(--ink-5)' }}>
-                {f.source_type && <Pill kind="n">{f.source_type}</Pill>}
-                <span className="lp-mono">{timeAgo(f.updated_at || f.created_at, now)}</span>
-                {f.confidence < 1 && <span className="lp-mono">confidence {(f.confidence * 100).toFixed(0)}%</span>}
-              </div>
-            </div>
+            <FactItem key={f.id} fact={f} now={now} />
           ))}
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * Per-fact row: the fact text + metadata chips + an expandable source chain
+ * audit row when the fact has sources[] (issue #22). Sources hidden by
+ * default — the founder opts in via the "sources" affordance so the layout
+ * doesn't bloat for routine facts.
+ */
+function FactItem({ fact, now }: { fact: FactRow; now: number }) {
+  const [chainOpen, setChainOpen] = useState(false);
+  const sources = Array.isArray(fact.sources) ? fact.sources : [];
+  const hasChain = sources.length > 0;
+  return (
+    <div style={{ paddingTop: 10, borderTop: '1px dashed var(--line)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{fact.fact}</div>
+      <div style={{ display: 'flex', gap: 6, fontSize: 10, color: 'var(--ink-5)', alignItems: 'center', flexWrap: 'wrap' }}>
+        {fact.source_type && <Pill kind="n">{fact.source_type}</Pill>}
+        <span className="lp-mono">{timeAgo(fact.updated_at || fact.created_at, now)}</span>
+        {fact.confidence < 1 && <span className="lp-mono">confidence {(fact.confidence * 100).toFixed(0)}%</span>}
+        {hasChain && (
+          <button
+            type="button"
+            onClick={() => setChainOpen((v) => !v)}
+            aria-expanded={chainOpen}
+            style={{
+              border: 'none',
+              background: 'none',
+              padding: '2px 6px',
+              color: chainOpen ? 'var(--accent)' : 'var(--ink-4)',
+              cursor: 'pointer',
+              fontSize: 10,
+              fontFamily: 'inherit',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            {chainOpen ? 'hide' : 'show'} source chain ({sources.length})
+            <Chevron open={chainOpen} />
+          </button>
+        )}
+      </div>
+      {hasChain && chainOpen && <SourceChain sources={sources} />}
+    </div>
+  );
+}
+
+/**
+ * Render the source chain for one fact. Each source type gets a distinct
+ * row variant so the audit story reads: "from web URL X", "from skill Y",
+ * "from internal ref of type graph_node", etc. Inference sources recurse
+ * (shallow — based_on is rendered as a comma-separated list, not infinite).
+ *
+ * Issue #22.
+ */
+function SourceChain({ sources }: { sources: FactSource[] }) {
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        paddingTop: 8,
+        borderTop: '1px dotted var(--line)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}
+    >
+      {sources.map((s, i) => (
+        <SourceRow key={i} source={s} index={i} />
+      ))}
+    </div>
+  );
+}
+
+function SourceRow({ source, index }: { source: FactSource; index: number }) {
+  const numberCol = (
+    <span
+      className="lp-mono"
+      style={{
+        fontSize: 10,
+        color: 'var(--ink-5)',
+        width: 16,
+        flexShrink: 0,
+        textAlign: 'right',
+      }}
+    >
+      [{index + 1}]
+    </span>
+  );
+  switch (source.type) {
+    case 'web':
+      return (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11, color: 'var(--ink-3)' }}>
+          {numberCol}
+          <Pill kind="info">web</Pill>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <a
+              href={source.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              style={{ color: 'var(--accent)', textDecoration: 'none', wordBreak: 'break-word' }}
+            >
+              {source.title || source.url}
+            </a>
+            {source.accessed_at && (
+              <span className="lp-mono" style={{ marginLeft: 6, color: 'var(--ink-5)', fontSize: 10 }}>
+                · accessed {source.accessed_at.slice(0, 10)}
+              </span>
+            )}
+            {source.quote && (
+              <div style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 2, fontStyle: 'italic' }}>
+                “{source.quote.slice(0, 200)}{source.quote.length > 200 ? '…' : ''}”
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    case 'skill':
+      return (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11, color: 'var(--ink-3)' }}>
+          {numberCol}
+          <Pill kind="ok">skill</Pill>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ color: 'var(--ink-2)' }}>{source.title}</span>
+            <span className="lp-mono" style={{ marginLeft: 6, color: 'var(--ink-5)', fontSize: 10 }}>
+              · {source.skill_id}
+              {source.run_id ? ` · run ${source.run_id.slice(0, 8)}` : ''}
+            </span>
+            {source.quote && (
+              <div style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 2, fontStyle: 'italic' }}>
+                “{source.quote.slice(0, 200)}{source.quote.length > 200 ? '…' : ''}”
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    case 'internal':
+      return (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11, color: 'var(--ink-3)' }}>
+          {numberCol}
+          <Pill kind="n">internal</Pill>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ color: 'var(--ink-2)' }}>{source.title}</span>
+            <span className="lp-mono" style={{ marginLeft: 6, color: 'var(--ink-5)', fontSize: 10 }}>
+              · {source.ref} · {source.ref_id.slice(0, 12)}
+            </span>
+            {source.quote && (
+              <div style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 2, fontStyle: 'italic' }}>
+                “{source.quote.slice(0, 200)}{source.quote.length > 200 ? '…' : ''}”
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    case 'user':
+      return (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11, color: 'var(--ink-3)' }}>
+          {numberCol}
+          <Pill kind="warn">user</Pill>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ color: 'var(--ink-2)' }}>{source.title}</span>
+            {source.chat_turn_id && (
+              <span className="lp-mono" style={{ marginLeft: 6, color: 'var(--ink-5)', fontSize: 10 }}>
+                · chat turn {source.chat_turn_id.slice(0, 8)}
+              </span>
+            )}
+            <div style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 2, fontStyle: 'italic' }}>
+              “{source.quote.slice(0, 200)}{source.quote.length > 200 ? '…' : ''}”
+            </div>
+          </div>
+        </div>
+      );
+    case 'inference': {
+      const basis = source.based_on.map((b) => b.title).join(', ');
+      return (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11, color: 'var(--ink-3)' }}>
+          {numberCol}
+          <Pill kind="n">inference</Pill>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ color: 'var(--ink-2)' }}>{source.title}</span>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 2 }}>
+              Based on: {basis || '(no sub-sources cited)'}
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 2, fontStyle: 'italic' }}>
+              {source.reasoning.slice(0, 240)}{source.reasoning.length > 240 ? '…' : ''}
+            </div>
+          </div>
+        </div>
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
