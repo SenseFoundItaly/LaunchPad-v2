@@ -930,9 +930,6 @@ function CompetitorsSection({ competitors, projectId }: { competitors: Competito
 // ---------------------------------------------------------------------------
 
 function FactsSection({ facts, projectId }: { facts: FactRow[]; projectId: string }) {
-  if (facts.length === 0) {
-    return <EmptyState text="Confirmed insights from chat and signals will accumulate here." projectId={projectId} />;
-  }
   const grouped = new Map<string, FactRow[]>();
   for (const f of facts) {
     const k = FACT_KIND_LABEL[f.kind] ? f.kind : 'fact';
@@ -951,9 +948,131 @@ function FactsSection({ facts, projectId }: { facts: FactRow[]; projectId: strin
   const orderedKinds = FACT_KIND_ORDER.filter((k) => grouped.has(k));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {orderedKinds.map((kind) => (
-        <FactGroup key={kind} label={FACT_KIND_LABEL[kind] ?? kind} items={grouped.get(kind)!} />
-      ))}
+      {/* Free-form note composer — issue #27. Lives at the top of the
+          facts section so the founder can add their own context without
+          waiting for chat extraction or skill runs. Notes land as
+          memory_facts with kind='note' AND reviewed_state='applied' so they
+          enter agent context on the very next /api/cron or chat turn. */}
+      <NoteComposer projectId={projectId} />
+
+      {facts.length === 0 ? (
+        <EmptyState text="Confirmed insights from chat and signals will accumulate here. Add a note above to seed your own." projectId={projectId} />
+      ) : (
+        orderedKinds.map((kind) => (
+          <FactGroup key={kind} label={FACT_KIND_LABEL[kind] ?? kind} items={grouped.get(kind)!} />
+        ))
+      )}
+    </div>
+  );
+}
+
+/**
+ * Founder-authored note input. Posts to /api/projects/{p}/notes; the new
+ * fact lands as kind='note' AND reviewed_state='applied' so it skips the
+ * review inbox and enters retrieval immediately. Fires the universal
+ * lp-actions-changed event so the page (and other surfaces) refresh.
+ *
+ * Issue #27.
+ */
+function NoteComposer({ projectId }: { projectId: string }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const MAX = 2000;
+  const remaining = MAX - text.length;
+
+  async function submit() {
+    const trimmed = text.trim();
+    if (!trimmed || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: trimmed }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `HTTP ${res.status}`);
+      }
+      setText('');
+      // Tell every other surface (the inbox count, the Knowledge page
+      // itself, anyone listening) that knowledge state just changed.
+      window.dispatchEvent(new CustomEvent('lp-actions-changed'));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="lp-card"
+      style={{
+        padding: '12px 14px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        background: 'var(--surface)',
+      }}
+    >
+      <div className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        Add a note
+      </div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value.slice(0, MAX))}
+        onKeyDown={(e) => {
+          // Cmd/Ctrl+Enter submits — matches the chat composer pattern.
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            void submit();
+          }
+        }}
+        rows={3}
+        placeholder="Drop a fact you've learned, a decision you've made, or context you want the agent to remember. Goes straight into the brain."
+        disabled={busy}
+        style={{
+          width: '100%',
+          padding: '8px 10px',
+          border: '1px solid var(--line)',
+          borderRadius: 4,
+          background: 'var(--paper-2)',
+          color: 'var(--ink)',
+          fontSize: 12.5,
+          fontFamily: 'inherit',
+          lineHeight: 1.5,
+          resize: 'vertical',
+          minHeight: 72,
+        }}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 10, color: 'var(--ink-5)' }}>
+          <span className="lp-mono">{remaining} chars left</span>
+          <span className="lp-mono">⌘/Ctrl + Enter to save</span>
+          {error && <span style={{ color: 'var(--clay)' }}>{error}</span>}
+        </div>
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={busy || !text.trim()}
+          style={{
+            padding: '5px 12px',
+            fontSize: 11,
+            fontWeight: 500,
+            background: text.trim() && !busy ? 'var(--ink)' : 'var(--paper-3)',
+            color: text.trim() && !busy ? 'var(--paper)' : 'var(--ink-5)',
+            border: 'none',
+            borderRadius: 4,
+            cursor: text.trim() && !busy ? 'pointer' : 'not-allowed',
+            fontFamily: 'inherit',
+          }}
+        >
+          {busy ? 'Saving…' : 'Save note'}
+        </button>
+      </div>
     </div>
   );
 }
