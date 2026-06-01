@@ -28,6 +28,7 @@ import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
 import { getCreditsRemaining } from '@/lib/credits';
 import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readiness';
+import { computeGaps, formatGapsForPrompt, type GapInputs } from '@/lib/memory/gaps';
 import { logSignalActivity } from '@/lib/signal-activity-log';
 import type { PendingActionType, EcosystemAlertType, WatchSourceCategory } from '@/types';
 import { VALID_CATEGORIES } from '@/types';
@@ -244,6 +245,7 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
       return { content: [{ type: 'text', text: 'Project not found.' }], details: { error: true } };
     }
 
+    // Widened: business_model is needed for the "no_pricing" gap.
     const ideaRows = await query<Record<string, unknown>>(
       'SELECT problem, solution, target_market, business_model, value_proposition FROM idea_canvas WHERE project_id = ?',
       ctx.projectId,
@@ -256,11 +258,39 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
     );
     const score = scoreRows[0];
 
-    const researchRows = await query<{ competitors: string | null; trends: string | null }>(
-      'SELECT competitors, trends FROM research WHERE project_id = ?',
+    // Widened: market_size + key_insights are needed for the "no_market_research" gap.
+    const researchRows = await query<{
+      competitors: unknown; trends: unknown; market_size: unknown; key_insights: unknown;
+    }>(
+      'SELECT competitors, trends, market_size, key_insights FROM research WHERE project_id = ?',
       ctx.projectId,
     );
     const research = researchRows[0];
+
+    // Gap-analysis inputs — fired in parallel so we don't pay sequential RTTs.
+    // The agent uses these to honestly name what it doesn't know yet rather
+    // than fabricate. See src/lib/memory/gaps.ts for the rules.
+    const [entityRows, factCountRow, simRow] = await Promise.all([
+      query<{ node_type: string }>(
+        `SELECT node_type FROM graph_nodes WHERE project_id = ? AND reviewed_state = 'applied'`,
+        ctx.projectId,
+      ).catch(() => [] as { node_type: string }[]),
+      get<{ n: number | string }>(
+        `SELECT COUNT(*) as n FROM memory_facts WHERE project_id = ? AND reviewed_state = 'applied'`,
+        ctx.projectId,
+      ).catch(() => null),
+      get<{ risk_scenarios: unknown }>(
+        'SELECT risk_scenarios FROM simulation WHERE project_id = ?',
+        ctx.projectId,
+      ).catch(() => null),
+    ]);
+    const factsCount = factCountRow ? Number(factCountRow.n) || 0 : 0;
+    const hasRiskAudit = Array.isArray(simRow?.risk_scenarios)
+      ? (simRow!.risk_scenarios as unknown[]).length > 0
+      : !!simRow?.risk_scenarios;
+    const competitorsCount = Array.isArray(research?.competitors)
+      ? (research!.competitors as unknown[]).length
+      : 0;
 
     const lines: string[] = [];
     lines.push(`Project: ${project.name}${project.description ? ` — ${project.description}` : ''}`);
@@ -280,13 +310,11 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
       if (score.recommendation) lines.push(`Top recommendation: ${score.recommendation}`);
     }
 
-    if (research?.competitors) {
-      try {
-        const comps = research.competitors as unknown as Array<{ name: string }>;
-        if (Array.isArray(comps) && comps.length > 0) {
-          lines.push(`\nTracked competitors: ${comps.slice(0, 5).map(c => c.name).join(', ')}`);
-        }
-      } catch { /* ignore */ }
+    if (Array.isArray(research?.competitors)) {
+      const comps = research!.competitors as Array<{ name?: string }>;
+      if (comps.length > 0) {
+        lines.push(`\nTracked competitors: ${comps.slice(0, 5).map(c => c.name).filter(Boolean).join(', ')}`);
+      }
     }
 
     // Phase H — append the 7-stage readiness snapshot. The agent reads this
@@ -303,6 +331,37 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
       // the rest of the summary should still flow.
       console.warn('[get_project_summary] stage readiness failed:', err);
     }
+
+    // Knowledge gaps — the gbrain-inspired "name what you don't know" block.
+    // Computed live from the rows above so we never lie about coverage.
+    // Capped at top 5 inside formatGapsForPrompt to keep the prompt small.
+    const gapInputs: GapInputs = {
+      idea: idea
+        ? {
+            problem: (idea.problem as string) ?? null,
+            solution: (idea.solution as string) ?? null,
+            target_market: (idea.target_market as string) ?? null,
+            business_model: (idea.business_model as string) ?? null,
+            value_proposition: (idea.value_proposition as string) ?? null,
+          }
+        : null,
+      research: research
+        ? {
+            market_size: research.market_size,
+            trends: research.trends,
+            key_insights: research.key_insights,
+          }
+        : null,
+      competitorsCount,
+      entities: entityRows,
+      hasRiskAudit,
+      factsCount,
+      readiness: readinessHint,
+      projectCreatedAt: (project.created_at as string) ?? null,
+    };
+    const gaps = computeGaps(gapInputs);
+    lines.push('');
+    lines.push(formatGapsForPrompt(gaps));
 
     if (!idea && (!readinessHint || readinessHint.overall_score === 0)) {
       lines.push('\n⚠ NEW PROJECT — no Idea Canvas, no skills completed. Start with idea destructuring.');
@@ -353,6 +412,8 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
         is_new_project: !idea && readinessHint?.overall_score === 0,
         next_recommended_skill: readinessHint?.next_recommended_skill?.id ?? null,
         overall_score: readinessHint?.overall_score ?? null,
+        gaps_count: gaps.length,
+        top_gap_kinds: gaps.slice(0, 5).map(g => g.kind),
       },
     };
   },
@@ -1480,6 +1541,98 @@ const readTabularReviewTool = (ctx: ToolContext): AgentTool => ({
 });
 
 // =============================================================================
+// update_idea_canvas — progressive Lean Canvas write
+// =============================================================================
+//
+// Before this tool existed, the idea-shaping skill produced a structured JSON
+// Lean Canvas in prose but no code path extracted it; idea_canvas stayed null
+// across every chat session. The agent could discuss the canvas but never
+// persist it. This tool fixes that: every time the founder confirms a field,
+// the agent calls update_idea_canvas to upsert just that column. Partial
+// updates are safe — COALESCE preserves prior values for omitted fields.
+
+const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
+  name: 'update_idea_canvas',
+  label: 'Update Idea Canvas',
+  description:
+    "Persist one or more Lean Canvas fields to the project's idea_canvas row. " +
+    "Call this whenever the founder confirms a field during idea-shaping — do not wait " +
+    "until the end of the conversation. Each call is an upsert; omitted fields are left " +
+    "untouched. Use crisp, single-paragraph values (≤ 600 chars each). The next chat turn " +
+    "and the Knowledge page read directly from these columns.",
+  parameters: Type.Object({
+    problem: Type.Optional(Type.String({ description: 'Specific pain the customer feels today and what they currently do about it.' })),
+    solution: Type.Optional(Type.String({ description: 'What the product does and why this approach is better than the alternatives.' })),
+    target_market: Type.Optional(Type.String({ description: 'Specific first customer / beachhead — be concrete (demographics, behavior, context).' })),
+    business_model: Type.Optional(Type.String({ description: 'Revenue model + pricing logic + unit-economics stance.' })),
+    competitive_advantage: Type.Optional(Type.String({ description: "What's defensible: network effects, data, expertise, regulatory moat — or honest 'none yet'." })),
+    value_proposition: Type.Optional(Type.String({ description: 'One-sentence reason the target customer chooses this over every alternative including doing nothing.' })),
+    unfair_advantage: Type.Optional(Type.String({ description: 'Asset / position / insight competitors cannot easily copy.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    console.log('[update_idea_canvas] INVOKED with params keys:', Object.keys(params || {}));
+    const p = params as {
+      problem?: string;
+      solution?: string;
+      target_market?: string;
+      business_model?: string;
+      competitive_advantage?: string;
+      value_proposition?: string;
+      unfair_advantage?: string;
+    };
+
+    const fields: Array<{ col: string; val: string }> = [];
+    const trim = (s?: string) => (typeof s === 'string' ? s.trim().slice(0, 600) : '');
+    for (const [col, val] of Object.entries(p)) {
+      const t = trim(val as string | undefined);
+      if (t) fields.push({ col, val: t });
+    }
+    console.log('[update_idea_canvas] non-empty fields:', fields.map((f) => f.col));
+    if (fields.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'update_idea_canvas requires at least one non-empty field.' }],
+        details: { error: true },
+      };
+    }
+
+    // Single upsert: insert with the provided values, on conflict COALESCE
+    // each column to preserve untouched prior values. Build the SET clause
+    // dynamically so omitted fields stay NULL→prior rather than overwriting.
+    const cols = ['project_id', ...fields.map((f) => f.col)];
+    const placeholders = ['?', ...fields.map(() => '?')];
+    const setClauses = fields
+      .map((f) => `${f.col} = COALESCE(NULLIF(EXCLUDED.${f.col}, ''), idea_canvas.${f.col})`)
+      .join(', ');
+
+    try {
+      await run(
+        `INSERT INTO idea_canvas (${cols.join(', ')})
+         VALUES (${placeholders.join(', ')})
+         ON CONFLICT (project_id) DO UPDATE SET
+           ${setClauses},
+           updated_at = CURRENT_TIMESTAMP`,
+        ctx.projectId, ...fields.map((f) => f.val),
+      );
+      console.log('[update_idea_canvas] SQL succeeded for fields:', fields.map((f) => f.col));
+    } catch (err) {
+      console.error('[update_idea_canvas] SQL failed:', (err as Error).message);
+      return {
+        content: [{ type: 'text', text: `Failed to update Idea Canvas: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Updated Idea Canvas (${fields.map((f) => f.col).join(', ')}). The founder will see these on the Knowledge page.`,
+      }],
+      details: { updated: fields.map((f) => f.col) },
+    };
+  },
+});
+
+// =============================================================================
 // Factory
 // =============================================================================
 
@@ -1522,5 +1675,6 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     proposeWatchSourceTool(ctx),
     createSignalTool(ctx),
     createTabularReviewTool(ctx),
+    updateIdeaCanvasTool(ctx),
   ];
 }

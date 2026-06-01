@@ -7,6 +7,8 @@ import type { TextContent } from '@mariozechner/pi-ai';
 import { pickModel, type TaskLabel } from './llm/router';
 import { recordEvent } from './memory/events';
 import { recordUsage } from './cost-meter';
+import { run } from '@/lib/db';
+import { generateId } from '@/lib/api-helpers';
 
 /**
  * Skills-as-tools — converts every launchpad-skills/<skill>/SKILL.md into an
@@ -212,12 +214,145 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
         );
       }
 
+      // Server-side persistence safety net. Skills are run via completeSimple
+      // (no tools), so their output is text-only — including any structured
+      // JSON the SKILL.md asks them to emit. Without parsing it back into the
+      // domain tables, the skill's work stays trapped in chat history.
+      //
+      // idea-shaping specifically emits `"idea_canvas": { problem: {…}, … }`
+      // per its prompt. We detect that block and upsert the columns we map.
+      try {
+        await persistSkillSideEffects(opts.projectId, skill.id, output);
+      } catch (err) {
+        console.warn(`[skill-tools] persistSkillSideEffects failed for ${skill.id} (non-fatal):`, (err as Error).message);
+      }
+
+      // Upsert skill_completions so the 7-stage readiness reflects this run.
+      // Without this, chat-invoked skills (the most common path) never count
+      // toward stage scores — the Knowledge page shows "0/2 skills" forever
+      // even after the agent runs idea-shaping multiple times. Mirror's the
+      // INSERT shape used by skill-executor.ts so both code paths converge.
+      try {
+        await run(
+          `INSERT INTO skill_completions (id, project_id, skill_id, status, summary, completed_at)
+           VALUES (?, ?, ?, 'completed', ?, CURRENT_TIMESTAMP)
+           ON CONFLICT (project_id, skill_id) DO UPDATE SET
+             status = 'completed',
+             summary = EXCLUDED.summary,
+             completed_at = CURRENT_TIMESTAMP`,
+          generateId('sc'),
+          opts.projectId,
+          skill.id,
+          output.slice(0, 10000),
+        );
+        console.log(`[skill-tools] upserted skill_completions for ${skill.id}`);
+      } catch (err) {
+        console.warn(`[skill-tools] skill_completions upsert failed for ${skill.id} (non-fatal):`, (err as Error).message);
+      }
+
       return {
         content: [{ type: 'text', text: output }],
         details: { skill_id: skill.id, tier: skill.frontmatter.model_tier ?? 'balanced' },
       };
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Skill output → domain table persistence
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a skill's text output for structured JSON blocks the SKILL.md asked
+ * it to emit, and upsert them into the corresponding tables. Server-side
+ * safety net: even if the skill sub-agent has no tools (it can't, because
+ * completeSimple is single-turn), the founder's project knowledge still
+ * accumulates.
+ */
+async function persistSkillSideEffects(projectId: string, skillId: string, text: string): Promise<void> {
+  if (skillId === 'idea-shaping') {
+    const canvas = extractJsonBlock(text, 'idea_canvas');
+    if (canvas) await persistIdeaCanvasFromSkill(projectId, canvas);
+  }
+  // Future: market-research → research table, scientific-validation → graph_nodes, etc.
+}
+
+/**
+ * Extract the value of `"<key>": { ... }` from the FIRST JSON code block in
+ * the text. Skills emit fenced ```json blocks; we also tolerate inline JSON
+ * objects with the key at the top level.
+ */
+function extractJsonBlock(text: string, key: string): Record<string, unknown> | null {
+  // Prefer fenced ```json blocks (the SKILL.md uses this format)
+  const fenced = text.match(/```json\s*\n([\s\S]*?)\n```/);
+  const candidates: string[] = [];
+  if (fenced && fenced[1]) candidates.push(fenced[1]);
+  // Also try the unfenced full text
+  candidates.push(text);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object' && key in parsed) {
+        const v = (parsed as Record<string, unknown>)[key];
+        if (v && typeof v === 'object') return v as Record<string, unknown>;
+      }
+    } catch {
+      // not JSON or wrong shape — try the next candidate
+    }
+  }
+  return null;
+}
+
+async function persistIdeaCanvasFromSkill(projectId: string, canvas: Record<string, unknown>): Promise<void> {
+  // idea-shaping SKILL.md uses nested objects per section (e.g.
+  //   problem: { statement: ..., who_affected: ..., ... }
+  // ). We collapse each section to a single-paragraph string for the
+  // corresponding flat idea_canvas column. Keeps the column model simple
+  // and matches what update_idea_canvas accepts.
+  const flatten = (section: unknown): string => {
+    if (typeof section === 'string') return section.trim().slice(0, 600);
+    if (!section || typeof section !== 'object') return '';
+    const obj = section as Record<string, unknown>;
+    // Prefer a "statement" or "description" field if present
+    if (typeof obj.statement === 'string') return obj.statement.trim().slice(0, 600);
+    if (typeof obj.description === 'string') return obj.description.trim().slice(0, 600);
+    if (typeof obj.one_liner === 'string') return obj.one_liner.trim().slice(0, 600);
+    // Otherwise join key:value pairs
+    const parts: string[] = [];
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v === 'string' && v.trim()) parts.push(`${k}: ${v.trim()}`);
+    }
+    return parts.join(' · ').slice(0, 600);
+  };
+
+  const fields = [
+    { col: 'problem', val: flatten(canvas.problem) },
+    { col: 'solution', val: flatten(canvas.solution) },
+    { col: 'target_market', val: flatten(canvas.target_market) },
+    { col: 'business_model', val: flatten(canvas.business_model) },
+    { col: 'competitive_advantage', val: flatten(canvas.competitive_advantage) },
+    { col: 'value_proposition', val: flatten(canvas.value_proposition) },
+    { col: 'unfair_advantage', val: flatten(canvas.unfair_advantage) },
+  ].filter((f) => f.val);
+
+  if (fields.length === 0) return;
+
+  const cols = ['project_id', ...fields.map((f) => f.col)];
+  const placeholders = ['?', ...fields.map(() => '?')];
+  const setClauses = fields
+    .map((f) => `${f.col} = COALESCE(NULLIF(EXCLUDED.${f.col}, ''), idea_canvas.${f.col})`)
+    .join(', ');
+
+  await run(
+    `INSERT INTO idea_canvas (${cols.join(', ')})
+     VALUES (${placeholders.join(', ')})
+     ON CONFLICT (project_id) DO UPDATE SET
+       ${setClauses},
+       updated_at = CURRENT_TIMESTAMP`,
+    projectId, ...fields.map((f) => f.val),
+  );
+  console.log(`[skill-tools] persisted idea_canvas fields:`, fields.map((f) => f.col));
 }
 
 /**
