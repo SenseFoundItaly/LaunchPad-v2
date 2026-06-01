@@ -241,6 +241,24 @@ interface BudgetSnapshot {
   status: string;
 }
 
+/**
+ * Accumulate a single LLM-call cost into the project's monthly budget row.
+ * Public so the chat-route's lighter-weight `logUsageToDb` path can also keep
+ * `project_budgets.current_llm_usd` in sync — without it, the credits badge
+ * and budget caps stay stuck at the first call's value while real spend
+ * continues to accrue silently in `llm_usage_logs`.
+ *
+ * Idempotent at insert time (ON CONFLICT on the unique
+ * (project_id, period_month) key) and additive on update.
+ */
+export async function accumulateMonthlyBudget(
+  projectId: string,
+  costDelta: number,
+): Promise<void> {
+  if (!Number.isFinite(costDelta) || costDelta <= 0) return;
+  await upsertMonthlyBudget(projectId, currentPeriodMonth(), costDelta);
+}
+
 async function upsertMonthlyBudget(
   projectId: string,
   periodMonth: string,

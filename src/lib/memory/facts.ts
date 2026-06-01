@@ -36,6 +36,14 @@ export interface RecordFactInput {
   sourceId?: string;
   confidence?: number;
   sources?: Source[];
+  /**
+   * Initial reviewed_state for the inserted row. Defaults to 'pending' so all
+   * legacy callers (chat, skill, workflow-capture, approval_inbox rejection)
+   * still route facts through the founder's review inbox. Pass 'applied' when
+   * the caller is itself a founder confirmation (e.g. the brief → knowledge
+   * button) so the fact lands directly in agent context.
+   */
+  initialState?: ReviewedState;
 }
 
 /**
@@ -83,10 +91,11 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
       id = existing.id;
     } else {
       id = crypto.randomUUID();
+      const initialState: ReviewedState = input.initialState ?? 'pending';
       await run(
         `INSERT INTO memory_facts
            (id, user_id, project_id, fact, kind, source_type, source_id, confidence, reviewed_state, sources)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         input.userId,
         input.projectId,
@@ -95,6 +104,7 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
         input.sourceType ?? null,
         input.sourceId ?? null,
         confidence,
+        initialState,
         sourcesJson,
       );
     }

@@ -48,9 +48,17 @@ Work through these sequentially:
 - If the business model is "we'll figure it out later," flag this as a risk but do not block progress. Note it for the scoring skill to penalize.
 - If the competitive advantage is "first mover," push back. First mover advantage is rarely durable. Ask what happens when a well-funded competitor copies the idea in six months.
 
+## Persistence — call `update_idea_canvas` progressively
+
+**Every time the founder confirms a section** (problem, solution, target_market, business_model, competitive_advantage, value_proposition, unfair_advantage), invoke the `update_idea_canvas` tool with just that field. Do NOT wait until the end of the conversation. The tool is an upsert with field-level COALESCE: omitted fields are left untouched, so partial updates are safe and additive.
+
+Why progressive: the Knowledge page reads directly from this row, future chat turns load it via `get_project_summary`, and the row survives across sessions. A founder who closes the tab mid-conversation should come back to find their confirmed fields already in their Knowledge page.
+
+Use crisp, single-paragraph values (≤ 600 chars each). Don't quote the founder verbatim — synthesize their answer into a clean canvas entry.
+
 ## Output Format
 
-When all sections are complete, produce a structured Idea Canvas:
+The tool calls above are what persist the canvas. Additionally, when all sections are complete, surface a structured Idea Canvas in the chat for the founder to review:
 
 ```json
 {

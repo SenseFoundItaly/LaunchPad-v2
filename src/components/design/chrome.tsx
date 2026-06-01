@@ -1,17 +1,17 @@
 /**
  * Design-system chrome — TopBar + NavRail.
  *
- * Three-item nav (the 100× simplification). Everything else is reachable
- * by URL but no longer takes nav real estate:
+ * Four-item nav:
  *
- *   today   → /project/{id}/today    (briefs preview + inbox + pulse)
- *   signals → /project/{id}/signals  (briefs + findings + watchers)
- *   chat    → /project/{id}/chat     (co-pilot)
+ *   today     → /project/{id}/today      (briefs preview + inbox + pulse)
+ *   signals   → /project/{id}/signals    (briefs + findings + watchers)
+ *   knowledge → /project/{id}/knowledge  (read-only overview of project intelligence)
+ *   chat      → /project/{id}/chat       (co-pilot)
  *
  * Orphan routes still live under /project/{id}/* (workflow, journey,
  * growth, simulation, readiness, scoring, brief, assets, org, research,
- * fundraising, knowledge, intelligence, drafts, actions, dashboard) —
- * accessible via direct URL only, slated for deletion in a follow-up.
+ * fundraising, intelligence, drafts, actions, dashboard) — accessible via
+ * direct URL only, slated for deletion in a follow-up.
  */
 
 'use client';
@@ -123,9 +123,10 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'today',   iconKey: 'home',   label: 'Today',    route: 'today' },
-  { id: 'signals', iconKey: 'signal', label: 'Signals',  route: 'signals' },
-  { id: 'chat',    iconKey: 'chat',   label: 'Co-pilot', route: 'chat' },
+  { id: 'today',     iconKey: 'home',   label: 'Today',     route: 'today' },
+  { id: 'signals',   iconKey: 'signal', label: 'Signals',   route: 'signals' },
+  { id: 'knowledge', iconKey: 'graph',  label: 'Knowledge', route: 'knowledge' },
+  { id: 'chat',      iconKey: 'chat',   label: 'Co-pilot',  route: 'chat' },
 ];
 
 export interface NavRailProps {

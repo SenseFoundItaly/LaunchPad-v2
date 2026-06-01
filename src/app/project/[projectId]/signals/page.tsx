@@ -105,6 +105,29 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
     return () => clearTimeout(t);
   }, [search, fetchTimeline]);
 
+  // Founder confirmation that a brief is worth preserving in the knowledge
+  // layer. POSTs to the per-brief save endpoint and dispatches the same
+  // inbox-dirty event the unified inbox listens to.
+  const saveBriefToKnowledge = useCallback(async (briefId: string) => {
+    const res = await fetch(
+      `/api/projects/${projectId}/intelligence-briefs/${briefId}/save-to-knowledge`,
+      {
+        method: 'POST',
+        // Next.js 16 route handlers reject empty-body POSTs without a JSON
+        // Content-Type as 415. Send {} so the handler always sees a valid body.
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(err.error || `Save failed: HTTP ${res.status}`);
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+    }
+  }, [projectId]);
+
   // Force-run the correlator (bypasses cadence + signal floors). Used by the
   // "Generate brief now" button so a fresh project can see synthesis without
   // waiting a week. Refetches the timeline on success so new briefs appear.
@@ -280,7 +303,13 @@ export default function SignalsPage({ params }: { params: Promise<{ projectId: s
                       }
                     />
                   ) : (
-                    briefs.map((b) => <BriefCard key={b.id} brief={b} />)
+                    briefs.map((b) => (
+                      <BriefCard
+                        key={b.id}
+                        brief={b}
+                        onSaveToKnowledge={saveBriefToKnowledge}
+                      />
+                    ))
                   )}
                 </Section>
 

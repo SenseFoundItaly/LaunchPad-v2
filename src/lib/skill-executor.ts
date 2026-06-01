@@ -23,6 +23,7 @@ import { join } from 'path';
 import { generateId } from '@/lib/api-helpers';
 import { query, run } from '@/lib/db';
 import { runAgent } from '@/lib/pi-agent';
+import { makeProjectTools } from '@/lib/project-tools';
 import { recordUsage } from '@/lib/cost-meter';
 import { pickModel } from '@/lib/llm/router';
 import { recordEvent } from '@/lib/memory/events';
@@ -179,10 +180,19 @@ export async function runSkill(
   const userMsg = opts.prompt || SKILL_KICKOFFS[skillId] || `Run the ${skillId} skill for the current project.`;
   const startedAt = Date.now();
 
+  // Expose project tools to the skill sub-agent so it can actually persist
+  // what it figures out — e.g. idea-shaping can call update_idea_canvas
+  // when the founder confirms a field. Without this, skills produce structured
+  // JSON in prose but no code path captures it, and the project tables stay
+  // empty. The recursion guard from skill-tools.ts (one-level-deep) still
+  // applies: project tools are DB writes / reads, not LLM calls.
+  const projectTools = makeProjectTools(projectId, { includeWriteTools: true });
+
   const { text, usage } = await runAgent(userMsg, {
     systemPrompt: loaded.body,
     timeout: opts.timeoutMs ?? 120_000,
     task: 'skill-invoke',
+    extraTools: projectTools,
   });
   const latencyMs = Date.now() - startedAt;
 
