@@ -226,7 +226,8 @@ export function logToLangfuse(
 }
 
 // ---------------------------------------------------------------------------
-// logUsageToDb — persist to llm_usage_logs table
+// logUsageToDb — persist to llm_usage_logs table + accumulate into
+// project_budgets so the credits badge and cap checks reflect chat spend.
 // ---------------------------------------------------------------------------
 export async function logUsageToDb(
   projectId: string,
@@ -263,6 +264,18 @@ export async function logUsageToDb(
   } catch (err) {
     // Telemetry should never break the main flow
     console.error('Failed to log LLM usage:', err);
+  }
+
+  // Without this the chat-route path silently desyncs `project_budgets`:
+  // every chat call is logged but the budget row stays frozen at the first
+  // call's value, so the credits badge under-counts real spend and caps
+  // never fire. Imported lazily to keep this telemetry module free of a
+  // hard cost-meter dependency at module-init time.
+  try {
+    const { accumulateMonthlyBudget } = await import('@/lib/cost-meter');
+    await accumulateMonthlyBudget(projectId, cost);
+  } catch (err) {
+    console.warn('[telemetry] budget accumulate failed (non-fatal):', (err as Error).message);
   }
 }
 

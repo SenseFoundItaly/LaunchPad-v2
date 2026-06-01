@@ -58,5 +58,9 @@ export async function GET(
     return { ...b, signal_ids, recommended_actions };
   });
 
-  return json({ success: true, data: parsed });
+  // `json()` already wraps as { success: true, data }, so pass the array
+  // directly. The previous { success, data } object inside json() created a
+  // double-wrap that consumers' `body.data ?? body` couldn't unwrap into an
+  // array, silently returning [] everywhere briefs were displayed.
+  return json(parsed);
 }
