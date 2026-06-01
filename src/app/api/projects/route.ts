@@ -80,11 +80,12 @@ export async function POST(request: NextRequest) {
     now,
   );
 
-  // Seed the operational `health` monitor + the 4 Layer-1 ecosystem monitors.
-  // Non-fatal if either fails — the project must still be created so the
-  // founder can recover manually via the dashboard.
+  // Seed the operational `health` monitor (auto-activated) + the Layer-1
+  // ecosystem monitors as pending_actions in the founder's inbox (require
+  // approval before they go live). Non-fatal if either fails — the project
+  // must still be created so the founder can recover manually.
   let healthSeed: { monitor_id: string; type: string; name: string } | null = null;
-  let ecosystemSeed: { created: unknown[]; skipped: unknown[]; error?: string } = { created: [], skipped: [] };
+  let ecosystemSeed: { proposed: unknown[]; skipped: unknown[]; error?: string } = { proposed: [], skipped: [] };
 
   try {
     healthSeed = await createHealthMonitor(id, body.name);
@@ -95,13 +96,13 @@ export async function POST(request: NextRequest) {
   try {
     ecosystemSeed = await seedEcosystemMonitorsForProject(id);
   } catch (err) {
-    ecosystemSeed = { created: [], skipped: [], error: (err as Error).message };
+    ecosystemSeed = { proposed: [], skipped: [], error: (err as Error).message };
   }
 
   const row = await query('SELECT * FROM projects WHERE id = ?', id);
   return json({
     ...mapProject(row[0]),
-    monitors_seeded: {
+    monitor_proposals_seeded: {
       health: healthSeed,
       ecosystem: ecosystemSeed,
     },
