@@ -471,6 +471,29 @@ export async function GET(request: NextRequest) {
   const auth = requireCronAuth(request);
   if (!auth.ok) return auth.response;
 
+  // Stuck-row sweep — issue #19. Before we start a new run, find any
+  // previous run that's still marked 'running' past the max expected
+  // runtime and flip it to 'failed' with reason='presumed-stuck'. This
+  // catches the case where the process was killed mid-run (Netlify timeout,
+  // OOM, deploy rollover) and the row never reached the finalize UPDATE.
+  // Idempotent — running this every tick is fine; healthy runs are
+  // untouched. 20 minutes is well past the longest legitimate cron we run.
+  const STUCK_MIN = 20;
+  try {
+    const stuckCutoff = new Date(Date.now() - STUCK_MIN * 60 * 1000).toISOString();
+    await run(
+      `UPDATE cron_runs
+          SET status = 'failed',
+              finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP),
+              error_message = 'presumed-stuck — sweeper marked'
+        WHERE status = 'running' AND started_at < ?`,
+      stuckCutoff,
+    );
+  } catch (err) {
+    // Non-fatal — sweeper failing doesn't justify killing the cron tick.
+    console.warn('[cron] stuck-row sweep failed:', (err as Error).message);
+  }
+
   const cronRunId = generateId('crun');
   const startedAt = Date.now();
   await run(
