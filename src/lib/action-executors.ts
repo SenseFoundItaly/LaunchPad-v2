@@ -85,7 +85,22 @@ async function getSourceAlert(alertId: string | null): Promise<EcosystemAlert | 
 }
 
 function effectivePayload(action: PendingAction): Record<string, unknown> {
-  return action.edited_payload || action.payload;
+  const raw = action.edited_payload || action.payload;
+  // `postgres.js` returns JSONB as already-parsed objects in most code paths,
+  // but `listPendingActions` / `getPendingAction` currently leave it as a
+  // string. Parse defensively so every executor reads object semantics
+  // regardless of which fetcher loaded the row. Falling back to {} keeps
+  // the read site simple — an executor that needs a missing field already
+  // applies its own defaults via `payload.foo ?? '...'`.
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return raw || {};
 }
 
 function encodeMailto(to: string, subject: string, body: string): string {
@@ -377,7 +392,7 @@ const configureMonitor: ActionHandler = async (action) => {
   const nextRun = scheduledNextRun && new Date(scheduledNextRun) > graceDate
     ? scheduledNextRun
     : graceDate.toISOString();
-  const dedupHash = dedup.dedup_hash ?? computeDedupHash(urls, q);
+  const dedupHash = dedup.dedup_hash ?? computeDedupHash(urls, q, kind);
 
   await run(
     `INSERT INTO monitors (

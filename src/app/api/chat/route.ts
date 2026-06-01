@@ -45,7 +45,14 @@ function isSimpleFollowUp(message: string, messages: unknown[]): boolean {
  * per LLM roundtrip. The agent can still suggest write actions in prose —
  * the next turn (with write intent) would include the tools.
  */
-const WRITE_INTENT_PATTERN = /\b(create|draft|propose|queue|track|watch|remind|task|budget|monitor|signal|raise|lower|bump|cap|email|linkedin|post|schedule|add a|set up|configure)\b/i;
+// Write-intent words include both the "queue something new" verbs (create,
+// draft, propose…) AND the "commit what we just discussed to memory" verbs
+// (save, persist, commit, update, record, lock, log, capture, remember).
+// Without the second group, an explicit "save this to my canvas" turn ends
+// up with includeWriteTools=false and the update_idea_canvas / recordFact /
+// pending-action tools all disappear from the agent's toolset — leaving the
+// agent to say "I don't have a tool for that" even though it does.
+const WRITE_INTENT_PATTERN = /\b(create|draft|propose|queue|track|watch|remind|task|budget|monitor|signal|raise|lower|bump|cap|email|linkedin|post|schedule|add a|set up|configure|save|persist|commit|record|store|remember|update|write|capture|lock|log|fill in|complete|finalize|canvas|fact)\b/i;
 
 function hasWriteIntent(message: string): boolean {
   return WRITE_INTENT_PATTERN.test(message);
@@ -449,6 +456,14 @@ export async function POST(request: NextRequest) {
                 if (payload.tool_end) {
                   const t = toolsList.find((x) => x.id === payload.tool_end.id);
                   if (t) t.status = payload.tool_end.error ? 'error' : 'done';
+                  // Diagnostic: surface full tool_end payload so we can see WHAT
+                  // pi-agent flagged as the error. Without this, tools fail
+                  // silently and the chat_messages row only stores a boolean.
+                  console.log('[chat] tool_end:', JSON.stringify({
+                    id: payload.tool_end.id,
+                    name: payload.tool_end.name,
+                    error: payload.tool_end.error,
+                  }));
                 }
               } catch {
                 // non-JSON SSE line; ignore
