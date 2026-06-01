@@ -13,7 +13,7 @@ import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
 import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
-import { isProjectCapped } from '@/lib/cost-meter';
+import { getBudgetEnforcementMode, getProjectBudgetStatus } from '@/lib/cost-meter';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
@@ -307,11 +307,41 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Cost tracking (observe mode — no hard block)
-  const capStatus = await isProjectCapped(project_id);
-  if (capStatus.capped) {
-    console.info(`[chat] project ${project_id} over budget — proceeding (observe mode)`);
+  // Budget enforcement — issue #14. Mode comes from BUDGET_ENFORCEMENT env:
+  //   observe (default) — log only, never block
+  //   warn             — log + emit X-Budget-State=warn|cap header
+  //   hard             — return 429 on cap; warn header on warn
+  // The X-Budget-State header is the contract for the chat UI to show a
+  // banner without an extra round-trip.
+  const budgetMode = getBudgetEnforcementMode();
+  const budget = await getProjectBudgetStatus(project_id);
+  if (budget.state === 'cap') {
+    console.info(`[chat] project ${project_id} at cap (${budget.currentUsd.toFixed(2)}/${budget.capUsd.toFixed(2)} ${budget.periodMonth}) — mode=${budgetMode}`);
+    if (budgetMode === 'hard') {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'budget_cap_reached',
+          message: `Project at monthly LLM budget cap ($${budget.capUsd.toFixed(2)} for ${budget.periodMonth}). Raise the cap in /usage or wait for the next period.`,
+          current_usd: budget.currentUsd,
+          cap_usd: budget.capUsd,
+          period_month: budget.periodMonth,
+        }),
+        {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Budget-State': 'cap',
+            'Retry-After': '3600',
+          },
+        },
+      );
+    }
+  } else if (budget.state === 'warn') {
+    console.info(`[chat] project ${project_id} budget warn (${budget.percent}% of cap) — mode=${budgetMode}`);
   }
+  // Header set on the eventual streaming response below.
+  const budgetHeader = budget.state;
 
   const lastMessage = messages[messages.length - 1]?.content || '';
   const projectContext = `[PROJECT: "${projects[0].name}"${projects[0].description ? ` — ${projects[0].description}` : ''}]\n`;
@@ -661,6 +691,7 @@ export async function POST(request: NextRequest) {
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
+        'X-Budget-State': budgetHeader,
       },
     });
   } catch (err) {
@@ -708,6 +739,7 @@ export async function POST(request: NextRequest) {
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
+      'X-Budget-State': budgetHeader,
     },
   });
 }

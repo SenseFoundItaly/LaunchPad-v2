@@ -208,6 +208,72 @@ export async function isProjectCapped(projectId: string): Promise<{
   };
 }
 
+export type BudgetState = 'ok' | 'warn' | 'cap';
+export type BudgetEnforcementMode = 'observe' | 'warn' | 'hard';
+
+/**
+ * Read the runtime enforcement mode from BUDGET_ENFORCEMENT env var.
+ * Default is 'observe' so unconfigured environments behave like before.
+ * Issue #14.
+ */
+export function getBudgetEnforcementMode(): BudgetEnforcementMode {
+  const raw = (process.env.BUDGET_ENFORCEMENT || 'observe').toLowerCase();
+  if (raw === 'hard' || raw === 'warn' || raw === 'observe') return raw;
+  console.warn(`[cost-meter] unknown BUDGET_ENFORCEMENT=${raw}, defaulting to observe`);
+  return 'observe';
+}
+
+/**
+ * Read the project's budget state for the current month — 'ok', 'warn', or
+ * 'cap'. Returns 'ok' for projects with no budget row yet (first call this
+ * month). Used by chat route for both UI hints (X-Budget-State header) and
+ * for the hard-cap 429 in BUDGET_ENFORCEMENT=hard mode.
+ *
+ * Issue #14.
+ */
+export async function getProjectBudgetStatus(projectId: string): Promise<{
+  state: BudgetState;
+  currentUsd: number;
+  warnUsd: number;
+  capUsd: number;
+  percent: number;
+  periodMonth: string;
+}> {
+  const periodMonth = currentPeriodMonth();
+  const row = (await query<{
+    current_llm_usd: number;
+    warn_llm_usd: number;
+    cap_llm_usd: number;
+    status: string;
+  }>(
+    `SELECT current_llm_usd, warn_llm_usd, cap_llm_usd, status
+     FROM project_budgets
+     WHERE project_id = ? AND period_month = ?`,
+    projectId,
+    periodMonth,
+  ))[0];
+
+  if (!row) {
+    return { state: 'ok', currentUsd: 0, warnUsd: 0, capUsd: 0, percent: 0, periodMonth };
+  }
+
+  const percent = row.cap_llm_usd > 0
+    ? Math.min(100, Math.round((row.current_llm_usd / row.cap_llm_usd) * 100))
+    : 0;
+  let state: BudgetState = 'ok';
+  if (row.status === 'capped' || row.current_llm_usd >= row.cap_llm_usd) state = 'cap';
+  else if (row.warn_llm_usd > 0 && row.current_llm_usd >= row.warn_llm_usd) state = 'warn';
+
+  return {
+    state,
+    currentUsd: row.current_llm_usd,
+    warnUsd: row.warn_llm_usd,
+    capUsd: row.cap_llm_usd,
+    percent,
+    periodMonth,
+  };
+}
+
 /**
  * Throws BudgetExceededError if the project is capped. Convenience wrapper
  * for call sites that want a single-line guard. Pass bypassBudget=true to
