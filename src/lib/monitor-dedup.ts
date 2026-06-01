@@ -48,7 +48,11 @@ interface ActiveMonitorRow {
   kind: string | null;
   linked_risk_id: string | null;
   urls_to_track: string[] | null;
-  query: string | null;
+  // Note: `query` was historically read alongside this row for the semantic
+  // classifier payload, but the monitors table has no such column — see the
+  // CREATE TABLE in db/schema.sql:455. The SELECT below dropped it, so the
+  // classifier now sees `query: null` for every existing monitor (its weight
+  // in the overlap judgment was already low — name/kind/urls dominate).
 }
 
 export type DedupVerdict =
@@ -62,14 +66,21 @@ export type DedupVerdict =
  * Canonical hash for exact-match dedup. Sorts urls + normalizes query so
  * "WatchHubSpot" vs "watch hubspot" vs url-order-variations all hash equal.
  * Stored in monitors.dedup_hash + indexed for O(1) lookup.
+ *
+ * `kind` is included so the 8 ecosystem auto-seed proposals — which all have
+ * empty urls + no query — don't collapse to a single hash and block each
+ * other at L1.3. (L1.1 already enforces uniqueness on linked_risk_id + kind;
+ * including kind here just keeps L1.3 from misfiring on the empty-input case.)
  */
 export function computeDedupHash(
   urls: string[] | undefined,
   q: string | undefined,
+  kind?: string,
 ): string {
   const sortedUrls = (urls ?? []).slice().sort().join('|');
   const normQ = (q ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-  return crypto.createHash('sha256').update(`${sortedUrls}#${normQ}`).digest('hex');
+  const normKind = (kind ?? '').trim().toLowerCase();
+  return crypto.createHash('sha256').update(`${sortedUrls}#${normQ}#${normKind}`).digest('hex');
 }
 
 /**
@@ -86,7 +97,7 @@ export async function checkDedup(
   proposal: MonitorProposalInput,
 ): Promise<DedupVerdict> {
   const active = await query<ActiveMonitorRow>(
-    `SELECT id, name, kind, linked_risk_id, urls_to_track, query
+    `SELECT id, name, kind, linked_risk_id, urls_to_track
      FROM monitors
      WHERE project_id = ? AND status = 'active'`,
     projectId,
@@ -143,7 +154,7 @@ export async function checkDedup(
     }
   }
 
-  const dedup_hash = computeDedupHash(proposal.urls_to_track, proposal.query);
+  const dedup_hash = computeDedupHash(proposal.urls_to_track, proposal.query, proposal.kind);
 
   // L1.3 — exact-hash match. Covers the edge case where two proposals
   // happen to produce the same normalized (url_set + query) combination
@@ -243,7 +254,7 @@ async function runSemanticClassifier(
       id: m.id,
       name: m.name,
       kind: m.kind,
-      query: m.query,
+      query: null,
       urls: m.urls_to_track ? safeParseArray(m.urls_to_track) : [],
     })),
   });

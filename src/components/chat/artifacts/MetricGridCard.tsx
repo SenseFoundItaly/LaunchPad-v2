@@ -56,10 +56,30 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
         />
       }
     >
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+      {/* CSS Grid with auto-fill + minmax — the cells stack into 1 column when
+          the Canvas panel is narrow and expand to 2 / 3 columns as space allows.
+          Viewport-based Tailwind breakpoints can't see how wide the panel is
+          (the panel is much narrower than the viewport), so we rely on the
+          container's actual width instead. */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+          gap: 8,
+        }}
+      >
         {metrics.map((m, i) => (
-          <div key={i} className="bg-paper-2/50 border border-line-2 rounded-lg p-3 group">
-            <div className="text-[10px] text-ink-5 uppercase tracking-wider">{m.label}</div>
+          <div
+            key={i}
+            className="bg-paper-2/50 border border-line-2 rounded-lg p-3 group"
+            style={{ minWidth: 0 }}
+          >
+            <div
+              className="text-[10px] text-ink-5 uppercase tracking-wider"
+              style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+            >
+              {m.label}
+            </div>
             {editingIdx === i ? (
               <input
                 autoFocus
@@ -74,12 +94,16 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
                 className="text-lg font-bold text-ink mt-1 cursor-pointer hover:text-moss transition-colors"
                 onClick={() => startEdit(i)}
                 title="Click to edit"
+                style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
               >
                 {m.value}
               </div>
             )}
             {m.change && (
-              <div className={`text-xs mt-0.5 ${m.change.startsWith('-') ? 'text-clay' : 'text-moss'}`}>
+              <div
+                className={`text-xs mt-0.5 ${m.change.startsWith('-') ? 'text-clay' : 'text-moss'}`}
+                style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+              >
                 {m.change}
               </div>
             )}

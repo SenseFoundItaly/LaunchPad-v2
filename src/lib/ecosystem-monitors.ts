@@ -10,9 +10,8 @@
  */
 
 import { createHash } from 'crypto';
-import { query, run } from '@/lib/db';
-import { generateId } from '@/lib/api-helpers';
-import { calculateNextRun } from '@/lib/monitor-schedule';
+import { query } from '@/lib/db';
+import { createPendingAction } from '@/lib/pending-actions';
 
 export type EcosystemMonitorType =
   | 'ecosystem.competitors'
@@ -496,48 +495,90 @@ export async function loadMonitorContext(projectId: string): Promise<MonitorProm
 // =============================================================================
 
 export interface SeedResult {
-  created: Array<{ monitor_id: string; type: EcosystemMonitorType; name: string }>;
+  /** Pending_actions of type=configure_monitor surfaced into the founder's
+   *  inbox. The actual monitors row only lands when the founder Applies the
+   *  action — see configureMonitor in src/lib/action-executors.ts. */
+  proposed: Array<{ action_id: string; type: EcosystemMonitorType; name: string }>;
   skipped: Array<{ type: EcosystemMonitorType; reason: string }>;
 }
 
+/**
+ * Seeds one configure_monitor pending_action per ecosystem template so the
+ * founder explicitly approves each monitor before it goes live.
+ *
+ * Previous behavior — direct INSERT INTO monitors with status='inactive' — was
+ * dropped in favor of routing through the same approval inbox that gates every
+ * other side-effecting action. The founder now sees these in
+ * /project/{id}/chat → Pending alongside drafts, tasks, and graph updates.
+ *
+ * Idempotent across re-runs: skips templates that already have either a live
+ * monitors row OR an open (pending|edited) configure_monitor proposal. So
+ * /api/projects/{id}/ecosystem/seed can be safely re-hit without duplicates.
+ */
 export async function seedEcosystemMonitorsForProject(projectId: string): Promise<SeedResult> {
-  const result: SeedResult = { created: [], skipped: [] };
+  const result: SeedResult = { proposed: [], skipped: [] };
 
-  const existing = await query<{ type: string }>(
-    `SELECT type FROM monitors WHERE project_id = ? AND type LIKE 'ecosystem.%'`,
-    projectId,
+  const [existingMonitors, existingProposals] = await Promise.all([
+    query<{ type: string }>(
+      `SELECT type FROM monitors WHERE project_id = ? AND type LIKE 'ecosystem.%'`,
+      projectId,
+    ),
+    query<{ kind: string }>(
+      `SELECT payload->>'kind' AS kind FROM pending_actions
+       WHERE project_id = ? AND action_type = 'configure_monitor'
+         AND status IN ('pending', 'edited')`,
+      projectId,
+    ),
+  ]);
+  const existingMonitorTypes = new Set(existingMonitors.map(r => r.type));
+  const existingProposalKinds = new Set(
+    existingProposals.map(r => r.kind).filter((k): k is string => !!k),
   );
-  const existingTypes = new Set(existing.map(r => r.type));
 
   const ctx = await loadMonitorContext(projectId);
 
   for (const template of ECOSYSTEM_MONITOR_TEMPLATES) {
-    if (existingTypes.has(template.type)) {
-      result.skipped.push({ type: template.type, reason: 'already exists' });
+    if (existingMonitorTypes.has(template.type)) {
+      result.skipped.push({ type: template.type, reason: 'monitor already exists' });
+      continue;
+    }
+    const kind = template.type.replace(/^ecosystem\./, '');
+    if (existingProposalKinds.has(kind)) {
+      result.skipped.push({ type: template.type, reason: 'proposal already in inbox' });
       continue;
     }
 
-    const id = generateId('mon');
-    const now = new Date().toISOString();
-    const nextRun = calculateNextRun(template.schedule);
     const name = ctx.locale === 'it' ? template.nameIt : template.name;
     const prompt = template.buildPrompt(ctx);
+    // configureMonitor executor only accepts daily | weekly today; downgrade
+    // monthly templates to weekly so the apply path works. Founder can edit
+    // before applying.
+    const schedule: 'daily' | 'weekly' =
+      template.schedule === 'daily' ? 'daily' : 'weekly';
 
-    await run(
-      `INSERT INTO monitors (id, project_id, type, name, schedule, config, prompt, status, next_run, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?)`,
-      id,
-      projectId,
-      template.type,
-      name,
-      template.schedule,
-      JSON.stringify(template.defaultConfig),
-      prompt,
-      nextRun,
-      now,
-    );
+    const action = await createPendingAction({
+      project_id: projectId,
+      action_type: 'configure_monitor',
+      title: name,
+      rationale:
+        `Auto-proposed at project creation. Activates the ${name} ecosystem ` +
+        `monitor on a ${schedule} cadence. Edit cadence or prompt before ` +
+        `applying, or reject to skip.`,
+      estimated_impact: 'medium',
+      payload: {
+        name,
+        kind,
+        schedule,
+        prompt,
+        urls_to_track: [],
+        alert_threshold: '',
+        linked_risk_id: 'ad_hoc',
+        linked_quote: ctx.idea?.problem ?? null,
+        sources: [],
+      },
+    });
 
-    result.created.push({ monitor_id: id, type: template.type, name });
+    result.proposed.push({ action_id: action.id, type: template.type, name });
   }
 
   return result;
