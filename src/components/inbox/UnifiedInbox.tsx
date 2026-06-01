@@ -24,6 +24,11 @@ const STRINGS = {
   empty:     { en: 'Nothing pending — all caught up.', it: 'Nulla in sospeso.' },
   loading:   { en: 'Loading…',                          it: 'Caricamento…' },
   applyAll:  { en: 'Apply all knowledge proposals',     it: 'Applica tutte le proposte di conoscenza' },
+  rejectAll: { en: 'Reject all',                        it: 'Rifiuta tutto' },
+  confirmRejectAll: {
+    en: (n: number) => `Reject all ${n} pending knowledge proposals? You can undo for 8 seconds.`,
+    it: (n: number) => `Rifiutare tutte le ${n} proposte di conoscenza in sospeso? Puoi annullare per 8 secondi.`,
+  },
   applied:   { en: 'Applied',                           it: 'Applicato' },
   rejected:  { en: 'Rejected',                          it: 'Rifiutato' },
   undo:      { en: 'Undo',                              it: 'Annulla' },
@@ -31,9 +36,13 @@ const STRINGS = {
     en: (n: number, total: number) => `${n} of ${total} items failed to apply`,
     it: (n: number, total: number) => `${n} di ${total} elementi non applicati`,
   },
+  partialFailReject: {
+    en: (n: number, total: number) => `${n} of ${total} items failed to reject`,
+    it: (n: number, total: number) => `${n} di ${total} elementi non rifiutati`,
+  },
 };
 
-function t(key: 'empty' | 'loading' | 'applyAll' | 'applied' | 'rejected' | 'undo', locale: 'en' | 'it'): string {
+function t(key: 'empty' | 'loading' | 'applyAll' | 'rejectAll' | 'applied' | 'rejected' | 'undo', locale: 'en' | 'it'): string {
   return STRINGS[key][locale];
 }
 
@@ -147,6 +156,40 @@ export function UnifiedInbox({ projectId, locale, onCountChange }: UnifiedInboxP
     }
   }, [visibleItems, projectId, locale, hideOptimistic, unhide]);
 
+  // Bulk Reject All — mirror of Apply All. Same 8s undo queue, same partial-
+  // failure handling. Confirm-before-firing because reject is psychologically
+  // (and operationally) more destructive than apply — applied facts can be
+  // unapplied trivially, rejected facts require the agent to re-propose.
+  // Issue #23.
+  const handleRejectAll = useCallback(async () => {
+    setPartialError(null);
+    const facts = visibleItems.filter((it) => it.source === 'fact');
+    if (facts.length === 0) return;
+    const confirmed = window.confirm(STRINGS.confirmRejectAll[locale](facts.length));
+    if (!confirmed) return;
+    facts.forEach((it) => hideOptimistic(it.id));
+    let failures = 0;
+    for (const item of facts) {
+      try {
+        await rejectInboxItem(item, projectId);
+      } catch {
+        failures++;
+        unhide(item.id);
+      }
+    }
+    if (failures > 0) {
+      setPartialError(STRINGS.partialFailReject[locale](failures, facts.length));
+    } else {
+      const timerId = window.setTimeout(() => {
+        setUndoQueue((prev) => prev.filter((u) => !facts.some((f) => f.id === u.item.id)));
+      }, UNDO_TTL_MS);
+      setUndoQueue((prev) => [
+        ...prev,
+        ...facts.map((item): UndoEntry => ({ item, state: 'rejected', timerId })),
+      ]);
+    }
+  }, [visibleItems, projectId, locale, hideOptimistic, unhide]);
+
   useEffect(() => {
     return () => {
       undoQueueRef.current.forEach((entry) => window.clearTimeout(entry.timerId));
@@ -187,10 +230,18 @@ export function UnifiedInbox({ projectId, locale, onCountChange }: UnifiedInboxP
       )}
 
       {showApplyAll && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+          <button
+            onClick={() => void handleRejectAll()}
+            className="text-xs px-3 py-1 rounded bg-clay/10 text-clay hover:bg-clay/20 transition-colors font-medium"
+            aria-label={`${t('rejectAll', locale)} (${factPendingCount})`}
+          >
+            {t('rejectAll', locale)} ({factPendingCount})
+          </button>
           <button
             onClick={() => void handleApplyAll()}
             className="text-xs px-3 py-1 rounded bg-moss-wash text-moss hover:bg-moss/30 transition-colors font-medium"
+            aria-label={`${t('applyAll', locale)} (${factPendingCount})`}
           >
             {t('applyAll', locale)} ({factPendingCount})
           </button>
