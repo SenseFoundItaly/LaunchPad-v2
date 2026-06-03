@@ -53,6 +53,12 @@ export default function HomePage() {
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+  // 'scratch'   — empty project, founder builds canvas from chat
+  // 'knowledge' — same + optional file uploads ingested into knowledge layer
+  //               (POST /api/projects/{id}/knowledge/upload) before routing
+  const [createMode, setCreateMode] = useState<'scratch' | 'knowledge'>('scratch');
+  const [createFiles, setCreateFiles] = useState<File[]>([]);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [expandedSignals, setExpandedSignals] = useState<Set<string>>(new Set());
   const [showSignals, setShowSignals] = useState(false);
   const signalPanelRef = useRef<HTMLDivElement>(null);
@@ -99,16 +105,47 @@ export default function HomePage() {
     if (!newName.trim()) return;
     setCreating(true);
     setCreateError(null);
+    setUploadStatus(null);
     try {
       const { data } = await api.post('/api/projects', {
         name: newName.trim(),
         description: newDesc.trim(),
       });
-      if (data.success && data.data) {
-        router.push(`/project/${data.data.project_id || data.data.id}/chat`);
-      } else {
+      if (!(data.success && data.data)) {
         setCreateError(data.error || 'Failed to create project');
+        setCreating(false);
+        return;
       }
+      const projectId = data.data.project_id || data.data.id;
+
+      // Knowledge-mode: upload any selected files BEFORE routing so the
+      // founder lands in a project that already has its knowledge layer
+      // primed. Failures here don't roll back project creation — the chat
+      // route still works, the founder just sees a non-fatal warning and
+      // can retry uploads from /knowledge.
+      if (createMode === 'knowledge' && createFiles.length > 0) {
+        try {
+          setUploadStatus(`Uploading ${createFiles.length} file${createFiles.length > 1 ? 's' : ''}…`);
+          const fd = new FormData();
+          for (const f of createFiles) fd.append('files', f, f.name);
+          const res = await fetch(`/api/projects/${projectId}/knowledge/upload`, {
+            method: 'POST',
+            body: fd,
+          });
+          const body = await res.json().catch(() => null);
+          if (!res.ok || !body?.success) {
+            setUploadStatus(
+              `Created project, but upload failed: ${body?.error || res.status}. You can retry from the Knowledge tab.`,
+            );
+          }
+        } catch (err) {
+          setUploadStatus(
+            `Created project, but upload errored: ${(err as Error).message}. Continuing to chat.`,
+          );
+        }
+      }
+
+      router.push(`/project/${projectId}/chat`);
     } catch (err) {
       setCreateError((err as Error).message || 'Network error — please try again');
     }
@@ -507,6 +544,43 @@ export default function HomePage() {
                     <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
                       New project
                     </div>
+
+                    {/* Mode toggle — scratch vs. existing knowledge */}
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                      {([
+                        { id: 'scratch', label: 'Start from scratch', desc: 'Blank slate. Shape the canvas via chat.' },
+                        { id: 'knowledge', label: 'Start from existing knowledge', desc: 'Upload docs to seed the knowledge layer.' },
+                      ] as const).map((opt) => {
+                        const selected = createMode === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setCreateMode(opt.id)}
+                            style={{
+                              flex: 1,
+                              textAlign: 'left',
+                              padding: '10px 12px',
+                              background: selected ? 'var(--surface)' : 'var(--paper)',
+                              border: `1px solid ${selected ? 'var(--ink)' : 'var(--line-2)'}`,
+                              borderRadius: 'var(--r-m)',
+                              cursor: 'pointer',
+                              color: 'var(--ink-2)',
+                              fontFamily: 'inherit',
+                              boxShadow: selected ? 'inset 0 0 0 1px var(--ink)' : 'none',
+                            }}
+                          >
+                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
+                              {opt.label}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>
+                              {opt.desc}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
                     <div style={{ display: 'flex', gap: 8 }}>
                       <input
                         autoFocus
@@ -559,10 +633,18 @@ export default function HomePage() {
                           opacity: creating || !newName.trim() ? 0.5 : 1,
                         }}
                       >
-                        {creating ? 'Creating…' : 'Create'}
+                        {creating ? (uploadStatus ? 'Uploading…' : 'Creating…') : 'Create'}
                       </button>
                       <button
-                        onClick={() => { setShowCreate(false); setNewName(''); setNewDesc(''); setCreateError(null); }}
+                        onClick={() => {
+                          setShowCreate(false);
+                          setNewName('');
+                          setNewDesc('');
+                          setCreateError(null);
+                          setCreateMode('scratch');
+                          setCreateFiles([]);
+                          setUploadStatus(null);
+                        }}
                         style={{
                           padding: '7px 10px',
                           background: 'transparent',
@@ -577,6 +659,111 @@ export default function HomePage() {
                         Cancel
                       </button>
                     </div>
+
+                    {/* Knowledge-mode file picker */}
+                    {createMode === 'knowledge' && (
+                      <div
+                        style={{
+                          marginTop: 12,
+                          padding: 12,
+                          background: 'var(--paper)',
+                          border: '1px dashed var(--line-2)',
+                          borderRadius: 'var(--r-m)',
+                        }}
+                      >
+                        <label
+                          htmlFor="create-knowledge-files"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)' }}>
+                              Upload documents
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>
+                              Up to 10 textlike files (.md, .txt, .csv, .json, .pdf-extracted text, etc.), 1 MiB each. Ingested into the project's knowledge layer.
+                            </div>
+                          </div>
+                          <span
+                            style={{
+                              padding: '6px 10px',
+                              background: 'var(--surface)',
+                              border: '1px solid var(--line-2)',
+                              borderRadius: 'var(--r-m)',
+                              fontSize: 11,
+                              color: 'var(--ink-2)',
+                              fontFamily: 'inherit',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            Choose files
+                          </span>
+                        </label>
+                        <input
+                          id="create-knowledge-files"
+                          type="file"
+                          multiple
+                          accept=".txt,.md,.markdown,.rst,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.htm,.log,.ini,.conf,.env,.ts,.tsx,.js,.jsx,.mjs,.cjs,.py,.rb,.go,.rs,.java,.sh,.bash,.zsh,.sql,.css,.scss,.toml,text/*,application/json,application/xml,application/yaml,application/x-yaml,application/javascript,application/typescript,application/sql,application/csv"
+                          onChange={(e) => {
+                            const list = Array.from(e.target.files || []).slice(0, 10);
+                            setCreateFiles(list);
+                          }}
+                          style={{ display: 'none' }}
+                        />
+                        {createFiles.length > 0 && (
+                          <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {createFiles.map((f, i) => (
+                              <span
+                                key={`${f.name}-${i}`}
+                                title={`${(f.size / 1024).toFixed(1)} KB`}
+                                style={{
+                                  padding: '4px 8px',
+                                  background: 'var(--surface)',
+                                  border: '1px solid var(--line)',
+                                  borderRadius: 'var(--r-s, 6px)',
+                                  fontSize: 11,
+                                  color: 'var(--ink-2)',
+                                  fontFamily: 'var(--f-mono)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                }}
+                              >
+                                {f.name}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setCreateFiles(createFiles.filter((_, idx) => idx !== i))
+                                  }
+                                  style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'var(--ink-5)',
+                                    cursor: 'pointer',
+                                    fontSize: 11,
+                                    padding: 0,
+                                    lineHeight: 1,
+                                  }}
+                                  aria-label={`Remove ${f.name}`}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {uploadStatus && (
+                          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)' }}>
+                            {uploadStatus}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {createError && (
                       <div style={{ marginTop: 8, fontSize: 12, color: 'var(--clay, #c0392b)' }}>
                         {createError}
