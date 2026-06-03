@@ -1692,6 +1692,72 @@ const huntBlackSwansTool = (ctx: ToolContext): AgentTool => ({
   },
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// update_idea_canvas — direct write path for Stage 1 scoring
+// ─────────────────────────────────────────────────────────────────────────────
+
+const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
+  name: 'update_idea_canvas',
+  label: 'Update Idea Canvas',
+  description:
+    'Upsert the founder\'s Lean / Idea Canvas. Call this whenever the founder has articulated (or you have synthesized from the conversation) one or more canvas fields — problem, solution, target market, value proposition, business model, competitive advantage. Each field is independently optional: passing one fills only that field; existing values are preserved via COALESCE. Triggers Stage 1 readiness re-scoring downstream. Prefer this over emitting an `idea-canvas` artifact in chat — the artifact is view-only; this tool is what actually populates the canonical idea_canvas row.',
+  parameters: Type.Object({
+    problem: Type.Optional(Type.String({ description: 'The specific pain the target user experiences. Concrete, not generic. Quote the founder when possible.' })),
+    solution: Type.Optional(Type.String({ description: 'What you build to solve it. The "what", not the "how" — keep tech details out.' })),
+    target_market: Type.Optional(Type.String({ description: 'Specific primary segment or beachhead — not "small businesses", but "solo indie SaaS founders with $5-50k MRR".' })),
+    value_proposition: Type.Optional(Type.String({ description: 'Single-sentence "for X, we do Y unlike Z".' })),
+    business_model: Type.Optional(Type.String({ description: 'How it makes money — subscription, transaction, freemium, etc., plus pricing logic.' })),
+    competitive_advantage: Type.Optional(Type.String({ description: 'The moat: insight, data, distribution, network effects, regulatory lock-in. Be specific about which.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as Partial<Record<
+      'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model' | 'competitive_advantage',
+      string
+    >>;
+    const clean = (v: string | undefined): string => (typeof v === 'string' ? v.trim().slice(0, 1200) : '');
+    const fields = {
+      problem: clean(p.problem),
+      solution: clean(p.solution),
+      target_market: clean(p.target_market),
+      value_proposition: clean(p.value_proposition),
+      business_model: clean(p.business_model),
+      competitive_advantage: clean(p.competitive_advantage),
+    };
+
+    const provided = Object.entries(fields).filter(([, v]) => v.length > 0).map(([k]) => k);
+    if (provided.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'update_idea_canvas requires at least one non-empty field.' }],
+        details: { error: 'no_fields' },
+      };
+    }
+
+    await run(
+      `INSERT INTO idea_canvas (project_id, problem, solution, target_market, value_proposition, business_model, competitive_advantage)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (project_id) DO UPDATE SET
+         problem               = COALESCE(NULLIF(EXCLUDED.problem, ''),               idea_canvas.problem),
+         solution              = COALESCE(NULLIF(EXCLUDED.solution, ''),              idea_canvas.solution),
+         target_market         = COALESCE(NULLIF(EXCLUDED.target_market, ''),         idea_canvas.target_market),
+         value_proposition     = COALESCE(NULLIF(EXCLUDED.value_proposition, ''),     idea_canvas.value_proposition),
+         business_model        = COALESCE(NULLIF(EXCLUDED.business_model, ''),        idea_canvas.business_model),
+         competitive_advantage = COALESCE(NULLIF(EXCLUDED.competitive_advantage, ''), idea_canvas.competitive_advantage)`,
+      ctx.projectId,
+      fields.problem,
+      fields.solution,
+      fields.target_market,
+      fields.value_proposition,
+      fields.business_model,
+      fields.competitive_advantage,
+    );
+
+    return {
+      content: [{ type: 'text', text: `Updated idea_canvas: ${provided.join(', ')}. Stage 1 readiness will recompute on next get_project_summary.` }],
+      details: { updated_fields: provided },
+    };
+  },
+});
+
 /**
  * Returns a tool array scoped to a single project. Merge with getTools() from
  * pi-tools.ts when configuring the agent:
@@ -1730,5 +1796,6 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     extractAssumptionsTool(ctx),
     markAssumptionTool(ctx),
     huntBlackSwansTool(ctx),
+    updateIdeaCanvasTool(ctx),
   ];
 }

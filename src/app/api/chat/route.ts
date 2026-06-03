@@ -130,6 +130,11 @@ When get_project_summary shows: no Idea Canvas, overall_score=0, all stages NOT 
    → Start destructuring the idea immediately. Identify the problem, solution, target market,
      and value proposition from what's available. Present your analysis and ask the founder
      to confirm or correct. Emit a solve-progress artifact to track the flow.
+   → AS SOON AS you have a confident value for ANY canvas field (problem, solution, target_market,
+     value_proposition, business_model, competitive_advantage), call the update_idea_canvas tool
+     with that field. Don't wait for all fields. Each call merges — partial canvases are normal.
+     This is the ONLY way Stage 1 (Idea Validation) scores; emitting an idea-canvas artifact
+     does NOT populate the canonical row.
 4. IF the description is too vague (just a name, no context):
    → Ask 2-3 focused questions to understand the idea: What problem does this solve?
      Who is the target customer? What is the current alternative?
