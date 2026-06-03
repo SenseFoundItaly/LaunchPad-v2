@@ -56,6 +56,7 @@ export default function WorkflowCardInline({
       typeLabel="Workflow"
       title={artifact.title}
       sources={artifact.sources}
+      provenance={artifact.provenance}
       headerRight={<>
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${workflowPalette(artifact.category).chip}`}>
           {artifact.category}

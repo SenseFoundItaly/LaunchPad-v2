@@ -19,7 +19,13 @@ export type ArtifactType =
   | 'task'
   | 'html-preview'
   | 'document'
-  | 'solve-progress';
+  | 'solve-progress'
+  | 'persona-card'
+  | 'risk-matrix'
+  | 'idea-canvas'
+  | 'tam-sam-som'
+  | 'investor-pipeline'
+  | 'weekly-update';
 
 /**
  * Source — verifiable provenance for every factual claim the agent makes.
@@ -65,6 +71,13 @@ export interface ArtifactBase {
   persisted_id?: string;
   /** Review state — pending items await founder review before entering agent context */
   reviewed_state?: ReviewedState;
+  /**
+   * 'fallback' = sources[] was empty in the raw artifact and was repaired from
+   * the trailing <CITATIONS> response block. UI should mark the card so the
+   * founder knows the evidence is response-level, not card-level.
+   * Undefined = sources came directly from the agent on the artifact.
+   */
+  provenance?: 'fallback';
 }
 
 export interface OptionSet extends ArtifactBase {
@@ -416,6 +429,161 @@ export interface SolveProgressArtifact extends ArtifactBase {
   sources?: Source[];
 }
 
+/**
+ * PersonaCard — unified shape for buyer personas (Stage 1, scientific-validation)
+ * and simulation personas (Stage 2, simulation).
+ *
+ * Planning fields (demographics, jobs_to_be_done, pains, channels) describe who
+ * the persona IS — used by Stage 1 for empathy mapping.
+ *
+ * Validation fields (reaction, engagement_score, quote) describe how they
+ * RESPOND — populated by Stage 2 after the simulation run. engagement_score
+ * is on a 1-10 scale, matching `simulation.personas[].engagement_score`.
+ */
+export interface PersonaCard extends ArtifactBase {
+  type: 'persona-card';
+  name: string;
+  archetype: 'customer' | 'investor' | 'expert' | 'competitor';
+  demographics?: string;
+  jobs_to_be_done?: string[];
+  pains?: string[];
+  channels?: string[];
+  reaction?: string;
+  engagement_score?: number;
+  quote?: string;
+  // REQUIRED — personas are claims about real-world segments. Stage 1 personas
+  // cite market research; Stage 2 personas cite the simulation skill run.
+  sources: Source[];
+}
+
+/**
+ * RiskMatrix — visualizes a set of risks on a 5×5 probability × impact grid.
+ *
+ * Shape mirrors `simulation.risk_scenarios[]` produced by the risk-scoring
+ * skill (see launchpad-skills/risk-scoring/SKILL.md). probability and impact
+ * are 1-5 integers; risk_score is their product (1-25). One card shows the
+ * full audit — plotting risks individually as separate cards would defeat the
+ * matrix's purpose, which is comparison at a glance.
+ */
+export interface RiskScenarioEntry {
+  id: string;
+  dimension: 'market' | 'technical' | 'regulatory' | 'team' | 'financial' | 'dependency';
+  risk: string;
+  probability: number;
+  impact: number;
+  risk_score?: number;
+  severity?: 'critical' | 'high' | 'medium' | 'low';
+  narrative?: string;
+  mitigation?: string;
+  mitigation_owner?: string;
+  mitigation_due?: string;
+  status?: 'new' | 'in_progress' | 'mitigated' | 'accepted';
+}
+
+export interface RiskMatrixArtifact extends ArtifactBase {
+  type: 'risk-matrix';
+  title: string;
+  risks: RiskScenarioEntry[];
+  overall_assessment?: string;
+  // REQUIRED — every plotted risk is a claim about a real failure mode and
+  // must be backed by web/skill/inference provenance.
+  sources: Source[];
+}
+
+/**
+ * IdeaCanvas — Lean Canvas-style 9-block grid populated from the
+ * `idea_canvas` table. Used by Stage 1 idea-shaping skill. All blocks are
+ * optional so the card renders progressively as the founder fills in detail.
+ */
+export interface IdeaCanvasArtifact extends ArtifactBase {
+  type: 'idea-canvas';
+  title: string;
+  problem?: string;
+  solution?: string;
+  target_market?: string;
+  value_proposition?: string;
+  competitive_advantage?: string;
+  unfair_advantage?: string;
+  business_model?: string;
+  key_metrics?: string[];
+  revenue_streams?: string[];
+  cost_structure?: string[];
+  sources?: Source[];
+}
+
+/**
+ * TamSamSom — concentric market-size visual.
+ *
+ * `value` is a free-form string ("$2.4B", "€500M-€2B") because the
+ * market-research skill emits estimates with units and ranges, not raw
+ * numbers. `numeric_usd` is the agent's optional best-guess parsed number
+ * (in USD) used ONLY for sizing the concentric circles — never displayed.
+ */
+export interface MarketSizeTier {
+  value: string;
+  numeric_usd?: number;
+  methodology?: string;
+  confidence?: 'low' | 'medium' | 'high';
+}
+
+export interface TamSamSomArtifact extends ArtifactBase {
+  type: 'tam-sam-som';
+  title: string;
+  tam: MarketSizeTier;
+  sam: MarketSizeTier;
+  som: MarketSizeTier;
+  timeframe?: string;
+  market_share_implied?: string;
+  // REQUIRED — TAM/SAM/SOM numbers are factual claims that must be sourceable.
+  sources: Source[];
+}
+
+/**
+ * InvestorPipeline — kanban-style view of fundraising prospects grouped by
+ * stage. Stages match the `investors.stage` enum from the schema.
+ */
+export type InvestorStage = 'target' | 'contacted' | 'meeting' | 'interested' | 'committed' | 'passed';
+
+export interface InvestorEntry {
+  id: string;
+  name: string;
+  type?: string;
+  stage: InvestorStage;
+  check_size?: number;
+  contact_name?: string;
+  next_step?: string;
+  next_step_date?: string;
+  notes?: string;
+}
+
+export interface InvestorPipelineArtifact extends ArtifactBase {
+  type: 'investor-pipeline';
+  title: string;
+  investors: InvestorEntry[];
+  round_target?: number;
+  round_type?: string;
+  round_status?: string;
+  target_close?: string;
+  sources?: Source[];
+}
+
+/**
+ * WeeklyUpdate — structured weekly/period update mirroring the
+ * `startup_updates` table. Morale is 1-10. Lists are short bullet strings.
+ */
+export interface WeeklyUpdateArtifact extends ArtifactBase {
+  type: 'weekly-update';
+  title: string;
+  period: string;
+  morale?: number;
+  metrics_snapshot?: { label: string; value: string; delta?: string }[];
+  highlights?: string[];
+  challenges?: string[];
+  asks?: string[];
+  generated_summary?: string;
+  sources?: Source[];
+}
+
 export type Artifact =
   | OptionSet
   | InsightCard
@@ -437,7 +605,13 @@ export type Artifact =
   | TaskArtifact
   | HtmlPreviewArtifact
   | DocumentArtifact
-  | SolveProgressArtifact;
+  | SolveProgressArtifact
+  | PersonaCard
+  | RiskMatrixArtifact
+  | IdeaCanvasArtifact
+  | TamSamSomArtifact
+  | InvestorPipelineArtifact
+  | WeeklyUpdateArtifact;
 
 /**
  * Set of artifact types that MUST have non-empty sources. Parser uses this
@@ -463,6 +637,9 @@ export const ARTIFACTS_REQUIRING_SOURCES: ReadonlySet<ArtifactType> = new Set([
   'fact',
   'monitor-proposal',
   'budget-proposal',
+  'persona-card',
+  'risk-matrix',
+  'tam-sam-som',
 ]);
 
 /**

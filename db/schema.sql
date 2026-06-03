@@ -323,7 +323,10 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   -- Parsed prose-level citations extracted from <CITATIONS> blocks.
   -- Stored as Source[] JSON so the UI can render a ProseCitationsFooter
   -- without re-parsing the message content on every render.
-  citations JSONB
+  citations JSONB,
+  -- Langfuse trace ID for this assistant turn — null on user rows. Lets
+  -- "view in Langfuse" deep-link from the chat UI for forensic debugging.
+  langfuse_trace_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id);
@@ -901,4 +904,36 @@ CREATE INDEX IF NOT EXISTS idx_graph_nodes_project ON graph_nodes(project_id);
 CREATE INDEX IF NOT EXISTS idx_graph_edges_project ON graph_edges(project_id);
 CREATE INDEX IF NOT EXISTS idx_monitor_runs_run_at ON monitor_runs(run_at DESC);
 CREATE INDEX IF NOT EXISTS idx_startup_updates_project ON startup_updates(project_id, date DESC);
+
+-- =============================================================================
+-- Assumptions Registry (Franzagos-inspired premortem layer)
+-- Numbered, categorized, criticality-tagged beliefs the project rests on.
+-- validated_by_skill_completion_id links to the skill output that proved or
+-- disproved the assumption — turning a static registry into a living one that
+-- the agent can consult during smarcamento stage gates.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS assumptions (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  number INTEGER NOT NULL,
+  category VARCHAR NOT NULL,
+  text TEXT NOT NULL,
+  source TEXT,
+  explicit BOOLEAN DEFAULT false,
+  criticality VARCHAR NOT NULL DEFAULT 'medium',
+  status VARCHAR NOT NULL DEFAULT 'open',
+  validated_by_skill_completion_id VARCHAR REFERENCES skill_completions(id) ON DELETE SET NULL,
+  validated_at TIMESTAMP,
+  invalidated_at TIMESTAMP,
+  invalidated_reason TEXT,
+  validation_evidence TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(project_id, number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_assumptions_project_status
+  ON assumptions(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_assumptions_project_criticality
+  ON assumptions(project_id, criticality, status);
 

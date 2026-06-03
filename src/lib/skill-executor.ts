@@ -21,13 +21,14 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { generateId } from '@/lib/api-helpers';
-import { query, run } from '@/lib/db';
+import { query, run, get } from '@/lib/db';
 import { runAgent } from '@/lib/pi-agent';
 import { recordUsage } from '@/lib/cost-meter';
 import { pickModel } from '@/lib/llm/router';
 import { recordEvent } from '@/lib/memory/events';
 import { persistArtifact } from '@/lib/artifact-persistence';
 import { parseMessageContent } from '@/lib/artifact-parser';
+import { linkSkillCompletionToAssumptions } from '@/lib/assumptions';
 import { SKILL_KICKOFFS } from '@/lib/stages';
 import { computeSectionScoresFromSummary } from '@/lib/section-scoring';
 
@@ -265,6 +266,23 @@ export async function runSkill(
     sectionScores ? JSON.stringify(sectionScores) : null,
     completedAt,
   );
+
+  // Assumption linker — does this skill output validate or invalidate any of
+  // the project's open assumptions? Non-fatal: a failed linker pass must not
+  // poison the skill_completion write or downstream heartbeat narration.
+  // ON CONFLICT keeps the original row id, so we resolve the canonical id by
+  // (project_id, skill_id) — not the freshly minted generateId above.
+  try {
+    const completionRow = await get<{ id: string }>(
+      'SELECT id FROM skill_completions WHERE project_id = ? AND skill_id = ?',
+      projectId, skillId,
+    );
+    if (completionRow?.id) {
+      await linkSkillCompletionToAssumptions(projectId, completionRow.id, skillId, text);
+    }
+  } catch (err) {
+    console.warn('[skill-executor] assumption linker failed:', (err as Error).message);
+  }
 
   // Timeline event. Heartbeat narration uses memory_events.
   try {

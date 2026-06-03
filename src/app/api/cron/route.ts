@@ -298,10 +298,18 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
   const runId = generateId('mrun');
   const runAt = new Date().toISOString();
 
-  // Cost tracking (observe mode — no hard block)
+  // Cost protection: if the project is over its monthly budget cap, pause
+  // this monitor so it stops being scheduled. Founder can re-enable manually
+  // via the monitors API once they raise the cap or reset the period.
   const capStatus = await isProjectCapped(monitor.project_id);
   if (capStatus.capped) {
-    console.info(`[cron/monitor] project ${monitor.project_id} over budget — proceeding (observe mode)`);
+    console.info(`[cron/monitor] project ${monitor.project_id} over budget — auto-pausing monitor ${monitor.id}`);
+    await run(`UPDATE monitors SET status = 'paused' WHERE id = ?`, monitor.id);
+    return {
+      monitor_id: monitor.id,
+      name: monitor.name,
+      status: 'skipped_budget',
+    };
   }
 
   // Resolve the project's locale so monitors running for Italian projects

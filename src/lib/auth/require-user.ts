@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { headers, cookies } from 'next/headers';
 import { get, run } from '@/lib/db';
 import { getSupabaseServer } from './supabase-server';
 
@@ -30,6 +31,20 @@ export type SessionUser = {
  * Idempotent: SELECTs first, only INSERTs when missing.
  */
 export async function requireUser(): Promise<SessionUser> {
+  // E2E bypass: only honored when E2E_AUTH_ENABLED=1 is set in the server's
+  // env (off by default, never set in production). Accepts the bypass user
+  // ID via either an `x-e2e-user` request header (used by the API-driven
+  // e2e in scripts/e2e-agent-flow.mjs) or an `x-e2e-user` cookie (used by
+  // browser-driven Playwright runs where setting headers per-nav is awkward).
+  if (process.env.E2E_AUTH_ENABLED === '1') {
+    const h = await headers();
+    const c = await cookies();
+    const e2eUserId = h.get('x-e2e-user') || c.get('x-e2e-user')?.value;
+    if (e2eUserId) {
+      return hydrateShadowUser(e2eUserId, `${e2eUserId}@e2e.local`);
+    }
+  }
+
   const supabase = await getSupabaseServer();
   const {
     data: { user },
@@ -39,9 +54,10 @@ export async function requireUser(): Promise<SessionUser> {
     throw new AuthError(401, 'Not authenticated');
   }
 
-  const userId = user.id;
-  const email = user.email;
+  return hydrateShadowUser(user.id, user.email);
+}
 
+async function hydrateShadowUser(userId: string, email: string): Promise<SessionUser> {
   // Upsert shadow user
   const existing = await get<{ id: string }>('SELECT id FROM users WHERE id = ?', userId);
   if (!existing) {

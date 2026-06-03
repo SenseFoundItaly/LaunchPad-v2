@@ -12,6 +12,9 @@ export interface StageDef {
   skills: SkillDef[];
 }
 
+// Pipeline skills only. `startup-advisor` (in launchpad-skills/) is a meta-skill
+// invoked from chat for free-form guidance — deliberately outside the pipeline
+// so it doesn't affect readiness scoring or next_recommended_skill.
 export const STAGES: StageDef[] = [
   {
     number: 1,
@@ -78,8 +81,6 @@ export const STAGES: StageDef[] = [
     color: 'zinc',
     skills: [
       { id: 'weekly-metrics', label: 'Metrics', route: 'chat?skill=weekly-metrics', dataKey: 'metrics' },
-      { id: 'dashboard', label: 'Dashboard', route: 'dashboard', dataKey: 'metrics' },
-      { id: 'journey', label: 'Journey', route: 'journey', dataKey: 'journey' },
     ],
   },
 ];

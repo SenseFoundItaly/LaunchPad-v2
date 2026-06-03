@@ -95,6 +95,7 @@ export default function ComparisonTable({ artifact, onAction }: ComparisonTableP
       typeLabel="Comparison"
       title={artifact.title || 'Comparison'}
       sources={artifact.sources}
+      provenance={artifact.provenance}
       dimmed={review.isRejected}
       aiGenerated
       className="overflow-x-auto"

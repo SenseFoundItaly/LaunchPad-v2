@@ -28,6 +28,15 @@ import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
 import { getCreditsRemaining } from '@/lib/credits';
 import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readiness';
+import {
+  listAssumptions,
+  extractAssumptions,
+  markValidated,
+  markInvalidated,
+  getAssumption,
+} from '@/lib/assumptions';
+import { runPremortemPass, PremortemParseError } from '@/lib/premortem-runner';
+import { BLACK_SWAN_CONFIG } from '@/lib/premortem-agents/black-swan';
 import { logSignalActivity } from '@/lib/signal-activity-log';
 import type { PendingActionType, EcosystemAlertType, WatchSourceCategory } from '@/types';
 import { VALID_CATEGORIES } from '@/types';
@@ -1488,6 +1497,201 @@ interface MakeProjectToolsOptions {
   includeWriteTools?: boolean;
 }
 
+// =============================================================================
+// Assumptions Registry (Franzagos-inspired premortem layer)
+// =============================================================================
+
+const listOpenAssumptions = (ctx: ToolContext): AgentTool => ({
+  name: 'list_open_assumptions',
+  label: 'Open Assumptions',
+  description: 'List the project\'s unvalidated assumptions — beliefs the founder is implicitly betting on. Use BEFORE recommending any irreversible action (paid acquisition, hiring, fundraising) so you can flag risk. Also use when the founder asks "what could kill us?", "what should I worry about?", or to anchor option-set ranking on the riskiest open bet. High-criticality opens mean if any is false, the project collapses.',
+  parameters: Type.Object({
+    criticality: Type.Optional(Type.String({ description: 'Filter: high | medium | low. Omit for all.' })),
+    category: Type.Optional(Type.String({ description: 'Filter: market | user_behavior | execution | financial | competitive | org | external.' })),
+    include_resolved: Type.Optional(Type.Boolean({ description: 'Default false — only open assumptions. true to include validated/invalidated/accepted_risk.' })),
+    limit: Type.Optional(Type.Number({ description: 'Max rows. Default 12, max 50.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { criticality?: string; category?: string; include_resolved?: boolean; limit?: number };
+    const limit = Math.max(1, Math.min(50, p.limit ?? 12));
+
+    const rows = await listAssumptions(ctx.projectId, {
+      status: p.include_resolved
+        ? ['open', 'validated', 'invalidated', 'accepted_risk']
+        : 'open',
+      criticality: (p.criticality as 'high' | 'medium' | 'low' | undefined),
+      category: p.category as never,
+    });
+    const trimmed = rows.slice(0, limit);
+
+    if (trimmed.length === 0) {
+      return {
+        content: [{ type: 'text', text:
+          `No assumptions match. ${rows.length === 0 ? 'The project has no assumption registry yet — call extract_assumptions to build one.' : ''}` }],
+        details: { count: 0 },
+      };
+    }
+
+    const text = trimmed.map((a) => {
+      const parts: string[] = [];
+      parts.push(`#${a.number} [${a.category}, ${a.criticality}, ${a.status}]: ${a.text}`);
+      if (a.status === 'validated' && a.validation_evidence) {
+        parts.push(`   ↳ validated: ${a.validation_evidence}`);
+      }
+      if (a.status === 'invalidated' && a.invalidated_reason) {
+        parts.push(`   ↳ invalidated: ${a.invalidated_reason}`);
+      }
+      return parts.join('\n');
+    }).join('\n\n');
+
+    return {
+      content: [{ type: 'text', text }],
+      details: { count: trimmed.length, total_matching: rows.length },
+    };
+  },
+});
+
+const extractAssumptionsTool = (ctx: ToolContext): AgentTool => ({
+  name: 'extract_assumptions',
+  label: 'Extract Assumptions',
+  description: 'Run an assumption extractor pass over the provided project context. Use ONCE per major project pivot, or when the founder asks for a premortem. Numbered rows are inserted; re-running appends new numbers (it does not deduplicate semantically). Skip when the project already has 15+ assumptions unless the founder explicitly asks for fresh extraction.',
+  parameters: Type.Object({
+    context: Type.String({ description: 'Free-form project context — idea canvas, recent skill outputs, competitor list, GTM brief. Minimum 40 chars.' }),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { context?: string };
+    if (typeof p.context !== 'string' || p.context.trim().length < 40) {
+      return {
+        content: [{ type: 'text', text: 'extract_assumptions requires `context` (min 40 chars).' }],
+        details: { error: 'invalid_input' },
+      };
+    }
+    const result = await extractAssumptions(ctx.projectId, p.context);
+    return {
+      content: [{ type: 'text', text:
+        `Extracted ${result.inserted} new assumptions (${result.skipped} skipped, ${result.errors.length} errors).` }],
+      details: result,
+    };
+  },
+});
+
+const markAssumptionTool = (ctx: ToolContext): AgentTool => ({
+  name: 'mark_assumption_validated',
+  label: 'Mark Assumption',
+  description: 'Mark an assumption as validated, invalidated, or accepted_risk based on evidence you have surfaced from the conversation or recent skill output. Use sparingly — prefer letting the automatic linker resolve assumptions when skill_completions arrive. Use this when you have explicit verbal confirmation from the founder, or when invalidation is obvious from a tool result the linker cannot see (e.g., a web_search result).',
+  parameters: Type.Object({
+    assumption_number: Type.Number({ description: 'The #N number of the assumption (e.g. 7 for ASSUNZIONE #7). Look it up with list_open_assumptions first.' }),
+    verdict: Type.String({ description: 'One of: validated | invalidated | accepted_risk' }),
+    evidence: Type.String({ description: 'One-sentence quote or paraphrase of the evidence. Required.' }),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { assumption_number?: number; verdict?: string; evidence?: string };
+    if (typeof p.assumption_number !== 'number' || !p.verdict || !p.evidence) {
+      return {
+        content: [{ type: 'text', text: 'Required: assumption_number, verdict, evidence.' }],
+        details: { error: 'invalid_input' },
+      };
+    }
+
+    const row = await get<{ id: string }>(
+      'SELECT id FROM assumptions WHERE project_id = ? AND number = ?',
+      ctx.projectId, p.assumption_number,
+    );
+    if (!row) {
+      return {
+        content: [{ type: 'text', text: `Assumption #${p.assumption_number} not found.` }],
+        details: { error: 'not_found' },
+      };
+    }
+
+    if (p.verdict === 'validated') {
+      // Agent-driven validations carry no skill_completion FK — pass null.
+      await markValidated(row.id, null, p.evidence);
+    } else if (p.verdict === 'invalidated') {
+      await markInvalidated(row.id, p.evidence);
+    } else if (p.verdict === 'accepted_risk') {
+      await run(
+        `UPDATE assumptions
+         SET status = 'accepted_risk', invalidated_reason = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        p.evidence, row.id,
+      );
+    } else {
+      return {
+        content: [{ type: 'text', text: 'verdict must be validated | invalidated | accepted_risk.' }],
+        details: { error: 'invalid_verdict' },
+      };
+    }
+
+    const updated = await getAssumption(row.id);
+    return {
+      content: [{ type: 'text', text: `Assumption #${p.assumption_number} marked ${p.verdict}.` }],
+      details: { assumption_id: row.id, status: updated?.status },
+    };
+  },
+});
+
+const huntBlackSwansTool = (ctx: ToolContext): AgentTool => ({
+  name: 'hunt_black_swans',
+  label: 'Hunt Black Swans',
+  description: 'Run a Black Swan Hunter pass — identifies 5 low-probability / high-impact / IRREVERSIBLE scenarios the founder is systematically not considering, then creates one persistent monitor per scenario that polls for early signals. Use sparingly: this is a high-value, ~$0.02 LLM call that also creates 5 long-running monitors. Right triggers: founder explicitly asks for premortem / "what could kill us?" / before any irreversible commitment (fundraise close, public launch, scale step-change). Skip if a Black Swan brief already exists in the last 90 days.',
+  parameters: Type.Object({
+    context: Type.String({ description: 'Project context to feed the agent: idea, GTM, key decisions, recent skill outputs. Minimum 80 chars — sparse context produces generic scenarios.' }),
+    force: Type.Optional(Type.Boolean({ description: 'Default false — skip the stale-check that suppresses a re-run when a Black Swan brief is < 90 days old. Set true only if the founder explicitly requests a fresh catalog.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { context?: string; force?: boolean };
+    if (typeof p.context !== 'string' || p.context.trim().length < 80) {
+      return {
+        content: [{ type: 'text', text: 'hunt_black_swans requires context (min 80 chars). Pass project idea + GTM + recent decisions.' }],
+        details: { error: 'invalid_input' },
+      };
+    }
+
+    // Idempotency guard: a fresh Black Swan catalog is expensive (LLM call
+    // + 5 monitor inserts). If one exists in the last 90 days, refuse unless
+    // the caller explicitly forces a re-run.
+    if (!p.force) {
+      const recent = await get<{ created_at: string }>(
+        `SELECT created_at FROM intelligence_briefs
+         WHERE project_id = ? AND brief_type = 'black_swan_catalog'
+           AND status = 'active'
+           AND created_at > NOW() - INTERVAL '90 days'
+         ORDER BY created_at DESC LIMIT 1`,
+        ctx.projectId,
+      );
+      if (recent) {
+        return {
+          content: [{ type: 'text', text:
+            `A Black Swan catalog already exists from ${recent.created_at} (still within the 90-day validity window). Pass force=true to override, or read the existing catalog via list_intelligence_briefs with entity_name and brief_type filters.` }],
+          details: { skipped: 'fresh_catalog_exists', existing_created_at: recent.created_at },
+        };
+      }
+    }
+
+    try {
+      const result = await runPremortemPass(ctx.projectId, p.context, BLACK_SWAN_CONFIG);
+      const monitorsCreated = (result.side_effects.monitors_created as number | undefined) ?? 0;
+      return {
+        content: [{ type: 'text', text:
+          `Black Swan catalog created: ${result.item_count} scenarios + ${monitorsCreated} monitors. Brief ${result.brief_id} is now polling early signals monthly. Each scenario links back to the assumption numbers it would invalidate.` }],
+        details: result,
+      };
+    } catch (err) {
+      if (err instanceof PremortemParseError) {
+        return {
+          content: [{ type: 'text', text: `Black Swan agent returned malformed output. Try once more, or pass richer context. Sample: ${err.sample.slice(0, 200)}` }],
+          details: { error: 'parse_error' },
+        };
+      }
+      return {
+        content: [{ type: 'text', text: `Black Swan pass failed: ${(err as Error).message}` }],
+        details: { error: 'execution_error' },
+      };
+    }
+  },
+});
+
 /**
  * Returns a tool array scoped to a single project. Merge with getTools() from
  * pi-tools.ts when configuring the agent:
@@ -1509,6 +1713,7 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     listIntelligenceBriefs(ctx),
     getRiskAudit(ctx),
     readTabularReviewTool(ctx),
+    listOpenAssumptions(ctx),
   ];
 
   if (!includeWriteTools) return readTools;
@@ -1522,5 +1727,8 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     proposeWatchSourceTool(ctx),
     createSignalTool(ctx),
     createTabularReviewTool(ctx),
+    extractAssumptionsTool(ctx),
+    markAssumptionTool(ctx),
+    huntBlackSwansTool(ctx),
   ];
 }

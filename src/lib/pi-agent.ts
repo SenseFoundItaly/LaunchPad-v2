@@ -191,6 +191,58 @@ export interface RunAgentOptions {
   maxHistoryMessages?: number;
 }
 
+/**
+ * Accumulate per-message usage into a single Usage object. pi-agent-core's
+ * `message_end` fires once per *assistant message* in the agent loop, and a
+ * single turn often produces N assistant messages (initial → tool call →
+ * tool result → next LLM call → ...). Each carries its OWN usage. Without
+ * this accumulator the chat route ends up logging only the last sub-call's
+ * tokens, drastically under-reporting input_tokens (observed 32× lower than
+ * actual billing). The cost.total field is correctly summed by pi-ai across
+ * sub-calls because it's authoritative for billing, but the per-token
+ * fields require this client-side sum.
+ */
+function accumulateUsage(acc: Usage | undefined, incoming: unknown): Usage | undefined {
+  if (!incoming || typeof incoming !== 'object') return acc;
+  const u = incoming as Record<string, unknown>;
+  if (!acc) {
+    // First message — clone to avoid mutating pi-ai's state.
+    const clone: Record<string, unknown> = {};
+    for (const k of Object.keys(u)) {
+      if (k === 'cost' && u.cost && typeof u.cost === 'object') {
+        clone.cost = { ...(u.cost as Record<string, unknown>) };
+      } else {
+        clone[k] = u[k];
+      }
+    }
+    return clone as unknown as Usage;
+  }
+  const a = acc as unknown as Record<string, unknown>;
+  // Token fields — pi-ai's Usage interface (node_modules/@mariozechner/pi-ai/
+  // dist/types.d.ts:111) has: input, output, cacheRead, cacheWrite, totalTokens.
+  // Listing aliases too in case the provider adapter renames any of them.
+  for (const k of ['input', 'inputTokens', 'input_tokens',
+    'output', 'outputTokens', 'output_tokens',
+    'cacheWrite', 'cacheCreation', 'cache_creation_tokens', 'cacheCreationInputTokens',
+    'cacheRead', 'cache_read_tokens', 'cacheReadInputTokens',
+    'totalTokens']) {
+    const v = u[k];
+    if (typeof v === 'number') a[k] = (typeof a[k] === 'number' ? (a[k] as number) : 0) + v;
+  }
+  // Cost — sum cost.total across all sub-calls.
+  if (u.cost && typeof u.cost === 'object') {
+    const incomingCost = u.cost as Record<string, unknown>;
+    const accCost = (a.cost as Record<string, unknown>) || (a.cost = {});
+    for (const k of Object.keys(incomingCost)) {
+      const v = incomingCost[k];
+      if (typeof v === 'number') {
+        accCost[k] = (typeof accCost[k] === 'number' ? (accCost[k] as number) : 0) + v;
+      }
+    }
+  }
+  return acc;
+}
+
 export interface RunAgentResult {
   text: string;
   usage?: Usage;
@@ -247,7 +299,9 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
     // message_end fires for user, toolResult, and assistant messages in order.
     // Writing here is sufficient — turn_end would double-write toolResults.
     if (event.type === 'message_end' && event.message) {
-      if ('usage' in event.message) lastUsage = (event.message as any).usage;
+      if ('usage' in event.message) {
+        lastUsage = accumulateUsage(lastUsage, (event.message as any).usage);
+      }
       if (options.sessionId) appendToSession(options.sessionId, event.message);
     }
   });
@@ -313,7 +367,19 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
         }
       }
 
-      timer = setTimeout(() => agent.abort(), timeout);
+      // Force-close on timeout. agent.abort() alone does NOT reliably make
+      // pi-agent-core emit agent_end or reject the prompt promise, so the
+      // SSE controller can stay open indefinitely (observed up to 54 min on
+      // heavy turns). Emit a done event + close the controller from the
+      // timer too, regardless of whether the agent cooperates.
+      timer = setTimeout(() => {
+        console.warn(`[pi-agent] timeout (${timeout}ms) — aborting agent and force-closing stream`);
+        try { agent.abort(); } catch { /* ignore */ }
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, timeout: true })}\n\n`));
+          controller.close();
+        } catch { /* already closed */ }
+      }, timeout);
 
       let fullText = '';
       let lastUsage: Usage | undefined;
@@ -336,9 +402,20 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
           case 'tool_execution_start': {
             toolCallCount++;
             if (toolCallCount > maxToolCalls) {
-              console.warn(`[pi-agent] tool call limit reached (${maxToolCalls}), aborting agent`);
-              agent.abort();
-              break;
+              // FORCE SYNTHESIS instead of aborting. agent.abort() killed the
+              // agent mid-loop, leaving turns with tool_results but no closing
+              // artifacts (option-set, prose summary) — a Tier 0 violation
+              // visible to founders as "agent did research then went silent".
+              //
+              // Stripping tools lets pi-agent-core continue its loop: the
+              // LLM's next iteration sees no tools available and is forced
+              // to respond with text + artifacts (which is exactly the
+              // synthesis we want). This in-flight call still completes
+              // because we don't abort.
+              if (agent.state.tools && agent.state.tools.length > 0) {
+                console.warn(`[pi-agent] tool call limit reached (${maxToolCalls}), forcing synthesis`);
+                agent.state.tools = [];
+              }
             }
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({
@@ -367,7 +444,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
 
           case 'message_end': {
             if (event.message && 'usage' in event.message) {
-              lastUsage = (event.message as any).usage;
+              lastUsage = accumulateUsage(lastUsage, (event.message as any).usage);
             }
             // message_end fires for user, toolResult, and assistant messages in order.
             // Writing here is sufficient — turn_end would double-write toolResults.
@@ -379,15 +456,20 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
 
           case 'agent_end': {
             clearTimeout(timer);
+            const u = lastUsage as unknown as Record<string, number | { total?: number } | undefined>;
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({
                 done: true,
                 fullText,
                 usage: lastUsage ? {
-                  input_tokens: lastUsage.input,
-                  output_tokens: lastUsage.output,
-                  total_tokens: lastUsage.totalTokens,
-                  cost: lastUsage.cost?.total,
+                  input_tokens: u.input as number,
+                  output_tokens: u.output as number,
+                  // pi-ai's Usage uses cacheWrite/cacheRead (see types.d.ts:111).
+                  // Map to the column names llm_usage_logs expects.
+                  cache_creation_input_tokens: (u.cacheWrite as number) || 0,
+                  cache_read_input_tokens: (u.cacheRead as number) || 0,
+                  total_tokens: u.totalTokens as number,
+                  cost: (u.cost as { total?: number } | undefined)?.total,
                 } : undefined,
               })}\n\n`)
             );

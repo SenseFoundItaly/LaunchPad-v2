@@ -42,6 +42,7 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
       typeLabel="Metrics"
       title={artifact.title || ''}
       sources={artifact.sources}
+      provenance={artifact.provenance}
       dimmed={review.isRejected}
       aiGenerated
       footer={

@@ -51,17 +51,21 @@ function hasWriteIntent(message: string): boolean {
   return WRITE_INTENT_PATTERN.test(message);
 }
 
-// One-shot migration: add tools_json column if it doesn't exist yet.
-// Runs once per server lifecycle (module load). Idempotent via IF NOT EXISTS.
+// One-shot migration: add columns if they don't exist yet. Runs once per
+// server lifecycle (module load). Idempotent via IF NOT EXISTS.
 let _migrated = false;
 async function ensureToolsJsonColumn() {
   if (_migrated) return;
   _migrated = true;
   try {
     await run('ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS tools_json TEXT');
+    // langfuse_trace_id links each assistant turn to its Langfuse trace for
+    // forensic debugging — "what exactly did the agent see?" One-click jump
+    // from chat row to Langfuse via the trace ID.
+    await run('ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS langfuse_trace_id TEXT');
   } catch (err) {
     // Non-fatal — column may already exist or DB may not support IF NOT EXISTS.
-    console.warn('[chat] tools_json migration (non-fatal):', err);
+    console.warn('[chat] migration (non-fatal):', err);
   }
 }
 
@@ -92,9 +96,14 @@ async function resolveUserKey(userId: string, provider: string): Promise<UserKey
 const ARTIFACT_INSTRUCTIONS = `[You are SenseFound, an evidence-based validation advisor. Your tone is scientific, protective, and honest — help founders find fatal flaws early. MANDATORY: Use :::artifact{} blocks to render rich cards and charts. NEVER use emojis in any text output — no unicode emoji characters anywhere in your responses. Use plain text only.
 
 === TIER 0 — EVERY-TURN RULES (never violate) ===
-- Maximum 8 tool calls per turn. After the 8th, stop and synthesize.
+- Maximum 8 tool calls per turn. When you reach 6 tool calls, your NEXT response MUST be the synthesis: visible prose + a trailing option-set artifact, with NO additional tool calls. A turn ending in tool_results without synthesis artifacts is BROKEN — always reserve budget for the close.
 - Every turn MUST end with visible prose AND a trailing option-set. No exceptions.
-- Every factual artifact MUST include a non-empty "sources" array. No sources = REJECTED.
+- Every factual artifact MUST include a non-empty "sources" array. No sources = REJECTED. No exceptions for "common knowledge", "obvious risk", or "synthesized from context" — if you can't cite it, don't claim it.
+- Sources live INSIDE each artifact's "sources" field. NEVER emit a trailing <CITATIONS>...</CITATIONS> block as a substitute for per-artifact sources. If the same URL backs three cards, duplicate the source object into all three — that's correct. A response-level citation block is not provenance for a specific card and will be treated as a contract violation.
+- After calling web_search or read_url, the artifacts that summarize those results MUST cite the actual URLs as type:"web" sources with the real url field. type:"inference" is NOT acceptable when you have fresh web evidence in your context — that is the very evidence you must cite.
+- SYNTHESIS FALLBACK — for risk-matrix, persona-card, and similar cards built from project context (not external research), when no web/skill source applies you MUST still emit at least one type:"inference" source. Construct it from the actual project inputs you used:
+    sources:[{"type":"inference","title":"Synthesized from project context","based_on":[{"type":"internal","title":"Idea Canvas — target_market","ref":"research","ref_id":"<idea_canvas:target_market>"},{"type":"internal","title":"Startup score — Team dimension","ref":"score","ref_id":"<scores:team>"}],"reasoning":"Solo-founder burnout risk follows from idea_canvas (no co-founder) + low team score"}]
+  The inference source IS the audit trail — it names which project fields you looked at + the logic chain. Empty based_on[] is rejected. "common knowledge" reasoning is rejected — anchor to a named project input.
 - Only include sources of type "web" in artifact source arrays and prose [1], [2]... markers. Internal, skill, user, and inference sources are tracked server-side but NOT displayed to the founder. If the only sources are non-web, omit the sources array entirely.
 - Prefer parallel tool calls over sequential.
 - Ship partial answers over perfect-but-never-arriving answers.
@@ -153,6 +162,7 @@ HOW to source the recommendation:
 PRIORITY RULES:
 - When urgent signals exist (Tier 1 decision tree): the validation CTA yields first position to intelligence. It still appears in the option-set but NOT as the first option.
 - When the founder is mid-conversation about a specific topic: lead with topic-relevant options, validation CTA as trailing option.
+- When the founder EXPLICITLY names a later stage in their message (fundraising / seed round / investor; metrics / burn rate / runway; business model / pricing / unit economics; GTM / go-to-market; MVP / prototype / build; growth / experiments): the option-set MUST include that stage's Kickoff: FIRST, then next_recommended_skill as a trailing "but first validate Stage X" anchor. Founder-named context overrides protocol order — never drop the contextual stage to push next_recommended_skill into first position.
 - When all 7 stages are verdict GO+: STOP pushing skill kickoffs. Switch to operating concerns: weekly metrics, fundraising status, growth experiments, monitor health, risk management.
 - When the founder explicitly asks to run a skill: route through "I choose: <kickoff>" click path.
 
@@ -174,6 +184,12 @@ task: :::artifact{"type":"task","id":"task_ID"}\n{"title":"...","description":".
   When the founder asks to remember/track/do something, prefer the create_task TOOL over emitting the artifact directly.
 workflow-card: :::artifact{"type":"workflow-card","id":"wf_ID"}\n{"title":"...","category":"marketing","description":"...","priority":"high","steps":["1","2","3"],"sources":[...]}\n:::
 comparison-table: :::artifact{"type":"comparison-table","id":"cmp_ID"}\n{"title":"...","columns":["A","B"],"rows":[{"label":"Row1","values":["val1","val2"]}],"sources":[...]}\n:::
+persona-card: :::artifact{"type":"persona-card","id":"per_ID"}\n{"name":"...","archetype":"customer|investor|expert|competitor","demographics":"...","jobs_to_be_done":["..."],"pains":["..."],"channels":["..."],"reaction":"...","engagement_score":8,"quote":"...","sources":[...]}\n:::
+risk-matrix: :::artifact{"type":"risk-matrix","id":"rm_ID"}\n{"title":"...","overall_assessment":"...","risks":[{"id":"risk_001","dimension":"market|technical|regulatory|team|financial|dependency","risk":"1-line desc","probability":1-5,"impact":1-5,"risk_score":1-25,"severity":"critical|high|medium|low","narrative":"...","mitigation":"...","mitigation_owner":"...","status":"new|in_progress|mitigated"}],"sources":[...]}\n:::
+idea-canvas: :::artifact{"type":"idea-canvas","id":"ic_ID"}\n{"title":"...","problem":"...","solution":"...","target_market":"...","value_proposition":"...","competitive_advantage":"...","unfair_advantage":"...","business_model":"...","key_metrics":["..."],"revenue_streams":["..."],"cost_structure":["..."]}\n:::  (sources optional — founder's own canvas)
+tam-sam-som: :::artifact{"type":"tam-sam-som","id":"tss_ID"}\n{"title":"...","tam":{"value":"$24B","numeric_usd":24000000000,"methodology":"...","confidence":"medium"},"sam":{"value":"$3B","numeric_usd":3000000000},"som":{"value":"$80M","numeric_usd":80000000},"timeframe":"3 years","market_share_implied":"2.5%","sources":[...]}\n:::
+investor-pipeline: :::artifact{"type":"investor-pipeline","id":"ip_ID"}\n{"title":"...","round_type":"Seed","round_target":1500000,"target_close":"2026-09-30","investors":[{"id":"inv_001","name":"...","type":"VC|angel","stage":"target|contacted|meeting|interested|committed|passed","check_size":500000,"next_step":"...","next_step_date":"..."}]}\n:::  (sources optional)
+weekly-update: :::artifact{"type":"weekly-update","id":"wu_ID"}\n{"title":"Week X","period":"...","morale":7,"generated_summary":"...","metrics_snapshot":[{"label":"MRR","value":"$3.2k","delta":"+12%"}],"highlights":["..."],"challenges":["..."],"asks":["..."]}\n:::  (sources optional; only emit when founder explicitly asks for a weekly/period update)
 
 CHART ARTIFACTS:
 radar-chart: :::artifact{"type":"radar-chart","id":"rdr_ID"}\n{"title":"...","data":[{"subject":"Market","value":8}],"sources":[...]}\n:::
@@ -195,11 +211,19 @@ USAGE RULES:
 3) bar-chart for comparisons and rankings
 4) score-card for individual dimension scores
 5) metric-grid for key numbers and KPIs
-6) comparison-table for side-by-side comparison
+6) comparison-table for GENERIC side-by-side comparison (pricing tiers, vendor selection, feature matrices). NOT for the specialized data shapes listed in rule 11.
 7) option-set is MANDATORY on every response. When conversational, options MUST be direct answers to the question asked.
-8) entity-card for EVERY entity mentioned
+8) entity-card for EVERY entity (competitor, technology, market segment) — but NOT for personas (use persona-card) or risks (use risk-matrix for 2+).
 9) workflow-card for concrete multi-step action plans
 10) Be proactive — use tools to research, browse web, challenge assumptions
+11) SPECIALIZED CARDS — pick these over comparison-table/document/score-badges when the data shape matches:
+    - 2+ risks with probability/impact → risk-matrix (NEVER comparison-table, even if the founder uses words like "matrix" or "table")
+    - Personas (buyer or simulation) → persona-card (NEVER entity-card with entity_type="persona")
+    - TAM/SAM/SOM or market sizing → tam-sam-som (NEVER three score-badges or a comparison-table)
+    - Lean Canvas / Idea Canvas / 9-block business model → idea-canvas (NEVER a document)
+    - Fundraising pipeline / investors grouped by stage → investor-pipeline (NEVER comparison-table)
+    - Weekly/period founder update with highlights/challenges/asks → weekly-update (ONLY when explicitly asked)
+    The user has invested in custom visualizations for these specific data shapes. Using comparison-table for risk audits or market sizing is a routing miss.
 
 === TIER 5 — TRIGGERED PROTOCOLS (activated by specific contexts) ===
 
@@ -394,11 +418,11 @@ export async function POST(request: NextRequest) {
       sessionId,
       systemPrompt,
       extraTools: [...projectTools, ...skillTools],
-      // 300s — research-heavy chat turns (web_search + read_url + skill
-      // invocation + tam/sam calculations) can legitimately take 2-3 min.
-      // 120s was cutting the agent off mid-tool-loop, leaving an empty
-      // final assistant message and no visible response in the UI.
-      timeout: 300000,
+      // 180s — generous for research-heavy turns but cuts off the
+      // agent-stuck-in-loop case (observed turns hanging to 10+ min with
+      // empty SSE streams). pi-agent.ts force-closes the SSE controller at
+      // this deadline regardless of whether agent.abort() propagates.
+      timeout: 180000,
       task: chatTask,
     });
 
@@ -407,7 +431,14 @@ export async function POST(request: NextRequest) {
     // a meaningful preview, (3) fuel later telemetry.
     let fullResponse = '';
     // Captured from the SSE `done` event emitted by runAgentStream on agent_end.
-    let streamUsage: { input_tokens?: number; output_tokens?: number; total_tokens?: number; cost?: number } | undefined;
+    let streamUsage: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
+      total_tokens?: number;
+      cost?: number;
+    } | undefined;
     const decoder = new TextDecoder();
     // SSE line buffer: accumulates partial lines across chunk boundaries so
     // that a `data: {...}` line split across two TCP chunks still parses.
@@ -471,10 +502,12 @@ export async function POST(request: NextRequest) {
         const usage = {
           input_tokens: streamUsage?.input_tokens ?? 0,
           output_tokens: streamUsage?.output_tokens ?? 0,
+          cache_creation_input_tokens: streamUsage?.cache_creation_input_tokens ?? 0,
+          cache_read_input_tokens: streamUsage?.cache_read_input_tokens ?? 0,
         };
         const cost = streamUsage?.cost ?? estimateCost(piProvider, piModel, usage);
         await logUsageToSQLite(project_id, null, step, piProvider, piModel, usage, cost, latencyMs);
-        logToLangfuse(
+        const langfuseTraceId = logToLangfuse(
           { projectId: project_id, step, provider: piProvider as 'anthropic' | 'openai' | 'openrouter', model: piModel },
           usage, cost, latencyMs,
           lastMessage.slice(0, 1000), fullResponse.slice(0, 2000),
@@ -500,11 +533,12 @@ export async function POST(request: NextRequest) {
             const toolsJson = toolsList.length > 0 ? JSON.stringify(toolsList) : null;
             const citationsJson = extractCitations(fullResponse);
             await run(
-              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, tools_json, citations)
-               VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?)`,
+              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, tools_json, citations, langfuse_trace_id)
+               VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?)`,
               `msg_${crypto.randomUUID().slice(0, 12)}`,
               project_id, step, fullResponse, now, userId, toolsJson,
               citationsJson ? JSON.stringify(citationsJson) : null,
+              langfuseTraceId,
             );
           }
         } catch (err) {
@@ -536,6 +570,30 @@ export async function POST(request: NextRequest) {
           // for "how often does Sonnet skip sources on entity-cards?"-style
           // analysis. Does NOT throw — source enforcement is non-fatal to
           // the stream; the founder just doesn't see the invalid card.
+          // Rescue path — log when an artifact passed validation only because
+          // we attached the trailing <CITATIONS> block. Mirrors the rejection
+          // event so prompt/observability can track "rescue rate" vs "rejection
+          // rate" and tighten the prompt when too many artifacts need rescuing.
+          const rescued = segments.filter(
+            (s): s is Extract<typeof s, { type: 'artifact' }> =>
+              s.type === 'artifact' && s.used_fallback_sources === true,
+          );
+          if (rescued.length > 0) {
+            try {
+              await recordEvent({
+                userId,
+                projectId: project_id,
+                eventType: 'artifact_rescued_by_fallback_citations',
+                payload: {
+                  count: rescued.length,
+                  rescues: rescued.map(r => ({ artifact_type: r.artifact.type })),
+                },
+              });
+            } catch {
+              // non-fatal — observability only
+            }
+          }
+
           const rejected = segments.filter((s) => s.type === 'artifact-error');
           if (rejected.length > 0) {
             try {

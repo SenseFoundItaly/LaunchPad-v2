@@ -15,6 +15,12 @@ import BudgetProposalCard from './BudgetProposalCard';
 import HtmlPreviewCard from './HtmlPreviewCard';
 import DocumentCard from './DocumentCard';
 import SolveProgressCard from './SolveProgressCard';
+import PersonaCard from './PersonaCard';
+import RiskMatrixCard from './RiskMatrixCard';
+import IdeaCanvasCard from './IdeaCanvasCard';
+import TamSamSomCard from './TamSamSomCard';
+import InvestorPipelineCard from './InvestorPipelineCard';
+import WeeklyUpdateCard from './WeeklyUpdateCard';
 import ArtifactCardShell from './ArtifactCardShell';
 import { RadarChart, BarChart, PieChart, GaugeChart, ScoreCard } from '@/components/charts';
 
@@ -54,31 +60,31 @@ export default function ArtifactRenderer({
       );
     case 'radar-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance}>
           <RadarChart data={artifact.data} />
         </ArtifactCardShell>
       );
     case 'bar-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance}>
           <BarChart data={artifact.data} />
         </ArtifactCardShell>
       );
     case 'pie-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance}>
           <PieChart data={artifact.data} />
         </ArtifactCardShell>
       );
     case 'gauge-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance}>
           <GaugeChart score={artifact.score} maxScore={artifact.maxScore} verdict={artifact.verdict} />
         </ArtifactCardShell>
       );
     case 'score-card':
       return (
-        <ArtifactCardShell typeLabel="Score" title={artifact.title} sources={artifact.sources}>
+        <ArtifactCardShell typeLabel="Score" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance}>
           <ScoreCard title="" score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />
         </ArtifactCardShell>
       );
@@ -96,6 +102,18 @@ export default function ArtifactRenderer({
       return <DocumentCard artifact={artifact} />;
     case 'solve-progress':
       return <SolveProgressCard artifact={artifact} />;
+    case 'persona-card':
+      return <PersonaCard artifact={artifact} />;
+    case 'risk-matrix':
+      return <RiskMatrixCard artifact={artifact} />;
+    case 'idea-canvas':
+      return <IdeaCanvasCard artifact={artifact} />;
+    case 'tam-sam-som':
+      return <TamSamSomCard artifact={artifact} />;
+    case 'investor-pipeline':
+      return <InvestorPipelineCard artifact={artifact} />;
+    case 'weekly-update':
+      return <WeeklyUpdateCard artifact={artifact} />;
     case 'task':  // Inline-only — rendered by InlineArtifact → TaskCard in chat/page.tsx
     case 'fact':  // Server-only — intercepted by chat route, never sent to client
       return null;

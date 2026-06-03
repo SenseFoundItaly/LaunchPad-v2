@@ -56,6 +56,58 @@ function sourcesJson(sources: Source[] | undefined): string | null {
   return Array.isArray(sources) && sources.length > 0 ? JSON.stringify(sources) : null;
 }
 
+/**
+ * Upsert a metric-grid / comparison-table style artifact into graph_nodes so it
+ * appears in Context > Intelligence regardless of whether it matched a themed
+ * routing path (e.g. research.market_size). Dedupes on (project_id, lower(name))
+ * exactly like persistEntityCard. Non-fatal — returns undefined on failure.
+ */
+async function upsertGraphNodeFromArtifact(
+  ctx: PersistContext,
+  input: {
+    name: string;
+    nodeType: string;
+    summary: string;
+    attributes: Record<string, unknown>;
+    srcJson: string | null;
+  },
+): Promise<string | undefined> {
+  if (!input.name) return undefined;
+  try {
+    const existing = await get<{ id: string }>(
+      'SELECT id FROM graph_nodes WHERE project_id = ? AND LOWER(name) = LOWER(?) LIMIT 1',
+      ctx.projectId,
+      input.name,
+    );
+    if (existing) {
+      await run(
+        'UPDATE graph_nodes SET summary = ?, attributes = ?, sources = COALESCE(?, sources) WHERE id = ?',
+        input.summary,
+        JSON.stringify(input.attributes),
+        input.srcJson,
+        existing.id,
+      );
+      return existing.id;
+    }
+    const id = `node_${crypto.randomUUID().slice(0, 12)}`;
+    await run(
+      `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      id,
+      ctx.projectId,
+      input.name,
+      input.nodeType,
+      input.summary,
+      JSON.stringify(input.attributes),
+      input.srcJson,
+    );
+    return id;
+  } catch (err) {
+    console.warn('[artifact-persistence] graph_node upsert failed (non-fatal):', err);
+    return undefined;
+  }
+}
+
 export interface PersistContext {
   userId: string;
   projectId: string;
@@ -98,6 +150,23 @@ export async function persistArtifact(ctx: PersistContext, artifact: Artifact): 
         return await persistDocumentArtifact(ctx, artifact as DocumentArtifact);
       case 'solve-progress':
         return { type: artifact.type, persisted: false, note: 'UI-only tracker' };
+      // Stage-specific cards — all are VIEWS over existing tables, not their
+      // canonical store. Persisting them again would duplicate authority:
+      //   persona-card     → data in simulation.personas / scientific_validation
+      //   risk-matrix      → data in simulation.risk_scenarios
+      //   idea-canvas      → data in idea_canvas
+      //   tam-sam-som      → data in research.market_size
+      //   investor-pipeline→ data in investors + investor_interactions + rounds
+      //   weekly-update    → data in startup_updates
+      // For canonical persona entities (e.g. "Sarah, our beachhead"), use
+      // entity-card instead — it has graph_nodes persistence + review controls.
+      case 'persona-card':
+      case 'risk-matrix':
+      case 'idea-canvas':
+      case 'tam-sam-som':
+      case 'investor-pipeline':
+      case 'weekly-update':
+        return { type: artifact.type, persisted: false, note: 'view-only — data lives in its canonical table' };
       default:
         return { type: artifact.type, persisted: false, note: 'no handler' };
     }
@@ -340,11 +409,11 @@ async function persistMetricGrid(ctx: PersistContext, a: MetricGrid): Promise<Pe
   }
 
   const titleText = `${a.title ?? ''}`.toLowerCase();
+  // Widened: market sizing AND operational/health/benchmark dashboards both
+  // need to round-trip. The narrow market-only regex used to silently drop
+  // "Weekly Health Dashboard" and similar Stage-7 metric grids.
   const isMarket = /market|tam|sam|som|demand|size|fractional|executive/.test(titleText);
-
-  if (!isMarket) {
-    return { type: a.type, persisted: false, note: 'not market-themed, skipping' };
-  }
+  const isOperational = /dashboard|health|kpi|metric|benchmark|funnel|cohort|retention|growth|economics|burn|runway/.test(titleText);
 
   const marketData = a.metrics.reduce<Record<string, { value: string; change?: string }>>((acc, m) => {
     if (m && typeof m.label === 'string' && typeof m.value === 'string') {
@@ -352,31 +421,50 @@ async function persistMetricGrid(ctx: PersistContext, a: MetricGrid): Promise<Pe
     }
     return acc;
   }, {});
-
-  const existing = await get<{ project_id: string }>(
-    'SELECT project_id FROM research WHERE project_id = ?',
-    ctx.projectId,
-  );
-
   const srcJson = sourcesJson(a.sources);
 
-  if (existing) {
-    await run(
-      'UPDATE research SET market_size = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
-      JSON.stringify({ ...marketData, _title: a.title }),
-      srcJson,
+  // Themed routing — only when the title clearly signals market sizing data
+  // (research.market_size is the TAM/SAM/SOM column).
+  if (isMarket) {
+    const existing = await get<{ project_id: string }>(
+      'SELECT project_id FROM research WHERE project_id = ?',
       ctx.projectId,
     );
-  } else {
-    await run(
-      'INSERT INTO research (project_id, market_size, sources) VALUES (?, ?, ?)',
-      ctx.projectId,
-      JSON.stringify({ ...marketData, _title: a.title }),
-      srcJson,
-    );
+    if (existing) {
+      await run(
+        'UPDATE research SET market_size = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+        JSON.stringify({ ...marketData, _title: a.title }),
+        srcJson,
+        ctx.projectId,
+      );
+    } else {
+      await run(
+        'INSERT INTO research (project_id, market_size, sources) VALUES (?, ?, ?)',
+        ctx.projectId,
+        JSON.stringify({ ...marketData, _title: a.title }),
+        srcJson,
+      );
+    }
   }
 
-  return { type: a.type, persisted: true, target: 'research.market_size' };
+  // Universal visibility — every metric-grid also becomes a graph_node so it
+  // surfaces in Context > Intelligence regardless of theme. Without this,
+  // operational dashboards ("Weekly Health") vanish from Context even though
+  // they render in Canvas.
+  const nodeId = await upsertGraphNodeFromArtifact(ctx, {
+    name: a.title || 'Metrics',
+    nodeType: isMarket ? 'research_metric' : isOperational ? 'benchmark' : 'metrics',
+    summary: a.metrics.map((m) => `${m.label}: ${m.value}${m.change ? ` (${m.change})` : ''}`).join(' · '),
+    attributes: marketData,
+    srcJson,
+  });
+
+  return {
+    type: a.type,
+    persisted: true,
+    target: isMarket ? 'research.market_size + graph_nodes' : 'graph_nodes',
+    persisted_id: nodeId,
+  };
 }
 
 // ─── comparison-table → research.competitors (when competitor-themed) ────────
@@ -387,43 +475,61 @@ async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): 
   }
 
   const titleText = `${a.title ?? ''}`.toLowerCase();
+  // Widened: competitor analysis is one valid theme, but rankings, gap analyses,
+  // and benchmark comparisons are equally common Stage-1..6 outputs and were
+  // being silently dropped before.
   const isCompetitive = /competitor|vs\.?|compare|platform|alternatives/.test(titleText);
+  const isRankingOrGap = /ranking|gap|benchmark|analysis|matrix|tier|channel/.test(titleText);
 
-  if (!isCompetitive) {
-    return { type: a.type, persisted: false, note: 'not competitor-themed, skipping' };
-  }
-
-  const competitors = a.rows.map((r) => ({
+  const rowData = a.rows.map((r) => ({
     name: r.label,
     attributes: a.columns.reduce<Record<string, unknown>>((acc, col, i) => {
       acc[col] = r.values?.[i];
       return acc;
     }, {}),
   }));
-
-  const existing = await get<{ project_id: string }>(
-    'SELECT project_id FROM research WHERE project_id = ?',
-    ctx.projectId,
-  );
   const srcJson = sourcesJson(a.sources);
 
-  if (existing) {
-    await run(
-      'UPDATE research SET competitors = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
-      JSON.stringify(competitors),
-      srcJson,
+  // Themed routing — only when the title clearly signals competitor data
+  // (research.competitors is consumed by loadMonitorContext as a competitor list).
+  if (isCompetitive) {
+    const existing = await get<{ project_id: string }>(
+      'SELECT project_id FROM research WHERE project_id = ?',
       ctx.projectId,
     );
-  } else {
-    await run(
-      'INSERT INTO research (project_id, competitors, sources) VALUES (?, ?, ?)',
-      ctx.projectId,
-      JSON.stringify(competitors),
-      srcJson,
-    );
+    if (existing) {
+      await run(
+        'UPDATE research SET competitors = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+        JSON.stringify(rowData),
+        srcJson,
+        ctx.projectId,
+      );
+    } else {
+      await run(
+        'INSERT INTO research (project_id, competitors, sources) VALUES (?, ?, ?)',
+        ctx.projectId,
+        JSON.stringify(rowData),
+        srcJson,
+      );
+    }
   }
 
-  return { type: a.type, persisted: true, target: `research.competitors (${competitors.length})` };
+  // Universal visibility — every comparison-table also becomes a graph_node
+  // so it surfaces in Context > Intelligence regardless of theme.
+  const nodeId = await upsertGraphNodeFromArtifact(ctx, {
+    name: a.title || 'Comparison',
+    nodeType: isCompetitive ? 'competitor_set' : isRankingOrGap ? 'benchmark' : 'comparison',
+    summary: `${a.columns.join(' × ')} — ${rowData.length} rows`,
+    attributes: { columns: a.columns, rows: rowData },
+    srcJson,
+  });
+
+  return {
+    type: a.type,
+    persisted: true,
+    target: isCompetitive ? `research.competitors (${rowData.length}) + graph_nodes` : 'graph_nodes',
+    persisted_id: nodeId,
+  };
 }
 
 // ─── action-suggestion → pending_actions ─────────────────────────────────────

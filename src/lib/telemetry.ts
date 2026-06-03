@@ -153,10 +153,10 @@ export function logToLangfuse(
   latencyMs: number,
   input?: string,
   output?: string,
-): void {
+): string | null {
   try {
     const lf = getLangfuse();
-    if (!lf) return;
+    if (!lf) return null;
 
     const now = new Date();
     const startTime = new Date(now.getTime() - latencyMs);
@@ -175,7 +175,12 @@ export function logToLangfuse(
 
     const promptTokens = usage.input_tokens || 0;
     const completionTokens = usage.output_tokens || 0;
-    const totalTokens = promptTokens + completionTokens;
+    const cacheCreation = usage.cache_creation_input_tokens || 0;
+    const cacheRead = usage.cache_read_input_tokens || 0;
+    // Langfuse's UsageDetails.total should be the sum of all token classes
+    // billable for this call. If we only summed input + output we'd hide
+    // 60-80% of the tokens on cached calls.
+    const totalTokens = promptTokens + completionTokens + cacheCreation + cacheRead;
 
     const trace = lf.trace({
       name: `${ctx.provider}/${ctx.step || 'chat'}`,
@@ -190,7 +195,14 @@ export function logToLangfuse(
       },
     });
 
-    // Generation — this is what Langfuse uses for cost/token/model display
+    // Generation — this is what Langfuse uses for cost/token/model display.
+    // Use the v3 `usageDetails` + `costDetails` fields. When `costDetails`
+    // is provided, Langfuse skips its own price-table lookup and uses our
+    // authoritative number — critical because:
+    //   - Langfuse doesn't know about OpenRouter slug pricing for newer models
+    //   - We have pi-ai's exact cost.total which matches OpenRouter billing
+    //   - Default Langfuse calc ignores cache tokens entirely, so its number
+    //     comes out ~42% low on cached calls (verified against this project).
     trace.generation({
       name: `${ctx.provider} generation`,
       model: langfuseModel,
@@ -203,25 +215,27 @@ export function logToLangfuse(
       output: output?.slice(0, 2000) || '',
       startTime,
       endTime: now,
-      usage: {
-        promptTokens,
-        completionTokens,
-        totalTokens,
+      usageDetails: {
+        input: promptTokens,
+        output: completionTokens,
+        cache_creation_input_tokens: cacheCreation,
+        cache_read_input_tokens: cacheRead,
+        total: totalTokens,
       },
-      // Langfuse v3 dropped `calculatedTotalCost` from the top-level
-      // generation signature; keep cost visible in metadata instead so
-      // dashboards that key off `metadata.costUsd` still work.
+      costDetails: cost > 0 ? { total: cost } : undefined,
       metadata: {
         latencyMs,
         costUsd: cost > 0 ? cost : undefined,
-        cacheCreationTokens: usage.cache_creation_input_tokens || 0,
-        cacheReadTokens: usage.cache_read_input_tokens || 0,
+        cacheCreationTokens: cacheCreation,
+        cacheReadTokens: cacheRead,
       },
     });
 
     lf.flush();
+    return trace.id;
   } catch (err) {
     console.error('Langfuse logging failed:', err);
+    return null;
   }
 }
 

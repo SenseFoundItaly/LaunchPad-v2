@@ -44,7 +44,8 @@ export type TaskLabel =
   | 'signal-classify'    // watch-source change significance classification (cheap)
   | 'signal-correlate'   // cross-signal correlation synthesis (balanced/Sonnet)
   | 'skill-premium'      // premium-tier skill runs (landing page, pitch deck)
-  | 'chat-followup';     // simple chat follow-ups routed to Haiku
+  | 'chat-followup'      // simple chat follow-ups routed to Haiku
+  | 'assumption-extract'; // Franzagos-style assumption extractor pass (balanced/Sonnet)
 
 type ResolvedModel = {
   provider: 'anthropic' | 'openrouter';
@@ -84,13 +85,19 @@ const DEFAULT_TASK_TIER: Partial<Record<TaskLabel, ModelTier>> = {
   'heartbeat-propose': 'cheap',
   'scaling-plan': 'premium',
   milestones: 'premium',
-  'task-expand': 'cheap',  // single-shot analytical; Haiku handles cleanly.
-  'signal-classify': 'cheap',  // watch-source change classification; Haiku is sufficient.
-  'chat-followup': 'cheap',    // simple follow-ups (yes, tell me more, go ahead) — Haiku handles fine.
+  'task-expand': 'cheap',  // single-shot analytical; cheap tier handles cleanly.
+  'signal-classify': 'cheap',  // watch-source change classification.
+  'chat-followup': 'cheap',    // simple follow-ups (yes, tell me more, go ahead).
   'skill-premium': 'premium',  // landing page + pitch deck Build skills need Opus.
-  // chat, monitor-agent, scoring, research, simulation, pitch-iterate,
-  // term-sheet, growth-iterate, growth-synthesize, heartbeat-reflect,
-  // skill-invoke, AND any new unmapped task -> balanced (Sonnet).
+  // Note: tested chat → cheap (Haiku AND gpt-4o-mini). Both collapsed —
+  // 0/8 turns emitted the required :::artifact{...}::: structured outputs.
+  // Sonnet's 5 workflow_plans + 6 facts + 26 pending_actions dropped to 0.
+  // Keeping chat → balanced (Sonnet) until we either simplify the prompt
+  // contract OR find a small model that can follow it reliably.
+  //
+  // chat, monitor-agent, scoring, research, simulation, pitch-iterate, term-sheet,
+  // growth-iterate, growth-synthesize, heartbeat-reflect, skill-invoke, AND
+  // any new unmapped task -> balanced (Sonnet).
 };
 
 // Cached env-override map. Parsed once on first use; re-parsed if the

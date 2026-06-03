@@ -9,6 +9,7 @@
     "lint": "eslint",
     "backfill:default-user": "node scripts/backfill-default-user.cjs",
     "db:migrate": "npx tsx db/migrate.ts",
+    "e2e:agent-flow": "node scripts/e2e-agent-flow.mjs",
     "deploy": "bash scripts/deploy.sh",
     "deploy:preview": "bash scripts/deploy.sh --preview",
     "deploy:dry": "bash scripts/deploy.sh --dry-run"

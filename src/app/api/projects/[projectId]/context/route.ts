@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
-import { run } from '@/lib/db';
+import { run, get } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
+import { extractAssumptions } from '@/lib/assumptions';
 
 /**
  * POST /api/projects/{projectId}/context
@@ -66,6 +67,39 @@ export async function POST(
          competitors = EXCLUDED.competitors`,
       projectId, payload,
     );
+  }
+
+  // Cold-start premortem trigger. When a project saves context and has zero
+  // assumptions, fire the extractor in the background. Idempotent: the LIMIT 1
+  // check stops re-runs on subsequent saves, so editing the canvas twice in
+  // five minutes doesn't burn tokens twice. Fire-and-forget — the founder
+  // shouldn't wait 20s for an LLM call to ack their save.
+  try {
+    const existing = await get<{ exists: number }>(
+      'SELECT 1 AS exists FROM assumptions WHERE project_id = ? LIMIT 1',
+      projectId,
+    );
+    const hasContext = !!(problem || solution || competitors.length > 0);
+    if (!existing && hasContext) {
+      const context = [
+        problem ? `Problem: ${problem}` : null,
+        solution ? `Solution: ${solution}` : null,
+        competitors.length > 0 ? `Competitors: ${competitors.join(', ')}` : null,
+      ].filter(Boolean).join('\n\n');
+
+      if (context.length >= 40) {
+        // Detach from the request lifecycle. A failed background extract
+        // must not surface as a 500 — the save itself succeeded.
+        void extractAssumptions(projectId, context).catch((err) => {
+          console.warn(
+            `[context] background extractAssumptions failed for ${projectId}:`,
+            (err as Error).message,
+          );
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[context] assumption trigger check failed:', (err as Error).message);
   }
 
   return json({

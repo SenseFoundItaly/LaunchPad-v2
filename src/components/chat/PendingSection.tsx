@@ -18,8 +18,11 @@ interface PendingSectionProps {
 }
 
 interface ActionsResponse {
-  actions: PendingAction[];
-  summary: { pending: number; edited: number };
+  success?: boolean;
+  data?: { actions: PendingAction[]; summary: { pending: number; edited: number } };
+  // Legacy unwrapped shape — kept so the component tolerates both response styles.
+  actions?: PendingAction[];
+  summary?: { pending: number; edited: number };
 }
 
 // =============================================================================
@@ -84,7 +87,11 @@ export function PendingSection({ projectId, onAction, locale, onCountChange }: P
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const body: ActionsResponse = await res.json();
-      const list = Array.isArray(body.actions) ? body.actions : [];
+      const list = Array.isArray(body.data?.actions)
+        ? body.data.actions
+        : Array.isArray(body.actions)
+          ? body.actions
+          : [];
       setActions(list);
       onCountChangeRef.current?.(list.length);
     } catch (err) {

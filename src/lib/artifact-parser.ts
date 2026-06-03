@@ -7,7 +7,7 @@ import {
 
 export type MessageSegment =
   | { type: 'text'; content: string }
-  | { type: 'artifact'; artifact: Artifact; raw: string }
+  | { type: 'artifact'; artifact: Artifact; raw: string; used_fallback_sources?: boolean }
   | { type: 'artifact-pending'; raw: string }
   // NEW — emitted when an artifact parses as JSON but fails source validation.
   // UI renders this as a visible red card; persistence layer skips it. This
@@ -52,7 +52,7 @@ function validateArtifactSources(artifact: Artifact): string | null {
 }
 
 type ParseOutcome =
-  | { ok: true; artifact: Artifact }
+  | { ok: true; artifact: Artifact; used_fallback_sources?: boolean }
   | { ok: false; reason: string; artifact_type?: string };
 
 /**
@@ -62,8 +62,15 @@ type ParseOutcome =
  * Returns a tagged outcome so the caller can distinguish "not yet parseable"
  * (streaming, incomplete) from "parsed but invalid" (missing sources,
  * malformed Source entry).
+ *
+ * `fallbackSources` — response-level citations from a trailing <CITATIONS>
+ * block. When the agent emits a factual artifact with empty sources[] but
+ * provides citations at the end of the response, we attach those instead of
+ * rejecting. This handles Sonnet 4.6's behavior of bundling all URLs in the
+ * trailing block (see memory: finding-sonnet-4-6-omits-per-artifact-sources).
+ * Over-attribution but never invention — the URLs came from the same response.
  */
-function tryParseArtifact(raw: string): ParseOutcome | null {
+function tryParseArtifact(raw: string, fallbackSources?: Source[] | null): ParseOutcome | null {
   const headerMatch = raw.match(/:::artifact\s*(\{.*?\})\s*\n/);
   if (!headerMatch) return null;
 
@@ -96,6 +103,21 @@ function tryParseArtifact(raw: string): ParseOutcome | null {
   // point of `validateArtifactSources` below is to catch that. We trust
   // validateArtifactSources as the runtime gate; TS just needs the cast.
   const artifact = { ...header, ...body } as unknown as Artifact;
+
+  // Fallback path — if sources are missing/empty AND the response carried a
+  // trailing <CITATIONS> block, attach those before validating. Sonnet 4.6
+  // commonly bundles URLs trailing-only; this rescues otherwise-valid cards.
+  let usedFallback = false;
+  const aMut = artifact as { type: string; sources?: unknown };
+  const sourcesIsEmpty =
+    !Array.isArray(aMut.sources) || (aMut.sources as unknown[]).length === 0;
+  const required = ARTIFACTS_REQUIRING_SOURCES.has(aMut.type as Artifact['type']);
+  if (required && sourcesIsEmpty && fallbackSources && fallbackSources.length > 0) {
+    aMut.sources = fallbackSources;
+    (aMut as { provenance?: 'fallback' }).provenance = 'fallback';
+    usedFallback = true;
+  }
+
   const reason = validateArtifactSources(artifact);
   if (reason) {
     return {
@@ -104,7 +126,7 @@ function tryParseArtifact(raw: string): ParseOutcome | null {
       artifact_type: typeof artifact.type === 'string' ? artifact.type : undefined,
     };
   }
-  return { ok: true, artifact };
+  return { ok: true, artifact, used_fallback_sources: usedFallback };
 }
 
 /**
@@ -160,7 +182,7 @@ export function parseMessageContent(content: string): MessageSegment[] {
 
   for (const part of parts) {
     if (part.startsWith(':::artifact')) {
-      const outcome = tryParseArtifact(part);
+      const outcome = tryParseArtifact(part, proseCitations);
       if (outcome === null) {
         // Not parseable yet (streaming) OR malformed JSON. Use same hueristic
         // as before to distinguish: has closing marker => discard (malformed),
@@ -171,7 +193,12 @@ export function parseMessageContent(content: string): MessageSegment[] {
           segments.push({ type: 'artifact-pending', raw: part });
         }
       } else if (outcome.ok) {
-        segments.push({ type: 'artifact', artifact: outcome.artifact, raw: part });
+        segments.push({
+          type: 'artifact',
+          artifact: outcome.artifact,
+          raw: part,
+          used_fallback_sources: outcome.used_fallback_sources,
+        });
       } else {
         // Parsed but invalid — surface to the UI so the user sees WHY the
         // card didn't render. This catches the common failure mode of

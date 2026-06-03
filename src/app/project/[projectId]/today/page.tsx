@@ -18,6 +18,7 @@ import { TopBar, NavRail } from '@/components/design/chrome';
 import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { ContextNudgeCard } from '@/components/today/ContextNudgeCard';
+import { AssumptionsPanel, type AssumptionRowLite } from '@/components/today/AssumptionsPanel';
 import type { Watcher, WatcherTopic } from '@/lib/watchers';
 
 interface BriefRow {
@@ -84,20 +85,26 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
 
   const [timeline, setTimeline] = useState<TimelinePayload | null>(null);
   const [actions, setActions] = useState<PendingAction[]>([]);
+  const [assumptions, setAssumptions] = useState<AssumptionRowLite[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [timelineRes, actionsRes] = await Promise.all([
+      const [timelineRes, actionsRes, assumptionsRes] = await Promise.all([
         fetch(`/api/projects/${projectId}/timeline?days=7`),
         fetch(`/api/projects/${projectId}/actions?status=pending,edited&limit=3`),
+        fetch(`/api/projects/${projectId}/assumptions`),
       ]);
       const timelineBody = await timelineRes.json();
       const actionsBody = await actionsRes.json();
+      const assumptionsBody = await assumptionsRes.json();
       if (timelineBody.success) setTimeline(timelineBody.data as TimelinePayload);
       if (actionsBody.success && Array.isArray(actionsBody.data?.actions)) {
         setActions(actionsBody.data.actions as PendingAction[]);
+      }
+      if (assumptionsBody.success && Array.isArray(assumptionsBody.data)) {
+        setAssumptions(assumptionsBody.data as AssumptionRowLite[]);
       }
     } catch {
       /* partial state ok */
@@ -174,6 +181,7 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
                   onSaved={fetchAll}
                 />
               )}
+              <AssumptionsPanel projectId={projectId} assumptions={assumptions} />
               <BriefsPanel projectId={projectId} briefs={briefs} />
               <InboxPanel projectId={projectId} actions={actions} totalCount={inboxBadge} />
               <PulsePanel

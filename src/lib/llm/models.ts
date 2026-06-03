@@ -9,6 +9,10 @@
  */
 
 export const MODEL_CONFIG = {
+  // Cheap tier = Haiku 4.5. Tested GPT-4o-mini at 98.6% cost reduction but
+  // it failed the structured-artifact contract entirely (0 workflows, 0
+  // facts, 0 pending_actions vs Sonnet's 5/6/26). Haiku stays in the
+  // Anthropic family so follows the :::artifact{...}::: prompt rules.
   'claude-haiku-4-5': {
     id: 'claude-haiku-4-5-20251001',
     openrouterId: 'anthropic/claude-haiku-4.5',
@@ -16,7 +20,6 @@ export const MODEL_CONFIG = {
     contextWindow: 200_000,
     maxOutputTokens: 64_000,
     pricing: {
-      // USD per million tokens
       input: 1.00,
       output: 5.00,
       cacheWrite: 1.25,

@@ -31,6 +31,13 @@ interface ArtifactCardShellProps {
   style?: React.CSSProperties;
   /** Show a small "AI" badge in the header to indicate AI-generated content */
   aiGenerated?: boolean;
+  /**
+   * When 'fallback', the artifact's sources were repaired from the response's
+   * trailing <CITATIONS> block (Sonnet 4.6 omits per-artifact sources). UI
+   * shows a small "sources inferred" chip so the founder knows the evidence
+   * is response-level, not card-level.
+   */
+  provenance?: 'fallback';
 }
 
 export default function ArtifactCardShell({
@@ -47,6 +54,7 @@ export default function ArtifactCardShell({
   outerClassName,
   style,
   aiGenerated = false,
+  provenance,
 }: ArtifactCardShellProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
@@ -67,6 +75,18 @@ export default function ArtifactCardShell({
         {aiGenerated && (
           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-plum-wash text-plum font-mono uppercase tracking-wider shrink-0">
             AI
+          </span>
+        )}
+        {provenance === 'fallback' && (
+          <span
+            className="text-[9px] px-1.5 py-0.5 rounded-full font-mono uppercase tracking-wider shrink-0"
+            style={{
+              background: 'var(--amber-wash, #fff3cd)',
+              color: 'var(--amber, #b45309)',
+            }}
+            title="Sources inferred from the response footer rather than emitted per-card. The URLs are real, but the agent didn't attribute them to this specific card."
+          >
+            Sources inferred
           </span>
         )}
         {title && (

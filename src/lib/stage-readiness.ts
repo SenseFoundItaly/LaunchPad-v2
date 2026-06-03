@@ -15,6 +15,7 @@
  */
 import { query, get } from '@/lib/db';
 import { STAGES, SKILL_KICKOFFS, type SkillDef } from '@/lib/stages';
+import { countAssumptions, type AssumptionCounts } from '@/lib/assumptions';
 import { scoreOverall, scoreStage, type StageScore } from '@/lib/scoring';
 import type { SkillData, SkillStatus } from '@/hooks/useSkillStatus';
 import {
@@ -55,6 +56,13 @@ export interface ProjectReadiness {
    * the stage clears. Null when every stage is GO+.
    */
   next_recommended_skill: (SkillDef & { stage_number: number; stage_name: string; kickoff: string }) | null;
+  /**
+   * Franzagos-style premortem signal. Soft warning, not a hard gate — when
+   * open_high > 0 the agent should weave that into its option-set (suggest
+   * the skill that would validate the riskiest open bet), but founders are
+   * never blocked from moving forward. See src/lib/assumptions.ts.
+   */
+  assumptions: AssumptionCounts;
 }
 
 type CompletionRow = { skill_id: string; status: string | null; summary: string | null; completed_at: string | null; section_scores: Record<string, number> | null };
@@ -138,7 +146,12 @@ function verdictFromScore(score: number): StageReadiness['verdict'] {
  * via get_project_summary.
  */
 export async function getStageReadiness(projectId: string): Promise<ProjectReadiness> {
-  const { skillMap, sectionContext } = await buildSkillMap(projectId);
+  const [{ skillMap, sectionContext }, assumptions] = await Promise.all([
+    buildSkillMap(projectId),
+    countAssumptions(projectId).catch(() => ({
+      total: 0, open_high: 0, open_total: 0, validated: 0, invalidated: 0,
+    } as AssumptionCounts)),
+  ]);
   const overall = scoreOverall(skillMap);
 
   const stages: StageReadiness[] = STAGES.map((stage) => {
@@ -195,6 +208,7 @@ export async function getStageReadiness(projectId: string): Promise<ProjectReadi
     overall_verdict: verdictFromScore(overall.score),
     stages,
     next_recommended_skill: next,
+    assumptions,
   };
 }
 
@@ -233,6 +247,24 @@ export function formatReadinessForPrompt(r: ProjectReadiness): string {
   } else {
     lines.push('');
     lines.push('All 7 stages are GO+. Switch the option-set to operating concerns (metrics, fundraising, growth).');
+  }
+
+  // Premortem warning. Soft signal — do NOT block stage progression. The agent
+  // should fold this into option-set ranking (skills that would validate one
+  // of these bets should rise), and surface the risk in prose when the founder
+  // pushes toward irreversible work.
+  if (r.assumptions.open_high > 0) {
+    lines.push('');
+    lines.push(
+      `⚠ Premortem: ${r.assumptions.open_high} high-criticality assumption${r.assumptions.open_high === 1 ? '' : 's'} still open` +
+      ` (${r.assumptions.validated}/${r.assumptions.total} validated overall).` +
+      ` Prefer skills that would validate these before any irreversible spend.`,
+    );
+  } else if (r.assumptions.total > 0) {
+    lines.push('');
+    lines.push(
+      `Premortem: ${r.assumptions.validated}/${r.assumptions.total} assumptions validated, no high-criticality open.`,
+    );
   }
   return lines.join('\n');
 }

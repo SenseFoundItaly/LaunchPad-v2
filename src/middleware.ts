@@ -23,6 +23,13 @@ function isPublicPath(pathname: string): boolean {
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export async function middleware(req: NextRequest) {
+  // E2E bypass: same flag as require-user.ts. When set, an x-e2e-user cookie
+  // (or header) means the request is authenticated — skip redirect-to-login.
+  if (process.env.E2E_AUTH_ENABLED === '1') {
+    const e2eId = req.headers.get('x-e2e-user') || req.cookies.get('x-e2e-user')?.value;
+    if (e2eId) return NextResponse.next({ request: req });
+  }
+
   // CSRF mitigation: reject mutating API requests without JSON Content-Type.
   // Browsers cannot set Content-Type: application/json from plain form
   // submissions, so this blocks cross-origin form-based CSRF attacks.

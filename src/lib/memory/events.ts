@@ -32,6 +32,7 @@ export type EventType =
   | 'workflow_proposed'
   | 'task_proposed'
   | 'artifact_rejected_no_sources'
+  | 'artifact_rescued_by_fallback_citations'
   | 'monitor_applied'
   | 'budget_changed'
   | 'task_expanded'

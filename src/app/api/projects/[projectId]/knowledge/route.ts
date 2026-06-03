@@ -97,8 +97,12 @@ export async function GET(
     })),
   ];
 
-  // Sort all items by created_at descending
-  items.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  // Sort all items by created_at descending.
+  // created_at can arrive as either a Date (raw postgres rows) or an ISO string
+  // (when the row was reserialized). Coerce both sides so localeCompare always
+  // sees a string.
+  const toIso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v ?? ''));
+  items.sort((a, b) => toIso(b.created_at).localeCompare(toIso(a.created_at)));
 
   // Count pending across all tables
   const pendingCount = items.filter((i) => i.reviewed_state === 'pending').length;

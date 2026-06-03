@@ -33,7 +33,11 @@ export default function SolveProgressCard({ artifact }: { artifact: SolveProgres
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
         {stages.map((stage, i) => {
-          const colors = STATUS_COLORS[stage.status];
+          // Defensive lookup: agent has been observed emitting `status` values
+          // outside the typed set (e.g. 'in-progress' instead of 'active'),
+          // which crashed the whole chat page with "Cannot read properties of
+          // undefined (reading 'circle')". Fall back to 'pending' styling.
+          const colors = STATUS_COLORS[stage.status] || STATUS_COLORS.pending;
           const isLast = i === stages.length - 1;
 
           return (
