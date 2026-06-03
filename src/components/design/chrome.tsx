@@ -123,9 +123,10 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'today',   iconKey: 'home',   label: 'Today',    route: 'today' },
-  { id: 'signals', iconKey: 'signal', label: 'Signals',  route: 'signals' },
-  { id: 'chat',    iconKey: 'chat',   label: 'Co-pilot', route: 'chat' },
+  { id: 'today',   iconKey: 'home',    label: 'Today',    route: 'today' },
+  { id: 'inbox',   iconKey: 'tickets', label: 'Inbox',    route: 'actions' },
+  { id: 'signals', iconKey: 'signal',  label: 'Signals',  route: 'signals' },
+  { id: 'chat',    iconKey: 'chat',    label: 'Co-pilot', route: 'chat' },
 ];
 
 export interface NavRailProps {
@@ -166,9 +167,10 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
           item={it}
           projectId={projectId}
           active={isActive(it)}
-          // Inbox lives on Today now — keep the count visible on the
-          // Today rail item so the user still sees a dot when something pends.
-          badge={it.id === 'today' ? inboxBadge : undefined}
+          // Inbox tab carries the pending-actions badge — the count is the
+          // direct signal of "something needs my review" and surfaces best
+          // on the dedicated tab, not on Today's broader dashboard.
+          badge={it.id === 'inbox' ? inboxBadge : undefined}
           streaming={it.id === 'chat' ? chatStreaming : undefined}
         />
       ))}
