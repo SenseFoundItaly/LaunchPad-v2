@@ -10,16 +10,25 @@ export async function GET() {
     const { userId, orgId } = await requireUser();
     // UNION of org-owned + shared-with-me. DISTINCT guards the edge case
     // where a user somehow shares with themselves (the share row exists but
-    // the org_id already matches).
+    // the org_id already matches). owner_email is LEFT JOINed so shared-
+    // project tiles can render "shared by <email>" without a second fetch.
     const rows = await query(
-      `SELECT DISTINCT p.* FROM projects p
+      `SELECT DISTINCT p.*, u.email AS owner_email FROM projects p
+         LEFT JOIN users u ON u.id = p.owner_user_id
          WHERE p.org_id = ?
            OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ?)
          ORDER BY p.created_at DESC`,
       orgId,
       userId,
     );
-    return json(rows.map(mapProject));
+    return json(rows.map((r) => {
+      const mapped = mapProject(r as Record<string, unknown>);
+      // Derive access_kind once on the server so the home tile can render
+      // the "Shared" badge without re-deriving from raw org/user ids.
+      const isOwner = (r as Record<string, unknown>).org_id === orgId;
+      mapped.access_kind = isOwner ? 'owner' : 'member';
+      return mapped;
+    }));
   } catch (e) {
     if (e instanceof AuthError) return json({ error: e.message }, e.status);
     throw e;

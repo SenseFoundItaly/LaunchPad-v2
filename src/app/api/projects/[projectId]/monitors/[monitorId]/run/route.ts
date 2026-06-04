@@ -114,8 +114,8 @@ export async function POST(_request: NextRequest, { params }: Params) {
             // 2. monitor_runs row (pre-fill alerts_generated=0, bump below
             // if ecosystem parsing succeeds)
             await run(
-              `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
-               VALUES (?, ?, ?, 'completed', ?, 0, ?)`,
+              `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, trigger_type, run_at)
+               VALUES (?, ?, ?, 'completed', ?, 0, 'manual', ?)`,
               runId, monitorId, projectId, fullResponse, now,
             );
 

@@ -45,13 +45,23 @@ const VALID_STATUSES = new Set(['active', 'paused']);
  * Objective falls back to linked_quote when null — covers monitors
  * created before the objective column landed.
  */
+const VALID_TRIGGERS = new Set(['scheduled', 'manual', 'api', 'webhook']);
+
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ projectId: string; monitorId: string }> },
 ) {
   const { projectId, monitorId } = await params;
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
+
+  // Run-log filter: ?trigger=scheduled|manual|api|webhook narrows recent_runs.
+  // 'all' (or absent) returns the unfiltered top-N. We keep last_run / last_run_alerts /
+  // last_run_sources tied to the *truly* most recent run regardless of filter — the
+  // header summary shouldn't lie when the founder is just slicing the history.
+  const triggerFilter = new URL(request.url).searchParams.get('trigger');
+  const triggerValid = triggerFilter && VALID_TRIGGERS.has(triggerFilter) ? triggerFilter : null;
+  const runLimit = Number(new URL(request.url).searchParams.get('runs_limit')) || 30;
 
   const monitor = await get<MonitorRow>(
     'SELECT * FROM monitors WHERE id = ? AND project_id = ?',
@@ -71,14 +81,37 @@ export async function GET(
       ? safeParseStringArray(monitor.urls_to_track)
       : [];
 
-  const recentRuns = await query<{ id: string; status: string; summary: string | null; alerts_generated: number; run_at: string }>(
-    `SELECT id, status, summary, alerts_generated, run_at FROM monitor_runs
-     WHERE monitor_id = ? AND project_id = ?
-     ORDER BY run_at DESC LIMIT 5`,
-    monitorId, projectId,
+  const runFilterSql = triggerValid ? 'AND trigger_type = ?' : '';
+  const runFilterParams = triggerValid ? [triggerValid] : [];
+
+  const recentRuns = await query<{
+    id: string;
+    status: string;
+    summary: string | null;
+    alerts_generated: number;
+    trigger_type: string;
+    run_at: string;
+  }>(
+    `SELECT id, status, summary, alerts_generated, trigger_type, run_at FROM monitor_runs
+     WHERE monitor_id = ? AND project_id = ? ${runFilterSql}
+     ORDER BY run_at DESC LIMIT ${Math.max(1, Math.min(200, Math.floor(runLimit)))}`,
+    monitorId, projectId, ...runFilterParams,
   );
 
-  const lastRun = recentRuns[0] ?? null;
+  // last_run is the truly most recent run for this monitor — not the most
+  // recent run *in the filtered window*. When the user picks the 'Manual'
+  // filter we still want the header to say "Last fired: 2h ago (scheduled)"
+  // if the last scheduled tick is more recent than any manual one. Query
+  // separately when a filter is active; otherwise the first row of the
+  // filterless list is fine.
+  const lastRun = triggerValid
+    ? (await query<{ id: string; status: string; summary: string | null; alerts_generated: number; trigger_type: string; run_at: string }>(
+        `SELECT id, status, summary, alerts_generated, trigger_type, run_at FROM monitor_runs
+         WHERE monitor_id = ? AND project_id = ?
+         ORDER BY run_at DESC LIMIT 1`,
+        monitorId, projectId,
+      ))[0] ?? null
+    : recentRuns[0] ?? null;
 
   let lastRunAlerts: AlertRow[] = [];
   let lastRunSources: string[] = [];

@@ -28,6 +28,7 @@ import {
 } from '@/components/design/primitives';
 import type { PendingAction, PendingActionStatus, PendingActionType, ActionLane } from '@/types';
 import { laneFor } from '@/lib/action-lanes';
+import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 
 // Phase 1 — 3-lane Inbox (Tasks / Approvals / Notifications).
 // See /Users/openmaiku/.claude/plans/buckets-tasks-intelligence-signals-assets.md
@@ -40,8 +41,9 @@ const LANE_LABEL: Record<ActionLane, string> = {
   todo: 'TODOs',
   approval: 'Approvals',
   notification: 'Notifications',
+  monitor: 'Monitors',
 };
-const LANE_ORDER: ActionLane[] = ['todo', 'approval', 'notification'];
+const LANE_ORDER: ActionLane[] = ['todo', 'approval', 'notification', 'monitor'];
 
 const AGENT_OPTIONS = ['any', 'Scout', 'Chief', 'Analyst', 'Outreach', 'Designer', 'Architect'] as const;
 const STATUS_OPTIONS: Array<'any' | PendingActionStatus> = ['any', 'pending', 'edited', 'applied', 'sent', 'rejected', 'failed'];
@@ -121,7 +123,10 @@ export default function TicketsPage({
   // rows still appear in the list if the dropdown filter allows, but the
   // tab badge shouldn't scream "12!" when 11 of those are already sent.
   const laneCounts = useMemo<Record<ActionLane, number>>(() => {
-    const c: Record<ActionLane, number> = { todo: 0, approval: 0, notification: 0 };
+    // The 'monitor' lane reads from /monitors, not /actions — its count
+    // shouldn't double-bill against pending_actions. We display a separate
+    // monitors badge inside MonitorListPanel itself.
+    const c: Record<ActionLane, number> = { todo: 0, approval: 0, notification: 0, monitor: 0 };
     for (const a of actions) {
       if (a.status === 'pending' || a.status === 'edited') {
         c[laneFor(a.action_type)]++;
@@ -132,9 +137,16 @@ export default function TicketsPage({
 
   // After the first successful fetch, pick the lane with the highest open
   // count so the founder lands where the work is. Tie-breaker: TODOs.
+  // Override: ?lane=<name> in the URL pins the choice (deep links from Today).
   useEffect(() => {
     if (laneInitialized || loading) return;
-    const winner = LANE_ORDER.reduce<ActionLane>(
+    const fromUrl = typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('lane')
+      : null;
+    const validFromUrl = fromUrl && (LANE_ORDER as string[]).includes(fromUrl)
+      ? (fromUrl as ActionLane)
+      : null;
+    const winner = validFromUrl ?? LANE_ORDER.reduce<ActionLane>(
       (best, l) => (laneCounts[l] > laneCounts[best] ? l : best),
       'todo',
     );
@@ -230,34 +242,46 @@ export default function TicketsPage({
             counts={laneCounts}
             onChange={handleLaneChange}
           />
-          <TicketsToolbar
-            total={filteredActions.length}
-            open={laneCounts[lane]}
-            agentFilter={agentFilter}
-            setAgentFilter={setAgentFilter}
-            statusFilter={statusFilter}
-            setStatusFilter={setStatusFilter}
-            typeFilter={typeFilter}
-            setTypeFilter={setTypeFilter}
-            typeOptions={typeOptions}
-          />
 
-          <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
-            <TicketsTable
-              rows={filteredActions}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              loading={loading}
-              error={error}
-              lane={lane}
-            />
-            {selected && (
-              <TicketDetail
-                action={selected}
-                onTransition={transition}
+          {lane === 'monitor' ? (
+            // Monitor lane reads from /monitors, not /actions — no toolbar,
+            // no row-selection detail pane. The panel owns its own scroll
+            // and renders the "+ New monitor" CTA inline.
+            <div style={{ flex: 1, overflow: 'auto', background: 'var(--paper)' }}>
+              <MonitorListPanel projectId={projectId} />
+            </div>
+          ) : (
+            <>
+              <TicketsToolbar
+                total={filteredActions.length}
+                open={laneCounts[lane]}
+                agentFilter={agentFilter}
+                setAgentFilter={setAgentFilter}
+                statusFilter={statusFilter}
+                setStatusFilter={setStatusFilter}
+                typeFilter={typeFilter}
+                setTypeFilter={setTypeFilter}
+                typeOptions={typeOptions}
               />
-            )}
-          </div>
+
+              <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
+                <TicketsTable
+                  rows={filteredActions}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                  loading={loading}
+                  error={error}
+                  lane={lane}
+                />
+                {selected && (
+                  <TicketDetail
+                    action={selected}
+                    onTransition={transition}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -548,6 +572,9 @@ function TicketsTable({
       todo: 'No active TODOs. The co-founder creates tasks when it spots something you need to do.',
       approval: 'No drafts awaiting review. Drafts queue here when the agent prepares an outreach email, monitor config, or hypothesis.',
       notification: 'No new notifications. The system posts here when it auto-refreshes a stale skill or completes a background job.',
+      // monitor lane is rendered by MonitorListPanel and never falls through
+      // to this empty-state path, but the Record type wants it specified.
+      monitor: 'No active monitors. Click "+ New monitor" above to create one.',
     };
     return (
       <div style={{ padding: 60, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}>

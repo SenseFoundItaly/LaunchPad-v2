@@ -318,6 +318,14 @@ export interface MonitorProposalArtifact extends ArtifactBase {
   // Estimated monthly cost in EUR based on schedule × avg-runs × balanced-tier.
   // Surfaces on the card so the founder sees the ongoing spend implication.
   estimated_monthly_cost_eur: number;
+  // Credit-denominated cost — computed using the project's own
+  // credits-per-EUR ratio at proposal time. The card displays these
+  // prominently because credits are the founder-facing unit.
+  // Fields are optional for backwards-compat with older artifacts emitted
+  // before this addition; the card falls back to monthly_cost_eur display.
+  estimated_daily_credits?: number;
+  estimated_monthly_credits?: number;
+  estimated_per_run_credits?: number;
 
   // Pairs the artifact to the inbox row — clicking Apply in either place
   // resolves both. The chat route writes the pending_action first, then

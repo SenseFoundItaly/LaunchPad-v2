@@ -34,13 +34,28 @@ interface MonitorDetail {
   created_at: string;
 }
 
+type TriggerType = 'scheduled' | 'manual' | 'api' | 'webhook';
+
 interface RunRow {
   id: string;
   status: string;
   summary: string | null;
   alerts_generated: number;
   run_at: string;
+  trigger_type: TriggerType;
 }
+
+// Run history filter strip — matches the reference screenshot (Tutto/Programmato/
+// Manuale/API/Webhook). 'all' is the unfiltered default; the others map 1:1
+// to monitor_runs.trigger_type values the backend understands.
+type TriggerFilter = 'all' | TriggerType;
+const TRIGGER_FILTERS: Array<{ value: TriggerFilter; label: string }> = [
+  { value: 'all',       label: 'All'       },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'manual',    label: 'Manual'    },
+  { value: 'api',       label: 'API'       },
+  { value: 'webhook',   label: 'Webhook'   },
+];
 
 interface AlertRow {
   id: string;
@@ -71,12 +86,16 @@ export default function MonitorDetailPage({
   const [data, setData] = useState<DetailPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [triggerFilter, setTriggerFilter] = useState<TriggerFilter>('all');
 
   const fetchDetail = useCallback(async () => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await fetch(`/api/projects/${projectId}/monitors/${monitorId}`);
+      const qs = new URLSearchParams();
+      if (triggerFilter !== 'all') qs.set('trigger', triggerFilter);
+      qs.set('runs_limit', '50');
+      const res = await fetch(`/api/projects/${projectId}/monitors/${monitorId}?${qs.toString()}`);
       const body = await res.json();
       if (!res.ok || !body?.success) {
         setErrorMsg(body?.error || `HTTP ${res.status}`);
@@ -88,7 +107,7 @@ export default function MonitorDetailPage({
     } finally {
       setLoading(false);
     }
-  }, [projectId, monitorId]);
+  }, [projectId, monitorId, triggerFilter]);
 
   useEffect(() => { void fetchDetail(); }, [fetchDetail]);
 
@@ -139,7 +158,12 @@ export default function MonitorDetailPage({
           ) : errorMsg ? (
             <ErrorState message={errorMsg} />
           ) : data ? (
-            <MonitorView data={data} />
+            <MonitorView
+              data={data}
+              triggerFilter={triggerFilter}
+              onTriggerFilterChange={setTriggerFilter}
+              loadingRuns={loading}
+            />
           ) : null}
         </div>
       </div>
@@ -158,7 +182,17 @@ export default function MonitorDetailPage({
 // View
 // =============================================================================
 
-function MonitorView({ data }: { data: DetailPayload }) {
+function MonitorView({
+  data,
+  triggerFilter,
+  onTriggerFilterChange,
+  loadingRuns,
+}: {
+  data: DetailPayload;
+  triggerFilter: TriggerFilter;
+  onTriggerFilterChange: (next: TriggerFilter) => void;
+  loadingRuns: boolean;
+}) {
   const m = data.monitor;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 880 }}>
@@ -240,6 +274,87 @@ function MonitorView({ data }: { data: DetailPayload }) {
           </div>
         ) : (
           <Empty text="No runs yet. The monitor will fire on its next scheduled tick." />
+        )}
+      </Section>
+
+      <Section
+        label="Run history"
+        icon={I.clock}
+        sub={`${data.recent_runs.length} run${data.recent_runs.length === 1 ? '' : 's'}${triggerFilter !== 'all' ? ` · ${triggerFilter}` : ''}`}
+      >
+        <div style={{ padding: '8px 14px 4px', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {TRIGGER_FILTERS.map((f) => {
+            const active = f.value === triggerFilter;
+            return (
+              <button
+                key={f.value}
+                onClick={() => onTriggerFilterChange(f.value)}
+                style={{
+                  fontSize: 11,
+                  padding: '4px 10px',
+                  border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+                  background: active ? 'var(--accent-wash, var(--paper-2))' : 'transparent',
+                  color: active ? 'var(--accent-ink, var(--ink-1))' : 'var(--ink-3)',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontWeight: active ? 600 : 400,
+                }}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+        {data.recent_runs.length === 0 ? (
+          <Empty text={triggerFilter === 'all' ? 'No runs yet.' : `No ${triggerFilter} runs.`} />
+        ) : (
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+            {data.recent_runs.map((r) => (
+              <li
+                key={r.id}
+                style={{
+                  padding: '10px 14px',
+                  borderTop: '1px solid var(--line)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  fontSize: 12.5,
+                  color: 'var(--ink-2)',
+                  opacity: loadingRuns ? 0.6 : 1,
+                }}
+              >
+                <Icon
+                  d={I.clock}
+                  size={11}
+                  stroke={1.4}
+                  style={{ color: r.status === 'failed' ? 'var(--clay)' : 'var(--ink-5)' }}
+                />
+                <span style={{ flex: 1 }}>
+                  {new Date(r.run_at).toLocaleString()}
+                </span>
+                {r.alerts_generated > 0 && (
+                  <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
+                    {r.alerts_generated} alert{r.alerts_generated === 1 ? '' : 's'}
+                  </span>
+                )}
+                {r.status === 'failed' && <Pill kind="warn">failed</Pill>}
+                <span
+                  className="lp-mono"
+                  style={{
+                    fontSize: 10,
+                    color: 'var(--ink-5)',
+                    background: 'var(--paper-2)',
+                    padding: '2px 6px',
+                    borderRadius: 3,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.4,
+                  }}
+                >
+                  {r.trigger_type}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </Section>
 

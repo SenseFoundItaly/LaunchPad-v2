@@ -11,9 +11,19 @@ export async function GET(
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
 
-  const rows = await query('SELECT * FROM projects WHERE id = ?', projectId);
+  // LEFT JOIN owner email so the TopBar "shared by X" chip can render
+  // without a second fetch for shared-view sessions.
+  const rows = await query(
+    `SELECT p.*, u.email AS owner_email
+       FROM projects p
+       LEFT JOIN users u ON u.id = p.owner_user_id
+      WHERE p.id = ?`,
+    projectId,
+  );
   if (rows.length === 0) {return error('Project not found', 404);}
-  return json(mapProject(rows[0]));
+  const mapped = mapProject(rows[0]);
+  mapped.access_kind = auth.session.accessKind;
+  return json(mapped);
 }
 
 export async function PUT(

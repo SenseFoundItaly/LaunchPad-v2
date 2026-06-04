@@ -200,14 +200,14 @@ export async function processWatchSource(
           paId, ws.project_id, alertId, alertId,
           classification.headline,
           (classification.rationale ?? '').slice(0, 500),
-          JSON.stringify({
+          {
             alert_type: classification.alert_type,
             source: `watch:${ws.label}`,
             source_url: ws.url,
             relevance_score: classification.significance === 'high' ? 0.9 : 0.7,
-          }),
+          },
           priority,
-          JSON.stringify([{ type: 'web', title: ws.label, url: ws.url }]),
+          [{ type: 'web', title: ws.label, url: ws.url }],
           now, now,
         );
       } catch (err) {

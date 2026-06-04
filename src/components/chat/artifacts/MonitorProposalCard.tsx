@@ -135,9 +135,6 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-paper-3/50 text-ink-3">
           {SCHEDULE_LABELS[artifact.schedule]}
         </span>
-        <span className="text-[10px] text-ink-5">
-          ~{'\u20AC'}{artifact.estimated_monthly_cost_eur.toFixed(2)}/mo
-        </span>
       </>}
     >
       {/* Derisking breadcrumb */}
@@ -216,6 +213,11 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
         </>
       )}
 
+      {/* Cost callout — credits are the founder-facing unit. Hides itself
+          for older artifacts that don't carry credit fields and falls back
+          to the EUR-only line. */}
+      <CostCallout artifact={artifact} />
+
       {/* Action buttons */}
       {state === 'editing' ? (
         <div className="flex items-center gap-2 pt-2 border-t border-line-2">
@@ -251,5 +253,63 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
         />
       )}
     </ArtifactCardShell>
+  );
+}
+
+/**
+ * Cost callout — the founder-facing "what does this cost?" line.
+ *
+ * Credit fields are optional on the artifact (added 2026-06-04). Older
+ * proposals that don't carry them fall back to the EUR-only message, which
+ * preserves the pre-change UX rather than rendering "undefined credits/day".
+ *
+ * The wording deliberately frames the cost as "if applied" — the founder
+ * hasn't committed yet, and saying "consumes X credits/day" present-tense
+ * on a not-yet-active monitor would be misleading.
+ */
+function CostCallout({ artifact }: { artifact: MonitorProposalArtifact }) {
+  const hasCredits =
+    typeof artifact.estimated_daily_credits === 'number' &&
+    typeof artifact.estimated_monthly_credits === 'number';
+
+  if (!hasCredits) {
+    return (
+      <div className="text-[11px] text-ink-4 mb-3 px-2.5 py-1.5 rounded bg-paper-2/60 border border-line-2">
+        <span className="text-ink-5">Cost if applied:</span>{' '}
+        ≈ €{artifact.estimated_monthly_cost_eur.toFixed(2)}/month
+      </div>
+    );
+  }
+
+  const dailyCredits = artifact.estimated_daily_credits!;
+  const monthlyCredits = artifact.estimated_monthly_credits!;
+  const perRunCredits = artifact.estimated_per_run_credits;
+
+  // Two display modes:
+  //   - daily monitor:  emphasize daily rate ("≈ 2 credits/day")
+  //   - weekly monitor: per-day rate may round to 0, so we emphasize monthly
+  //     instead and surface daily as a less-prominent average.
+  const showDaily = dailyCredits >= 1;
+
+  return (
+    <div className="text-xs mb-3 px-2.5 py-2 rounded bg-paper-2/60 border border-line-2 flex items-baseline gap-2 flex-wrap">
+      <span className="text-ink-5 text-[10.5px] uppercase tracking-wider">
+        Cost if applied
+      </span>
+      <span className="text-ink font-medium">
+        {showDaily
+          ? `≈ ${dailyCredits} credit${dailyCredits === 1 ? '' : 's'}/day`
+          : `≈ ${monthlyCredits} credit${monthlyCredits === 1 ? '' : 's'}/month`}
+      </span>
+      <span className="text-ink-5 text-[11px]">
+        {showDaily
+          ? `(${monthlyCredits} credits/month`
+          : `(~${dailyCredits} credit${dailyCredits === 1 ? '' : 's'}/day average`}
+        {typeof perRunCredits === 'number' && perRunCredits > 0
+          ? ` · ${perRunCredits.toFixed(2)} per run`
+          : ''}
+        {' · €'}{artifact.estimated_monthly_cost_eur.toFixed(2)}/mo)
+      </span>
+    </div>
   );
 }

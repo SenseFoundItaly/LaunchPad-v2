@@ -123,7 +123,7 @@ export async function POST(
         payload.snooze_until = until;
         await run(
           `UPDATE pending_actions SET payload = ?, updated_at = ? WHERE id = ?`,
-          JSON.stringify(payload),
+          payload,
           new Date().toISOString(),
           row.id,
         );
@@ -388,7 +388,7 @@ async function handleExpand(
 
   await run(
     `UPDATE pending_actions SET payload = ?, updated_at = ? WHERE id = ?`,
-    JSON.stringify(nextPayload),
+    nextPayload,
     new Date().toISOString(),
     row.id,
   );

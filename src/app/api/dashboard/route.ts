@@ -5,19 +5,32 @@ import { STAGES } from '@/lib/stages';
 
 /** Cross-project dashboard data for the homepage command center */
 export async function GET() {
+  let userId: string;
   let orgId: string;
   try {
-    ({ orgId } = await requireUser());
+    ({ userId, orgId } = await requireUser());
   } catch (e) {
     if (e instanceof AuthError) return json({ error: e.message }, e.status);
     throw e;
   }
 
-  // Projects the user has access to (via org membership).
+  // Projects the user has access to: owned (via org match) OR shared (via
+  // project_members). Mirrors the /api/projects list query so the home
+  // surface stops hiding shared-with-me projects. owner_email is LEFT
+  // JOINed so the "shared by X" tile chip can render without a 2nd fetch.
   const projects = await query<{
     id: string; name: string; description: string; status: string;
     current_step: number; created_at: string;
-  }>('SELECT * FROM projects WHERE org_id = ? ORDER BY created_at DESC', orgId);
+    org_id: string | null; owner_user_id: string | null; owner_email: string | null;
+  }>(
+    `SELECT DISTINCT p.*, u.email AS owner_email FROM projects p
+       LEFT JOIN users u ON u.id = p.owner_user_id
+       WHERE p.org_id = ?
+         OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ?)
+       ORDER BY p.created_at DESC`,
+    orgId,
+    userId,
+  );
 
   // Per-project skill counts
   const skillCounts = await query<{ project_id: string; count: number }>(
@@ -49,7 +62,8 @@ export async function GET() {
   const weeklyMap: Record<string, number> = {};
   for (const w of weeklyAlerts) weeklyMap[w.project_id] = w.count;
 
-  // Enrich projects
+  // Enrich projects — include access_kind + owner_email so the home tile
+  // can render a "Shared" badge and "shared by X" hover without re-derive.
   const enriched = projects.map(p => ({
     project_id: p.id,
     name: p.name,
@@ -59,6 +73,8 @@ export async function GET() {
     total_analyses: STAGES.reduce((sum, s) => sum + s.skills.length, 0),
     weekly_alerts: weeklyMap[p.id] || 0,
     created_at: p.created_at,
+    access_kind: p.org_id === orgId ? 'owner' as const : 'member' as const,
+    owner_email: p.owner_email,
   }));
 
   // Project name lookup for alerts

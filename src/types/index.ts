@@ -8,6 +8,12 @@ export interface Project {
   updated_at: string;
   llm_provider: string;
   error: string | null;
+  /** 'owner' = the current user's org owns this project; 'member' = shared
+   *  with them. Server-set by /api/projects/{id}. Undefined on older
+   *  payloads that pre-date the share flag — treat as 'owner' for safety. */
+  access_kind?: 'owner' | 'member';
+  /** Owner's email — used for "shared by X" labels when viewing as member. */
+  owner_email?: string | null;
 }
 
 export interface IdeaCanvas {

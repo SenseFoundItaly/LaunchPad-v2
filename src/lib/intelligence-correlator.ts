@@ -228,7 +228,7 @@ export async function processCorrelations(
           paId, projectId, briefId,
           corr.title,
           (corr.narrative ?? '').slice(0, 500),
-          JSON.stringify({
+          {
             brief_id: briefId,
             entity: corr.entity_name,
             narrative: corr.narrative,
@@ -236,7 +236,7 @@ export async function processCorrelations(
             confidence: corr.confidence,
             signal_count: corr.signal_ids_used.length,
             recommended_actions: corr.recommended_actions,
-          }),
+          },
           priority, now, now,
         );
       } catch (err) {

@@ -351,8 +351,8 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
     );
 
     await run(
-      `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
-       VALUES (?, ?, ?, 'completed', ?, ?, ?)`,
+      `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, trigger_type, run_at)
+       VALUES (?, ?, ?, 'completed', ?, ?, 'scheduled', ?)`,
       runId, monitor.id, monitor.project_id, result, 0, runAt,
     );
 
@@ -490,8 +490,8 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
     };
   } catch (err) {
     await run(
-      `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, run_at)
-       VALUES (?, ?, ?, 'failed', ?, 0, ?)`,
+      `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, trigger_type, run_at)
+       VALUES (?, ?, ?, 'failed', ?, 0, 'scheduled', ?)`,
       runId, monitor.id, monitor.project_id, (err as Error).message.slice(0, 2000), runAt,
     );
 
@@ -967,12 +967,23 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
 }
 
 /**
- * POST /api/cron?force=true
+ * POST /api/cron?force=true&monitor_id=mon_xxx
  * Manual trigger for the Monday scan. Optional body:
- *   { project_id?: string, type_prefix?: string }
- * If project_id is given, run only that project's monitors; otherwise all
- * active monitors regardless of schedule. If type_prefix is "ecosystem.",
- * run only the ecosystem scan.
+ *   { project_id?: string, type_prefix?: string, monitor_id?: string }
+ *
+ * Scoping (most-specific wins):
+ *   - monitor_id    → run exactly one monitor (ignores status='paused' too)
+ *   - project_id    → all that project's active monitors
+ *   - type_prefix   → all active monitors whose type starts with the prefix
+ *   - (none)        → all active monitors
+ *
+ * `force=true` bypasses the 5-min anti-loop guard. monitor_id also implies
+ * bypassing the guard — when you ask for a specific monitor by id, you mean
+ * "run it now," not "run it if it's due."
+ *
+ * Note: runs initiated here are persisted with trigger_type='scheduled'. If
+ * we wire this endpoint into a user-driven "trigger from CLI" path later,
+ * consider widening the call signature to thread an explicit trigger_type.
  */
 export async function POST(request: NextRequest) {
   const auth = requireCronAuth(request);
@@ -980,29 +991,44 @@ export async function POST(request: NextRequest) {
 
   const url = new URL(request.url);
   const force = url.searchParams.get('force') === 'true';
+  const monitorIdQuery = url.searchParams.get('monitor_id');
 
-  let body: { project_id?: string; type_prefix?: string } = {};
+  let body: { project_id?: string; type_prefix?: string; monitor_id?: string } = {};
   try {
     body = await request.json();
   } catch {
-    return error('Invalid JSON body');
+    // Body is optional — empty body is fine, but malformed JSON should fail loud.
+    if (request.headers.get('content-length') && request.headers.get('content-length') !== '0') {
+      return error('Invalid JSON body');
+    }
   }
 
-  const conditions: string[] = [`status = 'active'`];
+  // Query param wins over body (curl-friendly default), but either works.
+  const monitorId = monitorIdQuery ?? body.monitor_id ?? null;
+
+  const conditions: string[] = monitorId
+    // monitor_id mode bypasses status filter — useful for re-firing a paused
+    // monitor manually without un-pausing it.
+    ? ['id = ?']
+    : [`status = 'active'`];
   const params: unknown[] = [];
 
-  if (body.project_id) {
-    conditions.push('project_id = ?');
-    params.push(body.project_id);
-  }
-  if (body.type_prefix) {
-    conditions.push('type LIKE ?');
-    params.push(`${body.type_prefix}%`);
-  }
-  if (!force) {
-    // Without force, respect the 5-min guard
-    conditions.push(`(last_run IS NULL OR last_run < ?)`);
-    params.push(new Date(Date.now() - 5 * 60 * 1000).toISOString());
+  if (monitorId) {
+    params.push(monitorId);
+  } else {
+    if (body.project_id) {
+      conditions.push('project_id = ?');
+      params.push(body.project_id);
+    }
+    if (body.type_prefix) {
+      conditions.push('type LIKE ?');
+      params.push(`${body.type_prefix}%`);
+    }
+    if (!force) {
+      // Without force, respect the 5-min guard
+      conditions.push(`(last_run IS NULL OR last_run < ?)`);
+      params.push(new Date(Date.now() - 5 * 60 * 1000).toISOString());
+    }
   }
 
   const monitors = await query<MonitorRow>(

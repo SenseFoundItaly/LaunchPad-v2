@@ -23,7 +23,9 @@ import { parseMessageContent } from '@/lib/artifact-parser';
 import type { Artifact, ArtifactType } from '@/types/artifacts';
 import { Canvas } from '@/components/canvas/Canvas';
 import { TopBar, NavRail } from '@/components/design/chrome';
-import { CreditsBadge } from '@/components/CreditsBadge';
+// CreditsBadge is now mounted globally inside TopBar (see chrome.tsx) so we
+// don't import or insert it here. The `right` slot below only carries the
+// chat-specific controls (model picker, context export).
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { buildContextMarkdown } from '@/lib/context-export';
 import type { ContextExportData } from '@/lib/context-export';
@@ -291,17 +293,6 @@ export default function CopilotChatPage({
     };
   }, [projectId, step, setMessages]);
 
-  // Auto-start Solve Flow for brand-new projects (no chat history).
-  // Fires once per mount — the ref guard prevents double-firing on
-  // React StrictMode re-mounts.
-  const autoStartedRef = useRef(false);
-  useEffect(() => {
-    if (historyLoaded && messages.length === 0 && !autoStartedRef.current && !isStreaming && project) {
-      autoStartedRef.current = true;
-      sendMessage(locale === 'it' ? 'Avvia il flusso Solve' : 'Start the Solve flow');
-    }
-  }, [historyLoaded, messages.length, isStreaming, sendMessage, project, locale]);
-
   // Auto-scroll to newest
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -533,6 +524,29 @@ export default function CopilotChatPage({
         breadcrumb={[project?.name || '', 'Co-pilot']}
         right={
           <>
+            {(project as { access_kind?: string } | null)?.access_kind === 'member' && (
+              <span
+                className="lp-mono"
+                title={
+                  (project as { owner_email?: string | null } | null)?.owner_email
+                    ? `Shared by ${(project as { owner_email?: string | null }).owner_email}`
+                    : 'Shared with you'
+                }
+                style={{
+                  fontSize: 10,
+                  color: 'var(--accent-ink)',
+                  background: 'var(--accent-wash)',
+                  padding: '2px 7px',
+                  borderRadius: 999,
+                  letterSpacing: 0.3,
+                  textTransform: 'uppercase',
+                }}
+              >
+                Shared{(project as { owner_email?: string | null } | null)?.owner_email
+                  ? ` · ${(project as { owner_email: string }).owner_email}`
+                  : ''}
+              </span>
+            )}
             {isStreaming && <Pill kind="live" dot>streaming</Pill>}
             <span className="lp-mono" style={{ fontSize: 10 }}>
               ctx · {messages.length} msgs
@@ -544,7 +558,6 @@ export default function CopilotChatPage({
               artifacts={canvasArtifacts}
               disabled={isStreaming}
             />
-            <CreditsBadge projectId={projectId} />
           </>
         }
       />
@@ -701,13 +714,11 @@ function ChatEmptyState({
 }) {
   const prompts = locale === 'it'
     ? [
-      'Avvia il flusso Solve',
       'Cosa si è mosso nel mio ecosistema questa settimana?',
       'Riassumi i miei numeri e la mia runway',
       'Cosa ho nell\'inbox?',
     ]
     : [
-      'Start the Solve flow',
       'What moved in my ecosystem this week?',
       'Summarize my numbers and runway',
       'What do I have in my inbox?',

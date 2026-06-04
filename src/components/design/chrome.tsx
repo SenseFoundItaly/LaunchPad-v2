@@ -27,6 +27,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icon, I, type IconKey } from './icons';
 import { ShareButton } from '@/components/project/ShareButton';
+import { CreditsBadge } from '@/components/CreditsBadge';
 
 // =============================================================================
 // TopBar — 38px, brand mark + breadcrumbs + right slot
@@ -86,6 +87,13 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)' }}>
         {projectId && <ShareButton projectId={projectId} />}
         {right}
+        {/* CreditsBadge sits *after* page-supplied `right` content so the
+            credits chip is always pinned to the far right — making the
+            credit balance the founder's most-visible header signal. The
+            badge owns its own TanStack cache + event-bridge subscription,
+            so mounting it globally costs one query per project per session
+            (no per-route re-fetch). */}
+        {projectId && <CreditsBadge projectId={projectId} />}
       </div>
     </div>
   );

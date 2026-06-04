@@ -14,6 +14,11 @@
  *   - TODO:         things the founder DOES (action verbs: done/snooze/dismiss)
  *   - APPROVAL:     things the agent DRAFTED and the founder applies/edits/rejects
  *   - NOTIFICATION: things the system FINISHED that the founder just acknowledges
+ *   - MONITOR:      active background watchers. NOT derived from pending_actions —
+ *                   this lane reads from /monitors directly. We keep it inside
+ *                   the lane vocabulary so the Inbox tab strip has one source
+ *                   of truth, but the rendering branch on lane === 'monitor'
+ *                   swaps out the data source.
  *
  * Pure derivation from action_type — no schema column added. Default fallback
  * is 'approval' because the generic apply/edit/reject verbs work for any
@@ -22,7 +27,7 @@
 
 import type { PendingActionType } from '@/types';
 
-export type ActionLane = 'todo' | 'approval' | 'notification';
+export type ActionLane = 'todo' | 'approval' | 'notification' | 'monitor';
 
 export const ACTION_LANE: Record<PendingActionType, ActionLane> = {
   task: 'todo',

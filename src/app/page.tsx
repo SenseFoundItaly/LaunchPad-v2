@@ -16,6 +16,10 @@ interface DashboardProject {
   total_analyses: number;
   weekly_alerts: number;
   created_at: string;
+  /** 'owner' = the user's org owns the project; 'member' = shared with them. */
+  access_kind?: 'owner' | 'member';
+  /** Owner's email — useful for shared-tile tooltips. */
+  owner_email?: string | null;
 }
 
 interface DashboardSignal {
@@ -266,6 +270,23 @@ export default function HomePage() {
                 >
                   {p.name}
                 </span>
+                {p.access_kind === 'member' && (
+                  <span
+                    title={p.owner_email ? `Shared by ${p.owner_email}` : 'Shared with you'}
+                    className="lp-mono"
+                    style={{
+                      fontSize: 9,
+                      color: 'var(--accent-ink)',
+                      background: 'var(--accent-wash)',
+                      padding: '1px 5px',
+                      borderRadius: 999,
+                      letterSpacing: 0.3,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Shared
+                  </span>
+                )}
                 {p.weekly_alerts > 0 && (
                   <span
                     style={{
@@ -844,9 +865,32 @@ export default function HomePage() {
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
                                     whiteSpace: 'nowrap',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
                                   }}
                                 >
-                                  {p.name}
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {p.name}
+                                  </span>
+                                  {p.access_kind === 'member' && (
+                                    <span
+                                      title={p.owner_email ? `Shared by ${p.owner_email}` : 'Shared with you'}
+                                      className="lp-mono"
+                                      style={{
+                                        fontSize: 9,
+                                        color: 'var(--accent-ink)',
+                                        background: 'var(--accent-wash)',
+                                        padding: '1px 6px',
+                                        borderRadius: 999,
+                                        letterSpacing: 0.3,
+                                        textTransform: 'uppercase',
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      Shared
+                                    </span>
+                                  )}
                                 </div>
                                 {p.description && (
                                   <div

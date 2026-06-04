@@ -487,6 +487,67 @@ function estimateMonthlyCostEur(schedule: 'daily' | 'weekly'): number {
   return +(SCHEDULE_TO_MONTHLY_RUNS[schedule] * BALANCED_COST_PER_RUN_EUR).toFixed(2);
 }
 
+interface MonitorCostEstimate {
+  monthly_cost_eur: number;
+  per_run_credits: number;
+  daily_credits: number;
+  monthly_credits: number;
+}
+
+/**
+ * Estimate monitor cost expressed in the project's own credit unit.
+ *
+ * Why credits-not-EUR: the founder sees credits in the budget UI; the EUR
+ * value is internal accounting. The conversion is project-specific because
+ * different plans have different cap_credits / cap_llm_usd ratios — a
+ * professional plan with $50 cap and 10000 credits has 200 credits/$;
+ * the default light plan has 200 credits/$ too but the ratio shifts with
+ * upgrades. Default fallback ratio is 200 credits/€ (~credits/$) when no
+ * budget row exists yet.
+ *
+ * Rounding: per_run_credits is allowed to round down to 0 (sub-credit
+ * runs), but daily_credits / monthly_credits round to integers — the
+ * founder cares about whole-credit deltas. We still surface the raw
+ * fractional values internally if needed.
+ */
+async function estimateMonitorCredits(
+  projectId: string,
+  schedule: 'daily' | 'weekly',
+): Promise<MonitorCostEstimate> {
+  const monthlyCost = estimateMonthlyCostEur(schedule);
+  const monthlyRuns = SCHEDULE_TO_MONTHLY_RUNS[schedule];
+
+  // Look up the project's credits/EUR ratio. Default to 200 if no budget
+  // row exists yet (matches cost-meter.ts:122 fallback).
+  let creditsPerEur = 200;
+  try {
+    const period = new Date().toISOString().slice(0, 7);
+    const row = await get<{ cap_llm_usd: number | string; cap_credits: number | string }>(
+      `SELECT cap_llm_usd, cap_credits FROM project_budgets
+       WHERE project_id = ? AND period_month = ? LIMIT 1`,
+      projectId, period,
+    );
+    if (row) {
+      const capUsd = Number(row.cap_llm_usd);
+      const capCredits = Number(row.cap_credits);
+      if (capUsd > 0 && capCredits > 0) creditsPerEur = capCredits / capUsd;
+    }
+  } catch {
+    /* fall through to default */
+  }
+
+  const perRunCredits = +(BALANCED_COST_PER_RUN_EUR * creditsPerEur).toFixed(2);
+  const dailyCredits = Math.max(0, Math.round(perRunCredits * (monthlyRuns / 30)));
+  const monthlyCredits = Math.max(0, Math.round(perRunCredits * monthlyRuns));
+
+  return {
+    monthly_cost_eur: monthlyCost,
+    per_run_credits: perRunCredits,
+    daily_credits: dailyCredits,
+    monthly_credits: monthlyCredits,
+  };
+}
+
 const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
   name: 'propose_monitor',
   label: 'Propose Monitor',
@@ -596,6 +657,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
     }
 
     const estimatedMonthlyCost = estimateMonthlyCostEur(schedule);
+    const creditEstimate = await estimateMonitorCredits(ctx.projectId, schedule);
     const overlapWarning = p.dedup_override && p.override_reason
       ? { override_reason: p.override_reason }
       : undefined;
@@ -616,6 +678,9 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
       dedup_override_reason: p.override_reason,
       sources: p.sources,
       estimated_monthly_cost_eur: estimatedMonthlyCost,
+      estimated_daily_credits: creditEstimate.daily_credits,
+      estimated_monthly_credits: creditEstimate.monthly_credits,
+      estimated_per_run_credits: creditEstimate.per_run_credits,
     };
 
     let pendingAction;
@@ -652,6 +717,9 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
       alert_threshold: p.alert_threshold,
       linked_risk_id: p.linked_risk_id,
       estimated_monthly_cost_eur: estimatedMonthlyCost,
+      estimated_daily_credits: creditEstimate.daily_credits,
+      estimated_monthly_credits: creditEstimate.monthly_credits,
+      estimated_per_run_credits: creditEstimate.per_run_credits,
       pending_action_id: pendingAction.id,
       sources: p.sources,
     };

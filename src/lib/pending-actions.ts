@@ -112,9 +112,13 @@ export interface CreatePendingActionInput {
 export async function createPendingAction(input: CreatePendingActionInput): Promise<PendingAction> {
   const id = generateId('pa');
   const now = new Date().toISOString();
-  const sourcesJson =
+  // postgres.js + `unsafe()` auto-serializes JS objects/arrays to JSONB.
+  // Pre-stringifying with JSON.stringify() makes postgres store the JSON
+  // *string* as a JSONB string value — broken double-encoding. Pass the
+  // raw value. (Verified empirically — see commit history.)
+  const sourcesValue =
     Array.isArray(input.sources) && input.sources.length > 0
-      ? JSON.stringify(input.sources)
+      ? input.sources
       : null;
   await run(
     `INSERT INTO pending_actions
@@ -128,10 +132,10 @@ export async function createPendingAction(input: CreatePendingActionInput): Prom
     input.action_type,
     input.title,
     input.rationale || null,
-    JSON.stringify(input.payload),
+    input.payload,
     input.estimated_impact || null,
     input.execution_target || null,
-    sourcesJson,
+    sourcesValue,
     input.priority || null,
     now,
     now,
@@ -229,7 +233,7 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
       relevance_score: a.relevance_score,
     };
     const sources = a.source_url
-      ? JSON.stringify([{ type: 'web', title: a.source, url: a.source_url }])
+      ? [{ type: 'web', title: a.source, url: a.source_url }]
       : null;
     await run(
       `INSERT INTO pending_actions
@@ -239,7 +243,7 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
       id, projectId, a.id,
       a.headline,
       a.body?.slice(0, 500) ?? null,
-      JSON.stringify(payload),
+      payload,
       priority,
       sources,
       now, now,
@@ -289,7 +293,7 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
       id, projectId,
       b.title,
       b.narrative?.slice(0, 500) ?? null,
-      JSON.stringify(payload),
+      payload,
       priority,
       now, now,
     );
@@ -334,7 +338,7 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
         id, projectId,
         `#${a.number} (${a.category}) — ${a.text.slice(0, 90)}`,
         a.text,
-        JSON.stringify(payload),
+        payload,
         priority,
         now, now,
       );

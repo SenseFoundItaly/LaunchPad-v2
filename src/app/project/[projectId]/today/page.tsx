@@ -15,6 +15,7 @@ import { TopBar, NavRail } from '@/components/design/chrome';
 import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { StageCard } from '@/components/stages/StageCard';
+import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 
 interface BriefRow {
   id: string;
@@ -116,6 +117,15 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 880 }}>
               <StageCard projectId={projectId} />
               <ActiveSignalsPanel projectId={projectId} briefs={briefs} />
+              <Panel
+                label="Active monitors"
+                icon={I.signal}
+                href={`/project/${projectId}/actions?lane=monitor`}
+                hrefLabel="Open Inbox"
+                empty={null}
+              >
+                <MonitorListPanel projectId={projectId} compact limit={4} title="" />
+              </Panel>
               <InboxPanel projectId={projectId} actions={actions} totalCount={inboxBadge} />
             </div>
           )}

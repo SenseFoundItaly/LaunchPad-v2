@@ -14,8 +14,12 @@
 
 import type { ActionLane } from '@/lib/action-lanes';
 
+// 'monitor' lane never reaches these controls — monitors aren't pending_actions.
+// We type the maps without it so we don't have to invent meaningless labels.
+type ReviewableLane = Exclude<ActionLane, 'monitor'>;
+
 export interface UnifiedReviewControlsProps {
-  lane: ActionLane;
+  lane: ReviewableLane;
   state: 'pending' | 'applied' | 'rejected' | 'busy' | 'error';
   onApply: () => void;
   onReject?: () => void;
@@ -33,25 +37,25 @@ export interface UnifiedReviewControlsProps {
 // Lane-aware labels
 // ---------------------------------------------------------------------------
 
-const APPLY_LABELS: Record<ActionLane, string> = {
+const APPLY_LABELS: Record<ReviewableLane, string> = {
   approval: 'Apply',
   todo: 'Mark done',
   notification: 'Acknowledge',
 };
 
-const REJECT_LABELS: Record<ActionLane, string> = {
+const REJECT_LABELS: Record<ReviewableLane, string> = {
   approval: 'Reject',
   todo: 'Dismiss',
   notification: 'Dismiss',
 };
 
-const APPLIED_LABELS: Record<ActionLane, string> = {
+const APPLIED_LABELS: Record<ReviewableLane, string> = {
   approval: 'Applied',
   todo: 'Done',
   notification: 'Acknowledged',
 };
 
-const REJECTED_LABELS: Record<ActionLane, string> = {
+const REJECTED_LABELS: Record<ReviewableLane, string> = {
   approval: 'Rejected',
   todo: 'Dismissed',
   notification: 'Dismissed',

@@ -474,6 +474,10 @@ CREATE TABLE IF NOT EXISTS monitor_runs (
   status VARCHAR DEFAULT 'completed',
   summary TEXT,
   alerts_generated INTEGER DEFAULT 0,
+  -- How the run was initiated: scheduled (cron tick), manual (Run-now button),
+  -- api (external POST), webhook (incoming event). CHECK constraint applied
+  -- in migration 20260604000000.
+  trigger_type VARCHAR DEFAULT 'scheduled',
   run_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
