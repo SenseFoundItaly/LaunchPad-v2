@@ -662,6 +662,10 @@ export async function POST(request: NextRequest) {
                   fact: f.fact,
                   kind: f.kind ?? 'fact',
                   sourceType: 'chat',
+                  // Carry the artifact's client id as the fact's source_id so
+                  // Canvas Memory can back-link to the spawning card. Older
+                  // facts without source_id render without the jump arrow.
+                  sourceId: f.id,
                   confidence: f.confidence ?? 0.8,
                 });
                 if (factId && f.id) {

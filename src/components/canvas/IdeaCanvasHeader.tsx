@@ -24,6 +24,9 @@ interface IdeaCanvasRow {
 interface IdeaCanvasHeaderProps {
   projectId: string;
   locale: 'en' | 'it';
+  /** Optional fact count (passed down from Canvas) for the "backed by N
+   *  memory items" subtitle. Clicking it scrolls to the Memory section. */
+  factCount?: number;
 }
 
 const LABELS = {
@@ -47,7 +50,7 @@ const LABELS = {
   },
 };
 
-export function IdeaCanvasHeader({ projectId, locale }: IdeaCanvasHeaderProps) {
+export function IdeaCanvasHeader({ projectId, locale, factCount = 0 }: IdeaCanvasHeaderProps) {
   const [data, setData] = useState<IdeaCanvasRow | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -109,6 +112,38 @@ export function IdeaCanvasHeader({ projectId, locale }: IdeaCanvasHeaderProps) {
         <span className="lp-serif" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
           {L.title}
         </span>
+        {factCount > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              const el = document.querySelector('[data-canvas-section="memory"]') as HTMLElement | null;
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                el.classList.add('lp-flash');
+                setTimeout(() => el.classList.remove('lp-flash'), 1200);
+              }
+            }}
+            className="lp-mono"
+            title={locale === 'it'
+              ? 'Vai alla Memoria — i fatti raccolti durante la chat sostengono questo canvas.'
+              : 'Jump to Memory — facts gathered during chat back this canvas.'}
+            style={{
+              marginLeft: 'auto',
+              fontSize: 10,
+              color: 'var(--accent-ink)',
+              background: 'var(--accent-wash)',
+              border: 'none',
+              padding: '2px 8px',
+              borderRadius: 999,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            {locale === 'it'
+              ? `basato su ${factCount} fatti →`
+              : `backed by ${factCount} facts →`}
+          </button>
+        )}
       </div>
       {!loaded ? (
         <div style={{ fontSize: 11, color: 'var(--ink-5)' }}>…</div>

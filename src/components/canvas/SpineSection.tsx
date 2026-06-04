@@ -61,6 +61,22 @@ const VERDICT_LABEL: Record<Verdict, { en: string; it: string }> = {
   not_ready: { en: 'NOT READY', it: 'NON PRONTO' },
 };
 
+/** Compact relative-age formatter for the skill completion timestamp.
+ *  e.g. "3d ago" / "2h ago" / "12m ago". Keeps the breakdown chip small. */
+function formatRelativeAge(iso: string, locale: 'en' | 'it'): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '';
+  const sec = Math.max(1, Math.floor((Date.now() - then) / 1000));
+  if (sec < 60) return locale === 'it' ? `${sec}s fa` : `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return locale === 'it' ? `${min}m fa` : `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return locale === 'it' ? `${hr}h fa` : `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return locale === 'it' ? `${day}g fa` : `${day}d ago`;
+  return new Date(iso).toLocaleDateString(locale === 'it' ? 'it' : 'en');
+}
+
 export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionProps) {
   const [stages, setStages] = useState<StageRow[]>([]);
   const [skills, setSkills] = useState<SkillCompletion[]>([]);
@@ -251,7 +267,7 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
               borderColor: verdictColor,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
               <span
                 className="lp-serif"
                 style={{ fontSize: 13, color: 'var(--ink)' }}
@@ -263,8 +279,19 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
                 style={{ fontSize: 10, color: 'var(--ink-5)' }}
               >
                 {locale === 'it'
-                  ? `Punteggio ${stage.overall_score.toFixed(1)}/10 · ${Math.round(stage.completion_ratio * 100)}% completato`
-                  : `Score ${stage.overall_score.toFixed(1)}/10 · ${Math.round(stage.completion_ratio * 100)}% complete`}
+                  ? `Punteggio ${stage.overall_score.toFixed(1)}/10`
+                  : `Score ${stage.overall_score.toFixed(1)}/10`}
+              </span>
+              <span
+                className="lp-mono"
+                style={{ fontSize: 10, color: 'var(--ink-5)' }}
+                title={locale === 'it'
+                  ? 'Il punteggio si basa sugli skill completati elencati sotto.'
+                  : 'Score is derived from the completed skills listed below.'}
+              >
+                · {locale === 'it'
+                  ? `basato su ${stage.skills_completed}/${stage.skills_total} skill`
+                  : `backed by ${stage.skills_completed}/${stage.skills_total} skills`}
               </span>
             </div>
             {skillsList.length === 0 ? (
@@ -275,7 +302,7 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
                   gap: 6,
                 }}
               >
@@ -286,17 +313,20 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
                   const verb = done
                     ? (locale === 'it' ? 'Rivedi' : 'Revisit')
                     : (locale === 'it' ? 'Avvia' : 'Start');
+                  const summary = completion?.summary?.trim() || '';
+                  const completedAt = completion?.completed_at || '';
                   return (
                     <button
                       key={sk.id}
                       type="button"
                       onClick={clickable ? () => onSkillClick!(sk.label) : undefined}
                       disabled={!clickable}
-                      title={clickable ? `${verb} ${sk.label}` : sk.label}
+                      title={clickable ? `${verb} ${sk.label}${summary ? ` — ${summary}` : ''}` : sk.label}
                       style={{
                         display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
+                        flexDirection: 'column',
+                        alignItems: 'stretch',
+                        gap: 4,
                         padding: '6px 8px',
                         background: done ? 'var(--paper)' : 'transparent',
                         border: '1px solid var(--line)',
@@ -321,40 +351,76 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
                         }
                       }}
                     >
-                      <span
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 4,
-                          background: done ? 'var(--moss)' : 'var(--paper-2)',
-                          border: done ? 'none' : '1px solid var(--line-2)',
-                          flexShrink: 0,
-                        }}
-                      />
-                      <span
-                        style={{
-                          color: done ? 'var(--ink-2)' : 'var(--ink-4)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          flex: 1,
-                        }}
-                      >
-                        {sk.label}
-                      </span>
-                      {clickable && (
+                      {/* Header row: dot + label + verb */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 4,
+                            background: done ? 'var(--moss)' : 'var(--paper-2)',
+                            border: done ? 'none' : '1px solid var(--line-2)',
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span
+                          style={{
+                            color: done ? 'var(--ink-2)' : 'var(--ink-4)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            flex: 1,
+                            fontWeight: done ? 500 : 400,
+                          }}
+                        >
+                          {sk.label}
+                        </span>
+                        {clickable && (
+                          <span
+                            className="lp-mono"
+                            style={{
+                              fontSize: 9.5,
+                              color: 'var(--ink-5)',
+                              letterSpacing: 0.3,
+                              textTransform: 'uppercase',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {verb} →
+                          </span>
+                        )}
+                      </div>
+                      {/* Evidence row: summary excerpt + timestamp.
+                          Visible only for completed skills with a real summary —
+                          this is what backs the stage score. */}
+                      {done && summary && (
+                        <div
+                          style={{
+                            fontSize: 10.5,
+                            color: 'var(--ink-4)',
+                            lineHeight: 1.4,
+                            paddingLeft: 14, // align under the label, past the dot
+                            overflow: 'hidden',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            whiteSpace: 'normal',
+                          }}
+                        >
+                          {summary}
+                        </div>
+                      )}
+                      {done && completedAt && (
+                        <div
                           className="lp-mono"
                           style={{
                             fontSize: 9.5,
                             color: 'var(--ink-5)',
-                            letterSpacing: 0.3,
-                            textTransform: 'uppercase',
-                            flexShrink: 0,
+                            paddingLeft: 14,
                           }}
                         >
-                          {verb} →
-                        </span>
+                          {locale === 'it' ? 'completato ' : 'ran '}{formatRelativeAge(completedAt, locale)}
+                        </div>
                       )}
                     </button>
                   );

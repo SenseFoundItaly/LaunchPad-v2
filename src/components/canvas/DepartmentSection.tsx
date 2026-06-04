@@ -157,6 +157,7 @@ function ArtifactSlot({
   if (entry.artifact.type === 'monitor-proposal' || entry.artifact.type === 'budget-proposal') {
     return (
       <div
+        data-artifact-id={entry.artifact.id}
         style={{
           gridColumn: 'span 6',
           opacity: isDimmed ? 0.35 : 1,
@@ -176,6 +177,7 @@ function ArtifactSlot({
 
   return (
     <div
+      data-artifact-id={entry.artifact.id}
       className={`lp-card ${isFocused ? 'ring-2 ring-accent' : ''}`}
       style={{
         gridColumn: `span ${span}`,

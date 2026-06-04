@@ -144,10 +144,15 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
                       {item.displayTitle}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: 'var(--ink-5)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: 'var(--ink-5)', flexWrap: 'wrap' }}>
                     <Pill kind={item.source === 'generated' ? 'info' : 'n'}>
                       {item.sourceBadge}
                     </Pill>
+                    {item.indexBadge && (
+                      <Pill kind={item.indexBadge.kind} dot={item.indexBadge.kind === 'ok'}>
+                        {item.indexBadge.label}
+                      </Pill>
+                    )}
                     {item.typeBadge && (
                       <span className="lp-mono" style={{ background: 'var(--paper-2)', padding: '1px 5px', borderRadius: 3 }}>
                         {item.typeBadge}
@@ -389,12 +394,21 @@ function EmptyHint({ message }: { message: string }) {
 //
 // Keep it ~30 lines. The return type is below — just fill in `presentItems`.
 
+interface IndexBadge {
+  label: string;
+  /** Pill `kind`: 'ok' = green (indexed), 'warn' = amber (pending),
+   *  'n' = neutral (not indexed / N/A). */
+  kind: 'ok' | 'warn' | 'n';
+}
+
 interface PresentedItem extends DataRoomItem {
   displayTitle: string;
   sourceBadge: string;
   typeBadge: string | null;
   icon: string;
   relativeDate: string;
+  /** null = don't render a badge at all (e.g. generated deliverables). */
+  indexBadge: IndexBadge | null;
 }
 
 function presentItems(items: DataRoomItem[]): PresentedItem[] {
@@ -406,5 +420,187 @@ function presentItems(items: DataRoomItem[]): PresentedItem[] {
     typeBadge: item.doc_type,
     icon: I.file,
     relativeDate: new Date(item.created_at).toLocaleDateString(),
+    indexBadge: indexBadgeFor(item),
   }));
+}
+
+// ─── index-status badge policy ───────────────────────────────────────────────
+//
+// TODO(you): write `indexBadgeFor` below. ~8 lines.
+//
+// This is the founder-facing definition of "indexed". The backend hands us
+// three counts per uploaded file:
+//
+//   extraction = { applied, pending, rejected }
+//
+//   applied  → entity proposals you APPROVED on the Review tab. These show up
+//              in the Graph and are part of the live knowledge graph.
+//   pending  → proposals the LLM made on upload, waiting for your review.
+//   rejected → proposals you explicitly said no to.
+//
+// `extraction` is null for generated docs — return null in that case so no
+// pill renders (deliverables don't have an "indexed" concept).
+//
+// You're picking a UX policy. Think about what's most useful at a glance:
+//
+//   • Treat "indexed" strictly: only `applied > 0` earns the green pill.
+//     Pending proposals get a yellow "N pending" nudge to push to Review.
+//     Zero entities = "Not indexed" — implies the file was uploaded but
+//     extraction was skipped (legacy upload, or `?extract=1` was off).
+//
+//   • Or treat the existence of pending proposals as "indexed but unreviewed".
+//
+//   • You may also want to count applied + pending together and call it
+//     "8 entities" with no review nuance — simpler, but hides the workflow.
+//
+// Return null to skip the pill entirely (e.g. if you don't want noise on
+// files with zero extraction activity).
+//
+// Tradeoffs:
+//   - A loud "Not indexed" badge on every legacy file may add visual noise
+//     for projects with lots of pre-extraction uploads. Returning null in
+//     that case keeps the list clean but hides that an action is possible.
+//   - A green "Indexed · 5" badge with no count of pendings can hide work
+//     the founder still has to do on Review.
+//
+// Pill kinds available: 'ok' (green), 'warn' (amber), 'n' (neutral grey).
+
+function indexBadgeFor(item: DataRoomItem): IndexBadge | null {
+  if (item.extraction === null) return null;
+  const { applied, pending, rejected } = item.extraction;
+  if (pending > 0) return { label: `Review ${pending}`, kind: 'warn' };
+  if (applied > 0) return { label: `Indexed · ${applied}`, kind: 'ok' };
+  if (rejected > 0) return null;
+  return { label: 'Not indexed', kind: 'n' };
+}
+
+// ─── inline upload (compact dropzone scoped to this panel) ───────────────────
+//
+// Reuses the same POST /knowledge/upload?extract=1 endpoint as the Review tab,
+// so behavior stays consistent across surfaces. The dropzone is intentionally
+// minimal — no result list, no error inline (errors surface as an alert) —
+// because the parent panel already shows the canonical list of files.
+
+function InlineUpload({
+  projectId,
+  onUploaded,
+}: {
+  projectId: string;
+  onUploaded: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dragDepth = useRef(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const send = useCallback(async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setBusy(true);
+    try {
+      const form = new FormData();
+      for (const f of list) form.append('file', f);
+      const res = await fetch(`/api/projects/${projectId}/knowledge/upload?extract=1`, {
+        method: 'POST',
+        body: form,
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.success) {
+        alert(body?.error ?? `Upload failed (HTTP ${res.status}).`);
+        return;
+      }
+      onUploaded();
+    } finally {
+      setBusy(false);
+    }
+  }, [projectId, onUploaded]);
+
+  return (
+    <div
+      onDragEnter={(e) => { e.preventDefault(); dragDepth.current += 1; setIsDragging(true); }}
+      onDragLeave={(e) => { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) setIsDragging(false); }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        dragDepth.current = 0;
+        setIsDragging(false);
+        if (e.dataTransfer.files?.length) void send(e.dataTransfer.files);
+      }}
+      onClick={() => inputRef.current?.click()}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}
+      style={{
+        margin: '0 16px 8px',
+        padding: '10px 12px',
+        border: `1px dashed ${isDragging ? 'var(--accent)' : 'var(--line)'}`,
+        background: isDragging ? 'var(--accent-wash, var(--paper-2))' : 'var(--paper-2)',
+        borderRadius: 'var(--r-m)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        cursor: busy ? 'progress' : 'pointer',
+        transition: 'background .12s, border-color .12s',
+      }}
+    >
+      <Icon d={I.download} size={14} stroke={1.4} style={{ color: 'var(--ink-3)', transform: 'rotate(180deg)' }} />
+      <div style={{ fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.3 }}>
+        {busy ? 'Uploading…' : (
+          <>
+            <strong style={{ color: 'var(--ink)' }}>Drop files</strong>
+            {' '}or click to browse
+          </>
+        )}
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        onChange={(e) => {
+          const files = e.target.files;
+          if (files) void send(files);
+          e.target.value = '';
+        }}
+        style={{ display: 'none' }}
+        accept=".md,.markdown,.txt,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.htm,.log,.ini,.conf,.env,.ts,.tsx,.js,.jsx,.mjs,.cjs,.py,.rb,.go,.rs,.java,.sh,.bash,.zsh,.sql,.css,.scss,.toml,text/*,application/json"
+      />
+    </div>
+  );
+}
+
+// ─── extraction help (one-line "what does indexing do?" affordance) ──────────
+//
+// Collapsed by default. Founders who already understand the pipeline don't
+// need to be told twice; new users tap once to see what happens on upload.
+
+function ExtractionHelp() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ margin: '0 16px 12px', fontSize: 11, color: 'var(--ink-5)' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: 'var(--ink-4)',
+          cursor: 'pointer',
+          padding: 0,
+          fontSize: 11,
+          textDecoration: 'underline',
+          textUnderlineOffset: 2,
+        }}
+      >
+        {open ? 'Hide' : 'What is indexing?'}
+      </button>
+      {open && (
+        <p style={{ margin: '6px 0 0', lineHeight: 1.5 }}>
+          Uploaded files are decoded as text and stored as project memory so
+          chat can quote them. We also ask a small model to surface up to 8
+          entities per file (companies, personas, regulations…) as{' '}
+          <em>pending</em> proposals. Approve them on the{' '}
+          <strong>Review</strong> tab to wire them into the graph.
+        </p>
+      )}
+    </div>
+  );
 }

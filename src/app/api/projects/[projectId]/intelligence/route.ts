@@ -103,6 +103,8 @@ export async function GET(
         id: f.id,
         fact: f.fact,
         kind: f.kind,
+        source_type: f.source_type,
+        source_id: f.source_id,
         created_at: f.created_at,
       }))
     : [];

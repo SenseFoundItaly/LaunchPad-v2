@@ -54,7 +54,8 @@ interface MemoryFact {
   id: string;
   fact: string;
   kind: string;
-  confidence: number;
+  source_type: string | null;
+  source_id: string | null;
   created_at: string;
 }
 
@@ -130,7 +131,7 @@ export function Canvas({
       className="lp-scroll"
       style={{ flex: 1, overflow: 'auto', padding: 20 }}
     >
-      <IdeaCanvasHeader projectId={projectId} locale={locale} />
+      <IdeaCanvasHeader projectId={projectId} locale={locale} factCount={facts.length} />
 
       <SpineSection projectId={projectId} locale={locale} onSkillClick={onSkillClick} />
 
@@ -162,7 +163,7 @@ export function Canvas({
 
       {/* Memory — applied facts the agent has recorded for this project */}
       {facts.length > 0 && (
-        <section style={{ marginBottom: 18 }}>
+        <section data-canvas-section="memory" style={{ marginBottom: 18 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <Icon d={I.book} size={13} style={{ color: 'var(--ink-3)' }} />
             <span
@@ -179,21 +180,88 @@ export function Canvas({
             </span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {facts.map((f) => (
-              <div key={f.id} className="lp-card" style={{ padding: 10 }}>
-                <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.4 }}>{f.fact}</div>
+            {facts.map((f) => {
+              // Back-link: a fact spawned by a chat artifact carries the
+              // artifact's client_id in source_id. Find a matching canvas
+              // entry — if present, clicking the fact scrolls to that card.
+              const linkedEntry =
+                f.source_type === 'chat' && f.source_id
+                  ? canvasEntries.find((e) => e.artifact.id === f.source_id)
+                  : undefined;
+              const monitorLink = f.source_type === 'monitor' && f.source_id;
+              const linkable = !!linkedEntry || !!monitorLink;
+              const sourceLabel = linkedEntry
+                ? (locale === 'it' ? 'da artefatto' : 'from artifact')
+                : monitorLink
+                  ? (locale === 'it' ? 'da signal' : 'from signal')
+                  : f.source_type;
+              return (
                 <div
+                  key={f.id}
+                  className="lp-card"
+                  role={linkable ? 'button' : undefined}
+                  tabIndex={linkable ? 0 : undefined}
+                  onClick={linkable ? () => {
+                    if (linkedEntry) {
+                      const el = document.querySelector(
+                        `[data-artifact-id="${linkedEntry.artifact.id}"]`,
+                      ) as HTMLElement | null;
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        el.classList.add('lp-flash');
+                        setTimeout(() => el.classList.remove('lp-flash'), 1200);
+                      }
+                    }
+                    // monitorLink: no in-page target yet; future hook
+                  } : undefined}
                   style={{
-                    fontSize: 10.5,
-                    color: 'var(--ink-5)',
-                    marginTop: 4,
-                    fontFamily: 'var(--f-mono)',
+                    padding: 10,
+                    cursor: linkable ? 'pointer' : 'default',
+                    transition: 'border-color 100ms, background 100ms',
                   }}
+                  onMouseEnter={(e) => {
+                    if (linkable) {
+                      e.currentTarget.style.borderColor = 'var(--accent)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (linkable) {
+                      e.currentTarget.style.borderColor = '';
+                    }
+                  }}
+                  title={
+                    linkedEntry
+                      ? (locale === 'it'
+                          ? `Vai all'artefatto sorgente (${linkedEntry.artifact.type})`
+                          : `Jump to source artifact (${linkedEntry.artifact.type})`)
+                      : undefined
+                  }
                 >
-                  {f.kind}
+                  <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.4 }}>{f.fact}</div>
+                  <div
+                    style={{
+                      fontSize: 10.5,
+                      color: 'var(--ink-5)',
+                      marginTop: 4,
+                      fontFamily: 'var(--f-mono)',
+                      display: 'flex',
+                      gap: 6,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span>{f.kind}</span>
+                    {sourceLabel && (
+                      <>
+                        <span>·</span>
+                        <span style={{ color: linkable ? 'var(--accent-ink)' : 'var(--ink-5)' }}>
+                          {sourceLabel}{linkable ? ' →' : ''}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}

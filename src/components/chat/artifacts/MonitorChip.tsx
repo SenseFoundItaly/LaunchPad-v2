@@ -55,9 +55,16 @@ export default function MonitorChip({ entityId }: MonitorChipProps) {
 
   if (!status?.watching) return null;
 
+  // Pulse when the last firing is fresh (< 24h). Surfaces to the founder that
+  // there's new evidence on this card without forcing them to open a panel.
+  const isFresh =
+    !!status.last_fired_at &&
+    Date.now() - new Date(status.last_fired_at).getTime() < 24 * 60 * 60 * 1000;
+
   return (
     <span
       title={status.last_headline ?? 'Monitor active'}
+      className={isFresh ? 'lp-pulse' : undefined}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -80,7 +87,7 @@ export default function MonitorChip({ entityId }: MonitorChipProps) {
       {(status.last_fired_at || status.last_headline) && (
         <span style={{ color: 'var(--ink-4)' }}>
           {' · '}
-          {status.last_fired_at && <>last fired {formatRelative(status.last_fired_at)}</>}
+          {status.last_fired_at && <>{isFresh ? 'just fired ' : 'last fired '}{formatRelative(status.last_fired_at)}</>}
           {status.last_headline && (
             <>
               {status.last_fired_at ? ': ' : ''}
