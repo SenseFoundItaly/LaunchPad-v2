@@ -37,7 +37,7 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     query('SELECT current_step, status FROM workflow WHERE project_id = ?', projectId),
     query('SELECT id, status FROM growth_loops WHERE project_id = ?', projectId),
     query('SELECT id, name, current_value FROM metrics WHERE project_id = ?', projectId),
-    query("SELECT id, fact AS content FROM memory_facts WHERE project_id = ? AND reviewed_state IN ('accepted','pending')", projectId),
+    query("SELECT id, fact AS content FROM memory_facts WHERE project_id = ? AND reviewed_state = 'applied'", projectId),
     // Tolerant: if interviews table doesn't exist yet on a stale DB, return
     // empty — the stage check just sees 0 interviews instead of 500'ing.
     query('SELECT id, person_name, top_pain, wtp_amount, urgency FROM interviews WHERE project_id = ?', projectId).catch(() => []),

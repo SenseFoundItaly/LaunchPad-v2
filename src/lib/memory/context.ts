@@ -63,8 +63,7 @@ export function formatMemoryContextMarkdown(ctx: ProjectContext): string {
   if (ctx.facts && ctx.facts.length > 0) {
     parts.push('## Curated facts');
     for (const f of ctx.facts) {
-      const confBadge = f.confidence >= 0.9 ? '★' : f.confidence >= 0.7 ? '·' : '?';
-      parts.push(`- [${f.kind}] ${confBadge} ${f.fact}`);
+      parts.push(`- [${f.kind}] ${f.fact}`);
     }
     parts.push('');
   } else if (ctx.failedSections.includes('facts')) {

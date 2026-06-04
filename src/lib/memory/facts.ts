@@ -20,7 +20,6 @@ export interface MemoryFact {
   kind: FactKind;
   source_type: FactSourceType | null;
   source_id: string | null;
-  confidence: number;
   reviewed_state: ReviewedState;
   created_at: string;
   updated_at: string;
@@ -34,6 +33,7 @@ export interface RecordFactInput {
   kind?: FactKind;
   sourceType?: FactSourceType;
   sourceId?: string;
+  /** @deprecated confidence column dropped; accepted but ignored for back-compat. */
   confidence?: number;
   sources?: Source[];
 }
@@ -52,13 +52,12 @@ export interface RecordFactInput {
 export async function recordFact(input: RecordFactInput): Promise<string> {
   try {
     const kind = input.kind || 'fact';
-    const confidence = input.confidence ?? 0.8;
 
     // Dedup: same fact text (case-insensitive, trimmed) within (user,project,kind).
     // Excluded: rejected facts (founder explicitly rejected — allow re-submission).
     const trimmed = input.fact.trim();
-    const existing = await get<{ id: string; confidence: number }>(
-      `SELECT id, confidence FROM memory_facts
+    const existing = await get<{ id: string }>(
+      `SELECT id FROM memory_facts
        WHERE user_id = ? AND project_id = ? AND kind = ?
          AND LOWER(fact) = LOWER(?) AND reviewed_state != 'rejected'`,
       input.userId,
@@ -72,12 +71,10 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
 
     let id: string;
     if (existing) {
-      const newConf = Math.max(existing.confidence, confidence);
       await run(
         `UPDATE memory_facts
-         SET updated_at = CURRENT_TIMESTAMP, confidence = ?, sources = COALESCE(?, sources)
+         SET updated_at = CURRENT_TIMESTAMP, sources = COALESCE(?, sources)
          WHERE id = ?`,
-        newConf,
         sourcesJson,
         existing.id,
       );
@@ -86,8 +83,8 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
       id = crypto.randomUUID();
       await run(
         `INSERT INTO memory_facts
-           (id, user_id, project_id, fact, kind, source_type, source_id, confidence, reviewed_state, sources)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'applied', ?)`,
+           (id, user_id, project_id, fact, kind, source_type, source_id, reviewed_state, sources)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'applied', ?)`,
         id,
         input.userId,
         input.projectId,
@@ -95,7 +92,6 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
         kind,
         input.sourceType ?? null,
         input.sourceId ?? null,
-        confidence,
         sourcesJson,
       );
     }
@@ -119,6 +115,7 @@ export interface ListFactsOpts {
   /** Filter by reviewed states. Defaults to ['applied'] for agent context. */
   states?: ReviewedState[];
   kinds?: FactKind[];
+  /** @deprecated confidence column dropped; accepted but ignored for back-compat. */
   minConfidence?: number;
   /** When true, include the sources JSONB column in results. */
   includeSources?: boolean;
@@ -129,7 +126,7 @@ export async function listFacts(
   projectId: string,
   opts: ListFactsOpts = {},
 ): Promise<MemoryFact[]> {
-  const { limit = 20, states = ['applied'], kinds, minConfidence, includeSources } = opts;
+  const { limit = 20, states = ['applied'], kinds, includeSources } = opts;
   const clauses: string[] = ['user_id = ?', 'project_id = ?'];
   const params: unknown[] = [userId, projectId];
   if (states.length > 0) {
@@ -140,13 +137,9 @@ export async function listFacts(
     clauses.push(`kind IN (${kinds.map(() => '?').join(',')})`);
     params.push(...kinds);
   }
-  if (minConfidence !== undefined) {
-    clauses.push('confidence >= ?');
-    params.push(minConfidence);
-  }
   const sourcesCol = includeSources ? ', sources' : '';
   const sql = `SELECT id, user_id, project_id, fact, kind, source_type, source_id,
-                      confidence, reviewed_state, created_at, updated_at${sourcesCol}
+                      reviewed_state, created_at, updated_at${sourcesCol}
                FROM memory_facts
                WHERE ${clauses.join(' AND ')}
                ORDER BY updated_at DESC

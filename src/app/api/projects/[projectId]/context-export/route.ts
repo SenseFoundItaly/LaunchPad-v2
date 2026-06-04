@@ -66,7 +66,6 @@ export async function GET(
   const facts = (ctx.facts ?? []).map((f) => ({
     fact: f.fact,
     kind: f.kind,
-    confidence: f.confidence,
     ...(f.sources ? { sources: f.sources } : {}),
   }));
 
