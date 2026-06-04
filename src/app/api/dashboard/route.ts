@@ -40,7 +40,9 @@ export async function GET() {
   const skillMap: Record<string, number> = {};
   for (const s of skillCounts) skillMap[s.project_id] = s.count;
 
-  // Recent ecosystem signals across all projects (last 20)
+  // Recent ecosystem signals across the user's accessible projects (last 20).
+  // Scoped to owned (org match) + shared (project_members) so we don't leak
+  // signal headlines/bodies/source_urls from other orgs into the home feed.
   const alerts = await query<{
     id: string; project_id: string; alert_type: string; headline: string;
     body: string; source_url: string | null; relevance_score: number;
@@ -50,14 +52,27 @@ export async function GET() {
             relevance_score, confidence, created_at
      FROM ecosystem_alerts
      WHERE reviewed_state != 'dismissed'
-     ORDER BY created_at DESC LIMIT 20`
+       AND (
+         project_id IN (SELECT id FROM projects WHERE org_id = ?)
+         OR project_id IN (SELECT project_id FROM project_members WHERE user_id = ?)
+       )
+     ORDER BY created_at DESC LIMIT 20`,
+    orgId,
+    userId,
   );
 
-  // Weekly signal counts per project
+  // Weekly signal counts per project — same scoping as the alerts list above.
   const weeklyAlerts = await query<{ project_id: string; count: number }>(
     `SELECT project_id, COUNT(*) as count FROM ecosystem_alerts
-     WHERE created_at > NOW() - INTERVAL '7 days' AND reviewed_state != 'dismissed'
-     GROUP BY project_id`
+     WHERE created_at > NOW() - INTERVAL '7 days'
+       AND reviewed_state != 'dismissed'
+       AND (
+         project_id IN (SELECT id FROM projects WHERE org_id = ?)
+         OR project_id IN (SELECT project_id FROM project_members WHERE user_id = ?)
+       )
+     GROUP BY project_id`,
+    orgId,
+    userId,
   );
   const weeklyMap: Record<string, number> = {};
   for (const w of weeklyAlerts) weeklyMap[w.project_id] = w.count;
