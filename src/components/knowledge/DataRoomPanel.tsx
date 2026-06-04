@@ -14,10 +14,16 @@
  * request, then project_id is the boundary.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Icon, I, IconBtn, Pill } from '@/components/design/primitives';
 import { openPrintPreview } from '@/lib/print-utils';
+
+interface ExtractionCounts {
+  applied: number;
+  pending: number;
+  rejected: number;
+}
 
 interface DataRoomItem {
   id: string;
@@ -29,6 +35,8 @@ interface DataRoomItem {
   size_bytes: number | null;
   mime: string | null;
   has_editable_content: boolean;
+  /** null for generated docs; counts (possibly all zero) for uploads. */
+  extraction: ExtractionCounts | null;
 }
 
 interface DataRoomDetail {
@@ -98,10 +106,19 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
           )}
         </div>
 
+        <InlineUpload
+          projectId={projectId}
+          onUploaded={() => {
+            void qc.invalidateQueries({ queryKey: ['data-room', projectId] });
+          }}
+        />
+
+        <ExtractionHelp />
+
         {isLoading ? (
           <EmptyHint message="Loading…" />
         ) : presented.length === 0 ? (
-          <EmptyHint message="Nothing here yet. Upload files on the Review tab or generate a pitch deck / one-pager / landing page from chat." />
+          <EmptyHint message="Nothing here yet. Drop a file above, or generate a pitch deck / one-pager / landing page from chat." />
         ) : (
           <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
             {presented.map((item) => (

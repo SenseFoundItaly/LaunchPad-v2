@@ -13,6 +13,23 @@ export interface DataRoomItem {
   size_bytes: number | null;
   mime: string | null;
   has_editable_content: boolean;
+  /**
+   * Knowledge-extraction state for uploaded files. `null` for generated
+   * artifacts — extraction is a concept that only applies to source material.
+   *
+   * `applied`  = entity proposals the founder approved → live in the graph.
+   * `pending`  = proposals waiting for review on the Review tab.
+   * `rejected` = proposals the founder explicitly rejected.
+   *
+   * If extraction never ran (legacy uploads, or upload without ?extract=1),
+   * all three counts are zero. The UI uses this triple to render an
+   * "Indexed / Pending / Not indexed" pill.
+   */
+  extraction: {
+    applied: number;
+    pending: number;
+    rejected: number;
+  } | null;
 }
 
 /**
@@ -81,6 +98,15 @@ export async function GET(
     ),
   ]);
 
+  // Aggregate entity-extraction state per source fact. Each entity that came
+  // from a file upload has, in its `sources` JSONB, an entry shaped like
+  //   { type: 'internal', ref: 'memory_fact', ref_id: <factId> }
+  // (see knowledge/upload/route.ts:persistExtracted). We pivot that array out
+  // with jsonb_array_elements, then group/filter by reviewed_state. Empty
+  // factIds → skip the query entirely (cheaper than running with WHERE IN ()).
+  const factIds = uploaded.map((u) => u.id);
+  const extractionStats = await loadExtractionStats(projectId, factIds);
+
   const generatedItems: DataRoomItem[] = generated.map((row) => ({
     id: row.id,
     source: 'generated',
@@ -91,10 +117,12 @@ export async function GET(
     size_bytes: null,
     mime: null,
     has_editable_content: true,
+    extraction: null,
   }));
 
   const uploadedItems: DataRoomItem[] = uploaded.map((row) => {
     const meta = parseFirstFileSource(row.sources);
+    const stat = extractionStats.get(row.id);
     return {
       id: row.id,
       source: 'uploaded',
@@ -105,6 +133,11 @@ export async function GET(
       size_bytes: meta?.size ?? null,
       mime: meta?.mime ?? null,
       has_editable_content: false,
+      extraction: {
+        applied: stat?.applied ?? 0,
+        pending: stat?.pending ?? 0,
+        rejected: stat?.rejected ?? 0,
+      },
     };
   });
 
@@ -138,4 +171,62 @@ function parseFirstFileSource(
 function extractFilenameFromFact(fact: string): string | null {
   const m = fact.match(/^Uploaded file:\s*(.+?)(?:\n|$)/);
   return m ? m[1].trim() : null;
+}
+
+interface ExtractionRow {
+  fact_id: string;
+  applied: number | string;
+  pending: number | string;
+  rejected: number | string;
+}
+
+interface ExtractionAgg {
+  applied: number;
+  pending: number;
+  rejected: number;
+}
+
+/**
+ * Aggregate entity-extraction state per source fact. Returns a Map of
+ * factId → { applied, pending, rejected } counts. Facts with no extracted
+ * entities are simply absent from the map (caller treats that as all-zero).
+ *
+ * Postgres bigint counts come back as strings via postgres.js when they
+ * exceed Number.MAX_SAFE_INTEGER, but for entity counts (capped at 8/file
+ * server-side) they're always plain numbers. We coerce defensively anyway.
+ */
+async function loadExtractionStats(
+  projectId: string,
+  factIds: string[],
+): Promise<Map<string, ExtractionAgg>> {
+  if (factIds.length === 0) return new Map();
+
+  // Build a positional IN(?, ?, …) list — postgres.js's `unsafe()` doesn't
+  // auto-expand JS arrays into placeholder lists, so we emit the placeholders
+  // explicitly and spread the values into params.
+  const placeholders = factIds.map(() => '?').join(',');
+  const rows = await query<ExtractionRow>(
+    `SELECT
+       (src->>'ref_id') AS fact_id,
+       COUNT(*) FILTER (WHERE reviewed_state = 'applied')  AS applied,
+       COUNT(*) FILTER (WHERE reviewed_state = 'pending')  AS pending,
+       COUNT(*) FILTER (WHERE reviewed_state = 'rejected') AS rejected
+     FROM graph_nodes,
+          jsonb_array_elements(COALESCE(sources, '[]'::jsonb)) AS src
+     WHERE project_id = ?
+       AND (src->>'ref') = 'memory_fact'
+       AND (src->>'ref_id') IN (${placeholders})
+     GROUP BY fact_id`,
+    projectId, ...factIds,
+  );
+
+  const out = new Map<string, ExtractionAgg>();
+  for (const r of rows) {
+    out.set(r.fact_id, {
+      applied: Number(r.applied) || 0,
+      pending: Number(r.pending) || 0,
+      rejected: Number(r.rejected) || 0,
+    });
+  }
+  return out;
 }

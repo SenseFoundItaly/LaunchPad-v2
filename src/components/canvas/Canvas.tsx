@@ -44,6 +44,10 @@ interface CanvasProps {
   messages: Array<{ role: string; content: string }>;
   handleArtifactAction: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
   focusedMessageId: string | null;
+  /** Fired when a founder clicks a skill row in the Spine breakdown. Parent
+   *  sends `I choose: <label>` through the chat so the agent kicks off the
+   *  skill — same convention as the inline option-set CTA. */
+  onSkillClick?: (skillLabel: string) => void;
 }
 
 interface MemoryFact {
@@ -63,6 +67,7 @@ export function Canvas({
   messages,
   handleArtifactAction,
   focusedMessageId,
+  onSkillClick,
 }: CanvasProps) {
   // Group entries by department. Memory is handled via the memory_facts list
   // below (top-level Memory section) — `memory` department entries (rare;
@@ -127,7 +132,7 @@ export function Canvas({
     >
       <IdeaCanvasHeader projectId={projectId} locale={locale} />
 
-      <SpineSection projectId={projectId} locale={locale} />
+      <SpineSection projectId={projectId} locale={locale} onSkillClick={onSkillClick} />
 
       {hasSolveProgress && (
         <div style={{ marginBottom: 14 }}>

@@ -642,6 +642,13 @@ export default function CopilotChatPage({
             messages={messages}
             handleArtifactAction={handleArtifactAction}
             focusedMessageId={focusedMessageId}
+            onSkillClick={(label) => {
+              // Mirror the inline option-set "select-option" convention so the
+              // agent runs the skill the founder just clicked. See route.ts
+              // TIER 3 PRIORITY RULES: "When the founder explicitly asks to run
+              // a skill: route through 'I choose: <kickoff>' click path."
+              if (!isStreaming) sendMessage(`I choose: ${label}`);
+            }}
           />
         </div>
       </div>

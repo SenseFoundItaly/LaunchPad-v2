@@ -41,6 +41,10 @@ interface SkillCompletion {
 interface SpineSectionProps {
   projectId: string;
   locale: 'en' | 'it';
+  /** Click handler for a skill row in the expanded breakdown. Convention:
+   *  parent sends `I choose: <label>` through the chat — matches the existing
+   *  select-option flow in chat/page.tsx so the agent kicks off the skill. */
+  onSkillClick?: (skillLabel: string) => void;
 }
 
 const VERDICT_COLOR: Record<Verdict, string> = {
@@ -57,7 +61,7 @@ const VERDICT_LABEL: Record<Verdict, { en: string; it: string }> = {
   not_ready: { en: 'NOT READY', it: 'NON PRONTO' },
 };
 
-export function SpineSection({ projectId, locale }: SpineSectionProps) {
+export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionProps) {
   const [stages, setStages] = useState<StageRow[]>([]);
   const [skills, setSkills] = useState<SkillCompletion[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -278,9 +282,17 @@ export function SpineSection({ projectId, locale }: SpineSectionProps) {
                 {skillsList.map((sk) => {
                   const completion = skillMap.get(sk.id);
                   const done = completion?.status === 'completed';
+                  const clickable = !!onSkillClick;
+                  const verb = done
+                    ? (locale === 'it' ? 'Rivedi' : 'Revisit')
+                    : (locale === 'it' ? 'Avvia' : 'Start');
                   return (
-                    <div
+                    <button
                       key={sk.id}
+                      type="button"
+                      onClick={clickable ? () => onSkillClick!(sk.label) : undefined}
+                      disabled={!clickable}
+                      title={clickable ? `${verb} ${sk.label}` : sk.label}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -290,6 +302,23 @@ export function SpineSection({ projectId, locale }: SpineSectionProps) {
                         border: '1px solid var(--line)',
                         borderRadius: 'var(--r-s)',
                         fontSize: 11.5,
+                        cursor: clickable ? 'pointer' : 'default',
+                        textAlign: 'left',
+                        fontFamily: 'inherit',
+                        color: 'inherit',
+                        transition: 'border-color 100ms, background 100ms',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (clickable) {
+                          e.currentTarget.style.borderColor = 'var(--accent)';
+                          e.currentTarget.style.background = 'var(--paper)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (clickable) {
+                          e.currentTarget.style.borderColor = 'var(--line)';
+                          e.currentTarget.style.background = done ? 'var(--paper)' : 'transparent';
+                        }
                       }}
                     >
                       <span
@@ -313,7 +342,21 @@ export function SpineSection({ projectId, locale }: SpineSectionProps) {
                       >
                         {sk.label}
                       </span>
-                    </div>
+                      {clickable && (
+                        <span
+                          className="lp-mono"
+                          style={{
+                            fontSize: 9.5,
+                            color: 'var(--ink-5)',
+                            letterSpacing: 0.3,
+                            textTransform: 'uppercase',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {verb} →
+                        </span>
+                      )}
+                    </button>
                   );
                 })}
               </div>
