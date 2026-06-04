@@ -1,30 +1,28 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import { getProject } from '@/api/projects';
 import type { Project } from '@/types';
 
 export function useProject(projectId: string) {
-  const [project, setProject] = useState<Project | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
 
-  const refresh = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await getProject(projectId);
-      setProject(data);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load project');
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId]);
+  const { data, isLoading, error } = useQuery<Project | null>({
+    queryKey: ['project', projectId],
+    queryFn: () => getProject(projectId),
+    enabled: !!projectId,
+  });
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const refresh = useCallback(
+    () => qc.invalidateQueries({ queryKey: ['project', projectId] }),
+    [qc, projectId],
+  );
 
-  return { project, loading, error, refresh };
+  return {
+    project: data ?? null,
+    loading: isLoading,
+    error: error instanceof Error ? error.message : null,
+    refresh,
+  };
 }

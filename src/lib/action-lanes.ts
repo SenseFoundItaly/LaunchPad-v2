@@ -39,6 +39,10 @@ export const ACTION_LANE: Record<PendingActionType, ActionLane> = {
   proposed_landing_copy: 'approval',
   proposed_investor_followup: 'approval',
   proposed_graph_update: 'approval',
+  // Unified inbox surface — materialized from other proposal tables.
+  signal_alert: 'notification',
+  intelligence_brief: 'approval',
+  assumption_review: 'approval',
 };
 
 export function laneFor(type: PendingActionType): ActionLane {

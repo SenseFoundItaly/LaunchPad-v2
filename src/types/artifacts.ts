@@ -64,9 +64,21 @@ export type Source =
 
 export type ReviewedState = 'pending' | 'applied' | 'rejected';
 
+/**
+ * Canvas department — the macro area an artifact belongs to. Canvas groups
+ * artifacts by department instead of by turn. Closed set of 6 to keep the
+ * navigation surface flat. Memory is auto-routed (facts only); the other 5
+ * are agent-declared with a type-based fallback in the parser.
+ */
+export type Department = 'market' | 'product' | 'pricing' | 'finance' | 'growth' | 'memory';
+
 export interface ArtifactBase {
   type: ArtifactType;
   id: string;
+  /** Canvas grouping. Required on every artifact except `option-set` / `fact`
+   *  / `task` / `solve-progress` (which don't render in the department grid).
+   *  Falls back to type-based classifier in the parser if omitted. */
+  department?: Department;
   /** Set when the artifact has been persisted (graph_nodes, memory_facts, etc.) */
   persisted_id?: string;
   /** Review state — pending items await founder review before entering agent context */
@@ -276,6 +288,11 @@ export interface MonitorProposalArtifact extends ArtifactBase {
   monitor_id?: string;
 
   name: string;
+  /** One-sentence "why this monitor exists" — the human-readable objective
+   *  shown in the Inbox review pane and the /monitors/{id} detail view.
+   *  Required on new proposals; nullable on older payloads that pre-date
+   *  the field (executor / reader derives a fallback from linked_quote). */
+  objective?: string;
   kind: 'competitor' | 'regulation' | 'market' | 'partner' | 'technology' | 'funding' | 'custom';
   schedule: 'daily' | 'weekly';
   query?: string;

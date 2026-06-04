@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { RiskMatrixArtifact, RiskScenarioEntry } from '@/types/artifacts';
 import ArtifactCardShell from './ArtifactCardShell';
+import MonitorChip from './MonitorChip';
 
 interface RiskMatrixCardProps {
   artifact: RiskMatrixArtifact;
@@ -166,7 +167,10 @@ export default function RiskMatrixCard({ artifact }: RiskMatrixCardProps) {
                       {r.risk_score !== undefined && ` = ${r.risk_score}`}
                     </span>
                   </div>
-                  <div className="text-ink mb-1">{r.risk}</div>
+                  <div className="text-ink mb-1 flex items-center gap-2 flex-wrap">
+                    <span>{r.risk}</span>
+                    <MonitorChip entityId={r.id} />
+                  </div>
                   {r.narrative && <p className="text-xs text-ink-4 mb-1">{r.narrative}</p>}
                   {r.mitigation && (
                     <p className="text-xs text-ink-3">

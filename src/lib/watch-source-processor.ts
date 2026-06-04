@@ -184,6 +184,36 @@ export async function processWatchSource(
       console.warn('[watch-source] ecosystem_alert insert failed:', (err as Error).message);
       alertId = null;
     }
+    // Phase 2 — producer dual-write. Land the signal in the unified inbox
+    // immediately. Uses ecosystem_alert_id as the dedupe key (NOT EXISTS check
+    // in materialize-on-read), so re-running this producer is idempotent.
+    if (alertId) {
+      try {
+        const priority = classification.significance === 'high' ? 'high' : 'medium';
+        const paId = generateId('pa');
+        await run(
+          `INSERT INTO pending_actions
+             (id, project_id, ecosystem_alert_id, source_table, source_id,
+              action_type, title, rationale, payload, status, priority,
+              sources, created_at, updated_at)
+           VALUES (?, ?, ?, 'ecosystem_alerts', ?, 'signal_alert', ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+          paId, ws.project_id, alertId, alertId,
+          classification.headline,
+          (classification.rationale ?? '').slice(0, 500),
+          JSON.stringify({
+            alert_type: classification.alert_type,
+            source: `watch:${ws.label}`,
+            source_url: ws.url,
+            relevance_score: classification.significance === 'high' ? 0.9 : 0.7,
+          }),
+          priority,
+          JSON.stringify([{ type: 'web', title: ws.label, url: ws.url }]),
+          now, now,
+        );
+      } catch (err) {
+        console.warn('[watch-source] pending_action dual-write failed (will be picked up by materialize-on-read):', (err as Error).message);
+      }
+    }
   }
 
   await run(

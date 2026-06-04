@@ -1,0 +1,64 @@
+/**
+ * Stage 4 — Segment.
+ * Beachhead chosen. ICP defined. Acquisition path imagined. The founder
+ * can point at a specific list of N people and say "these are the ones."
+ */
+
+import type { Stage } from './types';
+import { countMemoryFactsMatching } from './snapshot';
+
+export const stageSegment: Stage = {
+  id: 'segment',
+  number: 4,
+  label: 'Segment',
+  tagline: 'Beachhead picked, ICP described, acquisition path imagined.',
+  checks: [
+    {
+      id: 'target_market',
+      label: 'Target market named',
+      source: 'idea_canvas.target_market',
+      evaluate: (s) => {
+        const ok = !!s.idea_canvas?.target_market?.trim();
+        return ok
+          ? { passed: true, evidence: 'Target market specified' }
+          : { passed: false, gap: 'Name the target market' };
+      },
+    },
+    {
+      id: 'icp_defined',
+      label: 'ICP described',
+      source: 'memory_facts (ICP)',
+      evaluate: (s) => {
+        const n = countMemoryFactsMatching(s, ['ICP', 'ideal customer', 'persona', 'beachhead']);
+        const ok = n > 0;
+        return ok
+          ? { passed: true, evidence: `${n} ICP fact${n === 1 ? '' : 's'}` }
+          : { passed: false, gap: 'Describe the ideal customer profile' };
+      },
+    },
+    {
+      id: 'channels_identified',
+      label: 'Acquisition channels identified',
+      source: 'memory_facts (channels)',
+      evaluate: (s) => {
+        const n = countMemoryFactsMatching(s, ['channel', 'acquisition', 'reach customers', 'outreach', 'distribution']);
+        const ok = n > 0;
+        return ok
+          ? { passed: true, evidence: `${n} channel fact${n === 1 ? '' : 's'}` }
+          : { passed: false, gap: 'Identify at least one acquisition channel' };
+      },
+    },
+    {
+      id: 'segment_signals',
+      label: 'Segment validated by signals',
+      source: 'competitor_profiles + monitors',
+      evaluate: (s) => {
+        const totalSignals = s.competitors.reduce((sum, c) => sum + (c.total_signals ?? 0), 0);
+        const ok = totalSignals >= 10;
+        return ok
+          ? { passed: true, evidence: `${totalSignals} signals across competitors` }
+          : { passed: false, gap: `${totalSignals} of 10 — let monitors run longer` };
+      },
+    },
+  ],
+};

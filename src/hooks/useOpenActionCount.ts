@@ -1,49 +1,29 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
 /**
- * Lightweight polling hook that returns the number of open (pending + edited)
- * actions for a project. Used by NavRail to show an inbox badge.
- *
- * - Fetches summary counts from GET /api/projects/{id}/actions?status=pending,edited&limit=1
- * - Refetches on `lp-actions-changed` window event
- * - Refetches every 60s
+ * Open (pending + edited) action count for a project. Powers the NavRail
+ * Inbox badge. Cache is shared across every page that mounts NavRail, so
+ * navigating between sections doesn't re-fetch. lp-actions-changed events
+ * invalidate this via the QueryProvider bridge.
  */
 export function useOpenActionCount(projectId: string): { count: number } {
-  const [count, setCount] = useState(0);
-
-  const refetch = useCallback(async () => {
-    try {
+  const { data } = useQuery<number>({
+    queryKey: ['actions', projectId, 'count'],
+    enabled: !!projectId,
+    queryFn: async () => {
       const res = await fetch(
         `/api/projects/${projectId}/actions?status=pending,edited&limit=1`,
       );
-      if (!res.ok) return;
+      if (!res.ok) return 0;
       const body = await res.json();
       const summary = body?.summary;
-      const n = (typeof summary?.pending === 'number' ? summary.pending : 0)
-        + (typeof summary?.edited === 'number' ? summary.edited : 0);
-      setCount(n);
-    } catch {
-      // Silently ignore — badge just won't update
-    }
-  }, [projectId]);
+      const pending = typeof summary?.pending === 'number' ? summary.pending : 0;
+      const edited = typeof summary?.edited === 'number' ? summary.edited : 0;
+      return pending + edited;
+    },
+  });
 
-  useEffect(() => {
-    refetch();
-
-    // Event-driven refetch
-    const handler = () => refetch();
-    window.addEventListener('lp-actions-changed', handler);
-
-    // Polling fallback
-    const interval = setInterval(refetch, 60_000);
-
-    return () => {
-      window.removeEventListener('lp-actions-changed', handler);
-      clearInterval(interval);
-    };
-  }, [refetch]);
-
-  return { count };
+  return { count: data ?? 0 };
 }

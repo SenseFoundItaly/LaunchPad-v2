@@ -6,6 +6,7 @@ import { runAgent } from '@/lib/pi-agent';
 import { recordUsage, isProjectCapped } from '@/lib/cost-meter';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { recordEvent } from '@/lib/memory/events';
+import { recordFact } from '@/lib/memory/facts';
 import { buildMemoryContext } from '@/lib/memory/context';
 import { sendBrief } from '@/lib/email';
 import { pickModel } from '@/lib/llm/router';
@@ -432,6 +433,39 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
             pending_actions_created: persistResult?.pending_actions_created ?? 0,
           },
         });
+
+        // Mirror each fired ecosystem alert into memory_facts so the agent sees
+        // fresh research-backed signals in its context on the next chat turn.
+        // Non-fatal: a fact-write failure must not break the cron run.
+        for (const alert of parsedAlerts) {
+          try {
+            const factText = `${alert.headline}. ${alert.body.slice(0, 200)}${
+              alert.source_url ? `. Source: ${alert.source_url}` : ''
+            }`;
+            const sources = alert.source_url
+              ? [
+                  {
+                    type: 'web' as const,
+                    title: alert.source_url,
+                    url: alert.source_url,
+                    accessed_at: new Date().toISOString(),
+                  },
+                ]
+              : undefined;
+            await recordFact({
+              userId: owner.owner_user_id,
+              projectId: monitor.project_id,
+              fact: factText,
+              kind: 'observation',
+              sourceType: 'monitor',
+              sourceId: monitor.id,
+              confidence: 0.85,
+              sources,
+            });
+          } catch (err) {
+            console.warn('[cron] recordFact for ecosystem alert failed:', (err as Error).message);
+          }
+        }
       }
     } catch (err) {
       console.warn('[cron] recordEvent monitor_alert failed:', (err as Error).message);

@@ -1,17 +1,23 @@
 /**
  * Design-system chrome — TopBar + NavRail.
  *
- * Three-item nav (the 100× simplification). Everything else is reachable
- * by URL but no longer takes nav real estate:
+ * Two-section nav:
  *
- *   today   → /project/{id}/today    (briefs preview + inbox + pulse)
- *   signals → /project/{id}/signals  (briefs + findings + watchers)
- *   chat    → /project/{id}/chat     (co-pilot)
+ *   PRIMARY (top):
+ *     dashboard → /project/{id}/today  (project stage + todos + signal log)
  *
- * Orphan routes still live under /project/{id}/* (workflow, journey,
- * growth, simulation, readiness, scoring, brief, assets, org, research,
- * fundraising, knowledge, intelligence, drafts, actions, dashboard) —
- * accessible via direct URL only, slated for deletion in a follow-up.
+ *   CHANNELS (bottom):
+ *     inbox     → /project/{id}/actions    (pending actions)
+ *     signals   → /project/{id}/signals    (briefs + findings)
+ *     knowledge → /project/{id}/knowledge  (uploads)
+ *     chat      → /project/{id}/chat       (Co-pilot — chat + Canvas with
+ *                                           5 facet tabs: Intel/Product/
+ *                                           Pricing/Finance/Growth)
+ *
+ * Departments still live as data in src/lib/departments.ts — they own
+ * tables and chat-tool prefixes — but they no longer have their own
+ * routes. The 5 facets are tabs inside the Co-pilot's Canvas pane;
+ * Canvas as a concept lives in the chat page, not the sidebar.
  */
 
 'use client';
@@ -20,6 +26,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icon, I, type IconKey } from './icons';
+import { ShareButton } from '@/components/project/ShareButton';
 
 // =============================================================================
 // TopBar — 38px, brand mark + breadcrumbs + right slot
@@ -28,11 +35,16 @@ import { Icon, I, type IconKey } from './icons';
 export interface TopBarProps {
   breadcrumb?: string[];
   right?: React.ReactNode;
+  /** When set, renders a Share button on the right that opens the per-project
+   *  sharing dialog. Optional so non-project surfaces (login, projects index)
+   *  can omit it. Renders BEFORE the page's `right` content so positional
+   *  ordering stays consistent across pages. */
+  projectId?: string;
   /** Legacy prop from design — accepted but ignored; theme is global. */
   theme?: 'paper' | 'ink';
 }
 
-export function TopBar({ breadcrumb, right }: TopBarProps) {
+export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
   return (
     <div
       style={{
@@ -47,61 +59,32 @@ export function TopBar({ breadcrumb, right }: TopBarProps) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-        {/* Brand mark */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div
+        {/* Brand mark removed — the domain (launchpad.sensefound.io) is the
+            branding; repeating "SenseFound / sensefound" here was visual
+            noise stacked on top of the (now-removed) AppHeader. */}
+        {breadcrumb && breadcrumb.length > 0 && (
+          <span
             style={{
-              width: 18,
-              height: 18,
-              borderRadius: 4,
-              background: 'var(--ink)',
+              fontSize: 12,
+              color: 'var(--ink-3)',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
+              gap: 6,
             }}
           >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 10 10"
-              fill="none"
-              stroke="var(--paper)"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-            >
-              <path d="M2 2l6 6M2 8l6-6" />
-            </svg>
-          </div>
-          <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: -0.1 }}>SenseFound</span>
-          <span style={{ fontSize: 11, color: 'var(--ink-5)', fontFamily: 'var(--f-mono)' }}>
-            / sensefound
+            {breadcrumb.map((b, i) => (
+              <React.Fragment key={`${b}-${i}`}>
+                {i > 0 && <Icon d={I.chevr} size={10} style={{ opacity: 0.5 }} />}
+                <span style={{ color: i === breadcrumb.length - 1 ? 'var(--ink)' : 'var(--ink-4)' }}>
+                  {b}
+                </span>
+              </React.Fragment>
+            ))}
           </span>
-        </div>
-        {breadcrumb && breadcrumb.length > 0 && (
-          <>
-            <span style={{ color: 'var(--ink-6)' }}>·</span>
-            <span
-              style={{
-                fontSize: 12,
-                color: 'var(--ink-3)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              {breadcrumb.map((b, i) => (
-                <React.Fragment key={`${b}-${i}`}>
-                  {i > 0 && <Icon d={I.chevr} size={10} style={{ opacity: 0.5 }} />}
-                  <span style={{ color: i === breadcrumb.length - 1 ? 'var(--ink)' : 'var(--ink-4)' }}>
-                    {b}
-                  </span>
-                </React.Fragment>
-              ))}
-            </span>
-          </>
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)' }}>
+        {projectId && <ShareButton projectId={projectId} />}
         {right}
       </div>
     </div>
@@ -120,13 +103,27 @@ interface NavItem {
   route: string;
   /** If true, highlight when pathname segment matches `route` loosely */
   fuzzy?: boolean;
+  /** Longer hover tooltip. Falls back to `label` when omitted. */
+  tooltip?: string;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { id: 'today',   iconKey: 'home',    label: 'Today',    route: 'today' },
-  { id: 'inbox',   iconKey: 'tickets', label: 'Inbox',    route: 'actions' },
-  { id: 'signals', iconKey: 'signal',  label: 'Signals',  route: 'signals' },
-  { id: 'chat',    iconKey: 'chat',    label: 'Co-pilot', route: 'chat' },
+// Primary nav — the project landing surface (project stage + todos + signal log).
+const PRIMARY_ITEMS: NavItem[] = [
+  { id: 'dashboard', iconKey: 'home', label: 'Home', route: 'today',
+    tooltip: 'Dashboard — project stage, todos, and signal log' },
+];
+
+// Channels — cross-cutting activity surfaces shown below the divider.
+// Phase 1 consolidation (2026-06): the dedicated Signals nav was removed —
+// signal_alert + intelligence_brief now materialize into the Inbox, so the
+// channel is collapsed into the single proposal queue.
+const CHANNEL_ITEMS: NavItem[] = [
+  { id: 'inbox',     iconKey: 'tickets', label: 'Inbox',     route: 'actions',
+    tooltip: 'Inbox — proposals: tasks, drafts, signals, briefs' },
+  { id: 'knowledge', iconKey: 'book',    label: 'Know',      route: 'knowledge',
+    tooltip: 'Knowledge — graph, facts, uploads' },
+  { id: 'chat',      iconKey: 'chat',    label: 'Co-pilot',  route: 'chat',
+    tooltip: 'Co-pilot — chat + Canvas with Intel/Product/Pricing/Finance/Growth tabs' },
 ];
 
 export interface NavRailProps {
@@ -161,15 +158,32 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
         gap: 2,
       }}
     >
-      {NAV_ITEMS.map((it) => (
+      {PRIMARY_ITEMS.map((it) => (
         <NavRailItem
           key={it.id}
           item={it}
           projectId={projectId}
           active={isActive(it)}
-          // Inbox tab carries the pending-actions badge — the count is the
-          // direct signal of "something needs my review" and surfaces best
-          // on the dedicated tab, not on Today's broader dashboard.
+        />
+      ))}
+      {/* Divider — separates departments (where you work) from channels
+          (how you triage). 1px line, inset 8px on each side. */}
+      <div
+        aria-hidden
+        style={{
+          width: 28,
+          height: 1,
+          background: 'var(--line)',
+          margin: '6px 0',
+          flexShrink: 0,
+        }}
+      />
+      {CHANNEL_ITEMS.map((it) => (
+        <NavRailItem
+          key={it.id}
+          item={it}
+          projectId={projectId}
+          active={isActive(it)}
           badge={it.id === 'inbox' ? inboxBadge : undefined}
           streaming={it.id === 'chat' ? chatStreaming : undefined}
         />
@@ -206,7 +220,7 @@ function NavRailItem({ item, projectId, active, badge, streaming }: { item: NavI
   return (
     <Link
       href={`/project/${projectId}/${item.route}`}
-      title={item.label}
+      title={item.tooltip ?? item.label}
       style={{
         width: 42,
         padding: '8px 0',

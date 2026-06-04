@@ -43,8 +43,9 @@ export interface RecordFactInput {
  * (user, project, kind), bumps updated_at + confidence instead of inserting
  * a duplicate. Also writes a memory_event(type='fact_recorded').
  *
- * New facts are inserted with reviewed_state='pending' so they require
- * founder review before entering agent context.
+ * Facts insert as reviewed_state='applied' — the prior pending-review gate
+ * was removed when the chat-driven extraction proved reliable enough to skip
+ * founder approval. Founders can still delete/edit from the Knowledge page.
  *
  * @returns UUID on success, '' on failure.
  */
@@ -86,7 +87,7 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
       await run(
         `INSERT INTO memory_facts
            (id, user_id, project_id, fact, kind, source_type, source_id, confidence, reviewed_state, sources)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'applied', ?)`,
         id,
         input.userId,
         input.projectId,

@@ -210,6 +210,38 @@ export async function processCorrelations(
       if (corr.entity_name) {
         await linkBriefToProfile(projectId, corr.entity_name, briefId);
       }
+      // Phase 2 — producer dual-write. Land the brief in the unified inbox
+      // immediately, instead of waiting for the materialize-on-read in
+      // listPendingActions. Uses the same dedupe key (payload.brief_id) so
+      // the materialize is a no-op for briefs produced this way.
+      // Non-fatal: if this insert fails (e.g. CHECK constraint mismatch),
+      // the materialize-on-read will pick it up on the next inbox fetch.
+      try {
+        const priority = corr.confidence >= 0.85 ? 'high'
+                       : corr.confidence >= 0.65 ? 'medium' : 'low';
+        const paId = generateId('pa');
+        await run(
+          `INSERT INTO pending_actions
+             (id, project_id, source_table, source_id, action_type, title,
+              rationale, payload, status, priority, created_at, updated_at)
+           VALUES (?, ?, 'intelligence_briefs', ?, 'intelligence_brief', ?, ?, ?, 'pending', ?, ?, ?)`,
+          paId, projectId, briefId,
+          corr.title,
+          (corr.narrative ?? '').slice(0, 500),
+          JSON.stringify({
+            brief_id: briefId,
+            entity: corr.entity_name,
+            narrative: corr.narrative,
+            prediction: corr.temporal_prediction,
+            confidence: corr.confidence,
+            signal_count: corr.signal_ids_used.length,
+            recommended_actions: corr.recommended_actions,
+          }),
+          priority, now, now,
+        );
+      } catch (err) {
+        console.warn('[correlator] pending_action dual-write failed (will be picked up by materialize-on-read):', (err as Error).message);
+      }
     } catch (err) {
       console.warn('[correlator] brief insert failed:', (err as Error).message);
     }

@@ -73,7 +73,7 @@ export default function UsagePage({
   if (loading) {
     return (
       <div className="lp-frame">
-        <TopBar breadcrumb={['Project', 'Usage']} />
+        <TopBar projectId={projectId} breadcrumb={['Project', 'Usage']} />
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
           <NavRail projectId={projectId} inboxBadge={inboxBadge} />
           <div className="flex items-center justify-center flex-1 text-ink-5 text-sm">
@@ -128,7 +128,7 @@ export default function UsagePage({
 
   return (
     <div className="lp-frame">
-      <TopBar breadcrumb={['Project', 'Usage']} />
+      <TopBar projectId={projectId} breadcrumb={['Project', 'Usage']} />
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <NavRail projectId={projectId} inboxBadge={inboxBadge} />
         <div className="flex-1 overflow-y-auto p-6">

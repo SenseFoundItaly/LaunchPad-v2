@@ -14,7 +14,8 @@
  *   - ago       ← humanized created_at
  */
 
-import { use, useEffect, useState, useCallback, useMemo } from 'react';
+import { use, useEffect, useState, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import {
@@ -70,11 +71,9 @@ export default function TicketsPage({
 }) {
   const { projectId } = use(params);
   const { count: inboxBadge } = useOpenActionCount(projectId);
+  const qc = useQueryClient();
 
-  const [actions, setActions] = useState<PendingAction[]>([]);
-  const [summary, setSummary] = useState<InboxSummary | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Lane tab + filter dropdowns. Default lane is chosen after first fetch
@@ -87,28 +86,35 @@ export default function TicketsPage({
   const [statusFilter, setStatusFilter] = useState<'any' | PendingActionStatus>('any');
   const [typeFilter, setTypeFilter] = useState<string>('any');
 
-  const fetchAll = useCallback(async () => {
-    setError(null);
-    try {
+  // Cached under ['actions', projectId, 'inbox']. lp-actions-changed events
+  // (chat, transitions below) hit this via the QueryProvider bridge.
+  const { data: inbox, isLoading: loading, error: queryError } = useQuery<{
+    actions: PendingAction[];
+    summary: InboxSummary;
+  }>({
+    queryKey: ['actions', projectId, 'inbox'],
+    enabled: !!projectId,
+    queryFn: async () => {
       const res = await fetch(`/api/projects/${projectId}/actions?status=pending,edited,applied,rejected,sent,failed&limit=200`);
       const body: InboxResponse = await res.json();
       if (!body.success || !body.data) throw new Error(body.error || 'Fetch failed');
-      const fetched = body.data.actions ?? [];
-      setActions(fetched);
-      setSummary(body.data.summary);
-      // Auto-select first row if nothing selected
-      setSelectedId((prev) => {
-        if (prev && fetched.find(a => a.id === prev)) return prev;
-        return fetched[0]?.id ?? null;
-      });
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId]);
+      return { actions: body.data.actions ?? [], summary: body.data.summary };
+    },
+  });
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  const actions = useMemo(() => inbox?.actions ?? [], [inbox]);
+  const summary = inbox?.summary ?? null;
+
+  // Selection coherence is handled below against `filteredActions` (see
+  // effect after `filteredActions` is computed). Don't add a second effect
+  // against the raw `actions` list — they'd race after an invalidate and
+  // briefly render a TicketDetail for a row not in the visible lane.
+
+  // Surface useQuery errors through the existing local `error` slot so the
+  // table's error banner keeps working unchanged.
+  useEffect(() => {
+    if (queryError instanceof Error) setError(queryError.message);
+  }, [queryError]);
 
   // Lane counts for the tab strip — only OPEN rows count (pending+edited),
   // matching what the footer's `openCount` already tracks. Terminal-state
@@ -189,7 +195,11 @@ export default function TicketsPage({
       if (deliverable?.mode === 'click-to-send' && deliverable.url) {
         window.open(deliverable.url, '_blank', 'noopener,noreferrer');
       }
-      await fetchAll();
+      // Refresh the inbox + the NavRail badge count. The event bridge would
+      // also catch this if we dispatched lp-actions-changed; calling
+      // invalidateQueries directly keeps the dispatcher local to the
+      // component that mutated state.
+      await qc.invalidateQueries({ queryKey: ['actions', projectId] });
     } catch (e) {
       setError((e as Error).message);
     }
@@ -201,6 +211,7 @@ export default function TicketsPage({
   return (
     <div className="lp-frame">
       <TopBar
+        projectId={projectId}
         breadcrumb={['Project', 'Inbox']}
         right={
           <Pill kind="n">
@@ -213,6 +224,7 @@ export default function TicketsPage({
         <NavRail projectId={projectId} current="tickets" inboxBadge={inboxBadge} />
 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <InboxSubhead />
           <LaneTabs
             active={lane}
             counts={laneCounts}
@@ -255,6 +267,38 @@ export default function TicketsPage({
         ctxLabel={`ctx · ${filteredActions.length} / ${actions.length}`}
         budget={`${openCount} open`}
       />
+    </div>
+  );
+}
+
+// =============================================================================
+// Subhead — frames Inbox as the downstream of Signals.
+// Always-visible one-liner that sets expectation on every visit. Sits
+// between the TopBar and the LaneTabs so it lands in the natural reading
+// path. Uses the same surface as LaneTabs so it reads as part of the strip.
+// =============================================================================
+
+function InboxSubhead() {
+  return (
+    <div
+      style={{
+        padding: '8px 20px',
+        borderBottom: '1px solid var(--line)',
+        background: 'var(--surface)',
+        fontSize: 12,
+        color: 'var(--ink-4)',
+        fontFamily: 'var(--f-sans)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+      }}
+    >
+      <span style={{ color: 'var(--ink-2)', fontWeight: 500 }}>
+        Everything proposed for your review.
+      </span>
+      <span>
+        Tasks to do, drafts to approve, signals & briefs to acknowledge. Apply or reject — each accepted item lands in Knowledge.
+      </span>
     </div>
   );
 }
@@ -521,7 +565,7 @@ function TicketsTable({
           color: 'var(--ink-5)',
           padding: '9px 16px',
           display: 'grid',
-          gridTemplateColumns: '64px 1fr 170px 110px 90px 110px 70px 50px',
+          gridTemplateColumns: '64px 1fr 170px 110px 90px 50px',
           gap: 10,
           textTransform: 'uppercase',
           letterSpacing: 0.4,
@@ -537,14 +581,11 @@ function TicketsTable({
         <span>type</span>
         <span>agent</span>
         <span>status</span>
-        <span>progress</span>
-        <span>impact</span>
         <span style={{ textAlign: 'right' }}>ago</span>
       </div>
       {rows.map((r) => {
         const sel = r.id === selectedId;
         const agent = agentFromType(r.action_type);
-        const prog = progressFromStatus(r.status);
         return (
           <div
             key={r.id}
@@ -552,7 +593,7 @@ function TicketsTable({
             style={{
               padding: '10px 16px',
               display: 'grid',
-              gridTemplateColumns: '64px 1fr 170px 110px 90px 110px 70px 50px',
+              gridTemplateColumns: '64px 1fr 170px 110px 90px 50px',
               gap: 10,
               alignItems: 'center',
               fontSize: 12,
@@ -603,28 +644,6 @@ function TicketsTable({
             >
               {r.status}
             </Pill>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: 60, height: 3, background: 'var(--line-2)', borderRadius: 2, overflow: 'hidden' }}>
-                <div
-                  style={{
-                    width: `${prog * 100}%`,
-                    height: '100%',
-                    background:
-                      r.status === 'failed' || r.status === 'rejected'
-                        ? 'var(--clay)'
-                        : prog === 1
-                          ? 'var(--moss)'
-                          : 'var(--accent)',
-                  }}
-                />
-              </div>
-              <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-                {Math.round(prog * 100)}%
-              </span>
-            </div>
-            <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-              {r.estimated_impact || '—'}
-            </span>
             <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)', textAlign: 'right' }}>
               {timeAgo(r.created_at)}
             </span>
@@ -661,9 +680,6 @@ function TicketDetail({
             {action.status}
           </Pill>
           <Pill kind="n">{agent}</Pill>
-          {action.estimated_impact && (
-            <Pill kind="n">impact · {action.estimated_impact}</Pill>
-          )}
         </div>
         <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-4)', marginBottom: 2 }}>
           T-{action.id.slice(-6)} · {timeAgo(action.created_at)}
@@ -715,23 +731,27 @@ function TicketDetail({
         })}
       </SideSection>
 
-      <SideSection title="Payload · preview">
-        <pre
-          style={{
-            margin: 0,
-            padding: 14,
-            fontSize: 10.5,
-            background: 'var(--paper-2)',
-            color: 'var(--ink-3)',
-            fontFamily: 'var(--f-mono)',
-            maxHeight: 300,
-            overflow: 'auto',
-            borderTop: '1px solid var(--line)',
-          }}
-        >
-          {JSON.stringify(action.edited_payload || action.payload, null, 2)}
-        </pre>
-      </SideSection>
+      {action.action_type === 'configure_monitor' ? (
+        <MonitorProposalReview action={action} />
+      ) : (
+        <SideSection title="Payload · preview">
+          <pre
+            style={{
+              margin: 0,
+              padding: 14,
+              fontSize: 10.5,
+              background: 'var(--paper-2)',
+              color: 'var(--ink-3)',
+              fontFamily: 'var(--f-mono)',
+              maxHeight: 300,
+              overflow: 'auto',
+              borderTop: '1px solid var(--line)',
+            }}
+          >
+            {JSON.stringify(action.edited_payload || action.payload, null, 2)}
+          </pre>
+        </SideSection>
+      )}
 
       <SideSection title="Human actions">
         <LaneAwareActions action={action} canAct={canAct} awaitingClick={awaitingClick} onTransition={onTransition} />
@@ -860,6 +880,94 @@ function SideSection({ title, children }: { title: string; children: React.React
   );
 }
 
+/**
+ * Structured review pane for configure_monitor proposals — replaces the JSON
+ * dump with title / objective / prompt / schedule / source URLs.
+ *
+ * Falls back gracefully when older proposals (pre-objective field) don't
+ * carry the new payload key: derives a stand-in objective from linked_quote,
+ * the same way the executor does on apply.
+ */
+function MonitorProposalReview({ action }: { action: PendingAction }) {
+  const raw = action.edited_payload || action.payload || {};
+  const p = (typeof raw === 'object' && raw !== null) ? raw as Record<string, unknown> : {};
+
+  const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+  const arr = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+
+  const name = str(p.name) || action.title;
+  const objective = str(p.objective) || str(p.linked_quote) || '—';
+  const schedule = str(p.schedule) || 'weekly';
+  const query = str(p.query);
+  const urls = arr(p.urls_to_track);
+  const threshold = str(p.alert_threshold);
+  // Prompt is what the monitor will actually run. It's typically not on the
+  // proposal payload (the executor leaves it null), so we surface the query
+  // as the next-best approximation when prompt is absent.
+  const prompt = str(p.prompt) || query;
+
+  return (
+    <SideSection title="Monitor proposal">
+      <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14, fontSize: 12.5, lineHeight: 1.5 }}>
+        <Field label="Title" value={name} />
+        <Field label="Objective" value={objective} multiline />
+        <Field label="Prompt" value={prompt || '—'} multiline mono />
+        <Field label="Schedule" value={schedule} />
+        {threshold && <Field label="Alert threshold" value={threshold} multiline />}
+        {urls.length > 0 && (
+          <div>
+            <FieldLabel>Sources</FieldLabel>
+            <ul style={{ margin: '4px 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {urls.map((u) => (
+                <li key={u} style={{ fontFamily: 'var(--f-mono)', fontSize: 11.5, color: 'var(--ink-3)', wordBreak: 'break-all' }}>
+                  <a href={u} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{u}</a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </SideSection>
+  );
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="lp-mono"
+      style={{
+        fontSize: 10,
+        color: 'var(--ink-5)',
+        textTransform: 'uppercase',
+        letterSpacing: 0.4,
+        marginBottom: 3,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Field({ label, value, multiline, mono }: { label: string; value: string; multiline?: boolean; mono?: boolean }) {
+  return (
+    <div>
+      <FieldLabel>{label}</FieldLabel>
+      <div
+        style={{
+          color: 'var(--ink-2)',
+          fontSize: 12.5,
+          whiteSpace: multiline ? 'pre-wrap' : 'nowrap',
+          overflow: multiline ? undefined : 'hidden',
+          textOverflow: multiline ? undefined : 'ellipsis',
+          fontFamily: mono ? 'var(--f-mono)' : 'inherit',
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
 // =============================================================================
 // Derivation helpers (client-side)
 // =============================================================================
@@ -892,24 +1000,43 @@ function agentFromType(type: PendingActionType): string {
     // "Chief" — score-delta visibility is a CEO concern.
     skill_rerun_result: 'Chief',
     task: 'Chief',
+    // Unified-inbox surface (Phase 1 consolidation). These materialize from
+    // other proposal tables — the "agent" label maps to the producer system:
+    // signals come from monitors (Scout), briefs from intelligence correlation
+    // (Analyst), assumptions from the validation extractor (Analyst), raw
+    // changes from watch_sources scraper (Scout).
+    signal_alert: 'Scout',
+    intelligence_brief: 'Analyst',
+    assumption_review: 'Analyst',
   };
   return map[type] || 'Agent';
 }
 
-function humanizeActionType(type: PendingActionType): string {
-  return type.replace(/_/g, ' ');
-}
+// Human-readable label per action_type. Replaces the old underscore-to-space
+// `humanizeActionType` which surfaced raw schema slugs like "configure monitor".
+const TYPE_LABEL: Record<PendingActionType, string> = {
+  draft_email:                  'Email draft',
+  draft_linkedin_post:          'LinkedIn post',
+  draft_linkedin_dm:            'LinkedIn DM',
+  proposed_hypothesis:          'Hypothesis',
+  proposed_interview_question:  'Interview question',
+  proposed_landing_copy:        'Landing copy',
+  proposed_investor_followup:   'Investor follow-up',
+  proposed_graph_update:        'Graph update',
+  workflow_step:                'Workflow step',
+  configure_monitor:            'New monitor',
+  configure_budget:             'Budget change',
+  configure_watch_source:       'New watch source',
+  skill_rerun_result:           'Skill refresh',
+  task:                         'TODO',
+  // Unified-inbox surface (Phase 1 consolidation).
+  signal_alert:                 'Signal',
+  intelligence_brief:           'Brief',
+  assumption_review:            'Assumption',
+};
 
-function progressFromStatus(status: PendingActionStatus): number {
-  const map: Record<PendingActionStatus, number> = {
-    pending: 0,
-    edited: 0.3,
-    applied: 0.6,
-    sent: 1,
-    rejected: 0,
-    failed: 0.5,
-  };
-  return map[status] ?? 0;
+function humanizeActionType(type: PendingActionType): string {
+  return TYPE_LABEL[type] ?? type.replace(/_/g, ' ');
 }
 
 function agentColor(name: string): string {

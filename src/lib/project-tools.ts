@@ -24,6 +24,7 @@ import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import { query, get, run } from '@/lib/db';
 import { createPendingAction } from '@/lib/pending-actions';
+import { recordFact } from '@/lib/memory/facts';
 import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
 import { getCreditsRemaining } from '@/lib/credits';
@@ -44,6 +45,11 @@ import type { Source } from '@/types/artifacts';
 
 interface ToolContext {
   projectId: string;
+  /** Authenticated user id. Required by tools that write to user-scoped
+   *  tables (memory_facts). Optional for read-only/proposal tools that
+   *  pre-date the user-scoping requirement; defaults to the legacy SYSTEM
+   *  user id when not provided. */
+  userId?: string;
 }
 
 // =============================================================================
@@ -488,6 +494,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
     'Propose a recurring ecosystem monitor tied to a specific named risk. Dedup runs automatically. The founder sees an inline review card with Apply/Edit/Dismiss.',
   parameters: Type.Object({
     name: Type.String({ description: 'Human-readable ≤60 chars. Example: "HubSpot free-tier launch watch"' }),
+    objective: Type.String({ description: 'One-sentence "why this monitor exists" — the human-readable purpose the founder will read in the Inbox review pane and the live monitor page. ≤200 chars. Example: "Catch HubSpot pricing moves that would invalidate our free-tier positioning."' }),
     kind: Type.String({ description: `One of: ${VALID_MONITOR_KINDS.join(', ')}` }),
     schedule: Type.String({ description: 'daily | weekly. Pick based on signal urgency — regulation changes weekly, competitor pricing daily.' }),
     query: Type.Optional(Type.String({ description: 'Search query the monitor runs each cycle. Prefer urls_to_track when you have specific pages.' })),
@@ -502,6 +509,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
     const p = params as {
       name: string;
+      objective: string;
       kind: string;
       schedule: string;
       query?: string;
@@ -597,6 +605,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
     // from it when the founder applies.
     const pendingActionPayload = {
       name: p.name,
+      objective: p.objective,
       kind: p.kind,
       schedule,
       query: p.query,
@@ -637,6 +646,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
     const artifactBody: Record<string, unknown> = {
       action: 'create',
       name: p.name,
+      objective: p.objective,
       kind: p.kind,
       schedule,
       alert_threshold: p.alert_threshold,
@@ -1495,6 +1505,10 @@ const readTabularReviewTool = (ctx: ToolContext): AgentTool => ({
 interface MakeProjectToolsOptions {
   /** Include write tools (queue_draft, propose_monitor, budget, task, watch_source, signal). Default true. */
   includeWriteTools?: boolean;
+  /** Authenticated user id. Required for tools that write to user-scoped
+   *  tables (memory_facts). Without it, save_memory_fact becomes a no-op
+   *  with a "no userId" message. */
+  userId?: string;
 }
 
 // =============================================================================
@@ -1758,6 +1772,205 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
   },
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// update_pricing — direct write path for the Pricing facet (Stage 6)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const updatePricingTool = (ctx: ToolContext): AgentTool => ({
+  name: 'update_pricing',
+  label: 'Update Pricing',
+  description:
+    'Upsert the project\'s pricing_state row. Use when the founder asks to set / change / tweak the anchor price, tiers, willingness-to-pay research, unit economics, currency, or pricing model. Each field is independently optional — passing one fills only that field, existing values are preserved. PRECONDITION: when the founder says "change pricing" or "update tiers" without a concrete value, do NOT guess — ask which field and what the new value should be first, then call this tool. Triggers Stage 6 (Pricing) check re-evaluation.',
+  parameters: Type.Object({
+    anchor_price: Type.Optional(Type.Number({ description: 'Headline price the founder is testing (e.g. 49 for $49/mo). Numeric, never a string.' })),
+    currency: Type.Optional(Type.String({ description: '3-letter ISO code (USD, EUR, GBP). Default USD.' })),
+    tiers: Type.Optional(Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Array of tier objects { name, price, features?, target_segment? }. Replaces the existing tiers entirely — pass full set, not just new ones.' })),
+    wtp: Type.Optional(Type.Object({}, { additionalProperties: true, description: 'Willingness-to-pay research blob: { method, sample_size, low, p50, high, notes }. method examples: "van westendorp", "interview", "competitor benchmark".' })),
+    unit_econ: Type.Optional(Type.Object({}, { additionalProperties: true, description: 'Unit economics: { cac, ltv, gross_margin, payback_months }. Pass the keys you have, omit unknowns.' })),
+    model: Type.Optional(Type.String({ description: 'One of: subscription | usage | seat | one_time | hybrid.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as Record<string, unknown>;
+    const ALLOWED = ['anchor_price', 'currency', 'tiers', 'wtp', 'unit_econ', 'model'] as const;
+    const updates: Record<string, unknown> = {};
+    for (const k of ALLOWED) {
+      if (k in p && p[k] !== undefined && p[k] !== null) updates[k] = p[k];
+    }
+    if (Object.keys(updates).length === 0) {
+      return {
+        content: [{ type: 'text', text: 'update_pricing called with no fields. Ask the founder which pricing field to change and what value.' }],
+        details: { error: 'no_fields' },
+      };
+    }
+
+    const existing = await query('SELECT project_id FROM pricing_state WHERE project_id = ?', ctx.projectId);
+    const serialize = (v: unknown): unknown =>
+      v !== null && typeof v === 'object' ? JSON.stringify(v) : v;
+
+    if (existing.length === 0) {
+      const cols = ['project_id', ...Object.keys(updates), 'updated_at'];
+      const placeholders = cols.map(() => '?').join(', ');
+      await run(
+        `INSERT INTO pricing_state (${cols.join(', ')}) VALUES (${placeholders})`,
+        ctx.projectId,
+        ...Object.values(updates).map(serialize),
+        new Date().toISOString(),
+      );
+    } else {
+      const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
+      await run(
+        `UPDATE pricing_state SET ${setClauses}, updated_at = ? WHERE project_id = ?`,
+        ...Object.values(updates).map(serialize),
+        new Date().toISOString(),
+        ctx.projectId,
+      );
+    }
+
+    return {
+      content: [{ type: 'text', text: `Updated pricing_state: ${Object.keys(updates).join(', ')}. Pricing tab will reflect on next render.` }],
+      details: { updated_fields: Object.keys(updates) },
+    };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// save_memory_fact — log a fact (interview quote, pain point, ICP detail)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const saveMemoryFactTool = (ctx: ToolContext): AgentTool => ({
+  name: 'save_memory_fact',
+  label: 'Save Memory Fact',
+  description:
+    'Persist a single short fact about the project to memory_facts. Use for: customer interview quotes ("X said our pricing felt high"), pain-point validation ("biggest frustration is onboarding takes 3 weeks"), ICP details ("ICP = solo SaaS founders with $10-50k MRR"), market sizing notes ("EU SaaS market ~$30B"), channel hypotheses ("LinkedIn outbound is the cheapest channel"). These facts power Stage 2/3/4 evidence checks. Keep each fact ≤300 chars and self-contained — don\'t use it for conversation transcripts or sprawling notes.',
+  parameters: Type.Object({
+    content: Type.String({ description: 'The fact itself, ≤300 chars. Quote the founder verbatim when relevant ("Maria said: …"). Include the source category at the start when natural: "Interview: …", "Pain point: …", "ICP: …", "Channel: …", "Market size: …".' }),
+    sources: Type.Optional(Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Optional source[] — usually a chat-turn citation. Improves provenance for stage evidence.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { content?: string; sources?: Source[] };
+    const content = (p.content ?? '').trim().slice(0, 300);
+    if (content.length < 5) {
+      return {
+        content: [{ type: 'text', text: 'save_memory_fact requires content of at least 5 chars. Ask the founder to clarify what to log.' }],
+        details: { error: 'content_too_short' },
+      };
+    }
+    if (!ctx.userId) {
+      return {
+        content: [{ type: 'text', text: 'save_memory_fact unavailable — tool context missing userId.' }],
+        details: { error: 'no_user' },
+      };
+    }
+
+    // Delegate to recordFact (handles dedup, source persistence, memory_event
+    // emission, reviewed_state='pending' so founder can audit before context
+    // includes it). Inferred kind = 'fact'; refinement to 'observation'/
+    // 'decision' can come in a follow-up tool variant.
+    const id = await recordFact({
+      userId: ctx.userId,
+      projectId: ctx.projectId,
+      fact: content,
+      sourceType: 'chat',
+      sources: p.sources,
+    });
+
+    if (!id) {
+      return {
+        content: [{ type: 'text', text: 'save_memory_fact failed to persist (recordFact returned empty). Try again or simplify the fact.' }],
+        details: { error: 'persist_failed' },
+      };
+    }
+
+    return {
+      content: [{ type: 'text', text: `Saved memory fact (${content.slice(0, 60)}${content.length > 60 ? '…' : ''}). Stage 2-4 evidence checks will pick it up on next refresh.` }],
+      details: { id, content },
+    };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// log_interview — structured customer/user interview write (Stage 2 evidence)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const logInterviewTool = (ctx: ToolContext): AgentTool => ({
+  name: 'log_interview',
+  label: 'Log Interview',
+  description:
+    'Persist a structured customer/user interview to the interviews table. Use whenever the founder reports having talked to a potential or current user about the problem, the solution, or pricing. PRECONDITION: needs at minimum person_name + a 1-3 sentence summary. If the founder mentions an interview happened but doesn\'t name the person or describe what was said, ASK for those before calling. Use top_pain to capture the verbatim biggest-pain quote when provided. Use wtp_amount when the founder reports a willingness-to-pay number. Triggers Stage 2 (Problem) check re-evaluation — this is the canonical input for the "5+ customer signals" gate.',
+  parameters: Type.Object({
+    person_name: Type.String({ description: 'Who was interviewed. First name or full name ≤200 chars. Example: "Maria", "Maria Rossi".' }),
+    summary: Type.String({ description: '1-3 sentence agent-readable takeaway. ≤2000 chars. Should capture WHAT was learned. Example: "Maria runs a 3-person agency, manually exports client reports each week, says onboarding any new tool takes 3+ weeks because she does it herself."' }),
+    person_role: Type.Optional(Type.String({ description: 'Their job title or role. Example: "Founder & Designer", "Head of Growth".' })),
+    person_segment: Type.Optional(Type.String({ description: 'Which ICP / target segment they map to. Example: "solo SaaS founder", "marketing agency owner".' })),
+    channel: Type.Optional(Type.String({ description: 'One of: call, email, survey, in-person, linkedin, other.' })),
+    conducted_at: Type.Optional(Type.String({ description: 'ISO date when the interview happened. Defaults to now.' })),
+    top_pain: Type.Optional(Type.String({ description: 'Verbatim biggest-pain quote from the person. ≤800 chars. Quote them.' })),
+    urgency: Type.Optional(Type.String({ description: 'One of: low, medium, high. How badly do they need this solved?' })),
+    wtp_amount: Type.Optional(Type.Number({ description: 'Numeric willingness-to-pay if mentioned. Just the number (49, not "$49/mo").' })),
+    wtp_currency: Type.Optional(Type.String({ description: '3-letter ISO. Default USD.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as Record<string, unknown>;
+    const person_name = String(p.person_name ?? '').trim();
+    const summary = String(p.summary ?? '').trim();
+
+    if (!person_name) {
+      return {
+        content: [{ type: 'text', text: 'log_interview requires person_name. Ask the founder who they talked to.' }],
+        details: { error: 'missing_person_name' },
+      };
+    }
+    if (!summary || summary.length < 10) {
+      return {
+        content: [{ type: 'text', text: 'log_interview requires a meaningful summary (≥10 chars). Ask the founder what the interviewee said.' }],
+        details: { error: 'missing_summary' },
+      };
+    }
+    if (!ctx.userId) {
+      return {
+        content: [{ type: 'text', text: 'log_interview unavailable — tool context missing userId.' }],
+        details: { error: 'no_user' },
+      };
+    }
+
+    const id = generateId('iv');
+    const now = new Date().toISOString();
+    const conductedAt = p.conducted_at
+      ? new Date(String(p.conducted_at)).toISOString()
+      : now;
+
+    await run(
+      `INSERT INTO interviews
+         (id, project_id, user_id, person_name, person_role, person_segment,
+          conducted_at, channel, summary, top_pain, urgency,
+          wtp_amount, wtp_currency, meta, sources, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      ctx.projectId,
+      ctx.userId,
+      person_name.slice(0, 200),
+      p.person_role ? String(p.person_role).slice(0, 200) : null,
+      p.person_segment ? String(p.person_segment).slice(0, 200) : null,
+      conductedAt,
+      p.channel ? String(p.channel).slice(0, 40) : null,
+      summary.slice(0, 2000),
+      p.top_pain ? String(p.top_pain).slice(0, 800) : null,
+      p.urgency ? String(p.urgency).slice(0, 20) : null,
+      typeof p.wtp_amount === 'number' ? p.wtp_amount : null,
+      p.wtp_currency ? String(p.wtp_currency).slice(0, 3).toUpperCase() : 'USD',
+      '{}',
+      '[]',
+      now,
+      now,
+    );
+
+    return {
+      content: [{ type: 'text', text: `Logged interview with ${person_name}. Stage 2 will recount evidence on next refresh.` }],
+      details: { id, person_name },
+    };
+  },
+});
+
 /**
  * Returns a tool array scoped to a single project. Merge with getTools() from
  * pi-tools.ts when configuring the agent:
@@ -1767,8 +1980,8 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
  * of tool descriptions per LLM roundtrip.
  */
 export function makeProjectTools(projectId: string, options: MakeProjectToolsOptions = {}): AgentTool[] {
-  const ctx: ToolContext = { projectId };
-  const { includeWriteTools = true } = options;
+  const { includeWriteTools = true, userId } = options;
+  const ctx: ToolContext = { projectId, userId };
 
   const readTools: AgentTool[] = [
     getProjectSummary(ctx),
@@ -1797,5 +2010,8 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     markAssumptionTool(ctx),
     huntBlackSwansTool(ctx),
     updateIdeaCanvasTool(ctx),
+    updatePricingTool(ctx),
+    saveMemoryFactTool(ctx),
+    logInterviewTool(ctx),
   ];
 }

@@ -7,10 +7,17 @@ import { AuthError, requireUser } from '@/lib/auth/require-user';
 
 export async function GET() {
   try {
-    const { orgId } = await requireUser();
+    const { userId, orgId } = await requireUser();
+    // UNION of org-owned + shared-with-me. DISTINCT guards the edge case
+    // where a user somehow shares with themselves (the share row exists but
+    // the org_id already matches).
     const rows = await query(
-      'SELECT * FROM projects WHERE org_id = ? ORDER BY created_at DESC',
+      `SELECT DISTINCT p.* FROM projects p
+         WHERE p.org_id = ?
+           OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ?)
+         ORDER BY p.created_at DESC`,
       orgId,
+      userId,
     );
     return json(rows.map(mapProject));
   } catch (e) {

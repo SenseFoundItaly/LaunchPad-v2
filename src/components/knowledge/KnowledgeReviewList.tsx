@@ -31,6 +31,12 @@ export interface KnowledgeReviewListProps {
   locale: 'en' | 'it';
   /** compact mode hides tabs and shows only pending items — used in sidebar */
   compact?: boolean;
+  /**
+   * Bump this number to force a refetch of every already-loaded tab. Used by
+   * the Knowledge page so a successful file upload makes the new "applied"
+   * facts appear without a full reload.
+   */
+  refreshNonce?: number;
 }
 
 // =============================================================================
@@ -213,7 +219,7 @@ function IntelligenceWarning({ locale }: { locale: 'en' | 'it' }) {
 // Main component
 // =============================================================================
 
-export default function KnowledgeReviewList({ projectId, locale, compact }: KnowledgeReviewListProps) {
+export default function KnowledgeReviewList({ projectId, locale, compact, refreshNonce }: KnowledgeReviewListProps) {
   const [activeTab, setActiveTab] = useState<KnowledgeTab>('pending');
   const [pendingItems, setPendingItems] = useState<KnowledgeItem[]>([]);
   const [appliedItems, setAppliedItems] = useState<KnowledgeItem[]>([]);
@@ -253,6 +259,16 @@ export default function KnowledgeReviewList({ projectId, locale, compact }: Know
     void fetchItemsForTab('pending').finally(() => setLoading(false));
   }, [fetchItemsForTab]);
 
+  // Re-fetch every loaded tab when the parent bumps `refreshNonce` (e.g. after
+  // a successful file upload). Skip the initial render (nonce undefined / 0)
+  // so we don't double-fetch alongside the mount effect above.
+  useEffect(() => {
+    if (!refreshNonce) return;
+    for (const tab of loadedTabs.current) {
+      void fetchItemsForTab(tab);
+    }
+  }, [refreshNonce, fetchItemsForTab]);
+
   function handleTabClick(tab: KnowledgeTab) {
     setActiveTab(tab);
     setExpandedId(null);
@@ -273,6 +289,15 @@ export default function KnowledgeReviewList({ projectId, locale, compact }: Know
       body: JSON.stringify({ state }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // Broadcast so other surfaces (Knowledge page graph pane, ContextPanel)
+    // can re-fetch without prop-threading. Apply All loops emit one event
+    // per item — listeners should debounce. Only fires after the PATCH
+    // succeeds so reverted optimistic updates don't trigger a refetch.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('lp-knowledge-changed', {
+        detail: { projectId, itemId, state },
+      }));
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -596,10 +621,11 @@ export default function KnowledgeReviewList({ projectId, locale, compact }: Know
         </div>
       )}
 
-      {/* View Intelligence CTA — repointed to /signals (briefs surface) */}
+      {/* View Intelligence CTA — repointed to /actions (Inbox) after the
+          /signals page was retired in Phase 1 consolidation. */}
       <div style={{ paddingTop: 4 }}>
         <Link
-          href={`/project/${projectId}/signals`}
+          href={`/project/${projectId}/actions`}
           className="text-xs text-accent-ink font-medium"
           style={{ textDecoration: 'none' }}
         >

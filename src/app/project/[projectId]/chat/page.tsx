@@ -16,20 +16,15 @@
  */
 
 import { use, useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
 import api from '@/api';
 import { useChat } from '@/hooks/useChat';
 import { useProject } from '@/hooks/useProject';
 import { parseMessageContent } from '@/lib/artifact-parser';
-import type { Artifact, ArtifactType, SolveProgressArtifact } from '@/types/artifacts';
-import SolveProgressCard from '@/components/chat/artifacts/SolveProgressCard';
-import ArtifactRenderer from '@/components/chat/artifacts/ArtifactRenderer';
-import { ContextPanel } from '@/components/chat/ContextPanel';
+import type { Artifact, ArtifactType } from '@/types/artifacts';
+import { Canvas } from '@/components/canvas/Canvas';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
-import { useIntelligenceBriefs, matchBriefs } from '@/hooks/useIntelligenceBriefs';
-import { BriefCard } from '@/components/signals/BriefCard';
 import { buildContextMarkdown } from '@/lib/context-export';
 import type { ContextExportData } from '@/lib/context-export';
 import { openPrintPreview } from '@/lib/print-utils';
@@ -239,33 +234,19 @@ export default function CopilotChatPage({
 }) {
   const { projectId } = use(params);
   const { project } = useProject(projectId);
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  // Thread id rides on the existing chat_messages.step column. Default thread
-  // ('chat') preserves all rows written before threading existed.
-  const thread = searchParams.get('thread');
-  const step = thread ? `chat:${thread}` : 'chat';
+  // One project = one chat. The chat_messages.step column is fixed to 'chat'
+  // (multi-thread routing was removed — see commit history).
+  const step = 'chat';
   const { messages, isStreaming, sendMessage, setMessages, messageCosts } = useChat(projectId, step);
   const [input, setInput] = useState('');
   const [historyLoaded, setHistoryLoaded] = useState(false);
-  // Canvas mode — richer than a simple tab. Tracks focused turn and supports
-  // brief drill-in. The CanvasHeader still sees 'latest'|'context' for tabs.
-  const [canvasMode, setCanvasMode] = useState<CanvasMode>({ type: 'latest', focusedTurn: null });
-  const canvasTab: CanvasTab = canvasMode.type === 'context' ? 'context' : 'latest';
-  // Manual tab click suppresses auto-transitions for 10s so the user doesn't
-  // get yanked away while reading.
-  const autoSuppressedUntilRef = useRef(0);
-  const setCanvasTab = useCallback((tab: CanvasTab) => {
-    autoSuppressedUntilRef.current = Date.now() + 10_000;
-    setCanvasMode(tab === 'context' ? { type: 'context' } : { type: 'latest', focusedTurn: null });
-  }, []);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Turn-linked canvas: which chat message is hovered (null = none).
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   const { count: inboxBadge } = useOpenActionCount(projectId);
 
-  // Fire lp-actions-changed immediately when streaming ends so PendingSection
-  // and useOpenActionCount refetch without waiting for the 60s poll cycle.
+  // Fire lp-actions-changed immediately when streaming ends so downstream
+  // surfaces (badge counts, inline cards) refetch without waiting for poll.
   const wasStreamingRef = useRef(false);
   useEffect(() => {
     if (wasStreamingRef.current && !isStreaming) {
@@ -274,23 +255,10 @@ export default function CopilotChatPage({
     wasStreamingRef.current = isStreaming;
   }, [isStreaming, projectId]);
 
-  // Auto-switch to Context tab when the agent creates new pending actions.
-  // Suppressed for 10s after a manual tab click.
-  const prevInboxBadgeRef = useRef(0);
-  useEffect(() => {
-    if (!isStreaming && inboxBadge > prevInboxBadgeRef.current) {
-      if (Date.now() >= autoSuppressedUntilRef.current) {
-        setCanvasMode({ type: 'context' });
-      }
-    }
-    prevInboxBadgeRef.current = inboxBadge;
-  }, [inboxBadge, isStreaming]);
-
   const locale = (project as unknown as { locale?: string })?.locale === 'it' ? 'it' : 'en';
 
-  // Load existing chat history for the active thread.
-  // Race-guard: a stale response (e.g. user switched threads mid-fetch) is
-  // ignored so we never show another thread's messages.
+  // Load existing chat history for this project.
+  // Race-guard: a stale response (e.g. project switch mid-fetch) is ignored.
   useEffect(() => {
     const controller = new AbortController();
     api.get<HistoryResp>(
@@ -325,7 +293,7 @@ export default function CopilotChatPage({
 
   // Auto-start Solve Flow for brand-new projects (no chat history).
   // Fires once per mount — the ref guard prevents double-firing on
-  // React StrictMode re-mounts and thread switches.
+  // React StrictMode re-mounts.
   const autoStartedRef = useRef(false);
   useEffect(() => {
     if (historyLoaded && messages.length === 0 && !autoStartedRef.current && !isStreaming && project) {
@@ -375,17 +343,6 @@ export default function CopilotChatPage({
       inlineArtifactsByMsgId: inlineMap,
     };
   }, [messages]);
-
-  // Detect solve-progress artifacts for inline display in the canvas grid
-  const hasSolveProgress = canvasArtifacts.some((a) => a.type === 'solve-progress');
-
-  // Intelligence briefs — proactive surfacing of correlation data matched
-  // against entity-cards currently visible in the canvas.
-  const { briefs } = useIntelligenceBriefs(projectId);
-  const matchedBriefs = useMemo(
-    () => matchBriefs(briefs, canvasEntries),
-    [briefs, canvasEntries],
-  );
 
   function handleSend() {
     const v = input.trim();
@@ -439,7 +396,7 @@ export default function CopilotChatPage({
         return;
       }
 
-      // Generic pending-action apply/reject from PendingSection
+      // Generic pending-action apply/reject from inline chat-bubble cards
       if (action === 'action:apply' || action === 'action:reject') {
         const pendingActionId = String(payload.pending_action_id ?? '');
         if (!pendingActionId) throw new Error(`Missing pending_action_id on ${action}`);
@@ -489,7 +446,7 @@ export default function CopilotChatPage({
           throw new Error(err.error || `Action failed with status ${res.status}`);
         }
         if (typeof window !== 'undefined') {
-          // Notify PendingSection so it picks up changes from inline chat cards.
+          // Broadcast so other surfaces (badge counts, inline cards) refetch.
           window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
           // Budget cap changed → CreditsBadge listens for this event to refetch.
           if (action === 'budget:apply') {
@@ -543,7 +500,7 @@ export default function CopilotChatPage({
             }));
           }
         }
-        // Notify other surfaces (Tasks tab + PendingSection) so they can refetch.
+        // Broadcast so other surfaces (badge counts, inline cards) refetch.
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('lp-tasks-changed', { detail: { projectId, artifactId, verb } }));
           window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
@@ -572,6 +529,7 @@ export default function CopilotChatPage({
   return (
     <div className="lp-frame">
       <TopBar
+        projectId={projectId}
         breadcrumb={[project?.name || '', 'Co-pilot']}
         right={
           <>
@@ -657,13 +615,6 @@ export default function CopilotChatPage({
             onKeyDown={handleKey}
             disabled={isStreaming}
             locale={locale}
-            onNewChat={() => {
-              const id = (typeof crypto !== 'undefined' && 'randomUUID' in crypto
-                ? crypto.randomUUID()
-                : Math.random().toString(36)).slice(0, 8);
-              router.replace(`/project/${projectId}/chat?thread=${id}`);
-              setInput('');
-            }}
             onInsertTemplate={(text) => setInput((prev) => prev ? `${prev}\n${text}` : text)}
             onAttachText={(name, body) =>
               setInput((prev) => {
@@ -684,95 +635,14 @@ export default function CopilotChatPage({
             background: 'var(--paper-2)',
           }}
         >
-          <CanvasHeader
-            count={canvasArtifacts.length}
+          <Canvas
+            projectId={projectId}
             locale={locale}
-            tab={canvasTab}
-            onTabChange={setCanvasTab}
-            briefCount={matchedBriefs.length}
-            streaming={isStreaming}
+            canvasEntries={canvasEntries}
+            messages={messages}
+            handleArtifactAction={handleArtifactAction}
+            focusedMessageId={focusedMessageId}
           />
-          {canvasTab === 'latest' && (
-            <div
-              className="lp-scroll"
-              style={{
-                flex: 1,
-                overflow: 'auto',
-                padding: 20,
-                display: 'grid',
-                gridTemplateColumns: 'repeat(6, 1fr)',
-                gap: 14,
-                alignContent: 'start',
-              }}
-            >
-              {/* Solve progress inline when present */}
-              {hasSolveProgress && (
-                <div style={{ gridColumn: 'span 6' }}>
-                  <InlineSolveProgress messages={messages} locale={locale} />
-                </div>
-              )}
-              {/* Matched intelligence briefs — proactive surfacing */}
-              {matchedBriefs.length > 0 && (
-                <div style={{ gridColumn: 'span 6' }}>
-                  <div className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', letterSpacing: 0.5, marginBottom: 6 }}>
-                    RELATED INTELLIGENCE
-                  </div>
-                  {matchedBriefs.map((b) => (
-                    <BriefCard key={b.id} brief={b} />
-                  ))}
-                </div>
-              )}
-              {canvasEntries.filter((e) => e.artifact.type !== 'solve-progress').length === 0 && !hasSolveProgress ? (
-                <CanvasEmptyState locale={locale} />
-              ) : (
-                (() => {
-                  const filtered = canvasEntries.filter((e) => e.artifact.type !== 'solve-progress');
-                  const nodes: React.ReactNode[] = [];
-                  let prevTurn = -1;
-                  for (let i = 0; i < filtered.length; i++) {
-                    const entry = filtered[i];
-                    // Turn divider chip between groups (only when no message is focused)
-                    if (entry.turnIndex !== prevTurn && !focusedMessageId) {
-                      nodes.push(
-                        <div key={`turn-${entry.turnIndex}`} style={{ gridColumn: 'span 6', display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' }}>
-                          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-                          <span className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-5)', letterSpacing: 0.5 }}>
-                            Turn {entry.turnIndex + 1}
-                          </span>
-                          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-                        </div>,
-                      );
-                      prevTurn = entry.turnIndex;
-                    }
-                    // Highlight / dim based on focused message
-                    const isFocused = focusedMessageId && entry.sourceMessageId === focusedMessageId;
-                    const isDimmed = focusedMessageId && !isFocused;
-                    nodes.push(
-                      <ArtifactCard
-                        key={entry.artifact.id}
-                        artifact={entry.artifact}
-                        onAction={handleArtifactAction}
-                        highlighted={!!isFocused}
-                        dimmed={!!isDimmed}
-                        onBackLink={() => {
-                          const el = document.querySelector(`[data-message-id="${entry.sourceMessageId}"]`);
-                          if (el) {
-                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            el.classList.add('lp-flash');
-                            setTimeout(() => el.classList.remove('lp-flash'), 1200);
-                          }
-                        }}
-                      />,
-                    );
-                  }
-                  return nodes;
-                })()
-              )}
-            </div>
-          )}
-          {canvasTab === 'context' && (
-            <ContextPanel projectId={projectId} locale={locale} onAction={handleArtifactAction} />
-          )}
         </div>
       </div>
 
@@ -1801,7 +1671,6 @@ function ChatComposer({
   onKeyDown,
   disabled,
   locale,
-  onNewChat,
   onInsertTemplate,
   onAttachText,
 }: {
@@ -1811,7 +1680,6 @@ function ChatComposer({
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   disabled: boolean;
   locale: 'en' | 'it';
-  onNewChat?: () => void;
   onInsertTemplate?: (text: string) => void;
   onAttachText?: (name: string, body: string) => void;
 }) {
@@ -1891,7 +1759,6 @@ function ChatComposer({
                 locale={locale}
                 templates={templates}
                 onClose={() => setMenuOpen(false)}
-                onNewChat={onNewChat}
                 onInsertTemplate={onInsertTemplate}
                 onAttach={() => fileInputRef.current?.click()}
               />
@@ -1951,8 +1818,7 @@ function ChatComposer({
 /**
  * Popover menu anchored to the composer's "+" button.
  *
- * Three sections:
- *   - New chat — starts a fresh thread (handled by parent via URL nav).
+ * Two sections:
  *   - Templates — quick-insert prompts into the textarea.
  *   - Attach    — opens a file picker (text-like files only, ≤200KB).
  *
@@ -1962,14 +1828,12 @@ function ComposerMenu({
   locale,
   templates,
   onClose,
-  onNewChat,
   onInsertTemplate,
   onAttach,
 }: {
   locale: 'en' | 'it';
   templates: { label: string; text: string }[];
   onClose: () => void;
-  onNewChat?: () => void;
   onInsertTemplate?: (text: string) => void;
   onAttach: () => void;
 }) {
@@ -2022,21 +1886,6 @@ function ComposerMenu({
         boxShadow: '0 6px 24px rgba(0,0,0,0.08)',
       }}
     >
-      {onNewChat && (
-        <>
-          <button
-            type="button"
-            style={itemStyle}
-            onClick={() => {
-              onNewChat();
-              onClose();
-            }}
-          >
-            {locale === 'it' ? '+ Nuova chat' : '+ New chat'}
-          </button>
-          <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
-        </>
-      )}
       <div
         style={{
           padding: '4px 10px',
@@ -2080,357 +1929,6 @@ function ComposerMenu({
   );
 }
 
-// =============================================================================
-// Canvas
-// =============================================================================
-
-type CanvasTab = 'latest' | 'context';
-
-// CanvasMode tracks focused-turn drill-in on the 'latest' canvas. The simple
-// CanvasTab persists for CanvasHeader; CanvasMode wraps it with extra state.
-type CanvasMode =
-  | { type: 'latest'; focusedTurn: string | null }
-  | { type: 'context' };
-
-// =============================================================================
-// InlineSolveProgress — renders solve-progress inline in the Canvas grid
-// =============================================================================
-
-function InlineSolveProgress({
-  messages,
-  locale,
-}: {
-  messages: Array<{ role: string; content: string }>;
-  locale: 'en' | 'it';
-}) {
-  const latestSolve = useMemo<SolveProgressArtifact | null>(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role !== 'assistant') continue;
-      const segments = parseMessageContent(m.content);
-      for (const seg of segments) {
-        if (seg.type === 'artifact') {
-          const a = (seg as { type: 'artifact'; artifact: Artifact }).artifact;
-          if (a.type === 'solve-progress') return a as SolveProgressArtifact;
-        }
-      }
-    }
-    return null;
-  }, [messages]);
-
-  if (!latestSolve) return null;
-
-  const completed = latestSolve.stages.filter((s) => s.status === 'completed').length;
-  const total = latestSolve.stages.length;
-  const allDone = completed === total;
-
-  return (
-    <div style={{ marginBottom: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <Icon d={I.bolt} size={14} style={{ color: allDone ? 'var(--moss)' : 'var(--accent)' }} />
-        <span className="lp-serif" style={{ fontSize: 14, color: 'var(--ink-1)' }}>
-          {locale === 'it' ? 'Flusso Solve' : 'Solve Flow'}
-        </span>
-        <Pill kind={allDone ? 'ok' : 'live'}>
-          {completed}/{total}
-        </Pill>
-      </div>
-      <SolveProgressCard artifact={latestSolve} />
-    </div>
-  );
-}
-
-function CanvasHeader({
-  count,
-  locale,
-  tab,
-  onTabChange,
-  briefCount = 0,
-  streaming = false,
-}: {
-  count: number;
-  locale: 'en' | 'it';
-  tab: CanvasTab;
-  onTabChange: (next: CanvasTab) => void;
-  /** Number of matched intelligence briefs currently visible */
-  briefCount?: number;
-  /** Whether the chat is currently streaming */
-  streaming?: boolean;
-}) {
-  const tabs: { id: CanvasTab; label: { en: string; it: string } }[] = [
-    { id: 'latest',  label: { en: 'Canvas',  it: 'Canvas' } },
-    { id: 'context', label: { en: 'Context', it: 'Contesto' } },
-  ];
-  return (
-    <div
-      style={{
-        height: 40,
-        flexShrink: 0,
-        borderBottom: '1px solid var(--line)',
-        background: 'var(--surface)',
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 16px',
-        gap: 6,
-      }}
-    >
-      <span style={{ fontSize: 12, fontWeight: 600, marginRight: 6 }}>Canvas</span>
-      {tabs.map((t) => {
-        const active = tab === t.id;
-        return (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => onTabChange(t.id)}
-            className="lp-chip"
-            style={{
-              cursor: 'pointer',
-              border: '1px solid ' + (active ? 'var(--accent-ink)' : 'var(--line-2)'),
-              background: active ? 'var(--accent)' : 'var(--paper)',
-              color: active ? 'var(--ink)' : 'var(--ink-3)',
-              fontWeight: active ? 600 : 400,
-              position: 'relative',
-            }}
-          >
-            {t.label[locale]}
-            {/* Streaming pulse on Latest tab */}
-            {t.id === 'latest' && streaming && (
-              <span
-                className="lp-dot lp-pulse"
-                style={{
-                  position: 'absolute',
-                  top: -2,
-                  right: -2,
-                  width: 6,
-                  height: 6,
-                  background: 'var(--accent)',
-                }}
-              />
-            )}
-          </button>
-        );
-      })}
-      {/* Intelligence briefs chip */}
-      {briefCount > 0 && (
-        <span
-          className="lp-mono"
-          style={{
-            fontSize: 10,
-            color: 'var(--plum)',
-            background: 'oklch(0.95 0.02 310)',
-            padding: '2px 8px',
-            borderRadius: 999,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 4,
-          }}
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2a7 7 0 0 1 7 7c0 3-2 5.5-4 7l-1 3H10l-1-3c-2-1.5-4-4-4-7a7 7 0 0 1 7-7z" />
-            <path d="M10 19h4" />
-          </svg>
-          {briefCount} brief{briefCount === 1 ? '' : 's'}
-        </span>
-      )}
-      <span style={{ flex: 1 }} />
-      {tab === 'latest' && (
-        <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-          {count === 0
-            ? (locale === 'it' ? 'nessun artefatto ancora' : 'no artifacts yet')
-            : `${count} artifact${count === 1 ? '' : 's'}`}
-        </span>
-      )}
-      <IconBtn d={I.more} title="more" />
-    </div>
-  );
-}
-
-function CanvasEmptyState({ locale }: { locale: 'en' | 'it' }) {
-  return (
-    <div
-      style={{
-        gridColumn: 'span 6',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 10,
-        padding: 60,
-        color: 'var(--ink-4)',
-        fontSize: 13,
-        textAlign: 'center',
-      }}
-    >
-      <Icon d={I.layers} size={32} style={{ opacity: 0.4 }} />
-      <h3 className="lp-serif" style={{ fontSize: 18, fontWeight: 400, margin: 0, color: 'var(--ink-3)' }}>
-        {locale === 'it' ? 'Il canvas è vuoto.' : 'Canvas is empty.'}
-      </h3>
-      <p style={{ margin: 0, maxWidth: 400, lineHeight: 1.5 }}>
-        {locale === 'it'
-          ? 'Gli artefatti del co-pilot (entity card, tabelle, grafici, insight, opzioni) appariranno qui man mano che rispondo alle tue domande.'
-          : 'Co-pilot artifacts (entity cards, tables, charts, insights, options) appear here as I respond to your questions.'}
-      </p>
-    </div>
-  );
-}
-
-// =============================================================================
-// Artifact card — unified renderer for ALL artifact types
-// =============================================================================
-
-function ArtifactCard({
-  artifact,
-  onAction,
-  highlighted,
-  dimmed,
-  onBackLink,
-}: {
-  artifact: Artifact;
-  onAction: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
-  /** Turn-linked: ring highlight when source message is hovered */
-  highlighted?: boolean;
-  /** Turn-linked: dim when a different message is hovered */
-  dimmed?: boolean;
-  /** Scroll-to-source callback for the back-link icon */
-  onBackLink?: () => void;
-}) {
-  // Self-contained interactive proposal cards (Apply / Edit / Dismiss) want
-  // full width without the generic card chrome around them. Render bare —
-  // ArtifactRenderer routes the type to its dedicated card component.
-  if (artifact.type === 'monitor-proposal' || artifact.type === 'budget-proposal') {
-    return (
-      <div
-        style={{
-          gridColumn: 'span 6',
-          opacity: dimmed ? 0.35 : 1,
-          transition: 'opacity 150ms ease',
-        }}
-        className={highlighted ? 'ring-2 ring-accent rounded-lg' : ''}
-      >
-        <ArtifactRenderer
-          artifact={artifact}
-          onAction={(a, p) => onAction(a, p)}
-          onEntityDiscovered={() => { /* canvas already shows the card; no-op */ }}
-          onWorkflowDiscovered={() => { /* canvas already shows the card; no-op */ }}
-        />
-      </div>
-    );
-  }
-
-  // Each artifact takes 2 cols by default, 6 for wide tables/workflows
-  const wide = artifact.type === 'comparison-table' || artifact.type === 'workflow-card';
-  const span = wide ? 6 : 2;
-
-  const name = (() => {
-    const a = artifact as unknown as { name?: string; title?: string; category?: string };
-    return a.name || a.title || a.category || humanizeType(artifact.type);
-  })();
-
-  const iconMap: Record<string, string> = {
-    'entity-card': I.users,
-    'comparison-table': I.layers,
-    'insight-card': I.bolt,
-    'option-set': I.layers,
-    'workflow-card': I.pipe,
-    'score-card': I.shield,
-    'radar-chart': I.graph,
-    'bar-chart': I.fund,
-    'pie-chart': I.fund,
-    'gauge-chart': I.globe,
-    'metric-grid': I.sliders,
-    'sensitivity-slider': I.sliders,
-    'action-suggestion': I.sparkles,
-  };
-
-  return (
-    <div
-      className={`lp-card ${highlighted ? 'ring-2 ring-accent' : ''}`}
-      style={{
-        gridColumn: `span ${span}`,
-        opacity: dimmed ? 0.35 : 1,
-        transition: 'opacity 150ms ease',
-      }}
-    >
-      <div
-        style={{
-          padding: '10px 14px',
-          borderBottom: '1px solid var(--line)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-        }}
-      >
-        <Icon
-          d={iconMap[artifact.type] || I.file}
-          size={13}
-          style={{ color: 'var(--accent)' }}
-        />
-        <span style={{ fontSize: 12, fontWeight: 600 }}>{name}</span>
-        <span style={{ fontSize: 11, color: 'var(--ink-5)' }}>
-          {humanizeType(artifact.type)}
-        </span>
-        <span style={{ flex: 1 }} />
-        {onBackLink && (
-          <button
-            type="button"
-            onClick={onBackLink}
-            title="Scroll to source message"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 20,
-              height: 20,
-              padding: 0,
-              border: 'none',
-              borderRadius: 4,
-              background: 'transparent',
-              color: 'var(--ink-5)',
-              cursor: 'pointer',
-              transition: 'color 100ms',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--ink-5)'; }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-            </svg>
-          </button>
-        )}
-        <Icon d={I.more} size={13} style={{ color: 'var(--ink-5)' }} />
-      </div>
-      <div style={{ padding: 14, fontSize: 12, color: 'var(--ink-3)' }}>
-        <ArtifactBody artifact={artifact} onAction={onAction} />
-      </div>
-    </div>
-  );
-}
-
-function ArtifactBody({
-  artifact,
-  onAction,
-}: {
-  artifact: Artifact;
-  onAction: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
-}) {
-  // Delegate to the canonical renderer used by ChatMessage, SkillOutputRenderer,
-  // and the brief page. Keeps Canvas in sync with all 16 supported types and
-  // fixes the prior raw-JSON fallback for pie-chart / sensitivity-slider /
-  // score-badge / entity-card / etc. Charts get a SourcesFooter for free.
-  return (
-    <ArtifactRenderer
-      artifact={artifact}
-      onAction={(a, p) => onAction(a, p)}
-      onEntityDiscovered={() => { /* canvas already shows the card; no-op */ }}
-      onWorkflowDiscovered={() => { /* canvas already shows the card; no-op */ }}
-    />
-  );
-}
-
-function humanizeType(t: string): string {
-  return t.replace(/-/g, ' ');
-}
 
 // =============================================================================
 // Strip artifact blocks from message text so the chat column shows only prose

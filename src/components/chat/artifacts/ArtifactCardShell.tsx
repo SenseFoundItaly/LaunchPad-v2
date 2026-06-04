@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Source } from '@/types/artifacts';
 import SourcesFooter from './SourcesFooter';
 
@@ -38,6 +38,13 @@ interface ArtifactCardShellProps {
    * is response-level, not card-level.
    */
   provenance?: 'fallback';
+  /**
+   * Show an "expand to fullscreen" icon. When true, an expand affordance
+   * appears in the header; clicking it opens an overlay that renders the
+   * same `children` at a comfortable max-width. Default: true — the shell
+   * always offers it, individual cards can opt out (e.g. solve-progress).
+   */
+  inspectable?: boolean;
 }
 
 export default function ArtifactCardShell({
@@ -55,8 +62,25 @@ export default function ArtifactCardShell({
   style,
   aiGenerated = false,
   provenance,
+  inspectable = true,
 }: ArtifactCardShellProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+
+  // Esc to close inspector + body-scroll-lock while it's open. The lock
+  // matters because the overlay scrolls internally — without it, scrolling
+  // a tall artifact bubbles up and moves the canvas underneath.
+  useEffect(() => {
+    if (!inspectorOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setInspectorOpen(false); };
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [inspectorOpen]);
 
   return (
     <div
@@ -100,6 +124,31 @@ export default function ArtifactCardShell({
             {headerRight}
           </div>
         )}
+        {inspectable && !collapsed && (
+          <button
+            type="button"
+            onClick={() => setInspectorOpen(true)}
+            className="text-ink-5 hover:text-ink-3 transition-colors p-0.5 shrink-0"
+            aria-label="Open inspector"
+            title="Open inspector"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="15 3 21 3 21 9" />
+              <polyline points="9 21 3 21 3 15" />
+              <line x1="21" y1="3" x2="14" y2="10" />
+              <line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          </button>
+        )}
         {collapsible && (
           <button
             type="button"
@@ -133,6 +182,67 @@ export default function ArtifactCardShell({
           {footer}
           <SourcesFooter sources={sources} />
         </>
+      )}
+
+      {/* Inspector overlay — same content at a comfortable max-width so dense
+          artifacts (investor-pipeline, idea-canvas, risk-matrix) get the
+          horizontal real estate the canvas grid can't always afford.
+          Renders the body without re-mounting the card to keep any local
+          card state (selected stage, expanded row) preserved. */}
+      {inspectorOpen && (
+        <div
+          onClick={() => setInspectorOpen(false)}
+          className="fixed inset-0 z-[100] flex items-center justify-center p-6"
+          style={{ background: 'rgba(20, 18, 16, 0.55)' }}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${typeLabel} inspector`}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-surface border border-line rounded-lg shadow-2xl flex flex-col"
+            style={{
+              width: 'min(1100px, 100%)',
+              maxHeight: 'calc(100vh - 48px)',
+            }}
+          >
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-line">
+              <span className="text-[10px] uppercase tracking-wider text-ink-5 font-mono">
+                {typeLabel}
+              </span>
+              {aiGenerated && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-plum-wash text-plum font-mono uppercase tracking-wider">
+                  AI
+                </span>
+              )}
+              {title && (
+                <span className="text-sm font-semibold text-ink truncate">
+                  {title}
+                </span>
+              )}
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={() => setInspectorOpen(false)}
+                className="text-ink-5 hover:text-ink-3 transition-colors p-1"
+                aria-label="Close inspector"
+                title="Close (Esc)"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto px-5 py-4">
+              <div className={className || ''}>
+                {children}
+              </div>
+              {footer}
+              <SourcesFooter sources={sources} />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

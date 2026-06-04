@@ -9,6 +9,8 @@ import { buildSystemPromptString, resolveProjectLocale } from '@/lib/agent-promp
 import { makeProjectTools } from '@/lib/project-tools';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { buildMemoryContext } from '@/lib/memory/context';
+import { buildProjectSnapshot } from '@/lib/journey';
+import { formatStageContextForPrompt } from '@/lib/journey/stage-prompt';
 import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
@@ -115,6 +117,8 @@ const ARTIFACT_INSTRUCTIONS = `[You are SenseFound, an evidence-based validation
 At the start of every conversation, call \`get_project_summary\`. It returns stage readiness, intelligence briefs, AND hot signals in one response. Do NOT separately call list_intelligence_briefs or list_ecosystem_alerts on the opener — the summary already includes them. Use those tools only for deep-dives when the summary surfaces something worth exploring.
 
 THEN apply this decision tree to your opening:
+- IF monitors fired since the last chat turn (check get_project_summary's ecosystem_alerts list for \`created_at\` newer than the last chat message):
+  → LEAD with "Since we last spoke, [monitor name] fired: [headline]. [optional 1-line implication]." Reference the linked_risk_id if the monitor is tied to a risk. This is the most important signal you can give the founder — fresh evidence on something they asked you to watch. Put the validation CTA later in the option-set.
 - IF urgent intelligence exists (briefs with high-urgency recommended actions, OR hot signals with relevance >= 0.9):
   → LEAD with the intelligence. Frame each signal using the Three-Question Protocol (Tier 2). Put the validation CTA as the LAST option in the option-set, not the first.
 - IF no urgent intelligence but some signals exist:
@@ -180,8 +184,18 @@ SOURCES schema (pick one type per entry):
 - { "type": "user", "title": "Founder stated in chat", "quote": "verbatim quote" }
 - { "type": "inference", "title": "...", "based_on": [<Source>, <Source>], "reasoning": "..." }
 
+DEPARTMENT FIELD — every Canvas artifact MUST carry a "department" field in the header JSON. Canvas groups artifacts into 5 macro areas plus Memory. Pick one:
+- "market"   — TAM/SAM/SOM, competitors, personas, segments, ecosystem entities
+- "product"  — features, MVP plan, workflows, technical risks
+- "pricing"  — tiers, sensitivity, unit economics, willingness-to-pay
+- "finance"  — investor pipeline, metrics, runway, fundraising readiness, scores
+- "growth"   — acquisition, retention, weekly updates, channels, experiments
+- "memory"   — facts only (auto-routed; you don't need to set it on fact artifacts)
+Inline/CTA artifacts (option-set, task, monitor-proposal, budget-proposal, solve-progress) don't need a department — they don't render in the Canvas grid.
+Example header with department: :::artifact{"type":"entity-card","id":"ent_ID","department":"market"}
+
 CARD ARTIFACTS:
-entity-card: :::artifact{"type":"entity-card","id":"ent_ID"}\n{"name":"X","entity_type":"competitor","summary":"...","attributes":{},"sources":[...]}\n:::
+entity-card: :::artifact{"type":"entity-card","id":"ent_ID","department":"market"}\n{"name":"X","entity_type":"competitor","summary":"...","attributes":{},"sources":[...]}\n:::
 option-set: :::artifact{"type":"option-set","id":"opt_ID"}\n{"prompt":"?","options":[{"id":"a","label":"A","description":"..."}]}\n:::  (sources optional)
 insight-card: :::artifact{"type":"insight-card","id":"ins_ID"}\n{"category":"market","title":"...","body":"...","confidence":"high","sources":[...]}\n:::
 action-suggestion: :::artifact{"type":"action-suggestion","id":"act_ID"}\n{"title":"...","description":"...","action_label":"Go","action_type":"research","sources":[...]}\n:::
@@ -345,17 +359,30 @@ export async function POST(request: NextRequest) {
     enriched: projects[0].settings?.rich_context === true,
   });
 
+  // Stage context — the founder's active journey stage with passed/missing
+  // evidence checks. Lets the agent anchor every reply to closing real gaps
+  // rather than reacting to whatever the founder happens to type. Tolerant:
+  // if the snapshot fails (missing tables on a fresh project), we skip the
+  // block entirely — better than a 500.
+  let stageContext = '';
+  try {
+    const snapshot = await buildProjectSnapshot(project_id);
+    stageContext = formatStageContextForPrompt(snapshot);
+  } catch {
+    /* journey snapshot failed — chat still works, just without stage framing */
+  }
+
   // Build system prompt: SOUL + AGENTS personality first (locale-aware),
-  // then ARTIFACT_INSTRUCTIONS, then per-project context + memory + recently-
-  // completed skill summaries. SOUL/AGENTS were previously missing from the
-  // chat path — they're now loaded from agents/*.md (or .it.md).
+  // then ARTIFACT_INSTRUCTIONS, then stage context (highest signal for
+  // "what to talk about"), then per-project context + memory + recently-
+  // completed skill summaries.
   const locale = await resolveProjectLocale(project_id, query);
   const skillContext = await buildCompletedSkillContext(project_id, lastMessage);
   const systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
     tail: ARTIFACT_INSTRUCTIONS,
-    projectContext: `${projectContext}${memoryContext}\n${skillContext}`,
+    projectContext: `${stageContext}${projectContext}${memoryContext}\n${skillContext}`,
   });
   const encoder = new TextEncoder();
 
@@ -373,7 +400,7 @@ export async function POST(request: NextRequest) {
     // over project_id so the agent cannot accidentally read or write another
     // project's rows.
     const includeWriteTools = messages.length <= 1 || hasWriteIntent(lastMessage);
-    const projectTools = makeProjectTools(project_id, { includeWriteTools });
+    const projectTools = makeProjectTools(project_id, { includeWriteTools, userId });
 
     // Route simple follow-ups to Haiku (~80% cheaper) — "yes", "go ahead",
     // "tell me more", etc. don't need Sonnet's multi-tool reasoning depth.
@@ -638,7 +665,7 @@ export async function POST(request: NextRequest) {
                   confidence: f.confidence ?? 0.8,
                 });
                 if (factId && f.id) {
-                  persistedMap[f.id] = { persisted_id: factId, reviewed_state: 'pending' };
+                  persistedMap[f.id] = { persisted_id: factId, reviewed_state: 'applied' };
                 }
               }
             } else if (seg.artifact.type === 'workflow-card') {

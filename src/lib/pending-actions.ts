@@ -157,9 +157,27 @@ export interface ListPendingActionsOptions {
   project_id: string;
   status?: PendingActionStatus | PendingActionStatus[];
   limit?: number;
+  /**
+   * Skip the read-time materialization that pulls ecosystem_alerts +
+   * intelligence_briefs + assumptions into the inbox as synthetic pending
+   * actions. Default true. Set false for internal/cron callers that just
+   * want the raw `pending_actions` table contents.
+   */
+  materialize?: boolean;
 }
 
 export async function listPendingActions(opts: ListPendingActionsOptions): Promise<PendingAction[]> {
+  // Inbox-unification (Phase 1 — read-time materialization). Surfaces open
+  // ecosystem_alerts + intelligence_briefs as pending_actions so /actions is
+  // the single proposal queue. Idempotent: a row is only created once per
+  // source via ecosystem_alert_id FK (alerts) or payload.brief_id check
+  // (briefs). Safe to call repeatedly. Skipped when caller passes
+  // `materialize: false` (cron/internal callers).
+  if (opts.materialize !== false) {
+    try { await materializeProposalsFromSources(opts.project_id); }
+    catch (err) { console.warn('[listPendingActions] materialize skipped:', (err as Error).message); }
+  }
+
   const statuses = opts.status
     ? (Array.isArray(opts.status) ? opts.status : [opts.status])
     : null;
@@ -173,6 +191,162 @@ export async function listPendingActions(opts: ListPendingActionsOptions): Promi
   if (opts.limit) { sql += ` LIMIT ${Math.max(1, Math.min(500, opts.limit))}`; }
   const rows = await query<PendingActionRow>(sql, ...params);
   return rows.map(rowToAction);
+}
+
+// =============================================================================
+// Materialize-on-read: pulls open ecosystem_alerts + intelligence_briefs into
+// pending_actions so the inbox is the single review surface. Idempotent via
+// existing ecosystem_alert_id FK and via payload.brief_id JSONB extraction.
+// =============================================================================
+async function materializeProposalsFromSources(projectId: string): Promise<void> {
+  // ── 1. ecosystem_alerts → pending_actions(action_type='signal_alert') ────
+  // Uses the ecosystem_alert_id FK column to dedupe.
+  const newAlerts = await query<{
+    id: string; alert_type: string; headline: string; body: string | null;
+    relevance_score: number; source: string | null; source_url: string | null;
+  }>(
+    `SELECT ea.id, ea.alert_type, ea.headline, ea.body, ea.relevance_score,
+            ea.source, ea.source_url
+       FROM ecosystem_alerts ea
+      WHERE ea.project_id = ?
+        AND (ea.reviewed_state IS NULL OR ea.reviewed_state = 'pending')
+        AND NOT EXISTS (
+          SELECT 1 FROM pending_actions pa WHERE pa.ecosystem_alert_id = ea.id
+        )`,
+    projectId,
+  );
+  for (const a of newAlerts) {
+    const id = generateId('pa');
+    const now = new Date().toISOString();
+    const priority = a.relevance_score >= 0.85 ? 'critical'
+                   : a.relevance_score >= 0.7  ? 'high'
+                   : a.relevance_score >= 0.5  ? 'medium' : 'low';
+    const payload = {
+      alert_type: a.alert_type,
+      source: a.source,
+      source_url: a.source_url,
+      body: a.body,
+      relevance_score: a.relevance_score,
+    };
+    const sources = a.source_url
+      ? JSON.stringify([{ type: 'web', title: a.source, url: a.source_url }])
+      : null;
+    await run(
+      `INSERT INTO pending_actions
+         (id, project_id, ecosystem_alert_id, action_type, title, rationale,
+          payload, status, priority, sources, created_at, updated_at)
+       VALUES (?, ?, ?, 'signal_alert', ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+      id, projectId, a.id,
+      a.headline,
+      a.body?.slice(0, 500) ?? null,
+      JSON.stringify(payload),
+      priority,
+      sources,
+      now, now,
+    );
+  }
+
+  // ── 2. intelligence_briefs → pending_actions(action_type='intelligence_brief') ──
+  // No FK column — dedupe on payload.brief_id (JSONB ->> text).
+  const newBriefs = await query<{
+    id: string; entity_name: string | null; title: string; narrative: string | null;
+    temporal_prediction: string | null; confidence: number | null;
+    recommended_actions: unknown; signal_count: number | null;
+  }>(
+    `SELECT ib.id, ib.entity_name, ib.title, ib.narrative,
+            ib.temporal_prediction, ib.confidence,
+            ib.recommended_actions, ib.signal_count
+       FROM intelligence_briefs ib
+      WHERE ib.project_id = ?
+        AND (ib.status IS NULL OR ib.status = 'active')
+        AND NOT EXISTS (
+          SELECT 1 FROM pending_actions pa
+           WHERE pa.project_id = ib.project_id
+             AND pa.action_type = 'intelligence_brief'
+             AND (pa.payload->>'brief_id') = ib.id
+        )`,
+    projectId,
+  );
+  for (const b of newBriefs) {
+    const id = generateId('pa');
+    const now = new Date().toISOString();
+    const conf = b.confidence ?? 0;
+    const priority = conf >= 0.85 ? 'high' : conf >= 0.65 ? 'medium' : 'low';
+    const payload = {
+      brief_id: b.id,
+      entity: b.entity_name,
+      narrative: b.narrative,
+      prediction: b.temporal_prediction,
+      confidence: conf,
+      signal_count: b.signal_count,
+      recommended_actions: b.recommended_actions,
+    };
+    await run(
+      `INSERT INTO pending_actions
+         (id, project_id, action_type, title, rationale, payload, status,
+          priority, created_at, updated_at)
+       VALUES (?, ?, 'intelligence_brief', ?, ?, ?, 'pending', ?, ?, ?)`,
+      id, projectId,
+      b.title,
+      b.narrative?.slice(0, 500) ?? null,
+      JSON.stringify(payload),
+      priority,
+      now, now,
+    );
+  }
+
+  // ── 3. assumptions → pending_actions(action_type='assumption_review') ────
+  // Skipped if the assumptions table doesn't exist yet in this DB (the
+  // schema-defined table hasn't been migrated to the shared Supabase as of
+  // this writing — see plan §"things to verify").
+  try {
+    const newAssumptions = await query<{
+      id: string; number: number; category: string; text: string;
+      criticality: string;
+    }>(
+      `SELECT a.id, a.number, a.category, a.text, a.criticality
+         FROM assumptions a
+        WHERE a.project_id = ?
+          AND a.status = 'open'
+          AND NOT EXISTS (
+            SELECT 1 FROM pending_actions pa
+             WHERE pa.project_id = a.project_id
+               AND pa.action_type = 'assumption_review'
+               AND (pa.payload->>'assumption_id') = a.id
+          )`,
+      projectId,
+    );
+    for (const a of newAssumptions) {
+      const id = generateId('pa');
+      const now = new Date().toISOString();
+      const priority = a.criticality === 'high' ? 'high'
+                     : a.criticality === 'medium' ? 'medium' : 'low';
+      const payload = {
+        assumption_id: a.id,
+        number: a.number,
+        category: a.category,
+      };
+      await run(
+        `INSERT INTO pending_actions
+           (id, project_id, action_type, title, rationale, payload, status,
+            priority, created_at, updated_at)
+         VALUES (?, ?, 'assumption_review', ?, ?, ?, 'pending', ?, ?, ?)`,
+        id, projectId,
+        `#${a.number} (${a.category}) — ${a.text.slice(0, 90)}`,
+        a.text,
+        JSON.stringify(payload),
+        priority,
+        now, now,
+      );
+    }
+  } catch (err) {
+    const msg = (err as Error).message;
+    // assumptions table not yet migrated — silently skip; the rest of the
+    // inbox still works.
+    if (!/assumptions.*does not exist/i.test(msg)) {
+      console.warn('[materialize] assumption_review skipped:', msg);
+    }
+  }
 }
 
 // =============================================================================

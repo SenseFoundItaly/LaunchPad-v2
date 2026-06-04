@@ -126,7 +126,53 @@ function tryParseArtifact(raw: string, fallbackSources?: Source[] | null): Parse
       artifact_type: typeof artifact.type === 'string' ? artifact.type : undefined,
     };
   }
+
+  // Department fallback — Canvas groups artifacts by department. If the agent
+  // omitted the field, route by artifact type. Memory, option-set, task,
+  // solve-progress don't render in the department grid so they're left null.
+  const aDept = artifact as { department?: string };
+  if (!aDept.department) {
+    aDept.department = classifyDepartmentFromType(aMut.type as Artifact['type']);
+  }
+
   return { ok: true, artifact, used_fallback_sources: usedFallback };
+}
+
+/**
+ * Type→department fallback used when the agent omits the `department` field.
+ * Returns undefined for inline / non-Canvas artifacts (option-set, task, fact,
+ * solve-progress) — they're not grouped in the department grid.
+ */
+function classifyDepartmentFromType(t: Artifact['type']): 'market' | 'product' | 'pricing' | 'finance' | 'growth' | 'memory' | undefined {
+  switch (t) {
+    case 'tam-sam-som':
+    case 'persona-card':
+    case 'comparison-table':
+    case 'idea-canvas':
+      return 'market';
+    case 'workflow-card':
+    case 'risk-matrix':
+      return 'product';
+    case 'sensitivity-slider':
+      return 'pricing';
+    case 'investor-pipeline':
+    case 'metric-grid':
+    case 'gauge-chart':
+    case 'score-card':
+    case 'radar-chart':
+      return 'finance';
+    case 'weekly-update':
+    case 'bar-chart':
+    case 'pie-chart':
+      return 'growth';
+    case 'fact':
+      return 'memory';
+    case 'entity-card':
+    case 'insight-card':
+      return 'market'; // default for generic entities; agent should override
+    default:
+      return undefined; // option-set, task, monitor-proposal, budget-proposal, html-preview, document, solve-progress, score-badge
+  }
 }
 
 /**

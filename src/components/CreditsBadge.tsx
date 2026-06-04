@@ -1,12 +1,21 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 /**
  * CreditsBadge — TopBar pill showing remaining monthly credits + soft daily anchor.
  *
- * Polls /api/projects/{id}/credits every 30s and refetches on the
- * `lp-tasks-changed` / `lp-credits-changed` window events.
+ * Cached in TanStack under ['credits', projectId]. Invalidation happens via
+ * the lp-*-changed event bridge (see QueryProvider + query-events.ts):
+ *   lp-credits-changed → 'credits' topic
+ *   lp-actions-changed → 'credits' topic (chat charges credits on every turn)
+ *
+ * The badge mounts in TopBar on every page, so caching means navigation no
+ * longer re-fetches. The old 30s polling is dropped — chat already fires
+ * lp-credits-changed after each charge, which is the only real-time
+ * mutation source from this tab. Cross-tab/cron-driven changes will lag
+ * until the user navigates, which is acceptable for a credits display.
  *
  * Clicking the badge opens a dropdown with usage details and a button
  * to bump +100 free credits (calls PATCH /api/projects/{id}/credits).
@@ -35,37 +44,21 @@ interface ApiResponse {
 }
 
 export function CreditsBadge({ projectId }: { projectId: string }) {
-  const [snap, setSnap] = useState<CreditsSnapshot | null>(null);
+  const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [bumping, setBumping] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function refetch() {
-      try {
-        const res = await fetch(`/api/projects/${projectId}/credits`, { cache: 'no-store' });
-        const body = (await res.json()) as ApiResponse;
-        if (!cancelled && body.success && body.data) setSnap(body.data);
-      } catch {
-        // silent — badge just stays stale until next tick
-      }
-    }
-
-    refetch();
-    const interval = setInterval(refetch, 30_000);
-    const onChange = () => refetch();
-    window.addEventListener('lp-tasks-changed', onChange);
-    window.addEventListener('lp-credits-changed', onChange);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-      window.removeEventListener('lp-tasks-changed', onChange);
-      window.removeEventListener('lp-credits-changed', onChange);
-    };
-  }, [projectId]);
+  const { data: snap } = useQuery<CreditsSnapshot | null>({
+    queryKey: ['credits', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/credits`, { cache: 'no-store' });
+      const body = (await res.json()) as ApiResponse;
+      if (!body.success || !body.data) return null;
+      return body.data;
+    },
+  });
 
   // Click-outside to close dropdown
   useEffect(() => {
@@ -89,8 +82,17 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
       });
       const body = (await res.json()) as ApiResponse;
       if (body.success && body.data) {
-        setSnap(body.data);
-        window.dispatchEvent(new Event('lp-credits-changed'));
+        // Write the PATCH response straight into cache so the badge
+        // updates without a roundtrip. The dispatch below also fires the
+        // event bridge, which queues a background invalidate — by then
+        // the cache already shows the right number.
+        qc.setQueryData<CreditsSnapshot>(['credits', projectId], body.data);
+        // CustomEvent with projectId in detail — the QueryProvider bridge
+        // scopes invalidation per-project via this field. Bare Event would
+        // flush every project's credits cache.
+        window.dispatchEvent(
+          new CustomEvent('lp-credits-changed', { detail: { projectId } }),
+        );
       }
     } catch {
       // silent

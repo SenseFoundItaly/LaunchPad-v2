@@ -353,7 +353,17 @@ export type PendingActionType =
   | 'configure_budget'              // chat-proposed monthly LLM budget cap change awaiting founder review
   | 'configure_watch_source'        // chat-proposed watch source awaiting founder review
   | 'skill_rerun_result'            // heartbeat-executor refreshed a stale analytical skill — surfaces new score in inbox
-  | 'task';                         // chat-proposed founder task (TODO) — Mark done / Snooze / Dismiss
+  | 'task'                          // chat-proposed founder task (TODO) — Mark done / Snooze / Dismiss
+  // Unified-inbox surface (materialized from ecosystem_alerts, intelligence_briefs, assumptions on read).
+  // The underlying row stays in its own table; the synthetic pending_action mirrors it so accept/reject
+  // share the same UX. Apply/reject handlers in action-executors propagate state to the source table.
+  | 'signal_alert'                  // mirror of ecosystem_alerts.reviewed_state='pending'
+  | 'intelligence_brief'            // mirror of intelligence_briefs.status='active'
+  | 'assumption_review';            // mirror of assumptions.status='open'
+  // NOTE: `raw_change` was added in the first cut of the consolidation and then
+  // removed — significant source_changes already become signal_alert via the
+  // watch-source-processor → ecosystem_alerts route, so surfacing the raw diff
+  // separately was duplication and not founder-relevant.
 
 export type PendingActionStatus =
   | 'pending'
@@ -445,22 +455,6 @@ export interface SourceChange {
   significance_rationale: string | null;
   alert_id: string | null;
   detected_at: string;
-}
-
-export interface SignalTimelineEntry {
-  id: string;
-  type: 'ecosystem_alert' | 'source_change' | 'intelligence_brief';
-  headline: string;
-  body: string | null;
-  source_label: string;
-  source_url: string | null;
-  significance: SignalSignificance;
-  relevance_score?: number;
-  timestamp: string;
-  alert_type?: string;
-  reviewed_state?: EcosystemAlertState | null;
-  change_status?: ChangeStatus;
-  diff_preview?: string | null;
 }
 
 // Re-export lane taxonomy defined in src/lib/action-lanes.ts so UI code

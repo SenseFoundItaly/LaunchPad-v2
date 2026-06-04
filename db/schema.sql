@@ -159,6 +159,45 @@ CREATE TABLE IF NOT EXISTS burn_rate (
 );
 
 -- =============================================================================
+-- Pricing State (Pricing department singleton)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS pricing_state (
+  project_id VARCHAR PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  anchor_price DOUBLE PRECISION,
+  currency VARCHAR(3) DEFAULT 'USD',
+  tiers JSONB DEFAULT '[]'::jsonb,
+  wtp JSONB DEFAULT '{}'::jsonb,
+  unit_econ JSONB DEFAULT '{}'::jsonb,
+  model VARCHAR,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================================================
+-- Interviews (structured customer/user interviews — Stage 2 evidence)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS interviews (
+  id TEXT PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  person_name TEXT NOT NULL,
+  person_role TEXT,
+  person_segment TEXT,
+  conducted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  channel TEXT,
+  summary TEXT NOT NULL,
+  top_pain TEXT,
+  urgency TEXT,
+  wtp_amount DOUBLE PRECISION,
+  wtp_currency VARCHAR(3) DEFAULT 'USD',
+  meta JSONB DEFAULT '{}'::jsonb,
+  sources JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_interviews_project_conducted
+  ON interviews(project_id, conducted_at DESC);
+
+-- =============================================================================
 -- Alerts
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS alerts (
@@ -332,70 +371,11 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id);
 
 -- =============================================================================
--- Tools (registry of available tool definitions)
+-- Tools / Drafts / Draft Versions / Tool Executions — DROPPED 2026-06-03
+-- (migration 009). They had 0 rows globally and 0 references in code; left
+-- over from an abandoned tool-execution layer that was superseded by the
+-- pending_actions inbox + action-executors dispatch.
 -- =============================================================================
-CREATE TABLE IF NOT EXISTS tools (
-  id VARCHAR PRIMARY KEY,
-  name VARCHAR NOT NULL UNIQUE,
-  display_name VARCHAR NOT NULL,
-  description TEXT,
-  category VARCHAR NOT NULL,
-  input_schema JSONB,
-  handler_type VARCHAR NOT NULL,
-  handler_config JSONB,
-  enabled BOOLEAN DEFAULT true,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- =============================================================================
--- Drafts (versioned artifacts)
--- =============================================================================
-CREATE TABLE IF NOT EXISTS drafts (
-  id VARCHAR PRIMARY KEY,
-  project_id VARCHAR REFERENCES projects(id) ON DELETE CASCADE,
-  name VARCHAR NOT NULL,
-  draft_type VARCHAR NOT NULL,
-  status VARCHAR DEFAULT 'draft',
-  current_version INTEGER DEFAULT 1,
-  published_url VARCHAR,
-  published_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS draft_versions (
-  id VARCHAR PRIMARY KEY,
-  draft_id VARCHAR REFERENCES drafts(id) ON DELETE CASCADE,
-  version_number INTEGER NOT NULL,
-  content JSONB NOT NULL,
-  content_type VARCHAR NOT NULL,
-  rendered_html TEXT,
-  changelog TEXT,
-  created_by VARCHAR,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(draft_id, version_number)
-);
-
--- =============================================================================
--- Tool Executions (persistent task queue)
--- =============================================================================
-CREATE TABLE IF NOT EXISTS tool_executions (
-  id VARCHAR PRIMARY KEY,
-  project_id VARCHAR REFERENCES projects(id) ON DELETE CASCADE,
-  tool_id VARCHAR,
-  draft_id VARCHAR,
-  workflow_run_id VARCHAR,
-  step_index INTEGER,
-  status VARCHAR DEFAULT 'pending',
-  input_params JSONB,
-  output JSONB,
-  error TEXT,
-  sandbox_id VARCHAR,
-  logs TEXT,
-  started_at TIMESTAMP,
-  completed_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
 
 -- =============================================================================
 -- Workflow Plans (executable multi-step chains)
@@ -463,6 +443,11 @@ CREATE TABLE IF NOT EXISTS monitors (
   schedule VARCHAR DEFAULT 'weekly',
   config JSONB,
   prompt TEXT,
+  -- Human-readable "why this monitor exists" line. Set by Scout's proposal,
+  -- shown in the Inbox review pane and the /monitors/{id} detail view.
+  -- Nullable for backwards compat: existing rows degrade to deriving an
+  -- objective from linked_quote / name at read time.
+  objective TEXT,
   status VARCHAR DEFAULT 'active',
   last_run TIMESTAMP,
   last_result TEXT,

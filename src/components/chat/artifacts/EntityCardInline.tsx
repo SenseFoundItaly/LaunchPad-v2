@@ -5,6 +5,7 @@ import type { EntityCard } from '@/types/artifacts';
 import { useReviewState } from '@/hooks/useReviewState';
 import UnifiedReviewControls from './UnifiedReviewControls';
 import ArtifactCardShell from './ArtifactCardShell';
+import MonitorChip from './MonitorChip';
 
 interface EntityCardInlineProps {
   artifact: EntityCard;
@@ -67,8 +68,9 @@ export default function EntityCardInline({
         {artifact.summary}
       </p>
       {!review.isRejected && (
-        <div className="flex items-center gap-1.5 text-xs text-ink-5">
-          {review.isPending ? 'Pending review' : 'Added to graph'}
+        <div className="flex items-center gap-2 flex-wrap text-xs text-ink-5">
+          <span>{review.isPending ? 'Pending review' : 'Added to graph'}</span>
+          <MonitorChip entityId={artifact.persisted_id || artifact.id || artifact.name} />
         </div>
       )}
     </ArtifactCardShell>

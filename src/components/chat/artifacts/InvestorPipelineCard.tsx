@@ -35,21 +35,46 @@ function formatCheck(amount?: number): string {
 }
 
 function InvestorCard({ investor }: { investor: InvestorEntry }) {
+  // Compose the "Next" line as one string so we can hover-title the full
+  // text when truncated. Dates rendered with `whitespace-nowrap` so
+  // `2026-06-25` never breaks across lines char-by-char.
+  const nextLine = investor.next_step
+    ? `${investor.next_step}${investor.next_step_date ? ` · ${investor.next_step_date}` : ''}`
+    : '';
   return (
     <div className="bg-paper border border-line-2 rounded p-1.5 text-xs">
-      <div className="flex items-baseline justify-between gap-1 mb-0.5">
-        <span className="font-semibold text-ink truncate">{investor.name}</span>
+      <div className="flex items-baseline justify-between gap-1 mb-0.5 min-w-0">
+        <span className="font-semibold text-ink truncate min-w-0" title={investor.name}>
+          {investor.name}
+        </span>
         {investor.check_size && (
-          <span className="text-ink-4 font-mono shrink-0">{formatCheck(investor.check_size)}</span>
+          <span className="text-ink-4 font-mono shrink-0 whitespace-nowrap">
+            {formatCheck(investor.check_size)}
+          </span>
         )}
       </div>
       {investor.type && (
-        <div className="text-[10px] text-ink-5 font-mono uppercase tracking-wider">{investor.type}</div>
+        <div
+          className="text-[10px] text-ink-5 font-mono uppercase tracking-wider truncate"
+          title={investor.type}
+        >
+          {investor.type}
+        </div>
       )}
-      {investor.next_step && (
-        <div className="mt-1 text-ink-3 leading-snug">
-          <span className="text-ink-5">Next: </span>{investor.next_step}
-          {investor.next_step_date && <span className="text-ink-5"> · {investor.next_step_date}</span>}
+      {nextLine && (
+        <div
+          className="mt-1 text-ink-3 leading-snug line-clamp-3"
+          title={nextLine}
+          // word-break: break-word keeps long words on their own line instead
+          // of stacking them char-by-char. The container also enforces
+          // word-spacing via min-w-0 so the parent can shrink properly.
+          style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+        >
+          <span className="text-ink-5">Next: </span>
+          {investor.next_step}
+          {investor.next_step_date && (
+            <span className="text-ink-5 whitespace-nowrap"> · {investor.next_step_date}</span>
+          )}
         </div>
       )}
     </div>
@@ -102,26 +127,67 @@ export default function InvestorPipelineCard({ artifact }: InvestorPipelineCardP
         </div>
       )}
 
-      <div className="grid grid-cols-6 gap-1.5">
-        {STAGE_ORDER.map(stage => {
-          const investors = byStage.get(stage) ?? [];
-          return (
-            <div key={stage} className={`border ${STAGE_COLOR[stage]} rounded p-1.5 min-h-[80px]`}>
-              <div className="flex items-baseline justify-between mb-1.5">
-                <span className="text-[10px] uppercase tracking-wider text-ink-5 font-mono">
-                  {STAGE_LABEL[stage]}
+      {/* Stage strip with adaptive layout:
+          - Stages with 0 investors collapse into a single "empty stages"
+            chip row at the bottom (preserves the full pipeline mental model
+            without burning canvas width on empty kanban columns).
+          - Visible-stage grid drops from a fixed grid-cols-6 to one column
+            per filled stage, so columns scale up as stages empty out.
+            Empty pipelines still render the full grid (founder hasn't
+            started yet, the structure is the value). */}
+      {(() => {
+        const filled = STAGE_ORDER.filter((s) => (byStage.get(s) ?? []).length > 0);
+        const empty = STAGE_ORDER.filter((s) => (byStage.get(s) ?? []).length === 0);
+        const visible = filled.length === 0 ? STAGE_ORDER : filled;
+        const gridCols = visible.length <= 6 ? `repeat(${visible.length}, minmax(0, 1fr))` : 'repeat(6, minmax(0, 1fr))';
+
+        return (
+          <>
+            <div
+              className="grid gap-1.5"
+              style={{ gridTemplateColumns: gridCols }}
+            >
+              {visible.map((stage) => {
+                const investors = byStage.get(stage) ?? [];
+                return (
+                  <div
+                    key={stage}
+                    className={`border ${STAGE_COLOR[stage]} rounded p-1.5 min-h-[80px] min-w-0`}
+                  >
+                    <div className="flex items-baseline justify-between mb-1.5 gap-1">
+                      <span className="text-[10px] uppercase tracking-wider text-ink-5 font-mono truncate">
+                        {STAGE_LABEL[stage]}
+                      </span>
+                      <span className="text-[10px] text-ink-5 font-mono shrink-0">{investors.length}</span>
+                    </div>
+                    <div className="space-y-1">
+                      {investors.map((inv) => (
+                        <InvestorCard key={inv.id} investor={inv} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {filled.length > 0 && empty.length > 0 && (
+              <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                <span className="text-[9px] uppercase tracking-wider text-ink-5 font-mono">
+                  Empty
                 </span>
-                <span className="text-[10px] text-ink-5 font-mono">{investors.length}</span>
-              </div>
-              <div className="space-y-1">
-                {investors.map(inv => (
-                  <InvestorCard key={inv.id} investor={inv} />
+                {empty.map((stage) => (
+                  <span
+                    key={stage}
+                    className="text-[10px] text-ink-5 font-mono px-1.5 py-0.5 border border-line-2 rounded bg-paper-2/40"
+                  >
+                    {STAGE_LABEL[stage]} · 0
+                  </span>
                 ))}
               </div>
-            </div>
-          );
-        })}
-      </div>
+            )}
+          </>
+        );
+      })()}
     </ArtifactCardShell>
   );
 }

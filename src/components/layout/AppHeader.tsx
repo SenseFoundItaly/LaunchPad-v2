@@ -9,11 +9,13 @@ function getProjectName(pathname: string): string | null {
 }
 
 // Routes that render their own full-bleed design-system chrome (TopBar +
-// NavRail) and therefore don't need the legacy AppHeader. Add entries here
-// as more pages migrate to the "Founder OS" design.
+// NavRail) and therefore don't need the legacy AppHeader. Every page under
+// /project/{id}/* now owns its chrome — the per-section allowlist was a
+// migration leftover that left today/knowledge/usage/monitors with a
+// duplicate "SenseFound /" bar stacked on top of the TopBar.
 function isFullBleedRoute(pathname: string): boolean {
   if (pathname === '/' || pathname === '/settings') return true;
-  return /^\/project\/[^/]+\/(dashboard|actions|chat|intelligence|workflow|org|signals)/.test(pathname);
+  return /^\/project\/[^/]+/.test(pathname);
 }
 
 export default function AppHeader() {

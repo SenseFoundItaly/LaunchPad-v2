@@ -84,14 +84,24 @@ export default function WeeklyUpdateCard({ artifact }: WeeklyUpdateCardProps) {
       {artifact.metrics_snapshot && artifact.metrics_snapshot.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
           {artifact.metrics_snapshot.map((m, i) => (
-            <div key={i} className="bg-paper-2 border border-line-2 rounded p-2">
-              <div className="text-[10px] uppercase tracking-wider text-ink-5 font-mono mb-0.5">
+            <div
+              key={i}
+              className="bg-paper-2 border border-line-2 rounded p-2 min-w-0"
+              title={`${m.label}: ${m.value}${m.delta ? ` (${m.delta})` : ''}`}
+            >
+              <div
+                className="text-[10px] uppercase tracking-wider text-ink-5 font-mono mb-0.5 line-clamp-2 leading-tight"
+                style={{ overflowWrap: 'anywhere' }}
+              >
                 {m.label}
               </div>
-              <div className="text-sm font-semibold text-ink">
+              <div
+                className="text-sm font-semibold text-ink truncate"
+                style={{ overflowWrap: 'anywhere' }}
+              >
                 {m.value}
                 {m.delta && (
-                  <span className={`ml-1 text-xs font-normal ${
+                  <span className={`ml-1 text-xs font-normal whitespace-nowrap ${
                     m.delta.startsWith('-') ? 'text-cat-rose' : 'text-moss'
                   }`}>
                     {m.delta}
@@ -103,7 +113,7 @@ export default function WeeklyUpdateCard({ artifact }: WeeklyUpdateCardProps) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 min-w-0">
         <Section label="Highlights" items={artifact.highlights} accent="moss" />
         <Section label="Challenges" items={artifact.challenges} accent="cat-rose" />
         <Section label="Asks" items={artifact.asks} accent="accent" />

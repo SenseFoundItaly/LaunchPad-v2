@@ -327,6 +327,12 @@ const configureMonitor: ActionHandler = async (action) => {
   // the founder edited fields via the chat artifact's Edit mode, those
   // edits already landed in `edited_payload` via effectivePayload().
   const name = String(payload.name ?? action.title);
+  // Objective is post-migration. Older payloads (and legacy queued proposals)
+  // may not carry it — fall back to linked_quote so the live monitor view
+  // still shows a meaningful "why" line instead of an empty cell.
+  const objectiveRaw = typeof payload.objective === 'string' ? payload.objective.trim() : '';
+  const linkedQuoteRaw = typeof payload.linked_quote === 'string' ? payload.linked_quote.trim() : '';
+  const objective = objectiveRaw || linkedQuoteRaw || null;
   const kind = String(payload.kind ?? 'custom');
   const schedule = String(payload.schedule ?? 'weekly') as 'daily' | 'weekly';
   const q = typeof payload.query === 'string' ? payload.query : undefined;
@@ -381,16 +387,17 @@ const configureMonitor: ActionHandler = async (action) => {
 
   await run(
     `INSERT INTO monitors (
-       id, project_id, type, name, schedule, config, prompt, status,
+       id, project_id, type, name, objective, schedule, config, prompt, status,
        next_run, created_at,
        linked_risk_id, linked_quote, kind, urls_to_track,
        dedup_hash, dedup_override_reason, sources
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     monitorId,
     action.project_id,
     `ecosystem.${kind}`,
     name,
+    objective,
     schedule,
     JSON.stringify({
       alert_threshold: alertThreshold,
@@ -606,10 +613,84 @@ const configureWatchSource: ActionHandler = async (action) => {
   };
 };
 
+// ─── Unified-inbox handlers: signal_alert / intelligence_brief / assumption_review ───
+// These three action_types are *materialized mirrors* of rows in
+// ecosystem_alerts / intelligence_briefs / assumptions (see
+// materializeProposalsFromSources in pending-actions.ts). Apply propagates
+// state back to the source row so the inbox and the source table stay in
+// sync. No external side-effects (no email, no Composio) — they're
+// acknowledgements of project knowledge.
+const signalAlert: ActionHandler = async (action) => {
+  const alertId = action.ecosystem_alert_id;
+  if (alertId) {
+    await run(
+      `UPDATE ecosystem_alerts
+          SET reviewed_state = 'accepted',
+              reviewed_at = CURRENT_TIMESTAMP,
+              founder_action_taken = 'inbox_apply'
+        WHERE id = ?`,
+      alertId,
+    );
+  }
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct',
+      narrative: `Signal acknowledged. Marked source ecosystem_alert as accepted.`,
+    },
+  };
+};
+
+const intelligenceBrief: ActionHandler = async (action) => {
+  const briefId = (action.payload?.brief_id as string) || null;
+  if (briefId) {
+    await run(
+      `UPDATE intelligence_briefs SET status = 'reviewed' WHERE id = ?`,
+      briefId,
+    );
+  }
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct',
+      narrative: `Brief reviewed. Recommended actions (if any) remain available in the chat for follow-up.`,
+    },
+  };
+};
+
+const assumptionReview: ActionHandler = async (action) => {
+  const assumptionId = (action.payload?.assumption_id as string) || null;
+  if (assumptionId) {
+    try {
+      await run(
+        `UPDATE assumptions
+            SET status = 'validated',
+                validated_at = CURRENT_TIMESTAMP
+          WHERE id = ?`,
+        assumptionId,
+      );
+    } catch (err) {
+      // Table may not exist yet — surfaces in the .catch above but we don't
+      // want to fail the apply transition for a non-critical side-effect.
+      console.warn('[assumptionReview] update skipped:', (err as Error).message);
+    }
+  }
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct',
+      narrative: `Assumption marked validated.`,
+    },
+  };
+};
+
 const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   draft_email: draftEmail,
   draft_linkedin_post: draftLinkedInPost,
   draft_linkedin_dm: draftLinkedInDM,
+  signal_alert: signalAlert,
+  intelligence_brief: intelligenceBrief,
+  assumption_review: assumptionReview,
   proposed_hypothesis: proposedHypothesis,
   proposed_graph_update: proposedGraphUpdate,
   proposed_investor_followup: proposedInvestorFollowup,

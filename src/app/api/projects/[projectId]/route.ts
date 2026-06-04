@@ -54,6 +54,10 @@ export async function DELETE(
   const { projectId } = await params;
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
+  // Owner-only — shared members can read/edit but never delete the project.
+  if (auth.session.accessKind !== 'owner') {
+    return error('Only the project owner can delete this project', 403);
+  }
 
   // All child tables use ON DELETE CASCADE — a single delete propagates
   // to all 30+ dependent tables automatically without manual cleanup.
