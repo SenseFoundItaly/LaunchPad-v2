@@ -746,11 +746,43 @@ step('smarcamento: aggregate behavior eval', async () => {
   }
   const missingStages = stageCoverage.filter((s) => s.hits.length === 0);
 
+  // (5) Validation-evidence: chat-driven skill firings should produce real
+  //     skill_completions rows. This is the regression gate for the
+  //     research↔validation merge — without it, the chat could fall back to
+  //     consulting mode and we'd never know from coverage alone.
+  //     Threshold: at least MIN_CHAT_SKILL_FIRES skills must land rows. 2
+  //     is conservative — the harness's content-mapping prompt should push
+  //     3-5 in healthy runs.
+  const MIN_CHAT_SKILL_FIRES = 2;
+  const skillToolCalls = allTools.filter((name) => name.startsWith('skill_')).length;
+  const skillRows = await db()`
+    SELECT skill_id FROM skill_completions
+     WHERE project_id = ${state.smarcamentoProjectId} AND status = 'completed'`;
+  // The execution-half step that runs after this also writes 7 stub rows;
+  // we only want to count rows landed BEFORE that step ran. Use a timing
+  // marker: chat-driven rows have completed_at older than turn_end.
+  // Cheaper: just count distinct skill_ids that match the skill_* tool
+  // names called by chat — that proves chat → completion roundtrip.
+  const chatFiredSkillIds = new Set(
+    allTools
+      .filter((name) => name.startsWith('skill_'))
+      .map((name) => name.replace(/^skill_/, '')),
+  );
+  const landedFromChat = skillRows.filter((r) => chatFiredSkillIds.has(r.skill_id)).length;
+  if (landedFromChat < MIN_CHAT_SKILL_FIRES) {
+    issues.push(
+      `only ${landedFromChat} chat-driven skill_completions landed (min ${MIN_CHAT_SKILL_FIRES}). ` +
+      `skill_* tool calls: ${skillToolCalls}. ` +
+      `Chat is in consulting mode — research without validation evidence.`,
+    );
+  }
+
   console.log(`\n  aggregate over ${turnRecords.length} turns:`);
   console.log(`    direction kept (option-set + stage CTA): ${turnRecords.length - turnsMissingDirection.length}/${turnRecords.length} turns`);
   console.log(`    web_search calls: ${webSearchCount} (min ${MIN_WEB_SEARCHES})`);
   console.log(`    factual artifacts with web sources: ${factualWithWebSource.length}/${factualArtifacts.length} (${(sourceRate * 100).toFixed(0)}%)`);
   console.log(`    stage coverage: ${stagesUnion.size}/7 (min ${MIN_STAGE_COVERAGE})`);
+  console.log(`    chat-driven skill_completions: ${landedFromChat} (min ${MIN_CHAT_SKILL_FIRES}) — fires: ${[...chatFiredSkillIds].join(', ') || 'none'}`);
   for (const s of stageCoverage) {
     const mark = s.hits.length > 0 ? 'YES' : 'NO ';
     console.log(`      ${mark} ${s.stage}/${s.name.padEnd(16)} turns: [${s.hits.join(',') || '-'}]`);
