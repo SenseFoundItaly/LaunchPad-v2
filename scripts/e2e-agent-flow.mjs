@@ -908,6 +908,70 @@ step('skill kickoff endpoint reachable (69ed944)', async () => {
   }
 });
 
+// One canonical primary skill per stage (from src/lib/stages.ts). Keep in
+// sync — if a skill_id is renamed in STAGES, the harness should fail fast
+// against the rename rather than silently accept the stale id.
+const PRIMARY_SKILL_PER_STAGE = [
+  { stage: 1, skill_id: 'idea-shaping',          name: 'Idea Validation' },
+  { stage: 2, skill_id: 'market-research',       name: 'Market Validation' },
+  { stage: 3, skill_id: 'scientific-validation', name: 'Persona Validation' },
+  { stage: 4, skill_id: 'business-model',        name: 'Business Model' },
+  { stage: 5, skill_id: 'gtm-strategy',          name: 'Build & Launch' },
+  { stage: 6, skill_id: 'investment-readiness',  name: 'Fundraise' },
+  { stage: 7, skill_id: 'weekly-metrics',        name: 'Operate' },
+];
+
+step('execution-half: POST /skills for all 7 stage primaries', async () => {
+  // Dispatcher regression net: prove every registered primary skill_id is
+  // POSTable and writes a skill_completions row. The endpoint is a CRUD
+  // "mark complete" path (no LLM) — see src/app/api/projects/[projectId]/skills/route.ts.
+  // The runSkill() execution path (src/lib/skill-executor.ts) does real LLM
+  // work but only whitelists 5 of 7 (analytical-only); the heartbeat owns
+  // that path. Here we're testing that the dispatcher + section_scores
+  // derivation handle every skill_id the UI's click-to-start can fire.
+  //
+  // Cost: $0. Time: ~5s. This is the cheap regression gate for skill_id
+  // drift between STAGES and the route.
+  const pid = state.smarcamentoProjectId;
+  if (!pid) throw new Error('smarcamentoProjectId missing');
+  const results = [];
+  for (const { stage, skill_id, name } of PRIMARY_SKILL_PER_STAGE) {
+    const stubSummary =
+      `[E2E synthetic] ${name} — minimal summary to drive section_scores ` +
+      `derivation. Replace with real skill output in non-test runs.`;
+    const res = await fetch(`${BASE_URL}/api/projects/${pid}/skills`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-e2e-user': state.userId },
+      body: JSON.stringify({ skill_id, summary: stubSummary }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`stage ${stage} ${skill_id}: POST → ${res.status} ${text.slice(0, 120)}`);
+    }
+    results.push({ stage, skill_id });
+  }
+  // Verify all 7 rows landed in skill_completions with status='completed'.
+  const rows = await db()`
+    SELECT skill_id, status, section_scores IS NOT NULL AS has_scores
+      FROM skill_completions WHERE project_id = ${pid}`;
+  const bySkill = Object.fromEntries(rows.map(r => [r.skill_id, r]));
+  const missing = PRIMARY_SKILL_PER_STAGE.filter(s => !bySkill[s.skill_id]);
+  if (missing.length > 0) {
+    throw new Error(`${missing.length} skill(s) didn't land: ${missing.map(s => s.skill_id).join(', ')}`);
+  }
+  const notCompleted = PRIMARY_SKILL_PER_STAGE.filter(s => bySkill[s.skill_id].status !== 'completed');
+  if (notCompleted.length > 0) {
+    throw new Error(`${notCompleted.length} skill(s) not status=completed: ${notCompleted.map(s => s.skill_id).join(', ')}`);
+  }
+  const withScores = PRIMARY_SKILL_PER_STAGE.filter(s => bySkill[s.skill_id].has_scores).length;
+  console.log(`\n  7/7 stage primary skill_completions written ✓`);
+  console.log(`  section_scores populated: ${withScores}/7`);
+  for (const { stage, skill_id } of PRIMARY_SKILL_PER_STAGE) {
+    const r = bySkill[skill_id];
+    console.log(`    Stage ${stage} ${skill_id.padEnd(24)} ${r.status} ${r.has_scores ? '· scored' : '· no score'}`);
+  }
+});
+
 step('sharing: shared user can read project (5c2e101 verify)', async () => {
   // Insert a second e2e user, share the smarcamento project with them, then
   // assert GET /api/projects/:id with the shared user's header returns 200.
