@@ -24,6 +24,7 @@ import { generateId } from '@/lib/api-helpers';
 import { query, run, get } from '@/lib/db';
 import { runAgent } from '@/lib/pi-agent';
 import { recordUsage } from '@/lib/cost-meter';
+import { estimateCost } from '@/lib/telemetry';
 import { pickModel } from '@/lib/llm/router';
 import { recordEvent } from '@/lib/memory/events';
 import { persistArtifact } from '@/lib/artifact-persistence';
@@ -192,15 +193,32 @@ export async function runSkill(
   }
 
   // Cost meter — log against the actual provider/model from the router so
-  // the slug matches what was called.
+  // the slug matches what was called. Inject estimated cost when the runAgent
+  // result's Usage doesn't carry one (mirrors chat/route.ts:550 and skill-
+  // tools.ts pattern — without this, the row logs $0 and budget undercounts).
   const { provider, model } = pickModel('skill-invoke');
+  const u = usage as unknown as { cost?: { total?: number }; input_tokens?: number; output_tokens?: number; inputTokens?: number; outputTokens?: number; input?: number; output?: number };
+  const alreadyHasCost = typeof u?.cost?.total === 'number' && u.cost.total > 0;
+  const executorUsage = alreadyHasCost
+    ? usage
+    : {
+        ...usage,
+        cost: {
+          total: estimateCost(provider, model, {
+            input_tokens: u.input ?? u.inputTokens ?? u.input_tokens ?? 0,
+            output_tokens: u.output ?? u.outputTokens ?? u.output_tokens ?? 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          }),
+        },
+      };
   recordUsage({
     project_id: projectId,
     skill_id: skillId,
     step: 'heartbeat-executor',
     provider,
     model,
-    usage,
+    usage: executorUsage as typeof usage,
     latency_ms: latencyMs,
   }).catch(err =>
     console.warn('[skill-executor] recordUsage failed:', (err as Error).message),

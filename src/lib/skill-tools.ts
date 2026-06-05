@@ -7,6 +7,7 @@ import type { TextContent } from '@mariozechner/pi-ai';
 import { pickModel, type TaskLabel } from './llm/router';
 import { recordEvent } from './memory/events';
 import { recordUsage } from './cost-meter';
+import { estimateCost } from './telemetry';
 import { run, get } from './db';
 import { generateId } from './api-helpers';
 import { computeSectionScoresFromSummary } from './section-scoring';
@@ -187,18 +188,50 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
         },
         {
           apiKey,
-          signal: AbortSignal.timeout(60_000),
+          // 120s — was 60s, but most skills (gtm-strategy, market-research,
+          // investment-readiness) need >60s under realistic project context
+          // (full Idea Canvas + memory facts + competitor data). Hitting 60s
+          // routinely produced empty/$0 usage rows that masked timeouts as
+          // "successful runs" downstream. The real safety net for runaway
+          // cost is project_budgets in cost-meter.ts, not this timeout.
+          signal: AbortSignal.timeout(120_000),
         },
       );
 
-      // Log token usage — completeSimple returns pi-ai Usage on assistantMessage.
+      // Log token usage — completeSimple returns pi-ai Usage on assistantMessage,
+      // but pi-ai's Usage shape carries only tokens, not cost. Without a cost
+      // field, recordUsage's extractCost() silently logs $0 — under-counting
+      // spend by the full skill amount. Inject an estimated cost so the row
+      // reflects real spend. Mirrors the chat route's pattern at
+      // src/app/api/chat/route.ts:550 (streamUsage?.cost ?? estimateCost).
+      const u = assistantMessage.usage as unknown as { cost?: { total?: number } };
+      const alreadyHasCost = typeof u?.cost?.total === 'number' && u.cost.total > 0;
+      const skillUsage = alreadyHasCost
+        ? assistantMessage.usage
+        : {
+            ...assistantMessage.usage,
+            cost: {
+              total: estimateCost(provider, model, {
+                input_tokens: (assistantMessage.usage as { input?: number; inputTokens?: number; input_tokens?: number }).input
+                  ?? (assistantMessage.usage as { inputTokens?: number }).inputTokens
+                  ?? (assistantMessage.usage as { input_tokens?: number }).input_tokens
+                  ?? 0,
+                output_tokens: (assistantMessage.usage as { output?: number; outputTokens?: number; output_tokens?: number }).output
+                  ?? (assistantMessage.usage as { outputTokens?: number }).outputTokens
+                  ?? (assistantMessage.usage as { output_tokens?: number }).output_tokens
+                  ?? 0,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+              }),
+            },
+          };
       recordUsage({
         project_id: opts.projectId,
         skill_id: skill.id,
         step: `skill-tool.${skill.id}`,
         provider,
         model,
-        usage: assistantMessage.usage,
+        usage: skillUsage as typeof assistantMessage.usage,
         latency_ms: Date.now() - skillStart,
       }).catch((err) => console.warn(`[skill-tools] recordUsage failed for ${skill.id}:`, err));
 

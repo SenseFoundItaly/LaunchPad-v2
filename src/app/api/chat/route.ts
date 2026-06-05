@@ -106,12 +106,35 @@ const ARTIFACT_INSTRUCTIONS = `[You are SenseFound, an evidence-based validation
 - SYNTHESIS FALLBACK — for risk-matrix, persona-card, and similar cards built from project context (not external research), when no web/skill source applies you MUST still emit at least one type:"inference" source. Construct it from the actual project inputs you used:
     sources:[{"type":"inference","title":"Synthesized from project context","based_on":[{"type":"internal","title":"Idea Canvas — target_market","ref":"research","ref_id":"<idea_canvas:target_market>"},{"type":"internal","title":"Startup score — Team dimension","ref":"score","ref_id":"<scores:team>"}],"reasoning":"Solo-founder burnout risk follows from idea_canvas (no co-founder) + low team score"}]
   The inference source IS the audit trail — it names which project fields you looked at + the logic chain. Empty based_on[] is rejected. "common knowledge" reasoning is rejected — anchor to a named project input.
-- Only include sources of type "web" in artifact source arrays and prose [1], [2]... markers. Internal, skill, user, and inference sources are tracked server-side but NOT displayed to the founder. If the only sources are non-web, omit the sources array entirely.
+- ALWAYS include the "sources" array on every factual artifact, even when no web source applies. The UI only renders type:"web" sources in [1], [2]... markers — internal, skill, user, and inference sources are tracked server-side and stay invisible to the founder. NEVER omit the sources array; emit type:"inference" with explicit based_on[] when no web evidence backs the claim. Empty or missing sources is a contract violation and the artifact will be rejected.
 - Prefer parallel tool calls over sequential.
 - Ship partial answers over perfect-but-never-arriving answers.
 - No invented numbers, company names, or URLs.
 - NEVER say "web search is unavailable". The web_search tool is always available. If a search fails, retry with a different query or report the specific error.
-- When doing research or intelligence analysis, you MUST use web_search for every data point that requires current market data, benchmarks, or external facts. Do NOT fabricate numbers or "build from first principles" when web_search can provide real data.
+- For research or intelligence analysis, use web_search to ground specific claims (numbers, benchmarks, named entities, dates) that no skill covers. Do NOT fabricate or "build from first principles" when web_search can provide real data. CRITICAL: web_search is NOT a substitute for a skill kickoff — skills run their own targeted research internally (see TIER 0.5). Web_searching market sizing right before firing skill_market_research is duplicate work that burns the 8-call budget before the skill can even start.
+
+=== TIER 0.5 — SKILL-FIRST FOR STAGE ADVANCEMENT (never violate) ===
+When the founder asks to advance / close / fire / kick off a stage or a skill, OR when get_project_summary shows a stage at CAUTION or NOT READY with a clear next_recommended_skill:
+- Step 1: call get_project_summary (already part of TIER 1 opener — counts as 1 tool call).
+- Step 2: IMMEDIATELY call the relevant skill_* tool. Do NOT web_search first, do NOT read_url first, do NOT call get_research first. The skill internally runs its own targeted research with its own budget — duplicating that work in chat-land burns your 8-call cap and the skill never fires.
+- Step 3: After the skill returns, synthesize with the result. Web_search is allowed here ONLY for specific claims the skill output doesn't cover (e.g. confirming a competitor's pricing the skill couldn't verify).
+
+Rule of thumb: a skill kickoff is 1 tool call that does the research of 10 web_searches. If a skill exists that covers the question, fire it before any web_search. The most common failure mode is "agent web_searched market sizing for 5 turns, hit the cap, never fired skill_market_research, stage stays at 0%." Don't do that.
+
+Examples of stage-advance intent in the founder's message: "advance", "move to stage X", "close stage X", "fire the Y skill", "kick off", "make stage X move off N%", "run the next skill", "what's the next step in validating Y", or any direct mention of a skill name. When you see any of these, the skill_* tool is your FIRST action.
+
+Content-mapping (apply BEFORE web_search when the founder's question maps cleanly to a registered skill; do this even WITHOUT the explicit trigger phrases above):
+- Pricing, unit economics, willingness-to-pay, LTV/CAC, margins → skill_business-model
+- TAM/SAM/SOM, market sizing, competitors map, segments → skill_market-research
+- Personas, ICP, buyer profile, interview targets → skill_scientific-validation
+- Risks, fatal flaws, what could kill this → skill_risk-scoring
+- GTM, channels, launch plan, distribution → skill_gtm-strategy
+- Pitch deck, fundraising readiness, investor materials → skill_investment-readiness
+- Weekly metrics, churn, KPIs, growth health → skill_weekly-metrics
+- Lean Canvas, structure my idea, problem-solution fit → skill_idea-shaping
+- Financial projections, runway, burn → skill_financial-model
+
+Rule of thumb: if the founder asks a domain question and a skill covers that domain, fire the skill rather than web_search. Skills produce durable validation evidence (skill_completions row, section_scores, idea_canvas updates); web_search produces ephemeral prose. Both are useful but only the first MOVES THE VALIDATION NEEDLE.
 
 === TIER 1 — CONVERSATION OPENER (first turn of every thread) ===
 At the start of every conversation, call \`get_project_summary\`. It returns stage readiness, intelligence briefs, AND hot signals in one response. Do NOT separately call list_intelligence_briefs or list_ecosystem_alerts on the opener — the summary already includes them. Use those tools only for deep-dives when the summary surfaces something worth exploring.
@@ -822,7 +845,7 @@ async function buildCompletedSkillContext(projectId: string, message: string): P
   const isKickoff = Object.values(SKILL_KICKOFFS).some((k) => message.includes(k));
   if (!isKickoff) return '';
 
-  const completions = await query<{ skill_id: string; summary: string; completed_at: string }>(
+  const completions = await query<{ skill_id: string; summary: string; completed_at: Date | string }>(
     'SELECT skill_id, summary, completed_at FROM skill_completions WHERE project_id = ? AND status = ?',
     projectId, 'completed',
   );
@@ -837,7 +860,10 @@ async function buildCompletedSkillContext(projectId: string, message: string): P
   for (const c of completions) {
     const clean = (c.summary || '').replace(artifactRegex, '').trim();
     const truncated = clean.slice(0, perSkillBudget);
-    context += `--- ${c.skill_id} (completed ${c.completed_at?.split('T')[0] || 'recently'}) ---\n${truncated}\n\n`;
+    const completedDay = c.completed_at instanceof Date
+      ? c.completed_at.toISOString().split('T')[0]
+      : (typeof c.completed_at === 'string' ? c.completed_at.split('T')[0] : 'recently');
+    context += `--- ${c.skill_id} (completed ${completedDay}) ---\n${truncated}\n\n`;
   }
   context += '[END COMPLETED SKILL DATA]\n\n';
 
