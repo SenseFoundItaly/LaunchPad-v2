@@ -966,8 +966,19 @@ step('execution-half: POST /skills for all 7 stage primaries', async () => {
   // drift between STAGES and the route.
   const pid = state.smarcamentoProjectId;
   if (!pid) throw new Error('smarcamentoProjectId missing');
-  const results = [];
-  for (const { stage, skill_id, name } of PRIMARY_SKILL_PER_STAGE) {
+
+  // Skip skill_ids that smarcamento turns ALREADY landed via real chat
+  // execution — overwriting them with stub summaries would replace genuine
+  // validation content with synthetic placeholders, breaking
+  // E2E_KEEP_PROJECT inspection AND any downstream test that reads summary
+  // quality. We only need to prove the dispatcher accepts the skill_ids
+  // that didn't get covered by chat.
+  const existing = await db()`
+    SELECT skill_id FROM skill_completions
+     WHERE project_id = ${pid} AND status = 'completed'`;
+  const alreadyDone = new Set(existing.map(r => r.skill_id));
+  const toPost = PRIMARY_SKILL_PER_STAGE.filter(s => !alreadyDone.has(s.skill_id));
+  for (const { stage, skill_id, name } of toPost) {
     const stubSummary =
       `[E2E synthetic] ${name} — minimal summary to drive section_scores ` +
       `derivation. Replace with real skill output in non-test runs.`;
@@ -980,9 +991,8 @@ step('execution-half: POST /skills for all 7 stage primaries', async () => {
       const text = await res.text();
       throw new Error(`stage ${stage} ${skill_id}: POST → ${res.status} ${text.slice(0, 120)}`);
     }
-    results.push({ stage, skill_id });
   }
-  // Verify all 7 rows landed in skill_completions with status='completed'.
+  // Verify all 7 stage primaries are now present (either from chat or POST).
   const rows = await db()`
     SELECT skill_id, status, section_scores IS NOT NULL AS has_scores
       FROM skill_completions WHERE project_id = ${pid}`;
@@ -996,11 +1006,12 @@ step('execution-half: POST /skills for all 7 stage primaries', async () => {
     throw new Error(`${notCompleted.length} skill(s) not status=completed: ${notCompleted.map(s => s.skill_id).join(', ')}`);
   }
   const withScores = PRIMARY_SKILL_PER_STAGE.filter(s => bySkill[s.skill_id].has_scores).length;
-  console.log(`\n  7/7 stage primary skill_completions written ✓`);
+  console.log(`\n  7/7 stage primary skill_completions present ✓ (${toPost.length} stubbed, ${alreadyDone.size} kept from chat)`);
   console.log(`  section_scores populated: ${withScores}/7`);
   for (const { stage, skill_id } of PRIMARY_SKILL_PER_STAGE) {
     const r = bySkill[skill_id];
-    console.log(`    Stage ${stage} ${skill_id.padEnd(24)} ${r.status} ${r.has_scores ? '· scored' : '· no score'}`);
+    const source = alreadyDone.has(skill_id) ? 'chat' : 'stub';
+    console.log(`    Stage ${stage} ${skill_id.padEnd(24)} ${r.status} ${r.has_scores ? '· scored' : '· no score'} · ${source}`);
   }
 });
 

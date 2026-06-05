@@ -99,7 +99,7 @@ const ARTIFACT_INSTRUCTIONS = `[You are SenseFound, an evidence-based validation
 
 === TIER 0 — EVERY-TURN RULES (never violate) ===
 - Maximum 8 tool calls per turn. When you reach 6 tool calls, your NEXT response MUST be the synthesis: visible prose + a trailing option-set artifact, with NO additional tool calls. A turn ending in tool_results without synthesis artifacts is BROKEN — always reserve budget for the close.
-- Every turn MUST end with visible prose AND a trailing option-set. No exceptions.
+- Every turn MUST end with visible prose AND a trailing option-set. No exceptions. This is true EVEN when a skill_* tool fires and returns substantial structured output — the skill output is CONTENT (what just happened), the option-set is DIRECTION (what to do next). After a skill returns, your synthesis prose + trailing option-set is mandatory; the founder needs the next CTA even when the skill produced a thorough answer. A turn that ends with skill output but no option-set is BROKEN.
 - Every factual artifact MUST include a non-empty "sources" array. No sources = REJECTED. No exceptions for "common knowledge", "obvious risk", or "synthesized from context" — if you can't cite it, don't claim it.
 - Sources live INSIDE each artifact's "sources" field. NEVER emit a trailing <CITATIONS>...</CITATIONS> block as a substitute for per-artifact sources. If the same URL backs three cards, duplicate the source object into all three — that's correct. A response-level citation block is not provenance for a specific card and will be treated as a contract violation.
 - After calling web_search or read_url, the artifacts that summarize those results MUST cite the actual URLs as type:"web" sources with the real url field. type:"inference" is NOT acceptable when you have fresh web evidence in your context — that is the very evidence you must cite.
@@ -547,6 +547,21 @@ export async function POST(request: NextRequest) {
         controller.enqueue(chunk);
       },
       async flush(controller) {
+        // SAFETY: the flush hook does ~30 await calls (DB inserts for usage,
+        // chat_messages, memory_events, facts, workflow_plans, artifact
+        // persistence, plus Langfuse). If ANY one hangs (DB pool exhausted,
+        // Langfuse blocked, slow query), flush never returns and the
+        // TransformStream stays open — the client SSE reader blocks for
+        // minutes (observed up to 25 min in e2e runs). Force-terminate after
+        // 60s so the client reader unblocks even when DB/network is sick.
+        // The harness's 240s client abort + pi-agent's 180s timer would
+        // never have kicked in because the AGENT did finish — only the
+        // POST-agent persistence hung. This is the missing safety net.
+        const flushDeadline = setTimeout(() => {
+          console.warn('[chat] flush hook exceeded 60s — force-terminating stream');
+          try { controller.terminate(); } catch { /* already done */ }
+        }, 60_000);
+        try {
         const latencyMs = Date.now() - piStart;
         // Pull the actual provider+model from the router so the logged slug
         // reflects reality (direct Anthropic vs OpenRouter). Falls back to
@@ -754,6 +769,10 @@ export async function POST(request: NextRequest) {
           }
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(donePayload)}\n\n`));
         } catch { /* non-fatal */ }
+        } finally {
+          // Clear the safety timer — flush completed before deadline.
+          clearTimeout(flushDeadline);
+        }
       },
     }));
 
