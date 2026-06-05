@@ -66,9 +66,14 @@ async function run() {
     } catch (err) {
       failed++;
       console.log(`FAIL (${Date.now() - t}ms)`);
-      console.error(`  └─ ${err.message}`);
+      // Truncate the error message — full HTML 404 bodies (and other
+      // pathological pages) make the per-step log unreadable otherwise.
+      const msg = err.message.length > 240 ? `${err.message.slice(0, 240)}…` : err.message;
+      console.error(`  └─ ${msg}`);
       if (err.cause) console.error(`     cause: ${err.cause}`);
-      break;
+      // Continue to the next step instead of bailing — one stale assertion
+      // shouldn't block downstream smarcamento + cost steps from running.
+      continue;
     }
   }
   const total = steps.length;
@@ -346,71 +351,90 @@ step('chat quality: prose + artifacts', async () => {
   }
 });
 
-step('approvals: workflow_step rows', async () => {
-  // captureWorkflow inserts one pending_action per step before the SSE `done`
-  // event fires, so we don't need to poll — just fetch.
-  const { approvals } = await api('GET', `/api/projects/${state.projectId}/approvals`);
-  const steps = approvals.filter((a) => a.action_type === 'workflow_step');
-  if (steps.length === 0) {
-    throw new Error('no workflow_step approvals found — LLM likely skipped the workflow-card');
+step('workflow-card persisted as workflow_plan', async () => {
+  // Architecture as of Jun 4 2026: captureWorkflow() inserts the workflow-card
+  // artifact directly into `workflow_plans` (status='proposed'). The old
+  // pending_actions fan-out — one workflow_step row per step — was removed
+  // because Apply on workflow_step was a no-op (graveyard). The artifact
+  // renders inline in chat with its own progress UI; this step asserts the
+  // plan row landed in the DB.
+  //
+  // Clear any stale state from a pre-Jun-4 run before asserting.
+  state.workflowPlan = null;
+  state.workflowPlanSteps = null;
+
+  const plans = await db()`
+    SELECT id, name, description, status, current_step,
+           jsonb_typeof(steps) AS steps_jsonb_type,
+           steps,
+           jsonb_typeof(sources) AS sources_jsonb_type
+      FROM workflow_plans WHERE project_id = ${state.projectId}
+     ORDER BY created_at DESC LIMIT 1`;
+  if (plans.length === 0) {
+    throw new Error('no workflow_plans row for this project — captureWorkflow did not run');
   }
-  state.approvalId = steps[0].id;
-  state.approvalsAll = steps;
+  const plan = plans[0];
+  if (plan.status !== 'proposed') {
+    throw new Error(`workflow_plans.status expected 'proposed', got '${plan.status}'`);
+  }
+  // Guard against the double-encoding bug fixed in migration 011 +
+  // workflow-capture.ts. If a future commit re-introduces JSON.stringify on
+  // the JSONB columns, steps_jsonb_type will be 'string' and this fails.
+  if (plan.steps_jsonb_type !== 'array') {
+    throw new Error(`workflow_plans.steps jsonb_typeof should be 'array', got '${plan.steps_jsonb_type}' (double-encoding regression — see workflow-capture.ts)`);
+  }
+  // postgres.js parses JSONB arrays to JS arrays automatically (no cast).
+  const stepsArr = Array.isArray(plan.steps) ? plan.steps : [];
+  if (stepsArr.length === 0) {
+    throw new Error('workflow_plans.steps is an array but empty');
+  }
+  state.workflowPlan = { id: plan.id, name: plan.name, description: plan.description };
+  state.workflowPlanSteps = stepsArr;
   saveState(state);
+  console.log(`\n  workflow_plan "${plan.name}" — ${stepsArr.length} steps, jsonb_typeof=array ✓`);
 });
 
-step('approvals quality: payload shape', async () => {
-  const steps = state.approvalsAll || [];
-  const issues = [];
-  // payload is JSONB in the DB but the route serves it as a JSON-encoded
-  // string (ActionRow types `payload: string | null` and passes through).
-  // Parse client-side so we can validate the inner shape.
-  const parsePayload = (raw) => {
-    if (raw == null) return null;
-    if (typeof raw === 'object') return raw;
-    try { return JSON.parse(raw); } catch { return null; }
-  };
-  const parsedRows = [];
-  for (const a of steps) {
-    if (!a.title) issues.push(`${a.id}: empty title`);
-    if (!a.rationale) issues.push(`${a.id}: empty rationale`);
-    const p = parsePayload(a.payload);
-    if (!p || typeof p !== 'object') {
-      issues.push(`${a.id}: payload not parseable as JSON object`);
-      continue;
+step('no workflow_step fan-out in Inbox', async () => {
+  // Inverse assertion: per finding_workflow_step_inbox_graveyard, the fan-out
+  // was deliberately removed. If we see workflow_step rows for this project,
+  // captureWorkflow regressed and is re-creating the graveyard.
+  const rows = await db()`
+    SELECT id FROM pending_actions
+     WHERE project_id = ${state.projectId} AND action_type = 'workflow_step'`;
+  if (rows.length > 0) {
+    throw new Error(`expected 0 workflow_step pending_actions, found ${rows.length} (graveyard regression)`);
+  }
+  // Also assert workflow_plan stayed coherent: steps JSON shape, sources JSON
+  // shape, name non-empty. These were quality checks on the old payload; same
+  // intent, just against the persisted plan instead of fanned-out rows.
+  if (!state.workflowPlan?.name) throw new Error('workflow_plan.name missing');
+  const stepsArr = state.workflowPlanSteps || [];
+  for (let i = 0; i < stepsArr.length; i++) {
+    if (typeof stepsArr[i] !== 'string' || !stepsArr[i].trim()) {
+      throw new Error(`workflow_plan.steps[${i}] empty or non-string`);
     }
-    parsedRows.push({ id: a.id, payload: p });
-    if (!p.workflow_plan_id) issues.push(`${a.id}: payload.workflow_plan_id missing`);
-    if (typeof p.step_index !== 'number') issues.push(`${a.id}: payload.step_index not a number`);
-    if (!p.step_text || typeof p.step_text !== 'string' || !p.step_text.trim()) {
-      issues.push(`${a.id}: payload.step_text empty`);
-    }
-    if (!p.workflow_title) issues.push(`${a.id}: payload.workflow_title missing`);
   }
-  // step_index should be a contiguous 0..N-1 sequence — captureWorkflow inserts
-  // in order. Missing/duplicate indices would suggest a race or a partial loop.
-  const indices = parsedRows.map((r) => r.payload.step_index).sort((x, y) => x - y);
-  for (let i = 0; i < indices.length; i++) {
-    if (indices[i] !== i) issues.push(`step_index sequence broken: expected ${i}, got ${indices[i]}`);
-  }
-  console.log(`\n  ${steps.length} workflow_step row(s), step_index=[${indices.join(',')}]`);
-  if (issues.length > 0) {
-    throw new Error(`${issues.length} approval quality issue(s): ${issues.join('; ')}`);
-  }
+  console.log(`\n  workflow_plan "${state.workflowPlan.name}" (${stepsArr.length} steps), 0 graveyard rows ✓`);
 });
 
-step('approve: apply → sent', async () => {
-  const before = await api('GET', `/api/projects/${state.projectId}/actions/${state.approvalId}`);
-  if (before.status !== 'pending') {
-    throw new Error(`expected pending, got status=${before.status}`);
+step('workflow-card side effects: memory_fact + event', async () => {
+  // captureWorkflow also writes a `decision` memory_fact ("Agent proposed
+  // workflow X") and a `workflow_proposed` memory_event. These are the
+  // cross-link plumbing the recent f431e7d commit relies on.
+  const facts = await db()`
+    SELECT id, fact, kind FROM memory_facts
+     WHERE project_id = ${state.projectId} AND kind = 'decision'
+       AND fact ILIKE '%workflow%'`;
+  if (facts.length === 0) {
+    throw new Error('expected a kind=decision memory_fact for the proposed workflow, found none');
   }
-  const after = await api('POST', `/api/projects/${state.projectId}/actions/${state.approvalId}`, {
-    transition: 'apply',
-  });
-  // workflow_step executor returns mode=direct → state machine chains to 'sent'.
-  if (after.status !== 'sent') {
-    throw new Error(`expected status=sent after apply, got ${after.status}`);
+  const events = await db()`
+    SELECT id, event_type FROM memory_events
+     WHERE project_id = ${state.projectId} AND event_type = 'workflow_proposed'`;
+  if (events.length === 0) {
+    throw new Error('expected a workflow_proposed memory_event, found none');
   }
+  console.log(`\n  memory_facts (decision): ${facts.length} · memory_events (workflow_proposed): ${events.length} ✓`);
 });
 
 step('teardown: delete project', async () => {
@@ -799,6 +823,138 @@ step('cost report: SSE + llm_usage_logs + Langfuse', async () => {
     output_tokens: tokenTotal.output,
   };
   saveState(state);
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Gap-coverage steps for recent commits — added after the smarcamento eval.
+// These run against the smarcamento project (state.smarcamentoProjectId)
+// before teardown so we can lean on the rich data the 7 turns produced.
+// ──────────────────────────────────────────────────────────────────────────
+
+step('memory↔artifact cross-link plumbing (f431e7d)', async () => {
+  // The recent commit cross-links Memory ↔ Artifact and IdeaCanvas → Memory
+  // via memory_events (event_type) and memory_facts (source_type/source_id).
+  // Assert that at least one fact has a source_id pointing at a chat message
+  // or artifact id — that's what the cross-link UI keys off.
+  const pid = state.smarcamentoProjectId;
+  if (!pid) throw new Error('smarcamentoProjectId missing');
+  const facts = await db()`
+    SELECT COUNT(*)::int AS c, COUNT(source_id)::int AS with_src
+      FROM memory_facts WHERE project_id = ${pid}`;
+  if (facts[0].c === 0) {
+    throw new Error('expected memory_facts from smarcamento turns, found none');
+  }
+  if (facts[0].with_src === 0) {
+    throw new Error(`${facts[0].c} memory_facts but 0 with source_id — cross-link broken`);
+  }
+  console.log(`\n  memory_facts: ${facts[0].c} total, ${facts[0].with_src} carry source_id ✓`);
+});
+
+step('idea_canvas → memory_events trail (f431e7d)', async () => {
+  // update_idea_canvas tool fired during smarcamento; idea_canvas is a single
+  // row per project (PK on project_id) with wide columns (problem, solution,
+  // target_market, business_model, etc). Count which columns are populated
+  // as the "sections filled" signal.
+  const pid = state.smarcamentoProjectId;
+  const rows = await db()`
+    SELECT problem IS NOT NULL AS f_problem,
+           solution IS NOT NULL AS f_solution,
+           target_market IS NOT NULL AS f_target,
+           business_model IS NOT NULL AS f_bm,
+           competitive_advantage IS NOT NULL AS f_ca,
+           value_proposition IS NOT NULL AS f_vp,
+           unfair_advantage IS NOT NULL AS f_ua
+      FROM idea_canvas WHERE project_id = ${pid}`;
+  const filled = rows[0]
+    ? Object.entries(rows[0]).filter(([_, v]) => v === true).map(([k]) => k.replace(/^f_/, ''))
+    : [];
+  const events = await db()`
+    SELECT event_type, COUNT(*)::int AS c FROM memory_events
+     WHERE project_id = ${pid} GROUP BY event_type ORDER BY c DESC`;
+  console.log(`\n  idea_canvas row: ${rows.length === 1 ? 'present' : 'absent'} (${filled.length} sections filled${filled.length ? ': ' + filled.join(', ') : ''})`);
+  console.log(`  memory_events:`);
+  for (const e of events) console.log(`    ${e.event_type.padEnd(28)} ${e.c}`);
+  if (events.length === 0) {
+    throw new Error('expected memory_events from chat turns, found none');
+  }
+});
+
+step('skill kickoff endpoint reachable (69ed944)', async () => {
+  // The click-to-start feature posts to /api/projects/:id/skills with
+  // { skill_id } and expects a skill_completions row in 'pending' or
+  // 'running'. Assert the route exists + responds, even if smarcamento turns
+  // didn't already fire that exact skill_id.
+  const pid = state.smarcamentoProjectId;
+  // Probe with a known canonical skill_id from the stages module.
+  const res = await fetch(`${BASE_URL}/api/projects/${pid}/skills`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-e2e-user': state.userId },
+    body: JSON.stringify({ skill_id: 'idea_shaping' }),
+  });
+  const body = await res.text();
+  let parsed = null;
+  try { parsed = JSON.parse(body); } catch {}
+  if (!res.ok) {
+    throw new Error(`POST /skills returned ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const skills = await db()`
+    SELECT id, skill_id, status FROM skill_completions
+     WHERE project_id = ${pid} ORDER BY completed_at DESC LIMIT 5`;
+  console.log(`\n  POST /skills idea_shaping → ${res.status} (${parsed?.success ? 'ok' : 'fail'})`);
+  console.log(`  recent skill_completions: ${skills.length}`);
+  for (const s of skills) console.log(`    ${s.skill_id.padEnd(20)} ${s.status}`);
+  if (skills.length === 0) {
+    throw new Error('POST /skills succeeded but no skill_completions row was created');
+  }
+});
+
+step('sharing: shared user can read project (5c2e101 verify)', async () => {
+  // Insert a second e2e user, share the smarcamento project with them, then
+  // assert GET /api/projects/:id with the shared user's header returns 200.
+  // This exercises tryProjectAccess(member) — the same path real shares hit.
+  const pid = state.smarcamentoProjectId;
+  const otherUserId = `${Date.now()}-share-target`;
+  await db()`
+    INSERT INTO users (id, email) VALUES (${otherUserId}, ${otherUserId + '@e2e.local'})
+    ON CONFLICT (id) DO NOTHING`;
+  const orgId = crypto.randomUUID();
+  await db()`
+    INSERT INTO organizations (id, name) VALUES (${orgId}, ${'share-test-org'})
+    ON CONFLICT (id) DO NOTHING`;
+  await db()`
+    INSERT INTO memberships (id, user_id, org_id, role)
+    VALUES (${crypto.randomUUID()}, ${otherUserId}, ${orgId}, 'owner')`;
+  await db()`
+    INSERT INTO project_members (id, project_id, user_id, role, added_by)
+    VALUES (${'pm_' + crypto.randomUUID().slice(0, 12)}, ${pid}, ${otherUserId}, 'member', ${state.userId})`;
+
+  // GET as the shared member
+  const res = await fetch(`${BASE_URL}/api/projects/${pid}`, {
+    headers: { 'x-e2e-user': otherUserId },
+  });
+  if (!res.ok) {
+    throw new Error(`shared user got ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
+  const body = await res.json();
+  if (body?.data?.access_kind !== 'member') {
+    throw new Error(`expected access_kind=member, got ${body?.data?.access_kind}`);
+  }
+  // Owner-only gate: DELETE must 403
+  const del = await fetch(`${BASE_URL}/api/projects/${pid}`, {
+    method: 'DELETE',
+    headers: { 'x-e2e-user': otherUserId },
+  });
+  if (del.status !== 403) {
+    throw new Error(`expected DELETE → 403 for shared member, got ${del.status}`);
+  }
+  console.log(`\n  shared user reads project (access_kind=member) ✓`);
+  console.log(`  shared user DELETE → 403 ✓`);
+
+  // Clean up the synthetic membership/user so a re-run doesn't accumulate.
+  await db()`DELETE FROM project_members WHERE project_id = ${pid} AND user_id = ${otherUserId}`;
+  await db()`DELETE FROM memberships WHERE user_id = ${otherUserId}`;
+  await db()`DELETE FROM users WHERE id = ${otherUserId}`;
+  await db()`DELETE FROM organizations WHERE id = ${orgId}`;
 });
 
 step('smarcamento: leave project for inspection', async () => {
