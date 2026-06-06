@@ -28,23 +28,29 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     pendingCountRows,
     knowledgeCountRows,
   ] = await Promise.all([
-    query('SELECT problem, solution, target_market, value_proposition, competitive_advantage FROM idea_canvas WHERE project_id = ?', projectId),
-    query('SELECT id, name, total_signals FROM competitor_profiles WHERE project_id = ?', projectId),
-    query('SELECT * FROM research WHERE project_id = ?', projectId),
-    query('SELECT id, status FROM monitors WHERE project_id = ?', projectId),
-    query('SELECT anchor_price, tiers, wtp, unit_econ, model FROM pricing_state WHERE project_id = ?', projectId),
-    query('SELECT monthly_burn, cash_on_hand FROM burn_rate WHERE project_id = ?', projectId),
-    query('SELECT current_step, status FROM workflow WHERE project_id = ?', projectId),
-    query('SELECT id, status FROM growth_loops WHERE project_id = ?', projectId),
-    query('SELECT id, name, current_value FROM metrics WHERE project_id = ?', projectId),
-    query("SELECT id, fact AS content FROM memory_facts WHERE project_id = ? AND reviewed_state = 'applied'", projectId),
-    // Tolerant: if interviews table doesn't exist yet on a stale DB, return
-    // empty — the stage check just sees 0 interviews instead of 500'ing.
+    // Every facet query is guarded with `.catch(() => [])`. The journey
+    // snapshot reads ~16 tables in parallel; prod has partial schema drift
+    // (missing workflow.current_step + metrics.current_value as of 2026-06).
+    // Without per-query guards a single missing column rejects the whole
+    // Promise.all and 500s the entire StageCard — the founder's core steering
+    // surface. Degrading a drifted facet to empty makes its stage checks read
+    // as not-met (conservative) instead of crashing the page. Remove the
+    // guards once prod schema is migrated to match db/schema.sql.
+    query('SELECT problem, solution, target_market, value_proposition, competitive_advantage FROM idea_canvas WHERE project_id = ?', projectId).catch(() => []),
+    query('SELECT id, name, total_signals FROM competitor_profiles WHERE project_id = ?', projectId).catch(() => []),
+    query('SELECT * FROM research WHERE project_id = ?', projectId).catch(() => []),
+    query('SELECT id, status FROM monitors WHERE project_id = ?', projectId).catch(() => []),
+    query('SELECT anchor_price, tiers, wtp, unit_econ, model FROM pricing_state WHERE project_id = ?', projectId).catch(() => []),
+    query('SELECT monthly_burn, cash_on_hand FROM burn_rate WHERE project_id = ?', projectId).catch(() => []),
+    query('SELECT current_step, status FROM workflow WHERE project_id = ?', projectId).catch(() => []),
+    query('SELECT id, status FROM growth_loops WHERE project_id = ?', projectId).catch(() => []),
+    query('SELECT id, name, current_value FROM metrics WHERE project_id = ?', projectId).catch(() => []),
+    query("SELECT id, fact AS content FROM memory_facts WHERE project_id = ? AND reviewed_state = 'applied'", projectId).catch(() => []),
     query('SELECT id, person_name, top_pain, wtp_amount, urgency FROM interviews WHERE project_id = ?', projectId).catch(() => []),
-    query('SELECT target_amount, raised_amount, status FROM fundraising_rounds WHERE project_id = ?', projectId),
-    query('SELECT id, name, stage FROM investors WHERE project_id = ?', projectId),
-    query<{ cnt: number }>('SELECT COUNT(*) as cnt FROM published_assets WHERE project_id = ?', projectId),
-    query<{ cnt: number }>("SELECT COUNT(*) as cnt FROM pending_actions WHERE project_id = ? AND status IN ('pending','edited')", projectId),
+    query('SELECT target_amount, raised_amount, status FROM fundraising_rounds WHERE project_id = ?', projectId).catch(() => []),
+    query('SELECT id, name, stage FROM investors WHERE project_id = ?', projectId).catch(() => []),
+    query<{ cnt: number }>('SELECT COUNT(*) as cnt FROM published_assets WHERE project_id = ?', projectId).catch(() => [{ cnt: 0 }]),
+    query<{ cnt: number }>("SELECT COUNT(*) as cnt FROM pending_actions WHERE project_id = ? AND status IN ('pending','edited')", projectId).catch(() => [{ cnt: 0 }]),
     query<{ cnt: number }>('SELECT COUNT(*) as cnt FROM knowledge WHERE project_id = ?', projectId).catch(() => [{ cnt: 0 }]),
   ]);
 

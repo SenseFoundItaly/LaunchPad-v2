@@ -249,8 +249,11 @@ export async function GET(
     };
   });
 
-  let findings = [...alertFindings, ...changeFindings].sort((a, b) =>
-    b.created_at.localeCompare(a.created_at),
+  // Sort newest-first by timestamp. postgres.js returns timestamp columns as
+  // JS Date objects (not the `string` the row types claim), so localeCompare
+  // blows up — compare epoch millis instead, which handles Date OR string.
+  let findings = [...alertFindings, ...changeFindings].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
 
   // Single search filter — replaces the old 6-filter UI.

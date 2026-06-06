@@ -598,6 +598,38 @@ step('smarcamento: create fresh project', async () => {
 // stage coverage) get evaluated in the final step after all turns run.
 const turnRecords = [];
 
+// WS4a — Steering-quality scorecard. The aggregate step stashes its raw
+// computed metrics here; a downstream step turns them into a normalized 0-1
+// score so "100x" has a fixed baseline ("1x") to measure against. Stashed
+// BEFORE the aggregate's pass/fail throw, so the score is recorded even on a
+// failing run (a failing run is exactly when we most want the number).
+let evalMetrics = null;
+const BASELINE_FILE = path.join(process.cwd(), 'data', '.e2e-baseline.json');
+
+// THE ONE DECISION THAT SHAPES WHAT "100x" OPTIMIZES FOR.
+// Weights must sum to 1.0. Default reflects the design-doc thesis: the
+// adversarial spine (direction + target accuracy + validation evidence) and
+// the data-backed anti-self-delusion check (sourcing) matter most; raw
+// research volume and breadth-of-coverage matter but are supporting. Tune
+// these to change what a higher steering score rewards.
+const SCORE_WEIGHTS = {
+  direction: 0.25,      // every turn ends with a real stage-CTA (spine)
+  targetAccuracy: 0.20, // stage-targeted turns hit the RIGHT stage (spine)
+  validation: 0.20,     // chat fires skills that land evidence rows (spine)
+  sourcing: 0.20,       // factual claims cite web sources (anti-delusion)
+  coverage: 0.10,       // option-sets span the 7 stage domains (breadth)
+  research: 0.05,       // agent actually ran web searches (heartbeat)
+};
+
+function readBaseline() {
+  try { return JSON.parse(fs.readFileSync(BASELINE_FILE, 'utf8')); }
+  catch { return null; }
+}
+function writeBaseline(obj) {
+  fs.mkdirSync(path.dirname(BASELINE_FILE), { recursive: true });
+  fs.writeFileSync(BASELINE_FILE, JSON.stringify(obj, null, 2));
+}
+
 for (let i = 0; i < TURNS.length; i++) {
   const turnNum = i + 1;
   const { ask: prompt, target } = TURNS[i];
@@ -788,7 +820,82 @@ step('smarcamento: aggregate behavior eval', async () => {
     console.log(`      ${mark} ${s.stage}/${s.name.padEnd(16)} turns: [${s.hits.join(',') || '-'}]`);
   }
 
+  // WS4a — stash raw metrics for the scorecard step. Done BEFORE the throw so
+  // a failing run still records its score (failing runs are the ones we most
+  // want to track climbing back up).
+  const stageTargetedTurns = turnRecords.filter((t) => t.target != null);
+  const targetHits = stageTargetedTurns.filter(
+    (t) => !t.violations.some((v) => /target stage/.test(v)),
+  ).length;
+  evalMetrics = {
+    turns: turnRecords.length,
+    directionKept: turnRecords.length - turnsMissingDirection.length,
+    targetHits,
+    stageTargetedTurns: stageTargetedTurns.length,
+    webSearchCount,
+    minWebSearches: MIN_WEB_SEARCHES,
+    sourceRate,                       // 0-1, already normalized
+    factualArtifacts: factualArtifacts.length,
+    stageCoverage: stagesUnion.size,  // 0-7
+    landedFromChat,
+    minChatSkillFires: MIN_CHAT_SKILL_FIRES,
+    issues: issues.length,
+  };
+
   if (issues.length > 0) throw new Error(`${issues.length} smarcamento gap(s): ${issues.join(' | ')}`);
+});
+
+// WS4a — Steering-quality scorecard + baseline. Turns the aggregate's raw
+// metrics into a single normalized 0-1 score so WS1-WS3 changes can be
+// measured against a fixed "1x". Runs as its own step AFTER the aggregate so
+// the existing pass/fail gate is untouched; this is additive instrumentation.
+step('smarcamento: steering scorecard + baseline', async () => {
+  if (!evalMetrics) { console.log('\n  (aggregate eval did not run — no metrics to score)'); return; }
+  const m = evalMetrics;
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
+
+  // Each dimension → 0-1. "min-relative" dims (research) cap at 1.0 once the
+  // floor is met; quality dims (direction, sourcing) are raw ratios.
+  const dims = {
+    direction:      m.turns ? m.directionKept / m.turns : 0,
+    targetAccuracy: m.stageTargetedTurns ? m.targetHits / m.stageTargetedTurns : 1,
+    validation:     m.minChatSkillFires ? clamp01(m.landedFromChat / m.minChatSkillFires) : 0,
+    sourcing:       m.factualArtifacts === 0 ? 0 : clamp01(m.sourceRate),
+    coverage:       clamp01(m.stageCoverage / 7),
+    research:       m.minWebSearches ? clamp01(m.webSearchCount / m.minWebSearches) : 0,
+  };
+
+  let score = 0;
+  for (const [k, w] of Object.entries(SCORE_WEIGHTS)) score += (dims[k] ?? 0) * w;
+  score = Math.round(score * 1000) / 1000; // 3dp
+
+  const stamp = new Date().toISOString();
+  const branch = (process.env.GIT_BRANCH || '').trim() || undefined;
+  const current = { score, dims, weights: SCORE_WEIGHTS, raw: m, at: stamp, branch };
+
+  const prior = readBaseline();
+  console.log(`\n  ── STEERING SCORECARD ──`);
+  for (const [k, w] of Object.entries(SCORE_WEIGHTS)) {
+    const v = dims[k] ?? 0;
+    console.log(`    ${k.padEnd(15)} ${(v * 100).toFixed(0).padStart(3)}%  × ${w.toFixed(2)} = ${(v * w).toFixed(3)}`);
+  }
+  console.log(`    ${'STEERING SCORE'.padEnd(15)} ${(score * 100).toFixed(1)}%   (0-1: ${score.toFixed(3)})`);
+
+  if (!prior) {
+    writeBaseline(current);
+    console.log(`\n  baseline recorded → ${path.relative(process.cwd(), BASELINE_FILE)} (this is your "1x")`);
+  } else {
+    const delta = Math.round((score - prior.score) * 1000) / 1000;
+    const pct = prior.score > 0 ? ((score / prior.score - 1) * 100) : 0;
+    const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '=';
+    console.log(`\n  baseline: ${prior.score.toFixed(3)} (${prior.at?.slice(0, 10) || '?'})  →  current: ${score.toFixed(3)}  ${arrow} ${delta >= 0 ? '+' : ''}${delta.toFixed(3)} (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)`);
+    if (process.env.E2E_WRITE_BASELINE === '1') {
+      writeBaseline(current);
+      console.log(`  baseline OVERWRITTEN (E2E_WRITE_BASELINE=1)`);
+    } else {
+      console.log(`  (set E2E_WRITE_BASELINE=1 to make this the new baseline)`);
+    }
+  }
 });
 
 step('cost report: SSE + llm_usage_logs + Langfuse', async () => {
