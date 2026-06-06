@@ -11,6 +11,7 @@ import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { buildMemoryContext } from '@/lib/memory/context';
 import { buildProjectSnapshot } from '@/lib/journey';
 import { formatStageContextForPrompt } from '@/lib/journey/stage-prompt';
+import { computeNextBestAction, renderDirectionForPrompt } from '@/lib/direction';
 import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
@@ -395,6 +396,24 @@ export async function POST(request: NextRequest) {
     /* journey snapshot failed — chat still works, just without stage framing */
   }
 
+  // WS-A — inject the direction engine's computed next-best-action so the model
+  // LEADS with the deterministic next move instead of re-deriving it (or
+  // forgetting to call get_project_summary). Tolerant: any failure degrades to
+  // no injected direction — chat still works. lastChatAt drives the
+  // "what changed since last time" signal feed (route.ts:143 freshness rule).
+  let directionContext = '';
+  try {
+    const lastRows = await query<{ created_at: string }>(
+      'SELECT created_at FROM chat_messages WHERE project_id = ? ORDER BY created_at DESC LIMIT 1',
+      project_id,
+    );
+    const lastChatAt = lastRows[0]?.created_at ?? null;
+    const nba = await computeNextBestAction(project_id, { lastChatAt });
+    directionContext = `${renderDirectionForPrompt(nba)}\n\n`;
+  } catch {
+    /* direction engine failed — chat still works without injected next-best-action */
+  }
+
   // Build system prompt: SOUL + AGENTS personality first (locale-aware),
   // then ARTIFACT_INSTRUCTIONS, then stage context (highest signal for
   // "what to talk about"), then per-project context + memory + recently-
@@ -405,7 +424,7 @@ export async function POST(request: NextRequest) {
     locale,
     context: 'chat',
     tail: ARTIFACT_INSTRUCTIONS,
-    projectContext: `${stageContext}${projectContext}${memoryContext}\n${skillContext}`,
+    projectContext: `${directionContext}${stageContext}${projectContext}${memoryContext}\n${skillContext}`,
   });
   const encoder = new TextEncoder();
 
