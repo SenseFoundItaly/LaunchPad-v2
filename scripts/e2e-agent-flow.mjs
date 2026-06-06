@@ -795,10 +795,16 @@ step('smarcamento: aggregate behavior eval', async () => {
   // marker: chat-driven rows have completed_at older than turn_end.
   // Cheaper: just count distinct skill_ids that match the skill_* tool
   // names called by chat — that proves chat → completion roundtrip.
+  // Tool names are generated underscored — skill-tools.ts:129 does
+  // `skill_${skill.id.replace(/-/g,'_')}` — but skill_completions.skill_id
+  // stores the hyphenated skill.id. So reverse BOTH transforms: strip the
+  // `skill_` prefix AND map `_`→`-` to recover the original skill.id.
+  // Without the second replace, `gtm_strategy` never matches `gtm-strategy`
+  // and validation reads 0 even when chat-fired skills completed.
   const chatFiredSkillIds = new Set(
     allTools
       .filter((name) => name.startsWith('skill_'))
-      .map((name) => name.replace(/^skill_/, '')),
+      .map((name) => name.replace(/^skill_/, '').replace(/_/g, '-')),
   );
   const landedFromChat = skillRows.filter((r) => chatFiredSkillIds.has(r.skill_id)).length;
   if (landedFromChat < MIN_CHAT_SKILL_FIRES) {
