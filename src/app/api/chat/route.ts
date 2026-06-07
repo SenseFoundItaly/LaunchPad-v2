@@ -24,6 +24,7 @@ import { pickModel, type TaskLabel } from '@/lib/llm/router';
 import { rankSkillsForQuery } from '@/lib/skill-relevance';
 import { persistArtifact } from '@/lib/artifact-persistence';
 import { renderContentMappingForPrompt, findMatchingSkill } from '@/lib/llm/content-mapping';
+import { analyzeTurnViolations, renderNudgeForNextTurn, type TurnViolations } from '@/lib/llm/turn-violations';
 
 /**
  * Detect simple follow-up messages that don't need Sonnet's reasoning depth.
@@ -418,7 +419,7 @@ export async function POST(request: NextRequest) {
   // completed skill summaries.
   const locale = await resolveProjectLocale(project_id, query);
   const skillContext = await buildCompletedSkillContext(project_id, lastMessage);
-  const systemPrompt = buildSystemPromptString({
+  let systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
     tail: ARTIFACT_INSTRUCTIONS,
@@ -484,6 +485,36 @@ export async function POST(request: NextRequest) {
         const id = t.name.replace(/^skill_/, '').replace(/_/g, '-');
         return relevantIds.has(id);
       });
+    }
+
+    // Iteration-3 WS-A — inject TIER 0.5 nudges based on PRIOR turn violations.
+    // chat-followup (Haiku, skillTools = []) is exempt by construction; the
+    // violations can't happen on a path that has no skill tools to misuse.
+    // Pre-migration safety: meta column may not exist yet → query catches and
+    // returns no nudge. Chat keeps functioning either way.
+    if (chatTask === 'chat') {
+      try {
+        const priorRows = await query<{ meta: unknown }>(
+          `SELECT meta FROM chat_messages
+            WHERE project_id = ? AND role = 'assistant'
+            ORDER BY "timestamp" DESC LIMIT 1`,
+          project_id,
+        );
+        const meta = priorRows[0]?.meta;
+        if (meta && typeof meta === 'object') {
+          const prior: TurnViolations = {
+            skill_first_violation: !!(meta as Record<string, unknown>).skill_first_violation,
+            prose_fabrication: !!(meta as Record<string, unknown>).prose_fabrication,
+          };
+          const nudge = renderNudgeForNextTurn(prior);
+          if (nudge) systemPrompt = `${systemPrompt}\n\n${nudge}`;
+        }
+      } catch (err) {
+        // meta column missing (pre-migration) OR transient DB error.
+        // Non-fatal — the nudge is a quality improvement, not a correctness
+        // gate, and TIER 0.5 prompt rules still apply.
+        console.warn('[chat] prior-turn nudge query failed (non-fatal):', (err as Error).message);
+      }
     }
 
     const { stream: piStream } = runAgentStream(lastMessage, {
@@ -619,13 +650,32 @@ export async function POST(request: NextRequest) {
           if (fullResponse.trim().length > 0) {
             const toolsJson = toolsList.length > 0 ? JSON.stringify(toolsList) : null;
             const citationsJson = extractCitations(fullResponse);
+            // Iteration-3 WS-A — compute TIER 0.5 violation flags for this
+            // turn. The next turn's nudge injection reads them from meta.
+            // Pure + synchronous; no added latency over the existing INSERT.
+            // Only persist meta when something fired — keeps the JSONB
+            // surface clean and lets partial indexes stay sparse.
+            let metaJson: string | null = null;
+            try {
+              const violations = analyzeTurnViolations(
+                toolsList.map((t) => ({ name: t.name })),
+                fullResponse,
+                lastMessage,
+              );
+              if (violations.skill_first_violation || violations.prose_fabrication) {
+                metaJson = JSON.stringify(violations);
+              }
+            } catch (err) {
+              console.warn('[chat] turn-violation analysis failed (non-fatal):', err);
+            }
             await run(
-              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, tools_json, citations, langfuse_trace_id)
-               VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?)`,
+              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, tools_json, citations, langfuse_trace_id, meta)
+               VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?)`,
               `msg_${crypto.randomUUID().slice(0, 12)}`,
               project_id, step, fullResponse, now, userId, toolsJson,
               citationsJson ? JSON.stringify(citationsJson) : null,
               langfuseTraceId,
+              metaJson,
             );
           }
         } catch (err) {
