@@ -613,13 +613,53 @@ const BASELINE_FILE = path.join(process.cwd(), 'data', '.e2e-baseline.json');
 // research volume and breadth-of-coverage matter but are supporting. Tune
 // these to change what a higher steering score rewards.
 const SCORE_WEIGHTS = {
-  direction: 0.25,      // every turn ends with a real stage-CTA (spine)
-  targetAccuracy: 0.20, // stage-targeted turns hit the RIGHT stage (spine)
-  validation: 0.20,     // chat fires skills that land evidence rows (spine)
-  sourcing: 0.20,       // factual claims cite web sources (anti-delusion)
+  // Iteration-2 dims (rebalanced -0.05 each on direction/targetAccuracy/
+  // validation/sourcing to make room for iteration-3 dims; coverage +
+  // research unchanged at their existing low weights).
+  direction: 0.20,      // every turn ends with a real stage-CTA (spine)
+  targetAccuracy: 0.15, // stage-targeted turns hit the RIGHT stage (spine)
+  validation: 0.15,     // chat fires skills that land evidence rows (spine)
+  sourcing: 0.15,       // factual claims cite web sources (anti-delusion)
   coverage: 0.10,       // option-sets span the 7 stage domains (breadth)
   research: 0.05,       // agent actually ran web searches (heartbeat)
+  // Iteration-3 dims (WS-R) — server-side TIER 0.5 enforcement made
+  // measurable. Modest weights so the existing dims keep dominating until
+  // these have a baseline; tune after baseline is recorded.
+  proposal_truthfulness: 0.08, // agent didn't prose-fabricate skill outcomes
+  skill_first: 0.07,           // agent proposed skill before web_search on mapped topics
+  spine_visible: 0.05,         // adversarial spine artifact rendered when warranted
 };
+
+// Iteration-3 WS-R — duplicated patterns from src/lib/llm/turn-violations.ts.
+// JS-side duplication is the trade-off for keeping the harness as a plain
+// .mjs script (no TS transpile). If the TS file changes, update here too.
+// See OQ 2 in design doc: shared content-mapping module is the source of
+// truth for both files; these arrays mirror it.
+const OUTCOME_CLAIM_PATTERNS_E2E = [
+  /\b(the research|the analysis|the study|the data) shows?\b/i,
+  /\bTAM (is|=|of)\b/i,
+  /\b(competitors|segments|personas) include\b/i,
+  /\bwe found that\b/i,
+  /\bresults? (indicate|show)\b/i,
+  /\b(market size|market value) (is|=)\b/i,
+  /\b(the skill|skill_\w+) (found|returned|identified)\b/i,
+];
+const CONTENT_MAPPING_TRIGGERS_E2E = [
+  'pricing', 'unit economics', 'willingness to pay', 'ltv', 'cac', 'margin',
+  'tam', 'sam', 'som', 'market siz', 'competitor', 'segment',
+  'persona', 'icp', 'buyer profile', 'interview target',
+  'risk', 'fatal flaw', 'what could kill', 'what kills',
+  'gtm', 'go to market', 'go-to-market', 'channel', 'launch plan', 'distribution',
+  'pitch deck', 'fundrais', 'investor', 'seed round', 'series a', 'series b',
+  'weekly metric', 'churn', 'kpi', 'growth health',
+  'lean canvas', 'structure my idea', 'problem-solution', 'problem solution fit', 'shape my idea',
+  'financial projection', 'runway', 'burn rate', 'cash flow',
+];
+const WEB_SEARCH_RE_E2E = /web_search|search_web|browse/i;
+function turnMatchesContentMapping(prompt) {
+  const lower = String(prompt || '').toLowerCase();
+  return CONTENT_MAPPING_TRIGGERS_E2E.some((t) => lower.includes(t));
+}
 
 function readBaseline() {
   try { return JSON.parse(fs.readFileSync(BASELINE_FILE, 'utf8')); }
@@ -695,6 +735,9 @@ for (let i = 0; i < TURNS.length; i++) {
       cost,
       credits,
       tools: toolsCalled,
+      // Iteration-3 WS-R — full response text needed for proposal_truthfulness
+      // dim (regex over agent prose). Stored verbatim; the scorer reads it.
+      response: fullText,
       artifacts: parsed.map((a) => ({
         type: a.type,
         sourceCount: Array.isArray(a.sources) ? a.sources.length : 0,
@@ -860,15 +903,48 @@ step('smarcamento: steering scorecard + baseline', async () => {
   const m = evalMetrics;
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
+  // Iteration-3 WS-R — per-turn pass/fail counts for the three new dims.
+  // proposal_truthfulness + skill_first read from per-turn tools + response;
+  // spine_visible is dormant until thin-evidence synthetic fixtures exist
+  // (iter-3.5 OQ). Default 1.0 when no turns are applicable, matching the
+  // design doc's "no skill_* call → default pass" rule.
+  let truthfulnessPass = 0, truthfulnessApplicable = 0;
+  let skillFirstPass = 0, skillFirstApplicable = 0;
+  let spineVisiblePass = 0, spineVisibleApplicable = 0;
+  for (const t of turnRecords) {
+    const tools = Array.isArray(t.tools) ? t.tools : [];
+    const skillIdx = tools.findIndex((n) => String(n).startsWith('skill_'));
+    const webIdx = tools.findIndex((n) => WEB_SEARCH_RE_E2E.test(String(n)));
+    const skillCalled = skillIdx !== -1;
+
+    if (skillCalled) {
+      truthfulnessApplicable += 1;
+      const proseClaims = OUTCOME_CLAIM_PATTERNS_E2E.some((re) => re.test(String(t.response || '')));
+      if (!proseClaims) truthfulnessPass += 1;
+    }
+    if (turnMatchesContentMapping(t.prompt)) {
+      skillFirstApplicable += 1;
+      const violated = webIdx !== -1 && skillIdx !== -1 && webIdx < skillIdx;
+      if (!violated) skillFirstPass += 1;
+    }
+    // spine_visible — fires only on synthetic thin-evidence fixture turns.
+    // TODO(iter-3.5): when those fixtures exist (seed marker on TURNS[i])
+    // increment spineVisibleApplicable and check t.artifacts for
+    // insight-card OR risk-matrix presence.
+  }
+
   // Each dimension → 0-1. "min-relative" dims (research) cap at 1.0 once the
   // floor is met; quality dims (direction, sourcing) are raw ratios.
   const dims = {
-    direction:      m.turns ? m.directionKept / m.turns : 0,
-    targetAccuracy: m.stageTargetedTurns ? m.targetHits / m.stageTargetedTurns : 1,
-    validation:     m.minChatSkillFires ? clamp01(m.landedFromChat / m.minChatSkillFires) : 0,
-    sourcing:       m.factualArtifacts === 0 ? 0 : clamp01(m.sourceRate),
-    coverage:       clamp01(m.stageCoverage / 7),
-    research:       m.minWebSearches ? clamp01(m.webSearchCount / m.minWebSearches) : 0,
+    direction:             m.turns ? m.directionKept / m.turns : 0,
+    targetAccuracy:        m.stageTargetedTurns ? m.targetHits / m.stageTargetedTurns : 1,
+    validation:            m.minChatSkillFires ? clamp01(m.landedFromChat / m.minChatSkillFires) : 0,
+    sourcing:              m.factualArtifacts === 0 ? 0 : clamp01(m.sourceRate),
+    coverage:              clamp01(m.stageCoverage / 7),
+    research:              m.minWebSearches ? clamp01(m.webSearchCount / m.minWebSearches) : 0,
+    proposal_truthfulness: truthfulnessApplicable ? truthfulnessPass / truthfulnessApplicable : 1,
+    skill_first:           skillFirstApplicable ? skillFirstPass / skillFirstApplicable : 1,
+    spine_visible:         spineVisibleApplicable ? spineVisiblePass / spineVisibleApplicable : 1,
   };
 
   let score = 0;
@@ -883,9 +959,9 @@ step('smarcamento: steering scorecard + baseline', async () => {
   console.log(`\n  ── STEERING SCORECARD ──`);
   for (const [k, w] of Object.entries(SCORE_WEIGHTS)) {
     const v = dims[k] ?? 0;
-    console.log(`    ${k.padEnd(15)} ${(v * 100).toFixed(0).padStart(3)}%  × ${w.toFixed(2)} = ${(v * w).toFixed(3)}`);
+    console.log(`    ${k.padEnd(22)} ${(v * 100).toFixed(0).padStart(3)}%  × ${w.toFixed(2)} = ${(v * w).toFixed(3)}`);
   }
-  console.log(`    ${'STEERING SCORE'.padEnd(15)} ${(score * 100).toFixed(1)}%   (0-1: ${score.toFixed(3)})`);
+  console.log(`    ${'STEERING SCORE'.padEnd(22)} ${(score * 100).toFixed(1)}%   (0-1: ${score.toFixed(3)})`);
 
   if (!prior) {
     writeBaseline(current);
