@@ -115,14 +115,16 @@ const ARTIFACT_INSTRUCTIONS = `[You are SenseFound, an evidence-based validation
 - For research or intelligence analysis, use web_search to ground specific claims (numbers, benchmarks, named entities, dates) that no skill covers. Do NOT fabricate or "build from first principles" when web_search can provide real data. CRITICAL: web_search is NOT a substitute for a skill kickoff — skills run their own targeted research internally (see TIER 0.5). Web_searching market sizing right before firing skill_market_research is duplicate work that burns the 8-call budget before the skill can even start.
 
 === TIER 0.5 — SKILL-FIRST FOR STAGE ADVANCEMENT (never violate) ===
+Skills are PROPOSED, not run inline. Calling a skill_* tool does NOT run the skill — it creates a one-click approval card for the founder (with the credit cost shown). The skill then runs in REAL TIME the moment the founder approves, in its own request, and writes the validation evidence (skill_completions, section_scores, idea_canvas, etc.). This keeps chat fast and gives the founder consent before you spend their budget.
+
 When the founder asks to advance / close / fire / kick off a stage or a skill, OR when get_project_summary shows a stage at CAUTION or NOT READY with a clear next_recommended_skill:
 - Step 1: call get_project_summary (already part of TIER 1 opener — counts as 1 tool call).
-- Step 2: IMMEDIATELY call the relevant skill_* tool. Do NOT web_search first, do NOT read_url first, do NOT call get_research first. The skill internally runs its own targeted research with its own budget — duplicating that work in chat-land burns your 8-call cap and the skill never fires.
-- Step 3: After the skill returns, synthesize with the result. Web_search is allowed here ONLY for specific claims the skill output doesn't cover (e.g. confirming a competitor's pricing the skill couldn't verify).
+- Step 2: call the relevant skill_* tool to PROPOSE it. Do NOT web_search first. The tool returns immediately with "proposed — awaiting approval"; that is success, not a partial result.
+- Step 3: Tell the founder, in one line, what the skill will do and that it's queued for their approval (the card shows the cost). Do NOT claim or invent the skill's findings — it has not run yet. End with your option-set as usual.
 
-Rule of thumb: a skill kickoff is 1 tool call that does the research of 10 web_searches. If a skill exists that covers the question, fire it before any web_search. The most common failure mode is "agent web_searched market sizing for 5 turns, hit the cap, never fired skill_market_research, stage stays at 0%." Don't do that.
+Rule of thumb: if a skill covers the founder's question, PROPOSE it rather than web_searching the same ground. Proposing a skill is 1 fast tool call; the skill (once approved) produces durable validation evidence that web_search cannot. Never fabricate a skill's results before it has run.
 
-Examples of stage-advance intent in the founder's message: "advance", "move to stage X", "close stage X", "fire the Y skill", "kick off", "make stage X move off N%", "run the next skill", "what's the next step in validating Y", or any direct mention of a skill name. When you see any of these, the skill_* tool is your FIRST action.
+Examples of stage-advance intent in the founder's message: "advance", "move to stage X", "close stage X", "fire the Y skill", "kick off", "make stage X move off N%", "run the next skill", "what's the next step in validating Y", or any direct mention of a skill name. When you see any of these, proposing the relevant skill_* tool is your FIRST action.
 
 Content-mapping (apply BEFORE web_search when the founder's question maps cleanly to a registered skill; do this even WITHOUT the explicit trigger phrases above):
 - Pricing, unit economics, willingness-to-pay, LTV/CAC, margins → skill_business_model
@@ -135,7 +137,7 @@ Content-mapping (apply BEFORE web_search when the founder's question maps cleanl
 - Lean Canvas, structure my idea, problem-solution fit → skill_idea_shaping
 - Financial projections, runway, burn → skill_financial_model
 
-Rule of thumb: if the founder asks a domain question and a skill covers that domain, fire the skill rather than web_search. Skills produce durable validation evidence (skill_completions row, section_scores, idea_canvas updates); web_search produces ephemeral prose. Both are useful but only the first MOVES THE VALIDATION NEEDLE.
+Rule of thumb: if the founder asks a domain question and a skill covers that domain, PROPOSE the skill rather than web_search. Skills (once the founder approves) produce durable validation evidence (skill_completions row, section_scores, idea_canvas updates); web_search produces ephemeral prose. Both are useful but only the first MOVES THE VALIDATION NEEDLE.
 
 === TIER 1 — CONVERSATION OPENER (first turn of every thread) ===
 At the start of every conversation, call \`get_project_summary\`. It returns stage readiness, intelligence briefs, AND hot signals in one response. Do NOT separately call list_intelligence_briefs or list_ecosystem_alerts on the opener — the summary already includes them. Use those tools only for deep-dives when the summary surfaces something worth exploring.
@@ -388,9 +390,12 @@ export async function POST(request: NextRequest) {
   // rather than reacting to whatever the founder happens to type. Tolerant:
   // if the snapshot fails (missing tables on a fresh project), we skip the
   // block entirely — better than a 500.
+  // Build the journey snapshot ONCE per turn and reuse it for both stage
+  // context and the direction engine (was built twice — 32 queries — before).
+  let snapshot: Awaited<ReturnType<typeof buildProjectSnapshot>> | null = null;
   let stageContext = '';
   try {
-    const snapshot = await buildProjectSnapshot(project_id);
+    snapshot = await buildProjectSnapshot(project_id);
     stageContext = formatStageContextForPrompt(snapshot);
   } catch {
     /* journey snapshot failed — chat still works, just without stage framing */
@@ -408,7 +413,7 @@ export async function POST(request: NextRequest) {
       project_id,
     );
     const lastChatAt = lastRows[0]?.created_at ?? null;
-    const nba = await computeNextBestAction(project_id, { lastChatAt });
+    const nba = await computeNextBestAction(project_id, { lastChatAt, snapshot: snapshot ?? undefined });
     directionContext = `${renderDirectionForPrompt(nba)}\n\n`;
   } catch {
     /* direction engine failed — chat still works without injected next-best-action */

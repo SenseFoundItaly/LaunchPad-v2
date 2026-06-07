@@ -2,15 +2,11 @@ import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
-import { completeSimple, getModel, getEnvApiKey } from '@mariozechner/pi-ai';
-import type { TextContent } from '@mariozechner/pi-ai';
-import { pickModel, type TaskLabel } from './llm/router';
 import { recordEvent } from './memory/events';
-import { recordUsage } from './cost-meter';
-import { estimateCost } from './telemetry';
-import { run, get } from './db';
+import { run } from './db';
 import { generateId } from './api-helpers';
 import { computeSectionScoresFromSummary } from './section-scoring';
+import { createPendingAction } from './pending-actions';
 
 /**
  * Skills-as-tools — converts every launchpad-skills/<skill>/SKILL.md into an
@@ -157,120 +153,41 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
         },
       });
 
-      const tier: TaskLabel = 'skill-invoke';
-      const { provider, model } = pickModel(
-        skill.frontmatter.model_tier
-          ? (`skill-${skill.frontmatter.model_tier}` as string)
-          : tier,
-      );
-
-      // One-shot LLM call via pi-ai's completeSimple — NOT a nested Agent
-      // instance. The Agent class is designed for multi-turn tool-using
-      // loops; a skill invocation is a single "run this prompt, return
-      // text" round-trip and doesn't need that machinery. Using a nested
-      // Agent here previously caused stalled chat streams because the
-      // outer Agent's subscribe pattern and the inner Agent's subscribe
-      // pattern could race in ways pi-agent-core doesn't guarantee safe.
-      //
-      // Per the AgentTool contract (node_modules/@mariozechner/pi-agent-
-      // core/dist/types.d.ts): "Throw on failure instead of encoding
-      // errors in content." We throw on missing output or timeout so the
-      // outer agent sees a proper error tool_result.
-      const userMsg = context || `Run the ${skill.frontmatter.name} skill for the current project.`;
-      const apiKey = getEnvApiKey(provider as 'anthropic' | 'openrouter');
-
-      const skillStart = Date.now();
-      const assistantMessage = await completeSimple(
-        getModel(provider as any, model as any),
-        {
-          systemPrompt: skill.body,
-          messages: [{ role: 'user', content: userMsg, timestamp: Date.now() }],
-        },
-        {
-          apiKey,
-          // 120s — was 60s, but most skills (gtm-strategy, market-research,
-          // investment-readiness) need >60s under realistic project context
-          // (full Idea Canvas + memory facts + competitor data). Hitting 60s
-          // routinely produced empty/$0 usage rows that masked timeouts as
-          // "successful runs" downstream. The real safety net for runaway
-          // cost is project_budgets in cost-meter.ts, not this timeout.
-          signal: AbortSignal.timeout(120_000),
-        },
-      );
-
-      // Log token usage — completeSimple returns pi-ai Usage on assistantMessage,
-      // but pi-ai's Usage shape carries only tokens, not cost. Without a cost
-      // field, recordUsage's extractCost() silently logs $0 — under-counting
-      // spend by the full skill amount. Inject an estimated cost so the row
-      // reflects real spend. Mirrors the chat route's pattern at
-      // src/app/api/chat/route.ts:550 (streamUsage?.cost ?? estimateCost).
-      const u = assistantMessage.usage as unknown as { cost?: { total?: number } };
-      const alreadyHasCost = typeof u?.cost?.total === 'number' && u.cost.total > 0;
-      const skillUsage = alreadyHasCost
-        ? assistantMessage.usage
-        : {
-            ...assistantMessage.usage,
-            cost: {
-              total: estimateCost(provider, model, {
-                input_tokens: (assistantMessage.usage as { input?: number; inputTokens?: number; input_tokens?: number }).input
-                  ?? (assistantMessage.usage as { inputTokens?: number }).inputTokens
-                  ?? (assistantMessage.usage as { input_tokens?: number }).input_tokens
-                  ?? 0,
-                output_tokens: (assistantMessage.usage as { output?: number; outputTokens?: number; output_tokens?: number }).output
-                  ?? (assistantMessage.usage as { outputTokens?: number }).outputTokens
-                  ?? (assistantMessage.usage as { output_tokens?: number }).output_tokens
-                  ?? 0,
-                cache_creation_input_tokens: 0,
-                cache_read_input_tokens: 0,
-              }),
-            },
+      // Architecture C (real-time, approve-first): chat PROPOSES the skill; it
+      // does NOT run it inline. Create a run_skill pending_action the founder
+      // approves (cost shown), then the run_skill executor runs it real-time via
+      // the unified runSkill. This keeps the chat turn fast (a DB insert, not a
+      // 120s blocking LLM call — the root cause of the 180s chat timeouts) and
+      // gives the founder consent + cost transparency before spending budget.
+      {
+        const propTier = skill.frontmatter.model_tier ?? 'balanced';
+        const estCredits = propTier === 'premium' ? 10 : propTier === 'cheap' ? 1 : 4;
+        const estEur = (estCredits / 200).toFixed(2);
+        try {
+          const proposal = await createPendingAction({
+            project_id: opts.projectId,
+            action_type: 'run_skill',
+            title: `Run ${skill.frontmatter.name}? (~€${estEur}, ~${estCredits} credits)`,
+            rationale: context ? context.slice(0, 280) : `Kick off ${skill.frontmatter.name} for this project.`,
+            payload: { skill_id: skill.id, skill_label: skill.frontmatter.name, owner_user_id: opts.userId, context },
+            estimated_impact: 'high',
+            priority: 'high',
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: `Proposed "${skill.frontmatter.name}" (~€${estEur}, ~${estCredits} credits) — queued for the founder's one-click approval in the Inbox. It runs in real time once approved. Tell the founder what it will do and that it's ready to approve; do NOT wait for results this turn. (action ${proposal.id})`,
+            }],
+            details: { skill_id: skill.id, proposed: true },
           };
-      recordUsage({
-        project_id: opts.projectId,
-        skill_id: skill.id,
-        step: `skill-tool.${skill.id}`,
-        provider,
-        model,
-        usage: skillUsage as typeof assistantMessage.usage,
-        latency_ms: Date.now() - skillStart,
-      }).catch((err) => console.warn(`[skill-tools] recordUsage failed for ${skill.id}:`, err));
-
-      // Extract text content blocks from the assistant message.
-      const output = assistantMessage.content
-        .filter((c): c is TextContent => c.type === 'text')
-        .map((c) => c.text)
-        .join('\n')
-        .trim();
-
-      if (!output) {
-        throw new Error(
-          `Skill ${skill.id} produced no output (stopReason=${assistantMessage.stopReason ?? 'unknown'})`,
-        );
+        } catch (err) {
+          return {
+            content: [{ type: 'text', text: `Could not queue ${skill.frontmatter.name}: ${(err as Error).message}` }],
+            details: { skill_id: skill.id, proposed: false },
+          };
+        }
       }
 
-      // Seamless completion — same writes that POST /api/projects/{id}/skills
-      // performs when the founder runs a skill from the Readiness UI. Closes
-      // the chat→skill_completions gap so stages score in real time without
-      // a separate UI step. Non-fatal: if the writes fail (FK violation,
-      // schema mismatch), the chat tool still returns the prose output.
-      try {
-        await persistSkillCompletionFromChat({
-          userId: opts.userId,
-          projectId: opts.projectId,
-          skillId: skill.id,
-          summary: output,
-        });
-      } catch (err) {
-        console.warn(
-          `[skill-tools] persistSkillCompletion failed for ${skill.id} (non-fatal):`,
-          (err as Error).message,
-        );
-      }
-
-      return {
-        content: [{ type: 'text', text: output }],
-        details: { skill_id: skill.id, tier: skill.frontmatter.model_tier ?? 'balanced' },
-      };
     },
   };
 }
@@ -363,7 +280,7 @@ async function maybeWriteIdeaCanvas(args: {
   const start = args.summary.indexOf('"idea_canvas"');
   if (start === -1) return;
   // Walk back to the enclosing `{`, then forward to find the matching `}`.
-  let openIdx = args.summary.lastIndexOf('{', start);
+  const openIdx = args.summary.lastIndexOf('{', start);
   if (openIdx === -1) return;
   let depth = 0;
   let endIdx = -1;

@@ -15,6 +15,7 @@
 
 import { query } from '@/lib/db';
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
+import type { ProjectSnapshot } from '@/lib/journey/types';
 import { getStageReadiness } from '@/lib/stage-readiness';
 
 export interface FreshSignal {
@@ -78,10 +79,13 @@ async function freshSignals(projectId: string, since: string | Date | null | und
 export interface ComputeOpts {
   /** Timestamp of the founder's previous chat message — drives fresh_signals. */
   lastChatAt?: string | Date | null;
+  /** Pre-built snapshot to reuse. The chat route already builds one per turn
+   *  for stage context; passing it here avoids a second 16-query snapshot. */
+  snapshot?: ProjectSnapshot;
 }
 
 export async function computeNextBestAction(projectId: string, opts: ComputeOpts = {}): Promise<NextBestAction> {
-  const snapshot = await buildProjectSnapshot(projectId);
+  const snapshot = opts.snapshot ?? await buildProjectSnapshot(projectId);
   const evaluations = evaluateAllStages(snapshot);
   const active = activeStage(evaluations);
   const readiness = await getStageReadiness(projectId);
