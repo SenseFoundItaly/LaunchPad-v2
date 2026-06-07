@@ -23,6 +23,7 @@ import { captureWorkflow } from '@/lib/workflow-capture';
 import { pickModel, type TaskLabel } from '@/lib/llm/router';
 import { rankSkillsForQuery } from '@/lib/skill-relevance';
 import { persistArtifact } from '@/lib/artifact-persistence';
+import { renderContentMappingForPrompt, findMatchingSkill } from '@/lib/llm/content-mapping';
 
 /**
  * Detect simple follow-up messages that don't need Sonnet's reasoning depth.
@@ -127,15 +128,7 @@ Rule of thumb: if a skill covers the founder's question, PROPOSE it rather than 
 Examples of stage-advance intent in the founder's message: "advance", "move to stage X", "close stage X", "fire the Y skill", "kick off", "make stage X move off N%", "run the next skill", "what's the next step in validating Y", or any direct mention of a skill name. When you see any of these, proposing the relevant skill_* tool is your FIRST action.
 
 Content-mapping (apply BEFORE web_search when the founder's question maps cleanly to a registered skill; do this even WITHOUT the explicit trigger phrases above):
-- Pricing, unit economics, willingness-to-pay, LTV/CAC, margins → skill_business_model
-- TAM/SAM/SOM, market sizing, competitors map, segments → skill_market_research
-- Personas, ICP, buyer profile, interview targets → skill_scientific_validation
-- Risks, fatal flaws, what could kill this → skill_risk_scoring
-- GTM, channels, launch plan, distribution → skill_gtm_strategy
-- Pitch deck, fundraising readiness, investor materials → skill_investment_readiness
-- Weekly metrics, churn, KPIs, growth health → skill_weekly_metrics
-- Lean Canvas, structure my idea, problem-solution fit → skill_idea_shaping
-- Financial projections, runway, burn → skill_financial_model
+${renderContentMappingForPrompt()}
 
 Rule of thumb: if the founder asks a domain question and a skill covers that domain, PROPOSE the skill rather than web_search. Skills (once the founder approves) produce durable validation evidence (skill_completions row, section_scores, idea_canvas updates); web_search produces ephemeral prose. Both are useful but only the first MOVES THE VALIDATION NEEDLE.
 
