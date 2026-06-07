@@ -15,12 +15,29 @@
 
 import { query } from '@/lib/db';
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
-import type { ProjectSnapshot } from '@/lib/journey/types';
+import type { ProjectSnapshot, StageEvaluation } from '@/lib/journey/types';
 import { getStageReadiness } from '@/lib/stage-readiness';
 
 export interface FreshSignal {
   headline: string;
   created_at: string;
+}
+
+/** Adversarial-spine override emitted by `detectRiskOverrides` (iteration 3).
+ *  When non-empty, the opener must surface the override as a visible artifact
+ *  BEFORE advancing the founder. Iteration 3 ships only the `thin_evidence`
+ *  severity; the others are scaffolded for iteration 4+ per design doc OQ.
+ *
+ *  See: mikececconello-launchpad-v2-project-design-20260607-222823.md WS-S. */
+export interface RiskOverride {
+  stage_number: number;
+  severity: 'thin_evidence' | 'unresolved_assumption' | 'downstream_contradiction';
+  /** Founder-facing label naming what's thin (e.g. "only 1 interview behind
+   *  the Persona check; gate prefers ≥3 for real validation"). */
+  gap_label: string;
+  /** Short CTA the prompt + UI render verbatim as the rollback option
+   *  (e.g. "Run skill_scientific_validation with 3+ interview targets"). */
+  rollback_action: string;
 }
 
 export interface NextBestAction {
@@ -44,6 +61,9 @@ export interface NextBestAction {
   /** ecosystem_alerts newer than the last chat message — the "what changed
    *  since last time" line. Empty on first session (no prior message). */
   fresh_signals: FreshSignal[];
+  /** Adversarial-spine overrides. Non-empty when a completed stage looks GO
+   *  on paper but evidence is thin. Iteration 3 ships only `thin_evidence`. */
+  risk_overrides: RiskOverride[];
 }
 
 function isColdStart(idea: { problem: string | null; solution: string | null } | null): boolean {
@@ -74,6 +94,45 @@ async function freshSignals(projectId: string, since: string | Date | null | und
     // rather than failing the whole opener.
     return [];
   }
+}
+
+/**
+ * Detect risk overrides — the adversarial spine. Iteration 3 ships ONLY
+ * detector (a) thin_evidence; (b) unresolved_assumption and (c)
+ * downstream_contradiction are deferred to iteration 4 per design doc.
+ *
+ * Detector (a) — thin_evidence: a stage marked `done` (all journey checks
+ * passed) but the evidence behind the passing checks is sparse — e.g. one
+ * interview when the founder needs 3+ for real validation. The journey layer
+ * is binary (passed/not), so "thin" is heuristic on the snapshot inputs
+ * each check examined.
+ *
+ * **Cold-start handling:** if NO stages are `done`, return [] explicitly.
+ * Detector emits no overrides on incomplete projects — the direction engine's
+ * existing cold-start branch handles those.
+ *
+ * **Iteration-3 first cut:** the detector returns [] because the per-check
+ * evidence-count surface needed for accurate detection lives in each
+ * stage-N module and isn't exposed on `CheckResult` yet. The shape is
+ * landed; the inputs need stage-module work tracked as iteration 3.5 OQ.
+ * Logging a clear TODO so an implementer can wire it in without re-reading
+ * this design.
+ *
+ * TODO(iter-3.5): extend `CheckResult` with optional `evidence: { count: number; threshold: number }`
+ * metadata so this detector can compare. Sample fire condition:
+ *   for each evaluation.status === 'done':
+ *     thin = evaluation.results.filter(r => r.result.evidence?.count != null && r.result.evidence.count <= r.result.evidence.threshold)
+ *     if thin.length >= 1 → emit one override per stage with the most-thin check's label.
+ */
+export function detectRiskOverrides(evaluations: StageEvaluation[]): RiskOverride[] {
+  const done = evaluations.filter((e) => e.status === 'done');
+  if (done.length === 0) return [];
+  // Iteration-3 scaffold — see TODO above. Returning [] here is the honest
+  // state until CheckResult exposes evidence metadata. The integration glue
+  // (computeNextBestAction wiring + renderDirectionForPrompt block + chat
+  // prompt branch) is ALREADY in place, so when CheckResult gains the field
+  // the only edit needed is in this function body.
+  return [];
 }
 
 export interface ComputeOpts {
@@ -119,6 +178,8 @@ export async function computeNextBestAction(projectId: string, opts: ComputeOpts
     rationale = 'All stages clear. Focus shifts from validation to growth.';
   }
 
+  const risk_overrides = detectRiskOverrides(evaluations);
+
   return {
     cold_start,
     stage_number: active.stage.number,
@@ -130,6 +191,7 @@ export async function computeNextBestAction(projectId: string, opts: ComputeOpts
     action,
     rationale,
     fresh_signals: fresh,
+    risk_overrides,
   };
 }
 
@@ -140,7 +202,21 @@ export async function computeNextBestAction(projectId: string, opts: ComputeOpts
  * rendering.
  */
 export function renderDirectionForPrompt(nba: NextBestAction): string {
-  const lines: string[] = ['[DIRECTION ENGINE — your computed next move; lead with this]'];
+  const lines: string[] = [];
+  // Adversarial spine — when any risk overrides fired, surface them FIRST so
+  // the prompt knows to push back before advancing. Choice locked per design
+  // doc Premise 5: insight-card for single override, risk-matrix for 2+.
+  if (nba.risk_overrides.length > 0) {
+    const artifactType = nba.risk_overrides.length >= 2 ? 'risk-matrix' : 'insight-card';
+    lines.push('[ADVERSARIAL SPINE — surface this BEFORE advancing the founder]');
+    for (const ro of nba.risk_overrides) {
+      lines.push(`  - Stage ${ro.stage_number} is at GO but evidence is thin: ${ro.gap_label}.`);
+      lines.push(`    Rollback: ${ro.rollback_action}`);
+    }
+    lines.push(`Emit a ${artifactType} artifact citing the override(s). Include the rollback as an option in the trailing option-set. Do NOT advance past the flagged stage in prose.`);
+    lines.push('');
+  }
+  lines.push('[DIRECTION ENGINE — your computed next move; lead with this]');
   if (nba.cold_start) {
     lines.push('This is a brand-new project with no idea captured. Open by inviting the');
     lines.push(`founder to describe their idea. Next action: ${nba.action}`);
