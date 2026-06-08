@@ -232,7 +232,13 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
   const undoQueueRef = useRef(undoQueue);
   undoQueueRef.current = undoQueue;
 
-  const loadedTabs = useRef<Set<KnowledgeTab>>(new Set(['pending']));
+  // Iter-3 QA fix: eagerly load ALL three tabs on mount so the tab badge
+  // counts reflect reality. Previously only 'pending' was fetched on mount;
+  // 'applied' and 'rejected' counts read 0 until the founder clicked into
+  // them, which made the loudest "where did my applied facts go?" perception
+  // bug in the QA pass. See qa-report-launchpad-v2-20260608-* — DB had 23
+  // applied memory_facts hidden behind an "In Context (0)" tab label.
+  const loadedTabs = useRef<Set<KnowledgeTab>>(new Set(['pending', 'applied', 'rejected']));
 
   // ---------------------------------------------------------------------------
   // Data fetching
@@ -256,7 +262,14 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
   }, [projectId]);
 
   useEffect(() => {
-    void fetchItemsForTab('pending').finally(() => setLoading(false));
+    // Iter-3 QA fix: fetch all three tabs in parallel on mount so the
+    // tab badges show real counts immediately. Each tab caps at 50 items,
+    // three independent queries are well within budget for first paint.
+    void Promise.all([
+      fetchItemsForTab('pending'),
+      fetchItemsForTab('applied'),
+      fetchItemsForTab('rejected'),
+    ]).finally(() => setLoading(false));
   }, [fetchItemsForTab]);
 
   // Re-fetch every loaded tab when the parent bumps `refreshNonce` (e.g. after
