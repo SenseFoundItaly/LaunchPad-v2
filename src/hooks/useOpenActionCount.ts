@@ -18,10 +18,17 @@ export function useOpenActionCount(projectId: string): { count: number } {
       );
       if (!res.ok) return 0;
       const body = await res.json();
-      const summary = body?.summary;
-      const pending = typeof summary?.pending === 'number' ? summary.pending : 0;
-      const edited = typeof summary?.edited === 'number' ? summary.edited : 0;
-      return pending + edited;
+      // Iter-3 QA fix: API returns summary fields nested under data.summary,
+      // and Postgres COUNT(*) serializes as BIGINT string via postgres.js.
+      // Read from data.summary AND coerce to number. Previously the strict
+      // typeof check fell through to 0, making the nav badge always read
+      // "0 pending" even when 4 actions were pending in DB.
+      const summary = body?.data?.summary ?? body?.summary;
+      const toNum = (v: unknown): number => {
+        const n = typeof v === 'number' ? v : Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+      return toNum(summary?.pending) + toNum(summary?.edited);
     },
   });
 
