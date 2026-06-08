@@ -822,17 +822,28 @@ step('smarcamento: aggregate behavior eval', async () => {
   const missingStages = stageCoverage.filter((s) => s.hits.length === 0);
 
   // (5) Validation-evidence: chat-driven skill firings should produce real
-  //     skill_completions rows. This is the regression gate for the
-  //     research↔validation merge — without it, the chat could fall back to
-  //     consulting mode and we'd never know from coverage alone.
-  //     Threshold: at least MIN_CHAT_SKILL_FIRES skills must land rows. 2
-  //     is conservative — the harness's content-mapping prompt should push
-  //     3-5 in healthy runs.
+  //     evidence rows. Iteration-3 R0 — under arch-C (f12f945), chat→skill
+  //     creates a `run_skill` pending_action FIRST; only after user approval
+  //     does the executor write a `skill_completions` row. The e2e harness
+  //     never approves, so completions stayed at 0 even when the chat fired
+  //     skills correctly. Pre-R0 logic counted skill_completions only and
+  //     reported validation=0% for a valid arch-C path. Fix: count chat-
+  //     fired skills that landed in EITHER table.
+  //     Threshold: at least MIN_CHAT_SKILL_FIRES skills must produce evidence.
   const MIN_CHAT_SKILL_FIRES = 2;
   const skillToolCalls = allTools.filter((name) => name.startsWith('skill_')).length;
   const skillRows = await db()`
     SELECT skill_id FROM skill_completions
      WHERE project_id = ${state.smarcamentoProjectId} AND status = 'completed'`;
+  // pending_actions with action_type='run_skill' — chat-side proposal queue
+  // that hasn't been approved yet. Under arch-C this is the SoT for "chat
+  // fired the skill"; completion only happens after explicit user approval.
+  // pending_actions.payload is the JSONB column (NOT 'data' — that name is
+  // taken in other domain tables). For action_type='run_skill', the executor
+  // contract expects payload.skill_id (see src/lib/action-executors.ts:701).
+  const pendingSkillRows = await db()`
+    SELECT (payload->>'skill_id') AS skill_id FROM pending_actions
+     WHERE project_id = ${state.smarcamentoProjectId} AND action_type = 'run_skill'`;
   // The execution-half step that runs after this also writes 7 stub rows;
   // we only want to count rows landed BEFORE that step ran. Use a timing
   // marker: chat-driven rows have completed_at older than turn_end.
@@ -849,10 +860,14 @@ step('smarcamento: aggregate behavior eval', async () => {
       .filter((name) => name.startsWith('skill_'))
       .map((name) => name.replace(/^skill_/, '').replace(/_/g, '-')),
   );
-  const landedFromChat = skillRows.filter((r) => chatFiredSkillIds.has(r.skill_id)).length;
+  const evidenceSkillIds = new Set([
+    ...skillRows.map((r) => r.skill_id).filter(Boolean),
+    ...pendingSkillRows.map((r) => r.skill_id).filter(Boolean),
+  ]);
+  const landedFromChat = [...chatFiredSkillIds].filter((id) => evidenceSkillIds.has(id)).length;
   if (landedFromChat < MIN_CHAT_SKILL_FIRES) {
     issues.push(
-      `only ${landedFromChat} chat-driven skill_completions landed (min ${MIN_CHAT_SKILL_FIRES}). ` +
+      `only ${landedFromChat} chat-driven skill firings landed (completion OR run_skill pending — min ${MIN_CHAT_SKILL_FIRES}). ` +
       `skill_* tool calls: ${skillToolCalls}. ` +
       `Chat is in consulting mode — research without validation evidence.`,
     );
@@ -863,7 +878,7 @@ step('smarcamento: aggregate behavior eval', async () => {
   console.log(`    web_search calls: ${webSearchCount} (min ${MIN_WEB_SEARCHES})`);
   console.log(`    factual artifacts with web sources: ${factualWithWebSource.length}/${factualArtifacts.length} (${(sourceRate * 100).toFixed(0)}%)`);
   console.log(`    stage coverage: ${stagesUnion.size}/7 (min ${MIN_STAGE_COVERAGE})`);
-  console.log(`    chat-driven skill_completions: ${landedFromChat} (min ${MIN_CHAT_SKILL_FIRES}) — fires: ${[...chatFiredSkillIds].join(', ') || 'none'}`);
+  console.log(`    chat-driven skill firings (completion OR run_skill pending): ${landedFromChat} (min ${MIN_CHAT_SKILL_FIRES}) — fires: ${[...chatFiredSkillIds].join(', ') || 'none'}`);
   for (const s of stageCoverage) {
     const mark = s.hits.length > 0 ? 'YES' : 'NO ';
     console.log(`      ${mark} ${s.stage}/${s.name.padEnd(16)} turns: [${s.hits.join(',') || '-'}]`);
