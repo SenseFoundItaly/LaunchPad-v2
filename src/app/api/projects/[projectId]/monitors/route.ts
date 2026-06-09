@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query, get, run } from '@/lib/db';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 
 type MonitorRow = {
@@ -50,22 +51,13 @@ export async function GET(
 ) {
   const { projectId } = await params;
 
-  let orgId: string;
-  try {
-    ({ orgId } = await requireUser());
-  } catch (e) {
-    if (e instanceof AuthError) return json({ error: e.message }, e.status);
-    throw e;
-  }
-
-  const project = await get<{ id: string; org_id: string | null }>(
-    'SELECT id, org_id FROM projects WHERE id = ?',
-    projectId,
-  );
-  if (!project) return json({ error: 'Project not found' }, 404);
-  if (project.org_id && project.org_id !== orgId) {
-    return json({ error: 'Forbidden' }, 403);
-  }
+  // QA fix (2026-06-09): use tryProjectAccess so shared users (with a
+  // project_members row but a different org) can READ the monitors list.
+  // The prior owner-org-only check returned 403 for the shared user even
+  // though /intelligence + /timeline + /knowledge worked fine — splitting
+  // auth across routes is exactly the leak this helper exists to plug.
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   const monitors = await query<MonitorRow>(
     `SELECT id, project_id, type, name, schedule, config, prompt, status,

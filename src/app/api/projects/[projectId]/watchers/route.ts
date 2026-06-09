@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server';
-import { json, error } from '@/lib/api-helpers';
-import { requireUser, AuthError } from '@/lib/auth/require-user';
-import { get } from '@/lib/db';
+import { json } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { listWatchers } from '@/lib/watchers';
 
 /**
@@ -20,23 +19,13 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
-  let userId: string;
-  try {
-    ({ userId } = await requireUser());
-  } catch (e) {
-    if (e instanceof AuthError) return error(e.message, e.status);
-    throw e;
-  }
-
   const { projectId } = await params;
-  // Owner / membership check — same shape as /monitors uses
-  const proj = await get<{ owner_user_id: string | null }>(
-    `SELECT p.owner_user_id FROM projects p
-       LEFT JOIN memberships m ON m.org_id = p.org_id AND m.user_id = ?
-       WHERE p.id = ? AND (p.owner_user_id = ? OR m.user_id IS NOT NULL)`,
-    userId, projectId, userId,
-  );
-  if (!proj) return error('Project not found or not accessible', 404);
+  // Use the canonical project-access helper so shared users (project_members
+  // row with a different org) can read the unified watchers list. The earlier
+  // ad-hoc memberships-only check missed project_members and 404'd for shared
+  // users — discovered while debugging "shared project signals error" in QA.
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   const watchers = await listWatchers(projectId);
   return json(watchers);
