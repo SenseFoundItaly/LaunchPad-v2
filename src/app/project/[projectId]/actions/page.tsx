@@ -1023,6 +1023,10 @@ function agentFromType(type: PendingActionType): string {
     // configure_watch_source: in-chat watch source proposal awaiting founder
     // approval. "Scout" — same family as monitors, both about observation.
     configure_watch_source: 'Scout',
+    // run_skill: founder-approved skill kickoff. "Analyst" — the skill itself
+    // performs structured analytical work (market research, risk scoring, etc.)
+    // and writes durable evidence (skill_completions row, section_scores).
+    run_skill: 'Analyst',
     // skill_rerun_result: heartbeat-executor refreshed an analytical skill.
     // "Chief" — score-delta visibility is a CEO concern.
     skill_rerun_result: 'Chief',
@@ -1051,9 +1055,10 @@ const TYPE_LABEL: Record<PendingActionType, string> = {
   proposed_investor_followup:   'Investor follow-up',
   proposed_graph_update:        'Graph update',
   workflow_step:                'Workflow step',
-  configure_monitor:            'New monitor',
+  configure_monitor:            'New watcher',
   configure_budget:             'Budget change',
-  configure_watch_source:       'New watch source',
+  configure_watch_source:       'New watcher',
+  run_skill:                    'Skill kickoff',
   skill_rerun_result:           'Skill refresh',
   task:                         'TODO',
   // Unified-inbox surface (Phase 1 consolidation).

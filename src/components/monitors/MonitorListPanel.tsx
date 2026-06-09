@@ -47,7 +47,7 @@ function relAge(iso: string | null): string {
 function statusPill(status: string) {
   if (status === 'active') return <Pill kind="ok" dot>active</Pill>;
   if (status === 'paused') return <Pill kind="n">paused</Pill>;
-  if (status === 'error') return <Pill kind="bad">error</Pill>;
+  if (status === 'error') return <Pill kind="warn">error</Pill>;
   if (status === 'archived') return <Pill kind="n">archived</Pill>;
   return <Pill kind="n">{status}</Pill>;
 }
