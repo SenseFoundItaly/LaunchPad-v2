@@ -41,7 +41,7 @@ const LANE_LABEL: Record<ActionLane, string> = {
   todo: 'TODOs',
   approval: 'Approvals',
   notification: 'Notifications',
-  monitor: 'Monitors',
+  monitor: 'Watchers',
 };
 const LANE_ORDER: ActionLane[] = ['todo', 'approval', 'notification', 'monitor'];
 
@@ -574,7 +574,7 @@ function TicketsTable({
       notification: 'No new notifications. The system posts here when it auto-refreshes a stale skill or completes a background job.',
       // monitor lane is rendered by MonitorListPanel and never falls through
       // to this empty-state path, but the Record type wants it specified.
-      monitor: 'No active monitors. Click "+ New monitor" above to create one.',
+      monitor: 'No active watchers. Click "+ New watcher" above to create one.',
     };
     return (
       <div style={{ padding: 60, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
