@@ -16,7 +16,8 @@
  * are created by the co-pilot via propose_monitor, so the CTA opens chat.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { Pill, Icon, I } from '@/components/design/primitives';
 
@@ -110,6 +111,7 @@ export default function MonitorListPanel({
   limit?: number;
   title?: string;
 }) {
+  const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery<Monitor[]>({
     queryKey: ['monitors', projectId],
     enabled: !!projectId,
@@ -120,6 +122,21 @@ export default function MonitorListPanel({
       return body.data as Monitor[];
     },
   });
+
+  // Iter-3 QA fix: invalidate the monitors query when actions change.
+  // When the founder approves a proposed monitor in /actions, the
+  // pending_action transitions and a new monitor row materializes — but
+  // this component cached its list under ['monitors', projectId] and had
+  // no listener, leaving the panel showing the old "proposed" row until
+  // a manual refresh. Wired the same way Canvas.tsx listens to facts.
+  useEffect(() => {
+    if (!projectId) return;
+    const handler = () => {
+      queryClient.invalidateQueries({ queryKey: ['monitors', projectId] });
+    };
+    window.addEventListener('lp-actions-changed', handler);
+    return () => window.removeEventListener('lp-actions-changed', handler);
+  }, [projectId, queryClient]);
 
   const all = data ?? [];
   const rows = typeof limit === 'number' ? all.slice(0, limit) : all;
