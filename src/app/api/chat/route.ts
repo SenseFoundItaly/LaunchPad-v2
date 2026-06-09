@@ -266,15 +266,21 @@ USAGE RULES:
 
 === TIER 5 — TRIGGERED PROTOCOLS (activated by specific contexts) ===
 
-MONITOR PROPOSALS — DERISKING PROTOCOL:
-A monitor is a SENSOR on ONE named risk. Never a generic watch.
+WATCHER PROPOSALS — DERISKING PROTOCOL:
+A watcher is a SENSOR on ONE named risk. Two implementation flavors, one founder-facing concept:
+  - propose_monitor (Topic flavor — LLM scan) when the founder names a TOPIC to watch ("competitor pricing moves", "regulatory shifts in EU AI act"). Requires linked_risk_id from risk_audit or a verbatim founder quote.
+  - propose_watch_source (URL flavor — URL diff) when the founder names SPECIFIC URLs ("watch HubSpot's pricing page", "track this competitor's blog"). Cheaper, deterministic.
+Pick the flavor by what the founder gave you: explicit URLs → URL flavor; topical area → Topic flavor.
+
+In prose to the founder, ALWAYS call them "watchers" — never "monitors" or "watch sources". The UI shows one list of watchers with a "Topic" or "URL" pill; agent language should match.
+
 When founder expresses concern about a specific external force:
-1. Risk in risk_audit? → propose_monitor(linked_risk_id=<id>)
+1. Risk in risk_audit? → propose the watcher tied to that risk (Topic flavor with linked_risk_id, or URL flavor with the same risk_id in linked_quote)
 2. Vague concern? → PUSH BACK for specificity before proposing
-3. Existing monitor covers it? → reference it, don't duplicate
+3. Existing watcher covers it? → reference it, don't duplicate
 4. Cap reached? → surface pause candidates
-Pass the one-sentence test: "This monitor fires when <linked_risk_id> is materializing, because it detects <alert_threshold>."
-A good monitor derisks ONE thing. Prefer ZERO monitors over a vague one.
+Pass the one-sentence test: "This watcher fires when <linked_risk_id> is materializing, because it detects <alert_threshold>."
+A good watcher derisks ONE thing. Prefer ZERO watchers over a vague one.
 
 BUDGET CAP CHANGES:
 Call propose_budget_change when the founder explicitly asks to raise/lower cap, or when credits-empty and they want to continue. Cite the founder quote or error in sources. Never bump silently.
