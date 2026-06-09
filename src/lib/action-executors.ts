@@ -714,7 +714,16 @@ const runSkillExecutor: ActionHandler = async (action) => {
 
   // 170s — generous (it's a dedicated founder-initiated request, not racing the
   // chat turn's 8-tool / 180s budget). pi-agent force-closes cleanly past this.
-  const result = await runSkill(action.project_id, skillId, { ownerUserId, timeoutMs: 170_000 });
+  // allowAnySkill: TRUE because the founder explicitly approved this kickoff via
+  // the inbox. The auto-rerun whitelist exists to gate heartbeat / cron, not
+  // founder-driven kickoffs (otherwise pitch-coaching / gtm-strategy / etc.
+  // proposed by chat could never be approved and would fail with "not in
+  // whitelist" — observed live during QA on proj_6284f4c8-14b for idea-shaping).
+  const result = await runSkill(action.project_id, skillId, {
+    ownerUserId,
+    timeoutMs: 170_000,
+    allowAnySkill: true,
+  });
   return {
     ok: true,
     deliverable: {
