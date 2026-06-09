@@ -13,9 +13,14 @@ import postgres from 'postgres';
 import fs from 'fs';
 import path from 'path';
 
-// Load .env.local for local dev
+// Load env file. `--prod` (or `--env=production`) targets .env.production
+// so the same migrator can be pointed at prod when explicitly opted in.
+// Default is .env.local for local dev. The script never echoes any loaded
+// value — DATABASE_URL is consumed internally by postgres.js only.
+const useProd = process.argv.includes('--prod') || process.argv.includes('--env=production');
+const envFile = useProd ? '.env.production' : '.env.local';
 try {
-  const envPath = path.resolve(process.cwd(), '.env.local');
+  const envPath = path.resolve(process.cwd(), envFile);
   if (fs.existsSync(envPath)) {
     const lines = fs.readFileSync(envPath, 'utf-8').split('\n');
     for (const line of lines) {
@@ -24,8 +29,12 @@ try {
         process.env[match[1]] = match[2].replace(/^["']|["']$/g, '');
       }
     }
+  } else if (useProd) {
+    console.error(`ERROR: --prod requested but ${envFile} not found at ${envPath}`);
+    process.exit(1);
   }
 } catch { /* non-fatal */ }
+if (useProd) console.log(`[migrate] using ${envFile} (PROD target)`);
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
