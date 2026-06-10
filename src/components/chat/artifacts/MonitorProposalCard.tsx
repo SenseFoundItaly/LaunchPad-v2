@@ -249,7 +249,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
           errorMessage={serverError ?? undefined}
           variant="footer"
           destination="Active Monitors"
-          impactHint="Runs on next scheduled tick"
+          impactHint="Will run on next scheduled tick"
         />
       )}
     </ArtifactCardShell>

@@ -199,7 +199,7 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
           errorMessage={serverError ?? undefined}
           variant="footer"
           destination="Budget"
-          impactHint="Cap updated immediately"
+          impactHint="Cap will update immediately"
         />
       )}
     </ArtifactCardShell>

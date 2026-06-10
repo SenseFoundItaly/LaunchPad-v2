@@ -107,7 +107,7 @@ export default function ComparisonTable({ artifact, onAction }: ComparisonTableP
           onReject={() => review.handleReview('rejected')}
           variant="footer"
           destination="Reviews"
-          impactHint="Saved as reviewed comparison"
+          impactHint="Will save as a reviewed comparison"
         />
       }
     >

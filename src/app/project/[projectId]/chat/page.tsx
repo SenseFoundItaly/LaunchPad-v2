@@ -15,10 +15,11 @@
  * without changing this component.
  */
 
-import { use, useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { use, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from 'react';
 import api from '@/api';
 import { useChat } from '@/hooks/useChat';
 import { useProject } from '@/hooks/useProject';
+import { splitOptionLabel } from '@/components/chat/option-label';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import type { Artifact, ArtifactType } from '@/types/artifacts';
 import { Canvas } from '@/components/canvas/Canvas';
@@ -44,6 +45,16 @@ const INLINE_ARTIFACT_TYPES = new Set<ArtifactType>([
   'option-set', 'action-suggestion', 'task',
   'monitor-proposal', 'budget-proposal',
 ]);
+
+// Message paging: long threads (40+ screens) render only this many trailing
+// messages by default; a quiet expander at the top mounts the rest on demand.
+// Pure render-window — the full `messages` array stays in memory (artifact
+// classification, context export, and the canvas all still see every turn).
+const VISIBLE_MESSAGE_TAIL = 25;
+
+// Smart autoscroll: how close to the bottom (px) the reader must be for new
+// content to keep auto-pinning the scroll position.
+const NEAR_BOTTOM_PX = 150;
 
 function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artifact[] } {
   const segments = parseMessageContent(content);
@@ -239,13 +250,43 @@ export default function CopilotChatPage({
   // One project = one chat. The chat_messages.step column is fixed to 'chat'
   // (multi-thread routing was removed — see commit history).
   const step = 'chat';
-  const { messages, isStreaming, sendMessage, setMessages, messageCosts } = useChat(projectId, step);
+  const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages, messageCosts } = useChat(projectId, step);
   const [input, setInput] = useState('');
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Turn-linked canvas: which chat message is hovered (null = none).
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   const { count: inboxBadge } = useOpenActionCount(projectId);
+
+  // --- Message paging -------------------------------------------------------
+  // Render only the trailing VISIBLE_MESSAGE_TAIL messages by default; the
+  // expander at the top of the thread mounts the rest. Client-side only — no
+  // API change (history is already fully loaded into `messages`).
+  const [showAllMessages, setShowAllMessages] = useState(false);
+  // Scroll anchor captured at expand-click so prepended content doesn't jump
+  // the reader's position (compensated before paint in the layout effect).
+  const expandAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+
+  // --- Smart autoscroll ------------------------------------------------------
+  // Refs (not state) so per-SSE-chunk updates never trigger extra renders:
+  //   isNearBottomRef — reader's position as of the last scroll event
+  //                     (programmatic pins also fire onScroll, keeping it true)
+  //   forceScrollRef  — one-shot pin: own send, history restore, pill click
+  // showJumpPill is handler-driven only (onScroll / clicks) — never set from
+  // an effect, so the stream loop stays free of state-update cascades.
+  const isNearBottomRef = useRef(true);
+  const forceScrollRef = useRef(false);
+  const [showJumpPill, setShowJumpPill] = useState(false);
+
+  // Every send path (composer, retry, quick-reply chips, option clicks,
+  // canvas skill kickoffs) is a deliberate jump to the live edge — queue a
+  // one-shot pin so the user's own turn always lands in view, even if they
+  // had scrolled up. Wrapping here centralizes it instead of sprinkling the
+  // flag across call sites.
+  const sendMessage = useCallback((content: string) => {
+    forceScrollRef.current = true;
+    sendMessageRaw(content);
+  }, [sendMessageRaw]);
 
   // Fire lp-actions-changed immediately when streaming ends so downstream
   // surfaces (badge counts, inline cards) refetch without waiting for poll.
@@ -278,11 +319,23 @@ export default function CopilotChatPage({
             tools: m.tools_json ? JSON.parse(m.tools_json) : undefined,
           }))
           : [];
+        // Restored history replaces the whole thread: collapse paging, hide
+        // the jump pill, and force one pin-to-bottom. The force flag matters
+        // because the component instance survives projectId param changes —
+        // a stale "scrolled up" reading from the previous thread must not
+        // suppress the initial scroll of the new one. (Refs are set BEFORE
+        // setMessages so the [messages] effect sees them in this render pass.)
+        forceScrollRef.current = true;
+        setShowAllMessages(false);
+        setShowJumpPill(false);
         setMessages(restored);
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
         console.warn('[chat] history fetch failed:', (err as Error).message);
+        forceScrollRef.current = true;
+        setShowAllMessages(false);
+        setShowJumpPill(false);
         setMessages([]);
       })
       .finally(() => {
@@ -293,10 +346,71 @@ export default function CopilotChatPage({
     };
   }, [projectId, step, setMessages]);
 
-  // Auto-scroll to newest
+  // Smart autoscroll — replaces the old unconditional scroll-to-bottom.
+  // Only pin to the newest content when the reader is already near the bottom
+  // (or a one-shot force pin is queued: own send / history restore). When the
+  // reader has scrolled up, their position is left completely untouched —
+  // streaming chunks never yank them away from earlier content; the
+  // handler-driven "Jump to latest" pill is their way back.
+  //
+  // Stream-safety: this effect runs on every SSE chunk (each chunk produces a
+  // new `messages` array), but it's pure DOM synchronization — one scrollTop
+  // write, zero setState — so the stream loop causes no render cascades.
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const el = scrollRef.current;
+    if (!el) return;
+    if (forceScrollRef.current || isNearBottomRef.current) {
+      forceScrollRef.current = false;
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages]);
+
+  // Track the reader's position. Fires for user scrolls AND our programmatic
+  // pins (browsers emit scroll events for scrollTop writes), so the ref stays
+  // truthful in both directions. The pill simply means "not at the live edge":
+  // it appears when the reader scrolls up past the threshold and dismisses
+  // when they return (manually or via the pill). React bails out of the
+  // setState when the boolean is unchanged, so this renders only on
+  // boundary crossings — not per scroll frame.
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    isNearBottomRef.current = near;
+    setShowJumpPill(!near);
+  }, []);
+
+  const jumpToLatest = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Instant (not smooth) on purpose: a smooth animation across a long
+    // thread would let intermediate scroll frames resurrect the pill and
+    // fight incoming stream chunks. Instant lands at the live edge in one
+    // frame; the force flag covers a chunk growing scrollHeight same-tick.
+    isNearBottomRef.current = true;
+    forceScrollRef.current = true;
+    el.scrollTop = el.scrollHeight;
+    setShowJumpPill(false);
+  }, []);
+
+  const expandEarlier = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) {
+      expandAnchorRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop };
+    }
+    setShowAllMessages(true);
+  }, []);
+
+  // After the older messages mount ABOVE the viewport, compensate scrollTop by
+  // exactly the added height — before paint — so the reader stays anchored on
+  // the message they were looking at when they clicked the expander.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const anchor = expandAnchorRef.current;
+    if (!showAllMessages || !el || !anchor) return;
+    expandAnchorRef.current = null;
+    el.scrollTop = anchor.scrollTop + (el.scrollHeight - anchor.scrollHeight);
+  }, [showAllMessages]);
 
   // Split parsed artifacts: option-set / action-suggestion render INLINE in
   // the chat bubble; everything else goes to the right Canvas.
@@ -334,6 +448,12 @@ export default function CopilotChatPage({
       inlineArtifactsByMsgId: inlineMap,
     };
   }, [messages]);
+
+  // Render window: everything stays in `messages` (artifact maps above are
+  // computed over the FULL array, so inline artifacts in older messages still
+  // work when expanded) — only the rendered list is windowed.
+  const hiddenCount = showAllMessages ? 0 : Math.max(0, messages.length - VISIBLE_MESSAGE_TAIL);
+  const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
 
   function handleSend() {
     const v = input.trim();
@@ -578,46 +698,103 @@ export default function CopilotChatPage({
         >
           <ChatHeader project={project} locale={locale} />
 
-          <div
-            ref={scrollRef}
-            className="lp-scroll"
-            style={{ flex: 1, overflow: 'auto', padding: '16px 20px 20px' }}
-          >
-            {!historyLoaded && messages.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--ink-5)', padding: 20, textAlign: 'center' }}>
-                Loading history…
-              </div>
-            ) : messages.length === 0 ? (
-              <ChatEmptyState
-                locale={locale}
-                onPick={(s) => setInput(s)}
-              />
-            ) : (
-              messages.map((m) => (
-                <Msg
-                  key={m.id}
-                  messageId={m.id}
-                  who={m.role === 'user' ? 'user' : 'ai'}
-                  agent="Chief"
-                  streaming={m.role === 'assistant' && isStreaming && m === messages[messages.length - 1]}
-                  tools={m.tools}
-                  rawContent={m.content}
-                  inlineArtifacts={inlineArtifactsByMsgId.get(m.id)}
-                  onArtifactAction={handleArtifactAction}
-                  onQuickReply={!isStreaming ? sendMessage : undefined}
-                  onMouseEnter={() => setFocusedMessageId(m.id)}
-                  onMouseLeave={() => setFocusedMessageId((prev) => prev === m.id ? null : prev)}
-                  // Retry only for user messages; disabled while streaming
-                  // to prevent double-sends. Reuses sendMessage so the
-                  // retried turn goes through the same memory-context +
-                  // cost-throttle + skill-tools pipeline as a fresh send.
-                  onRetry={
-                    m.role === 'user' && !isStreaming ? sendMessage : undefined
-                  }
-                >
-                  {stripArtifacts(m.content)}
-                </Msg>
-              ))
+          <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <div
+              ref={scrollRef}
+              className="lp-scroll"
+              onScroll={handleScroll}
+              style={{ flex: 1, overflow: 'auto', padding: '16px 20px 20px' }}
+            >
+              {!historyLoaded && messages.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--ink-5)', padding: 20, textAlign: 'center' }}>
+                  Loading history…
+                </div>
+              ) : messages.length === 0 ? (
+                <ChatEmptyState
+                  locale={locale}
+                  onPick={(s) => setInput(s)}
+                />
+              ) : (
+                <>
+                  {hiddenCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={expandEarlier}
+                      className="lp-mono"
+                      style={{
+                        display: 'block',
+                        margin: '0 auto 16px',
+                        padding: '4px 12px',
+                        fontSize: 10.5,
+                        letterSpacing: 0.3,
+                        color: 'var(--ink-4)',
+                        background: 'var(--paper-2)',
+                        border: '1px solid var(--line)',
+                        borderRadius: 999,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {locale === 'it'
+                        ? `Mostra conversazione precedente (${hiddenCount} in più)`
+                        : `Show earlier conversation (${hiddenCount} more)`}
+                    </button>
+                  )}
+                  {visibleMessages.map((m) => (
+                    <Msg
+                      key={m.id}
+                      messageId={m.id}
+                      who={m.role === 'user' ? 'user' : 'ai'}
+                      agent="Chief"
+                      streaming={m.role === 'assistant' && isStreaming && m === messages[messages.length - 1]}
+                      tools={m.tools}
+                      rawContent={m.content}
+                      inlineArtifacts={inlineArtifactsByMsgId.get(m.id)}
+                      onArtifactAction={handleArtifactAction}
+                      onQuickReply={!isStreaming ? sendMessage : undefined}
+                      onMouseEnter={() => setFocusedMessageId(m.id)}
+                      onMouseLeave={() => setFocusedMessageId((prev) => prev === m.id ? null : prev)}
+                      // Retry only for user messages; disabled while streaming
+                      // to prevent double-sends. Reuses sendMessage so the
+                      // retried turn goes through the same memory-context +
+                      // cost-throttle + skill-tools pipeline as a fresh send.
+                      onRetry={
+                        m.role === 'user' && !isStreaming ? sendMessage : undefined
+                      }
+                    >
+                      {stripArtifacts(m.content)}
+                    </Msg>
+                  ))}
+                </>
+              )}
+            </div>
+            {showJumpPill && (
+              <button
+                type="button"
+                onClick={jumpToLatest}
+                title={locale === 'it' ? 'Vai all\'ultimo messaggio' : 'Scroll to the latest message'}
+                style={{
+                  position: 'absolute',
+                  bottom: 14,
+                  right: 16,
+                  zIndex: 20,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11.5,
+                  fontWeight: 500,
+                  fontFamily: 'inherit',
+                  color: 'var(--paper)',
+                  background: 'var(--ink)',
+                  border: 'none',
+                  borderRadius: 999,
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(0,0,0,.18)',
+                }}
+              >
+                <Icon d={I.arrow} size={11} style={{ transform: 'rotate(90deg)' }} />
+                {locale === 'it' ? 'Vai all\'ultimo' : 'Jump to latest'}
+              </button>
             )}
           </div>
 
@@ -712,16 +889,21 @@ function ChatEmptyState({
   locale: 'en' | 'it';
   onPick: (s: string) => void;
 }) {
+  // Starter prompts assume a BRAND-NEW project (the empty state only shows
+  // before the first message, i.e. day zero) — so they're early-stage by
+  // construction: structure the idea, map competitors, pick what to validate.
+  // The old prompts ("ecosystem this week", "numbers and runway", "inbox")
+  // assumed a mature project with data none of which exists yet.
   const prompts = locale === 'it'
     ? [
-      'Cosa si è mosso nel mio ecosistema questa settimana?',
-      'Riassumi i miei numeri e la mia runway',
-      'Cosa ho nell\'inbox?',
+      'Aiutami a strutturare la mia idea',
+      'Chi sono i miei competitor?',
+      'Cosa dovrei validare per primo?',
     ]
     : [
-      'What moved in my ecosystem this week?',
-      'Summarize my numbers and runway',
-      'What do I have in my inbox?',
+      'Help me structure my idea',
+      'Who are my competitors?',
+      'What should I validate first?',
     ];
 
   return (
@@ -1128,38 +1310,66 @@ function InlineArtifact({
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {options.map((o, i) => (
-            <button
-              key={o.id || i}
-              type="button"
-              onClick={() =>
-                onAction?.('select-option', {
-                  optionId: o.id ?? String(i),
-                  label: o.label ?? `Option ${i + 1}`,
-                })
-              }
-              className="lp-inline-option"
-              style={{
-                textAlign: 'left',
-                padding: '9px 11px',
-                border: '1px solid var(--line-2)',
-                borderRadius: 'var(--r-m)',
-                background: 'var(--paper)',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                color: 'var(--ink-2)',
-              }}
-            >
-              <div style={{ fontSize: 12.5, fontWeight: 500 }}>
-                {o.label || `Option ${i + 1}`}
-              </div>
-              {o.description && (
-                <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2, lineHeight: 1.4 }}>
-                  {o.description}
+          {options.map((o, i) => {
+            // UI guardrail: the model sometimes emits paragraph-length labels.
+            // Split essays into label (first clause) + description overflow,
+            // then CSS-clamp: label = 1 line, description = 2 lines. The full
+            // text stays reachable via the title attribute.
+            const split = splitOptionLabel(o.label || `Option ${i + 1}`, o.description);
+            return (
+              <button
+                key={o.id || i}
+                type="button"
+                title={split.full}
+                onClick={() =>
+                  onAction?.('select-option', {
+                    optionId: o.id ?? String(i),
+                    label: split.label || `Option ${i + 1}`,
+                  })
+                }
+                className="lp-inline-option"
+                style={{
+                  textAlign: 'left',
+                  padding: '9px 11px',
+                  border: '1px solid var(--line-2)',
+                  borderRadius: 'var(--r-m)',
+                  background: 'var(--paper)',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  color: 'var(--ink-2)',
+                  minWidth: 0,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {split.label || `Option ${i + 1}`}
                 </div>
-              )}
-            </button>
-          ))}
+                {split.description && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--ink-4)',
+                      marginTop: 2,
+                      lineHeight: 1.4,
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {split.description}
+                  </div>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
     );

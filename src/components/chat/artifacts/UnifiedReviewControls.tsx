@@ -29,7 +29,9 @@ export interface UnifiedReviewControlsProps {
   variant?: 'inline' | 'footer';
   /** Where data goes when applied, e.g. "Knowledge Graph" */
   destination?: string;
-  /** Brief impact description, e.g. "Will inform future AI responses" */
+  /** Brief impact description, e.g. "Will inform future AI responses".
+   *  Rendered ONLY while the action is still pending (next to live
+   *  Apply/Reject controls) — so always write it in FUTURE tense. */
   impactHint?: string;
 }
 
