@@ -1,42 +1,21 @@
 /**
- * Stage 7 — Growth.
- * Loops running. Metrics tracked. Runway clear (or revenue replacing it).
- * The founder is no longer guessing — they're optimizing.
+ * Stage 6 — Fundraise.
+ * Runway is clear (or revenue is replacing it) and the capital plan is in
+ * motion — a round open or revenue compounding.
+ *
+ * Re-bucketing note (2026-06 taxonomy unification): legacy "Growth"'s
+ * runway_clear + capital_plan checks, unchanged ids and evaluator logic.
+ * Growth's loop/metric checks moved to Stage 7 (Operate).
  */
 
 import type { Stage } from './types';
+import { CANONICAL_BY_ID } from './canonical';
 import { computeRunwayMonths } from '@/lib/finance/runway';
 
-export const stageGrowth: Stage = {
-  id: 'growth',
-  number: 7,
-  label: 'Growth',
-  tagline: 'Loops compounding, metrics moving, runway clear.',
+export const stageFundraise: Stage = {
+  ...CANONICAL_BY_ID.fundraise,
+  tagline: 'Runway clear, capital plan in motion.',
   checks: [
-    {
-      id: 'loop_active',
-      label: '1+ growth loop active',
-      source: 'growth_loops',
-      evaluate: (s) => {
-        const active = s.growth_loops.filter((l) => l.status === 'active').length;
-        const ok = active >= 1;
-        return ok
-          ? { passed: true, evidence: `${active} active loop${active === 1 ? '' : 's'}` }
-          : { passed: false, gap: 'Design a growth loop with Co-pilot' };
-      },
-    },
-    {
-      id: 'metrics_tracked',
-      label: '3+ metrics tracked',
-      source: 'metrics',
-      evaluate: (s) => {
-        const n = s.metrics.length;
-        const ok = n >= 3;
-        return ok
-          ? { passed: true, evidence: `${n} metrics tracked` }
-          : { passed: false, gap: `${n} of 3 — wire activation, retention, revenue` };
-      },
-    },
     {
       id: 'runway_clear',
       label: 'Runway ≥ 12 months',

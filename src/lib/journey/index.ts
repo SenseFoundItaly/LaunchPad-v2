@@ -7,15 +7,24 @@
  */
 
 import type { ProjectSnapshot, Stage, StageEvaluation } from './types';
-import { stageSpark } from './stage-1-spark';
-import { stageProblem } from './stage-2-problem';
-import { stageSolution } from './stage-3-solution';
-import { stageSegment } from './stage-4-segment';
-import { stageMvp } from './stage-5-mvp';
-import { stagePricing } from './stage-6-pricing';
-import { stageGrowth } from './stage-7-growth';
+import { stageIdeaValidation } from './stage-1-idea-validation';
+import { stageMarketValidation } from './stage-2-market-validation';
+import { stagePersona } from './stage-3-persona';
+import { stageBusinessModel } from './stage-4-business-model';
+import { stageBuildLaunch } from './stage-5-build-launch';
+import { stageFundraise } from './stage-6-fundraise';
+import { stageOperate } from './stage-7-operate';
 
 export { buildProjectSnapshot, countMemoryFactsMatching } from './snapshot';
+// Canonical id/number/label source of truth — import from here (or from
+// './canonical' directly in client code) instead of hardcoding stage names.
+export {
+  CANONICAL_STAGES,
+  CANONICAL_BY_ID,
+  canonicalStageLabel,
+  canonicalStageId,
+} from './canonical';
+export type { CanonicalStage } from './canonical';
 export type {
   StageId,
   StageCheck,
@@ -26,13 +35,13 @@ export type {
 } from './types';
 
 export const STAGES: Stage[] = [
-  stageSpark,
-  stageProblem,
-  stageSolution,
-  stageSegment,
-  stageMvp,
-  stagePricing,
-  stageGrowth,
+  stageIdeaValidation,
+  stageMarketValidation,
+  stagePersona,
+  stageBusinessModel,
+  stageBuildLaunch,
+  stageFundraise,
+  stageOperate,
 ];
 
 export function evaluateAllStages(snapshot: ProjectSnapshot): StageEvaluation[] {

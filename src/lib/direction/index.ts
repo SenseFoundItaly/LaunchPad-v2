@@ -165,7 +165,7 @@ export async function computeNextBestAction(projectId: string, opts: ComputeOpts
   let rationale: string;
   if (cold_start) {
     action = 'Tell me about your idea so I can structure it into a canvas';
-    rationale = 'New project — no idea captured yet. Start at Spark.';
+    rationale = 'New project — no idea captured yet. Start at Idea Validation.';
   } else if (recommended_skill) {
     action = recommended_skill.kickoff;
     rationale = `Stage ${active.stage.number} (${active.stage.label}) — ${active.passed}/${active.total} checks passed`

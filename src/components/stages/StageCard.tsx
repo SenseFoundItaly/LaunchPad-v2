@@ -62,6 +62,18 @@ export function StageCard({ projectId }: { projectId: string }) {
   // Edge case: everything done → show the last stage as a "all clear" card.
   const headline = active ?? data.evaluations[data.evaluations.length - 1];
 
+  // Time-gated detection: some checks can't be closed by founder action right
+  // now — they need watchers/monitors to accumulate signals over time
+  // (segment_signals, or any gap that says "let monitors run"). When EVERY
+  // open gap on the active stage is time-gated, "go talk to the Co-pilot"
+  // is the wrong CTA — waiting is the action.
+  const openGaps = active ? active.results.filter((r) => !r.result.passed) : [];
+  const onlyTimeGatedGaps =
+    openGaps.length > 0 &&
+    openGaps.every(
+      (r) => r.check.id === 'segment_signals' || /let monitors run/i.test(r.result.gap ?? ''),
+    );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* Past stages — compact strip */}
@@ -86,7 +98,7 @@ export function StageCard({ projectId }: { projectId: string }) {
         subtitle={headline.stage.tagline}
         right={
           <Pill kind={headline.status === 'done' ? 'ok' : 'live'} dot={headline.status === 'active'}>
-            {headline.passed} of {headline.total}
+            Evidence: {headline.passed} of {headline.total} checks
           </Pill>
         }
       >
@@ -105,7 +117,9 @@ export function StageCard({ projectId }: { projectId: string }) {
             gap: 10,
           }}>
             <span style={{ fontSize: 12, color: 'var(--ink-3)', flex: 1 }}>
-              Next: address the gaps above with the Co-pilot.
+              {onlyTimeGatedGaps
+                ? 'Monitors running — check back after the next weekly scan.'
+                : 'Next: address the gaps above with the Co-pilot.'}
             </span>
             <Link href={`/project/${projectId}/chat`} style={ctaStyle}>
               Open Co-pilot →

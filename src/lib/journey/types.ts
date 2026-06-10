@@ -10,14 +10,19 @@
  * checks passed, here's what's missing, here's the next action."
  */
 
+/** Canonical stage ids — see ./canonical.ts for the id/number/label source
+ *  of truth. These ids are NOT persisted in the DB (verified 2026-06-10:
+ *  they only flow through API responses and prompt context), so renaming
+ *  from the legacy spark/problem/solution/segment/mvp/pricing/growth set
+ *  required no data migration. */
 export type StageId =
-  | 'spark'
-  | 'problem'
-  | 'solution'
-  | 'segment'
-  | 'mvp'
-  | 'pricing'
-  | 'growth';
+  | 'idea_validation'
+  | 'market_validation'
+  | 'persona'
+  | 'business_model'
+  | 'build_launch'
+  | 'fundraise'
+  | 'operate';
 
 /** A single evidence check for a stage. Reads the snapshot, returns a verdict. */
 export interface StageCheck {
@@ -79,6 +84,10 @@ export interface ProjectSnapshot {
   }>;
   research: Record<string, unknown> | null;
   monitors: Array<{ id: string; status: string }>;
+  /** URL watchers (watch_sources rows). Counted alongside monitors by the
+   *  `monitors_set` check — a founder who sets up URL watchers is actively
+   *  signal-watching even with zero topic monitors. */
+  watch_sources: Array<{ id: string; status: string }>;
   pricing_state: {
     anchor_price: number | null;
     tiers: unknown[];

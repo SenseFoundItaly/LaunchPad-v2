@@ -1,15 +1,17 @@
 /**
- * Stage 6 — Pricing.
+ * Stage 4 — Business Model.
  * Anchor set. Tiers articulated. Willingness-to-pay researched. Unit
  * economics show a viable shape (LTV : CAC at least 1, payback under 18mo).
+ *
+ * Re-bucketing note (2026-06 taxonomy unification): all of legacy
+ * "Pricing"'s checks, unchanged ids and evaluator logic.
  */
 
 import type { Stage } from './types';
+import { CANONICAL_BY_ID } from './canonical';
 
-export const stagePricing: Stage = {
-  id: 'pricing',
-  number: 6,
-  label: 'Pricing',
+export const stageBusinessModel: Stage = {
+  ...CANONICAL_BY_ID.business_model,
   tagline: 'Anchor, tiers, WTP, sane unit economics.',
   checks: [
     {

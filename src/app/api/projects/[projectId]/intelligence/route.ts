@@ -4,6 +4,7 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { get, query } from '@/lib/db';
 import { listFacts } from '@/lib/memory/facts';
 import { STAGES } from '@/lib/stages';
+import { canonicalStageId } from '@/lib/journey/canonical';
 import { scoreStage } from '@/lib/scoring';
 import type { SkillData } from '@/hooks/useSkillStatus';
 
@@ -80,9 +81,6 @@ function verdictKey(v: string): StageVerdict {
   return 'not_ready';
 }
 
-function stageSlug(name: string): string {
-  return name.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '');
-}
 
 export async function GET(
   _request: NextRequest,
@@ -174,7 +172,9 @@ export async function GET(
       .sort((a, b) => (b.at > a.at ? 1 : -1))[0];
 
     return {
-      id: stageSlug(stage.name),
+      // Canonical stage id — same id the journey evaluator (/api/.../stages)
+      // returns for this stage number, so both surfaces agree on identity.
+      id: canonicalStageId(stage.number),
       name: stage.name,
       order: stage.number,
       color: stage.color,

@@ -1,3 +1,5 @@
+import { canonicalStageLabel } from '@/lib/journey/canonical';
+
 export interface SkillDef {
   id: string;
   label: string;
@@ -15,10 +17,15 @@ export interface StageDef {
 // Pipeline skills only. `startup-advisor` (in launchpad-skills/) is a meta-skill
 // invoked from chat for free-form guidance — deliberately outside the pipeline
 // so it doesn't affect readiness scoring or next_recommended_skill.
+//
+// Stage names come from the canonical taxonomy (src/lib/journey/canonical.ts)
+// so this engine and the journey gate checks can never show different labels
+// for the same stage number. Skill ids / dataKeys are DB-referenced
+// (skill_completions, section_scores) — never rename those here.
 export const STAGES: StageDef[] = [
   {
     number: 1,
-    name: 'Idea Validation',
+    name: canonicalStageLabel(1), // Idea Validation
     color: 'blue',
     skills: [
       { id: 'idea-shaping', label: 'Idea Canvas', route: 'chat?skill=idea-shaping', dataKey: 'idea_canvas' },
@@ -27,7 +34,7 @@ export const STAGES: StageDef[] = [
   },
   {
     number: 2,
-    name: 'Market Validation',
+    name: canonicalStageLabel(2), // Market Validation
     color: 'purple',
     skills: [
       { id: 'market-research', label: 'Market Research', route: 'chat?skill=market-research', dataKey: 'research' },
@@ -36,7 +43,7 @@ export const STAGES: StageDef[] = [
   },
   {
     number: 3,
-    name: 'Persona Validation',
+    name: canonicalStageLabel(3), // Persona (was "Persona Validation")
     color: 'rose',
     skills: [
       { id: 'scientific-validation', label: 'Buyer Personas', route: 'chat?skill=scientific-validation', dataKey: 'scientific_validation' },
@@ -45,7 +52,7 @@ export const STAGES: StageDef[] = [
   },
   {
     number: 4,
-    name: 'Business Model',
+    name: canonicalStageLabel(4), // Business Model
     color: 'amber',
     skills: [
       { id: 'business-model', label: 'Business Model', route: 'chat?skill=business-model', dataKey: 'business_model' },
@@ -54,7 +61,7 @@ export const STAGES: StageDef[] = [
   },
   {
     number: 5,
-    name: 'Build & Launch',
+    name: canonicalStageLabel(5), // Build & Launch
     color: 'emerald',
     skills: [
       { id: 'prototype-spec', label: 'MVP Spec', route: 'chat?skill=prototype-spec', dataKey: 'prototype_spec' },
@@ -67,7 +74,7 @@ export const STAGES: StageDef[] = [
   },
   {
     number: 6,
-    name: 'Fundraise',
+    name: canonicalStageLabel(6), // Fundraise
     color: 'cyan',
     skills: [
       { id: 'investment-readiness', label: 'Inv. Readiness', route: 'chat?skill=investment-readiness', dataKey: 'investment_readiness' },
@@ -77,7 +84,7 @@ export const STAGES: StageDef[] = [
   },
   {
     number: 7,
-    name: 'Operate',
+    name: canonicalStageLabel(7), // Operate
     color: 'zinc',
     skills: [
       { id: 'weekly-metrics', label: 'Metrics', route: 'chat?skill=weekly-metrics', dataKey: 'metrics' },

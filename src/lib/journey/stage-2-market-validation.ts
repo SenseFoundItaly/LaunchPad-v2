@@ -1,18 +1,25 @@
 /**
- * Stage 2 — Problem validation.
+ * Stage 2 — Market Validation.
  * Evidence that the problem is real, painful, and frequent enough that
- * someone would pay to solve it. Canvas alone doesn't cut it — you need
- * competitors mapped (proves a market exists) and customer evidence
- * (proves the pain).
+ * someone would pay to solve it — and that you can name why you win.
+ * Canvas alone doesn't cut it: you need competitors mapped (proves a market
+ * exists), customer evidence (proves the pain), and differentiation backed
+ * by evidence, not vibes.
+ *
+ * Re-bucketing note (2026-06 taxonomy unification): absorbs all of legacy
+ * "Problem" plus legacy "Solution"'s differentiation_evidence (it reads
+ * market facts, so it belongs with market validation). Check ids and
+ * evaluator logic are unchanged, with ONE functional fix: `monitors_set`
+ * now counts active watch_sources (URL watchers) alongside monitors —
+ * both are founder-facing "watchers" and either closes the gate.
  */
 
 import type { Stage } from './types';
+import { CANONICAL_BY_ID } from './canonical';
 import { countMemoryFactsMatching } from './snapshot';
 
-export const stageProblem: Stage = {
-  id: 'problem',
-  number: 2,
-  label: 'Problem',
+export const stageMarketValidation: Stage = {
+  ...CANONICAL_BY_ID.market_validation,
   tagline: 'Validate the pain is real, frequent, and worth paying to solve.',
   checks: [
     {
@@ -98,14 +105,31 @@ export const stageProblem: Stage = {
     },
     {
       id: 'monitors_set',
-      label: 'Market monitors active',
-      source: 'monitors',
+      label: 'Watchers active',
+      source: 'monitors + watch_sources',
       evaluate: (s) => {
-        const active = s.monitors.filter((m) => m.status === 'active').length;
+        // ANY active signal-watching counts: topic monitors AND URL watchers
+        // (watch_sources). Both are "watchers" to the founder — a project
+        // with only URL watchers was wrongly failing this gate before.
+        const activeMonitors = s.monitors.filter((m) => m.status === 'active').length;
+        const activeWatchSources = s.watch_sources.filter((w) => w.status === 'active').length;
+        const active = activeMonitors + activeWatchSources;
         const ok = active >= 1;
         return ok
-          ? { passed: true, evidence: `${active} live monitor${active === 1 ? '' : 's'}` }
-          : { passed: false, gap: 'Set at least one monitor on competitors or trends' };
+          ? { passed: true, evidence: `${active} live watcher${active === 1 ? '' : 's'}` }
+          : { passed: false, gap: 'Set at least one watcher on competitors or trends' };
+      },
+    },
+    {
+      id: 'differentiation_evidence',
+      label: 'Differentiation evidenced',
+      source: 'memory_facts (vs. competitors)',
+      evaluate: (s) => {
+        const n = countMemoryFactsMatching(s, ['unlike', 'better than', 'differentiator', 'vs', 'compared to']);
+        const ok = n > 0;
+        return ok
+          ? { passed: true, evidence: `${n} differentiation fact${n === 1 ? '' : 's'}` }
+          : { passed: false, gap: 'Pin what makes you different in chat' };
       },
     },
   ],

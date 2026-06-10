@@ -1,16 +1,18 @@
 /**
- * Stage 4 — Segment.
+ * Stage 3 — Persona.
  * Beachhead chosen. ICP defined. Acquisition path imagined. The founder
  * can point at a specific list of N people and say "these are the ones."
+ *
+ * Re-bucketing note (2026-06 taxonomy unification): all of legacy
+ * "Segment"'s checks, unchanged ids and evaluator logic.
  */
 
 import type { Stage } from './types';
+import { CANONICAL_BY_ID } from './canonical';
 import { countMemoryFactsMatching } from './snapshot';
 
-export const stageSegment: Stage = {
-  id: 'segment',
-  number: 4,
-  label: 'Segment',
+export const stagePersona: Stage = {
+  ...CANONICAL_BY_ID.persona,
   tagline: 'Beachhead picked, ICP described, acquisition path imagined.',
   checks: [
     {

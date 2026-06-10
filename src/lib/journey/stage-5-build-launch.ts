@@ -1,16 +1,19 @@
 /**
- * Stage 5 — MVP.
+ * Stage 5 — Build & Launch.
  * Build → ship → first users. Workflow is active, scope is defined, tasks
  * are moving, something is published, early users are in.
+ *
+ * Re-bucketing note (2026-06 taxonomy unification): all of legacy "MVP"'s
+ * checks, unchanged ids and evaluator logic. (The 'spark'/'idea' strings in
+ * scope_defined are persisted workflow.current_step values, not stage ids.)
  */
 
 import type { Stage } from './types';
+import { CANONICAL_BY_ID } from './canonical';
 import { countMemoryFactsMatching } from './snapshot';
 
-export const stageMvp: Stage = {
-  id: 'mvp',
-  number: 5,
-  label: 'MVP',
+export const stageBuildLaunch: Stage = {
+  ...CANONICAL_BY_ID.build_launch,
   tagline: 'Build, ship, first users.',
   checks: [
     {
