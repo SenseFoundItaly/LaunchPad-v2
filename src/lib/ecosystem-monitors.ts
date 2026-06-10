@@ -117,11 +117,24 @@ CONTRATTO DI OUTPUT — non deviare:
 6. Non inventare mai URL. Se non puoi verificare, ometti il finding.
 `.trim();
 
-function outputInstructions(locale: 'en' | 'it'): string {
+/**
+ * The exact `:::artifact{"type":"ecosystem_alert"}` output contract that the
+ * cron/run parser (src/lib/ecosystem-alert-parser.ts) extracts into
+ * ecosystem_alerts rows. EXPORTED so the chat-monitor path
+ * (configureMonitor in action-executors.ts) can reuse the identical block —
+ * a chat-proposed monitor must emit alerts that parse the same way a seeded
+ * template monitor does.
+ */
+export function outputInstructions(locale: 'en' | 'it'): string {
   return locale === 'it' ? OUTPUT_INSTRUCTIONS_IT : OUTPUT_INSTRUCTIONS_EN;
 }
 
-function projectContext(ctx: MonitorPromptContext): string {
+/**
+ * Render the project context block (name/description/idea) shared by every
+ * template prompt. EXPORTED so the chat-monitor path can build a prompt with
+ * the same shape as the seeded templates.
+ */
+export function projectContext(ctx: MonitorPromptContext): string {
   const lines: string[] = [];
   lines.push(`Project: ${ctx.projectName}`);
   if (ctx.projectDescription) lines.push(`Description: ${ctx.projectDescription}`);
