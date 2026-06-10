@@ -21,10 +21,10 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot): string {
 
   // If everything is done, the founder has cleared all 7 stages — give the
   // agent a different framing (compound, optimize, scale).
-  if (gaps.length === 0 && stage.id === 'growth') {
+  if (gaps.length === 0 && stage.id === 'operate') {
     return [
       '[JOURNEY STAGE]',
-      `Founder has cleared all 7 stages. Active = Stage 7 (Growth) is complete.`,
+      `Founder has cleared all 7 stages. Active = Stage 7 (Operate) is complete.`,
       `Frame conversations around optimization, scaling, and compound effects rather than`,
       `gap-closing. Don't re-litigate earlier stages unless the founder asks.`,
       '',

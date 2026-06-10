@@ -16,6 +16,7 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     graphCompetitorRows,
     researchRows,
     monitorRows,
+    watchSourceRows,
     pricingRows,
     burnRows,
     workflowRows,
@@ -47,6 +48,9 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     // 7-stage evaluation. Restores the iteration-1 guard the rework dropped.
     query('SELECT * FROM research WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT id, status FROM monitors WHERE project_id = ?', projectId).catch(() => []),
+    // URL watchers — counted alongside monitors by the monitors_set check.
+    // Same tolerance guard: a missing watch_sources table degrades to [].
+    query('SELECT id, status FROM watch_sources WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT anchor_price, tiers, wtp, unit_econ, model FROM pricing_state WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT monthly_burn, cash_on_hand FROM burn_rate WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT current_step, status FROM workflow WHERE project_id = ?', projectId).catch(() => []),
@@ -74,6 +78,7 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     competitors,
     research: researchRows.length > 0 ? (researchRows[0] as Record<string, unknown>) : null,
     monitors: monitorRows as ProjectSnapshot['monitors'],
+    watch_sources: watchSourceRows as ProjectSnapshot['watch_sources'],
     pricing_state: pricingRows.length > 0 ? (pricingRows[0] as ProjectSnapshot['pricing_state']) : null,
     burn_rate: burnRows.length > 0 ? (burnRows[0] as ProjectSnapshot['burn_rate']) : null,
     workflow: workflowRows.length > 0 ? (workflowRows[0] as ProjectSnapshot['workflow']) : null,

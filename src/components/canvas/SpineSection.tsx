@@ -307,6 +307,14 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
       >
         {locale === 'it' ? 'Pipeline di validazione' : 'Validation pipeline'}
       </div>
+      {/* Legend — the two numbers on each chip are two views of the SAME
+          stage, not two different stages: readiness scores evidence quality,
+          % complete counts skills run. */}
+      <div style={{ fontSize: 10, color: 'var(--ink-5)', marginBottom: 6, lineHeight: 1.4 }}>
+        {locale === 'it'
+          ? 'Due viste dello stesso stadio: Prontezza = solidità delle evidenze (0–10) · % completo = quota di skill eseguiti.'
+          : 'Two views of the same stage: Readiness = evidence strength (0–10) · % complete = share of stage skills run.'}
+      </div>
       {/* Horizontal 7-step strip */}
       <div
         style={{
@@ -389,14 +397,21 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
               <div
                 style={{
                   display: 'flex',
-                  justifyContent: 'space-between',
-                  fontSize: 10,
+                  flexDirection: 'column',
+                  gap: 1,
+                  fontSize: 9,
                   color: 'var(--ink-5)',
                   fontFamily: 'var(--f-mono)',
                 }}
               >
-                <span>{s.overall_score.toFixed(1)}</span>
-                <span>{pct}%</span>
+                <span>
+                  {locale === 'it'
+                    ? `Prontezza ${s.overall_score.toFixed(1)}/10`
+                    : `Readiness ${s.overall_score.toFixed(1)}/10`}
+                </span>
+                <span>
+                  {locale === 'it' ? `${pct}% completo` : `${pct}% complete`}
+                </span>
               </div>
             </button>
           );
@@ -445,8 +460,8 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
                 style={{ fontSize: 10, color: 'var(--ink-5)' }}
               >
                 {locale === 'it'
-                  ? `Punteggio ${stage.overall_score.toFixed(1)}/10`
-                  : `Score ${stage.overall_score.toFixed(1)}/10`}
+                  ? `Prontezza ${stage.overall_score.toFixed(1)}/10`
+                  : `Readiness ${stage.overall_score.toFixed(1)}/10`}
               </span>
               <span
                 className="lp-mono"
