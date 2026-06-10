@@ -406,8 +406,13 @@ const configureMonitor: ActionHandler = async (action) => {
   const dedupOverrideReason = typeof payload.dedup_override_reason === 'string'
     ? payload.dedup_override_reason
     : null;
-  const sourcesJson = Array.isArray(payload.sources) && payload.sources.length > 0
-    ? JSON.stringify(payload.sources)
+  // JSONB columns (config, urls_to_track, sources) get RAW objects/arrays — the
+  // run() helper auto-serializes; JSON.stringify here double-encodes, storing a
+  // jsonb STRING that config->>'...'/array ops can't read (same bug class as
+  // pricing_state / graph_nodes.attributes). A double-encoded config means the
+  // monitor can't read its own scrape targets/query at run time.
+  const sourcesValue = Array.isArray(payload.sources) && payload.sources.length > 0
+    ? payload.sources
     : null;
   const prompt = typeof payload.prompt === 'string' ? payload.prompt : null;
 
@@ -460,22 +465,22 @@ const configureMonitor: ActionHandler = async (action) => {
     name,
     objective,
     schedule,
-    JSON.stringify({
+    {
       alert_threshold: alertThreshold,
       urls_to_track: urls,
       query: q,
       linked_risk_id: linkedRiskId,
-    }),
+    },
     prompt,
     nextRun,
     now,
     linkedRiskId,
     linkedQuote,
     kind,
-    JSON.stringify(urls),
+    urls,
     dedupHash,
     dedupOverrideReason,
-    sourcesJson,
+    sourcesValue,
   );
 
   // Audit trail — the apply chain (propose → pending_action → apply →

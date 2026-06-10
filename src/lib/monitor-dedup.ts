@@ -113,9 +113,23 @@ export async function checkDedup(
   // If agent wants a second angle on the same risk, it must use a different
   // kind (e.g., competitor + regulation on the same risk is fine; two
   // competitor-kind monitors on the same risk is not).
-  const riskKindDup = active.find(
-    (m) => m.linked_risk_id === proposal.linked_risk_id && m.kind === proposal.kind,
-  );
+  //
+  // EXCEPTION: `ad_hoc` is the sentinel linked_risk_id for monitors that come
+  // from a founder chat quote rather than a formal risk_audit entry (see
+  // project-tools.ts propose_monitor + action-executors.ts:404). It is a
+  // catch-all BUCKET, not a single risk — a founder who asks to watch three
+  // competitors legitimately gets three competitor-kind monitors all linked to
+  // `ad_hoc`. Enforcing one-per-(ad_hoc, kind) collapsed them to ONE (the 2nd
+  // and 3rd failed with `duplicate_for_risk_kind` at apply time). So skip the
+  // risk+kind rule for the ad_hoc bucket — those monitors are still protected
+  // from genuine duplicates by L1.2 (url overlap), L1.3 (exact hash), and the
+  // active-monitor cap. Real risk ids keep the strict one-sensor-per-risk rule.
+  const AD_HOC_RISK = 'ad_hoc';
+  const riskKindDup = proposal.linked_risk_id === AD_HOC_RISK
+    ? undefined
+    : active.find(
+        (m) => m.linked_risk_id === proposal.linked_risk_id && m.kind === proposal.kind,
+      );
   if (riskKindDup) {
     return {
       ok: false,
