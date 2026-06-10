@@ -60,7 +60,7 @@ export default function EntityCardInline({
           onApply={() => review.handleReview('applied')}
           onReject={() => review.handleReview('rejected')}
           destination="Knowledge Graph"
-          impactHint="Added as entity — influences connections"
+          impactHint="Will add as an entity that influences connections"
         />
       </>}
     >
