@@ -1872,7 +1872,7 @@ const updatePricingTool = (ctx: ToolContext): AgentTool => ({
   name: 'update_pricing',
   label: 'Update Pricing',
   description:
-    'Upsert the project\'s pricing_state row. Use when the founder asks to set / change / tweak the anchor price, tiers, willingness-to-pay research, unit economics, currency, or pricing model. Each field is independently optional — passing one fills only that field, existing values are preserved. PRECONDITION: when the founder says "change pricing" or "update tiers" without a concrete value, do NOT guess — ask which field and what the new value should be first, then call this tool. Triggers Stage 6 (Pricing) check re-evaluation.',
+    'Upsert the project\'s pricing_state row. Use when the founder asks to set / change / tweak the anchor price, tiers, willingness-to-pay research, unit economics, currency, or pricing model. Each field is independently optional — passing one fills only that field, existing values are preserved. PRECONDITION: when the founder says "change pricing" or "update tiers" without a concrete value, do NOT guess — ask which field and what the new value should be first, then call this tool. Triggers Stage 4 (Business Model) check re-evaluation.',
   parameters: Type.Object({
     anchor_price: Type.Optional(Type.Number({ description: 'Headline price the founder is testing (e.g. 49 for $49/mo). Numeric, never a string.' })),
     currency: Type.Optional(Type.String({ description: '3-letter ISO code (USD, EUR, GBP). Default USD.' })),
@@ -1992,7 +1992,7 @@ const logInterviewTool = (ctx: ToolContext): AgentTool => ({
   name: 'log_interview',
   label: 'Log Interview',
   description:
-    'Persist a structured customer/user interview to the interviews table. Use whenever the founder reports having talked to a potential or current user about the problem, the solution, or pricing. PRECONDITION: needs at minimum person_name + a 1-3 sentence summary. If the founder mentions an interview happened but doesn\'t name the person or describe what was said, ASK for those before calling. Use top_pain to capture the verbatim biggest-pain quote when provided. Use wtp_amount when the founder reports a willingness-to-pay number. Triggers Stage 2 (Problem) check re-evaluation — this is the canonical input for the "5+ customer signals" gate.',
+    'Persist a structured customer/user interview to the interviews table. Use whenever the founder reports having talked to a potential or current user about the problem, the solution, or pricing. PRECONDITION: needs at minimum person_name + a 1-3 sentence summary. If the founder mentions an interview happened but doesn\'t name the person or describe what was said, ASK for those before calling. Use top_pain to capture the verbatim biggest-pain quote when provided. Use wtp_amount when the founder reports a willingness-to-pay number. Triggers Stage 2 (Market Validation) check re-evaluation — this is the canonical input for the "5+ customer signals" gate.',
   parameters: Type.Object({
     person_name: Type.String({ description: 'Who was interviewed. First name or full name ≤200 chars. Example: "Maria", "Maria Rossi".' }),
     summary: Type.String({ description: '1-3 sentence agent-readable takeaway. ≤2000 chars. Should capture WHAT was learned. Example: "Maria runs a 3-person agency, manually exports client reports each week, says onboarding any new tool takes 3+ weeks because she does it herself."' }),
@@ -2068,7 +2068,7 @@ const logInterviewTool = (ctx: ToolContext): AgentTool => ({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stage 5 (MVP) + Stage 7 (Growth) facet writers.
+// Stage 5 (Build & Launch) + stages 6-7 (Fundraise/Operate) facet writers.
 //
 // These six tools let a founder who actually HAS an MVP, metrics, runway, and
 // a capital plan get the journey credit for it — previously chat had no write
@@ -2090,7 +2090,7 @@ const updateWorkflowTool = (ctx: ToolContext): AgentTool => ({
   name: 'update_workflow',
   label: 'Update Workflow',
   description:
-    'Set the project\'s build workflow status + current step. Use when the founder reports they have started building / are actively shipping their MVP — e.g. "we\'re building", "I\'m in the MVP sprint", "current focus is the onboarding flow". Pass status:"active" once a real build is underway, and current_step naming the concrete phase ("mvp", "onboarding-flow", "v1-launch") — anything other than "spark"/"idea"/"unknown". Advances Stage 5 (MVP): closes the workflow_active and MVP-scope-defined checks. Upserts the single workflow row for this project.',
+    'Set the project\'s build workflow status + current step. Use when the founder reports they have started building / are actively shipping their MVP — e.g. "we\'re building", "I\'m in the MVP sprint", "current focus is the onboarding flow". Pass status:"active" once a real build is underway, and current_step naming the concrete phase ("mvp", "onboarding-flow", "v1-launch") — anything other than "spark"/"idea"/"unknown". Advances Stage 5 (Build & Launch): closes the workflow_active and MVP-scope-defined checks. Upserts the single workflow row for this project.',
   parameters: Type.Object({
     status: Type.Optional(Type.String({ description: 'Workflow status. Use "active" when a build is genuinely underway. Other values: "planning", "paused", "complete".' })),
     current_step: Type.Optional(Type.String({ description: 'Concrete current build phase as a short slug/label, e.g. "mvp", "onboarding-flow", "v1-launch". Must NOT be "spark", "idea", or "unknown" — those do not count as scope being defined.' })),
@@ -2131,7 +2131,7 @@ const updateWorkflowTool = (ctx: ToolContext): AgentTool => ({
 
     const set = [status && `status=${status}`, currentStep && `step=${currentStep}`].filter(Boolean).join(', ');
     return {
-      content: [{ type: 'text', text: `Workflow updated (${set}). Stage 5 (MVP) workflow checks will recompute on next get_project_summary.` }],
+      content: [{ type: 'text', text: `Workflow updated (${set}). Stage 5 (Build & Launch) workflow checks will recompute on next get_project_summary.` }],
       details: { status, current_step: currentStep },
     };
   },
@@ -2143,7 +2143,7 @@ const logPublishedAssetTool = (ctx: ToolContext): AgentTool => ({
   name: 'log_published_asset',
   label: 'Log Published Asset',
   description:
-    'Record that the founder has shipped/published something real — a landing page, waitlist, demo, prototype, blog post, or live app. Use when the founder says "we launched X", "the landing page is live at <url>", "I shipped the waitlist". Advances Stage 5 (MVP): closes the "something shipped" check. Each call inserts one published_assets row.',
+    'Record that the founder has shipped/published something real — a landing page, waitlist, demo, prototype, blog post, or live app. Use when the founder says "we launched X", "the landing page is live at <url>", "I shipped the waitlist". Advances Stage 5 (Build & Launch): closes the "something shipped" check. Each call inserts one published_assets row.',
   parameters: Type.Object({
     type: Type.String({ description: `What kind of asset shipped. One of: ${VALID_ASSET_TYPES.join(', ')}. Use "other" if none fit.` }),
     title: Type.String({ description: 'Human-readable name of what shipped. Example: "Beta waitlist landing page".' }),
@@ -2190,7 +2190,7 @@ const logPublishedAssetTool = (ctx: ToolContext): AgentTool => ({
     }
 
     return {
-      content: [{ type: 'text', text: `Logged published asset "${title}" (${assetType}). Stage 5 (MVP) "something shipped" check will pass on next refresh.` }],
+      content: [{ type: 'text', text: `Logged published asset "${title}" (${assetType}). Stage 5 (Build & Launch) "something shipped" check will pass on next refresh.` }],
       details: { id, asset_type: assetType, slug },
     };
   },
@@ -2200,7 +2200,7 @@ const logGrowthLoopTool = (ctx: ToolContext): AgentTool => ({
   name: 'log_growth_loop',
   label: 'Log Growth Loop',
   description:
-    'Record an active growth loop — a repeatable mechanism that compounds acquisition/activation/retention (e.g. referral loop, content→signup loop, viral invite loop). Use when the founder describes a growth motion they have running. Advances Stage 7 (Growth): closes the "1+ growth loop active" check. Inserts one growth_loops row with status="active".',
+    'Record an active growth loop — a repeatable mechanism that compounds acquisition/activation/retention (e.g. referral loop, content→signup loop, viral invite loop). Use when the founder describes a growth motion they have running. Advances Stage 7 (Operate): closes the "1+ growth loop active" check. Inserts one growth_loops row with status="active".',
   parameters: Type.Object({
     name: Type.String({ description: 'Short name for the loop. Example: "Referral invite loop", "SEO content → trial loop".' }),
     description: Type.Optional(Type.String({ description: 'How the loop works / what it optimizes. Example: "Each new user invites 2 teammates during onboarding; invitees convert at ~30%."' })),
@@ -2239,7 +2239,7 @@ const logGrowthLoopTool = (ctx: ToolContext): AgentTool => ({
     }
 
     return {
-      content: [{ type: 'text', text: `Logged growth loop "${name}" (${status}). Stage 7 (Growth) loop check will pass on next refresh.` }],
+      content: [{ type: 'text', text: `Logged growth loop "${name}" (${status}). Stage 7 (Operate) loop check will pass on next refresh.` }],
       details: { id, status },
     };
   },
@@ -2249,7 +2249,7 @@ const updateMetricsTool = (ctx: ToolContext): AgentTool => ({
   name: 'update_metrics',
   label: 'Update Metrics',
   description:
-    'Upsert one or more tracked metrics with their current value (MRR, ARR, signups, activation rate, retention, etc.). Use when the founder reports numbers they are tracking — "MRR is $4k", "we have 250 signups", "activation is 32%". Advances Stage 7 (Growth): closes the "3+ metrics tracked" check, and a revenue/MRR/ARR metric with a positive value also closes the Stage 7 "capital plan" check. Pass a single metric or an array. Re-passing an existing metric name updates its current value. PROVENANCE: metrics logged through this tool are recorded as self-reported (founder_asserted) — they stay marked as unverified founder claims until a workflow or skill run backs them with measured data.',
+    'Upsert one or more tracked metrics with their current value (MRR, ARR, signups, activation rate, retention, etc.). Use when the founder reports numbers they are tracking — "MRR is $4k", "we have 250 signups", "activation is 32%". Advances Stage 7 (Operate): closes the "3+ metrics tracked" check, and a revenue/MRR/ARR metric with a positive value also closes the Stage 6 (Fundraise) "capital plan" check. Pass a single metric or an array. Re-passing an existing metric name updates its current value. PROVENANCE: metrics logged through this tool are recorded as self-reported (founder_asserted) — they stay marked as unverified founder claims until a workflow or skill run backs them with measured data.',
   parameters: Type.Object({
     metrics: Type.Optional(Type.Array(
       Type.Object({
@@ -2334,7 +2334,7 @@ const updateMetricsTool = (ctx: ToolContext): AgentTool => ({
     }
 
     return {
-      content: [{ type: 'text', text: `Upserted ${upserted.length} metric${upserted.length === 1 ? '' : 's'}: ${upserted.join(', ')} (recorded as ${provenance === 'workflow_derived' ? 'workflow-derived' : 'self-reported'}). Stage 7 (Growth) metrics check will recompute on next refresh.` }],
+      content: [{ type: 'text', text: `Upserted ${upserted.length} metric${upserted.length === 1 ? '' : 's'}: ${upserted.join(', ')} (recorded as ${provenance === 'workflow_derived' ? 'workflow-derived' : 'self-reported'}). Stage 7 (Operate) metrics check will recompute on next refresh.` }],
       details: { upserted, provenance },
     };
   },
@@ -2344,7 +2344,7 @@ const updateBurnRateTool = (ctx: ToolContext): AgentTool => ({
   name: 'update_burn_rate',
   label: 'Update Burn Rate',
   description:
-    'Set the project\'s monthly burn and cash on hand. Use when the founder reports finances — "we burn $20k/mo", "we have $300k in the bank". Advances Stage 7 (Growth): the runway check (≥12 months) is computed from cash_on_hand ÷ monthly_burn. Upserts the single burn_rate row for this project.',
+    'Set the project\'s monthly burn and cash on hand. Use when the founder reports finances — "we burn $20k/mo", "we have $300k in the bank". Advances Stage 6 (Fundraise): the runway check (≥12 months) is computed from cash_on_hand ÷ monthly_burn. Upserts the single burn_rate row for this project.',
   parameters: Type.Object({
     monthly_burn: Type.Optional(Type.Number({ description: 'Net monthly cash burn in the project currency. Just the number (20000, not "$20k").' })),
     cash_on_hand: Type.Optional(Type.Number({ description: 'Current cash in the bank. Just the number (300000).' })),
@@ -2388,7 +2388,7 @@ const updateBurnRateTool = (ctx: ToolContext): AgentTool => ({
       cashOnHand !== undefined && `cash=$${cashOnHand}`,
     ].filter(Boolean).join(', ');
     return {
-      content: [{ type: 'text', text: `Burn rate updated (${parts}). Stage 7 (Growth) runway check will recompute on next refresh.` }],
+      content: [{ type: 'text', text: `Burn rate updated (${parts}). Stage 6 (Fundraise) runway check will recompute on next refresh.` }],
       details: { monthly_burn: monthlyBurn, cash_on_hand: cashOnHand },
     };
   },
@@ -2398,7 +2398,7 @@ const logFundraisingTool = (ctx: ToolContext): AgentTool => ({
   name: 'log_fundraising',
   label: 'Log Fundraising',
   description:
-    'Record the project\'s fundraising round — target amount, amount raised so far, and status. Use when the founder is raising capital — "we\'re raising a $1M pre-seed", "closed $400k of the round". Advances Stage 7 (Growth): an OPEN round closes the "capital plan in motion" check. Upserts the single fundraising_rounds row for this project.',
+    'Record the project\'s fundraising round — target amount, amount raised so far, and status. Use when the founder is raising capital — "we\'re raising a $1M pre-seed", "closed $400k of the round". Advances Stage 6 (Fundraise): an OPEN round closes the "capital plan in motion" check. Upserts the single fundraising_rounds row for this project.',
   parameters: Type.Object({
     target_amount: Type.Optional(Type.Number({ description: 'Total amount the founder is raising. Just the number (1000000).' })),
     raised_amount: Type.Optional(Type.Number({ description: 'Amount committed/raised so far. Just the number (400000).' })),
@@ -2450,7 +2450,7 @@ const logFundraisingTool = (ctx: ToolContext): AgentTool => ({
       status && `status=${status}`,
     ].filter(Boolean).join(', ');
     return {
-      content: [{ type: 'text', text: `Fundraising round updated (${parts}). Stage 7 (Growth) capital-plan check will recompute on next refresh.` }],
+      content: [{ type: 'text', text: `Fundraising round updated (${parts}). Stage 6 (Fundraise) capital-plan check will recompute on next refresh.` }],
       details: { target_amount: targetAmount, raised_amount: raisedAmount, status, round_type: roundType },
     };
   },
@@ -2498,7 +2498,7 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     updatePricingTool(ctx),
     saveMemoryFactTool(ctx),
     logInterviewTool(ctx),
-    // Stage 5 (MVP) + Stage 7 (Growth) facet writers — give the founder a
+    // Stage 5 (Build & Launch) + stages 6-7 (Fundraise/Operate) facet writers — give the founder a
     // chat path to close the build/metrics/runway/capital evidence gates.
     updateWorkflowTool(ctx),
     logPublishedAssetTool(ctx),
