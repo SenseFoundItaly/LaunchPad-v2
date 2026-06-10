@@ -335,6 +335,11 @@ function extractCost(usage: Usage): number {
   const u = usage as unknown as Record<string, unknown>;
   const cost = u.cost as Record<string, unknown> | undefined;
   if (cost && typeof cost.total === 'number') return cost.total;
+  // runAgentStream's done frame flattens pi-ai's cost.total into a plain
+  // number (`cost: u.cost?.total`) — without this branch every streaming
+  // consumer (e.g. the manual monitor run route) metered $0.00 while the
+  // provider billed real money, silently starving the budget gate.
+  if (typeof u.cost === 'number') return u.cost;
   if (typeof u.totalCost === 'number') return u.totalCost;
   return 0;
 }

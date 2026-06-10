@@ -61,6 +61,28 @@ export interface MonitorPromptContext {
 // Brief narrative.
 // =============================================================================
 
+/**
+ * Rules 7-8 (emission discipline) exist as standalone constants so the run
+ * paths can retro-fit them onto LEGACY monitors whose prompt was stored in
+ * the DB before these rules existed (monitors.prompt is frozen at create
+ * time). See withEmissionDiscipline() below.
+ *
+ * Rule 7 fixes the observed "scan found a real signal but the run ended with
+ * 0 alerts" failure: the agent burns its tool budget investigating and never
+ * reaches a deferred emit step. Rule 8 fixes the second observed failure:
+ * the model writing :::artifact{"type":"product_launch"} (alert_type in the
+ * header), which the parser skips.
+ */
+const EMISSION_DISCIPLINE_EN = `
+7. EMIT AS YOU GO — emit each ecosystem_alert artifact IMMEDIATELY when a material finding is confirmed, BEFORE starting the next search or page fetch. Do NOT defer emission to a final summary: the tool budget or time limit can end the scan first, and an un-emitted finding is lost. If the scan is ending and you have confirmed a material finding you have not yet emitted, emit its artifact block NOW, before stopping.
+8. The artifact header is ALWAYS exactly {"type":"ecosystem_alert"} — never put the alert_type value in the header. The alert_type belongs ONLY in the body JSON.
+`.trim();
+
+const EMISSION_DISCIPLINE_IT = `
+7. EMETTI SUBITO — emetti ogni artifact ecosystem_alert IMMEDIATAMENTE quando un finding materiale è confermato, PRIMA di iniziare la ricerca o il fetch successivo. NON rimandare l'emissione a un riassunto finale: il budget di tool o il limite di tempo possono terminare lo scan prima, e un finding non emesso è perso. Se lo scan sta finendo e hai confermato un finding materiale non ancora emesso, emetti SUBITO il suo blocco artifact, prima di fermarti.
+8. L'header dell'artifact è SEMPRE esattamente {"type":"ecosystem_alert"} — non mettere mai il valore di alert_type nell'header. L'alert_type va SOLO nel JSON del body.
+`.trim();
+
 const OUTPUT_INSTRUCTIONS_EN = `
 OUTPUT CONTRACT — do not deviate:
 1. Start with a 2-3 sentence narrative summary of what moved this week.
@@ -87,6 +109,7 @@ OUTPUT CONTRACT — do not deviate:
 4. Both header {"type":"ecosystem_alert"} and body must be VALID JSON — double quotes, no trailing commas.
 5. If nothing materially moved, say so explicitly and emit zero artifacts. Do not pad.
 6. Never fabricate URLs. If you cannot verify, omit the finding.
+${EMISSION_DISCIPLINE_EN}
 `.trim();
 
 const OUTPUT_INSTRUCTIONS_IT = `
@@ -115,7 +138,23 @@ CONTRATTO DI OUTPUT — non deviare:
 4. Sia l'header {"type":"ecosystem_alert"} sia il body devono essere JSON VALIDO — virgolette doppie, niente virgole finali.
 5. Se nulla si è mosso in modo rilevante, dillo esplicitamente ed emetti zero artifact. Non riempire.
 6. Non inventare mai URL. Se non puoi verificare, ometti il finding.
+${EMISSION_DISCIPLINE_IT}
 `.trim();
+
+/**
+ * Retro-fit the emission-discipline rules (7-8) onto a monitor prompt that
+ * was stored in the DB before those rules existed. Idempotent: prompts that
+ * already carry the rules (any locale) pass through unchanged, so freshly
+ * seeded/configured monitors are never double-instructed.
+ *
+ * Called by BOTH run paths (manual run route + cron) right before the agent
+ * call — monitors.prompt is frozen at create time, so a prompt-template fix
+ * alone would never reach the ~200 monitors already in the DB.
+ */
+export function withEmissionDiscipline(prompt: string, locale: 'en' | 'it'): string {
+  if (prompt.includes('EMIT AS YOU GO') || prompt.includes('EMETTI SUBITO')) return prompt;
+  return `${prompt}\n\n${locale === 'it' ? EMISSION_DISCIPLINE_IT : EMISSION_DISCIPLINE_EN}`;
+}
 
 /**
  * The exact `:::artifact{"type":"ecosystem_alert"}` output contract that the

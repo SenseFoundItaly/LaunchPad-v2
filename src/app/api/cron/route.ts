@@ -21,6 +21,8 @@ import {
   type PersistResult,
   type ParsedEcosystemAlert,
 } from '@/lib/ecosystem-alert-parser';
+import { withEmissionDiscipline } from '@/lib/ecosystem-monitors';
+import { extractAlertsSecondPass } from '@/lib/monitor-extract';
 import { processWatchSourcesCron } from '@/lib/watch-source-processor';
 import type { ProcessResult as WatchSourceResult } from '@/lib/watch-source-processor';
 import {
@@ -174,10 +176,13 @@ interface MonitorRunOutcome {
   alerts_inserted?: number;
   pending_actions_created?: number;
   parse_errors?: number;
+  /** Which defense layer produced the alerts: scan emitted parseable
+   * artifacts ('primary') or the transcript-recovery extraction
+   * ('second_pass'). Absent/undefined = nothing material found. */
+  alert_layer?: 'primary' | 'second_pass';
 }
 
 async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
-  const prompt = monitor.prompt || '';
   const runId = generateId('mrun');
   const runAt = new Date().toISOString();
 
@@ -208,11 +213,23 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
     context: 'cron',
   });
 
+  // monitors.prompt is frozen at create time — retrofit the emit-as-you-go
+  // rules onto legacy ecosystem prompts (idempotent for fresh prompts that
+  // already carry them). Matches the manual run route.
+  const basePrompt = monitor.prompt || '';
+  const prompt = monitor.type.startsWith('ecosystem.')
+    ? withEmissionDiscipline(basePrompt, locale)
+    : basePrompt;
+
   try {
     const startedAt = Date.now();
     const { text: result, usage } = await runAgent(prompt, {
       systemPrompt,
-      timeout: 130000,
+      // Budget headroom for synthesis (mirrors the manual run route): cap
+      // tool calls so the agent is forced into a final text turn where the
+      // alert artifacts get emitted, and give that turn time to finish.
+      timeout: 180000,
+      maxToolCalls: 5,
       task: 'monitor-agent',
     });
     const latencyMs = Date.now() - startedAt;
@@ -250,6 +267,7 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
     let persistResult: PersistResult | null = null;
     let parseErrors = 0;
     let parsedAlerts: ParsedEcosystemAlert[] = [];
+    let alertLayer: 'primary' | 'second_pass' | undefined;
 
     if (monitor.type.startsWith('ecosystem.')) {
       const { parsed, errors } = extractEcosystemAlerts(result);
@@ -259,19 +277,49 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
         console.warn(`[cron] ${monitor.type} produced ${errors.length} unparseable artifact(s) — first reason:`, errors[0].reason);
       }
       if (parsed.length > 0) {
-        persistResult = persistEcosystemAlerts(parsed, {
+        persistResult = await persistEcosystemAlerts(parsed, {
           projectId: monitor.project_id,
           monitorId: monitor.id,
           monitorRunId: runId,
           autoQueueRelevanceThreshold: 0.8,
           maxPendingActionsPerRun: 5,
         });
+        if (persistResult.alerts_inserted > 0) alertLayer = 'primary';
+      } else {
+        // Second-pass safety net (mirrors the manual run route): substantive
+        // transcript but zero parseable alerts — one tool-less LLM call
+        // recovers the confirmed findings into artifacts, parsed + persisted
+        // through the same path as the primary parse.
+        const second = await extractAlertsSecondPass({
+          projectId: monitor.project_id,
+          monitorId: monitor.id,
+          monitorRunId: runId,
+          monitorType: monitor.type,
+          scanTranscript: result,
+          locale,
+          trigger: 'cron',
+        });
+        if (second.alerts_inserted > 0) {
+          alertLayer = 'second_pass';
+          parsedAlerts = second.parsed;
+          persistResult = {
+            alerts_inserted: second.alerts_inserted,
+            alerts_skipped: 0,
+            pending_actions_created: second.pending_actions_created,
+            pending_actions_skipped_cap: 0,
+          };
+        }
+      }
+      if (persistResult && persistResult.alerts_inserted > 0) {
         // Update monitor_runs.alerts_generated to reflect structured alerts
         await run(
           'UPDATE monitor_runs SET alerts_generated = ? WHERE id = ?',
           persistResult.alerts_inserted, runId,
         );
       }
+      console.log(
+        `[cron] ${monitor.type} run ${runId}: ${persistResult?.alerts_inserted ?? 0} alert(s) inserted — layer=${alertLayer ?? 'none'}`,
+      );
     }
 
     // Only produce a founder-facing `alerts` row when the monitor actually
@@ -369,6 +417,7 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
       alerts_inserted: persistResult?.alerts_inserted ?? 0,
       pending_actions_created: persistResult?.pending_actions_created ?? 0,
       parse_errors: parseErrors,
+      alert_layer: alertLayer,
     };
   } catch (err) {
     await run(

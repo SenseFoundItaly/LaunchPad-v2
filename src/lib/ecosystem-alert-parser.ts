@@ -9,7 +9,7 @@
  * rules (alert_type enum, score ranges, URL shape) are ecosystem-specific.
  */
 
-import { run } from '@/lib/db';
+import { query } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { computeDedupeHash } from '@/lib/ecosystem-monitors';
 import { createPendingAction } from '@/lib/pending-actions';
@@ -27,6 +27,12 @@ export interface ParsedEcosystemAlert {
   suggested_action: string | null;
 }
 
+// MUST stay in sync with BOTH the EcosystemAlertType union (src/types) and
+// the alert_type list advertised in outputInstructions (ecosystem-monitors.ts).
+// This set was stale at 9 entries while the prompt contract advertised 12 —
+// observed in prod (run mrun_zb1oznt139be): the agent emitted a perfectly
+// formed artifact with alert_type="product_launch" and the run still ended
+// with ecosystem_alerts_inserted=0 because validateAlert rejected it.
 const VALID_ALERT_TYPES: ReadonlySet<string> = new Set<EcosystemAlertType>([
   'competitor_activity',
   'ip_filing',
@@ -37,6 +43,9 @@ const VALID_ALERT_TYPES: ReadonlySet<string> = new Set<EcosystemAlertType>([
   'hiring_signal',
   'customer_sentiment',
   'social_signal',
+  'ad_activity',
+  'pricing_change',
+  'product_launch',
 ]);
 
 const SUGGESTED_ACTION_TO_PENDING_TYPE: Record<string, PendingActionType> = {
@@ -69,7 +78,14 @@ export function extractEcosystemAlerts(text: string): {
       continue;
     }
 
-    if (header.type !== 'ecosystem_alert') continue;
+    // Canonical header is {"type":"ecosystem_alert"}. Models occasionally put
+    // the alert_type in the header instead (observed in prod: 2 of 3 findings
+    // in run mrun_zb1oznt139be used {"type":"product_launch"} and were
+    // silently dropped). Accept that variant: a header whose type is itself a
+    // valid alert_type is unambiguously an ecosystem alert in monitor output.
+    const headerIsAlertTypeVariant =
+      typeof header.type === 'string' && VALID_ALERT_TYPES.has(header.type);
+    if (header.type !== 'ecosystem_alert' && !headerIsAlertTypeVariant) continue;
 
     let body: Record<string, unknown>;
     try {
@@ -77,6 +93,12 @@ export function extractEcosystemAlerts(text: string): {
     } catch {
       errors.push({ raw, reason: 'body JSON parse failed' });
       continue;
+    }
+
+    // Header-variant blocks may omit alert_type from the body — backfill it
+    // from the header so validateAlert sees a complete alert.
+    if (headerIsAlertTypeVariant && typeof body.alert_type !== 'string') {
+      body.alert_type = header.type;
     }
 
     const validated = validateAlert(body);
@@ -145,10 +167,10 @@ export interface PersistResult {
   pending_actions_skipped_cap: number;
 }
 
-export function persistEcosystemAlerts(
+export async function persistEcosystemAlerts(
   alerts: ParsedEcosystemAlert[],
   opts: PersistOptions,
-): PersistResult {
+): Promise<PersistResult> {
   const threshold = opts.autoQueueRelevanceThreshold ?? 0.8;
   const maxPending = opts.maxPendingActionsPerRun ?? 5;
 
@@ -162,21 +184,31 @@ export function persistEcosystemAlerts(
   const persistedAlerts: Array<{ alert: ParsedEcosystemAlert; alertId: string | null }> = [];
   for (const alert of alerts) {
     const dedupeHash = computeDedupeHash(alert.alert_type, alert.source_url, alert.headline);
-    const alertId = generateId('ealr');
+    const newId = generateId('ealr');
     const now = new Date().toISOString();
 
     try {
-      run(
+      // Awaited (was fire-and-forget): the callers report alerts_inserted to
+      // the founder and write it into monitor_runs.alerts_generated, so the
+      // count must reflect what actually landed in the DB, not what was
+      // optimistically dispatched. GREATEST (not MAX) — two-arg MAX is SQLite
+      // syntax; on Postgres the conflict path threw inside an un-awaited
+      // promise and the dedupe upgrade silently never happened.
+      // RETURNING id: on conflict the SURVIVING row keeps its original id —
+      // downstream FKs (pending_actions.ecosystem_alert_id) and the activity
+      // log must reference that id, not the discarded fresh one.
+      const rows = await query<{ id: string }>(
         `INSERT INTO ecosystem_alerts
            (id, project_id, monitor_id, monitor_run_id, alert_type, source_url,
             headline, body, relevance_score, confidence, dedupe_hash,
             reviewed_state, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
          ON CONFLICT(project_id, dedupe_hash) DO UPDATE SET
-           relevance_score = MAX(ecosystem_alerts.relevance_score, excluded.relevance_score),
-           confidence = MAX(ecosystem_alerts.confidence, excluded.confidence),
-           monitor_run_id = excluded.monitor_run_id`,
-        alertId,
+           relevance_score = GREATEST(ecosystem_alerts.relevance_score, excluded.relevance_score),
+           confidence = GREATEST(ecosystem_alerts.confidence, excluded.confidence),
+           monitor_run_id = excluded.monitor_run_id
+         RETURNING id`,
+        newId,
         opts.projectId,
         opts.monitorId,
         opts.monitorRunId,
@@ -189,6 +221,7 @@ export function persistEcosystemAlerts(
         dedupeHash,
         now,
       );
+      const alertId = rows[0]?.id ?? newId;
       result.alerts_inserted++;
       persistedAlerts.push({ alert, alertId });
 
@@ -203,7 +236,7 @@ export function persistEcosystemAlerts(
 
       // Update competitor profile if the headline mentions an entity
       try {
-        updateCompetitorProfile(opts.projectId, alert.headline, alert.alert_type);
+        await updateCompetitorProfile(opts.projectId, alert.headline, alert.alert_type);
       } catch (profileErr) {
         console.warn('competitor_profile update failed:', (profileErr as Error).message);
       }
@@ -226,7 +259,7 @@ export function persistEcosystemAlerts(
     }
     const c = candidates[i];
     try {
-      createPendingAction({
+      await createPendingAction({
         project_id: opts.projectId,
         monitor_run_id: opts.monitorRunId,
         ecosystem_alert_id: c.alertId!,
