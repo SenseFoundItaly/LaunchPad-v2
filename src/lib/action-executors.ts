@@ -258,6 +258,14 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
   const nodeType = String(payload.node_type || 'technology');
   const summary = typeof payload.summary === 'string' ? payload.summary : String(payload.draft_seed || '');
   const attributes = payload.attributes || null;
+  // Persist proposal-carried sources (chat web research attaches them to the
+  // proposal payload). Dropping them here was why researched competitor nodes
+  // tiered as founder_asserted in the unified knowledge read-layer. Raw array
+  // only when non-empty — graph_nodes.sources is JSONB and run() auto-serializes
+  // (JSON.stringify would double-encode; mirrors the signalAlert handler).
+  const sources = Array.isArray(payload.sources) && payload.sources.length > 0
+    ? payload.sources
+    : null;
   const locale = await localeFor(action);
 
   const nodeId = generateId('gnode');
@@ -269,14 +277,15 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
   // auto-serializes objects — JSON.stringify here double-encodes (same bug class
   // as pricing_state).
   await run(
-    `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, reviewed_state)
-     VALUES (?, ?, ?, ?, ?, ?, 'applied')`,
+    `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'applied')`,
     nodeId,
     action.project_id,
     name,
     nodeType,
     summary,
     attributes ?? null,
+    sources,
   );
 
   if (action.ecosystem_alert_id) {

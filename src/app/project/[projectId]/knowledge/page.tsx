@@ -1,15 +1,17 @@
 'use client';
 
 /**
- * Knowledge — split surface.
+ * Knowledge — tabbed surface.
  *
- * Left half: upload zone + KnowledgeReviewList (memory_facts + graph_nodes +
+ * All:       the unified knowledge read-layer (every store, one provenance-
+ *            tagged list) — the default founder-facing answer to "what does
+ *            my project know?".
+ * Review:    upload zone + KnowledgeReviewList (memory_facts + graph_nodes +
  *            tabular_reviews review/approve flow).
- * Right half: live D3 force-directed graph of the project's applied entities.
- *
- * Previously the graph lived on its own /graph route. It's now anchored in
- * Knowledge so the two surfaces — entities-as-list and entities-as-graph —
- * sit side by side. Each scrolls independently.
+ * Data Room: unified doc list + edit/export.
+ * Graph:     live D3 force-directed graph of the project's applied entities
+ *            (falls back to a labeled entity grid while 0 relationships are
+ *            mapped — floating unlinked dots read as broken).
  */
 
 import { use, useState } from 'react';
@@ -21,9 +23,11 @@ import KnowledgeReviewList from '@/components/knowledge/KnowledgeReviewList';
 import KnowledgeUpload from '@/components/knowledge/KnowledgeUpload';
 import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
 import DataRoomPanel from '@/components/knowledge/DataRoomPanel';
+import AllKnowledgePanel from '@/components/knowledge/AllKnowledgePanel';
+import EntityGridFallback from '@/components/knowledge/EntityGridFallback';
 import type { GraphNode, GraphEdge } from '@/types/graph';
 
-type KnowledgeTab = 'review' | 'data-room' | 'graph';
+type KnowledgeTab = 'all' | 'review' | 'data-room' | 'graph';
 
 interface GraphResponse {
   nodes: GraphNode[];
@@ -41,7 +45,7 @@ export default function KnowledgePage({
   const { count: inboxBadge } = useOpenActionCount(projectId);
   const qc = useQueryClient();
 
-  const [tab, setTab] = useState<KnowledgeTab>('review');
+  const [tab, setTab] = useState<KnowledgeTab>('all');
   const [lastIngested, setLastIngested] = useState(0);
   // Entity proposals queued from the last upload. Pending nodes only — the
   // graph pane filters to applied, so the user must approve them in the
@@ -113,7 +117,8 @@ export default function KnowledgePage({
         <NavRail projectId={projectId} current="knowledge" inboxBadge={inboxBadge} />
 
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          {/* Tab strip — three sibling surfaces over the same project knowledge.
+          {/* Tab strip — four sibling surfaces over the same project knowledge.
+              All = unified provenance-tagged read across every store (default).
               Review = upload + approve flow. Data Room = unified doc list +
               edit/export. Graph = D3 force-directed entity view. They live as
               tabs (not side-by-side) so each gets full width when active. */}
@@ -127,10 +132,25 @@ export default function KnowledgePage({
               background: 'var(--paper)',
             }}
           >
+            <TabButton active={tab === 'all'} onClick={() => setTab('all')}>All knowledge</TabButton>
             <TabButton active={tab === 'review'} onClick={() => setTab('review')}>Review</TabButton>
             <TabButton active={tab === 'data-room'} onClick={() => setTab('data-room')}>Data Room</TabButton>
             <TabButton active={tab === 'graph'} onClick={() => setTab('graph')}>Graph</TabButton>
           </div>
+
+          {tab === 'all' && (
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                overflow: 'auto',
+                padding: '20px 24px',
+                background: 'var(--paper)',
+              }}
+            >
+              <AllKnowledgePanel projectId={projectId} />
+            </div>
+          )}
 
           {tab === 'review' && (
             <div
@@ -183,6 +203,11 @@ export default function KnowledgePage({
                 <GraphEmpty
                   message="No entities yet. Approve knowledge proposals in the Review tab to populate the graph."
                 />
+              ) : graph.edges.length === 0 ? (
+                // Nodes but zero relationships: the force viz would render
+                // disconnected floating dots that look broken. Show the same
+                // entities as a labeled grid until edges exist.
+                <EntityGridFallback nodes={graph.nodes} />
               ) : (
                 <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} />
               )}
