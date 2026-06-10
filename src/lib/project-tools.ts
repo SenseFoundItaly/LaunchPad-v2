@@ -583,10 +583,26 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
       sources: unknown[];
     };
 
+    // Structured entry log so reliability audits can correlate agent-side
+    // "monitor tool has a backend issue" complaints with the actual failure
+    // mode. Captures the params shape (not full content — avoids logging
+    // potentially PII-bearing founder quotes verbatim).
+    console.info('[propose_monitor] entry', {
+      project_id: ctx.projectId,
+      kind: p.kind,
+      schedule: p.schedule,
+      linked_risk_id: p.linked_risk_id,
+      has_query: !!p.query,
+      urls_count: p.urls_to_track?.length ?? 0,
+      sources_count: Array.isArray(p.sources) ? p.sources.length : -1,
+      dedup_override: !!p.dedup_override,
+    });
+
     // Schema validation — guard against freeform-string inputs from the agent.
     if (!VALID_MONITOR_KINDS.includes(p.kind as MonitorKind)) {
+      console.warn('[propose_monitor] reject:invalid_kind', { project_id: ctx.projectId, got: p.kind });
       return {
-        content: [{ type: 'text', text: `Invalid kind "${p.kind}". Must be one of: ${VALID_MONITOR_KINDS.join(', ')}` }],
+        content: [{ type: 'text', text: `Invalid kind "${p.kind}". Must be one of: ${VALID_MONITOR_KINDS.join(', ')}. Re-call propose_monitor with a valid kind value.` }],
         details: { error: true },
       };
     }
@@ -697,8 +713,16 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
         sources: p.sources,
       });
     } catch (err) {
+      console.error('[propose_monitor] createPendingAction_failed', {
+        project_id: ctx.projectId,
+        name: p.name,
+        kind: p.kind,
+        linked_risk_id: p.linked_risk_id,
+        error: (err as Error).message,
+        stack: (err as Error).stack?.split('\n').slice(0, 4).join(' | '),
+      });
       return {
-        content: [{ type: 'text', text: `Failed to queue monitor proposal: ${(err as Error).message}` }],
+        content: [{ type: 'text', text: `Failed to queue monitor proposal: ${(err as Error).message}. Surface this error to the founder honestly — do not say "schema issue"; quote the specific error and ask if they want to retry.` }],
         details: { error: true },
       };
     }
@@ -1872,23 +1896,27 @@ const updatePricingTool = (ctx: ToolContext): AgentTool => ({
     }
 
     const existing = await query('SELECT project_id FROM pricing_state WHERE project_id = ?', ctx.projectId);
-    const serialize = (v: unknown): unknown =>
-      v !== null && typeof v === 'object' ? JSON.stringify(v) : v;
 
+    // BUG 3 fix: pass raw object values straight to run(). postgres.js
+    // auto-serializes JS objects/arrays into JSONB columns (tiers, wtp,
+    // unit_econ). Pre-stringifying with JSON.stringify double-encodes them —
+    // the value lands as a JSONB *string*, so the Stage-6 unit_econ_viable
+    // gate reads `.ltv` on a string and never passes. Scalars (anchor_price,
+    // currency, model) pass through unchanged.
     if (existing.length === 0) {
       const cols = ['project_id', ...Object.keys(updates), 'updated_at'];
       const placeholders = cols.map(() => '?').join(', ');
       await run(
         `INSERT INTO pricing_state (${cols.join(', ')}) VALUES (${placeholders})`,
         ctx.projectId,
-        ...Object.values(updates).map(serialize),
+        ...Object.values(updates),
         new Date().toISOString(),
       );
     } else {
       const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
       await run(
         `UPDATE pricing_state SET ${setClauses}, updated_at = ? WHERE project_id = ?`,
-        ...Object.values(updates).map(serialize),
+        ...Object.values(updates),
         new Date().toISOString(),
         ctx.projectId,
       );
@@ -2039,6 +2067,395 @@ const logInterviewTool = (ctx: ToolContext): AgentTool => ({
   },
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage 5 (MVP) + Stage 7 (Growth) facet writers.
+//
+// These six tools let a founder who actually HAS an MVP, metrics, runway, and
+// a capital plan get the journey credit for it — previously chat had no write
+// path into these facet tables, so the Stage-5/7 evidence gates could never
+// close from conversation.
+//
+// IMPORTANT (jsonb): every write below passes RAW JS objects/arrays to run().
+// postgres.js auto-serializes them into JSONB columns; calling JSON.stringify
+// first would double-encode (the BUG-3 class of error). Do not add it.
+//
+// Column contract: these writers target the columns the journey snapshot
+// (src/lib/journey/snapshot.ts) actually SELECTs — workflow.{status,
+// current_step}, metrics.{name,current_value}, fundraising_rounds.raised_amount
+// — which exist in the live DB even though db/schema.sql is stale for them
+// (same out-of-band drift class as monitors.objective).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const updateWorkflowTool = (ctx: ToolContext): AgentTool => ({
+  name: 'update_workflow',
+  label: 'Update Workflow',
+  description:
+    'Set the project\'s build workflow status + current step. Use when the founder reports they have started building / are actively shipping their MVP — e.g. "we\'re building", "I\'m in the MVP sprint", "current focus is the onboarding flow". Pass status:"active" once a real build is underway, and current_step naming the concrete phase ("mvp", "onboarding-flow", "v1-launch") — anything other than "spark"/"idea"/"unknown". Advances Stage 5 (MVP): closes the workflow_active and MVP-scope-defined checks. Upserts the single workflow row for this project.',
+  parameters: Type.Object({
+    status: Type.Optional(Type.String({ description: 'Workflow status. Use "active" when a build is genuinely underway. Other values: "planning", "paused", "complete".' })),
+    current_step: Type.Optional(Type.String({ description: 'Concrete current build phase as a short slug/label, e.g. "mvp", "onboarding-flow", "v1-launch". Must NOT be "spark", "idea", or "unknown" — those do not count as scope being defined.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { status?: string; current_step?: string };
+    const status = typeof p.status === 'string' && p.status.trim() ? p.status.trim().slice(0, 40) : undefined;
+    const currentStep = typeof p.current_step === 'string' && p.current_step.trim()
+      ? p.current_step.trim().slice(0, 80)
+      : undefined;
+
+    if (status === undefined && currentStep === undefined) {
+      return {
+        content: [{ type: 'text', text: 'update_workflow needs at least status or current_step. Ask the founder whether the build is active and what phase they are in.' }],
+        details: { error: 'no_fields' },
+      };
+    }
+
+    try {
+      // Upsert the single workflow row (project_id is PK). COALESCE+NULLIF
+      // preserves any field not supplied this call.
+      await run(
+        `INSERT INTO workflow (project_id, status, current_step)
+         VALUES (?, ?, ?)
+         ON CONFLICT (project_id) DO UPDATE SET
+           status       = COALESCE(NULLIF(EXCLUDED.status, ''),       workflow.status),
+           current_step = COALESCE(NULLIF(EXCLUDED.current_step, ''), workflow.current_step)`,
+        ctx.projectId,
+        status ?? '',
+        currentStep ?? '',
+      );
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to update workflow: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    const set = [status && `status=${status}`, currentStep && `step=${currentStep}`].filter(Boolean).join(', ');
+    return {
+      content: [{ type: 'text', text: `Workflow updated (${set}). Stage 5 (MVP) workflow checks will recompute on next get_project_summary.` }],
+      details: { status, current_step: currentStep },
+    };
+  },
+});
+
+const VALID_ASSET_TYPES = ['landing_page', 'waitlist', 'demo', 'blog_post', 'app', 'prototype', 'other'] as const;
+
+const logPublishedAssetTool = (ctx: ToolContext): AgentTool => ({
+  name: 'log_published_asset',
+  label: 'Log Published Asset',
+  description:
+    'Record that the founder has shipped/published something real — a landing page, waitlist, demo, prototype, blog post, or live app. Use when the founder says "we launched X", "the landing page is live at <url>", "I shipped the waitlist". Advances Stage 5 (MVP): closes the "something shipped" check. Each call inserts one published_assets row.',
+  parameters: Type.Object({
+    type: Type.String({ description: `What kind of asset shipped. One of: ${VALID_ASSET_TYPES.join(', ')}. Use "other" if none fit.` }),
+    title: Type.String({ description: 'Human-readable name of what shipped. Example: "Beta waitlist landing page".' }),
+    url: Type.Optional(Type.String({ description: 'Live URL where the asset is published, if any. Example: "https://getfoo.com".' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { type?: string; title?: string; url?: string };
+    const title = String(p.title ?? '').trim();
+    if (!title) {
+      return {
+        content: [{ type: 'text', text: 'log_published_asset requires a title — ask the founder what they shipped.' }],
+        details: { error: 'missing_title' },
+      };
+    }
+    const assetType = VALID_ASSET_TYPES.includes(p.type as typeof VALID_ASSET_TYPES[number])
+      ? (p.type as string)
+      : 'other';
+
+    const id = generateId('asset');
+    // slug is NOT NULL UNIQUE in published_assets — derive a stable, unique
+    // slug from the title plus a short random suffix so two assets with the
+    // same title never collide.
+    const slugBase = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'asset';
+    const slug = `${slugBase}-${id.slice(-6)}`;
+    const now = new Date().toISOString();
+
+    try {
+      // metadata is JSONB — pass the raw object (postgres.js serializes it).
+      await run(
+        `INSERT INTO published_assets (id, project_id, asset_type, slug, metadata, is_active, published_at)
+         VALUES (?, ?, ?, ?, ?, true, ?)`,
+        id,
+        ctx.projectId,
+        assetType,
+        slug,
+        { title, url: p.url ?? null, source: 'log_published_asset_tool' },
+        now,
+      );
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to log published asset: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    return {
+      content: [{ type: 'text', text: `Logged published asset "${title}" (${assetType}). Stage 5 (MVP) "something shipped" check will pass on next refresh.` }],
+      details: { id, asset_type: assetType, slug },
+    };
+  },
+});
+
+const logGrowthLoopTool = (ctx: ToolContext): AgentTool => ({
+  name: 'log_growth_loop',
+  label: 'Log Growth Loop',
+  description:
+    'Record an active growth loop — a repeatable mechanism that compounds acquisition/activation/retention (e.g. referral loop, content→signup loop, viral invite loop). Use when the founder describes a growth motion they have running. Advances Stage 7 (Growth): closes the "1+ growth loop active" check. Inserts one growth_loops row with status="active".',
+  parameters: Type.Object({
+    name: Type.String({ description: 'Short name for the loop. Example: "Referral invite loop", "SEO content → trial loop".' }),
+    description: Type.Optional(Type.String({ description: 'How the loop works / what it optimizes. Example: "Each new user invites 2 teammates during onboarding; invitees convert at ~30%."' })),
+    status: Type.Optional(Type.String({ description: 'Loop status. Default "active". Only "active" loops count toward the Stage 7 check.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { name?: string; description?: string; status?: string };
+    const name = String(p.name ?? '').trim();
+    if (!name) {
+      return {
+        content: [{ type: 'text', text: 'log_growth_loop requires a name — ask the founder what loop they are running.' }],
+        details: { error: 'missing_name' },
+      };
+    }
+    const status = typeof p.status === 'string' && p.status.trim() ? p.status.trim().slice(0, 40) : 'active';
+
+    const id = generateId('loop');
+    try {
+      // growth_loops has no dedicated name/description columns — metric_name
+      // carries the loop name and accumulated_learnings carries the prose
+      // description (the snapshot only reads id + status).
+      await run(
+        `INSERT INTO growth_loops (id, project_id, metric_name, status, accumulated_learnings)
+         VALUES (?, ?, ?, ?, ?)`,
+        id,
+        ctx.projectId,
+        name.slice(0, 200),
+        status,
+        p.description ? String(p.description).slice(0, 2000) : null,
+      );
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to log growth loop: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    return {
+      content: [{ type: 'text', text: `Logged growth loop "${name}" (${status}). Stage 7 (Growth) loop check will pass on next refresh.` }],
+      details: { id, status },
+    };
+  },
+});
+
+const updateMetricsTool = (ctx: ToolContext): AgentTool => ({
+  name: 'update_metrics',
+  label: 'Update Metrics',
+  description:
+    'Upsert one or more tracked metrics with their current value (MRR, ARR, signups, activation rate, retention, etc.). Use when the founder reports numbers they are tracking — "MRR is $4k", "we have 250 signups", "activation is 32%". Advances Stage 7 (Growth): closes the "3+ metrics tracked" check, and a revenue/MRR/ARR metric with a positive value also closes the Stage 7 "capital plan" check. Pass a single metric or an array. Re-passing an existing metric name updates its current value. PROVENANCE: metrics logged through this tool are recorded as self-reported (founder_asserted) — they stay marked as unverified founder claims until a workflow or skill run backs them with measured data.',
+  parameters: Type.Object({
+    metrics: Type.Optional(Type.Array(
+      Type.Object({
+        name: Type.String({ description: 'Metric name. For the capital-plan credit use a name containing "revenue", "MRR", or "ARR".' }),
+        current_value: Type.Optional(Type.Number({ description: 'Latest numeric value. Just the number (4000, not "$4k").' })),
+      }, { additionalProperties: false }),
+      { description: 'Array of metrics to upsert. Use this OR the single name/current_value pair.' },
+    )),
+    name: Type.Optional(Type.String({ description: 'Single metric name (when upserting just one).' })),
+    current_value: Type.Optional(Type.Number({ description: 'Single metric current value (paired with name).' })),
+    provenance: Type.Optional(Type.Union([
+      Type.Literal('founder_asserted'),
+      Type.Literal('workflow_derived'),
+    ], { description: 'How the value was obtained. Defaults to "founder_asserted" (self-reported in chat). Only pass "workflow_derived" when the value comes from an actual workflow/skill measurement, never for numbers the founder states in conversation.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as {
+      metrics?: { name: string; current_value?: number }[];
+      name?: string;
+      current_value?: number;
+      provenance?: string;
+    };
+
+    // Everything flowing through this chat tool is self-reported by
+    // definition — 'workflow_derived' is only honored so future workflow
+    // callers can reuse the tool with the higher trust tier. Anything else
+    // (missing, typo'd, or hallucinated) falls back to founder_asserted.
+    const provenance: 'founder_asserted' | 'workflow_derived' =
+      p.provenance === 'workflow_derived' ? 'workflow_derived' : 'founder_asserted';
+
+    const list: { name: string; current_value?: number }[] = [];
+    if (Array.isArray(p.metrics)) {
+      for (const m of p.metrics) {
+        if (m && typeof m.name === 'string' && m.name.trim()) {
+          list.push({ name: m.name.trim().slice(0, 200), current_value: typeof m.current_value === 'number' ? m.current_value : undefined });
+        }
+      }
+    }
+    if (typeof p.name === 'string' && p.name.trim()) {
+      list.push({ name: p.name.trim().slice(0, 200), current_value: typeof p.current_value === 'number' ? p.current_value : undefined });
+    }
+
+    if (list.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'update_metrics needs at least one metric with a name. Ask the founder which metric and its value.' }],
+        details: { error: 'no_metrics' },
+      };
+    }
+
+    const upserted: string[] = [];
+    try {
+      for (const m of list) {
+        // Match on (project_id, name): update the existing row's current_value
+        // or insert a new metric. current_value is read by the snapshot/stage-7.
+        // provenance is stamped on every write — re-asserting a value over a
+        // workflow_derived row deliberately downgrades it back to
+        // founder_asserted, because the NEW number is a fresh self-report.
+        const existing = await get<{ id: string }>(
+          'SELECT id FROM metrics WHERE project_id = ? AND name = ? LIMIT 1',
+          ctx.projectId, m.name,
+        );
+        if (existing) {
+          if (m.current_value !== undefined) {
+            await run(
+              'UPDATE metrics SET current_value = ?, provenance = ? WHERE id = ?',
+              m.current_value, provenance, existing.id,
+            );
+          }
+        } else {
+          await run(
+            'INSERT INTO metrics (id, project_id, name, current_value, provenance) VALUES (?, ?, ?, ?, ?)',
+            generateId('metric'), ctx.projectId, m.name, m.current_value ?? null, provenance,
+          );
+        }
+        upserted.push(m.name);
+      }
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to update metrics: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    return {
+      content: [{ type: 'text', text: `Upserted ${upserted.length} metric${upserted.length === 1 ? '' : 's'}: ${upserted.join(', ')} (recorded as ${provenance === 'workflow_derived' ? 'workflow-derived' : 'self-reported'}). Stage 7 (Growth) metrics check will recompute on next refresh.` }],
+      details: { upserted, provenance },
+    };
+  },
+});
+
+const updateBurnRateTool = (ctx: ToolContext): AgentTool => ({
+  name: 'update_burn_rate',
+  label: 'Update Burn Rate',
+  description:
+    'Set the project\'s monthly burn and cash on hand. Use when the founder reports finances — "we burn $20k/mo", "we have $300k in the bank". Advances Stage 7 (Growth): the runway check (≥12 months) is computed from cash_on_hand ÷ monthly_burn. Upserts the single burn_rate row for this project.',
+  parameters: Type.Object({
+    monthly_burn: Type.Optional(Type.Number({ description: 'Net monthly cash burn in the project currency. Just the number (20000, not "$20k").' })),
+    cash_on_hand: Type.Optional(Type.Number({ description: 'Current cash in the bank. Just the number (300000).' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { monthly_burn?: number; cash_on_hand?: number };
+    const monthlyBurn = typeof p.monthly_burn === 'number' ? p.monthly_burn : undefined;
+    const cashOnHand = typeof p.cash_on_hand === 'number' ? p.cash_on_hand : undefined;
+
+    if (monthlyBurn === undefined && cashOnHand === undefined) {
+      return {
+        content: [{ type: 'text', text: 'update_burn_rate needs at least monthly_burn or cash_on_hand. Ask the founder for the numbers.' }],
+        details: { error: 'no_fields' },
+      };
+    }
+
+    try {
+      // Upsert the single burn_rate row (project_id is PK). COALESCE keeps the
+      // field not supplied this call. NULLs in EXCLUDED fall back to existing.
+      await run(
+        `INSERT INTO burn_rate (project_id, monthly_burn, cash_on_hand, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (project_id) DO UPDATE SET
+           monthly_burn = COALESCE(EXCLUDED.monthly_burn, burn_rate.monthly_burn),
+           cash_on_hand = COALESCE(EXCLUDED.cash_on_hand, burn_rate.cash_on_hand),
+           updated_at   = EXCLUDED.updated_at`,
+        ctx.projectId,
+        monthlyBurn ?? null,
+        cashOnHand ?? null,
+        new Date().toISOString(),
+      );
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to update burn rate: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    const parts = [
+      monthlyBurn !== undefined && `burn=$${monthlyBurn}/mo`,
+      cashOnHand !== undefined && `cash=$${cashOnHand}`,
+    ].filter(Boolean).join(', ');
+    return {
+      content: [{ type: 'text', text: `Burn rate updated (${parts}). Stage 7 (Growth) runway check will recompute on next refresh.` }],
+      details: { monthly_burn: monthlyBurn, cash_on_hand: cashOnHand },
+    };
+  },
+});
+
+const logFundraisingTool = (ctx: ToolContext): AgentTool => ({
+  name: 'log_fundraising',
+  label: 'Log Fundraising',
+  description:
+    'Record the project\'s fundraising round — target amount, amount raised so far, and status. Use when the founder is raising capital — "we\'re raising a $1M pre-seed", "closed $400k of the round". Advances Stage 7 (Growth): an OPEN round closes the "capital plan in motion" check. Upserts the single fundraising_rounds row for this project.',
+  parameters: Type.Object({
+    target_amount: Type.Optional(Type.Number({ description: 'Total amount the founder is raising. Just the number (1000000).' })),
+    raised_amount: Type.Optional(Type.Number({ description: 'Amount committed/raised so far. Just the number (400000).' })),
+    status: Type.Optional(Type.String({ description: 'Round status. Use "open" while actively raising (this is what closes the capital-plan check). Other values: "planning", "closed".' })),
+    round_type: Type.Optional(Type.String({ description: 'Optional label, e.g. "pre-seed", "seed", "Series A".' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { target_amount?: number; raised_amount?: number; status?: string; round_type?: string };
+    const targetAmount = typeof p.target_amount === 'number' ? p.target_amount : undefined;
+    const raisedAmount = typeof p.raised_amount === 'number' ? p.raised_amount : undefined;
+    const status = typeof p.status === 'string' && p.status.trim() ? p.status.trim().slice(0, 40) : undefined;
+    const roundType = typeof p.round_type === 'string' && p.round_type.trim() ? p.round_type.trim().slice(0, 60) : undefined;
+
+    if (targetAmount === undefined && raisedAmount === undefined && status === undefined && roundType === undefined) {
+      return {
+        content: [{ type: 'text', text: 'log_fundraising needs at least one field (target_amount, raised_amount, status, or round_type). Ask the founder about the round.' }],
+        details: { error: 'no_fields' },
+      };
+    }
+
+    try {
+      // Upsert the single fundraising_rounds row (project_id is PK). COALESCE
+      // preserves any field not supplied this call.
+      await run(
+        `INSERT INTO fundraising_rounds (project_id, target_amount, raised_amount, status, round_type)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (project_id) DO UPDATE SET
+           target_amount = COALESCE(EXCLUDED.target_amount, fundraising_rounds.target_amount),
+           raised_amount = COALESCE(EXCLUDED.raised_amount, fundraising_rounds.raised_amount),
+           status        = COALESCE(NULLIF(EXCLUDED.status, ''),     fundraising_rounds.status),
+           round_type    = COALESCE(NULLIF(EXCLUDED.round_type, ''), fundraising_rounds.round_type)`,
+        ctx.projectId,
+        targetAmount ?? null,
+        raisedAmount ?? null,
+        status ?? '',
+        roundType ?? '',
+      );
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `Failed to log fundraising: ${(err as Error).message}` }],
+        details: { error: true },
+      };
+    }
+
+    const parts = [
+      roundType && roundType,
+      targetAmount !== undefined && `target=$${targetAmount}`,
+      raisedAmount !== undefined && `raised=$${raisedAmount}`,
+      status && `status=${status}`,
+    ].filter(Boolean).join(', ');
+    return {
+      content: [{ type: 'text', text: `Fundraising round updated (${parts}). Stage 7 (Growth) capital-plan check will recompute on next refresh.` }],
+      details: { target_amount: targetAmount, raised_amount: raisedAmount, status, round_type: roundType },
+    };
+  },
+});
+
 /**
  * Returns a tool array scoped to a single project. Merge with getTools() from
  * pi-tools.ts when configuring the agent:
@@ -2081,5 +2498,13 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     updatePricingTool(ctx),
     saveMemoryFactTool(ctx),
     logInterviewTool(ctx),
+    // Stage 5 (MVP) + Stage 7 (Growth) facet writers — give the founder a
+    // chat path to close the build/metrics/runway/capital evidence gates.
+    updateWorkflowTool(ctx),
+    logPublishedAssetTool(ctx),
+    logGrowthLoopTool(ctx),
+    updateMetricsTool(ctx),
+    updateBurnRateTool(ctx),
+    logFundraisingTool(ctx),
   ];
 }

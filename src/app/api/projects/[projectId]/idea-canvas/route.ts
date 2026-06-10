@@ -34,14 +34,11 @@ export async function GET(
     projectId,
   );
 
-  return json({
-    success: true,
-    data: row ?? {
-      problem: null,
-      solution: null,
-      target_market: null,
-      value_proposition: null,
-      business_model: null,
-    },
+  return json(row ?? {
+    problem: null,
+    solution: null,
+    target_market: null,
+    value_proposition: null,
+    business_model: null,
   });
 }

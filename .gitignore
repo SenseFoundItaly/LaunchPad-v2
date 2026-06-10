@@ -27,3 +27,15 @@ next-env.d.ts
 # TypeScript build cache
 tsconfig.tsbuildinfo
 .gstack/
+
+# Throwaway verification / debug scripts at repo root
+/*-tmp.mjs
+/*-tmp.ts
+/*-tmp.cjs
+
+# QA screenshots taken during ad-hoc verification
+/canvas-*.png
+/spine-*.png
+/e2e-piano-*.png
+/memory-scroll-jump.png
+/interconnect-verify.png

@@ -331,46 +331,154 @@ const urlFetchTool: AgentTool = {
   },
 };
 
+/**
+ * Safe arithmetic evaluator — a small recursive-descent parser that supports
+ * + - * / and parentheses over decimal/scientific numbers, plus a couple of
+ * founder-friendly conveniences (`X% of Y`, trailing `%` literals, `,`
+ * thousands separators, `×`/`÷` unicode operators). It builds the result by
+ * walking a token stream directly, so no dynamic code generation is involved
+ * and arbitrary input can never run as code. Throws on malformed input.
+ */
+function evalArithmetic(input: string): number {
+  // Normalize founder-y syntax before tokenizing:
+  //  - "15% of 2000" -> "(15/100)*2000"  (also "15 % of 2,000")
+  //  - bare unicode operators -> ascii
+  //  - thousands separators inside numbers (1,000,000) -> 1000000
+  //  - trailing "%" on a number -> "/100"
+  let s = input.trim();
+  if (!s) throw new Error('empty expression');
+  s = s.replace(/[×✕✖]/g, '*').replace(/[÷]/g, '/').replace(/[–—−]/g, '-');
+  // "N% of M" -> "(N/100)*(M)"  (M parsed normally afterwards)
+  s = s.replace(/(\d[\d,]*(?:\.\d+)?)\s*%\s*of\s+/gi, '($1/100)*');
+  // remove thousands separators that sit between digits: 1,000,000 -> 1000000
+  s = s.replace(/(\d),(?=\d{3}\b)/g, '$1');
+  // remaining "%" => "/100" (modulo is not what founders mean here)
+  s = s.replace(/%/g, '/100');
+
+  // Tokenizer
+  type Tok = { t: 'num'; v: number } | { t: 'op'; v: string } | { t: 'lp' } | { t: 'rp' };
+  const toks: Tok[] = [];
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { i++; continue; }
+    if (c === '(') { toks.push({ t: 'lp' }); i++; continue; }
+    if (c === ')') { toks.push({ t: 'rp' }); i++; continue; }
+    if (c === '+' || c === '-' || c === '*' || c === '/') { toks.push({ t: 'op', v: c }); i++; continue; }
+    // number: digits, decimal point, optional scientific exponent
+    const m = /^\d*\.?\d+(?:[eE][+-]?\d+)?/.exec(s.slice(i));
+    if (m && m[0]) {
+      toks.push({ t: 'num', v: parseFloat(m[0]) });
+      i += m[0].length;
+      continue;
+    }
+    throw new Error(`unexpected character "${c}"`);
+  }
+  if (toks.length === 0) throw new Error('no numbers to evaluate');
+
+  // Recursive-descent: expr = term (('+'|'-') term)*; term = factor (('*'|'/') factor)*;
+  // factor = number | '(' expr ')' | ('+'|'-') factor
+  let p = 0;
+  const peek = () => toks[p];
+  const parseExpr = (): number => {
+    let val = parseTerm();
+    for (;;) {
+      const tk = peek();
+      if (tk && tk.t === 'op' && (tk.v === '+' || tk.v === '-')) {
+        p++;
+        const rhs = parseTerm();
+        val = tk.v === '+' ? val + rhs : val - rhs;
+      } else break;
+    }
+    return val;
+  };
+  const parseTerm = (): number => {
+    let val = parseFactor();
+    for (;;) {
+      const tk = peek();
+      if (tk && tk.t === 'op' && (tk.v === '*' || tk.v === '/')) {
+        p++;
+        const rhs = parseFactor();
+        if (tk.v === '/') {
+          if (rhs === 0) throw new Error('division by zero');
+          val = val / rhs;
+        } else {
+          val = val * rhs;
+        }
+      } else break;
+    }
+    return val;
+  };
+  const parseFactor = (): number => {
+    const tk = peek();
+    if (!tk) throw new Error('unexpected end of expression');
+    if (tk.t === 'op' && (tk.v === '+' || tk.v === '-')) {
+      p++;
+      const f = parseFactor();
+      return tk.v === '-' ? -f : f;
+    }
+    if (tk.t === 'num') { p++; return tk.v; }
+    if (tk.t === 'lp') {
+      p++;
+      const v = parseExpr();
+      const close = peek();
+      if (!close || close.t !== 'rp') throw new Error('missing closing parenthesis');
+      p++;
+      return v;
+    }
+    throw new Error('expected a number or "("');
+  };
+
+  const result = parseExpr();
+  if (p !== toks.length) throw new Error('unexpected trailing input');
+  if (!Number.isFinite(result)) throw new Error('result is not a finite number');
+  return result;
+}
+
 /** Calculator for financial projections */
 const calculatorTool: AgentTool = {
   name: 'calculate',
   label: 'Calculator',
-  description: 'Evaluate a mathematical expression. Use for financial calculations, unit economics, runway projections, market sizing, etc.',
+  description: 'Evaluate a mathematical expression. Use for financial calculations, unit economics, runway projections, market sizing, etc. Supports + - * / decimals parentheses and "15% of 2000".',
   parameters: Type.Object({
-    expression: Type.String({ description: 'Mathematical expression to evaluate (e.g., "1000000 * 0.15 / 12")' }),
+    expression: Type.String({ description: 'Mathematical expression to evaluate (e.g., "1000000 * 0.15 / 12", "(49 + 199) / 2", "15% of 2000")' }),
     label: Type.Optional(Type.String({ description: 'What this calculation represents (e.g., "Monthly revenue at 15% take rate")' })),
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
-    const { expression, label } = params as { expression: string; label?: string };
+    const raw = (params as { expression?: unknown; label?: unknown }).expression;
+    const label = typeof (params as { label?: unknown }).label === 'string'
+      ? (params as { label: string }).label
+      : undefined;
+    const expression = typeof raw === 'string' ? raw : String(raw ?? '');
+
+    let result: number;
     try {
-      // Safe math evaluation — only allows numbers, operators, parens
-      const sanitized = expression.replace(/[^0-9+\-*/.()%, ]/g, '');
-      if (sanitized !== expression.replace(/\s/g, '')) {
-        throw new Error('Expression contains invalid characters');
-      }
-      // eslint-disable-next-line no-eval
-      const result = Function(`"use strict"; return (${sanitized})`)();
-      const formatted = typeof result === 'number'
-        ? result.toLocaleString('en-US', { maximumFractionDigits: 2 })
-        : String(result);
-
-      const text = label
-        ? `${label}: ${formatted}\n(${expression} = ${result})`
-        : `${expression} = ${formatted}`;
-
-      return {
-        content: [{ type: 'text', text }],
-        // Math is self-evidenced — no web URL to cite. When the agent uses
-        // a calc result in an artifact, the source should be an `inference`
-        // citing the inputs (which themselves came from web/internal sources).
-        details: { expression, result, label },
-      };
+      result = evalArithmetic(expression);
     } catch (err) {
+      // Return a helpful message rather than a hard throw the agent reads as
+      // "the calculator is broken". The agent can then fall back or retry.
+      const reason = err instanceof Error ? err.message : String(err);
       return {
-        content: [{ type: 'text', text: `Calculation error: ${err instanceof Error ? err.message : String(err)}` }],
-        details: { expression, error: true },
+        content: [{
+          type: 'text',
+          text: `Could not evaluate "${expression}" (${reason}). I can only do plain arithmetic: + - * / ( ) decimals, and "X% of Y". Re-send it in that form (e.g. "0.15 * 2000").`,
+        }],
+        details: { expression, error: true, reason },
       };
     }
+
+    const formatted = result.toLocaleString('en-US', { maximumFractionDigits: 4 });
+    const text = label
+      ? `${label}: ${formatted}\n(${expression} = ${result})`
+      : `${expression} = ${formatted}`;
+
+    return {
+      content: [{ type: 'text', text }],
+      // Math is self-evidenced — no web URL to cite. When the agent uses
+      // a calc result in an artifact, the source should be an `inference`
+      // citing the inputs (which themselves came from web/internal sources).
+      details: { expression, result, label },
+    };
   },
 };
 

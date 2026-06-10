@@ -272,11 +272,19 @@ function tryExtract(
 
 /** Look up a dimension value with fuzzy key matching. */
 function findDimensionValue(dims: Record<string, number>, key: string): number | null {
-  // Exact match
   if (typeof dims[key] === 'number') return dims[key];
-  // Try with spaces replaced by underscores, or vice versa
   const normalized = key.toLowerCase().replace(/[_\s-]+/g, '_');
-  for (const [k, v] of Object.entries(dims)) {
+  // A malformed `dimensions` JSONB payload (e.g. polluted by a failed score-card
+  // persistence) can make V8 throw "Too many properties to enumerate" from
+  // Object.entries. Skip fuzzy matching in that case rather than crash the
+  // whole stage-readiness pipeline.
+  let entries: [string, unknown][];
+  try {
+    entries = Object.entries(dims);
+  } catch {
+    return null;
+  }
+  for (const [k, v] of entries) {
     if (k.toLowerCase().replace(/[_\s-]+/g, '_') === normalized && typeof v === 'number') {
       return v;
     }

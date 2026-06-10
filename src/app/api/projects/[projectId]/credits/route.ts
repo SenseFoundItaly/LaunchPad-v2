@@ -59,11 +59,11 @@ export async function PATCH(
     periodMonth,
   );
 
-  const currentCapCredits = existing?.cap_credits ?? 100;
+  const currentCapCredits = existing?.cap_credits ?? 500;
   const currentCapUsd = existing?.cap_llm_usd ?? 5.00;
   const creditsPerDollar = currentCapCredits > 0
     ? currentCapCredits / currentCapUsd
-    : 200; // fallback
+    : 100; // fallback — matches schema default (500/$5)
 
   const newCapCredits = currentCapCredits + bumpCredits;
   const newCapUsd = newCapCredits / creditsPerDollar;

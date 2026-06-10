@@ -15,7 +15,8 @@
 import type { Usage } from '@mariozechner/pi-ai';
 import { query, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
-import { logToLangfuse, type TelemetryContext } from '@/lib/telemetry';
+import { logToLangfuse, estimateCost, type TelemetryContext } from '@/lib/telemetry';
+import { pickModel, type TaskLabel } from '@/lib/llm/router';
 
 export interface RecordUsageInput {
   project_id: string;
@@ -118,8 +119,11 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
     console.warn('cost-meter → Langfuse failed (non-fatal):', (err as Error).message);
   }
 
-  const capCredits = budget.cap_credits ?? 100;
-  const creditsPerDollar = budget.cap_llm_usd > 0 ? capCredits / budget.cap_llm_usd : 200;
+  // Schema truth: db/schema.sql defaults cap_credits=500, cap_llm_usd=5.00 →
+  // 100 credits per $1 → 1 credit = $0.01 LLM spend. Keep fallbacks in lockstep
+  // with that ratio so projects without a budget row report consistent numbers.
+  const capCredits = budget.cap_credits ?? 500;
+  const creditsPerDollar = budget.cap_llm_usd > 0 ? capCredits / budget.cap_llm_usd : 100;
   const creditsUsedThisCall = Math.round(costUsd * creditsPerDollar);
   const totalCreditsUsed = Math.round(budget.current_llm_usd * creditsPerDollar);
   const creditsRemaining = Math.max(0, capCredits - totalCreditsUsed);
@@ -137,6 +141,60 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
   };
 }
 
+/**
+ * Convenience wrapper for the common `runAgent` → record-usage flow.
+ *
+ * Encapsulates the 25-line boilerplate that every runAgent caller needs:
+ * resolves provider+model from the task label, synthesizes cost.total via
+ * estimateCost() when pi-ai didn't report one (mostly direct-Anthropic),
+ * fire-and-forget into recordUsage with the right `step` label.
+ *
+ * Safe to call with undefined usage — no-ops. Never throws (recordUsage's
+ * promise rejection is logged but swallowed).
+ */
+export function recordAgentUsage(opts: {
+  project_id: string;
+  skill_id?: string;
+  step: string;
+  task: TaskLabel | string;
+  usage: Usage | undefined;
+  latency_ms: number;
+}): void {
+  if (!opts.usage) return;
+  const { provider, model } = pickModel(opts.task);
+  const u = opts.usage as unknown as {
+    cost?: { total?: number };
+    input?: number; output?: number;
+    input_tokens?: number; output_tokens?: number;
+    inputTokens?: number; outputTokens?: number;
+  };
+  const hasCost = typeof u?.cost?.total === 'number' && u.cost.total > 0;
+  const usageToLog = hasCost
+    ? opts.usage
+    : {
+        ...opts.usage,
+        cost: {
+          total: estimateCost(provider, model, {
+            input_tokens: u.input ?? u.inputTokens ?? u.input_tokens ?? 0,
+            output_tokens: u.output ?? u.outputTokens ?? u.output_tokens ?? 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          }),
+        },
+      };
+  recordUsage({
+    project_id: opts.project_id,
+    skill_id: opts.skill_id,
+    step: opts.step,
+    provider,
+    model,
+    usage: usageToLog as Usage,
+    latency_ms: opts.latency_ms,
+  }).catch(err =>
+    console.warn(`[${opts.step}] recordUsage failed:`, (err as Error).message),
+  );
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -144,26 +202,6 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
 function currentPeriodMonth(): string {
   const d = new Date();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-/**
- * Structured error thrown when a project has exceeded its monthly LLM budget.
- *
- * @deprecated No callers remain — budget enforcement is now observe-only.
- * Kept for backward compatibility; will be removed in a future cleanup.
- */
-export class BudgetExceededError extends Error {
-  constructor(
-    public readonly projectId: string,
-    public readonly currentUsd: number,
-    public readonly capUsd: number,
-    public readonly periodMonth: string,
-  ) {
-    super(
-      `Project ${projectId} exceeded monthly LLM budget: $${currentUsd.toFixed(4)} >= $${capUsd.toFixed(2)} for ${periodMonth}`,
-    );
-    this.name = 'BudgetExceededError';
-  }
 }
 
 /**
@@ -208,30 +246,6 @@ export async function isProjectCapped(projectId: string): Promise<{
   };
 }
 
-/**
- * Throws BudgetExceededError if the project is capped. Convenience wrapper
- * for call sites that want a single-line guard. Pass bypassBudget=true to
- * skip the check (admin / system tasks).
- *
- * @deprecated No callers remain — budget enforcement is now observe-only.
- * Kept for backward compatibility; will be removed in a future cleanup.
- */
-export async function enforceBudget(
-  projectId: string,
-  bypassBudget = false,
-): Promise<void> {
-  if (bypassBudget) return;
-  const status = await isProjectCapped(projectId);
-  if (status.capped) {
-    throw new BudgetExceededError(
-      projectId,
-      status.currentUsd,
-      status.capUsd,
-      status.periodMonth,
-    );
-  }
-}
-
 interface BudgetSnapshot {
   id: string;
   current_llm_usd: number;
@@ -241,7 +255,16 @@ interface BudgetSnapshot {
   status: string;
 }
 
-async function upsertMonthlyBudget(
+/**
+ * Increment a project's monthly budget by `costDelta` USD. Exported so the
+ * telemetry-layer logger (`logUsageToDb`) can also accumulate — chat used to
+ * write llm_usage_logs without ever updating project_budgets, which
+ * undercounted spend by ~4x (see fix 2026-06-04).
+ *
+ * Idempotent for INSERT (UNIQUE(project_id, period_month)); accumulates on
+ * conflict.
+ */
+export async function upsertMonthlyBudget(
   projectId: string,
   periodMonth: string,
   costDelta: number,

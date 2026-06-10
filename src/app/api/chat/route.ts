@@ -3,7 +3,7 @@ import { query, run, get } from '@/lib/db';
 import crypto from 'crypto';
 import { chatWithUsage, type UserKeyOverride } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
-import { logUsageToSQLite, logToLangfuse, estimateCost } from '@/lib/telemetry';
+import { logUsageToDb, logToLangfuse, estimateCost } from '@/lib/telemetry';
 import { runAgentStream } from '@/lib/pi-agent';
 import { buildSystemPromptString, resolveProjectLocale } from '@/lib/agent-prompt';
 import { makeProjectTools } from '@/lib/project-tools';
@@ -110,11 +110,24 @@ const ARTIFACT_INSTRUCTIONS = `[You are SenseFound, an evidence-based validation
     sources:[{"type":"inference","title":"Synthesized from project context","based_on":[{"type":"internal","title":"Idea Canvas — target_market","ref":"research","ref_id":"<idea_canvas:target_market>"},{"type":"internal","title":"Startup score — Team dimension","ref":"score","ref_id":"<scores:team>"}],"reasoning":"Solo-founder burnout risk follows from idea_canvas (no co-founder) + low team score"}]
   The inference source IS the audit trail — it names which project fields you looked at + the logic chain. Empty based_on[] is rejected. "common knowledge" reasoning is rejected — anchor to a named project input.
 - ALWAYS include the "sources" array on every factual artifact, even when no web source applies. The UI only renders type:"web" sources in [1], [2]... markers — internal, skill, user, and inference sources are tracked server-side and stay invisible to the founder. NEVER omit the sources array; emit type:"inference" with explicit based_on[] when no web evidence backs the claim. Empty or missing sources is a contract violation and the artifact will be rejected.
+- PROVENANCE HONESTY (never violate): a number the FOUNDER stated in chat is a self-reported claim, not a measured fact. When you put founder-stated numbers in a metric-grid / score-card / gauge-chart, source them as type:"user" with the verbatim quote — NEVER as type:"web" or type:"skill" unless that research actually ran this conversation. Metric artifacts whose sources contain no web/skill entry render with a "self-reported" pill — that is correct and intentional; do not launder a founder claim into a sourced-looking fact to avoid the pill. When summarizing founder-asserted metrics in prose, attribute them ("you told me...", "by your numbers...") rather than asserting them as verified.
 - Prefer parallel tool calls over sequential.
 - Ship partial answers over perfect-but-never-arriving answers.
 - No invented numbers, company names, or URLs.
 - NEVER say "web search is unavailable". The web_search tool is always available. If a search fails, retry with a different query or report the specific error.
 - For research or intelligence analysis, use web_search to ground specific claims (numbers, benchmarks, named entities, dates) that no skill covers. Do NOT fabricate or "build from first principles" when web_search can provide real data. CRITICAL: web_search is NOT a substitute for a skill kickoff — skills run their own targeted research internally (see TIER 0.5). Web_searching market sizing right before firing skill_market_research is duplicate work that burns the 8-call budget before the skill can even start.
+
+=== TIER 0.25 — MATCH THE FOUNDER (response budget + stage transparency) ===
+READ THE FOUNDER'S REGISTER and match it. If their messages are short, plain-language, non-technical, or uncertain ("I'm not sure", "what does that mean?", no business jargon), you are talking to a FIRST-TIME FOUNDER IN DISCOVERY MODE:
+- Cap your prose at ~180 words per turn. ONE concept per turn. The trailing option-set carries the choices — never restate the options in prose, and never dump multi-model playbooks inline (offer them as option-set entries instead).
+- Define every business term in parentheses on first use — MVP (a first bare-bones version), value prop (the one-line reason someone picks you), GTM (how you reach customers), ICP (your exact target customer). If they ask what a term means, your previous turn already failed — apologize in one clause and answer plainly.
+- Mirror their words back; ask at most TWO questions per turn.
+An experienced founder (dense messages, supplies numbers/competitors unprompted, uses jargon correctly) gets the full-depth treatment — this budget only applies when the register says beginner.
+
+STAGE TRANSPARENCY (all founders):
+- In your FIRST reply on a new project, show the 7-stage map in one compact line so the founder knows the shape of the journey: Spark (idea written down) -> Problem (pain validated) -> Solution (your answer + edge) -> Segment (who exactly) -> MVP (first version live) -> Pricing (what they pay) -> Growth (repeatable engine).
+- ALWAYS use these canonical stage names exactly — never invent synonyms ("Market Validation", "Idea Validation" are WRONG; the journey UI says "Problem" and mismatched names break trust).
+- When evidence lands, report the check delta in one clause: "that closed 2 of Problem's 7 checks — 4 left." Never claim a check closed unless the readiness data confirms it.
 
 === TIER 0.5 — SKILL-FIRST FOR STAGE ADVANCEMENT (never violate) ===
 Skills are PROPOSED, not run inline. Calling a skill_* tool does NOT run the skill — it creates a one-click approval card for the founder (with the credit cost shown). The skill then runs in REAL TIME the moment the founder approves, in its own request, and writes the validation evidence (skill_completions, section_scores, idea_canvas, etc.). This keeps chat fast and gives the founder consent before you spend their budget.
@@ -191,7 +204,7 @@ HOW to source the recommendation:
 PRIORITY RULES:
 - When urgent signals exist (Tier 1 decision tree): the validation CTA yields first position to intelligence. It still appears in the option-set but NOT as the first option.
 - When the founder is mid-conversation about a specific topic: lead with topic-relevant options, validation CTA as trailing option.
-- When the founder EXPLICITLY names a later stage in their message (fundraising / seed round / investor; metrics / burn rate / runway; business model / pricing / unit economics; GTM / go-to-market; MVP / prototype / build; growth / experiments): the option-set MUST include that stage's Kickoff: FIRST, then next_recommended_skill as a trailing "but first validate Stage X" anchor. Founder-named context overrides protocol order — never drop the contextual stage to push next_recommended_skill into first position.
+- When the founder EXPLICITLY names a later stage in their message (fundraising / seed round / investor; metrics / burn rate / runway; business model / pricing / unit economics; GTM / go-to-market; MVP / prototype / build; growth / experiments): FIRE that stage's skill_* tool IMMEDIATELY (per TIER 0.5 + TIER 5 SKILL TOOL GUARD). Do NOT offer it via option-set — option-set is the OUTPUT after the skill fires. After the skill returns, the trailing option-set MAY include next_recommended_skill as a "but you should also validate Stage X" anchor for spine progression. Founder-named context overrides protocol order — never DROP the contextual stage, but FIRE it instead of OFFERING it.
 - When all 7 stages are verdict GO+: STOP pushing skill kickoffs. Switch to operating concerns: weekly metrics, fundraising status, growth experiments, monitor health, risk management.
 - When the founder explicitly asks to run a skill: route through "I choose: <kickoff>" click path.
 
@@ -286,7 +299,13 @@ BUDGET CAP CHANGES:
 Call propose_budget_change when the founder explicitly asks to raise/lower cap, or when credits-empty and they want to continue. Cite the founder quote or error in sources. Never bump silently.
 
 SKILL TOOL GUARD:
-Skill tools are FULL STRUCTURED SESSIONS (5-15 min, multi-step). Only invoke when the founder EXPLICITLY asks to start a session. For keyword-adjacent questions ("Where are the biggest risks?"), answer from context using get_risk_audit + list_intelligence_briefs + list_ecosystem_alerts. Offer the full session as an option-set choice.
+Skill tools produce DURABLE validation evidence (skill_completions row, section_scores update, idea_canvas/risk_audit/etc. updates). Web_search produces ephemeral prose. When the founder's question maps to a registered skill per TIER 0.5 content-mapping (topical match — no explicit trigger phrase required), FIRE the skill — do not "offer" via option-set. Option-sets exist for choices BETWEEN skills when multiple match, not to ask permission to fire one.
+
+Exception — offer (don't fire) ONLY when: (a) the founder's question genuinely matches MULTIPLE skills and they must pick, or (b) all 7 stages are verdict GO+ and you're in operating mode.
+
+For keyword-adjacent questions that do NOT map to a registered skill (e.g., "what are the biggest risks today?" without any risk_audit context yet), answer from get_risk_audit + list_intelligence_briefs + list_ecosystem_alerts.
+
+Most common failure mode: "agent offered skill_X as one of 4 options, founder didn't click, stage stayed at 0%, no skill_completions row ever landed." Don't do that — fire the skill.
 
 SOLVE FLOW MODE:
 Triggered by "Start the Solve flow" / "Avvia il flusso Solve".
@@ -630,7 +649,7 @@ export async function POST(request: NextRequest) {
           cache_read_input_tokens: streamUsage?.cache_read_input_tokens ?? 0,
         };
         const cost = streamUsage?.cost ?? estimateCost(piProvider, piModel, usage);
-        await logUsageToSQLite(project_id, null, step, piProvider, piModel, usage, cost, latencyMs);
+        await logUsageToDb(project_id, null, step, piProvider, piModel, usage, cost, latencyMs);
         const langfuseTraceId = logToLangfuse(
           { projectId: project_id, step, provider: piProvider as 'anthropic' | 'openai' | 'openrouter', model: piModel },
           usage, cost, latencyMs,
@@ -871,17 +890,26 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const model = provider === 'anthropic'
-          ? (process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514')
-          : (process.env.OPENAI_MODEL || 'gpt-4o');
-        const { text: directResponseText, usage: dUsage } = await chatWithUsage(fullMessages, provider);
+        // Use the router instead of the request-body provider so this path
+        // respects OPENROUTER_API_KEY when set. Without this, a deploy with
+        // only OPENROUTER_API_KEY configured would hit OpenAI on every
+        // pi-agent crash and fail with apiKey='unused'.
+        const picked = pickModel('chat');
+        const fbProvider = picked.provider;
+        const fbModel = picked.model;
+        const { text: directResponseText, usage: dUsage } = await chatWithUsage(
+          fullMessages, fbProvider, 0.7, picked.maxTokens, fbModel,
+        );
         const latencyMs = Date.now() - directStart;
-        const cost = estimateCost(provider, model, dUsage);
+        // Prefer provider-reported cost (OpenRouter); fall back to PRICING-table.
+        const cost = typeof dUsage.cost_usd === 'number'
+          ? dUsage.cost_usd
+          : estimateCost(fbProvider, fbModel, dUsage);
         const fallbackNotice = '\n\n---\n*[Running in limited mode — project tools unavailable. Responses are based on general knowledge, not your project data. Please retry if this persists.]*\n';
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: directResponseText + fallbackNotice })}\n\n`));
-        await logUsageToSQLite(project_id, null, step, provider, model, dUsage, cost, latencyMs);
+        await logUsageToDb(project_id, null, step, fbProvider, fbModel, dUsage, cost, latencyMs);
         logToLangfuse(
-          { projectId: project_id, step, provider: provider as 'anthropic' | 'openai', model },
+          { projectId: project_id, step, provider: fbProvider as 'anthropic' | 'openai' | 'openrouter', model: fbModel },
           dUsage, cost, latencyMs,
           lastMessage.slice(0, 1000),
           directResponseText.slice(0, 2000),

@@ -23,6 +23,7 @@
 import { query, run, get } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { runAgent } from '@/lib/pi-agent';
+import { recordAgentUsage } from '@/lib/cost-meter';
 
 export type AssumptionCategory =
   | 'market'
@@ -117,12 +118,20 @@ export async function extractAssumptions(
 
   const prompt = `Project context:\n\n${context}\n\nExtract assumptions. Return JSON only.`;
 
+  const startedAt = Date.now();
   const agentResult = await runAgent(prompt, {
     systemPrompt: EXTRACTOR_SYSTEM,
     task: 'assumption-extract',
     tools: false,
     timeout: 60000,
     maxToolCalls: 0,
+  });
+  recordAgentUsage({
+    project_id: projectId,
+    step: 'assumption-extract',
+    task: 'assumption-extract',
+    usage: agentResult.usage,
+    latency_ms: Date.now() - startedAt,
   });
 
   const parsed = parseExtractorOutput(agentResult.text);
@@ -394,12 +403,21 @@ Verdict?`;
 
     let verdict: LinkerVerdict | null = null;
     try {
+      const startedAt = Date.now();
       const agentResult = await runAgent(prompt, {
         systemPrompt: LINKER_SYSTEM,
         task: 'classify',
         tools: false,
         timeout: 30000,
         maxToolCalls: 0,
+      });
+      recordAgentUsage({
+        project_id: projectId,
+        skill_id: skillId,
+        step: 'assumption-linker',
+        task: 'classify',
+        usage: agentResult.usage,
+        latency_ms: Date.now() - startedAt,
       });
       verdict = parseLinkerVerdict(agentResult.text);
     } catch (err) {

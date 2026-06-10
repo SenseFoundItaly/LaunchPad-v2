@@ -40,6 +40,50 @@ interface ClassificationResult {
 
 const MAX_DIFF_FOR_LLM = 4000;
 const MAX_SNAPSHOT_STORED = 50_000;
+const MAX_CONSECUTIVE_ERRORS = 5;
+
+/**
+ * Record a scrape failure for a watch source: increment error_count, set the
+ * error_message, flip status to 'error' after MAX_CONSECUTIVE_ERRORS
+ * consecutive failures, push next_scrape_at, and log a watch_source_error
+ * activity event. Crucially this does NOT touch last_snapshot /
+ * last_content_hash and does NOT reset error_count — so a blind/failing
+ * watcher stays visibly broken instead of being silently reset to 'active'.
+ *
+ * Shared by both the throw-catch path and the ok===false path so the two
+ * failure modes behave identically. Never throws (the activity log is
+ * fire-and-forget) so it is safe to call from cron.
+ */
+async function recordScrapeFailure(
+  ws: WatchSource,
+  errorMsg: string,
+  now: string,
+): Promise<ProcessResult> {
+  const newErrorCount = (ws.error_count || 0) + 1;
+  await run(
+    `UPDATE watch_sources SET
+       error_message = ?, error_count = ?,
+       status = CASE WHEN ? >= ? THEN 'error' ELSE status END,
+       next_scrape_at = ?, updated_at = ?
+     WHERE id = ?`,
+    errorMsg.slice(0, 500),
+    newErrorCount,
+    newErrorCount,
+    MAX_CONSECUTIVE_ERRORS,
+    calculateNextRun(ws.schedule) || now,
+    now,
+    ws.id,
+  );
+  logSignalActivity({
+    project_id: ws.project_id,
+    event_type: 'watch_source_error',
+    entity_id: ws.id,
+    entity_type: 'watch_source',
+    headline: `Scrape error on "${ws.label}": ${errorMsg.slice(0, 120)}`,
+    metadata: { url: ws.url, error_count: newErrorCount },
+  }).catch(() => {});
+  return { watch_source_id: ws.id, status: 'error', change_status: 'same', error: errorMsg };
+}
 
 /**
  * Process a single watch source: scrape → detect change → classify → persist.
@@ -64,30 +108,25 @@ export async function processWatchSource(
       isFirstScrape: !ws.last_scraped_at,
     });
   } catch (err) {
-    const errorMsg = (err as Error).message;
-    const newErrorCount = (ws.error_count || 0) + 1;
-    await run(
-      `UPDATE watch_sources SET
-         error_message = ?, error_count = ?,
-         status = CASE WHEN ? >= 5 THEN 'error' ELSE status END,
-         next_scrape_at = ?, updated_at = ?
-       WHERE id = ?`,
-      errorMsg.slice(0, 500),
-      newErrorCount,
-      newErrorCount,
-      calculateNextRun(ws.schedule) || now,
-      now,
-      ws.id,
-    );
-    logSignalActivity({
-      project_id: ws.project_id,
-      event_type: 'watch_source_error',
-      entity_id: ws.id,
-      entity_type: 'watch_source',
-      headline: `Scrape error on "${ws.label}": ${errorMsg.slice(0, 120)}`,
-      metadata: { url: ws.url, error_count: newErrorCount },
-    }).catch(() => {});
-    return { watch_source_id: ws.id, status: 'error', change_status: 'same', error: errorMsg };
+    // scrapeWithChangeTracking is not supposed to throw, but stay defensive.
+    return recordScrapeFailure(ws, (err as Error).message, now);
+  }
+
+  // The scrape no longer throws on failure — it returns a self-describing
+  // result with ok:false. Detect that (the primary signal) BEFORE treating
+  // the result as a real scrape, so a failed fetch (e.g. keyless Jina HTTP
+  // 402) is surfaced as status='error' instead of being silently recorded as
+  // an empty 'same' scrape that resets error_count and flips status back to
+  // 'active'. We also guard the legacy case of an empty first scrape that
+  // didn't set ok — an empty markdown with no prior successful scrape is
+  // almost certainly a fetch failure, not a genuinely blank page.
+  const scrapeFailed =
+    scrapeResult.ok === false || (!scrapeResult.markdown && !ws.last_scraped_at);
+  if (scrapeFailed) {
+    const errorMsg =
+      scrapeResult.error ||
+      `Scrape returned no content from ${scrapeResult.backend} (no API key or fetch failure)`;
+    return recordScrapeFailure(ws, errorMsg, now);
   }
 
   // Update the watch source with scrape result
