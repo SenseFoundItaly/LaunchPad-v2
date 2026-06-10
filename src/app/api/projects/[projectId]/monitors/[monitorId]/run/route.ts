@@ -6,7 +6,9 @@ import { runAgentStream } from '@/lib/pi-agent';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { recordUsage } from '@/lib/cost-meter';
 import { recordEvent } from '@/lib/memory/events';
-import { extractEcosystemAlerts, persistEcosystemAlerts } from '@/lib/ecosystem-alert-parser';
+import { extractEcosystemAlerts, persistEcosystemAlerts, type ParsedEcosystemAlert } from '@/lib/ecosystem-alert-parser';
+import { withEmissionDiscipline } from '@/lib/ecosystem-monitors';
+import { extractAlertsSecondPass } from '@/lib/monitor-extract';
 import { pickModel } from '@/lib/llm/router';
 
 function deriveSeverity(text: string): 'critical' | 'warning' | 'info' {
@@ -54,10 +56,23 @@ export async function POST(_request: NextRequest, { params }: Params) {
     context: 'monitor',
   });
 
+  // monitors.prompt is frozen at create time — retrofit the emit-as-you-go
+  // rules (outputInstructions rules 7-8) onto legacy ecosystem prompts so
+  // existing monitors emit each alert artifact the moment a finding is
+  // confirmed instead of deferring to a final summary that may never come.
+  const scanPrompt = monitorType.startsWith('ecosystem.')
+    ? withEmissionDiscipline(prompt, locale)
+    : prompt;
+
   const startedAt = Date.now();
-  const { stream: piStream, cleanup } = runAgentStream(prompt, {
+  const { stream: piStream, cleanup } = runAgentStream(scanPrompt, {
     systemPrompt,
-    timeout: 120000,
+    // Budget headroom for synthesis: cap tool calls at 5 (pi-agent strips
+    // tools at the cap, forcing a final text turn where the alert artifacts
+    // get emitted) and allow that final turn to finish within the timeout.
+    // 120s was observed ending scans mid-investigation with 0 emitted alerts.
+    timeout: 180000,
+    maxToolCalls: 5,
     task: 'monitor-agent',
   });
   const reader = piStream.getReader();
@@ -131,7 +146,8 @@ export async function POST(_request: NextRequest, { params }: Params) {
             // divergence between scheduled and manual behavior.
             let ecosystemAlertsInserted = 0;
             let pendingActionsCreated = 0;
-            let parsedAlerts: { source_url: string | null; relevance_score: number }[] = [];
+            let parsedAlerts: ParsedEcosystemAlert[] = [];
+            let alertLayer: 'primary' | 'second_pass' | null = null;
             if (monitorType.startsWith('ecosystem.')) {
               const { parsed, errors } = extractEcosystemAlerts(fullResponse);
               parsedAlerts = parsed;
@@ -139,7 +155,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
                 console.warn(`[monitor/run] ${monitorType} produced ${errors.length} unparseable artifact(s) — first reason:`, errors[0].reason);
               }
               if (parsed.length > 0) {
-                const persistResult = persistEcosystemAlerts(parsed, {
+                const persistResult = await persistEcosystemAlerts(parsed, {
                   projectId,
                   monitorId,
                   monitorRunId: runId,
@@ -148,11 +164,38 @@ export async function POST(_request: NextRequest, { params }: Params) {
                 });
                 ecosystemAlertsInserted = persistResult.alerts_inserted;
                 pendingActionsCreated = persistResult.pending_actions_created;
+                if (ecosystemAlertsInserted > 0) alertLayer = 'primary';
+              } else {
+                // Second-pass safety net: the scan produced substantive prose
+                // but zero parseable alert artifacts (the "agent found a real
+                // signal then the stream ended" failure). One tool-less LLM
+                // call re-reads the transcript and emits the artifacts the
+                // scan should have — parsed + persisted via the same path.
+                const second = await extractAlertsSecondPass({
+                  projectId,
+                  monitorId,
+                  monitorRunId: runId,
+                  monitorType,
+                  scanTranscript: fullResponse,
+                  locale,
+                  trigger: 'manual',
+                });
+                if (second.alerts_inserted > 0) {
+                  alertLayer = 'second_pass';
+                  parsedAlerts = second.parsed;
+                  ecosystemAlertsInserted = second.alerts_inserted;
+                  pendingActionsCreated = second.pending_actions_created;
+                }
+              }
+              if (ecosystemAlertsInserted > 0) {
                 await run(
                   'UPDATE monitor_runs SET alerts_generated = ? WHERE id = ?',
                   ecosystemAlertsInserted, runId,
                 );
               }
+              console.log(
+                `[monitor/run] ${monitorType} run ${runId}: ${ecosystemAlertsInserted} alert(s) inserted — layer=${alertLayer ?? 'none'}`,
+              );
             }
 
             // 4. Founder-facing alerts row — only when the monitor produced
@@ -199,7 +242,10 @@ export async function POST(_request: NextRequest, { params }: Params) {
               console.warn('[monitor/run] recordEvent monitor_alert failed:', (err as Error).message);
             }
 
-            // 5. Emit enriched done frame so the UI can link to the run
+            // 5. Emit enriched done frame so the UI can link to the run.
+            // alert_layer reports which defense layer produced the alerts:
+            // 'primary' (scan emitted parseable artifacts) or 'second_pass'
+            // (transcript-recovery extraction); null = nothing material.
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({
               done: true,
               run_id: runId,
@@ -207,6 +253,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
               alert_id: alertId,
               ecosystem_alerts_inserted: ecosystemAlertsInserted,
               pending_actions_created: pendingActionsCreated,
+              alert_layer: alertLayer,
             })}\n\n`));
           }
         }
