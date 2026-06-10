@@ -10,13 +10,13 @@
  *     inbox     → /project/{id}/actions    (pending actions)
  *     signals   → /project/{id}/signals    (briefs + findings)
  *     knowledge → /project/{id}/knowledge  (uploads)
- *     chat      → /project/{id}/chat       (Co-pilot — chat + Canvas with
- *                                           5 facet tabs: Intel/Product/
- *                                           Pricing/Finance/Growth)
+ *     chat      → /project/{id}/chat       (Co-pilot — chat + single-scroll
+ *                                           Canvas, grouped by department)
  *
  * Departments still live as data in src/lib/departments.ts — they own
  * tables and chat-tool prefixes — but they no longer have their own
- * routes. The 5 facets are tabs inside the Co-pilot's Canvas pane;
+ * routes. The Canvas is one department-grouped scroll inside the
+ * Co-pilot (the facet tabs were removed in the 2026-06 simplification);
  * Canvas as a concept lives in the chat page, not the sidebar.
  */
 
@@ -92,8 +92,13 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
             credit balance the founder's most-visible header signal. The
             badge owns its own TanStack cache + event-bridge subscription,
             so mounting it globally costs one query per project per session
-            (no per-route re-fetch). */}
-        {projectId && <CreditsBadge projectId={projectId} />}
+            (no per-route re-fetch). The title-wrapping span keeps the
+            tooltip in chrome.tsx without touching CreditsBadge itself. */}
+        {projectId && (
+          <span title="Credits — your project's monthly budget">
+            <CreditsBadge projectId={projectId} />
+          </span>
+        )}
       </div>
     </div>
   );
@@ -131,7 +136,7 @@ const CHANNEL_ITEMS: NavItem[] = [
   { id: 'knowledge', iconKey: 'book',    label: 'Know',      route: 'knowledge',
     tooltip: 'Knowledge — graph, facts, uploads' },
   { id: 'chat',      iconKey: 'chat',    label: 'Co-pilot',  route: 'chat',
-    tooltip: 'Co-pilot — chat + Canvas with Intel/Product/Pricing/Finance/Growth tabs' },
+    tooltip: 'Co-pilot — chat + a single-scroll Canvas of everything it produces' },
 ];
 
 export interface NavRailProps {
