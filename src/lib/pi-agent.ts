@@ -372,16 +372,33 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
       // SSE controller can stay open indefinitely (observed up to 54 min on
       // heavy turns). Emit a done event + close the controller from the
       // timer too, regardless of whether the agent cooperates.
+      // Single source of truth for the controller's lifecycle. Once closed by
+      // ANY path (timeout timer, agent_end, or prompt().catch) every later
+      // enqueue/close no-ops instead of throwing "Invalid state: Controller is
+      // already closed". Previously the timer raced the catch: the timer closed
+      // the stream, then the aborted prompt rejected and the catch enqueued onto
+      // the closed controller → unhandledRejection + a multi-minute hung POST.
+      let closed = false;
+      let fullText = '';
+      const safeEnqueue = (chunk: Uint8Array) => {
+        if (closed) return;
+        try { controller.enqueue(chunk); } catch { closed = true; }
+      };
+      const safeClose = () => {
+        if (closed) return;
+        closed = true;
+        try { controller.close(); } catch { /* already closed */ }
+      };
+
       timer = setTimeout(() => {
         console.warn(`[pi-agent] timeout (${timeout}ms) — aborting agent and force-closing stream`);
         try { agent.abort(); } catch { /* ignore */ }
-        try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, timeout: true })}\n\n`));
-          controller.close();
-        } catch { /* already closed */ }
+        // Flush whatever the agent produced so far — a partial answer beats a
+        // blank "timed out" turn for the founder.
+        safeEnqueue(encoder.encode(`data: ${JSON.stringify({ done: true, timeout: true, fullText })}\n\n`));
+        safeClose();
       }, timeout);
 
-      let fullText = '';
       let lastUsage: Usage | undefined;
       let toolCallCount = 0;
       const maxToolCalls = options.maxToolCalls ?? 8;
@@ -392,7 +409,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
             const evt = event.assistantMessageEvent;
             if (evt.type === 'text_delta' && evt.delta) {
               fullText += evt.delta;
-              controller.enqueue(
+              safeEnqueue(
                 encoder.encode(`data: ${JSON.stringify({ content: evt.delta })}\n\n`)
               );
             }
@@ -417,7 +434,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
                 agent.state.tools = [];
               }
             }
-            controller.enqueue(
+            safeEnqueue(
               encoder.encode(`data: ${JSON.stringify({
                 tool_start: {
                   id: event.toolCallId,
@@ -430,7 +447,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
           }
 
           case 'tool_execution_end': {
-            controller.enqueue(
+            safeEnqueue(
               encoder.encode(`data: ${JSON.stringify({
                 tool_end: {
                   id: event.toolCallId,
@@ -457,7 +474,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
           case 'agent_end': {
             clearTimeout(timer);
             const u = lastUsage as unknown as Record<string, number | { total?: number } | undefined>;
-            controller.enqueue(
+            safeEnqueue(
               encoder.encode(`data: ${JSON.stringify({
                 done: true,
                 fullText,
@@ -473,7 +490,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
                 } : undefined,
               })}\n\n`)
             );
-            controller.close();
+            safeClose();
             break;
           }
         }
@@ -481,10 +498,10 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
 
       agent.prompt(prompt).catch((err) => {
         clearTimeout(timer);
-        controller.enqueue(
+        safeEnqueue(
           encoder.encode(`data: ${JSON.stringify({ error: err.message })}\n\n`)
         );
-        controller.close();
+        safeClose();
       });
     },
     cancel() {

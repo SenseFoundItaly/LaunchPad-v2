@@ -1045,7 +1045,7 @@ function QuickReplies({
   const [dismissed, setDismissed] = useState(false);
   if (dismissed || !onReply) return null;
 
-  const prose = rawContent.replace(/:::artifact[\s\S]*?:::/g, '').trim();
+  const prose = rawContent.replace(/:::artifact[\s\S]*?(?::::|$)/g, '').trim();
 
   // Extract the last question sentence to generate context-aware chips.
   const lastQuestion = prose.split(/(?<=[.!?])\s+/).filter(s => s.trim().endsWith('?')).pop()?.trim() ?? '';
@@ -1953,5 +1953,5 @@ function ComposerMenu({
 // =============================================================================
 
 function stripArtifacts(content: string): string {
-  return content.replace(/:::artifact[\s\S]*?:::/g, '').trim();
+  return content.replace(/:::artifact[\s\S]*?(?::::|$)/g, '').trim();
 }

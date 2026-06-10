@@ -358,6 +358,7 @@ export type PendingActionType =
   | 'configure_monitor'             // chat-proposed ecosystem monitor awaiting founder review
   | 'configure_budget'              // chat-proposed monthly LLM budget cap change awaiting founder review
   | 'configure_watch_source'        // chat-proposed watch source awaiting founder review
+  | 'run_skill'                     // chat-proposed skill kickoff — founder approves (cost shown), then it runs real-time via runSkill
   | 'skill_rerun_result'            // heartbeat-executor refreshed a stale analytical skill — surfaces new score in inbox
   | 'task'                          // chat-proposed founder task (TODO) — Mark done / Snooze / Dismiss
   // Unified-inbox surface (materialized from ecosystem_alerts, intelligence_briefs, assumptions on read).

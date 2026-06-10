@@ -11,6 +11,7 @@ import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { buildMemoryContext } from '@/lib/memory/context';
 import { buildProjectSnapshot } from '@/lib/journey';
 import { formatStageContextForPrompt } from '@/lib/journey/stage-prompt';
+import { computeNextBestAction, renderDirectionForPrompt } from '@/lib/direction';
 import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
@@ -22,6 +23,8 @@ import { captureWorkflow } from '@/lib/workflow-capture';
 import { pickModel, type TaskLabel } from '@/lib/llm/router';
 import { rankSkillsForQuery } from '@/lib/skill-relevance';
 import { persistArtifact } from '@/lib/artifact-persistence';
+import { renderContentMappingForPrompt, findMatchingSkill } from '@/lib/llm/content-mapping';
+import { analyzeTurnViolations, renderNudgeForNextTurn, type TurnViolations } from '@/lib/llm/turn-violations';
 
 /**
  * Detect simple follow-up messages that don't need Sonnet's reasoning depth.
@@ -114,27 +117,21 @@ const ARTIFACT_INSTRUCTIONS = `[You are SenseFound, an evidence-based validation
 - For research or intelligence analysis, use web_search to ground specific claims (numbers, benchmarks, named entities, dates) that no skill covers. Do NOT fabricate or "build from first principles" when web_search can provide real data. CRITICAL: web_search is NOT a substitute for a skill kickoff — skills run their own targeted research internally (see TIER 0.5). Web_searching market sizing right before firing skill_market_research is duplicate work that burns the 8-call budget before the skill can even start.
 
 === TIER 0.5 — SKILL-FIRST FOR STAGE ADVANCEMENT (never violate) ===
+Skills are PROPOSED, not run inline. Calling a skill_* tool does NOT run the skill — it creates a one-click approval card for the founder (with the credit cost shown). The skill then runs in REAL TIME the moment the founder approves, in its own request, and writes the validation evidence (skill_completions, section_scores, idea_canvas, etc.). This keeps chat fast and gives the founder consent before you spend their budget.
+
 When the founder asks to advance / close / fire / kick off a stage or a skill, OR when get_project_summary shows a stage at CAUTION or NOT READY with a clear next_recommended_skill:
 - Step 1: call get_project_summary (already part of TIER 1 opener — counts as 1 tool call).
-- Step 2: IMMEDIATELY call the relevant skill_* tool. Do NOT web_search first, do NOT read_url first, do NOT call get_research first. The skill internally runs its own targeted research with its own budget — duplicating that work in chat-land burns your 8-call cap and the skill never fires.
-- Step 3: After the skill returns, synthesize with the result. Web_search is allowed here ONLY for specific claims the skill output doesn't cover (e.g. confirming a competitor's pricing the skill couldn't verify).
+- Step 2: call the relevant skill_* tool to PROPOSE it. Do NOT web_search first. The tool returns immediately with "proposed — awaiting approval"; that is success, not a partial result.
+- Step 3: Tell the founder, in one line, what the skill will do and that it's queued for their approval (the card shows the cost). Do NOT claim or invent the skill's findings — it has not run yet. End with your option-set as usual.
 
-Rule of thumb: a skill kickoff is 1 tool call that does the research of 10 web_searches. If a skill exists that covers the question, fire it before any web_search. The most common failure mode is "agent web_searched market sizing for 5 turns, hit the cap, never fired skill_market_research, stage stays at 0%." Don't do that.
+Rule of thumb: if a skill covers the founder's question, PROPOSE it rather than web_searching the same ground. Proposing a skill is 1 fast tool call; the skill (once approved) produces durable validation evidence that web_search cannot. Never fabricate a skill's results before it has run.
 
-Examples of stage-advance intent in the founder's message: "advance", "move to stage X", "close stage X", "fire the Y skill", "kick off", "make stage X move off N%", "run the next skill", "what's the next step in validating Y", or any direct mention of a skill name. When you see any of these, the skill_* tool is your FIRST action.
+Examples of stage-advance intent in the founder's message: "advance", "move to stage X", "close stage X", "fire the Y skill", "kick off", "make stage X move off N%", "run the next skill", "what's the next step in validating Y", or any direct mention of a skill name. When you see any of these, proposing the relevant skill_* tool is your FIRST action.
 
 Content-mapping (apply BEFORE web_search when the founder's question maps cleanly to a registered skill; do this even WITHOUT the explicit trigger phrases above):
-- Pricing, unit economics, willingness-to-pay, LTV/CAC, margins → skill_business-model
-- TAM/SAM/SOM, market sizing, competitors map, segments → skill_market-research
-- Personas, ICP, buyer profile, interview targets → skill_scientific-validation
-- Risks, fatal flaws, what could kill this → skill_risk-scoring
-- GTM, channels, launch plan, distribution → skill_gtm-strategy
-- Pitch deck, fundraising readiness, investor materials → skill_investment-readiness
-- Weekly metrics, churn, KPIs, growth health → skill_weekly-metrics
-- Lean Canvas, structure my idea, problem-solution fit → skill_idea-shaping
-- Financial projections, runway, burn → skill_financial-model
+${renderContentMappingForPrompt()}
 
-Rule of thumb: if the founder asks a domain question and a skill covers that domain, fire the skill rather than web_search. Skills produce durable validation evidence (skill_completions row, section_scores, idea_canvas updates); web_search produces ephemeral prose. Both are useful but only the first MOVES THE VALIDATION NEEDLE.
+Rule of thumb: if the founder asks a domain question and a skill covers that domain, PROPOSE the skill rather than web_search. Skills (once the founder approves) produce durable validation evidence (skill_completions row, section_scores, idea_canvas updates); web_search produces ephemeral prose. Both are useful but only the first MOVES THE VALIDATION NEEDLE.
 
 === TIER 1 — CONVERSATION OPENER (first turn of every thread) ===
 At the start of every conversation, call \`get_project_summary\`. It returns stage readiness, intelligence briefs, AND hot signals in one response. Do NOT separately call list_intelligence_briefs or list_ecosystem_alerts on the opener — the summary already includes them. Use those tools only for deep-dives when the summary surfaces something worth exploring.
@@ -269,15 +266,21 @@ USAGE RULES:
 
 === TIER 5 — TRIGGERED PROTOCOLS (activated by specific contexts) ===
 
-MONITOR PROPOSALS — DERISKING PROTOCOL:
-A monitor is a SENSOR on ONE named risk. Never a generic watch.
+WATCHER PROPOSALS — DERISKING PROTOCOL:
+A watcher is a SENSOR on ONE named risk. Two implementation flavors, one founder-facing concept:
+  - propose_monitor (Topic flavor — LLM scan) when the founder names a TOPIC to watch ("competitor pricing moves", "regulatory shifts in EU AI act"). Requires linked_risk_id from risk_audit or a verbatim founder quote.
+  - propose_watch_source (URL flavor — URL diff) when the founder names SPECIFIC URLs ("watch HubSpot's pricing page", "track this competitor's blog"). Cheaper, deterministic.
+Pick the flavor by what the founder gave you: explicit URLs → URL flavor; topical area → Topic flavor.
+
+In prose to the founder, ALWAYS call them "watchers" — never "monitors" or "watch sources". The UI shows one list of watchers with a "Topic" or "URL" pill; agent language should match.
+
 When founder expresses concern about a specific external force:
-1. Risk in risk_audit? → propose_monitor(linked_risk_id=<id>)
+1. Risk in risk_audit? → propose the watcher tied to that risk (Topic flavor with linked_risk_id, or URL flavor with the same risk_id in linked_quote)
 2. Vague concern? → PUSH BACK for specificity before proposing
-3. Existing monitor covers it? → reference it, don't duplicate
+3. Existing watcher covers it? → reference it, don't duplicate
 4. Cap reached? → surface pause candidates
-Pass the one-sentence test: "This monitor fires when <linked_risk_id> is materializing, because it detects <alert_threshold>."
-A good monitor derisks ONE thing. Prefer ZERO monitors over a vague one.
+Pass the one-sentence test: "This watcher fires when <linked_risk_id> is materializing, because it detects <alert_threshold>."
+A good watcher derisks ONE thing. Prefer ZERO watchers over a vague one.
 
 BUDGET CAP CHANGES:
 Call propose_budget_change when the founder explicitly asks to raise/lower cap, or when credits-empty and they want to continue. Cite the founder quote or error in sources. Never bump silently.
@@ -387,12 +390,33 @@ export async function POST(request: NextRequest) {
   // rather than reacting to whatever the founder happens to type. Tolerant:
   // if the snapshot fails (missing tables on a fresh project), we skip the
   // block entirely — better than a 500.
+  // Build the journey snapshot ONCE per turn and reuse it for both stage
+  // context and the direction engine (was built twice — 32 queries — before).
+  let snapshot: Awaited<ReturnType<typeof buildProjectSnapshot>> | null = null;
   let stageContext = '';
   try {
-    const snapshot = await buildProjectSnapshot(project_id);
+    snapshot = await buildProjectSnapshot(project_id);
     stageContext = formatStageContextForPrompt(snapshot);
   } catch {
     /* journey snapshot failed — chat still works, just without stage framing */
+  }
+
+  // WS-A — inject the direction engine's computed next-best-action so the model
+  // LEADS with the deterministic next move instead of re-deriving it (or
+  // forgetting to call get_project_summary). Tolerant: any failure degrades to
+  // no injected direction — chat still works. lastChatAt drives the
+  // "what changed since last time" signal feed (route.ts:143 freshness rule).
+  let directionContext = '';
+  try {
+    const lastRows = await query<{ created_at: string }>(
+      'SELECT created_at FROM chat_messages WHERE project_id = ? ORDER BY created_at DESC LIMIT 1',
+      project_id,
+    );
+    const lastChatAt = lastRows[0]?.created_at ?? null;
+    const nba = await computeNextBestAction(project_id, { lastChatAt, snapshot: snapshot ?? undefined });
+    directionContext = `${renderDirectionForPrompt(nba)}\n\n`;
+  } catch {
+    /* direction engine failed — chat still works without injected next-best-action */
   }
 
   // Build system prompt: SOUL + AGENTS personality first (locale-aware),
@@ -401,11 +425,11 @@ export async function POST(request: NextRequest) {
   // completed skill summaries.
   const locale = await resolveProjectLocale(project_id, query);
   const skillContext = await buildCompletedSkillContext(project_id, lastMessage);
-  const systemPrompt = buildSystemPromptString({
+  let systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
     tail: ARTIFACT_INSTRUCTIONS,
-    projectContext: `${stageContext}${projectContext}${memoryContext}\n${skillContext}`,
+    projectContext: `${directionContext}${stageContext}${projectContext}${memoryContext}\n${skillContext}`,
   });
   const encoder = new TextEncoder();
 
@@ -467,6 +491,36 @@ export async function POST(request: NextRequest) {
         const id = t.name.replace(/^skill_/, '').replace(/_/g, '-');
         return relevantIds.has(id);
       });
+    }
+
+    // Iteration-3 WS-A — inject TIER 0.5 nudges based on PRIOR turn violations.
+    // chat-followup (Haiku, skillTools = []) is exempt by construction; the
+    // violations can't happen on a path that has no skill tools to misuse.
+    // Pre-migration safety: meta column may not exist yet → query catches and
+    // returns no nudge. Chat keeps functioning either way.
+    if (chatTask === 'chat') {
+      try {
+        const priorRows = await query<{ meta: unknown }>(
+          `SELECT meta FROM chat_messages
+            WHERE project_id = ? AND role = 'assistant'
+            ORDER BY "timestamp" DESC LIMIT 1`,
+          project_id,
+        );
+        const meta = priorRows[0]?.meta;
+        if (meta && typeof meta === 'object') {
+          const prior: TurnViolations = {
+            skill_first_violation: !!(meta as Record<string, unknown>).skill_first_violation,
+            prose_fabrication: !!(meta as Record<string, unknown>).prose_fabrication,
+          };
+          const nudge = renderNudgeForNextTurn(prior);
+          if (nudge) systemPrompt = `${systemPrompt}\n\n${nudge}`;
+        }
+      } catch (err) {
+        // meta column missing (pre-migration) OR transient DB error.
+        // Non-fatal — the nudge is a quality improvement, not a correctness
+        // gate, and TIER 0.5 prompt rules still apply.
+        console.warn('[chat] prior-turn nudge query failed (non-fatal):', (err as Error).message);
+      }
     }
 
     const { stream: piStream } = runAgentStream(lastMessage, {
@@ -602,13 +656,32 @@ export async function POST(request: NextRequest) {
           if (fullResponse.trim().length > 0) {
             const toolsJson = toolsList.length > 0 ? JSON.stringify(toolsList) : null;
             const citationsJson = extractCitations(fullResponse);
+            // Iteration-3 WS-A — compute TIER 0.5 violation flags for this
+            // turn. The next turn's nudge injection reads them from meta.
+            // Pure + synchronous; no added latency over the existing INSERT.
+            // Only persist meta when something fired — keeps the JSONB
+            // surface clean and lets partial indexes stay sparse.
+            let metaJson: string | null = null;
+            try {
+              const violations = analyzeTurnViolations(
+                toolsList.map((t) => ({ name: t.name })),
+                fullResponse,
+                lastMessage,
+              );
+              if (violations.skill_first_violation || violations.prose_fabrication) {
+                metaJson = JSON.stringify(violations);
+              }
+            } catch (err) {
+              console.warn('[chat] turn-violation analysis failed (non-fatal):', err);
+            }
             await run(
-              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, tools_json, citations, langfuse_trace_id)
-               VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?)`,
+              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, tools_json, citations, langfuse_trace_id, meta)
+               VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?)`,
               `msg_${crypto.randomUUID().slice(0, 12)}`,
               project_id, step, fullResponse, now, userId, toolsJson,
               citationsJson ? JSON.stringify(citationsJson) : null,
               langfuseTraceId,
+              metaJson,
             );
           }
         } catch (err) {

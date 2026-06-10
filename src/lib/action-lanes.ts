@@ -35,6 +35,7 @@ export const ACTION_LANE: Record<PendingActionType, ActionLane> = {
   configure_monitor: 'approval',
   configure_budget: 'approval',
   configure_watch_source: 'approval',
+  run_skill: 'approval',
   workflow_step: 'approval',
   draft_email: 'approval',
   draft_linkedin_post: 'approval',

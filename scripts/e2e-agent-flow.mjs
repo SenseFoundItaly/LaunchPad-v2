@@ -598,6 +598,78 @@ step('smarcamento: create fresh project', async () => {
 // stage coverage) get evaluated in the final step after all turns run.
 const turnRecords = [];
 
+// WS4a — Steering-quality scorecard. The aggregate step stashes its raw
+// computed metrics here; a downstream step turns them into a normalized 0-1
+// score so "100x" has a fixed baseline ("1x") to measure against. Stashed
+// BEFORE the aggregate's pass/fail throw, so the score is recorded even on a
+// failing run (a failing run is exactly when we most want the number).
+let evalMetrics = null;
+const BASELINE_FILE = path.join(process.cwd(), 'data', '.e2e-baseline.json');
+
+// THE ONE DECISION THAT SHAPES WHAT "100x" OPTIMIZES FOR.
+// Weights must sum to 1.0. Default reflects the design-doc thesis: the
+// adversarial spine (direction + target accuracy + validation evidence) and
+// the data-backed anti-self-delusion check (sourcing) matter most; raw
+// research volume and breadth-of-coverage matter but are supporting. Tune
+// these to change what a higher steering score rewards.
+const SCORE_WEIGHTS = {
+  // Iteration-2 dims (rebalanced -0.05 each on direction/targetAccuracy/
+  // validation/sourcing to make room for iteration-3 dims; coverage +
+  // research unchanged at their existing low weights).
+  direction: 0.20,      // every turn ends with a real stage-CTA (spine)
+  targetAccuracy: 0.15, // stage-targeted turns hit the RIGHT stage (spine)
+  validation: 0.15,     // chat fires skills that land evidence rows (spine)
+  sourcing: 0.15,       // factual claims cite web sources (anti-delusion)
+  coverage: 0.10,       // option-sets span the 7 stage domains (breadth)
+  research: 0.05,       // agent actually ran web searches (heartbeat)
+  // Iteration-3 dims (WS-R) — server-side TIER 0.5 enforcement made
+  // measurable. Modest weights so the existing dims keep dominating until
+  // these have a baseline; tune after baseline is recorded.
+  proposal_truthfulness: 0.08, // agent didn't prose-fabricate skill outcomes
+  skill_first: 0.07,           // agent proposed skill before web_search on mapped topics
+  spine_visible: 0.05,         // adversarial spine artifact rendered when warranted
+};
+
+// Iteration-3 WS-R — duplicated patterns from src/lib/llm/turn-violations.ts.
+// JS-side duplication is the trade-off for keeping the harness as a plain
+// .mjs script (no TS transpile). If the TS file changes, update here too.
+// See OQ 2 in design doc: shared content-mapping module is the source of
+// truth for both files; these arrays mirror it.
+const OUTCOME_CLAIM_PATTERNS_E2E = [
+  /\b(the research|the analysis|the study|the data) shows?\b/i,
+  /\bTAM (is|=|of)\b/i,
+  /\b(competitors|segments|personas) include\b/i,
+  /\bwe found that\b/i,
+  /\bresults? (indicate|show)\b/i,
+  /\b(market size|market value) (is|=)\b/i,
+  /\b(the skill|skill_\w+) (found|returned|identified)\b/i,
+];
+const CONTENT_MAPPING_TRIGGERS_E2E = [
+  'pricing', 'unit economics', 'willingness to pay', 'ltv', 'cac', 'margin',
+  'tam', 'sam', 'som', 'market siz', 'competitor', 'segment',
+  'persona', 'icp', 'buyer profile', 'interview target',
+  'risk', 'fatal flaw', 'what could kill', 'what kills',
+  'gtm', 'go to market', 'go-to-market', 'channel', 'launch plan', 'distribution',
+  'pitch deck', 'fundrais', 'investor', 'seed round', 'series a', 'series b',
+  'weekly metric', 'churn', 'kpi', 'growth health',
+  'lean canvas', 'structure my idea', 'problem-solution', 'problem solution fit', 'shape my idea',
+  'financial projection', 'runway', 'burn rate', 'cash flow',
+];
+const WEB_SEARCH_RE_E2E = /web_search|search_web|browse/i;
+function turnMatchesContentMapping(prompt) {
+  const lower = String(prompt || '').toLowerCase();
+  return CONTENT_MAPPING_TRIGGERS_E2E.some((t) => lower.includes(t));
+}
+
+function readBaseline() {
+  try { return JSON.parse(fs.readFileSync(BASELINE_FILE, 'utf8')); }
+  catch { return null; }
+}
+function writeBaseline(obj) {
+  fs.mkdirSync(path.dirname(BASELINE_FILE), { recursive: true });
+  fs.writeFileSync(BASELINE_FILE, JSON.stringify(obj, null, 2));
+}
+
 for (let i = 0; i < TURNS.length; i++) {
   const turnNum = i + 1;
   const { ask: prompt, target } = TURNS[i];
@@ -663,6 +735,9 @@ for (let i = 0; i < TURNS.length; i++) {
       cost,
       credits,
       tools: toolsCalled,
+      // Iteration-3 WS-R — full response text needed for proposal_truthfulness
+      // dim (regex over agent prose). Stored verbatim; the scorer reads it.
+      response: fullText,
       artifacts: parsed.map((a) => ({
         type: a.type,
         sourceCount: Array.isArray(a.sources) ? a.sources.length : 0,
@@ -747,31 +822,52 @@ step('smarcamento: aggregate behavior eval', async () => {
   const missingStages = stageCoverage.filter((s) => s.hits.length === 0);
 
   // (5) Validation-evidence: chat-driven skill firings should produce real
-  //     skill_completions rows. This is the regression gate for the
-  //     research↔validation merge — without it, the chat could fall back to
-  //     consulting mode and we'd never know from coverage alone.
-  //     Threshold: at least MIN_CHAT_SKILL_FIRES skills must land rows. 2
-  //     is conservative — the harness's content-mapping prompt should push
-  //     3-5 in healthy runs.
+  //     evidence rows. Iteration-3 R0 — under arch-C (f12f945), chat→skill
+  //     creates a `run_skill` pending_action FIRST; only after user approval
+  //     does the executor write a `skill_completions` row. The e2e harness
+  //     never approves, so completions stayed at 0 even when the chat fired
+  //     skills correctly. Pre-R0 logic counted skill_completions only and
+  //     reported validation=0% for a valid arch-C path. Fix: count chat-
+  //     fired skills that landed in EITHER table.
+  //     Threshold: at least MIN_CHAT_SKILL_FIRES skills must produce evidence.
   const MIN_CHAT_SKILL_FIRES = 2;
   const skillToolCalls = allTools.filter((name) => name.startsWith('skill_')).length;
   const skillRows = await db()`
     SELECT skill_id FROM skill_completions
      WHERE project_id = ${state.smarcamentoProjectId} AND status = 'completed'`;
+  // pending_actions with action_type='run_skill' — chat-side proposal queue
+  // that hasn't been approved yet. Under arch-C this is the SoT for "chat
+  // fired the skill"; completion only happens after explicit user approval.
+  // pending_actions.payload is the JSONB column (NOT 'data' — that name is
+  // taken in other domain tables). For action_type='run_skill', the executor
+  // contract expects payload.skill_id (see src/lib/action-executors.ts:701).
+  const pendingSkillRows = await db()`
+    SELECT (payload->>'skill_id') AS skill_id FROM pending_actions
+     WHERE project_id = ${state.smarcamentoProjectId} AND action_type = 'run_skill'`;
   // The execution-half step that runs after this also writes 7 stub rows;
   // we only want to count rows landed BEFORE that step ran. Use a timing
   // marker: chat-driven rows have completed_at older than turn_end.
   // Cheaper: just count distinct skill_ids that match the skill_* tool
   // names called by chat — that proves chat → completion roundtrip.
+  // Tool names are generated underscored — skill-tools.ts:129 does
+  // `skill_${skill.id.replace(/-/g,'_')}` — but skill_completions.skill_id
+  // stores the hyphenated skill.id. So reverse BOTH transforms: strip the
+  // `skill_` prefix AND map `_`→`-` to recover the original skill.id.
+  // Without the second replace, `gtm_strategy` never matches `gtm-strategy`
+  // and validation reads 0 even when chat-fired skills completed.
   const chatFiredSkillIds = new Set(
     allTools
       .filter((name) => name.startsWith('skill_'))
-      .map((name) => name.replace(/^skill_/, '')),
+      .map((name) => name.replace(/^skill_/, '').replace(/_/g, '-')),
   );
-  const landedFromChat = skillRows.filter((r) => chatFiredSkillIds.has(r.skill_id)).length;
+  const evidenceSkillIds = new Set([
+    ...skillRows.map((r) => r.skill_id).filter(Boolean),
+    ...pendingSkillRows.map((r) => r.skill_id).filter(Boolean),
+  ]);
+  const landedFromChat = [...chatFiredSkillIds].filter((id) => evidenceSkillIds.has(id)).length;
   if (landedFromChat < MIN_CHAT_SKILL_FIRES) {
     issues.push(
-      `only ${landedFromChat} chat-driven skill_completions landed (min ${MIN_CHAT_SKILL_FIRES}). ` +
+      `only ${landedFromChat} chat-driven skill firings landed (completion OR run_skill pending — min ${MIN_CHAT_SKILL_FIRES}). ` +
       `skill_* tool calls: ${skillToolCalls}. ` +
       `Chat is in consulting mode — research without validation evidence.`,
     );
@@ -782,13 +878,121 @@ step('smarcamento: aggregate behavior eval', async () => {
   console.log(`    web_search calls: ${webSearchCount} (min ${MIN_WEB_SEARCHES})`);
   console.log(`    factual artifacts with web sources: ${factualWithWebSource.length}/${factualArtifacts.length} (${(sourceRate * 100).toFixed(0)}%)`);
   console.log(`    stage coverage: ${stagesUnion.size}/7 (min ${MIN_STAGE_COVERAGE})`);
-  console.log(`    chat-driven skill_completions: ${landedFromChat} (min ${MIN_CHAT_SKILL_FIRES}) — fires: ${[...chatFiredSkillIds].join(', ') || 'none'}`);
+  console.log(`    chat-driven skill firings (completion OR run_skill pending): ${landedFromChat} (min ${MIN_CHAT_SKILL_FIRES}) — fires: ${[...chatFiredSkillIds].join(', ') || 'none'}`);
   for (const s of stageCoverage) {
     const mark = s.hits.length > 0 ? 'YES' : 'NO ';
     console.log(`      ${mark} ${s.stage}/${s.name.padEnd(16)} turns: [${s.hits.join(',') || '-'}]`);
   }
 
+  // WS4a — stash raw metrics for the scorecard step. Done BEFORE the throw so
+  // a failing run still records its score (failing runs are the ones we most
+  // want to track climbing back up).
+  const stageTargetedTurns = turnRecords.filter((t) => t.target != null);
+  const targetHits = stageTargetedTurns.filter(
+    (t) => !t.violations.some((v) => /target stage/.test(v)),
+  ).length;
+  evalMetrics = {
+    turns: turnRecords.length,
+    directionKept: turnRecords.length - turnsMissingDirection.length,
+    targetHits,
+    stageTargetedTurns: stageTargetedTurns.length,
+    webSearchCount,
+    minWebSearches: MIN_WEB_SEARCHES,
+    sourceRate,                       // 0-1, already normalized
+    factualArtifacts: factualArtifacts.length,
+    stageCoverage: stagesUnion.size,  // 0-7
+    landedFromChat,
+    minChatSkillFires: MIN_CHAT_SKILL_FIRES,
+    issues: issues.length,
+  };
+
   if (issues.length > 0) throw new Error(`${issues.length} smarcamento gap(s): ${issues.join(' | ')}`);
+});
+
+// WS4a — Steering-quality scorecard + baseline. Turns the aggregate's raw
+// metrics into a single normalized 0-1 score so WS1-WS3 changes can be
+// measured against a fixed "1x". Runs as its own step AFTER the aggregate so
+// the existing pass/fail gate is untouched; this is additive instrumentation.
+step('smarcamento: steering scorecard + baseline', async () => {
+  if (!evalMetrics) { console.log('\n  (aggregate eval did not run — no metrics to score)'); return; }
+  const m = evalMetrics;
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
+
+  // Iteration-3 WS-R — per-turn pass/fail counts for the three new dims.
+  // proposal_truthfulness + skill_first read from per-turn tools + response;
+  // spine_visible is dormant until thin-evidence synthetic fixtures exist
+  // (iter-3.5 OQ). Default 1.0 when no turns are applicable, matching the
+  // design doc's "no skill_* call → default pass" rule.
+  let truthfulnessPass = 0, truthfulnessApplicable = 0;
+  let skillFirstPass = 0, skillFirstApplicable = 0;
+  let spineVisiblePass = 0, spineVisibleApplicable = 0;
+  for (const t of turnRecords) {
+    const tools = Array.isArray(t.tools) ? t.tools : [];
+    const skillIdx = tools.findIndex((n) => String(n).startsWith('skill_'));
+    const webIdx = tools.findIndex((n) => WEB_SEARCH_RE_E2E.test(String(n)));
+    const skillCalled = skillIdx !== -1;
+
+    if (skillCalled) {
+      truthfulnessApplicable += 1;
+      const proseClaims = OUTCOME_CLAIM_PATTERNS_E2E.some((re) => re.test(String(t.response || '')));
+      if (!proseClaims) truthfulnessPass += 1;
+    }
+    if (turnMatchesContentMapping(t.prompt)) {
+      skillFirstApplicable += 1;
+      const violated = webIdx !== -1 && skillIdx !== -1 && webIdx < skillIdx;
+      if (!violated) skillFirstPass += 1;
+    }
+    // spine_visible — fires only on synthetic thin-evidence fixture turns.
+    // TODO(iter-3.5): when those fixtures exist (seed marker on TURNS[i])
+    // increment spineVisibleApplicable and check t.artifacts for
+    // insight-card OR risk-matrix presence.
+  }
+
+  // Each dimension → 0-1. "min-relative" dims (research) cap at 1.0 once the
+  // floor is met; quality dims (direction, sourcing) are raw ratios.
+  const dims = {
+    direction:             m.turns ? m.directionKept / m.turns : 0,
+    targetAccuracy:        m.stageTargetedTurns ? m.targetHits / m.stageTargetedTurns : 1,
+    validation:            m.minChatSkillFires ? clamp01(m.landedFromChat / m.minChatSkillFires) : 0,
+    sourcing:              m.factualArtifacts === 0 ? 0 : clamp01(m.sourceRate),
+    coverage:              clamp01(m.stageCoverage / 7),
+    research:              m.minWebSearches ? clamp01(m.webSearchCount / m.minWebSearches) : 0,
+    proposal_truthfulness: truthfulnessApplicable ? truthfulnessPass / truthfulnessApplicable : 1,
+    skill_first:           skillFirstApplicable ? skillFirstPass / skillFirstApplicable : 1,
+    spine_visible:         spineVisibleApplicable ? spineVisiblePass / spineVisibleApplicable : 1,
+  };
+
+  let score = 0;
+  for (const [k, w] of Object.entries(SCORE_WEIGHTS)) score += (dims[k] ?? 0) * w;
+  score = Math.round(score * 1000) / 1000; // 3dp
+
+  const stamp = new Date().toISOString();
+  const branch = (process.env.GIT_BRANCH || '').trim() || undefined;
+  const current = { score, dims, weights: SCORE_WEIGHTS, raw: m, at: stamp, branch };
+
+  const prior = readBaseline();
+  console.log(`\n  ── STEERING SCORECARD ──`);
+  for (const [k, w] of Object.entries(SCORE_WEIGHTS)) {
+    const v = dims[k] ?? 0;
+    console.log(`    ${k.padEnd(22)} ${(v * 100).toFixed(0).padStart(3)}%  × ${w.toFixed(2)} = ${(v * w).toFixed(3)}`);
+  }
+  console.log(`    ${'STEERING SCORE'.padEnd(22)} ${(score * 100).toFixed(1)}%   (0-1: ${score.toFixed(3)})`);
+
+  if (!prior) {
+    writeBaseline(current);
+    console.log(`\n  baseline recorded → ${path.relative(process.cwd(), BASELINE_FILE)} (this is your "1x")`);
+  } else {
+    const delta = Math.round((score - prior.score) * 1000) / 1000;
+    const pct = prior.score > 0 ? ((score / prior.score - 1) * 100) : 0;
+    const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '=';
+    console.log(`\n  baseline: ${prior.score.toFixed(3)} (${prior.at?.slice(0, 10) || '?'})  →  current: ${score.toFixed(3)}  ${arrow} ${delta >= 0 ? '+' : ''}${delta.toFixed(3)} (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)`);
+    if (process.env.E2E_WRITE_BASELINE === '1') {
+      writeBaseline(current);
+      console.log(`  baseline OVERWRITTEN (E2E_WRITE_BASELINE=1)`);
+    } else {
+      console.log(`  (set E2E_WRITE_BASELINE=1 to make this the new baseline)`);
+    }
+  }
 });
 
 step('cost report: SSE + llm_usage_logs + Langfuse', async () => {

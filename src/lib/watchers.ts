@@ -248,7 +248,10 @@ export async function listWatchers(projectId: string): Promise<Watcher[]> {
     if (a.recent_finding_count !== b.recent_finding_count) {
       return b.recent_finding_count - a.recent_finding_count;
     }
-    return b.created_at.localeCompare(a.created_at);
+    // postgres.js returns timestamps as Date objects (not the `string` the row
+    // type claims), so localeCompare throws. Compare epoch millis — handles
+    // Date or string.
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
   return all;
 }

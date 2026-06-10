@@ -29,14 +29,58 @@ function getSql(): postgres.Sql {
 
 // ---------------------------------------------------------------------------
 // Placeholder conversion: `?` → `$1, $2, ...`
-// Skips `?` characters inside single-quoted string literals.
+// Skips `?` characters inside single-quoted string literals AND inside SQL
+// line comments (`-- ... \n`) and block comments (`/* ... */`). The comment
+// skips were added in iter-3 QA after a real bug: explanatory `?` in a SQL
+// `--` comment got eaten as a placeholder, throwing the binding count off
+// and producing "syntax error at or near $1". See timeline route fix
+// commit 90e3ba7 for the field report.
 // ---------------------------------------------------------------------------
 function convertPlaceholders(sql: string): string {
   let idx = 0;
   let inString = false;
+  let inLineComment = false;
+  let inBlockComment = false;
   let result = '';
   for (let i = 0; i < sql.length; i++) {
     const ch = sql[i];
+    const next = sql[i + 1];
+
+    // Exit a line comment when a newline appears (skip the actual newline check
+    // after passing it through unchanged).
+    if (inLineComment) {
+      result += ch;
+      if (ch === '\n' || ch === '\r') inLineComment = false;
+      continue;
+    }
+    // Exit a block comment on `*/`.
+    if (inBlockComment) {
+      result += ch;
+      if (ch === '*' && next === '/') {
+        result += next;
+        i++;
+        inBlockComment = false;
+      }
+      continue;
+    }
+
+    // Detect comment starts only when not already inside a string. SQL line
+    // comment is `--`; block comment is `/* ... */`.
+    if (!inString) {
+      if (ch === '-' && next === '-') {
+        inLineComment = true;
+        result += ch + next;
+        i++;
+        continue;
+      }
+      if (ch === '/' && next === '*') {
+        inBlockComment = true;
+        result += ch + next;
+        i++;
+        continue;
+      }
+    }
+
     if (ch === "'" && sql[i - 1] !== '\\') {
       inString = !inString;
       result += ch;

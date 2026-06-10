@@ -28,6 +28,7 @@
  */
 
 import { run, query } from '@/lib/db';
+import { runSkill } from '@/lib/skill-executor';
 import { generateId } from '@/lib/api-helpers';
 import { checkDedup, computeDedupHash } from './monitor-dedup';
 import { recordEvent } from './memory/events';
@@ -684,6 +685,55 @@ const assumptionReview: ActionHandler = async (action) => {
   };
 };
 
+/**
+ * `run_skill` executor — the approve half of the real-time, approve-first skill
+ * flow (architecture decision C). The chat agent PROPOSES a skill (creates a
+ * run_skill pending_action with the credit estimate shown); the founder approves
+ * in the inbox; this runs the skill SYNCHRONOUSLY in its own request budget via
+ * the unified runSkill (full persistence: artifacts → facet tables,
+ * skill_completions, assumptions, memory_event). Running here instead of inside
+ * the chat turn is what stops the 180s chat-turn timeouts — the skill gets its
+ * own request, not a slice of a budget shared with web research + synthesis.
+ */
+const runSkillExecutor: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const skillId = String(payload.skill_id || '');
+  if (!skillId) return { ok: false, error: 'run_skill action missing skill_id' };
+
+  // ownerUserId: prefer the payload (set when the proposal was created), else
+  // fall back to the project owner.
+  let ownerUserId = String(payload.owner_user_id || '');
+  if (!ownerUserId) {
+    const rows = await query<{ owner_user_id: string | null }>(
+      'SELECT owner_user_id FROM projects WHERE id = ?',
+      action.project_id,
+    );
+    ownerUserId = rows[0]?.owner_user_id || '';
+  }
+  if (!ownerUserId) return { ok: false, error: 'run_skill: no owner_user_id for project' };
+
+  // 170s — generous (it's a dedicated founder-initiated request, not racing the
+  // chat turn's 8-tool / 180s budget). pi-agent force-closes cleanly past this.
+  // allowAnySkill: TRUE because the founder explicitly approved this kickoff via
+  // the inbox. The auto-rerun whitelist exists to gate heartbeat / cron, not
+  // founder-driven kickoffs (otherwise pitch-coaching / gtm-strategy / etc.
+  // proposed by chat could never be approved and would fail with "not in
+  // whitelist" — observed live during QA on proj_6284f4c8-14b for idea-shaping).
+  const result = await runSkill(action.project_id, skillId, {
+    ownerUserId,
+    timeoutMs: 170_000,
+    allowAnySkill: true,
+  });
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct',
+      narrative: `Ran ${skillId} (${Math.round(result.latency_ms / 1000)}s, ${result.artifacts_persisted} artifact(s)). ${result.summary.slice(0, 300)}`,
+      created_row_id: skillId,
+    },
+  };
+};
+
 const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   draft_email: draftEmail,
   draft_linkedin_post: draftLinkedInPost,
@@ -699,6 +749,7 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   configure_monitor: configureMonitor,
   configure_budget: configureBudget,
   configure_watch_source: configureWatchSource,
+  run_skill: runSkillExecutor,
   workflow_step: async (_pa) => ({
     ok: true,
     deliverable: {

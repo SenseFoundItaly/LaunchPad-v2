@@ -138,6 +138,16 @@ export interface RunSkillOptions {
   prompt?: string;
   /** Cap on agent wall-clock time. Defaults to 120s. */
   timeoutMs?: number;
+  /**
+   * Iter-3 QA fix: bypass the SAFE_AUTO_RERUN_SKILL_IDS whitelist. The
+   * whitelist exists to protect AUTO-rerun (heartbeat / cron) from re-running
+   * draft-producer skills whose output needs editorial review. But the
+   * founder-approved run_skill pending_action goes through this same
+   * function, and from the founder's perspective they EXPLICITLY asked to
+   * run the skill — they should not be gated by a heartbeat safety check.
+   * Callers MUST set this true ONLY when the trigger is human-initiated.
+   */
+  allowAnySkill?: boolean;
 }
 
 export interface RunSkillResult {
@@ -170,7 +180,7 @@ export async function runSkill(
   skillId: string,
   opts: RunSkillOptions,
 ): Promise<RunSkillResult> {
-  if (!SAFE_AUTO_RERUN_SKILL_IDS.includes(skillId)) {
+  if (!opts.allowAnySkill && !SAFE_AUTO_RERUN_SKILL_IDS.includes(skillId)) {
     throw new Error(`runSkill: ${skillId} is not in the safe auto-rerun whitelist`);
   }
   const loaded = loadSkillBody(skillId);

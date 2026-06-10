@@ -135,18 +135,29 @@ export async function GET(
     `SELECT ib.id, ib.brief_type, ib.entity_name, ib.title, ib.narrative,
             ib.temporal_prediction, ib.confidence, ib.signal_ids, ib.signal_count,
             ib.recommended_actions, ib.status, ib.created_at,
-            -- distinct source URLs across the alerts cited by this brief
+            -- distinct source URLs across the alerts cited by this brief.
+            -- NOTE: do NOT use the JSONB exists operator here. The db wrapper
+            -- at src/lib/db/index.ts converts every literal placeholder mark
+            -- outside string literals into a numbered placeholder, eating
+            -- the JSONB operator and breaking the query. Use an explicit
+            -- array-elements scan as the membership check instead.
+            -- Also keep this comment free of placeholder marks for the same
+            -- reason -- the wrapper does not skip SQL line comments.
             COALESCE((
               SELECT COUNT(DISTINCT ea.source_url)
               FROM ecosystem_alerts ea
               WHERE ea.project_id = ib.project_id
                 AND ea.source_url IS NOT NULL
-                AND ib.signal_ids::jsonb ? ea.id
+                AND EXISTS (
+                  SELECT 1
+                  FROM jsonb_array_elements_text(ib.signal_ids::jsonb) AS sid
+                  WHERE sid = ea.id
+                )
             ), 0) AS sources_consulted
        FROM intelligence_briefs ib
-      WHERE ib.project_id = ?
+      WHERE ib.project_id = ?::text
         AND ib.status = 'active'
-        AND ib.created_at >= ?
+        AND ib.created_at >= ?::timestamptz
       ORDER BY ib.created_at DESC
       LIMIT 10`,
     projectId, cutoff,
@@ -249,8 +260,11 @@ export async function GET(
     };
   });
 
-  let findings = [...alertFindings, ...changeFindings].sort((a, b) =>
-    b.created_at.localeCompare(a.created_at),
+  // Sort newest-first by timestamp. postgres.js returns timestamp columns as
+  // JS Date objects (not the `string` the row types claim), so localeCompare
+  // blows up — compare epoch millis instead, which handles Date OR string.
+  let findings = [...alertFindings, ...changeFindings].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
 
   // Single search filter — replaces the old 6-filter UI.
