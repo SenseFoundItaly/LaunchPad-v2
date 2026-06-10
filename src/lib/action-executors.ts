@@ -34,6 +34,9 @@ import { resolveProjectLocale } from '@/lib/agent-prompt';
 import type { Locale } from '@/lib/agent-prompt';
 import { checkDedup, computeDedupHash } from './monitor-dedup';
 import { recordEvent } from './memory/events';
+import { recordFact } from './memory/facts';
+import { outputInstructions, projectContext } from './ecosystem-monitors';
+import type { MonitorPromptContext } from './ecosystem-monitors';
 import { calculateNextRun } from './monitor-schedule';
 import { logSignalActivity } from './signal-activity-log';
 import type {
@@ -381,6 +384,98 @@ const proposedLandingCopy: ActionHandler = async (action) => {
  *   - dedup_hash is computed fresh here rather than trusting the
  *     pending_action payload — the payload could be days old when applied.
  */
+/**
+ * Header label per monitor `kind`, EN + IT. Mirrors the SCAN headers the
+ * seeded ecosystem templates use (see ecosystem-monitors.ts) so a chat-proposed
+ * monitor reads like a first-class scan, not an empty task.
+ */
+const MONITOR_KIND_HEADERS: Record<string, { en: string; it: string }> = {
+  competitor: { en: 'WEEKLY SCAN — COMPETITOR WATCH', it: 'SCAN SETTIMANALE — COMPETITOR' },
+  regulation: { en: 'WEEKLY SCAN — REGULATORY WATCH', it: 'SCAN SETTIMANALE — NORMATIVO' },
+  market: { en: 'WEEKLY SCAN — MARKET WATCH', it: 'SCAN SETTIMANALE — MERCATO' },
+  partner: { en: 'WEEKLY SCAN — PARTNERSHIP WATCH', it: 'SCAN SETTIMANALE — PARTNERSHIP' },
+  technology: { en: 'WEEKLY SCAN — TECHNOLOGY WATCH', it: 'SCAN SETTIMANALE — TECNOLOGIA' },
+  funding: { en: 'WEEKLY SCAN — FUNDING WATCH', it: 'SCAN SETTIMANALE — FINANZIAMENTI' },
+  custom: { en: 'WEEKLY SCAN — CUSTOM WATCH', it: 'SCAN SETTIMANALE — PERSONALIZZATO' },
+};
+
+/**
+ * Build a runnable scan prompt for a chat-proposed monitor.
+ *
+ * The chat `propose_monitor` → `configureMonitor` path stores a rich `config`
+ * (urls_to_track, query, alert_threshold, kind, name) but never a `prompt`.
+ * The cron + manual-run paths execute `monitor.prompt` verbatim, so an empty
+ * prompt = an empty task = zero signals. This composes a prompt with the same
+ * shape as the seeded ecosystem templates:
+ *   header(kind) + project context + founder's specific targets + the shared
+ *   outputInstructions(locale) block (the EXACT ecosystem_alert contract the
+ *   parser extracts) — so chat-monitor output parses identically to template
+ *   output.
+ */
+async function buildMonitorScanPrompt(
+  projectId: string,
+  spec: {
+    kind: string;
+    name: string;
+    objective: string | null;
+    query?: string;
+    urls: string[];
+    alertThreshold: string;
+  },
+): Promise<string> {
+  // Lean context: project name/description/locale is enough for a runnable
+  // scan. We deliberately do NOT call loadMonitorContext (which fans out to
+  // idea_canvas/research/graph_nodes) — the founder's explicit urls + query
+  // ARE the targeting here, and a single projects SELECT keeps apply fast.
+  const projRow = (await query<{ name: string; description: string | null; locale: string | null }>(
+    'SELECT name, description, locale FROM projects WHERE id = ?',
+    projectId,
+  ))[0];
+  const locale: 'en' | 'it' = projRow?.locale === 'it' ? 'it' : 'en';
+
+  const ctx: MonitorPromptContext = {
+    projectId,
+    projectName: projRow?.name ?? 'this project',
+    projectDescription: projRow?.description ?? null,
+    locale,
+    idea: null,
+    research: null,
+    knownCompetitors: [],
+    keywords: [],
+  };
+
+  const header = (MONITOR_KIND_HEADERS[spec.kind] ?? MONITOR_KIND_HEADERS.custom)[locale];
+
+  // Founder's specific targets — the "what to watch" the founder defined in chat.
+  const targetLines: string[] = [];
+  if (locale === 'it') {
+    if (spec.objective) targetLines.push(`Obiettivo del monitor: ${spec.objective}`);
+    if (spec.urls.length > 0) targetLines.push(`Sorgenti da monitorare: ${spec.urls.join(', ')}`);
+    if (spec.query) targetLines.push(`Focus di ricerca: ${spec.query}`);
+    if (spec.alertThreshold) targetLines.push(`Genera un alert quando: ${spec.alertThreshold}`);
+    targetLines.push(
+      `Per ogni cambiamento materiale che soddisfa la soglia sopra, emetti un ecosystem_alert. ` +
+      `Scegli alert_type in base alla natura del finding. Non riportare rumore di routine.`,
+    );
+  } else {
+    if (spec.objective) targetLines.push(`Monitor objective: ${spec.objective}`);
+    if (spec.urls.length > 0) targetLines.push(`Watch these sources: ${spec.urls.join(', ')}`);
+    if (spec.query) targetLines.push(`Search focus: ${spec.query}`);
+    if (spec.alertThreshold) targetLines.push(`Alert when: ${spec.alertThreshold}`);
+    targetLines.push(
+      `For each material change that meets the threshold above, emit one ecosystem_alert. ` +
+      `Pick alert_type by the nature of the finding. Do not report routine noise.`,
+    );
+  }
+
+  return [
+    header,
+    projectContext(ctx),
+    targetLines.join('\n'),
+    outputInstructions(locale),
+  ].join('\n\n');
+}
+
 const configureMonitor: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
 
@@ -414,7 +509,21 @@ const configureMonitor: ActionHandler = async (action) => {
   const sourcesValue = Array.isArray(payload.sources) && payload.sources.length > 0
     ? payload.sources
     : null;
-  const prompt = typeof payload.prompt === 'string' ? payload.prompt : null;
+  // The chat propose_monitor path never supplies a prompt, so monitors used to
+  // land with prompt=null → the cron/run agent executed an empty task → zero
+  // signals. When the payload carries no usable prompt, BUILD one from the
+  // founder's config (urls + query + threshold) so the monitor actually scans.
+  const payloadPrompt = typeof payload.prompt === 'string' ? payload.prompt.trim() : '';
+  const prompt = payloadPrompt.length > 0
+    ? payloadPrompt
+    : await buildMonitorScanPrompt(action.project_id, {
+        kind,
+        name,
+        objective,
+        query: q,
+        urls,
+        alertThreshold,
+      });
 
   // Race-guard: re-run L1 dedup. L2 semantic check is skipped here because
   // the founder has already seen + applied the proposal (any semantic
@@ -689,8 +798,33 @@ const configureWatchSource: ActionHandler = async (action) => {
 // state back to the source row so the inbox and the source table stay in
 // sync. No external side-effects (no email, no Composio) — they're
 // acknowledgements of project knowledge.
+/**
+ * Map an ecosystem_alert's alert_type to a graph_nodes.node_type. Where a
+ * natural existing node_type exists (competitor, partner, trend, regulation,
+ * funding_source) we reuse it so the finding lands in the same bucket as
+ * manually-curated knowledge; everything else falls back to 'signal'.
+ * graph_nodes has no CHECK on node_type, so 'signal' is a safe new value.
+ */
+function nodeTypeForAlert(alertType: string): string {
+  switch (alertType) {
+    case 'competitor_activity': return 'competitor';
+    case 'partnership_opportunity': return 'partner';
+    case 'trend_signal': return 'trend';
+    case 'regulatory_change': return 'regulation';
+    case 'funding_event': return 'funding_source';
+    case 'ip_filing': return 'regulation';
+    default: return 'signal';
+  }
+}
+
 const signalAlert: ActionHandler = async (action) => {
   const alertId = action.ecosystem_alert_id;
+
+  // Pull the finding BEFORE mutating it so we can fold it into project
+  // knowledge. Without this, approving a signal only flipped reviewed_state
+  // and the finding never entered the knowledge graph (it was a dead-end ack).
+  const alert = await getSourceAlert(alertId);
+
   if (alertId) {
     await run(
       `UPDATE ecosystem_alerts
@@ -701,11 +835,123 @@ const signalAlert: ActionHandler = async (action) => {
       alertId,
     );
   }
+
+  let graphNodeId: string | null = null;
+  if (alert && alert.headline) {
+    // Build a provenance source stamped with the originating ecosystem_alert so
+    // the finding is traceable back to the monitor signal. Raw object/array —
+    // graph_nodes.sources/attributes are JSONB; the run() helper auto-serializes.
+    // JSON.stringify here would double-encode (store a jsonb STRING), the exact
+    // bug class just fixed on master. Pass raw.
+    const provenance = alert.source_url
+      ? {
+          type: 'web' as const,
+          title: alert.source || alert.headline.slice(0, 80),
+          url: alert.source_url,
+          ...(alert.body ? { quote: alert.body.slice(0, 280) } : {}),
+        }
+      : {
+          type: 'internal' as const,
+          title: alert.headline.slice(0, 80),
+          ref: 'memory_fact' as const,
+          ref_id: alert.id,
+          ...(alert.body ? { quote: alert.body.slice(0, 280) } : {}),
+        };
+    const attributes = {
+      origin: 'ecosystem_alert',
+      ecosystem_alert_id: alert.id,
+      alert_type: alert.alert_type,
+      relevance_score: alert.relevance_score,
+      confidence: alert.confidence,
+    };
+    const nodeType = nodeTypeForAlert(alert.alert_type);
+
+    // Upsert by (project_id, lower(name)) so re-approving the same finding (or
+    // a finding about an already-tracked entity) updates rather than duplicates.
+    // reviewed_state='applied': the founder just approved this signal, so it's
+    // visible to the Intelligence panel + journey gates (which filter applied).
+    try {
+      const existing = await query<{ id: string }>(
+        'SELECT id FROM graph_nodes WHERE project_id = ? AND LOWER(name) = LOWER(?) LIMIT 1',
+        action.project_id,
+        alert.headline,
+      );
+      if (existing.length > 0) {
+        graphNodeId = existing[0].id;
+        await run(
+          `UPDATE graph_nodes
+              SET summary = ?, attributes = ?, sources = ?, reviewed_state = 'applied'
+            WHERE id = ?`,
+          alert.body || alert.headline,
+          attributes,
+          [provenance],
+          graphNodeId,
+        );
+      } else {
+        graphNodeId = generateId('gnode');
+        await run(
+          `INSERT INTO graph_nodes
+             (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'applied')`,
+          graphNodeId,
+          action.project_id,
+          alert.headline,
+          nodeType,
+          alert.body || alert.headline,
+          attributes,
+          [provenance],
+        );
+      }
+
+      // Back-link the alert to its graph node so the signal → knowledge edge is
+      // queryable (mirrors proposedGraphUpdate).
+      if (alertId) {
+        await run(
+          'UPDATE ecosystem_alerts SET graph_node_id = ? WHERE id = ?',
+          graphNodeId,
+          alertId,
+        );
+      }
+    } catch (err) {
+      console.warn('[signalAlert] graph_node write failed (non-fatal):', (err as Error).message);
+    }
+
+    // Also capture the finding as a durable memory_fact so it surfaces on the
+    // Knowledge page narrative. source_type='monitor' + source_id=alertId carry
+    // provenance via text columns (no jsonb), so no double-encode risk; we omit
+    // `sources` here because recordFact JSON.stringifies it.
+    try {
+      const owner = (await query<{ owner_user_id: string | null }>(
+        'SELECT owner_user_id FROM projects WHERE id = ?',
+        action.project_id,
+      ))[0];
+      const ownerId = owner?.owner_user_id;
+      if (ownerId) {
+        const factText = alert.body
+          ? `${alert.headline} — ${alert.body}`
+          : alert.headline;
+        await recordFact({
+          userId: ownerId,
+          projectId: action.project_id,
+          fact: factText.slice(0, 1000),
+          kind: 'observation',
+          sourceType: 'monitor',
+          sourceId: alert.id,
+        });
+      }
+    } catch (err) {
+      console.warn('[signalAlert] recordFact failed (non-fatal):', (err as Error).message);
+    }
+  }
+
   return {
     ok: true,
     deliverable: {
       mode: 'direct',
-      narrative: `Signal acknowledged. Marked source ecosystem_alert as accepted.`,
+      created_row_id: graphNodeId ?? undefined,
+      narrative: graphNodeId
+        ? `Signal accepted and folded into project knowledge (graph node ${graphNodeId}).`
+        : `Signal acknowledged. Marked source ecosystem_alert as accepted.`,
     },
   };
 };
