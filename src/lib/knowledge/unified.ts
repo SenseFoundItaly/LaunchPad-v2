@@ -122,20 +122,31 @@ function maxTier(a: ProvenanceTier, b: ProvenanceTier): ProvenanceTier {
   return TIER_RANK[a] >= TIER_RANK[b] ? a : b;
 }
 
+/** Loose http(s)-URL sniff used by the no-sources heuristic below. */
+const HTTP_URL_RE = /https?:\/\//i;
+
 /**
- * Infer provenance from a graph_node's `sources` JSONB + `attributes` JSONB.
+ * Infer provenance from a graph_node's `sources` JSONB + `attributes` JSONB
+ * (+ `summary` text as a last-resort hint).
  *
- *   - signal-origin (attributes.origin === 'ecosystem_alert') → workflow_derived
- *     (it came from the monitor → ecosystem_alert autonomous loop).
  *   - sources contain a web source → externally_verified (an independent URL
  *     backs it).
+ *   - signal-origin (attributes.origin === 'ecosystem_alert') → workflow_derived
+ *     (it came from the monitor → ecosystem_alert autonomous loop).
  *   - sources contain a skill source → workflow_derived (a skill we ran
  *     produced it).
+ *   - NO usable sources, but attributes or summary embed an http(s) URL →
+ *     workflow_derived. This catches the historical writer gap: chat-researched
+ *     nodes (e.g. competitor dossiers) whose proposal sources were dropped at
+ *     INSERT time but whose researched material (website, pricing page, …)
+ *     survives in attributes/summary. A loose URL is not a typed, citable web
+ *     source, so it tiers to workflow_derived — NOT externally_verified.
  *   - otherwise (user/internal/empty) → founder_asserted.
  */
 function tierFromGraphNode(
   sourcesRaw: unknown,
   attributesRaw: unknown,
+  summary?: string | null,
 ): ProvenanceTier {
   const attributes = coerceJson(attributesRaw);
   const sources = coerceJson(sourcesRaw);
@@ -158,6 +169,19 @@ function tierFromGraphNode(
   if (hasWeb) return 'externally_verified';
   if (origin === 'ecosystem_alert') return 'workflow_derived';
   if (hasSkill) return 'workflow_derived';
+
+  // Heuristic fallback (no usable sources): an embedded http(s) URL anywhere
+  // in attributes or the summary means researched material backs the node.
+  const attrText =
+    attributes == null
+      ? ''
+      : typeof attributes === 'string'
+        ? attributes
+        : JSON.stringify(attributes);
+  if (HTTP_URL_RE.test(attrText) || (!!summary && HTTP_URL_RE.test(summary))) {
+    return 'workflow_derived';
+  }
+
   return 'founder_asserted';
 }
 
@@ -259,6 +283,9 @@ interface InterviewRow {
   sources: unknown;
   created_at: string;
 }
+interface ProposalExecutionRow {
+  execution_result: unknown;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -304,6 +331,7 @@ export async function getProjectKnowledge(
     briefRows,
     competitorRows,
     interviewRows,
+    proposalExecRows,
   ] = await Promise.all([
     query<GraphNodeRow>(
       `SELECT id, name, node_type, summary, attributes, sources, created_at
@@ -359,7 +387,33 @@ export async function getProjectKnowledge(
       projectId,
       limit,
     ).catch(() => [] as InterviewRow[]),
+    // Executed proposed_graph_update actions — their execution_result carries
+    // the created graph_node id (external_id). Used ONLY as a provenance hint:
+    // a node created through the agent's propose→approve pipeline was AUTHORED
+    // by the agent (dossier prose written by the system, typically after
+    // in-chat research), not typed by the founder. See tier escalation below.
+    query<ProposalExecutionRow>(
+      `SELECT execution_result
+         FROM pending_actions
+        WHERE project_id = ?
+          AND action_type = 'proposed_graph_update'
+          AND execution_result IS NOT NULL
+        LIMIT ?`,
+      projectId,
+      limit,
+    ).catch(() => [] as ProposalExecutionRow[]),
   ]);
+
+  // graph_node ids that an executed agent proposal created. execution_result
+  // is historically double-encoded (jsonb string) — coerceJson normalizes.
+  const agentAuthoredNodeIds = new Set<string>();
+  for (const row of proposalExecRows) {
+    const result = coerceJson(row.execution_result);
+    if (result && typeof result === 'object') {
+      const ext = (result as Record<string, unknown>).external_id;
+      if (typeof ext === 'string' && ext) agentAuthoredNodeIds.add(ext);
+    }
+  }
 
   // -------------------------------------------------------------------------
   // Normalize each store into KnowledgeItems.
@@ -367,7 +421,17 @@ export async function getProjectKnowledge(
 
   const graphItems: KnowledgeItem[] = graphRows.map((n) => {
     const isCompetitor = (n.node_type ?? '').toLowerCase() === 'competitor';
-    const tier = tierFromGraphNode(n.sources, n.attributes);
+    let tier = tierFromGraphNode(n.sources, n.attributes, n.summary);
+    // Agent-authored escalation for the historical writer gap: nodes the
+    // proposedGraphUpdate executor INSERTed before it persisted sources carry
+    // NOTHING in-row (sources/attributes NULL, no URL in summary), yet the
+    // execution trail proves the agent authored them through the
+    // propose→approve pipeline (research dossiers the founder merely
+    // approved). Same trust rung as competitor_profiles dossiers →
+    // workflow_derived. Never overrides a higher tier from real sources.
+    if (tier === 'founder_asserted' && agentAuthoredNodeIds.has(n.id)) {
+      tier = 'workflow_derived';
+    }
     return {
       id: n.id,
       kind: isCompetitor ? 'competitor' : 'entity',
