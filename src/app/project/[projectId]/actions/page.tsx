@@ -32,6 +32,8 @@ import {
 import type { PendingAction, PendingActionStatus, PendingActionType, ActionLane } from '@/types';
 import { laneFor } from '@/lib/action-lanes';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
+import { SkillProposalReview, skillCreditsFromAction } from '@/components/actions/SkillProposalReview';
+import { PayloadSummary } from '@/components/actions/PayloadSummary';
 
 // Phase 1 — 3-lane Inbox (Tasks / Approvals / Notifications).
 // See /Users/openmaiku/.claude/plans/buckets-tasks-intelligence-signals-assets.md
@@ -449,7 +451,10 @@ function TicketsToolbar({
       <FilterSelect
         label="status"
         value={statusFilter}
-        options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+        options={STATUS_OPTIONS.map((s) => ({
+          value: s,
+          label: s === 'any' ? 'any' : STATUS_LABEL[s],
+        }))}
         onChange={(v) => setStatusFilter(v as 'any' | PendingActionStatus)}
       />
       <FilterSelect
@@ -542,6 +547,20 @@ const STATUS_PILL: Record<PendingActionStatus, PillKind> = {
   sent: 'ok',
   rejected: 'n',
   failed: 'warn',
+};
+
+// Founder-facing status labels. The raw machine values (pending/applied/…)
+// stay in component state and API calls — only the rendered text changes.
+// "applied" reads as bureaucratic success; "Approved" says what the founder
+// actually did. "rejected" → "Dismissed" because half the rejects are just
+// clearing notifications, not value judgements.
+const STATUS_LABEL: Record<PendingActionStatus, string> = {
+  pending: 'Waiting',
+  edited: 'Edited',
+  applied: 'Approved',
+  sent: 'Done',
+  rejected: 'Dismissed',
+  failed: 'Failed',
 };
 
 function TicketsTable({
@@ -675,7 +694,7 @@ function TicketsTable({
               kind={STATUS_PILL[r.status] || 'n'}
               dot={r.status === 'pending' || r.status === 'applied' || r.status === 'sent'}
             >
-              {r.status}
+              {STATUS_LABEL[r.status] ?? r.status}
             </Pill>
             <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)', textAlign: 'right' }}>
               {timeAgo(r.created_at)}
@@ -710,7 +729,7 @@ function TicketDetail({
       <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <Pill kind={STATUS_PILL[action.status] || 'n'} dot>
-            {action.status}
+            {STATUS_LABEL[action.status] ?? action.status}
           </Pill>
           <Pill kind="n">{producer}</Pill>
         </div>
@@ -766,23 +785,17 @@ function TicketDetail({
 
       {action.action_type === 'configure_monitor' ? (
         <MonitorProposalReview action={action} />
+      ) : action.action_type === 'run_skill' ? (
+        // Skill kickoffs SPEND credits on approval — they get a human card
+        // (what you'll get / cost / duration), never a raw JSON dump.
+        <SideSection title="Skill run · review">
+          <SkillProposalReview action={action} />
+        </SideSection>
       ) : (
-        <SideSection title="Payload · preview">
-          <pre
-            style={{
-              margin: 0,
-              padding: 14,
-              fontSize: 10.5,
-              background: 'var(--paper-2)',
-              color: 'var(--ink-3)',
-              fontFamily: 'var(--f-mono)',
-              maxHeight: 300,
-              overflow: 'auto',
-              borderTop: '1px solid var(--line)',
-            }}
-          >
-            {JSON.stringify(action.edited_payload || action.payload, null, 2)}
-          </pre>
+        // Everything else: tidy key→value summary; full JSON behind the
+        // pane's "view raw" toggle.
+        <SideSection title="Details">
+          <PayloadSummary payload={action.edited_payload || action.payload} />
         </SideSection>
       )}
 
@@ -797,7 +810,7 @@ function TicketDetail({
 // verbs against /actions/[actionId]) but the labels + ordering reflect what
 // the founder is actually doing in each lane:
 //   TODO         → Mark done (apply) | Snooze (edit) | Dismiss (reject)
-//   APPROVAL     → Apply | Reject — same as before
+//   APPROVAL     → Apply | Reject (run_skill applies as "Run skill (≈N credits)")
 //   NOTIFICATION → Acknowledge (reject = clear from inbox)
 function LaneAwareActions({
   action,
@@ -874,13 +887,20 @@ function LaneAwareActions({
   }
 
   // Default: approval lane (drafts, configs, workflow steps)
+  // run_skill is the one approval that spends credits on apply — the button
+  // says so instead of a generic "Apply". Only the LABEL changes; the
+  // transition verb stays 'apply'.
+  const applyLabel =
+    action.action_type === 'run_skill'
+      ? `Run skill (≈${skillCreditsFromAction(action)} credits)`
+      : 'Apply';
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <button
         onClick={() => onTransition(action.id, 'apply')}
         style={{ ...btnGhost, justifyContent: 'flex-start' }}
       >
-        <Icon d={I.check} size={12} /> Apply
+        <Icon d={I.check} size={12} /> {applyLabel}
       </button>
       <button
         onClick={() => onTransition(action.id, 'reject')}

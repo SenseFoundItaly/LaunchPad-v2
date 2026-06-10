@@ -43,6 +43,15 @@ interface UsageData {
   logs: UsageLog[];
 }
 
+// Subset of the /credits snapshot this page needs: the monthly position
+// (remaining/total) and the plan ratio inputs (total credits / USD cap).
+interface CreditsInfo {
+  remaining: number;
+  total: number;
+  used_usd: number;
+  cap_usd: number;
+}
+
 export default function UsagePage({
   params,
 }: {
@@ -51,6 +60,7 @@ export default function UsagePage({
   const { projectId } = use(params);
   const { count: inboxBadge } = useOpenActionCount(projectId);
   const [data, setData] = useState<UsageData | null>(null);
+  const [credits, setCredits] = useState<CreditsInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchUsage = useCallback(async () => {
@@ -61,9 +71,16 @@ export default function UsagePage({
       if (resp.data) setData(resp.data);
     } catch {
       // usage table might not exist yet
-    } finally {
-      setLoading(false);
     }
+    try {
+      const { data: resp } = await api.get<ApiResponse<CreditsInfo>>(
+        `/api/projects/${projectId}/credits`,
+      );
+      if (resp.data) setCredits(resp.data);
+    } catch {
+      // budget row might not exist yet — fall back to the default ratio
+    }
+    setLoading(false);
   }, [projectId]);
 
   useEffect(() => {
@@ -89,11 +106,30 @@ export default function UsagePage({
   const logs = data?.logs || [];
   const bySkill = data?.by_skill || [];
 
+  // Credits are the founder-facing money unit (same number the TopBar badge
+  // counts). USD stays visible as small secondary text for admins. The
+  // conversion uses the project's own plan ratio (monthly credits ÷ USD cap);
+  // 200 credits/$ is the documented default when no budget row exists yet.
+  const creditsPerUsd =
+    credits && credits.cap_usd > 0 && credits.total > 0
+      ? credits.total / credits.cap_usd
+      : 200;
+
+  function toCredits(usd: number): number {
+    return usd * creditsPerUsd;
+  }
+
+  function formatCredits(c: number): string {
+    if (c > 0 && c < 0.1) return '<0.1';
+    if (c < 10) return c.toFixed(1);
+    return String(Math.round(c));
+  }
+
   const chartData = bySkill
     .filter((s) => s.total_cost > 0)
     .map((s) => ({
       name: s.skill_id,
-      value: parseFloat(s.total_cost.toFixed(4)),
+      value: parseFloat(toCredits(s.total_cost).toFixed(1)),
     }));
 
   function formatCost(usd: number): string {
@@ -139,10 +175,15 @@ export default function UsagePage({
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-paper border border-line rounded-xl p-4">
             <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
-              Total Cost
+              Credits Used
             </div>
             <div className="text-2xl font-bold text-ink">
-              {formatCost(summary?.total_cost_usd ?? 0)}
+              {formatCredits(toCredits(summary?.total_cost_usd ?? 0))}
+              <span className="text-sm font-medium text-ink-4"> credits</span>
+            </div>
+            <div className="text-xs text-ink-5 mt-1">
+              {formatCost(summary?.total_cost_usd ?? 0)} USD
+              {credits ? ` · ${credits.remaining}/${credits.total} left this month` : ''}
             </div>
           </div>
           <div className="bg-paper border border-line rounded-xl p-4">
@@ -171,10 +212,10 @@ export default function UsagePage({
           </div>
         </div>
 
-        {/* Cost by skill chart */}
+        {/* Credits by skill chart (values converted from USD at the plan ratio) */}
         {chartData.length > 0 && (
           <div className="bg-paper border border-line rounded-xl p-6 mb-8">
-            <h4 className="text-sm font-medium text-ink mb-4">Cost by Skill</h4>
+            <h4 className="text-sm font-medium text-ink mb-4">Credits by Skill</h4>
             <BarChart data={chartData} title="" height={Math.max(200, chartData.length * 40)} />
           </div>
         )}
@@ -198,7 +239,7 @@ export default function UsagePage({
                     <th className="px-4 py-3 text-left">Provider</th>
                     <th className="px-4 py-3 text-left">Model</th>
                     <th className="px-4 py-3 text-right">Tokens</th>
-                    <th className="px-4 py-3 text-right">Cost</th>
+                    <th className="px-4 py-3 text-right">Credits</th>
                     <th className="px-4 py-3 text-right">Latency</th>
                   </tr>
                 </thead>
@@ -228,8 +269,9 @@ export default function UsagePage({
                       <td className="px-4 py-3 text-right text-ink-3 tabular-nums">
                         {formatTokens(log.input_tokens + log.output_tokens)}
                       </td>
-                      <td className="px-4 py-3 text-right text-ink-3 tabular-nums">
-                        {formatCost(log.total_cost_usd)}
+                      <td className="px-4 py-3 text-right text-ink-3 tabular-nums whitespace-nowrap">
+                        {formatCredits(toCredits(log.total_cost_usd))}
+                        <span className="text-xs text-ink-5 ml-1">{formatCost(log.total_cost_usd)}</span>
                       </td>
                       <td className="px-4 py-3 text-right text-ink-4 tabular-nums">
                         {formatLatency(log.latency_ms)}

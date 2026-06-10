@@ -161,13 +161,14 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
       // gives the founder consent + cost transparency before spending budget.
       {
         const propTier = skill.frontmatter.model_tier ?? 'balanced';
+        // Credits are the ONLY founder-facing money unit (matches the TopBar
+        // badge + Inbox review card). EUR/USD stays internal accounting.
         const estCredits = propTier === 'premium' ? 10 : propTier === 'cheap' ? 1 : 4;
-        const estEur = (estCredits / 200).toFixed(2);
         try {
           const proposal = await createPendingAction({
             project_id: opts.projectId,
             action_type: 'run_skill',
-            title: `Run ${skill.frontmatter.name}? (~€${estEur}, ~${estCredits} credits)`,
+            title: `Run ${skill.frontmatter.name}? (≈${estCredits} credits)`,
             rationale: context ? context.slice(0, 280) : `Kick off ${skill.frontmatter.name} for this project.`,
             payload: { skill_id: skill.id, skill_label: skill.frontmatter.name, owner_user_id: opts.userId, context },
             estimated_impact: 'high',
@@ -176,7 +177,7 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
           return {
             content: [{
               type: 'text',
-              text: `Proposed "${skill.frontmatter.name}" (~€${estEur}, ~${estCredits} credits) — queued for the founder's one-click approval in the Inbox. It runs in real time once approved. Tell the founder what it will do and that it's ready to approve; do NOT wait for results this turn. (action ${proposal.id})`,
+              text: `Proposed "${skill.frontmatter.name}" (≈${estCredits} credits) — queued for the founder's one-click approval in the Inbox. It runs in real time once approved. Tell the founder what it will do and that it's ready to approve; do NOT wait for results this turn. (action ${proposal.id})`,
             }],
             details: { skill_id: skill.id, proposed: true },
           };
