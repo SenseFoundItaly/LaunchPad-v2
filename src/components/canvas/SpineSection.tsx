@@ -13,7 +13,7 @@
  * Verdict colors mirror IntelligenceSection (now removed).
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { STAGES } from '@/lib/stages';
 
 type Verdict = 'strong_go' | 'go' | 'caution' | 'not_ready';
@@ -77,11 +77,177 @@ function formatRelativeAge(iso: string, locale: 'en' | 'it'): string {
   return new Date(iso).toLocaleDateString(locale === 'it' ? 'it' : 'en');
 }
 
+interface ParsedSummary {
+  prose: string;          // Prose outside any JSON block (intro / outro narrative)
+  sections: { label: string; value: string }[];  // Top-level string fields from the JSON
+  sources: { type?: string; title?: string; url?: string; quote?: string }[];
+}
+
+/**
+ * Parse a skill completion summary into human-readable sections.
+ *
+ * Skill outputs are typically a single ```json {...}``` block wrapping the
+ * structured payload under a top-level key like "scientific_validation" or
+ * "market_research". Showing this raw to the founder is unfriendly. This
+ * helper extracts: (a) prose narrative around the JSON block, (b) top-level
+ * string fields (icp_statement, summary, overall_grade, etc.) labeled, and
+ * (c) the sources array if present.
+ *
+ * Falls back gracefully — if no JSON block matches, returns the raw text as
+ * prose so the popover never goes blank.
+ */
+function parseSkillSummary(raw: string): ParsedSummary {
+  const out: ParsedSummary = { prose: '', sections: [], sources: [] };
+  if (!raw) return out;
+
+  // Skill outputs commonly drop the closing ``` fence (token cutoff during
+  // streaming or model laziness). Try the well-formed shape first, then fall
+  // back to "from ```json to end of string" so we still extract the payload.
+  let fenceMatch = raw.match(/```json\s*([\s\S]*?)\s*```/);
+  let jsonText = fenceMatch?.[1];
+  let fenceStart = fenceMatch?.index ?? -1;
+  let fenceEnd = fenceMatch ? fenceStart + fenceMatch[0].length : -1;
+  if (!jsonText) {
+    const openIdx = raw.search(/```json\s*/);
+    if (openIdx >= 0) {
+      const after = raw.slice(openIdx).replace(/```json\s*/, '');
+      jsonText = after;
+      fenceStart = openIdx;
+      fenceEnd = raw.length;
+    }
+  }
+  if (!jsonText) {
+    out.prose = raw.trim();
+    return out;
+  }
+
+  out.prose = (raw.slice(0, fenceStart) + ' ' + raw.slice(fenceEnd)).trim();
+
+  // Try parsing as-is; if the JSON is truncated by streaming/token cutoff,
+  // walk the structure and append the missing closers. Skill outputs often
+  // run thousands of chars deep into nested objects and never reach the
+  // outermost close, so naive parse always fails — but the early/top-level
+  // fields we want to surface are intact.
+  const tryParse = (s: string): unknown | null => {
+    try { return JSON.parse(s); } catch { return null; }
+  };
+  let parsed: unknown = tryParse(jsonText);
+  if (parsed === null) {
+    // Walk the text tracking container depth + the depth-stack at each
+    // safe boundary. lastSafe only updates on STRUCTURAL boundaries: `,`,
+    // `{`, `[`, `}`, `]` outside any string. It must NOT update on string
+    // closes — that lets a partial key like `"foo_bar"` with no `:value`
+    // leak into the candidate and break the parse.
+    let stack: string[] = [];
+    let safeStack: string[] = [];
+    let inString = false;
+    let escape = false;
+    let lastSafe = 0;
+    for (let i = 0; i < jsonText.length; i++) {
+      const c = jsonText[i];
+      if (escape) { escape = false; continue; }
+      if (c === '\\') { escape = true; continue; }
+      if (c === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (c === '{' || c === '[') {
+        stack.push(c);
+      } else if (c === '}' || c === ']') {
+        stack.pop();
+      }
+      if (c === ',' || c === '{' || c === '[' || c === '}' || c === ']') {
+        lastSafe = i + 1;
+        safeStack = [...stack];
+      }
+    }
+    let candidate = jsonText.slice(0, lastSafe).replace(/,\s*$/, '');
+    for (let i = safeStack.length - 1; i >= 0; i--) {
+      candidate += safeStack[i] === '{' ? '}' : ']';
+    }
+    parsed = tryParse(candidate);
+  }
+  if (parsed === null) {
+    out.prose = (out.prose + '\n\n' + jsonText).trim();
+    return out;
+  }
+
+  if (!parsed || typeof parsed !== 'object') return out;
+
+  // Unwrap the single top-level wrapper key (e.g. "scientific_validation").
+  let body = parsed as Record<string, unknown>;
+  const topKeys = Object.keys(body);
+  if (topKeys.length === 1 && typeof body[topKeys[0]] === 'object' && body[topKeys[0]] !== null) {
+    body = body[topKeys[0]] as Record<string, unknown>;
+  }
+
+  const labelize = (key: string) =>
+    key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+  for (const [key, value] of Object.entries(body)) {
+    if (key === 'sources' && Array.isArray(value)) {
+      for (const s of value) {
+        if (s && typeof s === 'object') {
+          const src = s as Record<string, unknown>;
+          out.sources.push({
+            type: typeof src.type === 'string' ? src.type : undefined,
+            title: typeof src.title === 'string' ? src.title : undefined,
+            url: typeof src.url === 'string' ? src.url : undefined,
+            quote: typeof src.quote === 'string' ? src.quote : undefined,
+          });
+        }
+      }
+      continue;
+    }
+    if (typeof value === 'string' && value.trim()) {
+      out.sections.push({ label: labelize(key), value: value.trim() });
+    } else if (typeof value === 'number' || typeof value === 'boolean') {
+      out.sections.push({ label: labelize(key), value: String(value) });
+    }
+    // Nested objects/arrays are skipped — they're usually too deep to surface
+    // meaningfully in a hover popover. Founder can click Revisit to see the
+    // full structured output.
+  }
+
+  return out;
+}
+
 export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionProps) {
   const [stages, setStages] = useState<StageRow[]>([]);
   const [skills, setSkills] = useState<SkillCompletion[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [openStage, setOpenStage] = useState<string | null>(null);
+  // Hover popover for skill cards — shows full summary, scrollable, with
+  // optional "expand" to remove height cap. Replaces the native `title=`
+  // tooltip which clipped long summaries with no scroll/expand affordance.
+  //
+  // Two timers: openTimerRef debounces hover-in (250ms) so accidental
+  // mouseovers don't pop the card; closeTimerRef debounces hover-out (150ms)
+  // so the cursor can cross the gap from the skill card to the popover
+  // without the popover unmounting. The popover's own onMouseEnter cancels
+  // the close timer, keeping it open as long as the cursor is over it.
+  const [hoveredSkillId, setHoveredSkillId] = useState<string | null>(null);
+  const [expandedSkillId, setExpandedSkillId] = useState<string | null>(null);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearOpenTimer() {
+    if (openTimerRef.current) { clearTimeout(openTimerRef.current); openTimerRef.current = null; }
+  }
+  function clearCloseTimer() {
+    if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; }
+  }
+  function scheduleHover(skillId: string) {
+    clearCloseTimer();
+    clearOpenTimer();
+    openTimerRef.current = setTimeout(() => setHoveredSkillId(skillId), 250);
+  }
+  function cancelHover() {
+    clearOpenTimer();
+    clearCloseTimer();
+    closeTimerRef.current = setTimeout(() => setHoveredSkillId(null), 150);
+  }
+  function keepHover() {
+    clearCloseTimer();
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -315,13 +481,20 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
                     : (locale === 'it' ? 'Avvia' : 'Start');
                   const summary = completion?.summary?.trim() || '';
                   const completedAt = completion?.completed_at || '';
+                  const popoverOpen = hoveredSkillId === sk.id && done && !!summary;
+                  const popoverExpanded = expandedSkillId === sk.id;
                   return (
-                    <button
+                    <div
                       key={sk.id}
+                      style={{ position: 'relative' }}
+                      onMouseEnter={() => done && summary && scheduleHover(sk.id)}
+                      onMouseLeave={() => cancelHover()}
+                    >
+                    <button
                       type="button"
                       onClick={clickable ? () => onSkillClick!(sk.label) : undefined}
                       disabled={!clickable}
-                      title={clickable ? `${verb} ${sk.label}${summary ? ` — ${summary}` : ''}` : sk.label}
+                      aria-label={clickable ? `${verb} ${sk.label}` : sk.label}
                       style={{
                         display: 'flex',
                         flexDirection: 'column',
@@ -337,6 +510,7 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
                         fontFamily: 'inherit',
                         color: 'inherit',
                         transition: 'border-color 100ms, background 100ms',
+                        width: '100%',
                       }}
                       onMouseEnter={(e) => {
                         if (clickable) {
@@ -423,6 +597,181 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
                         </div>
                       )}
                     </button>
+                    {popoverOpen && (() => {
+                      const parsed = parseSkillSummary(summary);
+                      return (
+                      <div
+                        role="tooltip"
+                        // Block ALL click events bubbling from inside the popover
+                        // up to the wrapper. Without this, a click on the expand
+                        // button (or a source link) propagates to the skill card
+                        // button below and fires onSkillClick → opens a chat turn.
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onMouseEnter={keepHover}
+                        onMouseLeave={cancelHover}
+                        style={{
+                          position: 'absolute',
+                          top: 'calc(100% + 6px)',
+                          left: 0,
+                          right: 0,
+                          minWidth: 360,
+                          maxWidth: 560,
+                          zIndex: 50,
+                          background: 'var(--paper)',
+                          border: '1px solid var(--line-2)',
+                          borderRadius: 'var(--r-s)',
+                          boxShadow: '0 8px 24px rgba(0,0,0,0.32)',
+                          padding: '10px 12px',
+                          fontSize: 11.5,
+                          lineHeight: 1.5,
+                          color: 'var(--ink-2)',
+                          maxHeight: popoverExpanded ? '70vh' : 280,
+                          overflowY: 'auto',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 8,
+                            marginBottom: 8,
+                            paddingBottom: 6,
+                            borderBottom: '1px solid var(--line)',
+                            position: 'sticky',
+                            top: -10,
+                            background: 'var(--paper)',
+                            zIndex: 1,
+                          }}
+                        >
+                          <strong style={{ fontSize: 11.5, color: 'var(--ink-1)' }}>
+                            {verb} {sk.label}
+                          </strong>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedSkillId(popoverExpanded ? null : sk.id);
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className="lp-mono"
+                            style={{
+                              fontSize: 9.5,
+                              color: 'var(--ink-5)',
+                              background: 'transparent',
+                              border: '1px solid var(--line)',
+                              borderRadius: 'var(--r-s)',
+                              padding: '2px 6px',
+                              cursor: 'pointer',
+                              letterSpacing: 0.3,
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            {popoverExpanded
+                              ? (locale === 'it' ? 'comprimi' : 'collapse')
+                              : (locale === 'it' ? 'espandi' : 'expand')}
+                          </button>
+                        </div>
+
+                        {parsed.sections.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {parsed.sections.map((s, i) => (
+                              <div key={i}>
+                                <div
+                                  className="lp-mono"
+                                  style={{
+                                    fontSize: 9.5,
+                                    color: 'var(--ink-5)',
+                                    letterSpacing: 0.3,
+                                    textTransform: 'uppercase',
+                                    marginBottom: 2,
+                                  }}
+                                >
+                                  {s.label}
+                                </div>
+                                <div style={{ whiteSpace: 'pre-wrap' }}>{s.value}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {parsed.sources.length > 0 && (
+                          <div
+                            style={{
+                              marginTop: 12,
+                              paddingTop: 8,
+                              borderTop: '1px solid var(--line)',
+                            }}
+                          >
+                            <div
+                              className="lp-mono"
+                              style={{
+                                fontSize: 9.5,
+                                color: 'var(--ink-5)',
+                                letterSpacing: 0.3,
+                                textTransform: 'uppercase',
+                                marginBottom: 4,
+                              }}
+                            >
+                              {locale === 'it'
+                                ? `Fonti (${parsed.sources.length})`
+                                : `Sources (${parsed.sources.length})`}
+                            </div>
+                            <ol style={{ paddingLeft: 18, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              {parsed.sources.map((src, i) => (
+                                <li key={i} style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                                  {src.url ? (
+                                    <a
+                                      href={src.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      style={{ color: 'var(--accent)', textDecoration: 'underline' }}
+                                    >
+                                      {src.title || src.url}
+                                    </a>
+                                  ) : (
+                                    <span>{src.title || src.type || '(unnamed source)'}</span>
+                                  )}
+                                  {src.type && src.type !== 'web' && (
+                                    <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-5)', marginLeft: 6 }}>
+                                      [{src.type}]
+                                    </span>
+                                  )}
+                                  {src.quote && (
+                                    <div style={{ fontSize: 10.5, color: 'var(--ink-4)', fontStyle: 'italic', marginTop: 2 }}>
+                                      "{src.quote.length > 200 ? src.quote.slice(0, 200) + '…' : src.quote}"
+                                    </div>
+                                  )}
+                                </li>
+                              ))}
+                            </ol>
+                          </div>
+                        )}
+
+                        {parsed.prose && parsed.sections.length === 0 && parsed.sources.length === 0 && (
+                          <div style={{ whiteSpace: 'pre-wrap' }}>{parsed.prose}</div>
+                        )}
+
+                        {completedAt && (
+                          <div
+                            className="lp-mono"
+                            style={{
+                              fontSize: 9.5,
+                              color: 'var(--ink-5)',
+                              marginTop: 10,
+                              paddingTop: 6,
+                              borderTop: '1px solid var(--line)',
+                            }}
+                          >
+                            {locale === 'it' ? 'completato ' : 'ran '}{formatRelativeAge(completedAt, locale)}
+                          </div>
+                        )}
+                      </div>
+                      );
+                    })()}
+                    </div>
                   );
                 })}
               </div>

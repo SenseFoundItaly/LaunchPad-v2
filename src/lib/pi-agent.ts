@@ -6,6 +6,7 @@ import { join } from 'path';
 import { mkdirSync, readFileSync, appendFileSync, existsSync, readdirSync, statSync, rmSync } from 'fs';
 import { getTools } from './pi-tools';
 import { pickModel, type TaskLabel } from './llm/router';
+import { estimateCost } from './telemetry';
 
 const DEFAULT_PROVIDER = (process.env.PI_PROVIDER || 'anthropic') as 'anthropic' | 'openai';
 const DEFAULT_MODEL_ID = process.env.PI_MODEL || (DEFAULT_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
@@ -340,6 +341,10 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
 
   const stream = new ReadableStream({
     start(controller) {
+      // Port note: the double-close guard (closed/safeEnqueue/safeClose) is
+      // declared a few lines down — master's rework version is the superset
+      // (adds safeEnqueue + fullText). The WIP's partial duplicate here was
+      // dropped to avoid redeclaring the same block-scoped names.
       agent = new Agent({
         streamFn: streamSimple,
         sessionId: options.sessionId,
@@ -393,9 +398,69 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
       timer = setTimeout(() => {
         console.warn(`[pi-agent] timeout (${timeout}ms) — aborting agent and force-closing stream`);
         try { agent.abort(); } catch { /* ignore */ }
-        // Flush whatever the agent produced so far — a partial answer beats a
-        // blank "timed out" turn for the founder.
-        safeEnqueue(encoder.encode(`data: ${JSON.stringify({ done: true, timeout: true, fullText })}\n\n`));
+        // Best-effort usage on timeout. OpenRouter (and the underlying
+        // provider) charges for every token streamed BEFORE the abort, but
+        // the timeout's done event historically carried no usage — so the
+        // chat route's recordUsage logged $0.00 for the whole turn and we
+        // under-counted real spend. Attach a usage object (same shape the
+        // agent_end path emits) with a non-zero cost so the existing
+        // recordUsage path bills the streamed-then-aborted tokens.
+        let timeoutUsage: Record<string, unknown> | undefined;
+        try {
+          // Resolve the concrete model slug the same way the chat route's
+          // flush does (pickModel), so estimateCost hits the right pricing row.
+          const model = pickModel(options.task ?? 'chat').model;
+          if (lastUsage) {
+            // Partial usage WAS accumulated (one or more message_end events
+            // fired before the abort). Reuse it, filling cost via estimateCost
+            // when pi-ai didn't attach an authoritative cost.total.
+            const u = lastUsage as unknown as Record<string, number | { total?: number } | undefined>;
+            const partial = {
+              input_tokens: (u.input as number) || 0,
+              output_tokens: (u.output as number) || 0,
+              cache_creation_input_tokens: (u.cacheWrite as number) || 0,
+              cache_read_input_tokens: (u.cacheRead as number) || 0,
+            };
+            const existingCost = (u.cost as { total?: number } | undefined)?.total;
+            const cost = (typeof existingCost === 'number' && existingCost > 0)
+              ? existingCost
+              : estimateCost('', model, partial);
+            timeoutUsage = {
+              ...partial,
+              total_tokens: (u.totalTokens as number)
+                || (partial.input_tokens + partial.output_tokens),
+              cost,
+              estimated: true,
+            };
+          } else {
+            // No message_end fired before the abort — estimate from the text
+            // we streamed (~4 chars/token) and the prompt + system prompt
+            // length for the input side. Coarse, but non-zero beats $0.
+            const outTok = Math.ceil((fullText.length || 0) / 4);
+            const inChars = (prompt?.length || 0) + (options.systemPrompt?.length || 0);
+            const inTok = Math.ceil(inChars / 4);
+            const partial = {
+              input_tokens: inTok,
+              output_tokens: outTok,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            };
+            timeoutUsage = {
+              ...partial,
+              total_tokens: inTok + outTok,
+              cost: estimateCost('', model, partial),
+              estimated: true,
+            };
+          }
+        } catch {
+          // Estimation failed — fall back to no usage rather than break the
+          // timeout/close. Better $0 than a crash.
+          timeoutUsage = undefined;
+        }
+        // WEAVE (port): emit the partial answer (master's fullText flush, so a
+        // partial answer beats a blank "timed out" turn) AND best-effort usage
+        // (WIP's $0-on-timeout fix) through the double-close-safe enqueue.
+        safeEnqueue(encoder.encode(`data: ${JSON.stringify({ done: true, timeout: true, fullText, usage: timeoutUsage })}\n\n`));
         safeClose();
       }, timeout);
 
@@ -498,8 +563,25 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
 
       agent.prompt(prompt).catch((err) => {
         clearTimeout(timer);
+        // WEAVE (port): emit a done event carrying both the error message
+        // (master) and whatever usage we accumulated before the failure
+        // (WIP's $0-flake-turn fix), through the double-close-safe enqueue.
+        // Without the usage, cost extraction sees no streamUsage.done and
+        // records $0.00 — the pattern observed in e2e turns 5/6/7.
+        const u = lastUsage as unknown as Record<string, number | { total?: number } | undefined> | undefined;
         safeEnqueue(
-          encoder.encode(`data: ${JSON.stringify({ error: err.message })}\n\n`)
+          encoder.encode(`data: ${JSON.stringify({
+            done: true,
+            error: err.message,
+            usage: lastUsage && u ? {
+              input_tokens: u.input as number,
+              output_tokens: u.output as number,
+              cache_creation_input_tokens: (u.cacheWrite as number) || 0,
+              cache_read_input_tokens: (u.cacheRead as number) || 0,
+              total_tokens: u.totalTokens as number,
+              cost: (u.cost as { total?: number } | undefined)?.total,
+            } : undefined,
+          })}\n\n`)
         );
         safeClose();
       });

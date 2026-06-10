@@ -98,15 +98,27 @@ export async function GET(
   );
   if (!project) return error('Project not found', 404);
 
+  // Memory panel: founder-facing surface for facts ABOUT the idea — pricing,
+  // positioning, market, persona, validated assumptions. Process telemetry
+  // (agent-proposed workflows, user-rejected actions) is written to
+  // memory_facts so buildMemoryContext can feed it into the chat prompt for
+  // learning, but it shouldn't pollute what the founder reads as "what we
+  // know". Fetch wider, filter, then trim back to 10.
   const facts = project.owner_user_id
-    ? (await listFacts(project.owner_user_id, projectId, { limit: 10 })).map((f) => ({
-        id: f.id,
-        fact: f.fact,
-        kind: f.kind,
-        source_type: f.source_type,
-        source_id: f.source_id,
-        created_at: f.created_at,
-      }))
+    ? (await listFacts(project.owner_user_id, projectId, { limit: 30 }))
+        .filter((f) =>
+          f.source_type !== 'approval_inbox' &&
+          !/^Agent proposed workflow\b/.test(f.fact || ''),
+        )
+        .slice(0, 10)
+        .map((f) => ({
+          id: f.id,
+          fact: f.fact,
+          kind: f.kind,
+          source_type: f.source_type,
+          source_id: f.source_id,
+          created_at: f.created_at,
+        }))
     : [];
 
   const alerts = await query<AlertRow>(

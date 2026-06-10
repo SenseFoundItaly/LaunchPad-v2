@@ -27,8 +27,7 @@ export interface TelemetryContext {
   projectId: string;
   skillId?: string;
   step?: string;
-  // 'openclaw' kept for backward compat with any legacy rows.
-  provider: 'anthropic' | 'openai' | 'openclaw' | 'openrouter';
+  provider: 'anthropic' | 'openai' | 'openrouter';
   model?: string;
 }
 
@@ -278,7 +277,24 @@ export async function logUsageToDb(
     // Telemetry should never break the main flow
     console.error('Failed to log LLM usage:', err);
   }
+
+  // Accumulate into the monthly budget so the credits badge / cap-enforcement
+  // path see chat spend. Before this fix, the chat route went through
+  // logUsageToDb() and never touched project_budgets — so the budget
+  // undercounted real spend by ~4x. Skills + cron always used
+  // cost-meter.recordUsage() which already accumulates.
+  //
+  // Dynamic import to avoid a circular dep (cost-meter ← db ← telemetry).
+  // Wrapped in try/catch independently because budget accumulation must NEVER
+  // break the chat stream — better an undercount than a crashed turn.
+  try {
+    if (cost > 0) {
+      const periodMonth = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
+      const { upsertMonthlyBudget } = await import('@/lib/cost-meter');
+      await upsertMonthlyBudget(projectId, periodMonth, cost);
+    }
+  } catch (err) {
+    console.error('Failed to accumulate budget from logUsageToDb:', err);
+  }
 }
 
-/** @deprecated Use logUsageToDb instead */
-export const logUsageToSQLite = logUsageToDb;

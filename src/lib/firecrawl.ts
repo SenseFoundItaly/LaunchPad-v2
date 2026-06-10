@@ -30,6 +30,16 @@ export interface ScrapeResult {
   previousScrapeAt: string | null;
   /** Which scraping backend was used */
   backend: 'firecrawl' | 'jina';
+  /**
+   * Whether the scrape actually succeeded. `false` means the fetch failed
+   * (HTTP error, timeout, no API key, etc.) and the markdown/contentHash are
+   * NOT real content — callers must NOT treat this as a successful 'same'
+   * scrape. Absent/true means success. This lets failures be self-describing
+   * without forcing callers to wrap every call in try/catch.
+   */
+  ok?: boolean;
+  /** Human-readable failure reason when `ok === false`. */
+  error?: string;
 }
 
 export interface ScrapeConfig {
@@ -110,6 +120,7 @@ async function scrapeWithFirecrawl(
     rawDiff: ct?.diff || null,
     previousScrapeAt: ct?.previousScrapeAt || null,
     backend: 'firecrawl',
+    ok: true,
   };
 }
 
@@ -167,6 +178,7 @@ async function scrapeWithJina(
     rawDiff: null, // no native diff from Jina
     previousScrapeAt: null,
     backend: 'jina',
+    ok: true,
   };
 }
 
@@ -174,25 +186,49 @@ async function scrapeWithJina(
 // Public API
 // ---------------------------------------------------------------------------
 
+let warnedNoKey = false;
+
+/** Warn once per process if no scrape backend has a usable API key. */
+function warnIfNoScrapeKey(): void {
+  if (warnedNoKey) return;
+  if (!FIRECRAWL_API_KEY && !JINA_API_KEY) {
+    warnedNoKey = true;
+    console.warn(
+      '[firecrawl] no scrape API key configured — URL watchers cannot fetch; ' +
+        'set FIRECRAWL_API_KEY or JINA_API_KEY',
+    );
+  }
+}
+
 /**
  * Scrape a URL with change tracking. Uses Firecrawl when available,
  * falls back to Jina + SHA256 hash comparison.
  *
- * On failure, returns changeStatus: 'same' so the caller doesn't create
- * spurious change records.
+ * On failure this does NOT throw — instead it returns a self-describing
+ * result with `ok: false` and an `error` message (markdown is empty and
+ * changeStatus is 'same'). Callers MUST check `ok` before treating the
+ * result as a real scrape; an empty 'same' result with `ok === false` means
+ * the fetch failed (HTTP error, timeout, missing API key, keyless 402, …),
+ * NOT that the page is unchanged. This keeps failures loud at the call site
+ * while remaining tolerant (no thrown exceptions to crash cron).
  */
 export async function scrapeWithChangeTracking(
   url: string,
   config: ScrapeConfig = {},
 ): Promise<ScrapeResult> {
+  warnIfNoScrapeKey();
   try {
     if (FIRECRAWL_API_KEY) {
       return await scrapeWithFirecrawl(url, config);
     }
     return await scrapeWithJina(url, config);
   } catch (err) {
-    console.warn(`[firecrawl] scrape failed for ${url}:`, (err as Error).message);
-    // Non-fatal: return 'same' so we don't create false change records
+    const message = (err as Error).message;
+    console.warn(`[firecrawl] scrape failed for ${url}:`, message);
+    // Non-fatal: return a self-describing failure. We keep changeStatus:'same'
+    // and empty markdown for backward-compat, but flag ok:false + error so
+    // callers can detect the failure and surface it (e.g. flip the watcher to
+    // status='error') instead of silently treating it as an unchanged page.
     return {
       markdown: '',
       contentHash: config.previousContentHash || '',
@@ -200,6 +236,8 @@ export async function scrapeWithChangeTracking(
       rawDiff: null,
       previousScrapeAt: null,
       backend: FIRECRAWL_API_KEY ? 'firecrawl' : 'jina',
+      ok: false,
+      error: message,
     };
   }
 }

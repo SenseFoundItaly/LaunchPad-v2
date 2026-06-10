@@ -20,9 +20,12 @@ import { get } from '@/lib/db';
 
 export const FREE_DAILY_TASKS = 3;
 
-/** Default credits-per-dollar when no budget row exists yet. */
-const DEFAULT_CREDITS_PER_DOLLAR = 200;
-const DEFAULT_CAP_CREDITS = 100;
+/** Default credits-per-dollar when no budget row exists yet.
+ * Schema is the source of truth: db/schema.sql sets cap_credits=500 over
+ * cap_llm_usd=5.00 → 100 credits per $1 → 1 credit = $0.01 of LLM spend.
+ */
+const DEFAULT_CREDITS_PER_DOLLAR = 100;
+const DEFAULT_CAP_CREDITS = 500;
 
 interface BudgetRow {
   cap_llm_usd: number;

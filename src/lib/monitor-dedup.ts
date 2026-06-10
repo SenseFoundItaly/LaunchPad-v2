@@ -85,8 +85,11 @@ export async function checkDedup(
   projectId: string,
   proposal: MonitorProposalInput,
 ): Promise<DedupVerdict> {
+  // query is stored inside config.jsonb (see configureMonitor in action-executors.ts:405),
+  // not as a top-level column. Selecting raw `query` would fail with
+  // "column does not exist" and crash every propose_monitor call.
   const active = await query<ActiveMonitorRow>(
-    `SELECT id, name, kind, linked_risk_id, urls_to_track, query
+    `SELECT id, name, kind, linked_risk_id, urls_to_track, config->>'query' AS query
      FROM monitors
      WHERE project_id = ? AND status = 'active'`,
     projectId,

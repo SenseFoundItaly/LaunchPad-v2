@@ -1,8 +1,7 @@
 import { NextRequest } from 'next/server';
 import { v4 as uuid } from 'uuid';
 import { query, run } from '@/lib/db';
-import { json, error, mapProject, generateId } from '@/lib/api-helpers';
-import { seedEcosystemMonitorsForProject } from '@/lib/ecosystem-monitors';
+import { json, error, mapProject } from '@/lib/api-helpers';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 
 export async function GET() {
@@ -33,35 +32,6 @@ export async function GET() {
     if (e instanceof AuthError) return json({ error: e.message }, e.status);
     throw e;
   }
-}
-
-/**
- * Seeds the `health` operational monitor (not covered by ecosystem.* monitors).
- *
- * History: PR #7 originally seeded 3 monitors (health, competitor, market).
- * The `competitor` and `market` monitors were dropped here because the
- * structured `ecosystem.competitors` and `ecosystem.trends` monitors in
- * src/lib/ecosystem-monitors.ts supersede them — they emit
- * :::artifact{type=ecosystem_alert} blocks that populate ecosystem_alerts,
- * whereas the old monitors only wrote free-text to the generic alerts table.
- * `health` stays because it is an internal-metrics check, not an ecosystem
- * scan — different semantics, different target surface.
- */
-async function createHealthMonitor(projectId: string, projectName: string) {
-  const id = generateId('mon');
-  const now = new Date().toISOString();
-  await run(
-    `INSERT INTO monitors (id, project_id, type, name, schedule, prompt, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
-    id,
-    projectId,
-    'health',
-    'Weekly Health Check',
-    'weekly',
-    `Analyze the current state of project "${projectName}". Check metrics, burn rate, growth trajectory, and flag any concerns. Provide a brief health summary.`,
-    now,
-  );
-  return { monitor_id: id, type: 'health', name: 'Weekly Health Check' };
 }
 
 export async function POST(request: NextRequest) {
@@ -96,30 +66,11 @@ export async function POST(request: NextRequest) {
     now,
   );
 
-  // Seed the operational `health` monitor + the 4 Layer-1 ecosystem monitors.
-  // Non-fatal if either fails — the project must still be created so the
-  // founder can recover manually via the dashboard.
-  let healthSeed: { monitor_id: string; type: string; name: string } | null = null;
-  let ecosystemSeed: { created: unknown[]; skipped: unknown[]; error?: string } = { created: [], skipped: [] };
-
-  try {
-    healthSeed = await createHealthMonitor(id, body.name);
-  } catch (err) {
-    console.warn('Health monitor seed failed:', (err as Error).message);
-  }
-
-  try {
-    ecosystemSeed = await seedEcosystemMonitorsForProject(id);
-  } catch (err) {
-    ecosystemSeed = { created: [], skipped: [], error: (err as Error).message };
-  }
-
+  // No auto-seeded monitors. Ecosystem monitors and the weekly health check are
+  // now created on demand from chat — the founder approves a propose_monitor
+  // tool call. seedEcosystemMonitorsForProject() and the health-check template
+  // are no longer wired here; if we ever expose a manual "seed defaults"
+  // recovery action, add a new route and call back into the lib.
   const row = await query('SELECT * FROM projects WHERE id = ?', id);
-  return json({
-    ...mapProject(row[0]),
-    monitors_seeded: {
-      health: healthSeed,
-      ecosystem: ecosystemSeed,
-    },
-  }, 201);
+  return json(mapProject(row[0]), 201);
 }

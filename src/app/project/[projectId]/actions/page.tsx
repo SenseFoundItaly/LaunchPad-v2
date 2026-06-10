@@ -7,7 +7,10 @@
  * Every pending_action is a ticket — inspectable, approvable, rejectable.
  *
  * Data shape is derived client-side from /api/projects/{id}/actions:
- *   - agent     ← derived from action_type (src/lib/agent-synthesis.ts)
+ *   - producer  ← derived from action_type via producerFromType() below.
+ *                 One of: chat | heartbeat | signal | correlator.
+ *                 Reflects the subsystem that actually wrote the row, not
+ *                 a fictional persona. See caveat on `task` in the map.
  *   - goal      ← first clause of rationale or —
  *   - progress  ← status → [0, 30%, 60%, 100%, 0%, 50%]
  *   - cost      ← "—" for now (per-ticket cost would need a new JOIN endpoint)
@@ -45,7 +48,10 @@ const LANE_LABEL: Record<ActionLane, string> = {
 };
 const LANE_ORDER: ActionLane[] = ['todo', 'approval', 'notification', 'monitor'];
 
-const AGENT_OPTIONS = ['any', 'Scout', 'Chief', 'Analyst', 'Outreach', 'Designer', 'Architect'] as const;
+// Real producers, not persona fiction. Each row is written by exactly one of
+// these subsystems; the label below is derived from `action_type` via
+// producerFromType() and matches what actually inserted the row.
+const PRODUCER_OPTIONS = ['any', 'chat', 'heartbeat', 'signal', 'correlator'] as const;
 const STATUS_OPTIONS: Array<'any' | PendingActionStatus> = ['any', 'pending', 'edited', 'applied', 'sent', 'rejected', 'failed'];
 
 // =============================================================================
@@ -84,7 +90,7 @@ export default function TicketsPage({
   // so the list matches the pre-Phase-1 behaviour until the founder narrows.
   const [lane, setLane] = useState<ActionLane>('todo');
   const [laneInitialized, setLaneInitialized] = useState(false);
-  const [agentFilter, setAgentFilter] = useState<string>('any');
+  const [producerFilter, setProducerFilter] = useState<string>('any');
   const [statusFilter, setStatusFilter] = useState<'any' | PendingActionStatus>('any');
   const [typeFilter, setTypeFilter] = useState<string>('any');
 
@@ -168,10 +174,10 @@ export default function TicketsPage({
       if (laneFor(a.action_type) !== lane) return false;
       if (statusFilter !== 'any' && a.status !== statusFilter) return false;
       if (typeFilter !== 'any' && a.action_type !== typeFilter) return false;
-      if (agentFilter !== 'any' && agentFromType(a.action_type) !== agentFilter) return false;
+      if (producerFilter !== 'any' && producerFromType(a.action_type) !== producerFilter) return false;
       return true;
     });
-  }, [actions, lane, statusFilter, typeFilter, agentFilter]);
+  }, [actions, lane, statusFilter, typeFilter, producerFilter]);
 
   // Keep selection valid inside the filtered view; if the currently-selected
   // row got filtered out, auto-pick the first visible row.
@@ -189,7 +195,7 @@ export default function TicketsPage({
   // suppressing the new lane's open rows.
   function handleLaneChange(next: ActionLane) {
     setLane(next);
-    setAgentFilter('any');
+    setProducerFilter('any');
     setStatusFilter('any');
     setTypeFilter('any');
   }
@@ -255,8 +261,8 @@ export default function TicketsPage({
               <TicketsToolbar
                 total={filteredActions.length}
                 open={laneCounts[lane]}
-                agentFilter={agentFilter}
-                setAgentFilter={setAgentFilter}
+                producerFilter={producerFilter}
+                setProducerFilter={setProducerFilter}
                 statusFilter={statusFilter}
                 setStatusFilter={setStatusFilter}
                 typeFilter={typeFilter}
@@ -391,8 +397,8 @@ function LaneTabs({
 function TicketsToolbar({
   total,
   open,
-  agentFilter,
-  setAgentFilter,
+  producerFilter,
+  setProducerFilter,
   statusFilter,
   setStatusFilter,
   typeFilter,
@@ -401,8 +407,8 @@ function TicketsToolbar({
 }: {
   total: number;
   open: number;
-  agentFilter: string;
-  setAgentFilter: (v: string) => void;
+  producerFilter: string;
+  setProducerFilter: (v: string) => void;
   statusFilter: 'any' | PendingActionStatus;
   setStatusFilter: (v: 'any' | PendingActionStatus) => void;
   typeFilter: string;
@@ -447,10 +453,10 @@ function TicketsToolbar({
         onChange={(v) => setStatusFilter(v as 'any' | PendingActionStatus)}
       />
       <FilterSelect
-        label="agent"
-        value={agentFilter}
-        options={AGENT_OPTIONS.map((a) => ({ value: a, label: a }))}
-        onChange={setAgentFilter}
+        label="producer"
+        value={producerFilter}
+        options={PRODUCER_OPTIONS.map((a) => ({ value: a, label: a }))}
+        onChange={setProducerFilter}
       />
       <FilterSelect
         label="type"
@@ -606,13 +612,13 @@ function TicketsTable({
         <span>id</span>
         <span>title</span>
         <span>type</span>
-        <span>agent</span>
+        <span>producer</span>
         <span>status</span>
         <span style={{ textAlign: 'right' }}>ago</span>
       </div>
       {rows.map((r) => {
         const sel = r.id === selectedId;
-        const agent = agentFromType(r.action_type);
+        const producer = producerFromType(r.action_type);
         return (
           <div
             key={r.id}
@@ -651,7 +657,7 @@ function TicketsTable({
                   width: 14,
                   height: 14,
                   borderRadius: 3,
-                  background: agentColor(agent),
+                  background: producerColor(producer),
                   color: 'var(--on-accent)',
                   fontSize: 8,
                   fontWeight: 600,
@@ -661,9 +667,9 @@ function TicketsTable({
                   fontFamily: 'var(--f-mono)',
                 }}
               >
-                {agent.slice(0, 2).toUpperCase()}
+                {producer.slice(0, 2).toUpperCase()}
               </span>
-              <span style={{ fontSize: 11 }}>{agent}</span>
+              <span style={{ fontSize: 11 }}>{producer}</span>
             </span>
             <Pill
               kind={STATUS_PILL[r.status] || 'n'}
@@ -692,7 +698,7 @@ function TicketDetail({
   action: PendingAction;
   onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
 }) {
-  const agent = agentFromType(action.action_type);
+  const producer = producerFromType(action.action_type);
   const canAct = action.status === 'pending' || action.status === 'edited';
   const awaitingClick = action.status === 'applied';
 
@@ -706,7 +712,7 @@ function TicketDetail({
           <Pill kind={STATUS_PILL[action.status] || 'n'} dot>
             {action.status}
           </Pill>
-          <Pill kind="n">{agent}</Pill>
+          <Pill kind="n">{producer}</Pill>
         </div>
         <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-4)', marginBottom: 2 }}>
           T-{action.id.slice(-6)} · {timeAgo(action.created_at)}
@@ -999,7 +1005,17 @@ function Field({ label, value, multiline, mono }: { label: string; value: string
 // Derivation helpers (client-side)
 // =============================================================================
 
-function agentFromType(type: PendingActionType): string {
+// Map action_type → the subsystem that actually inserted the pending_actions
+// row. Truthful attribution, not persona theatre. Values match
+// PRODUCER_OPTIONS so the filter dropdown round-trips cleanly.
+//
+// Caveat for `task`: rows can come from chat artifacts (artifact-persistence
+// + project-tools), the heartbeat task proposer (cron/route.ts:204), or the
+// watch source auto-task path (watch-source-processor.ts:264). The UI only
+// sees action_type, so we default to the dominant producer (chat). Promoting
+// this to per-row truth requires adding a `produced_by` column to
+// pending_actions and stamping it at insert.
+function producerFromType(type: PendingActionType): string {
   const map: Record<PendingActionType, string> = {
     draft_email: 'Outreach',
     draft_linkedin_post: 'Outreach',
@@ -1040,7 +1056,7 @@ function agentFromType(type: PendingActionType): string {
     intelligence_brief: 'Analyst',
     assumption_review: 'Analyst',
   };
-  return map[type] || 'Agent';
+  return map[type] || 'unknown';
 }
 
 // Human-readable label per action_type. Replaces the old underscore-to-space
@@ -1071,14 +1087,13 @@ function humanizeActionType(type: PendingActionType): string {
   return TYPE_LABEL[type] ?? type.replace(/_/g, ' ');
 }
 
-function agentColor(name: string): string {
+function producerColor(name: string): string {
   const map: Record<string, string> = {
-    Scout: 'var(--moss)',
-    Chief: 'var(--sky)',
-    Analyst: 'var(--clay)',
-    Outreach: 'var(--plum)',
-    Designer: 'var(--cat-teal)',
-    Agent: 'var(--ink-3)',
+    chat:       'var(--plum)',
+    heartbeat:  'var(--sky)',
+    signal:     'var(--moss)',
+    correlator: 'var(--clay)',
+    unknown:    'var(--ink-3)',
   };
   return map[name] || 'var(--ink-5)';
 }
@@ -1110,11 +1125,11 @@ function buildActivity(a: PendingAction): ActivityEvent[] {
   // Synthesize an activity log from what we know about the action. Real
   // per-event timeline would require a separate audit table (Phase 1).
   const events: ActivityEvent[] = [];
-  const agent = agentFromType(a.action_type);
+  const producer = producerFromType(a.action_type);
 
   events.push({
     t: timeAgo(a.created_at),
-    who: agent,
+    who: producer,
     k: 'msg',
     m: `Queued ${humanizeActionType(a.action_type)}`,
   });
@@ -1140,7 +1155,7 @@ function buildActivity(a: PendingAction): ActivityEvent[] {
   if (a.status === 'sent') {
     events.push({
       t: a.executed_at ? timeAgo(a.executed_at) : timeAgo(a.updated_at),
-      who: agent,
+      who: producer,
       k: 'tool',
       m: 'Executed delivery',
     });

@@ -3,6 +3,7 @@ import { json, error, generateId } from '@/lib/api-helpers';
 import { run, get } from '@/lib/db';
 import { requireUser, AuthError } from '@/lib/auth/require-user';
 import { runAgent } from '@/lib/pi-agent';
+import { recordAgentUsage } from '@/lib/cost-meter';
 
 const MAX_FILE_BYTES = 1_048_576; // 1 MiB per file — anything larger is rarely useful as a single fact
 const MAX_FILES_PER_REQUEST = 10;
@@ -86,15 +87,23 @@ TEXT:
  * Best-effort entity extraction. Never throws — extraction failures degrade
  * silently to zero proposed entities so the upload still succeeds.
  */
-async function extractEntities(text: string): Promise<ExtractedEntity[]> {
+async function extractEntities(text: string, projectId: string): Promise<ExtractedEntity[]> {
   // Cap input — Haiku context isn't the bottleneck but cost/latency are.
   // 6k chars is plenty for entity extraction; longer docs sample the head.
   const truncated = text.length > 6000 ? text.slice(0, 6000) : text;
   try {
-    const { text: raw } = await runAgent(EXTRACT_PROMPT.replace('{TEXT}', truncated), {
+    const startedAt = Date.now();
+    const { text: raw, usage } = await runAgent(EXTRACT_PROMPT.replace('{TEXT}', truncated), {
       task: 'classify', // routes to Haiku (cheap)
       tools: false,
       timeout: 25_000,
+    });
+    recordAgentUsage({
+      project_id: projectId,
+      step: 'knowledge-upload-extract',
+      task: 'classify',
+      usage,
+      latency_ms: Date.now() - startedAt,
     });
 
     // Strip common LLM wrappers: ```json ... ``` fences, trailing prose.
@@ -306,7 +315,7 @@ export async function POST(
     // one slow Haiku call doesn't block the next file. A failure here never
     // unwinds the memory_facts INSERT above (the fact is already the user's).
     if (shouldExtract) {
-      const entities = await extractEntities(text);
+      const entities = await extractEntities(text, projectId);
       if (entities.length > 0) {
         const inserted = await persistExtracted(projectId, entities, id, file.name);
         result.entities_proposed = inserted;

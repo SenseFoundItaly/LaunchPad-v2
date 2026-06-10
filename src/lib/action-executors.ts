@@ -30,6 +30,8 @@
 import { run, query } from '@/lib/db';
 import { runSkill } from '@/lib/skill-executor';
 import { generateId } from '@/lib/api-helpers';
+import { resolveProjectLocale } from '@/lib/agent-prompt';
+import type { Locale } from '@/lib/agent-prompt';
 import { checkDedup, computeDedupHash } from './monitor-dedup';
 import { recordEvent } from './memory/events';
 import { calculateNextRun } from './monitor-schedule';
@@ -89,6 +91,19 @@ function effectivePayload(action: PendingAction): Record<string, unknown> {
   return action.edited_payload || action.payload;
 }
 
+/**
+ * Resolve the project's locale so founder-facing narratives match the
+ * project language. Falls back to 'en' (the product default) on any error —
+ * a localisation lookup must never fail the apply transition.
+ */
+async function localeFor(action: PendingAction): Promise<Locale> {
+  try {
+    return await resolveProjectLocale(action.project_id, query);
+  } catch {
+    return 'en';
+  }
+}
+
 function encodeMailto(to: string, subject: string, body: string): string {
   const params = new URLSearchParams();
   if (subject) params.set('subject', subject);
@@ -110,13 +125,16 @@ const draftEmail: ActionHandler = async (action) => {
   const to = String(payload.to || '');
   const subject = String(payload.subject || action.title);
   const body = String(payload.body || payload.draft_seed || '');
+  const locale = await localeFor(action);
 
   if (!to) {
     return {
       ok: true,
       deliverable: {
         mode: 'outbox',
-        narrative: 'Bozza email pronta. Nessun destinatario nel payload — copia il corpo manualmente.',
+        narrative: locale === 'it'
+          ? 'Bozza email pronta. Nessun destinatario nel payload — copia il corpo manualmente.'
+          : 'Email draft ready. No recipient in payload — copy the body manually.',
         requires_founder_click: true,
       },
     };
@@ -127,7 +145,9 @@ const draftEmail: ActionHandler = async (action) => {
     deliverable: {
       mode: 'click-to-send',
       url: encodeMailto(to, subject, body),
-      narrative: `Apre il tuo client mail con il messaggio già compilato a ${to}.`,
+      narrative: locale === 'it'
+        ? `Apre il tuo client mail con il messaggio già compilato a ${to}.`
+        : `Opens your mail client with the message prefilled to ${to}.`,
       requires_founder_click: true,
     },
   };
@@ -138,6 +158,7 @@ const draftLinkedInPost: ActionHandler = async (action) => {
   const text = String(payload.body || payload.draft_seed || action.title);
   const sourceAlert = await getSourceAlert(action.ecosystem_alert_id);
   const attachUrl = sourceAlert?.source_url || (typeof payload.url === 'string' ? payload.url : undefined);
+  const locale = await localeFor(action);
 
   return {
     ok: true,
@@ -145,8 +166,12 @@ const draftLinkedInPost: ActionHandler = async (action) => {
       mode: 'click-to-send',
       url: encodeLinkedInShare(text, attachUrl || undefined),
       narrative: attachUrl
-        ? `Apre LinkedIn con la fonte (${new URL(attachUrl).hostname}) preallegata.`
-        : `Apre il compositore LinkedIn con il testo della bozza precompilato.`,
+        ? (locale === 'it'
+            ? `Apre LinkedIn con la fonte (${new URL(attachUrl).hostname}) preallegata.`
+            : `Opens LinkedIn with the source (${new URL(attachUrl).hostname}) pre-attached.`)
+        : (locale === 'it'
+            ? `Apre il compositore LinkedIn con il testo della bozza precompilato.`
+            : `Opens the LinkedIn composer with the draft text prefilled.`),
       requires_founder_click: true,
     },
   };
@@ -155,13 +180,16 @@ const draftLinkedInPost: ActionHandler = async (action) => {
 const draftLinkedInDM: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
   const profileUrl = typeof payload.linkedin_url === 'string' ? payload.linkedin_url : null;
+  const locale = await localeFor(action);
 
   if (!profileUrl) {
     return {
       ok: true,
       deliverable: {
         mode: 'outbox',
-        narrative: 'Bozza DM pronta. Nessun URL profilo LinkedIn nel payload — copia il messaggio manualmente.',
+        narrative: locale === 'it'
+          ? 'Bozza DM pronta. Nessun URL profilo LinkedIn nel payload — copia il messaggio manualmente.'
+          : 'DM draft ready. No LinkedIn profile URL in payload — copy the message manually.',
         requires_founder_click: true,
       },
     };
@@ -172,7 +200,9 @@ const draftLinkedInDM: ActionHandler = async (action) => {
     deliverable: {
       mode: 'click-to-send',
       url: profileUrl,
-      narrative: `Apre il profilo LinkedIn. Clicca "Messaggio" e incolla la bozza dagli appunti.`,
+      narrative: locale === 'it'
+        ? `Apre il profilo LinkedIn. Clicca "Messaggio" e incolla la bozza dagli appunti.`
+        : `Opens the LinkedIn profile. Click "Message" and paste the draft from your clipboard.`,
       requires_founder_click: true,
     },
   };
@@ -183,13 +213,16 @@ const proposedHypothesis: ActionHandler = async (action) => {
   const loopId = typeof payload.growth_loop_id === 'string' ? payload.growth_loop_id : null;
   const hypothesis = String(payload.hypothesis || action.title);
   const proposedChanges = payload.proposed_changes || null;
+  const locale = await localeFor(action);
 
   if (!loopId) {
     return {
       ok: true,
       deliverable: {
         mode: 'outbox',
-        narrative: 'Ipotesi in attesa di un growth_loop. Crea un loop per la metrica target e riesegui.',
+        narrative: locale === 'it'
+          ? 'Ipotesi in attesa di un growth_loop. Crea un loop per la metrica target e riesegui.'
+          : 'Hypothesis waiting on a growth_loop. Create a loop for the target metric and re-run.',
       },
     };
   }
@@ -209,7 +242,9 @@ const proposedHypothesis: ActionHandler = async (action) => {
     deliverable: {
       mode: 'direct',
       created_row_id: iterId,
-      narrative: `Nuova iterazione di growth loop creata (status: proposed).`,
+      narrative: locale === 'it'
+        ? `Nuova iterazione di growth loop creata (status: proposed).`
+        : `New growth loop iteration created (status: proposed).`,
     },
   };
 };
@@ -220,17 +255,25 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
   const nodeType = String(payload.node_type || 'technology');
   const summary = typeof payload.summary === 'string' ? payload.summary : String(payload.draft_seed || '');
   const attributes = payload.attributes || null;
+  const locale = await localeFor(action);
 
   const nodeId = generateId('gnode');
+  // reviewed_state='applied': the founder just APPROVED this proposed_graph_update,
+  // so the node is reviewed/accepted — not 'pending' (the default). Leaving it
+  // 'pending' made approved competitors invisible to the Stage-2 competitors_mapped
+  // gate (and the Intelligence panel, which filters applied-only).
+  // attributes passed RAW: graph_nodes.attributes is JSONB; postgres.js
+  // auto-serializes objects — JSON.stringify here double-encodes (same bug class
+  // as pricing_state).
   await run(
-    `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, reviewed_state)
+     VALUES (?, ?, ?, ?, ?, ?, 'applied')`,
     nodeId,
     action.project_id,
     name,
     nodeType,
     summary,
-    attributes ? JSON.stringify(attributes) : null,
+    attributes ?? null,
   );
 
   if (action.ecosystem_alert_id) {
@@ -246,7 +289,9 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
     deliverable: {
       mode: 'direct',
       created_row_id: nodeId,
-      narrative: `Nodo aggiunto al knowledge graph (type: ${nodeType}).`,
+      narrative: locale === 'it'
+        ? `Nodo aggiunto al knowledge graph (type: ${nodeType}).`
+        : `Added to knowledge graph (type: ${nodeType}).`,
     },
   };
 };
@@ -256,13 +301,16 @@ const proposedInvestorFollowup: ActionHandler = async (action) => {
   const investorId = typeof payload.investor_id === 'string' ? payload.investor_id : null;
   const summary = String(payload.summary || action.title);
   const nextStep = typeof payload.next_step === 'string' ? payload.next_step : null;
+  const locale = await localeFor(action);
 
   if (!investorId) {
     return {
       ok: true,
       deliverable: {
         mode: 'outbox',
-        narrative: 'Nessun investor_id nel payload. Aggiungi l\'investitore alla pipeline e riesegui.',
+        narrative: locale === 'it'
+          ? 'Nessun investor_id nel payload. Aggiungi l\'investitore alla pipeline e riesegui.'
+          : 'No investor_id in payload. Add the investor to the pipeline and re-run.',
       },
     };
   }
@@ -279,26 +327,38 @@ const proposedInvestorFollowup: ActionHandler = async (action) => {
     deliverable: {
       mode: 'direct',
       created_row_id: intId,
-      narrative: `Interazione registrata nella pipeline investitore.`,
+      narrative: locale === 'it'
+        ? `Interazione registrata nella pipeline investitore.`
+        : `Interaction logged in the investor pipeline.`,
     },
   };
 };
 
-const proposedInterviewQuestion: ActionHandler = async () => ({
-  ok: true,
-  deliverable: {
-    mode: 'outbox',
-    narrative: 'Domanda di intervista archiviata. Usa durante le prossime 5 discovery call.',
-  },
-});
+const proposedInterviewQuestion: ActionHandler = async (action) => {
+  const locale = await localeFor(action);
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'outbox',
+      narrative: locale === 'it'
+        ? 'Domanda di intervista archiviata. Usa durante le prossime 5 discovery call.'
+        : 'Interview question saved. Use it during your next 5 discovery calls.',
+    },
+  };
+};
 
-const proposedLandingCopy: ActionHandler = async () => ({
-  ok: true,
-  deliverable: {
-    mode: 'outbox',
-    narrative: 'Copy della landing pronto. Phase 1: deploy automatico su Vercel via Composio.',
-  },
-});
+const proposedLandingCopy: ActionHandler = async (action) => {
+  const locale = await localeFor(action);
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'outbox',
+      narrative: locale === 'it'
+        ? 'Copy della landing pronto. Phase 1: deploy automatico su Vercel via Composio.'
+        : 'Landing copy ready. Phase 1: automatic deploy to Vercel via Composio.',
+    },
+  };
+};
 
 /**
  * `configure_monitor` executor — converts an applied monitor-proposal
@@ -441,12 +501,15 @@ const configureMonitor: ActionHandler = async (action) => {
     console.warn('[configureMonitor] audit event failed:', (err as Error).message);
   }
 
+  const locale = await localeFor(action);
   return {
     ok: true,
     deliverable: {
       mode: 'direct',
       created_row_id: monitorId,
-      narrative: `Monitor "${name}" attivato. Schedule: ${schedule}. Collegato al rischio: ${linkedRiskId}.`,
+      narrative: locale === 'it'
+        ? `Monitor "${name}" attivato. Schedule: ${schedule}. Collegato al rischio: ${linkedRiskId}.`
+        : `Monitor "${name}" activated. Schedule: ${schedule}. Linked to risk: ${linkedRiskId}.`,
     },
   };
 };

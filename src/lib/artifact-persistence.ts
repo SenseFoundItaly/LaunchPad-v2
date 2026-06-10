@@ -14,9 +14,10 @@
  *   score-card        → scores.dimensions (single key)
  *   metric-grid       → research.market_size (if market-themed)
  *   comparison-table  → research.competitors (if competitor-themed)
+ *                       + per-row applied competitor graph_nodes (if web-sourced)
  *   action-suggestion → pending_actions
  *   fact              → memory_facts (handled by chat route directly)
- *   workflow-card     → workflow_plans + pending_actions (handled by captureWorkflow)
+ *   workflow-card     → workflow_plans (handled by captureWorkflow; no Inbox fan-out)
  *   option-set        → UI-only; Tier 2 wires these to click-to-invoke
  *
  * All handlers are non-fatal: persistence failures never break the chat
@@ -57,6 +58,19 @@ function sourcesJson(sources: Source[] | undefined): string | null {
 }
 
 /**
+ * True when the artifact carries at least one verifiable web source (a URL the
+ * founder can click through). Gates provenance-based auto-apply: web-sourced
+ * research the founder watched happen in-chat is evidence; skill/internal/user/
+ * inference sources alone are not enough to bypass review.
+ */
+function hasWebSource(sources: Source[] | undefined): boolean {
+  return (
+    Array.isArray(sources) &&
+    sources.some((s) => s?.type === 'web' && typeof s.url === 'string' && s.url.length > 0)
+  );
+}
+
+/**
  * Upsert a metric-grid / comparison-table style artifact into graph_nodes so it
  * appears in Context > Intelligence regardless of whether it matched a themed
  * routing path (e.g. research.market_size). Dedupes on (project_id, lower(name))
@@ -70,6 +84,10 @@ async function upsertGraphNodeFromArtifact(
     summary: string;
     attributes: Record<string, unknown>;
     srcJson: string | null;
+    /** Review state for NEW nodes only — the UPDATE path always preserves the
+     *  existing reviewed_state. Defaults to 'applied' (chat-persisted
+     *  intelligence is visible by default). */
+    reviewedState?: 'pending' | 'applied';
   },
 ): Promise<string | undefined> {
   if (!input.name) return undefined;
@@ -92,7 +110,7 @@ async function upsertGraphNodeFromArtifact(
     const id = `node_${crypto.randomUUID().slice(0, 12)}`;
     await run(
       `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       ctx.projectId,
       input.name,
@@ -100,6 +118,7 @@ async function upsertGraphNodeFromArtifact(
       input.summary,
       JSON.stringify(input.attributes),
       input.srcJson,
+      input.reviewedState ?? 'applied',
     );
     return id;
   } catch (err) {
@@ -205,10 +224,22 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     return { type: a.type, persisted: true, target: 'graph_nodes (update)', persisted_id: existing.id };
   }
 
+  // Provenance-based review state. Competitor entities feed the Stage-2
+  // journey gate (competitors_mapped counts graph_nodes WHERE
+  // node_type='competitor' AND reviewed_state='applied' — see
+  // src/lib/journey/snapshot.ts), so their state must reflect evidence:
+  // sourced research the founder watched happen in-chat is evidence, not a
+  // proposal → auto-apply when the card carries at least one web source.
+  // Unsourced/inferred competitor claims stay 'pending' for review so a
+  // hallucinated rival can't silently close an evidence gate. Non-competitor
+  // entity types keep today's default ('applied').
+  const isCompetitor = (a.entity_type ?? '').trim().toLowerCase() === 'competitor';
+  const reviewedState = isCompetitor && !hasWebSource(a.sources) ? 'pending' : 'applied';
+
   const id = `node_${crypto.randomUUID().slice(0, 12)}`;
   await run(
     `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     ctx.projectId,
     a.name,
@@ -216,6 +247,7 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     a.summary ?? '',
     JSON.stringify(a.attributes ?? {}),
     srcJson,
+    reviewedState,
   );
 
   // Edge from project root (if it exists) to this new node. Relation name
@@ -524,12 +556,91 @@ async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): 
     srcJson,
   });
 
+  // Per-row competitor extraction — the Stage-2 journey gate
+  // (competitors_mapped, src/lib/journey/snapshot.ts) counts individual
+  // graph_nodes with node_type='competitor' AND reviewed_state='applied'.
+  // A single 'competitor_set' summary node leaves that gate at 0 even when
+  // the founder just watched the copilot research 3 competitors — the
+  // chat-vs-journey contradiction this fixes. Only fires when the table
+  // plausibly compares competitors AND carries web-source provenance;
+  // wrapped so a malformed table can never break the rest of the flush.
+  let extracted = 0;
+  const headerText = `${titleText} ${a.columns.join(' ').toLowerCase()}`;
+  const isCompetitorTable =
+    /competitor|alternative|rival|incumbent|player|landscape/.test(headerText) ||
+    /\bvs\b/.test(titleText);
+  if (isCompetitorTable && hasWebSource(a.sources)) {
+    try {
+      extracted = await extractCompetitorRows(ctx, a, srcJson);
+    } catch (err) {
+      console.warn('[artifact-persistence] competitor row extraction failed (non-fatal):', err);
+    }
+  }
+
+  const baseTarget = isCompetitive ? `research.competitors (${rowData.length}) + graph_nodes` : 'graph_nodes';
   return {
     type: a.type,
     persisted: true,
-    target: isCompetitive ? `research.competitors (${rowData.length}) + graph_nodes` : 'graph_nodes',
+    target: extracted > 0 ? `${baseTarget} + ${extracted} applied competitor node(s)` : baseTarget,
     persisted_id: nodeId,
   };
+}
+
+/** Noise guard — never mint more than this many competitor nodes per table. */
+const MAX_COMPETITOR_ROWS_PER_TABLE = 6;
+
+/**
+ * Upsert each row of a web-sourced competitor comparison-table as its own
+ * graph_node (node_type='competitor', reviewed_state='applied' on insert —
+ * the upsert helper's UPDATE path preserves an existing node's state). Skips
+ * the founder's own product row when identifiable from the 'your_startup'
+ * root node or a self-referential label. Dedup is the helper's
+ * (project_id, LOWER(name)) match, so re-emissions update in place.
+ * Returns the number of rows persisted.
+ */
+async function extractCompetitorRows(
+  ctx: PersistContext,
+  a: ComparisonTable,
+  srcJson: string | null,
+): Promise<number> {
+  const root = await get<{ name: string }>(
+    "SELECT name FROM graph_nodes WHERE project_id = ? AND node_type = 'your_startup' LIMIT 1",
+    ctx.projectId,
+  );
+  const selfName = (root?.name ?? '').trim().toLowerCase();
+  const selfRefRe = /^(you|we|us|your\s+(startup|product|company|idea)|our\s+(startup|product|company|idea))$/;
+
+  let extracted = 0;
+  for (const row of a.rows) {
+    if (extracted >= MAX_COMPETITOR_ROWS_PER_TABLE) break;
+    const name = typeof row?.label === 'string' ? row.label.trim() : '';
+    if (!name) continue;
+    const lower = name.toLowerCase();
+    if ((selfName && lower === selfName) || selfRefRe.test(lower)) continue;
+
+    const values = Array.isArray(row.values) ? row.values : [];
+    const summary = a.columns
+      .map((col, i) => `${col}: ${values[i] ?? '—'}`)
+      .join('; ')
+      .slice(0, 300);
+    const attributes = a.columns.reduce<Record<string, unknown>>((acc, col, i) => {
+      acc[col] = values[i];
+      return acc;
+    }, {});
+
+    const id = await upsertGraphNodeFromArtifact(ctx, {
+      name,
+      nodeType: 'competitor',
+      summary,
+      attributes,
+      srcJson,
+      // Same provenance rule as entity-cards: web-sourced research the
+      // founder watched in-chat is evidence, not a proposal.
+      reviewedState: 'applied',
+    });
+    if (id) extracted++;
+  }
+  return extracted;
 }
 
 // ─── action-suggestion → pending_actions ─────────────────────────────────────
