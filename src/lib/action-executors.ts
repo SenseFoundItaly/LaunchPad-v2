@@ -1150,11 +1150,15 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   configure_budget: configureBudget,
   configure_watch_source: configureWatchSource,
   run_skill: runSkillExecutor,
+  // Placeholder until the Phase-2 workflows execution layer ships. The
+  // workflow-card fan-out into per-step pending_actions was removed (2026-06),
+  // so this rarely materializes today; when it does, be honest rather than
+  // fake-acknowledging. Keep the mapping (don't 500 on an unknown type).
   workflow_step: async (_pa) => ({
     ok: true,
     deliverable: {
       mode: 'direct' as const,
-      narrative: 'Workflow step acknowledged',
+      narrative: 'One-click workflow execution is coming soon — track this step manually for now.',
     },
   }),
 };
