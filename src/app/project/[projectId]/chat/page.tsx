@@ -266,6 +266,22 @@ export default function CopilotChatPage({
   // Scroll anchor captured at expand-click so prepended content doesn't jump
   // the reader's position (compensated before paint in the layout effect).
   const expandAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  // Render window: everything stays in `messages` (artifact maps below are
+  // computed over the FULL array, so inline artifacts in older messages still
+  // work when expanded) — only the rendered list is windowed. Memoized so the
+  // window-slide layout effect re-runs on real thread changes, not on
+  // unrelated renders (e.g. composer keystrokes).
+  const hiddenCount = showAllMessages ? 0 : Math.max(0, messages.length - VISIBLE_MESSAGE_TAIL);
+  const visibleMessages = useMemo(
+    () => (hiddenCount > 0 ? messages.slice(hiddenCount) : messages),
+    [messages, hiddenCount],
+  );
+  // Per-commit offsetTop snapshot of every rendered message + the window-start
+  // id — the "previous frame" the slide-compensation effect diffs against.
+  const msgOffsetsRef = useRef<{ firstId: string | null; offsets: Map<string, number> }>({
+    firstId: null,
+    offsets: new Map(),
+  });
 
   // --- Smart autoscroll ------------------------------------------------------
   // Refs (not state) so per-SSE-chunk updates never trigger extra renders:
@@ -401,6 +417,62 @@ export default function CopilotChatPage({
     setShowAllMessages(true);
   }, []);
 
+  // Window-slide anchor compensation.
+  //
+  // While the thread is collapsed, every appended message advances the render
+  // window (`hiddenCount` grows), unmounting the oldest visible message. A
+  // reader pinned to the bottom never feels it (the autoscroll effect re-pins
+  // on the same commit); a reader who scrolled UP would see the text shift
+  // under them by exactly the unmounted height.
+  //
+  // Same pre-paint pattern as the expander effect below, but automatic: every
+  // commit records each rendered message's offsetTop; when the window START
+  // (first visible message id) changes while the reader is NOT pinning to
+  // bottom, the first message present in both commits anchors the window and
+  // scrollTop shifts by how far its offsetTop moved (= the height removed
+  // above it). offsetTop is layout-static — ancestor scroll position doesn't
+  // affect it — so the delta isolates the removed-above height even though a
+  // new message was appended below in the same commit.
+  //
+  // Can't fight the autoscroll effect: compensation runs only when
+  // `!forceScrollRef && !isNearBottomRef` — the exact negation of autoscroll's
+  // pin predicate, read here in a layout effect, i.e. BEFORE the (passive)
+  // autoscroll effect clears the force flag — so per commit at most one of
+  // the two writes scrollTop. The expander commit is excluded via
+  // expandAnchorRef: this effect is declared first, so the flag is still set
+  // when it runs and the click-anchored effect below keeps owning that case
+  // (no double compensation).
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const prev = msgOffsetsRef.current;
+    const firstId = visibleMessages[0]?.id ?? null;
+
+    // One DOM pass: collect this commit's message offsets (≤ tail size reads).
+    const offsets = new Map<string, number>();
+    el.querySelectorAll<HTMLElement>('[data-message-id]').forEach((node) => {
+      const id = node.dataset.messageId;
+      if (id) offsets.set(id, node.offsetTop);
+    });
+
+    const windowSlid = prev.firstId !== null && firstId !== null && prev.firstId !== firstId;
+    const pinningToBottom = forceScrollRef.current || isNearBottomRef.current;
+    if (windowSlid && !pinningToBottom && expandAnchorRef.current === null) {
+      for (const m of visibleMessages) {
+        const prevTop = prev.offsets.get(m.id);
+        const nextTop = offsets.get(m.id);
+        if (prevTop === undefined || nextTop === undefined) continue;
+        const removedAbove = prevTop - nextTop;
+        if (removedAbove !== 0) {
+          el.scrollTop = Math.max(0, el.scrollTop - removedAbove);
+        }
+        break; // first shared message anchors the whole window
+      }
+    }
+
+    msgOffsetsRef.current = { firstId, offsets };
+  }, [visibleMessages]);
+
   // After the older messages mount ABOVE the viewport, compensate scrollTop by
   // exactly the added height — before paint — so the reader stays anchored on
   // the message they were looking at when they clicked the expander.
@@ -448,12 +520,6 @@ export default function CopilotChatPage({
       inlineArtifactsByMsgId: inlineMap,
     };
   }, [messages]);
-
-  // Render window: everything stays in `messages` (artifact maps above are
-  // computed over the FULL array, so inline artifacts in older messages still
-  // work when expanded) — only the rendered list is windowed.
-  const hiddenCount = showAllMessages ? 0 : Math.max(0, messages.length - VISIBLE_MESSAGE_TAIL);
-  const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
 
   function handleSend() {
     const v = input.trim();
@@ -1315,6 +1381,11 @@ function InlineArtifact({
             // Split essays into label (first clause) + description overflow,
             // then CSS-clamp: label = 1 line, description = 2 lines. The full
             // text stays reachable via the title attribute.
+            //
+            // The PAYLOAD carries the FULL original label (split.full), never
+            // the clamped head: handleArtifactAction sends "I choose: <label>"
+            // back to the agent, and a truncated "Yes" can't disambiguate
+            // between similar options. Clamping is render-only.
             const split = splitOptionLabel(o.label || `Option ${i + 1}`, o.description);
             return (
               <button
@@ -1324,7 +1395,7 @@ function InlineArtifact({
                 onClick={() =>
                   onAction?.('select-option', {
                     optionId: o.id ?? String(i),
-                    label: split.label || `Option ${i + 1}`,
+                    label: split.full || `Option ${i + 1}`,
                   })
                 }
                 className="lp-inline-option"
