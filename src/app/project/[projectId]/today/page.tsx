@@ -76,6 +76,9 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
   const actions = actionsList ?? [];
   const loading = timelineLoading || actionsLoading;
   const briefs = timeline?.briefs.slice(0, 3) || [];
+  // Unsliced count for the status bar — `briefs` above is capped at 3 for the
+  // panel, which would under-report in the footer.
+  const weekBriefs = timeline?.briefs.length ?? 0;
 
   return (
     <div className="lp-frame">
@@ -116,9 +119,9 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 880 }}>
               <StageCard projectId={projectId} />
-              <ActiveSignalsPanel projectId={projectId} briefs={briefs} />
+              <RecentBriefsPanel projectId={projectId} briefs={briefs} />
               <Panel
-                label="Active monitors"
+                label="Watchers"
                 icon={I.signal}
                 href={`/project/${projectId}/actions?lane=monitor`}
                 hrefLabel="Open Inbox"
@@ -132,10 +135,12 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
         </div>
       </div>
 
+      {/* No invented runtime state here — this page only knows briefs (7-day
+          timeline fetch) and pending actions, so the bar reports exactly that
+          plus the watchers' documented weekly scan cadence. */}
       <StatusBar
-        heartbeatLabel="heartbeat · idle"
-        gateway="pi-agent · anthropic"
-        ctxLabel={`${briefs.length} brief${briefs.length === 1 ? '' : 's'}`}
+        heartbeatLabel="watchers · weekly cadence"
+        ctxLabel={`${weekBriefs} brief${weekBriefs === 1 ? '' : 's'} this week`}
         budget={`${inboxBadge} pending`}
       />
     </div>
@@ -146,7 +151,9 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
 // Panels
 // =============================================================================
 
-function ActiveSignalsPanel({ projectId, briefs }: { projectId: string; briefs: BriefRow[] }) {
+// "Briefs" is the founder-facing term — signals are the monitor alerts that
+// feed a brief, watchers are the monitors themselves. Keep the three distinct.
+function RecentBriefsPanel({ projectId, briefs }: { projectId: string; briefs: BriefRow[] }) {
   return (
     <Panel
       label="Recent briefs"
@@ -219,7 +226,7 @@ function InboxPanel({
       icon={I.tickets}
       href={`/project/${projectId}/actions`}
       hrefLabel={totalCount > 0 ? `View all (${totalCount})` : 'Open inbox'}
-      empty={actions.length === 0 ? 'No pending actions. New proposals appear here as monitors fire.' : null}
+      empty={actions.length === 0 ? 'No pending actions. New proposals appear here as your watchers fire.' : null}
     >
       {actions.map((a) => (
         <Link
@@ -417,7 +424,7 @@ function greeting(): string {
 
 function summarize(briefs: number, inbox: number): string {
   const bits: string[] = [];
-  if (briefs > 0) bits.push(`${briefs} active signal${briefs === 1 ? '' : 's'}`);
+  if (briefs > 0) bits.push(`${briefs} recent brief${briefs === 1 ? '' : 's'}`);
   if (inbox > 0) bits.push(`${inbox} pending action${inbox === 1 ? '' : 's'}`);
   if (bits.length === 0) return 'Nothing pending right now.';
   return bits.join(' · ');
