@@ -213,9 +213,9 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
         </>
       )}
 
-      {/* Cost callout — credits are the founder-facing unit. Hides itself
-          for older artifacts that don't carry credit fields and falls back
-          to the EUR-only line. */}
+      {/* Cost callout — credits are the only founder-facing money unit.
+          Older artifacts without credit fields get a non-numeric metering
+          line instead of a currency estimate. */}
       <CostCallout artifact={artifact} />
 
       {/* Action buttons */}
@@ -259,9 +259,13 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
 /**
  * Cost callout — the founder-facing "what does this cost?" line.
  *
- * Credit fields are optional on the artifact (added 2026-06-04). Older
- * proposals that don't carry them fall back to the EUR-only message, which
- * preserves the pre-change UX rather than rendering "undefined credits/day".
+ * Credits are the only founder-facing money unit. Credit fields are optional
+ * on the artifact (added 2026-06-04); older proposals carry only a EUR
+ * estimate, and there is no honest client-side conversion — the real
+ * credits-per-dollar ratio is per-project and DB-driven (lib/credits.ts,
+ * server-only), and the artifact's number is EUR besides. So instead of
+ * inventing a figure (or leaking €), the fallback states how the cost is
+ * metered; the real spend shows up on the credits balance once it runs.
  *
  * The wording deliberately frames the cost as "if applied" — the founder
  * hasn't committed yet, and saying "consumes X credits/day" present-tense
@@ -276,7 +280,7 @@ function CostCallout({ artifact }: { artifact: MonitorProposalArtifact }) {
     return (
       <div className="text-[11px] text-ink-4 mb-3 px-2.5 py-1.5 rounded bg-paper-2/60 border border-line-2">
         <span className="text-ink-5">Cost if applied:</span>{' '}
-        ≈ €{artifact.estimated_monthly_cost_eur.toFixed(2)}/month
+        metered in credits per run — shows on your credits balance
       </div>
     );
   }
@@ -308,7 +312,7 @@ function CostCallout({ artifact }: { artifact: MonitorProposalArtifact }) {
         {typeof perRunCredits === 'number' && perRunCredits > 0
           ? ` · ${perRunCredits.toFixed(2)} per run`
           : ''}
-        {' · €'}{artifact.estimated_monthly_cost_eur.toFixed(2)}/mo)
+        {')'}
       </span>
     </div>
   );

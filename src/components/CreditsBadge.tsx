@@ -135,6 +135,11 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
   const pct = snap.total > 0 ? Math.min(100, (snap.credits_used / snap.total) * 100) : 0;
   const barColor = empty ? 'var(--clay)' : low ? 'var(--accent)' : 'var(--moss)';
 
+  // USD is internal metering, not a founder-facing unit — surfaced in the
+  // dropdown only as a muted detail, and only when a real budget row exists.
+  const showUsdDetail =
+    Number.isFinite(snap.used_usd) && Number.isFinite(snap.cap_usd) && snap.cap_usd > 0;
+
   // Parse period_month (YYYY-MM) to find the reset date (1st of next month)
   const resetLabel = (() => {
     try {
@@ -190,15 +195,25 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
           }}
         >
           <div style={{ marginBottom: 8, fontWeight: 600 }}>Credits</div>
+          {/* Credits are the only founder-facing money unit. The old
+              "Budget: $X / $Y USD" line leaked the internal metering currency;
+              the budget now reads in credits (same fields the pill uses) and
+              absorbs the former "Monthly:" line, which showed the identical
+              numbers. */}
           <div style={{ marginBottom: 4 }}>
-            Monthly: {snap.credits_used}/{snap.total} used
+            Budget: {snap.credits_used}/{snap.total} credits used
           </div>
-          <div style={{ marginBottom: 4 }}>
-            Budget: ${snap.used_usd.toFixed(2)} / ${snap.cap_usd.toFixed(2)} USD
-          </div>
-          <div style={{ marginBottom: 10 }}>
+          <div style={{ marginBottom: showUsdDetail ? 4 : 10 }}>
             Resets: {resetLabel}
           </div>
+          {/* USD kept ONLY as a muted internal detail — the snapshot already
+              carries it (no extra fetch); hidden when no budget row exists
+              yet (cap_usd 0 would render a meaningless $0.00 / $0.00). */}
+          {showUsdDetail && (
+            <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--ink-5)' }}>
+              ${snap.used_usd.toFixed(2)} / ${snap.cap_usd.toFixed(2)} USD — internal metering
+            </div>
+          )}
           <button
             onClick={handleBump}
             disabled={bumping}

@@ -30,7 +30,7 @@ export default function EntityGridFallback({ nodes }: { nodes: GraphNode[] }) {
             borderRadius: 'var(--r-m)',
           }}
         >
-          No relationships mapped yet — entities will link as signals and briefs land.
+          No relationships mapped yet — the graph view activates when entities get linked.
         </p>
 
         <div

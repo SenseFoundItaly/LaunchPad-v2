@@ -17,6 +17,11 @@ export default function OptionSetCard({ artifact, onAction }: OptionSetCardProps
           // UI guardrail: paragraph-length labels get split (first clause →
           // label, remainder → description) and CSS-clamped so the options
           // read as buttons, not essays. Full text stays in the tooltip.
+          //
+          // The PAYLOAD always carries the FULL original label (split.full):
+          // the page handler sends "I choose: <label>" back to the agent, and
+          // a clamped head like "Yes" can't disambiguate similar options.
+          // Only the rendering is clamped — never the send.
           const split = splitOptionLabel(option.label, option.description);
           return (
             <button
@@ -24,7 +29,7 @@ export default function OptionSetCard({ artifact, onAction }: OptionSetCardProps
               type="button"
               title={split.full}
               onClick={() =>
-                onAction('select-option', { optionId: option.id, label: split.label })
+                onAction('select-option', { optionId: option.id, label: split.full })
               }
               className="text-left min-w-0 bg-paper-2/50 border border-line-2 rounded-lg p-3 transition-all duration-200 hover:border-moss hover:bg-paper-2 focus:outline-none focus:ring-2 focus:ring-moss/40"
             >
