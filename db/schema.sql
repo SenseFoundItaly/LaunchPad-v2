@@ -521,6 +521,9 @@ CREATE TABLE IF NOT EXISTS ecosystem_alerts (
   source_url VARCHAR,
   headline TEXT NOT NULL,
   body TEXT,
+  -- Subject company/product the alert is about (artifact entity field,
+  -- falling back to entityNameFromHeadline at insert). Migration 017.
+  entity TEXT,
   relevance_score DOUBLE PRECISION DEFAULT 0.5,
   confidence DOUBLE PRECISION DEFAULT 0.5,
   graph_node_id VARCHAR REFERENCES graph_nodes(id) ON DELETE SET NULL,

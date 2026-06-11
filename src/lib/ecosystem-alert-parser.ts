@@ -43,8 +43,10 @@ export interface ParsedEcosystemAlert {
  * and wrapping quotes. Returns null when nothing name-like remains, so the
  * caller can fall back to the full headline (old behavior, no regression).
  */
+// NOTE: duplicated (verb list + cleanup rules) in scripts/backfill-entity-names.mjs
+// — scripts are plain .mjs and can't import TS. Keep the two in sync.
 const HEADLINE_EVENT_VERB =
-  /\s+(launches|launched|launching|expands|expanded|announces|announced|ships|shipped|raises|raised|partners|partnered|acquires|acquired|introduces|introduced|debuts|debuted|unveils|unveiled|adds|added|opens|opened|rolls out|rolled out|releases|released|brings|brought|kills|killed|drops|dropped|reaches|reached|hits|hit|closes|closed|files|filed|wins|won|signs|signed|enters|entered|targets|targeting|is |are |to )\b/i;
+  /\s+(launches|launched|launching|expands|expanded|announces|announced|ships|shipped|raises|raised|partners|partnered|acquires|acquired|introduces|introduced|debuts|debuted|unveils|unveiled|adds|added|opens|opened|rolls out|rolled out|releases|released|brings|brought|kills|killed|drops|dropped|reaches|reached|hits|hit|closes|closed|files|filed|wins|won|signs|signed|enters|entered|targets|targeting|joins|joined|selected|prepares|prepared|appoints|appointed|recruits|recruited|secures|secured|lands|landed|begins|began|starts|started|plans|planned|tests|testing|pilots|piloting|is |are |to )\b/i;
 
 export function entityNameFromHeadline(headline: string): string | null {
   let name = headline.split(HEADLINE_EVENT_VERB)[0] ?? '';
@@ -223,6 +225,14 @@ export async function persistEcosystemAlerts(
     const dedupeHash = computeDedupeHash(alert.alert_type, alert.source_url, alert.headline);
     const newId = generateId('ealr');
     const now = new Date().toISOString();
+    // Resolve the subject entity ONCE (artifact field first, headline heuristic
+    // second) and PERSIST it on the row. Downstream consumers — the
+    // knowledge-write executor (acceptAlertIntoKnowledge) most importantly —
+    // used to re-derive from the headline alone, and the heuristic's verb list
+    // can't cover every event phrasing, so 2/3 signal-origin graph_nodes ended
+    // up named after the full event sentence. NULL only when both fail; readers
+    // fall back to the headline (pre-017 behavior).
+    const entityName = alert.entity ?? entityNameFromHeadline(alert.headline);
 
     try {
       // Awaited (was fire-and-forget): the callers report alerts_inserted to
@@ -238,12 +248,13 @@ export async function persistEcosystemAlerts(
         `INSERT INTO ecosystem_alerts
            (id, project_id, monitor_id, monitor_run_id, alert_type, source_url,
             headline, body, relevance_score, confidence, dedupe_hash,
-            reviewed_state, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+            entity, reviewed_state, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
          ON CONFLICT(project_id, dedupe_hash) DO UPDATE SET
            relevance_score = GREATEST(ecosystem_alerts.relevance_score, excluded.relevance_score),
            confidence = GREATEST(ecosystem_alerts.confidence, excluded.confidence),
-           monitor_run_id = excluded.monitor_run_id
+           monitor_run_id = excluded.monitor_run_id,
+           entity = COALESCE(excluded.entity, ecosystem_alerts.entity)
          RETURNING id`,
         newId,
         opts.projectId,
@@ -256,6 +267,7 @@ export async function persistEcosystemAlerts(
         alert.relevance_score,
         alert.confidence,
         dedupeHash,
+        entityName,
         now,
       );
       const alertId = rows[0]?.id ?? newId;
@@ -274,13 +286,12 @@ export async function persistEcosystemAlerts(
       // Update the competitor profile keyed by the ENTITY the alert is about,
       // not the full headline. Passing alert.headline here made profile names
       // read like a news ticker ("Mama's Creations (Nasdaq: MAMA) expands to
-      // 10,000+ stores…" as a competitor NAME). Prefer the artifact's explicit
-      // entity field, then the headline heuristic; full headline only as the
+      // 10,000+ stores…" as a competitor NAME). entityName (computed once
+      // above, persisted on the row) already prefers the artifact's explicit
+      // entity field over the headline heuristic; full headline only as the
       // last-resort fallback (pre-existing behavior).
       try {
-        const profileName = alert.entity
-          || entityNameFromHeadline(alert.headline)
-          || alert.headline;
+        const profileName = entityName || alert.headline;
         await updateCompetitorProfile(opts.projectId, profileName, alert.alert_type);
       } catch (profileErr) {
         console.warn('competitor_profile update failed:', (profileErr as Error).message);
