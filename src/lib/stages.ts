@@ -7,6 +7,52 @@ export interface SkillDef {
   dataKey: string;
 }
 
+/**
+ * Founder-facing stage verdict — the closed union shared by the producer
+ * (GET /api/projects/[id]/intelligence) and the consumer (SpineSection).
+ * Maps 1:1 to scoring.ts verdict strings: STRONG GO / GO / CAUTION / NOT READY.
+ */
+export type StageVerdict = 'strong_go' | 'go' | 'caution' | 'not_ready';
+
+const VERDICT_RANK: Record<StageVerdict, number> = {
+  not_ready: 0,
+  caution: 1,
+  go: 2,
+  strong_go: 3,
+};
+
+/**
+ * Blend the skill-derived verdict with journey evidence so the Canvas spine
+ * can never contradict the Home journey card (audit M2, "verdict schism":
+ * /stages said Market Validation was done 8/8 while /intelligence rendered
+ * the same stage NOT READY · 0.0/10 because it only counted skill runs).
+ *
+ * Rule (closed union — no new statuses):
+ *   1. Evidence complete (passed === total, total > 0) → floor the verdict
+ *      at 'go'. A stage with full validation evidence NEVER renders
+ *      'not_ready' (or 'caution'), even with zero pipeline skills run.
+ *      'strong_go' stays earned exclusively through skill scores.
+ *   2. Partial evidence (passed/total ≥ 0.5) → upgrade 'not_ready' to
+ *      'caution' — the closest existing union value to "in progress".
+ *   3. Otherwise → the skill verdict stands unchanged.
+ *
+ * Readiness score and % complete stay skill-derived on purpose; the UI
+ * renders "Evidence X/Y" alongside them so the numbers explain themselves.
+ */
+export function blendStageVerdict(
+  skillVerdict: StageVerdict,
+  evidencePassed: number,
+  evidenceTotal: number,
+): StageVerdict {
+  if (evidenceTotal > 0 && evidencePassed >= evidenceTotal) {
+    return VERDICT_RANK[skillVerdict] >= VERDICT_RANK.go ? skillVerdict : 'go';
+  }
+  if (evidenceTotal > 0 && evidencePassed / evidenceTotal >= 0.5 && skillVerdict === 'not_ready') {
+    return 'caution';
+  }
+  return skillVerdict;
+}
+
 export interface StageDef {
   number: number;
   name: string;
