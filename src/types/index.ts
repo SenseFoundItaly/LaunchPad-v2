@@ -334,6 +334,12 @@ export interface EcosystemAlert {
   source_url: string | null;
   headline: string;
   body: string | null;
+  /**
+   * Subject company/product the alert is about (artifact `entity` field,
+   * falling back to entityNameFromHeadline at insert). NULL on pre-017 rows —
+   * consumers fall back to the headline heuristic.
+   */
+  entity: string | null;
   relevance_score: number;
   confidence: number;
   graph_node_id: string | null;

@@ -80,6 +80,7 @@ async function getSourceAlert(alertId: string | null): Promise<EcosystemAlert | 
     source_url: (row.source_url as string) ?? null,
     headline: row.headline as string,
     body: (row.body as string) ?? null,
+    entity: (row.entity as string) ?? null,
     relevance_score: (row.relevance_score as number) ?? 0,
     confidence: (row.confidence as number) ?? 0,
     graph_node_id: (row.graph_node_id as string) ?? null,
@@ -299,13 +300,16 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
     sources,
   );
 
-  if (action.ecosystem_alert_id) {
-    await run(
-      'UPDATE ecosystem_alerts SET graph_node_id = ? WHERE id = ?',
-      nodeId,
-      action.ecosystem_alert_id,
-    );
-  }
+  // Alert-derived graph updates (auto-fanout routes an alert's review as
+  // proposed_graph_update per its suggested_action) CLAIM the alert's FK —
+  // approving them must also ACCEPT the source alert, back-link
+  // graph_node_id, and record the monitor memory_fact, exactly like a
+  // signal_alert apply. existingNodeId: the node was just created from the
+  // action payload above, so the shared path links around THAT node instead
+  // of upserting a second one. Without this the claimed alert stayed
+  // `pending` forever (observed: SpareSeat run — 3 alerts accepted, the one
+  // routed as proposed_graph_update never was). No-op without an alert FK.
+  await acceptAlertIntoKnowledge(action, { existingNodeId: nodeId });
 
   return {
     ok: true,
@@ -838,6 +842,97 @@ function nodeTypeForAlert(alertType: string): string {
 }
 
 /**
+ * Upsert the APPLIED graph_node that materializes an accepted alert in the
+ * knowledge graph. Returns the node id, or null when the write failed
+ * (non-fatal — accepting the alert must not fail on a knowledge-write error).
+ */
+async function upsertAlertGraphNode(
+  action: PendingAction,
+  alert: EcosystemAlert,
+): Promise<string | null> {
+  // Build a provenance source stamped with the originating ecosystem_alert so
+  // the finding is traceable back to the monitor signal. Raw object/array —
+  // graph_nodes.sources/attributes are JSONB; the run() helper auto-serializes.
+  // JSON.stringify here would double-encode (store a jsonb STRING), the exact
+  // bug class just fixed on master. Pass raw.
+  const provenance = alert.source_url
+    ? {
+        type: 'web' as const,
+        title: alert.source || alert.headline.slice(0, 80),
+        url: alert.source_url,
+        ...(alert.body ? { quote: alert.body.slice(0, 280) } : {}),
+      }
+    : {
+        type: 'internal' as const,
+        title: alert.headline.slice(0, 80),
+        ref: 'memory_fact' as const,
+        ref_id: alert.id,
+        ...(alert.body ? { quote: alert.body.slice(0, 280) } : {}),
+      };
+  const attributes = {
+    origin: 'ecosystem_alert',
+    ecosystem_alert_id: alert.id,
+    alert_type: alert.alert_type,
+    relevance_score: alert.relevance_score,
+    confidence: alert.confidence,
+  };
+  const nodeType = nodeTypeForAlert(alert.alert_type);
+  // Node NAME = the entity the alert is about, not the event sentence
+  // ("HelloFresh", not "HelloFresh launches 'Ciao, Italia' series…").
+  // Primary: alert.entity — persisted at parse time from the artifact's
+  // entity field (migration 017); the headline heuristic covers pre-017 rows.
+  // The full headline stays in the summary, so no information is lost — and
+  // dedup-by-name now collapses repeat signals about the same entity into one
+  // knowledge node instead of one node per news event.
+  const nodeName = alert.entity || entityNameFromHeadline(alert.headline) || alert.headline;
+  const nodeSummary = alert.body
+    ? `${alert.headline} — ${alert.body}`
+    : alert.headline;
+
+  // Upsert by (project_id, lower(name)) so re-approving the same finding (or
+  // a finding about an already-tracked entity) updates rather than duplicates.
+  // reviewed_state='applied': the founder just approved this signal, so it's
+  // visible to the Intelligence panel + journey gates (which filter applied).
+  try {
+    const existing = await query<{ id: string }>(
+      'SELECT id FROM graph_nodes WHERE project_id = ? AND LOWER(name) = LOWER(?) LIMIT 1',
+      action.project_id,
+      nodeName,
+    );
+    if (existing.length > 0) {
+      const graphNodeId = existing[0].id;
+      await run(
+        `UPDATE graph_nodes
+            SET summary = ?, attributes = ?, sources = ?, reviewed_state = 'applied'
+          WHERE id = ?`,
+        nodeSummary,
+        attributes,
+        [provenance],
+        graphNodeId,
+      );
+      return graphNodeId;
+    }
+    const graphNodeId = generateId('gnode');
+    await run(
+      `INSERT INTO graph_nodes
+         (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'applied')`,
+      graphNodeId,
+      action.project_id,
+      nodeName,
+      nodeType,
+      nodeSummary,
+      attributes,
+      [provenance],
+    );
+    return graphNodeId;
+  } catch (err) {
+    console.warn('[acceptAlertIntoKnowledge] graph_node write failed (non-fatal):', (err as Error).message);
+    return null;
+  }
+}
+
+/**
  * Fold an approved alert-derived action into project knowledge:
  * (1) mark the source ecosystem_alert accepted, (2) upsert an APPLIED
  * graph_node for the finding, (3) back-link alert.graph_node_id,
@@ -851,8 +946,18 @@ function nodeTypeForAlert(alertType: string): string {
  * knowledge write entirely (observed: NonnaBox cert — 2 approved alerts,
  * 0 signal-origin graph_nodes). Any approval of an alert-derived action now
  * funnels through here. No-ops when the action has no alert FK.
+ *
+ * opts.existingNodeId: for handlers that CREATE THEIR OWN graph_node from the
+ * action payload (proposed_graph_update). Node creation is skipped and the
+ * accept/back-link/memory_fact steps run around THAT node instead — without
+ * this, an alert claimed by a proposed_graph_update stayed `pending` forever
+ * after approval (observed: SpareSeat run — 3 alerts accepted, the one routed
+ * as proposed_graph_update never was).
  */
-async function acceptAlertIntoKnowledge(action: PendingAction): Promise<string | null> {
+async function acceptAlertIntoKnowledge(
+  action: PendingAction,
+  opts?: { existingNodeId?: string },
+): Promise<string | null> {
   const alertId = action.ecosystem_alert_id;
   if (!alertId) return null;
 
@@ -870,93 +975,25 @@ async function acceptAlertIntoKnowledge(action: PendingAction): Promise<string |
     alertId,
   );
 
-  let graphNodeId: string | null = null;
+  let graphNodeId: string | null = opts?.existingNodeId ?? null;
   if (alert && alert.headline) {
-    // Build a provenance source stamped with the originating ecosystem_alert so
-    // the finding is traceable back to the monitor signal. Raw object/array —
-    // graph_nodes.sources/attributes are JSONB; the run() helper auto-serializes.
-    // JSON.stringify here would double-encode (store a jsonb STRING), the exact
-    // bug class just fixed on master. Pass raw.
-    const provenance = alert.source_url
-      ? {
-          type: 'web' as const,
-          title: alert.source || alert.headline.slice(0, 80),
-          url: alert.source_url,
-          ...(alert.body ? { quote: alert.body.slice(0, 280) } : {}),
-        }
-      : {
-          type: 'internal' as const,
-          title: alert.headline.slice(0, 80),
-          ref: 'memory_fact' as const,
-          ref_id: alert.id,
-          ...(alert.body ? { quote: alert.body.slice(0, 280) } : {}),
-        };
-    const attributes = {
-      origin: 'ecosystem_alert',
-      ecosystem_alert_id: alert.id,
-      alert_type: alert.alert_type,
-      relevance_score: alert.relevance_score,
-      confidence: alert.confidence,
-    };
-    const nodeType = nodeTypeForAlert(alert.alert_type);
-    // Node NAME = the entity the alert is about, not the event sentence
-    // ("HelloFresh", not "HelloFresh launches 'Ciao, Italia' series…").
-    // The full headline stays in the summary, so no information is lost —
-    // and dedup-by-name now collapses repeat signals about the same entity
-    // into one knowledge node instead of one node per news event.
-    const nodeName = entityNameFromHeadline(alert.headline) || alert.headline;
-    const nodeSummary = alert.body
-      ? `${alert.headline} — ${alert.body}`
-      : alert.headline;
+    if (!graphNodeId) {
+      graphNodeId = await upsertAlertGraphNode(action, alert);
+    }
 
-    // Upsert by (project_id, lower(name)) so re-approving the same finding (or
-    // a finding about an already-tracked entity) updates rather than duplicates.
-    // reviewed_state='applied': the founder just approved this signal, so it's
-    // visible to the Intelligence panel + journey gates (which filter applied).
-    try {
-      const existing = await query<{ id: string }>(
-        'SELECT id FROM graph_nodes WHERE project_id = ? AND LOWER(name) = LOWER(?) LIMIT 1',
-        action.project_id,
-        nodeName,
-      );
-      if (existing.length > 0) {
-        graphNodeId = existing[0].id;
-        await run(
-          `UPDATE graph_nodes
-              SET summary = ?, attributes = ?, sources = ?, reviewed_state = 'applied'
-            WHERE id = ?`,
-          nodeSummary,
-          attributes,
-          [provenance],
-          graphNodeId,
-        );
-      } else {
-        graphNodeId = generateId('gnode');
-        await run(
-          `INSERT INTO graph_nodes
-             (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'applied')`,
-          graphNodeId,
-          action.project_id,
-          nodeName,
-          nodeType,
-          nodeSummary,
-          attributes,
-          [provenance],
-        );
-      }
-
-      // Back-link the alert to its graph node so the signal → knowledge edge is
-      // queryable (mirrors proposedGraphUpdate).
-      if (alertId) {
+    // Back-link the alert to its graph node so the signal → knowledge edge is
+    // queryable. Runs for both paths: the node this function upserted OR the
+    // caller-created one (proposed_graph_update).
+    if (graphNodeId) {
+      try {
         await run(
           'UPDATE ecosystem_alerts SET graph_node_id = ? WHERE id = ?',
           graphNodeId,
           alertId,
         );
+      } catch (err) {
+        console.warn('[acceptAlertIntoKnowledge] alert back-link failed (non-fatal):', (err as Error).message);
       }
-    } catch (err) {
-      console.warn('[acceptAlertIntoKnowledge] graph_node write failed (non-fatal):', (err as Error).message);
     }
 
     // Also capture the finding as a durable memory_fact so it surfaces on the
