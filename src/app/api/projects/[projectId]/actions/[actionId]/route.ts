@@ -11,7 +11,7 @@ import {
   markActionFailed,
   InvalidTransitionError,
 } from '@/lib/pending-actions';
-import { executeAppliedAction } from '@/lib/action-executors';
+import { executeAppliedAction, dismissAlertSource } from '@/lib/action-executors';
 import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 
@@ -104,6 +104,12 @@ export async function POST(
         break;
       case 'reject': {
         updated = await rejectPendingAction(actionId, typeof body.reason === 'string' ? body.reason.slice(0, 500) : body.reason);
+        // Propagate the dismissal to the source row (ecosystem_alert / brief /
+        // assumption) — the mirror of accept's knowledge write. Without it a
+        // dismissed signal/brief/assumption stays 'pending'/'active'/'open' and
+        // keeps surfacing on every NON-inbox reader (Intelligence panel, Today,
+        // /assumptions). Non-fatal; the reject already succeeded.
+        await dismissAlertSource(existing);
         // Preference learning: the agent proposed something the founder
         // didn't want. Record a low-confidence 'preference' fact so future
         // buildMemoryContext calls include "user rejected X" in the prompt,
