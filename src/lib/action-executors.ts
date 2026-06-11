@@ -1027,6 +1027,55 @@ async function acceptAlertIntoKnowledge(
   return graphNodeId;
 }
 
+/**
+ * The REJECT mirror of acceptAlertIntoKnowledge: when a founder dismisses a
+ * materialized proposal, propagate a terminal state to its SOURCE row.
+ *
+ * Why this is needed: rejecting only flips the pending_action to 'rejected'.
+ * The Inbox then correctly hides it (materialize-on-read has
+ * NOT EXISTS(pending_actions WHERE ecosystem_alert_id = ea.id)), but the SOURCE
+ * tables stayed open — so every OTHER reader kept surfacing the dismissed item:
+ * the Intelligence panel reads ecosystem_alerts WHERE reviewed_state='pending',
+ * Today reads intelligence_briefs status='active', /assumptions reads
+ * status='open'. A signal you Dismissed haunted the Intelligence panel forever.
+ * Approve propagated to the source; reject didn't — a state-machine asymmetry.
+ *
+ * No CHECK constraint on these status columns (verified), so 'dismissed' is a
+ * safe terminal value the open/pending/active filters all exclude. Non-fatal:
+ * the rejection itself already succeeded before this runs.
+ */
+export async function dismissAlertSource(action: PendingAction): Promise<void> {
+  try {
+    // Covers signal_alert AND alert-derived proposed_hypothesis /
+    // proposed_graph_update (anything carrying the alert FK).
+    if (action.ecosystem_alert_id) {
+      await run(
+        `UPDATE ecosystem_alerts
+            SET reviewed_state = 'dismissed',
+                reviewed_at = CURRENT_TIMESTAMP,
+                founder_action_taken = 'inbox_reject'
+          WHERE id = ?`,
+        action.ecosystem_alert_id,
+      );
+    }
+    const payload = (action.payload ?? {}) as Record<string, unknown>;
+    if (action.action_type === 'intelligence_brief' && typeof payload.brief_id === 'string') {
+      await run(
+        `UPDATE intelligence_briefs SET status = 'dismissed' WHERE id = ?`,
+        payload.brief_id,
+      );
+    }
+    if (action.action_type === 'assumption_review' && typeof payload.assumption_id === 'string') {
+      await run(
+        `UPDATE assumptions SET status = 'dismissed', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        payload.assumption_id,
+      );
+    }
+  } catch (err) {
+    console.warn('[dismissAlertSource] non-fatal:', (err as Error).message);
+  }
+}
+
 const signalAlert: ActionHandler = async (action) => {
   const graphNodeId = await acceptAlertIntoKnowledge(action);
 

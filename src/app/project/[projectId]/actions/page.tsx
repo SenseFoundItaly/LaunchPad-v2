@@ -85,6 +85,7 @@ export default function TicketsPage({
   const qc = useQueryClient();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [batchBusy, setBatchBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Executor narrative toast ("Signal accepted and folded into project
@@ -271,7 +272,43 @@ export default function TicketsPage({
     }
   }
 
+  // Batch apply/reject — SCOPED to the no-spend signal cluster (rows carrying
+  // an ecosystem_alert_id: signal_alert + alert-derived hypothesis/graph
+  // proposals). A monitor run can drop 4+ of these at once; clearing them
+  // one-by-one is the volume pain. Deliberately NOT a blanket "apply all":
+  // run_skill / budget / monitor proposals SPEND or commit recurring cost, so
+  // they stay per-item — bulk-approving them would break the approve-first
+  // consent guarantee. Sequential calls reuse the audited transition endpoint;
+  // one invalidate at the end avoids N refetches.
+  async function batchSignals(ids: string[], verb: 'apply' | 'reject') {
+    if (ids.length === 0 || batchBusy) return;
+    const label = verb === 'apply' ? 'Accept' : 'Dismiss';
+    if (!window.confirm(`${label} all ${ids.length} signal${ids.length === 1 ? '' : 's'} in one go?`)) return;
+    setBatchBusy(true);
+    let ok = 0, failed = 0;
+    for (const id of ids) {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/actions/${id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transition: verb }),
+        });
+        const body = await res.json();
+        if (body.success) ok++; else failed++;
+      } catch { failed++; }
+    }
+    setBatchBusy(false);
+    setNotice({ text: `${label === 'Accept' ? 'Accepted' : 'Dismissed'} ${ok} signal${ok === 1 ? '' : 's'}${failed ? ` · ${failed} failed` : ''}.`, ts: Date.now() });
+    await qc.invalidateQueries({ queryKey: ['actions', projectId] });
+  }
+
   const selected = filteredActions.find(a => a.id === selectedId) || null;
+
+  // The no-spend signal cluster in the current view (see batchSignals above).
+  const batchableSignals = useMemo(
+    () => filteredActions.filter((a) => a.ecosystem_alert_id && a.status === 'pending'),
+    [filteredActions],
+  );
   const openCount = (summary?.pending ?? 0) + (summary?.edited ?? 0);
 
   return (
@@ -317,6 +354,32 @@ export default function TicketsPage({
                 setTypeFilter={setTypeFilter}
                 typeOptions={typeOptions}
               />
+
+              {batchableSignals.length >= 2 && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '7px 16px', borderBottom: '1px solid var(--line)', background: 'var(--surface)', fontSize: 12 }}>
+                  <span style={{ color: 'var(--ink-3)' }}>
+                    {batchableSignals.length} signals from your watchers — review one by one, or:
+                  </span>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      disabled={batchBusy}
+                      onClick={() => batchSignals(batchableSignals.map(a => a.id), 'apply')}
+                      style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: 'none', background: 'var(--moss)', color: 'var(--paper)', cursor: batchBusy ? 'not-allowed' : 'pointer', opacity: batchBusy ? 0.6 : 1 }}
+                    >
+                      Accept all into knowledge
+                    </button>
+                    <button
+                      type="button"
+                      disabled={batchBusy}
+                      onClick={() => batchSignals(batchableSignals.map(a => a.id), 'reject')}
+                      style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-2)', cursor: batchBusy ? 'not-allowed' : 'pointer', opacity: batchBusy ? 0.6 : 1 }}
+                    >
+                      Dismiss all
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
                 <TicketsTable
