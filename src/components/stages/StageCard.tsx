@@ -121,9 +121,23 @@ export function StageCard({ projectId }: { projectId: string }) {
                 ? 'Monitors running — check back after the next weekly scan.'
                 : 'Next: address the gaps above with the Co-pilot.'}
             </span>
-            <Link href={`/project/${projectId}/chat`} style={ctaStyle}>
-              Open Co-pilot →
-            </Link>
+            {onlyTimeGatedGaps ? (
+              <>
+                {/* Waiting IS the action — a primary "Open Co-pilot" CTA here
+                    contradicts the message (audit p5). Disabled-styled state
+                    label, with the Co-pilot demoted to a secondary link. */}
+                <span style={waitingStyle} aria-disabled="true">
+                  Waiting on weekly scan
+                </span>
+                <Link href={`/project/${projectId}/chat`} style={secondaryCtaStyle}>
+                  Open Co-pilot →
+                </Link>
+              </>
+            ) : (
+              <Link href={`/project/${projectId}/chat`} style={ctaStyle}>
+                Open Co-pilot →
+              </Link>
+            )}
           </div>
         )}
       </Panel>
@@ -238,6 +252,30 @@ const ctaStyle: React.CSSProperties = {
   color: 'var(--paper)',
   borderRadius: 6,
   textDecoration: 'none',
+  fontSize: 11.5,
+  fontWeight: 500,
+};
+
+/** Time-gated state — looks like a disabled button: nothing to click yet. */
+const waitingStyle: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '5px 10px',
+  background: 'var(--paper-2)',
+  color: 'var(--ink-5)',
+  border: '1px solid var(--line-2)',
+  borderRadius: 6,
+  fontSize: 11.5,
+  fontWeight: 500,
+  cursor: 'default',
+};
+
+/** Secondary link next to the waiting state — Co-pilot stays reachable. */
+const secondaryCtaStyle: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '5px 6px',
+  color: 'var(--ink-3)',
+  textDecoration: 'underline',
+  textUnderlineOffset: 3,
   fontSize: 11.5,
   fontWeight: 500,
 };

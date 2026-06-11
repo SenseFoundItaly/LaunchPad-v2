@@ -15,8 +15,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { STAGES } from '@/lib/stages';
-
-type Verdict = 'strong_go' | 'go' | 'caution' | 'not_ready';
+import type { StageVerdict as Verdict } from '@/lib/stages';
 
 interface StageRow {
   id: string;
@@ -25,7 +24,12 @@ interface StageRow {
   color: string;
   completion_ratio: number;
   overall_score: number;
+  /** Blended verdict — skill scores floored by journey evidence (audit M2). */
   verdict: Verdict;
+  /** Journey gate checks passed/total — same numbers the Home journey card
+   *  shows. Optional defensively: older cached payloads may lack them. */
+  evidence_passed?: number;
+  evidence_total?: number;
   skills_total: number;
   skills_completed: number;
   last_signal: { type: string; label: string; at: string } | null;
@@ -307,13 +311,14 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
       >
         {locale === 'it' ? 'Pipeline di validazione' : 'Validation pipeline'}
       </div>
-      {/* Legend — the two numbers on each chip are two views of the SAME
-          stage, not two different stages: readiness scores evidence quality,
-          % complete counts skills run. */}
+      {/* Legend — the three numbers on each chip are three views of the SAME
+          stage, not different stages: readiness scores the skill outputs,
+          % complete counts skills run, evidence counts journey validation
+          checks (the same checks the Home journey card shows). */}
       <div style={{ fontSize: 10, color: 'var(--ink-5)', marginBottom: 6, lineHeight: 1.4 }}>
         {locale === 'it'
-          ? 'Due viste dello stesso stadio: Prontezza = solidità delle evidenze (0–10) · % completo = quota di skill eseguiti.'
-          : 'Two views of the same stage: Readiness = evidence strength (0–10) · % complete = share of stage skills run.'}
+          ? 'Tre viste dello stesso stadio: Prontezza = punteggio skill (0–10) · % completo = quota di skill eseguiti · Evidenze = controlli di validazione superati.'
+          : 'Three views of the same stage: Readiness = skill scores (0–10) · % complete = share of skills run · Evidence = validation checks passed.'}
       </div>
       {/* Horizontal 7-step strip */}
       <div
@@ -412,6 +417,13 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
                 <span>
                   {locale === 'it' ? `${pct}% completo` : `${pct}% complete`}
                 </span>
+                {(s.evidence_total ?? 0) > 0 && (
+                  <span>
+                    {locale === 'it'
+                      ? `Evidenze ${s.evidence_passed ?? 0}/${s.evidence_total}`
+                      : `Evidence ${s.evidence_passed ?? 0}/${s.evidence_total}`}
+                  </span>
+                )}
               </div>
             </button>
           );
@@ -474,6 +486,19 @@ export function SpineSection({ projectId, locale, onSkillClick }: SpineSectionPr
                   ? `basato su ${stage.skills_completed}/${stage.skills_total} skill`
                   : `backed by ${stage.skills_completed}/${stage.skills_total} skills`}
               </span>
+              {(stage.evidence_total ?? 0) > 0 && (
+                <span
+                  className="lp-mono"
+                  style={{ fontSize: 10, color: 'var(--ink-5)' }}
+                  title={locale === 'it'
+                    ? 'Controlli di validazione superati — gli stessi della scheda percorso in Home.'
+                    : 'Validation checks passed — the same checks as the Home journey card.'}
+                >
+                  · {locale === 'it'
+                    ? `evidenze ${stage.evidence_passed ?? 0}/${stage.evidence_total}`
+                    : `evidence ${stage.evidence_passed ?? 0}/${stage.evidence_total}`}
+                </span>
+              )}
             </div>
             {skillsList.length === 0 ? (
               <div style={{ fontSize: 11.5, color: 'var(--ink-5)', fontStyle: 'italic' }}>

@@ -3,8 +3,10 @@ import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { get, query } from '@/lib/db';
 import { listFacts } from '@/lib/memory/facts';
-import { STAGES } from '@/lib/stages';
+import { STAGES, blendStageVerdict } from '@/lib/stages';
+import type { StageVerdict } from '@/lib/stages';
 import { canonicalStageId } from '@/lib/journey/canonical';
+import { buildProjectSnapshot, evaluateAllStages } from '@/lib/journey';
 import { scoreStage } from '@/lib/scoring';
 import type { SkillData } from '@/hooks/useSkillStatus';
 
@@ -57,8 +59,6 @@ interface SkillCompletionRow {
   completed_at: string;
 }
 
-type StageVerdict = 'strong_go' | 'go' | 'caution' | 'not_ready';
-
 interface StageSummary {
   id: string;
   name: string;
@@ -66,7 +66,13 @@ interface StageSummary {
   color: string;
   completion_ratio: number;
   overall_score: number;
+  /** Blended verdict — skill-derived, floored by journey evidence (see
+   *  blendStageVerdict in @/lib/stages). Full evidence ⇒ minimum 'go'. */
   verdict: StageVerdict;
+  /** Journey gate checks passed — same evaluation /api/.../stages serves.
+   *  0/0 when the journey snapshot was unavailable (blend then no-ops). */
+  evidence_passed: number;
+  evidence_total: number;
   /** @deprecated Use completion_ratio instead. Kept for backward compat. */
   skills_total: number;
   /** @deprecated Use completion_ratio instead. Kept for backward compat. */
@@ -95,6 +101,17 @@ export async function GET(
     projectId,
   );
   if (!project) return error('Project not found', 404);
+
+  // Journey evidence — the SAME evaluation GET /api/.../stages serves, so the
+  // spine verdict can never contradict the Home journey card (audit M2).
+  // Kicked off here, awaited after the panel queries: buildProjectSnapshot is
+  // one guarded parallel batch (every facet query degrades to empty on error),
+  // so this adds concurrency, not latency. The catch is belt-and-braces — if
+  // the snapshot ever rejects, stages fall back to pure skill verdicts (0/0
+  // evidence) instead of 500ing the whole intelligence panel.
+  const journeyPromise = buildProjectSnapshot(projectId)
+    .then((snapshot) => evaluateAllStages(snapshot))
+    .catch(() => []);
 
   // Memory panel: founder-facing surface for facts ABOUT the idea — pricing,
   // positioning, market, persona, validated assumptions. Process telemetry
@@ -161,6 +178,14 @@ export async function GET(
     }
   }
 
+  // Per-stage evidence counts keyed by canonical stage number (1–7) — the
+  // journey evaluator and the pipeline STAGES share the canonical taxonomy,
+  // so number is the safe join key.
+  const journeyByNumber = new Map<number, { passed: number; total: number }>();
+  for (const ev of await journeyPromise) {
+    journeyByNumber.set(ev.stage.number, { passed: ev.passed, total: ev.total });
+  }
+
   const stages: StageSummary[] = STAGES.map((stage) => {
     const ss = scoreStage(stage.number, skillMap);
     const completedSkills = stage.skills.filter((s) => skillMap[s.id]?.status === 'completed');
@@ -171,6 +196,8 @@ export async function GET(
       .filter((x): x is { skill: typeof x.skill; at: string } => Boolean(x.at))
       .sort((a, b) => (b.at > a.at ? 1 : -1))[0];
 
+    const evidence = journeyByNumber.get(stage.number) ?? { passed: 0, total: 0 };
+
     return {
       // Canonical stage id — same id the journey evaluator (/api/.../stages)
       // returns for this stage number, so both surfaces agree on identity.
@@ -180,7 +207,9 @@ export async function GET(
       color: stage.color,
       completion_ratio: Math.round(ratio * 100) / 100,
       overall_score: ss.score,
-      verdict: verdictKey(ss.verdict),
+      verdict: blendStageVerdict(verdictKey(ss.verdict), evidence.passed, evidence.total),
+      evidence_passed: evidence.passed,
+      evidence_total: evidence.total,
       skills_total: stage.skills.length,
       skills_completed: completedSkills.length,
       last_signal: lastCompletion
