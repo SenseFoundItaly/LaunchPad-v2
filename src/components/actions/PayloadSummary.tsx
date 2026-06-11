@@ -14,11 +14,26 @@ import { FieldLabel, RawPayloadToggle } from './fields';
 // Internals the founder never needs to read — they stay in "view raw".
 const NOISY_KEY = /^(id|owner_user_id|user_id|project_id|pending_action_id|artifact_id|session_id)$|_ids?$/;
 
+// Keys whose string values are machine slugs ('competitor_activity') — their
+// values get prettified to "Competitor activity". Scoped to known enum-ish
+// keys so free text that happens to contain underscores is never mangled.
+const ENUM_VALUE_KEY = /^(alert_type|kind|category|schedule|cadence|priority|severity|status)$/;
+const SLUG_VALUE = /^[a-z][a-z0-9_-]*$/;
+
 const MAX_STRING = 600;
 
 function prettifyKey(key: string): string {
   const s = key.replace(/_/g, ' ').trim();
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function prettifySlug(value: string): string {
+  const s = value.replace(/[_-]+/g, ' ').trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function isHttpUrl(s: string): boolean {
+  return /^https?:\/\/\S+$/i.test(s);
 }
 
 function displayValue(v: unknown): string | null {
@@ -52,7 +67,11 @@ export function PayloadSummary({ payload }: { payload: unknown }) {
   const rows = obj
     ? Object.entries(obj)
         .filter(([k]) => !NOISY_KEY.test(k))
-        .map(([k, v]) => [k, displayValue(v)] as const)
+        .map(([k, v]) => {
+          let d = displayValue(v);
+          if (d && ENUM_VALUE_KEY.test(k) && SLUG_VALUE.test(d)) d = prettifySlug(d);
+          return [k, d] as const;
+        })
         .filter((pair): pair is readonly [string, string] => pair[1] !== null)
     : [];
 
@@ -75,7 +94,25 @@ export function PayloadSummary({ payload }: { payload: unknown }) {
                 wordBreak: 'break-word',
               }}
             >
-              {v}
+              {isHttpUrl(v) ? (
+                // source_url & friends — clickable instead of dead text.
+                <a
+                  href={v}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: 'var(--accent)',
+                    textDecoration: 'none',
+                    fontFamily: 'var(--f-mono)',
+                    fontSize: 11.5,
+                    wordBreak: 'break-all',
+                  }}
+                >
+                  {v}
+                </a>
+              ) : (
+                v
+              )}
             </div>
           </div>
         ))
