@@ -30,6 +30,7 @@ import {
   type PillKind,
 } from '@/components/design/primitives';
 import type { PendingAction, PendingActionStatus, PendingActionType, ActionLane } from '@/types';
+import type { Watcher } from '@/lib/watchers';
 import { laneFor } from '@/lib/action-lanes';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { SkillProposalReview, skillCreditsFromAction } from '@/components/actions/SkillProposalReview';
@@ -86,6 +87,17 @@ export default function TicketsPage({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Executor narrative toast ("Signal accepted and folded into project
+  // knowledge (graph node …)"). Set by transition() on a successful apply,
+  // auto-dismissed below. `ts` keys the effect so applying twice with an
+  // identical narrative still re-arms the timer.
+  const [notice, setNotice] = useState<{ text: string; ts: number } | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
   // Lane tab + filter dropdowns. Default lane is chosen after first fetch
   // based on whichever lane has the most open rows (so a founder with 12
   // approvals and 0 TODOs lands on Approvals first). Filters default to 'any'
@@ -115,6 +127,23 @@ export default function TicketsPage({
   const actions = useMemo(() => inbox?.actions ?? [], [inbox]);
   const summary = inbox?.summary ?? null;
 
+  // Watchers tab badge — the monitor lane reads /watchers (monitors +
+  // watch_sources), not /actions, so its count can't be derived from the
+  // inbox fetch. Shares queryKey ['watchers', projectId] with
+  // MonitorListPanel: react-query dedupes, so opening the Watchers tab later
+  // reuses this cache instead of fetching twice. lp-actions-changed
+  // invalidation inside MonitorListPanel keeps both in sync after approvals.
+  const { data: watchers } = useQuery<Watcher[]>({
+    queryKey: ['watchers', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/watchers`);
+      const body = await res.json();
+      if (!body.success || !Array.isArray(body.data)) return [];
+      return body.data as Watcher[];
+    },
+  });
+
   // Selection coherence is handled below against `filteredActions` (see
   // effect after `filteredActions` is computed). Don't add a second effect
   // against the raw `actions` list — they'd race after an invalidate and
@@ -131,9 +160,11 @@ export default function TicketsPage({
   // rows still appear in the list if the dropdown filter allows, but the
   // tab badge shouldn't scream "12!" when 11 of those are already sent.
   const laneCounts = useMemo<Record<ActionLane, number>>(() => {
-    // The 'monitor' lane reads from /monitors, not /actions — its count
-    // shouldn't double-bill against pending_actions. We display a separate
-    // monitors badge inside MonitorListPanel itself.
+    // The 'monitor' lane reads from /watchers, not /actions — its count
+    // shouldn't double-bill against pending_actions, so it stays 0 HERE.
+    // The tab strip gets the real watcher total via `tabCounts` below;
+    // keeping it out of laneCounts means the land-on-busiest-lane heuristic
+    // still only weighs actionable inbox rows.
     const c: Record<ActionLane, number> = { todo: 0, approval: 0, notification: 0, monitor: 0 };
     for (const a of actions) {
       if (a.status === 'pending' || a.status === 'edited') {
@@ -142,6 +173,13 @@ export default function TicketsPage({
     }
     return c;
   }, [actions]);
+
+  // Tab badges: inbox lanes count open rows; Watchers shows the live watcher
+  // total (matches the count MonitorListPanel renders in its own heading).
+  const tabCounts = useMemo<Record<ActionLane, number>>(
+    () => ({ ...laneCounts, monitor: watchers?.length ?? 0 }),
+    [laneCounts, watchers],
+  );
 
   // After the first successful fetch, pick the lane with the highest open
   // count so the founder lands where the work is. Tie-breaker: TODOs.
@@ -215,6 +253,14 @@ export default function TicketsPage({
       if (deliverable?.mode === 'click-to-send' && deliverable.url) {
         window.open(deliverable.url, '_blank', 'noopener,noreferrer');
       }
+      // Executor narratives ("Signal accepted and folded into project
+      // knowledge (graph node …)") used to be dropped on the floor — only
+      // click-to-send was consumed. Surface them as a transient toast; the
+      // durable copy lands in the detail pane's Activity section via
+      // execution_result.response after the refetch below.
+      if (typeof deliverable?.narrative === 'string' && deliverable.narrative.trim()) {
+        setNotice({ text: deliverable.narrative.trim(), ts: Date.now() });
+      }
       // Refresh the inbox + the NavRail badge count. The event bridge would
       // also catch this if we dispatched lp-actions-changed; calling
       // invalidateQueries directly keeps the dispatcher local to the
@@ -247,7 +293,7 @@ export default function TicketsPage({
           <InboxSubhead />
           <LaneTabs
             active={lane}
-            counts={laneCounts}
+            counts={tabCounts}
             onChange={handleLaneChange}
           />
 
@@ -293,8 +339,44 @@ export default function TicketsPage({
         </div>
       </div>
 
+      {notice && (
+        // Narrative toast — what the apply actually DID, straight from the
+        // executor's deliverable. Fixed above the StatusBar; click or wait
+        // ~6s to dismiss. Deliberately dependency-free (no toast lib).
+        <div
+          role="status"
+          aria-live="polite"
+          onClick={() => setNotice(null)}
+          title="Dismiss"
+          style={{
+            position: 'fixed',
+            right: 16,
+            bottom: 34,
+            zIndex: 50,
+            maxWidth: 420,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 8,
+            padding: '10px 14px',
+            background: 'var(--surface)',
+            border: '1px solid var(--line)',
+            borderLeft: '3px solid var(--moss)',
+            borderRadius: 'var(--r-m)',
+            boxShadow: 'var(--shadow-lift)',
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: 'var(--ink-2)',
+            fontFamily: 'var(--f-sans)',
+            cursor: 'pointer',
+          }}
+        >
+          <Icon d={I.check} size={13} style={{ color: 'var(--moss)', flexShrink: 0, marginTop: 2 }} />
+          <span>{notice.text}</span>
+        </div>
+      )}
+
       <StatusBar
-        heartbeatLabel="heartbeat · idle"
+        heartbeatLabel="watchers · scheduled"
         gateway="pi-agent · anthropic"
         ctxLabel={`ctx · ${filteredActions.length} / ${actions.length}`}
         budget={`${openCount} open`}
@@ -810,7 +892,9 @@ function TicketDetail({
 // verbs against /actions/[actionId]) but the labels + ordering reflect what
 // the founder is actually doing in each lane:
 //   TODO         → Mark done (apply) | Snooze (edit) | Dismiss (reject)
-//   APPROVAL     → Apply | Reject (run_skill applies as "Run skill (≈N credits)")
+//   APPROVAL     → Apply | Reject (run_skill applies as "Run skill (≈N credits)";
+//                  signal_alert applies as "Accept into knowledge" and rejects
+//                  as "Dismiss" — see label special-cases below)
 //   NOTIFICATION → Acknowledge (reject = clear from inbox)
 function LaneAwareActions({
   action,
@@ -886,19 +970,27 @@ function LaneAwareActions({
     );
   }
 
-  // Default: approval lane (drafts, configs, workflow steps)
-  // run_skill is the one approval that spends credits on apply — the button
-  // says so instead of a generic "Apply". Only the LABEL changes; the
-  // transition verb stays 'apply'.
+  // Default: approval lane (drafts, configs, workflow steps).
+  // Two label special-cases — the transition verb stays 'apply' for both:
+  //   - run_skill SPENDS credits on approval, so the button says the cost.
+  //   - signal_alert's apply executor files the finding into the knowledge
+  //     graph (acceptAlertIntoKnowledge) — generic "Apply" undersells the
+  //     decision, and the old notification-lane "Acknowledge" fired reject,
+  //     which made Accept unreachable (the B1 blocker). Primary verb names
+  //     the outcome; secondary reads "Dismiss" because declining a signal is
+  //     triage, not a judgement on a draft.
   const applyLabel =
     action.action_type === 'run_skill'
       ? `Run skill (≈${skillCreditsFromAction(action)} credits)`
-      : 'Apply';
+      : action.action_type === 'signal_alert'
+        ? 'Accept into knowledge'
+        : 'Apply';
+  const rejectLabel = action.action_type === 'signal_alert' ? 'Dismiss' : 'Reject';
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <button
         onClick={() => onTransition(action.id, 'apply')}
-        style={{ ...btnGhost, justifyContent: 'flex-start' }}
+        style={{ ...btnGhost, justifyContent: 'flex-start', ...(action.action_type === 'signal_alert' ? { color: 'var(--moss)' } : {}) }}
       >
         <Icon d={I.check} size={12} /> {applyLabel}
       </button>
@@ -906,7 +998,7 @@ function LaneAwareActions({
         onClick={() => onTransition(action.id, 'reject')}
         style={{ ...btnGhost, justifyContent: 'flex-start', color: 'var(--clay)' }}
       >
-        <Icon d={I.stop} size={12} /> Reject
+        <Icon d={I.stop} size={12} /> {rejectLabel}
       </button>
     </div>
   );
@@ -935,11 +1027,14 @@ function SideSection({ title, children }: { title: string; children: React.React
 
 /**
  * Structured review pane for configure_monitor proposals — replaces the JSON
- * dump with title / objective / prompt / schedule / source URLs.
+ * dump with title / objective / prompt / schedule / tracked URLs / sources.
  *
- * Falls back gracefully when older proposals (pre-objective field) don't
- * carry the new payload key: derives a stand-in objective from linked_quote,
- * the same way the executor does on apply.
+ * Payload keys vary by generation: current propose_monitor rows carry
+ * objective/urls_to_track/alert_threshold, legacy/alternate rows only
+ * kind/name/query/sources. Every field below has a fallback chain so neither
+ * shape renders a pane of em-dashes. sources[] is the founder's quoted
+ * rationale (mandatory-sources schema: {type, title?, url?, quote?, ref?,
+ * ref_id?}) — the "why" behind the watcher, rendered when present.
  */
 function MonitorProposalReview({ action }: { action: PendingAction }) {
   const raw = action.edited_payload || action.payload || {};
@@ -949,34 +1044,81 @@ function MonitorProposalReview({ action }: { action: PendingAction }) {
   const arr = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
   const name = str(p.name) || action.title;
-  const objective = str(p.objective) || str(p.linked_quote) || '—';
-  const schedule = str(p.schedule) || 'weekly';
   const query = str(p.query);
+  // Objective fallback chain ends on the query so legacy rows (which only
+  // describe themselves via query) don't show "—" as their reason to exist.
+  const objective = str(p.objective) || str(p.linked_quote) || query || '—';
+  const kind = str(p.kind);
+  const schedule = str(p.schedule) || 'weekly';
   const urls = arr(p.urls_to_track);
   const threshold = str(p.alert_threshold);
   // Prompt is what the monitor will actually run. It's typically not on the
   // proposal payload (the executor leaves it null), so we surface the query
   // as the next-best approximation when prompt is absent.
   const prompt = str(p.prompt) || query;
+  // Founder-rationale sources (quotes, risk refs, web links).
+  const sources = Array.isArray(p.sources)
+    ? p.sources.filter((s): s is Record<string, unknown> => typeof s === 'object' && s !== null)
+    : [];
 
   return (
     <SideSection title="Monitor proposal">
       <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14, fontSize: 12.5, lineHeight: 1.5 }}>
         <Field label="Title" value={name} />
         <Field label="Objective" value={objective} multiline />
+        {kind && <Field label="Kind" value={kind.replace(/[_-]+/g, ' ')} />}
         <Field label="Prompt" value={prompt || '—'} multiline mono />
         <Field label="Schedule" value={schedule} />
         {threshold && <Field label="Alert threshold" value={threshold} multiline />}
         {urls.length > 0 && (
           <div>
-            <FieldLabel>Sources</FieldLabel>
+            <FieldLabel>Tracked URLs</FieldLabel>
             <ul style={{ margin: '4px 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
               {urls.map((u) => (
                 <li key={u} style={{ fontFamily: 'var(--f-mono)', fontSize: 11.5, color: 'var(--ink-3)', wordBreak: 'break-all' }}>
-                  <a href={u} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{u}</a>
+                  <a href={u} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>{u}</a>
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+        {sources.length > 0 && (
+          <div>
+            <FieldLabel>Sources · why this watcher</FieldLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 }}>
+              {sources.map((s, i) => {
+                const quote = str(s.quote);
+                const title = str(s.title);
+                const url = str(s.url);
+                const ref = str(s.ref);
+                const refId = str(s.ref_id);
+                return (
+                  <div key={i} style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                    {quote && (
+                      <div style={{ fontStyle: 'italic', color: 'var(--ink-2)' }}>&ldquo;{quote}&rdquo;</div>
+                    )}
+                    {(title || ref) && (
+                      <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)', marginTop: quote ? 2 : 0 }}>
+                        {title}
+                        {title && ref ? ' · ' : ''}
+                        {ref}
+                        {refId ? ` ${refId}` : ''}
+                      </div>
+                    )}
+                    {url && (
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: 'var(--accent)', fontSize: 11.5, fontFamily: 'var(--f-mono)', wordBreak: 'break-all', textDecoration: 'none' }}
+                      >
+                        {url}
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -1027,54 +1169,45 @@ function Field({ label, value, multiline, mono }: { label: string; value: string
 
 // Map action_type → the subsystem that actually inserted the pending_actions
 // row. Truthful attribution, not persona theatre. Values match
-// PRODUCER_OPTIONS so the filter dropdown round-trips cleanly.
+// PRODUCER_OPTIONS and producerColor() so the filter dropdown + chips
+// round-trip cleanly (the old persona names broke both).
 //
 // Caveat for `task`: rows can come from chat artifacts (artifact-persistence
 // + project-tools), the heartbeat task proposer (cron/route.ts:204), or the
 // watch source auto-task path (watch-source-processor.ts:264). The UI only
 // sees action_type, so we default to the dominant producer (chat). Promoting
 // this to per-row truth requires adding a `produced_by` column to
-// pending_actions and stamping it at insert.
+// pending_actions and stamping it at insert. Same caveat, smaller, for the
+// draft_* / proposed_* family: the ecosystem-alert fan-out can also create
+// them, but chat artifacts dominate.
 function producerFromType(type: PendingActionType): string {
   const map: Record<PendingActionType, string> = {
-    draft_email: 'Outreach',
-    draft_linkedin_post: 'Outreach',
-    draft_linkedin_dm: 'Outreach',
-    proposed_hypothesis: 'Analyst',
-    proposed_interview_question: 'Analyst',
-    proposed_landing_copy: 'Designer',
-    proposed_investor_followup: 'Chief',
-    proposed_graph_update: 'Scout',
-    // workflow_step: per-step row created when chat emits a workflow-card;
-    // approval just flips status (no executor). Treat as "Architect" agent —
-    // the chat agent proposed it as part of a multi-step plan.
-    workflow_step: 'Architect',
-    // configure_monitor: in-chat monitor proposal awaiting founder review.
-    // Treat as "Scout" — same family as proposed_graph_update, both about
-    // populating the project's observation layer.
-    configure_monitor: 'Scout',
-    // configure_budget: founder-facing budget cap change proposed by chat.
-    // "Chief" because raising the cap is a CEO-class decision, not analytics.
-    configure_budget: 'Chief',
-    // configure_watch_source: in-chat watch source proposal awaiting founder
-    // approval. "Scout" — same family as monitors, both about observation.
-    configure_watch_source: 'Scout',
-    // run_skill: founder-approved skill kickoff. "Analyst" — the skill itself
-    // performs structured analytical work (market research, risk scoring, etc.)
-    // and writes durable evidence (skill_completions row, section_scores).
-    run_skill: 'Analyst',
-    // skill_rerun_result: heartbeat-executor refreshed an analytical skill.
-    // "Chief" — score-delta visibility is a CEO concern.
-    skill_rerun_result: 'Chief',
-    task: 'Chief',
-    // Unified-inbox surface (Phase 1 consolidation). These materialize from
-    // other proposal tables — the "agent" label maps to the producer system:
-    // signals come from monitors (Scout), briefs from intelligence correlation
-    // (Analyst), assumptions from the validation extractor (Analyst), raw
-    // changes from watch_sources scraper (Scout).
-    signal_alert: 'Scout',
-    intelligence_brief: 'Analyst',
-    assumption_review: 'Analyst',
+    // Chat-born drafts + tool proposals (artifact-persistence.ts,
+    // project-tools.ts, skill-tools.ts) — the chat agent wrote the row.
+    draft_email: 'chat',
+    draft_linkedin_post: 'chat',
+    draft_linkedin_dm: 'chat',
+    proposed_hypothesis: 'chat',
+    proposed_interview_question: 'chat',
+    proposed_landing_copy: 'chat',
+    proposed_investor_followup: 'chat',
+    proposed_graph_update: 'chat',
+    workflow_step: 'chat',
+    configure_monitor: 'chat',
+    configure_budget: 'chat',
+    configure_watch_source: 'chat',
+    run_skill: 'chat',
+    task: 'chat',
+    // Assumption extraction runs inside a chat tool call (project-tools →
+    // lib/assumptions.ts), so the review rows are chat-produced too.
+    assumption_review: 'chat',
+    // Heartbeat executor refreshed a stale analytical skill.
+    skill_rerun_result: 'heartbeat',
+    // Materialized from ecosystem_alerts — written by the signal subsystem
+    // (monitor runs + watch-source processor).
+    signal_alert: 'signal',
+    // Materialized from intelligence_briefs (intelligence-correlator.ts).
+    intelligence_brief: 'correlator',
   };
   return map[type] || 'unknown';
 }
@@ -1173,11 +1306,18 @@ function buildActivity(a: PendingAction): ActivityEvent[] {
   }
 
   if (a.status === 'sent') {
+    // markActionSent persists the executor narrative as
+    // execution_result.response — surface it so Activity says what the apply
+    // actually DID ("Signal accepted and folded into project knowledge
+    // (graph node …)") instead of a generic delivery line.
+    const narrative = typeof a.execution_result?.response === 'string'
+      ? a.execution_result.response.trim()
+      : '';
     events.push({
       t: a.executed_at ? timeAgo(a.executed_at) : timeAgo(a.updated_at),
       who: producer,
       k: 'tool',
-      m: 'Executed delivery',
+      m: narrative || 'Executed delivery',
     });
   }
 

@@ -191,7 +191,10 @@ export async function listPendingActions(opts: ListPendingActionsOptions): Promi
     sql += ` AND status IN (${statuses.map(() => '?').join(',')})`;
     params.push(...statuses);
   }
-  sql += ' ORDER BY created_at DESC';
+  // Open rows first (pending/edited — the founder still owes a decision),
+  // terminal rows after; newest-first within each group. Pure created_at DESC
+  // interleaved Done/Dismissed rows between Waiting ones in the inbox.
+  sql += ` ORDER BY CASE WHEN status IN ('pending', 'edited') THEN 0 ELSE 1 END, created_at DESC`;
   if (opts.limit) { sql += ` LIMIT ${Math.max(1, Math.min(500, opts.limit))}`; }
   const rows = await query<PendingActionRow>(sql, ...params);
   return rows.map(rowToAction);

@@ -46,7 +46,16 @@ export const ACTION_LANE: Record<PendingActionType, ActionLane> = {
   proposed_investor_followup: 'approval',
   proposed_graph_update: 'approval',
   // Unified inbox surface — materialized from other proposal tables.
-  signal_alert: 'notification',
+  //
+  // signal_alert is an APPROVAL, not a notification: its apply executor
+  // (acceptAlertIntoKnowledge) files the finding into the knowledge graph,
+  // so the founder is making a review decision, not clearing a notice. When
+  // it lived in the notification lane the only verb was "Acknowledge"
+  // (reject) — Accept was unreachable AND the cron stale-sweep
+  // (dismissStaleNotifications uses typesForLane('notification')) silently
+  // discarded unreviewed signals after 7 days without ever running the
+  // executor. Both fixed by this one mapping.
+  signal_alert: 'approval',
   intelligence_brief: 'approval',
   assumption_review: 'approval',
 };
