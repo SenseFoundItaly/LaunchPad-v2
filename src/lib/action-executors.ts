@@ -36,6 +36,7 @@ import { checkDedup, computeDedupHash } from './monitor-dedup';
 import { recordEvent } from './memory/events';
 import { recordFact } from './memory/facts';
 import { outputInstructions, projectContext } from './ecosystem-monitors';
+import { entityNameFromHeadline } from './ecosystem-alert-parser';
 import type { MonitorPromptContext } from './ecosystem-monitors';
 import { calculateNextRun } from './monitor-schedule';
 import { logSignalActivity } from './signal-activity-log';
@@ -218,14 +219,24 @@ const proposedHypothesis: ActionHandler = async (action) => {
   const proposedChanges = payload.proposed_changes || null;
   const locale = await localeFor(action);
 
+  // Alert-derived hypotheses (auto-fanout from persistEcosystemAlerts) carry
+  // the ecosystem_alert FK, which SHADOWS signal_alert materialization for
+  // that alert — so this approval is the founder's ONLY review of the signal.
+  // Fold the finding into project knowledge exactly like a signal_alert apply;
+  // no-ops for chat-born hypotheses without an alert.
+  const knowledgeNodeId = await acceptAlertIntoKnowledge(action);
+
   if (!loopId) {
+    const filed = knowledgeNodeId
+      ? (locale === 'it' ? ' Il segnale è stato salvato nella knowledge del progetto.' : ' The signal was filed into project knowledge.')
+      : '';
     return {
       ok: true,
       deliverable: {
         mode: 'outbox',
-        narrative: locale === 'it'
+        narrative: (locale === 'it'
           ? 'Ipotesi in attesa di un growth_loop. Crea un loop per la metrica target e riesegui.'
-          : 'Hypothesis waiting on a growth_loop. Create a loop for the target metric and re-run.',
+          : 'Hypothesis waiting on a growth_loop. Create a loop for the target metric and re-run.') + filed,
       },
     };
   }
@@ -826,24 +837,38 @@ function nodeTypeForAlert(alertType: string): string {
   }
 }
 
-const signalAlert: ActionHandler = async (action) => {
+/**
+ * Fold an approved alert-derived action into project knowledge:
+ * (1) mark the source ecosystem_alert accepted, (2) upsert an APPLIED
+ * graph_node for the finding, (3) back-link alert.graph_node_id,
+ * (4) record a memory_fact.
+ *
+ * SHARED across every action type that carries an ecosystem_alert FK — not
+ * just `signal_alert`. The auto-fanout (persistEcosystemAlerts) can queue an
+ * alert's review as `proposed_hypothesis` (per the alert's suggested_action);
+ * those actions CLAIM the alert's FK, so materialize-on-read never creates a
+ * `signal_alert` row for it — and the founder's approval used to bypass this
+ * knowledge write entirely (observed: NonnaBox cert — 2 approved alerts,
+ * 0 signal-origin graph_nodes). Any approval of an alert-derived action now
+ * funnels through here. No-ops when the action has no alert FK.
+ */
+async function acceptAlertIntoKnowledge(action: PendingAction): Promise<string | null> {
   const alertId = action.ecosystem_alert_id;
+  if (!alertId) return null;
 
   // Pull the finding BEFORE mutating it so we can fold it into project
   // knowledge. Without this, approving a signal only flipped reviewed_state
   // and the finding never entered the knowledge graph (it was a dead-end ack).
   const alert = await getSourceAlert(alertId);
 
-  if (alertId) {
-    await run(
-      `UPDATE ecosystem_alerts
-          SET reviewed_state = 'accepted',
-              reviewed_at = CURRENT_TIMESTAMP,
-              founder_action_taken = 'inbox_apply'
-        WHERE id = ?`,
-      alertId,
-    );
-  }
+  await run(
+    `UPDATE ecosystem_alerts
+        SET reviewed_state = 'accepted',
+            reviewed_at = CURRENT_TIMESTAMP,
+            founder_action_taken = 'inbox_apply'
+      WHERE id = ?`,
+    alertId,
+  );
 
   let graphNodeId: string | null = null;
   if (alert && alert.headline) {
@@ -874,6 +899,15 @@ const signalAlert: ActionHandler = async (action) => {
       confidence: alert.confidence,
     };
     const nodeType = nodeTypeForAlert(alert.alert_type);
+    // Node NAME = the entity the alert is about, not the event sentence
+    // ("HelloFresh", not "HelloFresh launches 'Ciao, Italia' series…").
+    // The full headline stays in the summary, so no information is lost —
+    // and dedup-by-name now collapses repeat signals about the same entity
+    // into one knowledge node instead of one node per news event.
+    const nodeName = entityNameFromHeadline(alert.headline) || alert.headline;
+    const nodeSummary = alert.body
+      ? `${alert.headline} — ${alert.body}`
+      : alert.headline;
 
     // Upsert by (project_id, lower(name)) so re-approving the same finding (or
     // a finding about an already-tracked entity) updates rather than duplicates.
@@ -883,7 +917,7 @@ const signalAlert: ActionHandler = async (action) => {
       const existing = await query<{ id: string }>(
         'SELECT id FROM graph_nodes WHERE project_id = ? AND LOWER(name) = LOWER(?) LIMIT 1',
         action.project_id,
-        alert.headline,
+        nodeName,
       );
       if (existing.length > 0) {
         graphNodeId = existing[0].id;
@@ -891,7 +925,7 @@ const signalAlert: ActionHandler = async (action) => {
           `UPDATE graph_nodes
               SET summary = ?, attributes = ?, sources = ?, reviewed_state = 'applied'
             WHERE id = ?`,
-          alert.body || alert.headline,
+          nodeSummary,
           attributes,
           [provenance],
           graphNodeId,
@@ -904,9 +938,9 @@ const signalAlert: ActionHandler = async (action) => {
            VALUES (?, ?, ?, ?, ?, ?, ?, 'applied')`,
           graphNodeId,
           action.project_id,
-          alert.headline,
+          nodeName,
           nodeType,
-          alert.body || alert.headline,
+          nodeSummary,
           attributes,
           [provenance],
         );
@@ -922,7 +956,7 @@ const signalAlert: ActionHandler = async (action) => {
         );
       }
     } catch (err) {
-      console.warn('[signalAlert] graph_node write failed (non-fatal):', (err as Error).message);
+      console.warn('[acceptAlertIntoKnowledge] graph_node write failed (non-fatal):', (err as Error).message);
     }
 
     // Also capture the finding as a durable memory_fact so it surfaces on the
@@ -949,9 +983,15 @@ const signalAlert: ActionHandler = async (action) => {
         });
       }
     } catch (err) {
-      console.warn('[signalAlert] recordFact failed (non-fatal):', (err as Error).message);
+      console.warn('[acceptAlertIntoKnowledge] recordFact failed (non-fatal):', (err as Error).message);
     }
   }
+
+  return graphNodeId;
+}
+
+const signalAlert: ActionHandler = async (action) => {
+  const graphNodeId = await acceptAlertIntoKnowledge(action);
 
   return {
     ok: true,

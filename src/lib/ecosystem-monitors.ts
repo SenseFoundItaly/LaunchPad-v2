@@ -90,6 +90,7 @@ OUTPUT CONTRACT — do not deviate:
    :::artifact{"type":"ecosystem_alert"}
    {
      "alert_type": "...",
+     "entity": "...",
      "headline": "...",
      "body": "...",
      "source_url": "...",
@@ -100,6 +101,7 @@ OUTPUT CONTRACT — do not deviate:
    :::
 3. Field rules:
    - alert_type: one of "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal" | "ad_activity" | "pricing_change" | "product_launch"
+   - entity: the single company/product name the alert is about (1-4 words, e.g. "HelloFresh") — the NAME only, never the event sentence
    - headline: 1 line, <=120 chars
    - body: 2-4 sentences, factual
    - source_url: direct URL (not a search page)
@@ -119,6 +121,7 @@ CONTRATTO DI OUTPUT — non deviare:
    :::artifact{"type":"ecosystem_alert"}
    {
      "alert_type": "...",
+     "entity": "...",
      "headline": "...",
      "body": "...",
      "source_url": "...",
@@ -129,6 +132,7 @@ CONTRATTO DI OUTPUT — non deviare:
    :::
 3. Regole dei campi:
    - alert_type: uno tra "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal" | "ad_activity" | "pricing_change" | "product_launch"
+   - entity: il nome della singola azienda/prodotto a cui si riferisce l'alert (1-4 parole, es. "HelloFresh") — SOLO il nome, mai la frase dell'evento
    - headline: 1 riga, <=120 caratteri
    - body: 2-4 frasi, fattuale
    - source_url: URL diretto (non una pagina di ricerca)
