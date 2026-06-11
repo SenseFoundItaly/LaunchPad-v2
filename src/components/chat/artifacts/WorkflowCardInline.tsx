@@ -108,12 +108,27 @@ export default function WorkflowCardInline({
         </div>
       )}
 
-      <div className="flex items-center justify-end">
+      {/* One-click execution wires workflow steps to real integrations
+          (website builders, email/GTM tools, automations) — the Phase-2
+          workflows layer, not built yet. The manual step checklist above is
+          fully working; the Execute button is intentionally a disabled
+          "coming soon" affordance so the roadmap is visible without promising
+          an action that does nothing. (Prior behavior: it fired an unhandled
+          'trigger-workflow' event — a dead click.) */}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] text-ink-5 italic">
+          Check off steps as you complete them — one-click execution is coming soon.
+        </span>
         <button
-          onClick={() => onAction('trigger-workflow', { title: artifact.title, steps: artifact.steps })}
-          className="text-xs px-3 py-1 bg-moss hover:bg-moss/80 text-paper rounded-md transition-colors"
+          type="button"
+          disabled
+          title="Automated execution (connect this workflow to your real tools) is coming soon. For now, track steps manually above."
+          className="text-xs px-3 py-1 bg-paper-3 text-ink-5 rounded-md cursor-not-allowed select-none flex items-center gap-1.5"
         >
           Execute
+          <span className="text-[9px] uppercase tracking-wide bg-accent/15 text-accent px-1.5 py-0.5 rounded-full">
+            Soon
+          </span>
         </button>
       </div>
     </ArtifactCardShell>
