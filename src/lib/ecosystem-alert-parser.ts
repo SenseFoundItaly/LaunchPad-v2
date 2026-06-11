@@ -25,6 +25,39 @@ export interface ParsedEcosystemAlert {
   relevance_score: number;
   confidence: number;
   suggested_action: string | null;
+  /**
+   * The single company/product name the alert is about (e.g. "HelloFresh"),
+   * per the outputInstructions contract. Optional — older prompts/transcripts
+   * don't emit it; consumers fall back to entityNameFromHeadline().
+   */
+  entity: string | null;
+}
+
+/**
+ * Best-effort extraction of the subject entity from an event-sentence
+ * headline ("HelloFresh launches 'Ciao, Italia' series" → "HelloFresh").
+ * Without this, alert HEADLINES were used verbatim as competitor_profiles
+ * names — the founder's competitor list read like a news ticker
+ * ("Mama's Creations (Nasdaq: MAMA) expands to 10,000+ stores…").
+ * Heuristic only: cut at the first event verb, strip trailing parentheticals
+ * and wrapping quotes. Returns null when nothing name-like remains, so the
+ * caller can fall back to the full headline (old behavior, no regression).
+ */
+const HEADLINE_EVENT_VERB =
+  /\s+(launches|launched|launching|expands|expanded|announces|announced|ships|shipped|raises|raised|partners|partnered|acquires|acquired|introduces|introduced|debuts|debuted|unveils|unveiled|adds|added|opens|opened|rolls out|rolled out|releases|released|brings|brought|kills|killed|drops|dropped|reaches|reached|hits|hit|closes|closed|files|filed|wins|won|signs|signed|enters|entered|targets|targeting|is |are |to )\b/i;
+
+export function entityNameFromHeadline(headline: string): string | null {
+  let name = headline.split(HEADLINE_EVENT_VERB)[0] ?? '';
+  name = name
+    .replace(/\s*\([^)]*\)\s*$/g, '')   // trailing "(Nasdaq: MAMA)" / "(June 2024)"
+    .replace(/^["'‘’“”]+|["'‘’“”]+$/g, '')
+    .replace(/[\s,:;—–-]+$/g, '')
+    .trim();
+  if (name.length < 2 || name.length > 80) return null;
+  // An entity name shouldn't be most of the sentence — if the cut removed
+  // almost nothing, the verb match failed and this is still an event sentence.
+  if (name.length > headline.trim().length * 0.8 && /\s/.test(name) && name.length > 40) return null;
+  return name;
 }
 
 // MUST stay in sync with BOTH the EcosystemAlertType union (src/types) and
@@ -137,6 +170,9 @@ function validateAlert(body: Record<string, unknown>): { ok: true; alert: Parsed
   }
 
   const suggestedAction = typeof body.suggested_action === 'string' ? body.suggested_action : null;
+  const entity = typeof body.entity === 'string' && body.entity.trim().length >= 2
+    ? body.entity.trim().slice(0, 80)
+    : null;
 
   return {
     ok: true,
@@ -148,6 +184,7 @@ function validateAlert(body: Record<string, unknown>): { ok: true; alert: Parsed
       relevance_score: relevance,
       confidence,
       suggested_action: suggestedAction,
+      entity,
     },
   };
 }
@@ -234,9 +271,17 @@ export async function persistEcosystemAlerts(
         metadata: { alert_type: alert.alert_type, monitor_id: opts.monitorId, relevance: alert.relevance_score },
       }).catch(() => {});
 
-      // Update competitor profile if the headline mentions an entity
+      // Update the competitor profile keyed by the ENTITY the alert is about,
+      // not the full headline. Passing alert.headline here made profile names
+      // read like a news ticker ("Mama's Creations (Nasdaq: MAMA) expands to
+      // 10,000+ stores…" as a competitor NAME). Prefer the artifact's explicit
+      // entity field, then the headline heuristic; full headline only as the
+      // last-resort fallback (pre-existing behavior).
       try {
-        await updateCompetitorProfile(opts.projectId, alert.headline, alert.alert_type);
+        const profileName = alert.entity
+          || entityNameFromHeadline(alert.headline)
+          || alert.headline;
+        await updateCompetitorProfile(opts.projectId, profileName, alert.alert_type);
       } catch (profileErr) {
         console.warn('competitor_profile update failed:', (profileErr as Error).message);
       }
