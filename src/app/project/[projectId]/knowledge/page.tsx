@@ -216,9 +216,14 @@ export default function KnowledgePage({
         </div>
       </div>
 
+      {/* Status bar reports only what this page actually fetched (the graph
+          query above) — no invented heartbeat/gateway state. */}
       <StatusBar
-        heartbeatLabel="heartbeat · idle"
-        gateway="pi-agent · anthropic"
+        heartbeatLabel={
+          graphLoading
+            ? 'graph · loading'
+            : `graph · ${edgeCount} edge${edgeCount === 1 ? '' : 's'}`
+        }
         ctxLabel="knowledge"
         budget={
           lastIngested > 0
