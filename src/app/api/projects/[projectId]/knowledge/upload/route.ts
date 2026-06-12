@@ -194,6 +194,70 @@ async function extractEntities(text: string, projectId: string): Promise<Extract
   }
 }
 
+// ─── canvas extractor ────────────────────────────────────────────────────────
+//
+// Drafts the lean-canvas fields (Stage 1's evidence) from the founder's own
+// uploaded docs. Unlike entities, the canvas is the founder's OWN idea
+// structure — but we still PROPOSE it (return it) rather than writing
+// idea_canvas here, so the founder confirms it on the populating screen before
+// it lands. That confirmation = POST /idea-canvas (the apply path).
+
+interface ProposedCanvas {
+  problem: string;
+  solution: string;
+  target_market: string;
+  value_proposition: string;
+  business_model: string;
+  competitive_advantage: string;
+}
+
+const CANVAS_PROMPT = `From the founder's document(s) below, draft a lean startup canvas. Use ONLY what the text actually supports — leave a field as "" when the document doesn't address it. NEVER invent.
+
+Return ONE JSON object with these string fields:
+{ "problem": "...", "solution": "...", "target_market": "...", "value_proposition": "...", "business_model": "...", "competitive_advantage": "..." }
+
+Each field: one or two concise sentences in the founder's voice. Output ONLY the JSON object — no markdown, no preamble.
+
+DOCUMENT:
+"""
+{TEXT}
+"""`;
+
+async function extractCanvas(text: string, projectId: string): Promise<ProposedCanvas | null> {
+  const truncated = text.length > 16000 ? text.slice(0, 16000) : text;
+  try {
+    const startedAt = Date.now();
+    const { text: raw, usage } = await runAgent(CANVAS_PROMPT.replace('{TEXT}', truncated), {
+      task: 'classify',
+      tools: false,
+      timeout: 25_000,
+    });
+    recordAgentUsage({
+      project_id: projectId,
+      step: 'knowledge-upload-canvas',
+      task: 'classify',
+      usage,
+      latency_ms: Date.now() - startedAt,
+    });
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    const parsed = JSON.parse(m[0]) as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 1200) : '');
+    const canvas: ProposedCanvas = {
+      problem: str(parsed.problem),
+      solution: str(parsed.solution),
+      target_market: str(parsed.target_market),
+      value_proposition: str(parsed.value_proposition),
+      business_model: str(parsed.business_model),
+      competitive_advantage: str(parsed.competitive_advantage),
+    };
+    return Object.values(canvas).some((v) => v.length > 0) ? canvas : null;
+  } catch (err) {
+    console.warn('[upload/canvas] canvas extraction failed:', (err as Error).message);
+    return null;
+  }
+}
+
 // Map a node_type to the relation verb used on the edge from your_startup
 // to that entity. Mirrors src/lib/artifact-persistence.ts:relationForEntityType
 // so the graph has consistent semantics whether the entity arrived via chat
@@ -328,6 +392,9 @@ export async function POST(
   // Collected across files for the UI's "knowledge populating" view — the
   // actual entities the upload surfaced, so onboarding can show them as cards.
   const extractedEntities: Array<{ name: string; node_type: string; summary: string; filename: string }> = [];
+  // Combined ingested text → ONE canvas-extraction pass after the loop (the
+  // canvas is project-level, not per-file).
+  const ingestedTexts: string[] = [];
 
   for (const file of files) {
     if (file.size > MAX_FILE_BYTES) {
@@ -383,6 +450,7 @@ export async function POST(
       id, projectId, userId, fact, sources,
     );
     const result: IngestResult = { filename: file.name, status: 'ingested', fact_id: id, bytes: file.size };
+    ingestedTexts.push(text);
 
     // Entity extraction — opt-in, best-effort, latency-isolated per file so
     // one slow Haiku call doesn't block the next file. A failure here never
@@ -416,6 +484,13 @@ export async function POST(
     );
   }
 
+  // Canvas draft (Stage 1 evidence) from the combined doc text — PROPOSED, not
+  // written. The founder applies it on the populating screen (POST /idea-canvas).
+  const proposedCanvas =
+    shouldExtract && ingestedTexts.length > 0
+      ? await extractCanvas(ingestedTexts.join('\n\n---\n\n'), projectId)
+      : null;
+
   return json({
     ingested: ingestedCount,
     skipped: skippedCount,
@@ -424,6 +499,8 @@ export async function POST(
     // The actual entities surfaced — drives the onboarding "knowledge
     // populating" view so the founder sees what was pulled from their docs.
     extracted_entities: extractedEntities,
+    // Lean-canvas draft (or null) for the founder to confirm → Stage 1.
+    proposed_canvas: proposedCanvas,
     results,
   }, 201);
 }

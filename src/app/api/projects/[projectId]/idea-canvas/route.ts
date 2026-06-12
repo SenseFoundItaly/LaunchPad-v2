@@ -1,7 +1,11 @@
 import { NextRequest } from 'next/server';
-import { get } from '@/lib/db';
-import { json } from '@/lib/api-helpers';
+import { get, run } from '@/lib/db';
+import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
+
+const CANVAS_FIELDS = [
+  'problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage',
+] as const;
 
 /**
  * GET /api/projects/{projectId}/idea-canvas
@@ -41,4 +45,54 @@ export async function GET(
     value_proposition: null,
     business_model: null,
   });
+}
+
+/**
+ * POST /api/projects/{projectId}/idea-canvas
+ *
+ * Applies a set of canvas fields — used by the create-from-documents flow to
+ * commit the canvas DRAFTED from uploaded docs once the founder confirms it on
+ * the populating screen. Same COALESCE-non-empty upsert as the agent's
+ * update_idea_canvas tool (project-tools.ts), so a partial fill never wipes
+ * fields the founder already has.
+ */
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> },
+) {
+  const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return error('Body must be JSON', 400);
+  }
+
+  const clean = (v: unknown): string => (typeof v === 'string' ? v.trim().slice(0, 1200) : '');
+  const fields = Object.fromEntries(CANVAS_FIELDS.map((k) => [k, clean(body[k])])) as Record<
+    (typeof CANVAS_FIELDS)[number], string
+  >;
+  if (CANVAS_FIELDS.every((k) => fields[k].length === 0)) {
+    return error('At least one non-empty canvas field is required', 400);
+  }
+
+  await run(
+    `INSERT INTO idea_canvas (project_id, problem, solution, target_market, value_proposition, business_model, competitive_advantage)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (project_id) DO UPDATE SET
+       problem               = COALESCE(NULLIF(EXCLUDED.problem, ''),               idea_canvas.problem),
+       solution              = COALESCE(NULLIF(EXCLUDED.solution, ''),              idea_canvas.solution),
+       target_market         = COALESCE(NULLIF(EXCLUDED.target_market, ''),         idea_canvas.target_market),
+       value_proposition     = COALESCE(NULLIF(EXCLUDED.value_proposition, ''),     idea_canvas.value_proposition),
+       business_model        = COALESCE(NULLIF(EXCLUDED.business_model, ''),        idea_canvas.business_model),
+       competitive_advantage = COALESCE(NULLIF(EXCLUDED.competitive_advantage, ''), idea_canvas.competitive_advantage)`,
+    projectId,
+    fields.problem, fields.solution, fields.target_market,
+    fields.value_proposition, fields.business_model, fields.competitive_advantage,
+  );
+
+  return json({ applied: CANVAS_FIELDS.filter((k) => fields[k].length > 0) }, 201);
 }

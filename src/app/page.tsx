@@ -9,6 +9,24 @@ import { TopBar } from '@/components/design/chrome';
 import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
 import { NODE_COLORS } from '@/types/graph';
 
+// Lean-canvas fields the upload extractor proposes from a founder's docs.
+type ProposedCanvas = {
+  problem: string;
+  solution: string;
+  target_market: string;
+  value_proposition: string;
+  business_model: string;
+  competitive_advantage: string;
+};
+const CANVAS_FIELD_LABELS: Array<{ key: keyof ProposedCanvas; label: string }> = [
+  { key: 'problem', label: 'Problem' },
+  { key: 'solution', label: 'Solution' },
+  { key: 'target_market', label: 'Target market' },
+  { key: 'value_proposition', label: 'Value proposition' },
+  { key: 'competitive_advantage', label: 'Competitive edge' },
+  { key: 'business_model', label: 'Business model' },
+];
+
 interface DashboardProject {
   project_id: string;
   name: string;
@@ -73,6 +91,7 @@ export default function HomePage() {
     ingested: number;
     skipped: number;
     entities: Array<{ name: string; node_type: string; summary: string; filename: string }>;
+    canvas: ProposedCanvas | null;
   } | null>(null);
   const [expandedSignals, setExpandedSignals] = useState<Set<string>>(new Set());
   const [showSignals, setShowSignals] = useState(false);
@@ -158,11 +177,13 @@ export default function HomePage() {
               ingested?: number;
               skipped?: number;
               extracted_entities?: Array<{ name: string; node_type: string; summary: string; filename: string }>;
+              proposed_canvas?: ProposedCanvas | null;
             };
             setExtractResult({
               ingested: d.ingested ?? 0,
               skipped: d.skipped ?? 0,
               entities: Array.isArray(d.extracted_entities) ? d.extracted_entities : [],
+              canvas: d.proposed_canvas ?? null,
             });
             setCreating(false);
             return; // show the results view; route to chat on "Continue"
@@ -593,6 +614,7 @@ export default function HomePage() {
                     {extractResult ? (
                       <ExtractedKnowledgeView
                         result={extractResult}
+                        projectId={createdProjectId}
                         onContinue={() => {
                           if (createdProjectId) router.push(`/project/${createdProjectId}/chat`);
                         }}
@@ -1066,15 +1088,39 @@ function ExtractingView({ files, status }: { files: File[]; status: string | nul
   );
 }
 
-/** Shown after extraction: the entities pulled from the docs, then continue. */
+/** Shown after extraction: the canvas drafted from the docs (apply → Stage 1)
+ *  + the entities pulled into the graph, then continue. */
 function ExtractedKnowledgeView({
   result,
+  projectId,
   onContinue,
 }: {
-  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string }> };
+  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string }>; canvas: ProposedCanvas | null };
+  projectId: string | null;
   onContinue: () => void;
 }) {
-  const { ingested, skipped, entities } = result;
+  const { ingested, skipped, entities, canvas } = result;
+  const [applying, setApplying] = useState(false);
+  const canvasFields = canvas
+    ? CANVAS_FIELD_LABELS.filter((f) => canvas[f.key]?.trim())
+    : [];
+
+  async function applyCanvasAndContinue() {
+    if (projectId && canvas && canvasFields.length > 0) {
+      setApplying(true);
+      try {
+        await fetch(`/api/projects/${projectId}/idea-canvas`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(canvas),
+        });
+      } catch {
+        /* non-fatal — founder can fill the canvas in chat */
+      }
+    }
+    onContinue();
+  }
+
   return (
     <div>
       <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 3 }}>
@@ -1083,11 +1129,29 @@ function ExtractedKnowledgeView({
       </div>
       <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 12 }}>
         {entities.length > 0
-          ? `Pulled ${entities.length} entit${entities.length === 1 ? 'y' : 'ies'} into your knowledge graph — review & apply them anytime in Know.`
-          : 'No distinct entities surfaced, but the full text is now in your knowledge layer.'}
+          ? `Pulled ${entities.length} entit${entities.length === 1 ? 'y' : 'ies'} into your knowledge graph (pending your review in Know).`
+          : 'The full text is now in your knowledge layer.'}
       </div>
+
+      {/* Canvas drafted from the docs — applying it seeds Stage 1 (Idea Validation). */}
+      {canvasFields.length > 0 && (
+        <div style={{ marginBottom: 14, padding: 12, background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, fontFamily: 'var(--f-mono)', marginBottom: 8 }}>
+            Canvas drafted from your documents
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto' }}>
+            {canvasFields.map((f) => (
+              <div key={f.key}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-3)' }}>{f.label}</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.45 }}>{canvas![f.key]}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {entities.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto', marginBottom: 14 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto', marginBottom: 14 }}>
           {entities.map((e, i) => (
             <div
               key={`${e.name}-${i}`}
@@ -1107,22 +1171,39 @@ function ExtractedKnowledgeView({
           ))}
         </div>
       )}
-      <button
-        onClick={onContinue}
-        style={{
-          padding: '8px 16px',
-          background: 'var(--ink)',
-          color: 'var(--paper)',
-          border: 'none',
-          borderRadius: 'var(--r-m)',
-          fontSize: 12.5,
-          fontWeight: 500,
-          cursor: 'pointer',
-          fontFamily: 'inherit',
-        }}
-      >
-        Continue to Co-pilot →
-      </button>
+
+      {canvasFields.length > 0 ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            onClick={applyCanvasAndContinue}
+            disabled={applying}
+            style={{
+              padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none',
+              borderRadius: 'var(--r-m)', fontSize: 12.5, fontWeight: 500,
+              cursor: applying ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: applying ? 0.6 : 1,
+            }}
+          >
+            {applying ? 'Applying…' : 'Use this canvas → Co-pilot'}
+          </button>
+          <button
+            onClick={onContinue}
+            disabled={applying}
+            style={{ padding: '8px 10px', background: 'transparent', color: 'var(--ink-4)', border: 'none', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline', textUnderlineOffset: 3 }}
+          >
+            Skip canvas
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={onContinue}
+          style={{
+            padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none',
+            borderRadius: 'var(--r-m)', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+          }}
+        >
+          Continue to Co-pilot →
+        </button>
+      )}
     </div>
   );
 }
