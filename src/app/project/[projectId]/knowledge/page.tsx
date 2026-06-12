@@ -86,6 +86,26 @@ export default function KnowledgePage({
     }
   }
 
+  // Dismiss a pending node (reject). Unlike Apply this debits NOTHING, so we
+  // fire only lp-knowledge-changed (no lp-credits-changed) and refetch so the
+  // rejected node drops out of the graph.
+  async function dismissNode(node: GraphNode) {
+    const id = (node as { id?: string }).id;
+    if (!id) return;
+    try {
+      const res = await fetch(`/api/projects/${projectId}/knowledge/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: 'rejected' }),
+      });
+      if (!res.ok) return;
+      window.dispatchEvent(new CustomEvent('lp-knowledge-changed'));
+      void qc.invalidateQueries({ queryKey: ['knowledge', projectId] });
+    } catch {
+      /* non-fatal — the node stays pending, founder can retry */
+    }
+  }
+
   return (
     <div className="lp-frame">
       <TopBar
@@ -122,7 +142,7 @@ export default function KnowledgePage({
               // disconnected floating dots. Show a labeled grid instead.
               <EntityGridFallback nodes={graph.nodes} />
             ) : (
-              <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} />
+              <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} />
             )}
             {pendingCount > 0 && (
               <div
@@ -138,7 +158,7 @@ export default function KnowledgePage({
                   padding: '4px 8px',
                 }}
               >
-                Dashed = pending · click to apply (2 credits)
+                Dashed = pending · click to review
               </div>
             )}
           </div>

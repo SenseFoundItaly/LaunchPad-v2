@@ -258,6 +258,69 @@ async function extractCanvas(text: string, projectId: string): Promise<ProposedC
   }
 }
 
+// ─── monitor (watcher) suggester ─────────────────────────────────────────────
+//
+// Suggests recurring watchers the founder might want, based on the doc — each a
+// single nameable thing to track. PROPOSED only (returned, never written): the
+// founder opts in on the populating screen, and the chosen ones are created via
+// POST /monitors. Mirrors extractEntities/extractCanvas (Haiku, best-effort).
+
+interface ProposedMonitor {
+  name: string;
+  aim: string;
+  cadence: 'daily' | 'weekly';
+}
+
+const MONITORS_PROMPT = `From the founder's document(s) below, suggest up to 4 recurring "watchers" — background scans worth running on a schedule to catch external moves that matter to THIS startup (e.g. a named competitor's launches, a specific regulation, a pricing page, a market trend).
+
+Return a JSON array. Each object: { "name": one short label (<=60 chars), "aim": one sentence describing what it watches for and why (<=160 chars), "cadence": "daily" | "weekly" }.
+
+Rules: only suggest watchers grounded in what the document ACTUALLY mentions — NEVER invent a competitor, regulation, or trend the founder didn't write. Use "daily" only for genuinely fast-moving things; default "weekly". If the text is thin or has nothing worth watching, return [].
+
+Output ONLY the JSON array — no markdown, no preamble.
+
+DOCUMENT:
+"""
+{TEXT}
+"""`;
+
+async function extractMonitors(text: string, projectId: string): Promise<ProposedMonitor[]> {
+  const truncated = text.length > 16000 ? text.slice(0, 16000) : text;
+  try {
+    const startedAt = Date.now();
+    const { text: raw, usage } = await runAgent(MONITORS_PROMPT.replace('{TEXT}', truncated), {
+      task: 'classify',
+      tools: false,
+      timeout: 25_000,
+    });
+    recordAgentUsage({
+      project_id: projectId,
+      step: 'knowledge-upload-monitors',
+      task: 'classify',
+      usage,
+      latency_ms: Date.now() - startedAt,
+    });
+    const m = raw.match(/\[[\s\S]*\]/);
+    if (!m) return [];
+    const parsed = JSON.parse(m[0]) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const out: ProposedMonitor[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') continue;
+      const e = item as Record<string, unknown>;
+      const name = typeof e.name === 'string' ? e.name.trim().slice(0, 60) : '';
+      const aim = typeof e.aim === 'string' ? e.aim.trim().slice(0, 160) : '';
+      if (!name || !aim) continue;
+      out.push({ name, aim, cadence: e.cadence === 'daily' ? 'daily' : 'weekly' });
+      if (out.length >= 4) break;
+    }
+    return out;
+  } catch (err) {
+    console.warn('[upload/monitors] monitor extraction failed:', (err as Error).message);
+    return [];
+  }
+}
+
 // Map a node_type to the relation verb used on the edge from your_startup
 // to that entity. Mirrors src/lib/artifact-persistence.ts:relationForEntityType
 // so the graph has consistent semantics whether the entity arrived via chat
@@ -294,8 +357,8 @@ async function persistExtracted(
   entities: ExtractedEntity[],
   factId: string,
   filename: string,
-): Promise<number> {
-  let inserted = 0;
+): Promise<{ inserted: number; ids: Array<{ name: string; id: string }> }> {
+  const ids: Array<{ name: string; id: string }> = [];
   const sources = JSON.stringify([
     { type: 'internal', title: `Extracted from ${filename}`, ref: 'memory_fact', ref_id: factId },
   ]);
@@ -312,7 +375,7 @@ async function persistExtracted(
       projectId,
       e.name,
     );
-    if (existing) continue;
+    if (existing) continue; // deduped — owns no NEW pending row, so no node_id to return
     const id = generateId('node');
     await run(
       `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
@@ -326,9 +389,11 @@ async function persistExtracted(
         generateId('edge'), projectId, root.id, id, relationForNodeType(e.node_type), sources,
       );
     }
-    inserted++;
+    // Return the id so the client can batch-apply this freshly-inserted pending
+    // node (and the credit count reflects only chargeable, non-deduped rows).
+    ids.push({ name: e.name, id });
   }
-  return inserted;
+  return { inserted: ids.length, ids };
 }
 
 interface IngestResult {
@@ -391,7 +456,7 @@ export async function POST(
   const results: IngestResult[] = [];
   // Collected across files for the UI's "knowledge populating" view — the
   // actual entities the upload surfaced, so onboarding can show them as cards.
-  const extractedEntities: Array<{ name: string; node_type: string; summary: string; filename: string }> = [];
+  const extractedEntities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string }> = [];
   // Combined ingested text → ONE canvas-extraction pass after the loop (the
   // canvas is project-level, not per-file).
   const ingestedTexts: string[] = [];
@@ -458,9 +523,15 @@ export async function POST(
     if (shouldExtract) {
       const entities = await extractEntities(text, projectId);
       if (entities.length > 0) {
-        const inserted = await persistExtracted(projectId, entities, id, file.name);
+        const { inserted, ids } = await persistExtracted(projectId, entities, id, file.name);
         result.entities_proposed = inserted;
-        for (const e of entities) extractedEntities.push({ ...e, filename: file.name });
+        // Name-match the returned ids back to entities (persistExtracted skips
+        // dedup hits, so ids[] is SHORTER than entities[] — positional indexing
+        // would mis-map). Deduped entities get no node_id → not chargeable.
+        const idByName = new Map(ids.map((x) => [x.name.toLowerCase(), x.id]));
+        for (const e of entities) {
+          extractedEntities.push({ ...e, filename: file.name, node_id: idByName.get(e.name.toLowerCase()) });
+        }
       } else {
         result.entities_proposed = 0;
       }
@@ -484,12 +555,17 @@ export async function POST(
     );
   }
 
-  // Canvas draft (Stage 1 evidence) from the combined doc text — PROPOSED, not
-  // written. The founder applies it on the populating screen (POST /idea-canvas).
-  const proposedCanvas =
+  // Canvas draft (Stage 1 evidence) + suggested watchers from the combined doc
+  // text — PROPOSED, not written. The founder applies/opts-in on the populating
+  // screen. Run both passes concurrently (independent, same input) so we add
+  // ~one Haiku call of wall-time, not two.
+  const [proposedCanvas, proposedMonitors] =
     shouldExtract && ingestedTexts.length > 0
-      ? await extractCanvas(ingestedTexts.join('\n\n---\n\n'), projectId)
-      : null;
+      ? await Promise.all([
+          extractCanvas(ingestedTexts.join('\n\n---\n\n'), projectId),
+          extractMonitors(ingestedTexts.join('\n\n---\n\n'), projectId),
+        ])
+      : [null, [] as ProposedMonitor[]];
 
   return json({
     ingested: ingestedCount,
@@ -501,6 +577,8 @@ export async function POST(
     extracted_entities: extractedEntities,
     // Lean-canvas draft (or null) for the founder to confirm → Stage 1.
     proposed_canvas: proposedCanvas,
+    // Suggested watchers (or []) for the founder to opt into.
+    proposed_monitors: proposedMonitors,
     results,
   }, 201);
 }

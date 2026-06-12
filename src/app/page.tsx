@@ -8,6 +8,10 @@ import api from '@/api';
 import { TopBar } from '@/components/design/chrome';
 import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
 import { NODE_COLORS } from '@/types/graph';
+import { watcherWeeklyLabel } from '@/lib/watcher-cost';
+
+// A watcher the upload extractor suggests from a founder's docs (opt-in).
+type ProposedMonitor = { name: string; aim: string; cadence: 'daily' | 'weekly' };
 
 // Lean-canvas fields the upload extractor proposes from a founder's docs.
 type ProposedCanvas = {
@@ -90,8 +94,9 @@ export default function HomePage() {
   const [extractResult, setExtractResult] = useState<{
     ingested: number;
     skipped: number;
-    entities: Array<{ name: string; node_type: string; summary: string; filename: string }>;
+    entities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string }>;
     canvas: ProposedCanvas | null;
+    monitors: ProposedMonitor[];
   } | null>(null);
   const [expandedSignals, setExpandedSignals] = useState<Set<string>>(new Set());
   const [showSignals, setShowSignals] = useState(false);
@@ -176,14 +181,16 @@ export default function HomePage() {
             const d = body.data as {
               ingested?: number;
               skipped?: number;
-              extracted_entities?: Array<{ name: string; node_type: string; summary: string; filename: string }>;
+              extracted_entities?: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string }>;
               proposed_canvas?: ProposedCanvas | null;
+              proposed_monitors?: ProposedMonitor[];
             };
             setExtractResult({
               ingested: d.ingested ?? 0,
               skipped: d.skipped ?? 0,
               entities: Array.isArray(d.extracted_entities) ? d.extracted_entities : [],
               canvas: d.proposed_canvas ?? null,
+              monitors: Array.isArray(d.proposed_monitors) ? d.proposed_monitors : [],
             });
             setCreating(false);
             return; // show the results view; route to chat on "Continue"
@@ -1105,31 +1112,89 @@ function ExtractedKnowledgeView({
   projectId,
   onContinue,
 }: {
-  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string }>; canvas: ProposedCanvas | null };
+  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string }>; canvas: ProposedCanvas | null; monitors: ProposedMonitor[] };
   projectId: string | null;
   onContinue: () => void;
 }) {
-  const { ingested, skipped, entities, canvas } = result;
+  const { ingested, skipped, entities, canvas, monitors } = result;
   const [applying, setApplying] = useState(false);
+  // Watchers default UNCHECKED — they carry recurring weekly cost, so opting
+  // into ongoing spend is a deliberate choice, not a default (approve-first).
+  const [checkedWatchers, setCheckedWatchers] = useState<Set<number>>(() => new Set());
+
   const canvasFields = canvas
     ? CANVAS_FIELD_LABELS.filter((f) => canvas[f.key]?.trim())
     : [];
 
-  async function applyCanvasAndContinue() {
-    if (projectId && canvas && canvasFields.length > 0) {
-      setApplying(true);
-      try {
-        await fetch(`/api/projects/${projectId}/idea-canvas`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(canvas),
-        });
-      } catch {
-        /* non-fatal — founder can fill the canvas in chat */
-      }
-    }
-    onContinue();
+  // Three separate cost models — never blended into one number:
+  //   canvas = free · entities = flat 2 each (charged now) · watchers = weekly.
+  const APPLY_COST = 2; // mirrors KNOWLEDGE_APPLY_CREDITS (kept inline so the
+  // client bundle doesn't import @/lib/credits → postgres.js). Server debit is
+  // authoritative; this is display-only.
+  const applicableIds = entities.map((e) => e.node_id).filter((x): x is string => !!x);
+  const applyCredits = applicableIds.length * APPLY_COST;
+  const checkedCount = checkedWatchers.size;
+
+  function toggleWatcher(i: number) {
+    setCheckedWatchers((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i); else next.add(i);
+      return next;
+    });
   }
+
+  // ONE commit: canvas → entity batch-apply → checked watchers → into chat.
+  // Every sub-action is best-effort/non-fatal — the founder always routes on.
+  async function applyAndContinue() {
+    if (!projectId) { onContinue(); return; }
+    setApplying(true);
+    try {
+      if (canvas && canvasFields.length > 0) {
+        await fetch(`/api/projects/${projectId}/idea-canvas`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(canvas),
+        }).catch(() => null);
+      }
+      if (applicableIds.length > 0) {
+        await fetch(`/api/projects/${projectId}/knowledge/apply-batch`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_ids: applicableIds }),
+        }).catch(() => null);
+      }
+      const chosen = monitors.filter((_, i) => checkedWatchers.has(i));
+      if (chosen.length > 0) {
+        await Promise.allSettled(
+          chosen.map((w) =>
+            fetch(`/api/projects/${projectId}/monitors`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: w.name, objective: w.aim, prompt: w.aim, schedule: w.cadence, type: 'ecosystem.custom' }),
+            }).catch(() => null),
+          ),
+        );
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
+      }
+    } finally {
+      onContinue();
+    }
+  }
+
+  // Compose the primary button label from what's actually committed.
+  const N = applicableIds.length;
+  const W = checkedCount;
+  const entPart = N > 0 ? `apply ${N} entit${N === 1 ? 'y' : 'ies'} · ${applyCredits} credits` : null;
+  const watchPart = W > 0 ? `start ${W} watcher${W === 1 ? '' : 's'}` : null;
+  const primaryLabel = applying
+    ? 'Applying…'
+    : canvasFields.length > 0
+      ? [`Use canvas`, entPart, watchPart].filter(Boolean).join(' + ') + ' → Co-pilot'
+      : [entPart ? `Apply ${N} entit${N === 1 ? 'y' : 'ies'} · ${applyCredits} credits` : 'Continue', watchPart].filter(Boolean).join(' · ') + ' → Co-pilot';
+
+  const primaryBtnStyle: React.CSSProperties = {
+    padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none',
+    borderRadius: 'var(--r-m)', fontSize: 12.5, fontWeight: 500,
+    cursor: applying ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: applying ? 0.6 : 1,
+  };
 
   return (
     <div>
@@ -1139,7 +1204,7 @@ function ExtractedKnowledgeView({
       </div>
       <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 12 }}>
         {entities.length > 0
-          ? `Pulled ${entities.length} entit${entities.length === 1 ? 'y' : 'ies'} into your knowledge graph (pending your review in Know).`
+          ? `Pulled ${entities.length} entit${entities.length === 1 ? 'y' : 'ies'} from your documents — review below, then apply.`
           : 'The full text is now in your knowledge layer.'}
       </div>
 
@@ -1147,7 +1212,7 @@ function ExtractedKnowledgeView({
       {canvasFields.length > 0 && (
         <div style={{ marginBottom: 14, padding: 12, background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
           <div style={{ fontSize: 11, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, fontFamily: 'var(--f-mono)', marginBottom: 8 }}>
-            Canvas drafted from your documents
+            Canvas drafted from your documents <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--ink-6)' }}>· free</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto' }}>
             {canvasFields.map((f) => (
@@ -1161,59 +1226,79 @@ function ExtractedKnowledgeView({
       )}
 
       {entities.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto', marginBottom: 14 }}>
-          {entities.map((e, i) => (
-            <div
-              key={`${e.name}-${i}`}
-              style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '7px 10px', background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}
-            >
-              <span className="lp-dot" style={{ background: NODE_COLORS[e.node_type] || 'var(--ink-5)', marginTop: 5, flexShrink: 0 }} />
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
-                  {e.name}
-                  <span style={{ fontWeight: 400, color: 'var(--ink-5)', fontSize: 11 }}> · {e.node_type.replace(/_/g, ' ')}</span>
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto', marginBottom: 6 }}>
+            {entities.map((e, i) => (
+              <div
+                key={`${e.name}-${i}`}
+                style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '7px 10px', background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}
+              >
+                <span className="lp-dot" style={{ background: NODE_COLORS[e.node_type] || 'var(--ink-5)', marginTop: 5, flexShrink: 0 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+                    {e.name}
+                    <span style={{ fontWeight: 400, color: 'var(--ink-5)', fontSize: 11 }}> · {e.node_type.replace(/_/g, ' ')}</span>
+                  </div>
+                  {e.summary && (
+                    <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 1, lineHeight: 1.4 }}>{e.summary}</div>
+                  )}
                 </div>
-                {e.summary && (
-                  <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 1, lineHeight: 1.4 }}>{e.summary}</div>
-                )}
               </div>
+            ))}
+          </div>
+          {applicableIds.length > 0 && (
+            <div style={{ fontSize: 11, color: 'var(--ink-5)', marginBottom: 14 }}>
+              {applicableIds.length} entit{applicableIds.length === 1 ? 'y' : 'ies'} · {applyCredits} credits to apply now — or apply later in Know.
             </div>
-          ))}
+          )}
+        </>
+      )}
+
+      {/* Suggested watchers — recurring scans, opt-in (each priced per week). */}
+      {monitors.length > 0 && (
+        <div style={{ marginBottom: 14, padding: 12, background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, fontFamily: 'var(--f-mono)', marginBottom: 8 }}>
+            Suggested watchers — ongoing scans (opt-in)
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {monitors.map((w, i) => (
+              <label key={`${w.name}-${i}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={checkedWatchers.has(i)}
+                  onChange={() => toggleWatcher(i)}
+                  style={{ marginTop: 3, flexShrink: 0 }}
+                />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>{w.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.4 }}>{w.aim}</div>
+                  <div className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', marginTop: 1 }}>
+                    {w.cadence} · {watcherWeeklyLabel(w.cadence)}
+                  </div>
+                </div>
+              </label>
+            ))}
+          </div>
+          <div style={{ fontSize: 10.5, color: 'var(--ink-6)', marginTop: 8, lineHeight: 1.4 }}>
+            Watchers run on a schedule and use credits each run — separate from the one-time cost of applying entities.
+          </div>
         </div>
       )}
 
-      {canvasFields.length > 0 ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            onClick={applyCanvasAndContinue}
-            disabled={applying}
-            style={{
-              padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none',
-              borderRadius: 'var(--r-m)', fontSize: 12.5, fontWeight: 500,
-              cursor: applying ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: applying ? 0.6 : 1,
-            }}
-          >
-            {applying ? 'Applying…' : 'Use this canvas → Co-pilot'}
-          </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button onClick={applyAndContinue} disabled={applying} style={primaryBtnStyle}>
+          {primaryLabel}
+        </button>
+        {(canvasFields.length > 0 || applicableIds.length > 0 || monitors.length > 0) && (
           <button
             onClick={onContinue}
             disabled={applying}
             style={{ padding: '8px 10px', background: 'transparent', color: 'var(--ink-4)', border: 'none', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline', textUnderlineOffset: 3 }}
           >
-            Skip canvas
+            Skip
           </button>
-        </div>
-      ) : (
-        <button
-          onClick={onContinue}
-          style={{
-            padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none',
-            borderRadius: 'var(--r-m)', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
-          }}
-        >
-          Continue to Co-pilot →
-        </button>
-      )}
+        )}
+      </div>
     </div>
   );
 }
