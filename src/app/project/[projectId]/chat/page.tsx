@@ -28,6 +28,7 @@ import { TopBar, NavRail } from '@/components/design/chrome';
 // don't import or insert it here. The `right` slot below only carries the
 // chat-specific controls (model picker, context export).
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
+import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
 import { buildContextMarkdown } from '@/lib/context-export';
 import type { ContextExportData } from '@/lib/context-export';
 import { openPrintPreview } from '@/lib/print-utils';
@@ -877,6 +878,7 @@ export default function CopilotChatPage({
               ) : messages.length === 0 ? (
                 <ChatEmptyState
                   locale={locale}
+                  projectId={projectId}
                   onPick={(s) => setInput(s)}
                 />
               ) : (
@@ -1103,29 +1105,127 @@ function useCurrentSubtask(projectId: string, locale: 'en' | 'it'): string | nul
   return subtitle;
 }
 
+interface EmptyStateStage {
+  stage: { number: number; label: string };
+  status: 'done' | 'active' | 'pending';
+  passed: number;
+  total: number;
+  results: Array<{ check: { id: string; label: string }; result: { passed: boolean; gap?: string } }>;
+}
+
+// Turn an open validation check into an actionable co-pilot prompt (keyword-
+// matched on the check label, so it's robust to check-id changes).
+function checkActionPrompt(label: string): string {
+  const l = label.toLowerCase();
+  if (/segment|icp|ideal customer|persona|beachhead/.test(l)) return 'Help me define and validate my target customer segment.';
+  if (/competitor/.test(l)) return 'Research and map my top competitors.';
+  if (/interview/.test(l)) return "Help me log customer interviews — I'll tell you who I spoke to and what they said.";
+  if (/watcher|monitor/.test(l)) return 'Set up a watcher on my key competitors or market trends.';
+  if (/market size|\btam\b|\bsam\b|\bsom\b/.test(l)) return 'Help me size my market (TAM / SAM / SOM).';
+  if (/channel|acquisition|reach|distribution/.test(l)) return 'Help me identify my acquisition channels.';
+  if (/business model|revenue|pricing|unit econ/.test(l)) return 'Help me define my business model.';
+  if (/differentiat|competitive|edge|advantage/.test(l)) return "Help me articulate how I'm different from competitors.";
+  if (/value prop/.test(l)) return 'Help me sharpen my value proposition.';
+  if (/problem/.test(l)) return 'Help me sharpen my problem statement.';
+  if (/solution/.test(l)) return 'Help me describe my solution in more depth.';
+  return `Help me with: ${label}`;
+}
+
 function ChatEmptyState({
   locale,
+  projectId,
   onPick,
 }: {
   locale: 'en' | 'it';
+  projectId: string;
   onPick: (s: string) => void;
 }) {
-  // Starter prompts assume a BRAND-NEW project (the empty state only shows
-  // before the first message, i.e. day zero) — so they're early-stage by
-  // construction: structure the idea, map competitors, pick what to validate.
-  // The old prompts ("ecosystem this week", "numbers and runway", "inbox")
-  // assumed a mature project with data none of which exists yet.
+  const [evals, setEvals] = useState<EmptyStateStage[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const { count: knowledgeCount } = useKnowledgeCount(projectId);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/projects/${projectId}/stages`)
+      .then((r) => r.json())
+      .then((body) => {
+        if (cancelled) return;
+        const inner = body?.data ?? body;
+        setEvals(Array.isArray(inner?.evaluations) ? inner.evaluations : []);
+        setLoaded(true);
+      })
+      .catch(() => { if (!cancelled) setLoaded(true); });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  const active = evals.find((e) => e.status === 'active');
+  const doneStages = evals.filter((e) => e.status === 'done');
+  const openChecks = active ? active.results.filter((r) => !r.result.passed) : [];
+  // "Has the founder already added substance?" — any validated stage, any passed
+  // check in the active stage, or knowledge entities (e.g. from a doc upload).
+  const hasProgress =
+    doneStages.length > 0 ||
+    (!!active && active.results.some((r) => r.result.passed)) ||
+    knowledgeCount > 0;
+
+  const btnStyle: React.CSSProperties = {
+    textAlign: 'left',
+    padding: '10px 12px',
+    borderRadius: 'var(--r-m)',
+    border: '1px solid var(--line-2)',
+    background: 'var(--surface)',
+    color: 'var(--ink-2)',
+    fontSize: 12.5,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  };
+
+  // ── Briefing: the project already has extracted / validated state ──────────
+  if (loaded && hasProgress) {
+    const briefParts: string[] = [];
+    if (doneStages.length > 0) briefParts.push(`${doneStages.length} stage${doneStages.length === 1 ? '' : 's'} validated`);
+    if (active) briefParts.push(`${active.stage.label} in progress (${active.passed}/${active.total})`);
+    if (knowledgeCount > 0) briefParts.push(`${knowledgeCount} knowledge entit${knowledgeCount === 1 ? 'y' : 'ies'}`);
+
+    return (
+      <div style={{ padding: '10px 0' }}>
+        <p style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 0, marginBottom: 4, lineHeight: 1.5, fontWeight: 500 }}>
+          {locale === 'it' ? 'Ecco a che punto sei — ho letto quello che hai aggiunto:' : "Here's where your project stands — I've read what you've added:"}
+        </p>
+        {briefParts.length > 0 && (
+          <p className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)', margin: '0 0 14px', lineHeight: 1.5 }}>
+            {briefParts.join('  ·  ')}
+          </p>
+        )}
+        {openChecks.length > 0 ? (
+          <>
+            <p style={{ fontSize: 11.5, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, fontFamily: 'var(--f-mono)', margin: '0 0 8px' }}>
+              {locale === 'it' ? 'Prossimi passi consigliati' : 'Recommended next steps'}
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {openChecks.slice(0, 4).map((c) => (
+                <button key={c.check.id} onClick={() => onPick(checkActionPrompt(c.check.label))} style={btnStyle}>
+                  <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{c.check.label}</span>
+                  {c.result.gap && (
+                    <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-5)', marginTop: 2 }}>{c.result.gap}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p style={{ fontSize: 12.5, color: 'var(--ink-4)' }}>
+            {locale === 'it' ? 'Tutto validato in questa tappa — chiedimi di passare alla prossima.' : "This stage is fully validated — ask me to move to the next one."}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // ── Fresh project (no substance yet): early-stage starter prompts ──────────
   const prompts = locale === 'it'
-    ? [
-      'Aiutami a strutturare la mia idea',
-      'Chi sono i miei competitor?',
-      'Cosa dovrei validare per primo?',
-    ]
-    : [
-      'Help me structure my idea',
-      'Who are my competitors?',
-      'What should I validate first?',
-    ];
+    ? ['Aiutami a strutturare la mia idea', 'Chi sono i miei competitor?', 'Cosa dovrei validare per primo?']
+    : ['Help me structure my idea', 'Who are my competitors?', 'What should I validate first?'];
 
   return (
     <div style={{ padding: '10px 0' }}>
@@ -1136,21 +1236,7 @@ function ChatEmptyState({
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {prompts.map((p) => (
-          <button
-            key={p}
-            onClick={() => onPick(p)}
-            style={{
-              textAlign: 'left',
-              padding: '10px 12px',
-              borderRadius: 'var(--r-m)',
-              border: '1px solid var(--line-2)',
-              background: 'var(--surface)',
-              color: 'var(--ink-2)',
-              fontSize: 12.5,
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-            }}
-          >
+          <button key={p} onClick={() => onPick(p)} style={btnStyle}>
             {p}
           </button>
         ))}

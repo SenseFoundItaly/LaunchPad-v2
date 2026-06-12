@@ -373,10 +373,17 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
     const pendingNodes = await query<{
       id: string; name: string; node_type: string | null; summary: string | null;
     }>(
+      // Exclude DOCUMENT-UPLOAD entities (sources marked "Extracted from <file>"
+      // by knowledge/upload). They arrive as a batch and are reviewed in the
+      // Know graph (dashed nodes, click-to-review) + the create-time populating
+      // view — materializing them here too floods the Inbox with the founder's
+      // own doc contents (e.g. their product's internal features). The Inbox
+      // stays for chat-proposed knowledge (no other surface) + watcher findings.
       `SELECT gn.id, gn.name, gn.node_type, gn.summary
          FROM graph_nodes gn
         WHERE gn.project_id = ?
           AND gn.reviewed_state = 'pending'
+          AND gn.sources::text NOT LIKE '%Extracted from %'
           AND NOT EXISTS (
             SELECT 1 FROM pending_actions pa
              WHERE pa.project_id = gn.project_id
