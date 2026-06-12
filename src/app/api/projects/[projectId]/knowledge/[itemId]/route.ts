@@ -3,6 +3,7 @@ import { json, error } from '@/lib/api-helpers';
 import { get, run } from '@/lib/db';
 import { recordEvent, type EventType } from '@/lib/memory/events';
 import { requireUser, AuthError } from '@/lib/auth/require-user';
+import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import type { ReviewedState } from '@/types/artifacts';
 import type { EcosystemAlertState } from '@/types';
 
@@ -60,35 +61,37 @@ export async function PATCH(
     return error('state is required', 400);
   }
 
-  // Probe tables to find which one contains this item
+  // Probe tables to find which one contains this item. Knowledge tables also
+  // return the current reviewed_state so we can detect a pending→applied
+  // transition and debit credits exactly once for it.
   const tables: Array<{
     table: string;
     type: string;
     isAlert: boolean;
-    check: () => Promise<{ project_id: string } | undefined>;
+    check: () => Promise<{ project_id: string; reviewed_state?: string } | undefined>;
   }> = [
     {
       table: 'memory_facts',
       type: 'fact',
       isAlert: false,
-      check: () => get<{ project_id: string }>(
-        'SELECT project_id FROM memory_facts WHERE id = ?', itemId,
+      check: () => get<{ project_id: string; reviewed_state: string }>(
+        'SELECT project_id, reviewed_state FROM memory_facts WHERE id = ?', itemId,
       ),
     },
     {
       table: 'graph_nodes',
       type: 'graph_node',
       isAlert: false,
-      check: () => get<{ project_id: string }>(
-        'SELECT project_id FROM graph_nodes WHERE id = ?', itemId,
+      check: () => get<{ project_id: string; reviewed_state: string }>(
+        'SELECT project_id, reviewed_state FROM graph_nodes WHERE id = ?', itemId,
       ),
     },
     {
       table: 'tabular_reviews',
       type: 'tabular_review',
       isAlert: false,
-      check: () => get<{ project_id: string }>(
-        'SELECT project_id FROM tabular_reviews WHERE id = ?', itemId,
+      check: () => get<{ project_id: string; reviewed_state: string }>(
+        'SELECT project_id, reviewed_state FROM tabular_reviews WHERE id = ?', itemId,
       ),
     },
     {
@@ -104,6 +107,7 @@ export async function PATCH(
   for (const { table, type, isAlert, check } of tables) {
     const row = await check();
     if (!row) continue;
+    const prevState = row.reviewed_state;
 
     // Verify the item belongs to this project
     if (row.project_id !== projectId) {
@@ -127,6 +131,22 @@ export async function PATCH(
     // Perform the state transition (per-table query handles correct timestamp columns)
     await run(UPDATE_QUERIES[table], state, itemId);
 
+    // Credit debit — applying a knowledge proposal costs KNOWLEDGE_APPLY_CREDITS.
+    // Charged ONLY on a genuine pending→applied transition (prevState guards
+    // against re-applying an already-applied row, and reject/revert never
+    // charge). Server-side so the debit can't be skipped by the client. Debit
+    // applies to knowledge items only, never ecosystem_alerts (which have their
+    // own apply path via the inbox executor). Non-fatal — never block the apply.
+    let creditsDebited = 0;
+    if (!isAlert && state === 'applied' && prevState !== 'applied') {
+      try {
+        await debitCredits(projectId, KNOWLEDGE_APPLY_CREDITS);
+        creditsDebited = KNOWLEDGE_APPLY_CREDITS;
+      } catch (err) {
+        console.warn('[knowledge PATCH] credit debit failed (non-fatal):', (err as Error).message);
+      }
+    }
+
     // Record audit event
     const eventType: EventType = isAlert
       ? ALERT_EVENT_MAP[state as EcosystemAlertState]
@@ -145,6 +165,7 @@ export async function PATCH(
       itemId,
       type,
       state: state as ReviewedState | EcosystemAlertState,
+      credits_debited: creditsDebited,
     });
   }
 

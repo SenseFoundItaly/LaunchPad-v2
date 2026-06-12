@@ -1,10 +1,13 @@
 'use client';
 
 /**
- * Tickets & Audit — ported from screen-tickets.jsx.
+ * Inbox — three tabs: Inbox · Signals · Watchers.
  *
- * Linear-style table on the left, selected-ticket detail panel on the right.
- * Every pending_action is a ticket — inspectable, approvable, rejectable.
+ * The Inbox tab is ONE chronological list merging the todo + approval +
+ * notification lanes (display-only grouping; lane semantics in
+ * src/lib/action-lanes.ts stay authoritative). Row list on the left,
+ * selected-row detail panel on the right. Every pending_action is
+ * inspectable, approvable, rejectable.
  *
  * Data shape is derived client-side from /api/projects/{id}/actions:
  *   - producer  ← derived from action_type via producerFromType() below.
@@ -29,33 +32,63 @@ import {
   IconBtn,
   type PillKind,
 } from '@/components/design/primitives';
-import type { PendingAction, PendingActionStatus, PendingActionType, ActionLane } from '@/types';
+import type { PendingAction, PendingActionStatus, PendingActionType } from '@/types';
 import type { Watcher } from '@/lib/watchers';
 import { laneFor } from '@/lib/action-lanes';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { SkillProposalReview, skillCreditsFromAction } from '@/components/actions/SkillProposalReview';
 import { PayloadSummary } from '@/components/actions/PayloadSummary';
 
-// Phase 1 — 3-lane Inbox (Tasks / Approvals / Notifications).
-// See /Users/openmaiku/.claude/plans/buckets-tasks-intelligence-signals-assets.md
+// Tab strip — Inbox / Watchers (radically simplified, 2026-06-11).
 //
-// Every pending_action falls into exactly one lane, derived from action_type
-// via ACTION_LANE in src/lib/pending-actions.ts. Tabs filter client-side; the
-// underlying fetch is still the full /actions endpoint so a founder switching
-// tabs doesn't incur a round-trip.
-const LANE_LABEL: Record<ActionLane, string> = {
-  todo: 'TODOs',
-  approval: 'Approvals',
-  notification: 'Notifications',
+// DISPLAY-ONLY grouping on top of the lane taxonomy in
+// src/lib/action-lanes.ts (which keeps driving backend behaviour like the
+// cron stale-notification sweep — do NOT touch laneFor()/ACTION_LANE).
+//
+// TWO tabs only:
+//   - Inbox    → the ONE "apply to intelligence" queue. Shows ONLY the
+//                action_types in APPLY_TO_INTELLIGENCE below (watcher findings
+//                + knowledge proposals). Every other action_type (run_skill,
+//                draft_*, configure_*, workflow_step, task, notification, …)
+//                is hidden here — they're not "apply to intelligence". Their
+//                executors/types stay intact in the backend; this page just
+//                doesn't surface them.
+//   - Watchers → MonitorListPanel (config + run logs + "+ New watcher").
+//                Reads /watchers, not /actions.
+//
+// The old Signals tab is GONE: watcher findings (signal_alert) now live in the
+// Inbox. The status/type/producer filters and the batch bar are gone too.
+type DisplayTab = 'inbox' | 'monitor';
+const TAB_LABEL: Record<DisplayTab, string> = {
+  inbox: 'Inbox',
   monitor: 'Watchers',
 };
-const LANE_ORDER: ActionLane[] = ['todo', 'approval', 'notification', 'monitor'];
+const TAB_ORDER: DisplayTab[] = ['inbox', 'monitor'];
 
-// Real producers, not persona fiction. Each row is written by exactly one of
-// these subsystems; the label below is derived from `action_type` via
-// producerFromType() and matches what actually inserted the row.
-const PRODUCER_OPTIONS = ['any', 'chat', 'heartbeat', 'signal', 'correlator'] as const;
-const STATUS_OPTIONS: Array<'any' | PendingActionStatus> = ['any', 'pending', 'edited', 'applied', 'sent', 'rejected', 'failed'];
+// The "apply to intelligence" allow-list. ONLY these action_types render in
+// the Inbox tab. signal_alert = watcher findings; the rest are knowledge
+// proposals the founder applies to project intelligence. Anything not here is
+// hidden from this surface (but still lives in pending_actions + its executor).
+const APPLY_TO_INTELLIGENCE: ReadonlySet<PendingActionType> = new Set<PendingActionType>([
+  'signal_alert',
+  'proposed_graph_update',
+  'assumption_review',
+  'intelligence_brief',
+]);
+
+// ?lane= deep-link values. Old links carried lane names (todo / approval /
+// notification / signal / monitor); all of those now collapse to the Inbox
+// tab. New-style values (inbox / watchers) are accepted too.
+const LANE_PARAM_TO_TAB: Record<string, DisplayTab> = {
+  todo: 'inbox',
+  approval: 'inbox',
+  notification: 'inbox',
+  inbox: 'inbox',
+  signal: 'inbox',
+  signals: 'inbox',
+  monitor: 'monitor',
+  watchers: 'monitor',
+};
 
 // =============================================================================
 // Page
@@ -85,7 +118,6 @@ export default function TicketsPage({
   const qc = useQueryClient();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [batchBusy, setBatchBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Executor narrative toast ("Signal accepted and folded into project
@@ -99,15 +131,16 @@ export default function TicketsPage({
     return () => clearTimeout(timer);
   }, [notice]);
 
-  // Lane tab + filter dropdowns. Default lane is chosen after first fetch
-  // based on whichever lane has the most open rows (so a founder with 12
-  // approvals and 0 TODOs lands on Approvals first). Filters default to 'any'
-  // so the list matches the pre-Phase-1 behaviour until the founder narrows.
-  const [lane, setLane] = useState<ActionLane>('todo');
-  const [laneInitialized, setLaneInitialized] = useState(false);
-  const [producerFilter, setProducerFilter] = useState<string>('any');
-  const [statusFilter, setStatusFilter] = useState<'any' | PendingActionStatus>('any');
-  const [typeFilter, setTypeFilter] = useState<string>('any');
+  // Display tab + filter dropdowns. Default tab is chosen after first fetch
+  // based on whichever tab has the most open rows (a founder with 0 inbox
+  // rows and 4 pending signals lands on Signals first). Filters default to
+  // 'any' so the list shows everything until the founder narrows.
+  const [tab, setTab] = useState<DisplayTab>('inbox');
+  const [tabInitialized, setTabInitialized] = useState(false);
+  // Deep-link preselection for the Watchers tab: ?lane=monitor&watcher=<id>
+  // (old /project/:id/monitors/:monitorId links redirect here). Read once on
+  // mount alongside ?lane= below; never synced back to the URL.
+  const [deepLinkWatcherId, setDeepLinkWatcherId] = useState<string | null>(null);
 
   // Cached under ['actions', projectId, 'inbox']. lp-actions-changed events
   // (chat, transitions below) hit this via the QueryProvider bridge.
@@ -126,7 +159,6 @@ export default function TicketsPage({
   });
 
   const actions = useMemo(() => inbox?.actions ?? [], [inbox]);
-  const summary = inbox?.summary ?? null;
 
   // Watchers tab badge — the monitor lane reads /watchers (monitors +
   // watch_sources), not /actions, so its count can't be derived from the
@@ -156,69 +188,69 @@ export default function TicketsPage({
     if (queryError instanceof Error) setError(queryError.message);
   }, [queryError]);
 
-  // Lane counts for the tab strip — only OPEN rows count (pending+edited),
-  // matching what the footer's `openCount` already tracks. Terminal-state
-  // rows still appear in the list if the dropdown filter allows, but the
-  // tab badge shouldn't scream "12!" when 11 of those are already sent.
-  const laneCounts = useMemo<Record<ActionLane, number>>(() => {
-    // The 'monitor' lane reads from /watchers, not /actions — its count
-    // shouldn't double-bill against pending_actions, so it stays 0 HERE.
-    // The tab strip gets the real watcher total via `tabCounts` below;
-    // keeping it out of laneCounts means the land-on-busiest-lane heuristic
-    // still only weighs actionable inbox rows.
-    const c: Record<ActionLane, number> = { todo: 0, approval: 0, notification: 0, monitor: 0 };
+  // Inbox open count — OPEN rows (pending+edited) among the apply-to-
+  // intelligence allow-list only. Hidden action_types (run_skill, drafts,
+  // configs, tasks, notifications, …) don't contribute to the Inbox badge
+  // because they don't render in the Inbox tab.
+  const tabOpenCounts = useMemo<Record<DisplayTab, number>>(() => {
+    // The 'monitor' tab reads from /watchers, not /actions — its count stays
+    // 0 HERE; the real watcher total is folded in via `tabCounts` below.
+    const c: Record<DisplayTab, number> = { inbox: 0, monitor: 0 };
     for (const a of actions) {
-      if (a.status === 'pending' || a.status === 'edited') {
-        c[laneFor(a.action_type)]++;
+      if (
+        APPLY_TO_INTELLIGENCE.has(a.action_type) &&
+        (a.status === 'pending' || a.status === 'edited')
+      ) {
+        c.inbox++;
       }
     }
     return c;
   }, [actions]);
 
-  // Tab badges: inbox lanes count open rows; Watchers shows the live watcher
-  // total (matches the count MonitorListPanel renders in its own heading).
-  const tabCounts = useMemo<Record<ActionLane, number>>(
-    () => ({ ...laneCounts, monitor: watchers?.length ?? 0 }),
-    [laneCounts, watchers],
+  // Tab badges: Inbox counts open apply-to-intelligence rows; Watchers shows
+  // the live watcher total (matches the count MonitorListPanel renders).
+  const tabCounts = useMemo<Record<DisplayTab, number>>(
+    () => ({ ...tabOpenCounts, monitor: watchers?.length ?? 0 }),
+    [tabOpenCounts, watchers],
   );
 
-  // After the first successful fetch, pick the lane with the highest open
-  // count so the founder lands where the work is. Tie-breaker: TODOs.
-  // Override: ?lane=<name> in the URL pins the choice (deep links from Today).
+  // After the first successful fetch, pick the tab with the highest open
+  // count so the founder lands where the work is. Tie-breaker: Inbox.
+  // Override: ?lane=<name> in the URL pins the choice (deep links from Today,
+  // plus the /monitors/:monitorId redirect). Old lane names (todo / approval /
+  // notification) map to the merged Inbox tab via LANE_PARAM_TO_TAB so
+  // pre-merge links keep working. ?watcher=<id> additionally pre-expands that
+  // row in the Watchers tab. window.location.search instead of
+  // useSearchParams: this page has no Suspense boundary and the read is
+  // deliberately once-on-mount, never synced back.
   useEffect(() => {
-    if (laneInitialized || loading) return;
-    const fromUrl = typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('lane')
+    if (tabInitialized || loading) return;
+    const search = typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search)
       : null;
-    const validFromUrl = fromUrl && (LANE_ORDER as string[]).includes(fromUrl)
-      ? (fromUrl as ActionLane)
-      : null;
-    const winner = validFromUrl ?? LANE_ORDER.reduce<ActionLane>(
-      (best, l) => (laneCounts[l] > laneCounts[best] ? l : best),
-      'todo',
+    const fromUrl = search?.get('lane') ?? null;
+    const validFromUrl = fromUrl ? LANE_PARAM_TO_TAB[fromUrl] ?? null : null;
+    const watcherFromUrl = search?.get('watcher') ?? null;
+    if (watcherFromUrl) setDeepLinkWatcherId(watcherFromUrl);
+    const winner = validFromUrl ?? TAB_ORDER.reduce<DisplayTab>(
+      (best, t) => (tabOpenCounts[t] > tabOpenCounts[best] ? t : best),
+      'inbox',
     );
-    setLane(winner);
-    setLaneInitialized(true);
-  }, [laneCounts, laneInitialized, loading]);
+    setTab(winner);
+    setTabInitialized(true);
+  }, [tabOpenCounts, tabInitialized, loading]);
 
-  // Available action_types within the current lane — powers the 'type' dropdown.
-  const typeOptions = useMemo<string[]>(() => {
-    const inLane = actions.filter((a) => laneFor(a.action_type) === lane);
-    const unique = Array.from(new Set(inLane.map((a) => a.action_type))).sort();
-    return ['any', ...unique];
-  }, [actions, lane]);
-
-  // Apply lane + dropdown filters. Keeps the full `actions` array as the
-  // source of truth so lane-switching is instant (no re-fetch).
+  // The Inbox list: ONLY the apply-to-intelligence action_types, and only
+  // rows still awaiting a decision (pending | edited). No status/type/producer
+  // filters — this is one flat "apply or dismiss" queue, newest first.
   const filteredActions = useMemo(() => {
-    return actions.filter((a) => {
-      if (laneFor(a.action_type) !== lane) return false;
-      if (statusFilter !== 'any' && a.status !== statusFilter) return false;
-      if (typeFilter !== 'any' && a.action_type !== typeFilter) return false;
-      if (producerFilter !== 'any' && producerFromType(a.action_type) !== producerFilter) return false;
-      return true;
-    });
-  }, [actions, lane, statusFilter, typeFilter, producerFilter]);
+    return actions
+      .filter((a) =>
+        APPLY_TO_INTELLIGENCE.has(a.action_type) &&
+        (a.status === 'pending' || a.status === 'edited'),
+      )
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [actions]);
 
   // Keep selection valid inside the filtered view; if the currently-selected
   // row got filtered out, auto-pick the first visible row.
@@ -232,13 +264,8 @@ export default function TicketsPage({
     }
   }, [filteredActions, selectedId]);
 
-  // Reset dropdowns when switching lane — stops "status=sent" from silently
-  // suppressing the new lane's open rows.
-  function handleLaneChange(next: ActionLane) {
-    setLane(next);
-    setProducerFilter('any');
-    setStatusFilter('any');
-    setTypeFilter('any');
+  function handleTabChange(next: DisplayTab) {
+    setTab(next);
   }
 
   async function transition(actionId: string, verb: 'apply' | 'reject' | 'mark_sent', extras: Record<string, unknown> = {}) {
@@ -272,44 +299,10 @@ export default function TicketsPage({
     }
   }
 
-  // Batch apply/reject — SCOPED to the no-spend signal cluster (rows carrying
-  // an ecosystem_alert_id: signal_alert + alert-derived hypothesis/graph
-  // proposals). A monitor run can drop 4+ of these at once; clearing them
-  // one-by-one is the volume pain. Deliberately NOT a blanket "apply all":
-  // run_skill / budget / monitor proposals SPEND or commit recurring cost, so
-  // they stay per-item — bulk-approving them would break the approve-first
-  // consent guarantee. Sequential calls reuse the audited transition endpoint;
-  // one invalidate at the end avoids N refetches.
-  async function batchSignals(ids: string[], verb: 'apply' | 'reject') {
-    if (ids.length === 0 || batchBusy) return;
-    const label = verb === 'apply' ? 'Accept' : 'Dismiss';
-    if (!window.confirm(`${label} all ${ids.length} signal${ids.length === 1 ? '' : 's'} in one go?`)) return;
-    setBatchBusy(true);
-    let ok = 0, failed = 0;
-    for (const id of ids) {
-      try {
-        const res = await fetch(`/api/projects/${projectId}/actions/${id}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transition: verb }),
-        });
-        const body = await res.json();
-        if (body.success) ok++; else failed++;
-      } catch { failed++; }
-    }
-    setBatchBusy(false);
-    setNotice({ text: `${label === 'Accept' ? 'Accepted' : 'Dismissed'} ${ok} signal${ok === 1 ? '' : 's'}${failed ? ` · ${failed} failed` : ''}.`, ts: Date.now() });
-    await qc.invalidateQueries({ queryKey: ['actions', projectId] });
-  }
-
   const selected = filteredActions.find(a => a.id === selectedId) || null;
 
-  // The no-spend signal cluster in the current view (see batchSignals above).
-  const batchableSignals = useMemo(
-    () => filteredActions.filter((a) => a.ecosystem_alert_id && a.status === 'pending'),
-    [filteredActions],
-  );
-  const openCount = (summary?.pending ?? 0) + (summary?.edited ?? 0);
+  // Open count = the apply-to-intelligence rows awaiting a decision.
+  const openCount = tabOpenCounts.inbox;
 
   return (
     <div className="lp-frame">
@@ -329,75 +322,43 @@ export default function TicketsPage({
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <InboxSubhead />
           <LaneTabs
-            active={lane}
+            active={tab}
             counts={tabCounts}
-            onChange={handleLaneChange}
+            onChange={handleTabChange}
           />
 
-          {lane === 'monitor' ? (
-            // Monitor lane reads from /monitors, not /actions — no toolbar,
-            // no row-selection detail pane. The panel owns its own scroll
-            // and renders the "+ New monitor" CTA inline.
+          {tab === 'monitor' ? (
+            // Watchers lane reads from /watchers, not /actions. The panel owns
+            // its own scroll, renders the "+ New watcher" form inline, and
+            // expands rows in place (config + run logs). deepLinkWatcherId
+            // pre-expands the row from ?watcher=<id>.
             <div style={{ flex: 1, overflow: 'auto', background: 'var(--paper)' }}>
-              <MonitorListPanel projectId={projectId} />
+              <MonitorListPanel
+                projectId={projectId}
+                initialExpandedWatcherId={deepLinkWatcherId ?? undefined}
+              />
             </div>
           ) : (
-            <>
-              <TicketsToolbar
-                total={filteredActions.length}
-                open={laneCounts[lane]}
-                producerFilter={producerFilter}
-                setProducerFilter={setProducerFilter}
-                statusFilter={statusFilter}
-                setStatusFilter={setStatusFilter}
-                typeFilter={typeFilter}
-                setTypeFilter={setTypeFilter}
-                typeOptions={typeOptions}
+            // Inbox = the ONE apply-to-intelligence queue. No toolbar, no
+            // filters: a flat list where each row is title + brief + one
+            // action pair (Apply · 2 credits / Dismiss). Selecting a row opens
+            // the read-only inspector pane on the right.
+            <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
+              <InboxList
+                rows={filteredActions}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                onTransition={transition}
+                loading={loading}
+                error={error}
               />
-
-              {batchableSignals.length >= 2 && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '7px 16px', borderBottom: '1px solid var(--line)', background: 'var(--surface)', fontSize: 12 }}>
-                  <span style={{ color: 'var(--ink-3)' }}>
-                    {batchableSignals.length} signals from your watchers — review one by one, or:
-                  </span>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      type="button"
-                      disabled={batchBusy}
-                      onClick={() => batchSignals(batchableSignals.map(a => a.id), 'apply')}
-                      style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: 'none', background: 'var(--moss)', color: 'var(--paper)', cursor: batchBusy ? 'not-allowed' : 'pointer', opacity: batchBusy ? 0.6 : 1 }}
-                    >
-                      Accept all into knowledge
-                    </button>
-                    <button
-                      type="button"
-                      disabled={batchBusy}
-                      onClick={() => batchSignals(batchableSignals.map(a => a.id), 'reject')}
-                      style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-2)', cursor: batchBusy ? 'not-allowed' : 'pointer', opacity: batchBusy ? 0.6 : 1 }}
-                    >
-                      Dismiss all
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
-                <TicketsTable
-                  rows={filteredActions}
-                  selectedId={selectedId}
-                  onSelect={setSelectedId}
-                  loading={loading}
-                  error={error}
-                  lane={lane}
+              {selected && (
+                <TicketDetail
+                  action={selected}
+                  onTransition={transition}
                 />
-                {selected && (
-                  <TicketDetail
-                    action={selected}
-                    onTransition={transition}
-                  />
-                )}
-              </div>
-            </>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -449,7 +410,7 @@ export default function TicketsPage({
 }
 
 // =============================================================================
-// Subhead — frames Inbox as the downstream of Signals.
+// Subhead — frames the Inbox as the apply-to-intelligence queue.
 // Always-visible one-liner that sets expectation on every visit. Sits
 // between the TopBar and the LaneTabs so it lands in the natural reading
 // path. Uses the same surface as LaneTabs so it reads as part of the strip.
@@ -471,17 +432,17 @@ function InboxSubhead() {
       }}
     >
       <span style={{ color: 'var(--ink-2)', fontWeight: 500 }}>
-        Everything proposed for your review.
+        Apply to your project intelligence.
       </span>
       <span>
-        Tasks to do, drafts to approve, signals & briefs to acknowledge. Apply or reject — each accepted item lands in Knowledge.
+        Watcher findings and knowledge proposals. Apply or dismiss — each applied item lands in Knowledge.
       </span>
     </div>
   );
 }
 
 // =============================================================================
-// Lane tabs — 3-lane strip above the toolbar
+// Lane tabs — 2-tab strip (Inbox · Watchers)
 // =============================================================================
 
 function LaneTabs({
@@ -489,9 +450,9 @@ function LaneTabs({
   counts,
   onChange,
 }: {
-  active: ActionLane;
-  counts: Record<ActionLane, number>;
-  onChange: (l: ActionLane) => void;
+  active: DisplayTab;
+  counts: Record<DisplayTab, number>;
+  onChange: (t: DisplayTab) => void;
 }) {
   return (
     <div
@@ -504,7 +465,7 @@ function LaneTabs({
         paddingLeft: 12,
       }}
     >
-      {LANE_ORDER.map((l) => {
+      {TAB_ORDER.map((l) => {
         const isActive = l === active;
         return (
           <button
@@ -526,7 +487,7 @@ function LaneTabs({
               marginBottom: -1, // overlap the border-bottom for active underline
             }}
           >
-            <span>{LANE_LABEL[l]}</span>
+            <span>{TAB_LABEL[l]}</span>
             {counts[l] > 0 && (
               <Pill kind={isActive ? 'info' : 'n'}>{counts[l]}</Pill>
             )}
@@ -538,151 +499,7 @@ function LaneTabs({
 }
 
 // =============================================================================
-// Toolbar
-// =============================================================================
-
-function TicketsToolbar({
-  total,
-  open,
-  producerFilter,
-  setProducerFilter,
-  statusFilter,
-  setStatusFilter,
-  typeFilter,
-  setTypeFilter,
-  typeOptions,
-}: {
-  total: number;
-  open: number;
-  producerFilter: string;
-  setProducerFilter: (v: string) => void;
-  statusFilter: 'any' | PendingActionStatus;
-  setStatusFilter: (v: 'any' | PendingActionStatus) => void;
-  typeFilter: string;
-  setTypeFilter: (v: string) => void;
-  typeOptions: string[];
-}) {
-  return (
-    <div
-      style={{
-        padding: '10px 20px',
-        borderBottom: '1px solid var(--line)',
-        background: 'var(--surface)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-      }}
-    >
-      {/* Keep the search-box shell for visual continuity. Phase 1 wires the
-          dropdowns; free-text search lands in a later phase. */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '6px 10px',
-          border: '1px solid var(--line-2)',
-          borderRadius: 6,
-          minWidth: 220,
-          background: 'var(--paper)',
-          opacity: 0.5,
-        }}
-      >
-        <Icon d={I.search} size={12} style={{ color: 'var(--ink-5)' }} />
-        <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>Filter · v2</span>
-        <span style={{ flex: 1 }} />
-        <span className="lp-kbd">/</span>
-      </div>
-      <FilterSelect
-        label="status"
-        value={statusFilter}
-        options={STATUS_OPTIONS.map((s) => ({
-          value: s,
-          label: s === 'any' ? 'any' : STATUS_LABEL[s],
-        }))}
-        onChange={(v) => setStatusFilter(v as 'any' | PendingActionStatus)}
-      />
-      <FilterSelect
-        label="producer"
-        value={producerFilter}
-        options={PRODUCER_OPTIONS.map((a) => ({ value: a, label: a }))}
-        onChange={setProducerFilter}
-      />
-      <FilterSelect
-        label="type"
-        value={typeFilter}
-        options={typeOptions.map((t) => ({ value: t, label: t.replace(/_/g, ' ') }))}
-        onChange={setTypeFilter}
-      />
-      <span style={{ flex: 1 }} />
-      <span style={{ fontSize: 11, color: 'var(--ink-5)' }}>
-        {total} shown · {open} open in lane
-      </span>
-      <IconBtn d={I.download} title="export" />
-    </div>
-  );
-}
-
-// Tiny pill-shaped <select> wrapper so filters look like the existing toolbar
-// pills but actually drive state. Native <select> keeps a11y + keyboard nav
-// free; the pill-like shell is a CSS coat of paint.
-function FilterSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: Array<{ value: string; label: string }>;
-  onChange: (v: string) => void;
-}) {
-  const isActive = value !== 'any';
-  return (
-    <label
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        padding: '4px 8px',
-        borderRadius: 999,
-        border: `1px solid ${isActive ? 'var(--accent)' : 'var(--line-2)'}`,
-        background: isActive ? 'var(--accent-wash)' : 'var(--paper)',
-        fontSize: 11,
-        color: isActive ? 'var(--accent-ink)' : 'var(--ink-4)',
-        cursor: 'pointer',
-        fontFamily: 'var(--f-sans)',
-      }}
-    >
-      <span style={{ opacity: 0.7 }}>{label}</span>
-      <span>·</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          background: 'transparent',
-          border: 'none',
-          color: 'inherit',
-          fontSize: 11,
-          fontFamily: 'var(--f-sans)',
-          outline: 'none',
-          cursor: 'pointer',
-          paddingRight: 2,
-          maxWidth: 140,
-        }}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-// =============================================================================
-// Table
+// Inbox list
 // =============================================================================
 
 const STATUS_PILL: Record<PendingActionStatus, PillKind> = {
@@ -708,20 +525,55 @@ const STATUS_LABEL: Record<PendingActionStatus, string> = {
   failed: 'Failed',
 };
 
-function TicketsTable({
+// The flat credit cost shown on the inbox Apply button. The actual debit is
+// wired by a sibling change; this is the label for now (every apply-to-
+// intelligence item costs the same flat 2 credits to apply).
+const APPLY_CREDITS = 2;
+
+// Small type chip on each inbox row — a human label for the kind of
+// intelligence item (Signal / Graph update / Assumption / Brief). Pure
+// presentation; lane semantics keep driving executors underneath.
+function TypeChip({ title }: { title: string }) {
+  return (
+    <span
+      className="lp-mono"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        padding: '1px 7px',
+        borderRadius: 999,
+        border: '1px solid var(--line-2)',
+        background: 'var(--paper)',
+        fontSize: 9.5,
+        textTransform: 'uppercase',
+        letterSpacing: 0.4,
+        color: 'var(--ink-4)',
+        flexShrink: 0,
+      }}
+    >
+      <span style={{ width: 5, height: 5, borderRadius: 3, background: 'var(--plum)' }} />
+      {title}
+    </span>
+  );
+}
+
+// The Inbox list — the apply-to-intelligence queue. Each row is title + short
+// brief + ONE action pair (Apply · 2 credits / Dismiss). Nothing else.
+function InboxList({
   rows,
   selectedId,
   onSelect,
+  onTransition,
   loading,
   error,
-  lane,
 }: {
   rows: PendingAction[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
   loading: boolean;
   error: string | null;
-  lane: ActionLane;
 }) {
   if (error) {
     return (
@@ -738,115 +590,90 @@ function TicketsTable({
     );
   }
   if (rows.length === 0) {
-    const emptyCopy: Record<ActionLane, string> = {
-      todo: 'No active TODOs. The co-founder creates tasks when it spots something you need to do.',
-      approval: 'No drafts awaiting review. Drafts queue here when the agent prepares an outreach email, monitor config, or hypothesis.',
-      notification: 'No new notifications. The system posts here when it auto-refreshes a stale skill or completes a background job.',
-      // monitor lane is rendered by MonitorListPanel and never falls through
-      // to this empty-state path, but the Record type wants it specified.
-      monitor: 'No active watchers. Click "+ New watcher" above to create one.',
-    };
     return (
       <div style={{ padding: 60, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
-        {emptyCopy[lane]}
+        Inbox zero. Watcher findings and knowledge proposals land here for you to apply to your project intelligence.
       </div>
     );
   }
 
   return (
     <div className="lp-scroll" style={{ overflow: 'auto', background: 'var(--surface)' }}>
-      <div
-        className="lp-mono"
-        style={{
-          fontSize: 10,
-          color: 'var(--ink-5)',
-          padding: '9px 16px',
-          display: 'grid',
-          gridTemplateColumns: '64px 1fr 170px 110px 90px 50px',
-          gap: 10,
-          textTransform: 'uppercase',
-          letterSpacing: 0.4,
-          borderBottom: '1px solid var(--line)',
-          background: 'var(--paper-2)',
-          position: 'sticky',
-          top: 0,
-          zIndex: 1,
-        }}
-      >
-        <span>id</span>
-        <span>title</span>
-        <span>type</span>
-        <span>producer</span>
-        <span>status</span>
-        <span style={{ textAlign: 'right' }}>ago</span>
-      </div>
-      {rows.map((r) => {
-        const sel = r.id === selectedId;
-        const producer = producerFromType(r.action_type);
-        return (
-          <div
-            key={r.id}
-            onClick={() => onSelect(r.id)}
-            style={{
-              padding: '10px 16px',
-              display: 'grid',
-              gridTemplateColumns: '64px 1fr 170px 110px 90px 50px',
-              gap: 10,
-              alignItems: 'center',
-              fontSize: 12,
-              borderBottom: '1px solid var(--line)',
-              background: sel ? 'var(--accent-wash)' : 'transparent',
-              cursor: 'pointer',
-            }}
-          >
-            <span
-              className="lp-mono"
-              style={{
-                fontSize: 11,
-                color: sel ? 'var(--accent-ink)' : 'var(--ink-4)',
-                fontWeight: sel ? 600 : 400,
-              }}
-            >
-              T-{r.id.slice(-6)}
-            </span>
-            <span style={{ color: 'var(--ink-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {r.title}
-            </span>
-            <span style={{ color: 'var(--ink-4)', fontSize: 11.5 }}>
-              {humanizeActionType(r.action_type)}
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: 3,
-                  background: producerColor(producer),
-                  color: 'var(--on-accent)',
-                  fontSize: 8,
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontFamily: 'var(--f-mono)',
-                }}
-              >
-                {producer.slice(0, 2).toUpperCase()}
-              </span>
-              <span style={{ fontSize: 11 }}>{producer}</span>
-            </span>
-            <Pill
-              kind={STATUS_PILL[r.status] || 'n'}
-              dot={r.status === 'pending' || r.status === 'applied' || r.status === 'sent'}
-            >
-              {STATUS_LABEL[r.status] ?? r.status}
-            </Pill>
-            <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)', textAlign: 'right' }}>
-              {timeAgo(r.created_at)}
-            </span>
+      {rows.map((r) => (
+        <InboxRow
+          key={r.id}
+          action={r}
+          selected={r.id === selectedId}
+          onSelect={onSelect}
+          onTransition={onTransition}
+        />
+      ))}
+    </div>
+  );
+}
+
+// One Inbox row — title + short brief + ONE action pair. Apply (moss, with
+// the "· N credits" cost label) runs the audited POST {transition:'apply'};
+// Dismiss (line border) runs {transition:'reject'}. Both reuse the page-level
+// transition() machinery so executor narratives + the cache invalidate flow
+// unchanged. Selecting the row opens the read-only inspector on the right.
+function InboxRow({
+  action,
+  selected,
+  onSelect,
+  onTransition,
+}: {
+  action: PendingAction;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
+}) {
+  // Short brief: first line of the rationale, trimmed to one tidy line.
+  const brief = typeof action.rationale === 'string' ? action.rationale.trim() : '';
+  const briefLine = brief.length > 160 ? `${brief.slice(0, 160)}…` : brief;
+
+  return (
+    <div
+      onClick={() => onSelect(action.id)}
+      style={{
+        padding: '12px 16px',
+        borderBottom: '1px solid var(--line)',
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 12,
+        background: selected ? 'var(--accent-wash)' : 'transparent',
+        cursor: 'pointer',
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <TypeChip title={humanizeActionType(action.action_type)} />
+          <span style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.45, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {action.title}
+          </span>
+        </div>
+        {briefLine && (
+          <div style={{ fontSize: 11.5, color: 'var(--ink-4)', marginTop: 4, lineHeight: 1.45, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {briefLine}
           </div>
-        );
-      })}
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onTransition(action.id, 'apply'); }}
+          style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--moss)', color: 'var(--paper)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+        >
+          Apply · {APPLY_CREDITS} credits
+        </button>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onTransition(action.id, 'reject'); }}
+          style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-2)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+        >
+          Dismiss
+        </button>
+      </div>
     </div>
   );
 }
@@ -862,7 +689,7 @@ function TicketDetail({
   action: PendingAction;
   onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
 }) {
-  const producer = producerFromType(action.action_type);
+  const producer = producerFromType(action.action_type, action.ecosystem_alert_id);
   const canAct = action.status === 'pending' || action.status === 'edited';
   const awaitingClick = action.status === 'applied';
 
@@ -894,39 +721,10 @@ function TicketDetail({
         </SideSection>
       )}
 
-      <SideSection title={`Activity · ${buildActivity(action).length} event${buildActivity(action).length === 1 ? '' : 's'}`}>
-        {buildActivity(action).map((e, i) => {
-          const c = { tool: 'var(--sky)', think: 'var(--ink-5)', msg: 'var(--ink-2)', human: 'var(--accent)' }[e.k] || 'var(--ink-3)';
-          return (
-            <div
-              key={i}
-              style={{
-                padding: '9px 14px',
-                borderTop: '1px solid var(--line)',
-                display: 'grid',
-                gridTemplateColumns: '50px 60px 1fr',
-                gap: 8,
-                fontSize: 11.5,
-              }}
-            >
-              <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>{e.t}</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{ width: 6, height: 6, borderRadius: 3, background: c }} />
-                <span style={{ fontSize: 11 }}>{e.who}</span>
-              </span>
-              <span
-                style={{
-                  color: e.k === 'think' ? 'var(--ink-4)' : 'var(--ink-2)',
-                  fontStyle: e.k === 'think' ? 'italic' : 'normal',
-                  fontFamily: e.k === 'tool' ? 'var(--f-mono)' : 'inherit',
-                }}
-              >
-                {e.m}
-              </span>
-            </div>
-          );
-        })}
-      </SideSection>
+      {/* The synthesized "Activity · N events" log was removed (2026-06) —
+          it reconstructed a timeline from 4 columns and mostly printed noise
+          ("Queued Hypothesis", "Executed delivery") on already-done items.
+          The real outcome now shows as one line in the Outcome section below. */}
 
       {action.action_type === 'configure_monitor' ? (
         <MonitorProposalReview action={action} />
@@ -944,7 +742,7 @@ function TicketDetail({
         </SideSection>
       )}
 
-      <SideSection title="Human actions">
+      <SideSection title={canAct || awaitingClick ? 'Human actions' : 'Outcome'}>
         <LaneAwareActions action={action} canAct={canAct} awaitingClick={awaitingClick} onTransition={onTransition} />
       </SideSection>
     </div>
@@ -973,9 +771,23 @@ function LaneAwareActions({
   const lane = laneFor(action.action_type);
 
   if (!canAct && !awaitingClick) {
+    // One quiet outcome line instead of a dead-end "nothing to do" + a
+    // synthesized event log. Prefer the executor's own narrative (e.g.
+    // "Signal accepted and folded into project knowledge…"); never the legacy
+    // "Queued Hypothesis"/"Executed delivery" wording.
+    const when = timeAgo(action.executed_at || action.updated_at || action.created_at);
+    const narrative = typeof action.execution_result?.response === 'string'
+      ? action.execution_result.response.trim()
+      : '';
+    const outcome = action.status === 'rejected'
+      ? 'Dismissed'
+      : action.status === 'failed'
+        ? 'Didn’t complete'
+        : (narrative || 'Done');
     return (
-      <div style={{ padding: 14, fontSize: 11, color: 'var(--ink-5)' }}>
-        Terminal state. Nothing to do here.
+      <div style={{ padding: 14, fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+        {outcome}
+        <span style={{ color: 'var(--ink-5)', marginLeft: 6 }}>· {when}</span>
       </div>
     );
   }
@@ -1231,9 +1043,9 @@ function Field({ label, value, multiline, mono }: { label: string; value: string
 // =============================================================================
 
 // Map action_type → the subsystem that actually inserted the pending_actions
-// row. Truthful attribution, not persona theatre. Values match
-// PRODUCER_OPTIONS and producerColor() so the filter dropdown + chips
-// round-trip cleanly (the old persona names broke both).
+// row. Truthful attribution, not persona theatre. Detail-pane-only after the
+// field diet: list rows no longer render producer badges and the toolbar
+// filter is gone, but the detail header pill + Activity log keep using this.
 //
 // Caveat for `task`: rows can come from chat artifacts (artifact-persistence
 // + project-tools), the heartbeat task proposer (cron/route.ts:204), or the
@@ -1243,7 +1055,16 @@ function Field({ label, value, multiline, mono }: { label: string; value: string
 // pending_actions and stamping it at insert. Same caveat, smaller, for the
 // draft_* / proposed_* family: the ecosystem-alert fan-out can also create
 // them, but chat artifacts dominate.
-function producerFromType(type: PendingActionType): string {
+function producerFromType(type: PendingActionType, ecosystemAlertId?: string | null): string {
+  // A proposed_hypothesis / proposed_graph_update that carries an
+  // ecosystem_alert FK was NOT written by chat — the alert fan-out
+  // (persistEcosystemAlerts) queued it from a watcher signal. Attribute it to
+  // the signal subsystem so the producer badge matches reality (the static map
+  // below can't tell chat-born from alert-born by type alone — hence the FK
+  // check here). signal_alert is already 'signal' in the map.
+  if (ecosystemAlertId && (type === 'proposed_hypothesis' || type === 'proposed_graph_update')) {
+    return 'signal';
+  }
   const map: Record<PendingActionType, string> = {
     // Chat-born drafts + tool proposals (artifact-persistence.ts,
     // project-tools.ts, skill-tools.ts) — the chat agent wrote the row.
@@ -1303,17 +1124,6 @@ function humanizeActionType(type: PendingActionType): string {
   return TYPE_LABEL[type] ?? type.replace(/_/g, ' ');
 }
 
-function producerColor(name: string): string {
-  const map: Record<string, string> = {
-    chat:       'var(--plum)',
-    heartbeat:  'var(--sky)',
-    signal:     'var(--moss)',
-    correlator: 'var(--clay)',
-    unknown:    'var(--ink-3)',
-  };
-  return map[name] || 'var(--ink-5)';
-}
-
 function timeAgo(iso: string): string {
   try {
     const ms = Date.now() - new Date(iso).getTime();
@@ -1330,71 +1140,9 @@ function timeAgo(iso: string): string {
   }
 }
 
-interface ActivityEvent {
-  t: string;
-  who: string;
-  k: 'tool' | 'think' | 'msg' | 'human';
-  m: string;
-}
-
-function buildActivity(a: PendingAction): ActivityEvent[] {
-  // Synthesize an activity log from what we know about the action. Real
-  // per-event timeline would require a separate audit table (Phase 1).
-  const events: ActivityEvent[] = [];
-  const producer = producerFromType(a.action_type);
-
-  events.push({
-    t: timeAgo(a.created_at),
-    who: producer,
-    k: 'msg',
-    m: `Queued ${humanizeActionType(a.action_type)}`,
-  });
-
-  if (a.edited_payload) {
-    events.push({
-      t: timeAgo(a.updated_at),
-      who: 'You',
-      k: 'human',
-      m: 'Edited payload before applying',
-    });
-  }
-
-  if (a.status === 'applied' || a.status === 'sent') {
-    events.push({
-      t: a.executed_at ? timeAgo(a.executed_at) : timeAgo(a.updated_at),
-      who: 'You',
-      k: 'human',
-      m: 'Applied',
-    });
-  }
-
-  if (a.status === 'sent') {
-    // markActionSent persists the executor narrative as
-    // execution_result.response — surface it so Activity says what the apply
-    // actually DID ("Signal accepted and folded into project knowledge
-    // (graph node …)") instead of a generic delivery line.
-    const narrative = typeof a.execution_result?.response === 'string'
-      ? a.execution_result.response.trim()
-      : '';
-    events.push({
-      t: a.executed_at ? timeAgo(a.executed_at) : timeAgo(a.updated_at),
-      who: producer,
-      k: 'tool',
-      m: narrative || 'Executed delivery',
-    });
-  }
-
-  if (a.status === 'rejected') {
-    events.push({
-      t: timeAgo(a.updated_at),
-      who: 'You',
-      k: 'human',
-      m: 'Rejected',
-    });
-  }
-
-  return events.reverse();
-}
+// buildActivity() + ActivityEvent removed (2026-06) — the synthesized
+// per-action timeline was founder-facing noise (see TicketDetail). The real
+// outcome renders as one line in LaneAwareActions' terminal branch.
 
 // =============================================================================
 // Local styles

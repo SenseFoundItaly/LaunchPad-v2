@@ -23,7 +23,7 @@ export const stageBuildLaunch: Stage = {
       evaluate: (s) => {
         const ok = s.workflow?.status === 'active';
         return ok
-          ? { passed: true, evidence: `Workflow stage: ${s.workflow?.current_step ?? '?'}` }
+          ? { passed: true, evidence: 'Your build workflow is up and running.' }
           : { passed: false, gap: 'Start a workflow with Co-pilot' };
       },
     },
@@ -35,7 +35,7 @@ export const stageBuildLaunch: Stage = {
         const step = s.workflow?.current_step ?? '';
         const ok = step.length > 0 && !['unknown', 'spark', 'idea'].includes(step.toLowerCase());
         return ok
-          ? { passed: true, evidence: `Stage: ${step}` }
+          ? { passed: true, evidence: "You've defined what your MVP includes." }
           : { passed: false, gap: 'Define MVP scope and advance workflow' };
       },
     },
@@ -47,7 +47,7 @@ export const stageBuildLaunch: Stage = {
         const n = s.counts.published_assets;
         const ok = n > 0;
         return ok
-          ? { passed: true, evidence: `${n} published asset${n === 1 ? '' : 's'}` }
+          ? { passed: true, evidence: `You've shipped something live (${n} published).` }
           : { passed: false, gap: 'Ship the smallest publishable thing' };
       },
     },
@@ -59,7 +59,7 @@ export const stageBuildLaunch: Stage = {
         const n = countMemoryFactsMatching(s, ['signup', 'first user', 'beta user', 'onboarded', 'trial']);
         const ok = n >= 3;
         return ok
-          ? { passed: true, evidence: `${n} user-evidence fact${n === 1 ? '' : 's'}` }
+          ? { passed: true, evidence: `You've got ${n} early users on the record.` }
           : { passed: false, gap: `${n} of 3 — log first signups in chat` };
       },
     },

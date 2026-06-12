@@ -7,7 +7,10 @@
  *   1. IdeaCanvasHeader  — pinned snapshot of idea_canvas
  *   2. SpineSection      — 7-stage validation strip, click-to-expand
  *   3. InlineSolveProgress (when active) + matched intelligence briefs
- *   4. MemorySection     — applied memory_facts list
+ *   4. Knowledge         — ONE merged section: graph nodes + facts + pending
+ *                          signal count (founders see a single "Knowledge"
+ *                          concept; the old separate "Memory (facts)" section
+ *                          is gone)
  *   5. DepartmentSection × 5 (market / product / pricing / finance / growth)
  *
  * The old tabs (Latest / Context / Intel / Product / Pricing / Finance /
@@ -21,6 +24,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import type { Artifact, Department, SolveProgressArtifact } from '@/types/artifacts';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import { Icon, I, Pill } from '@/components/design/primitives';
@@ -50,12 +54,25 @@ interface CanvasProps {
   onSkillClick?: (skillLabel: string) => void;
 }
 
-interface MemoryFact {
+/** Applied memory_facts row (DB store name; founder-facing label is just
+ *  "Knowledge" — never surface the word "memory" in this component's UI). */
+interface KnowledgeFact {
   id: string;
   fact: string;
   kind: string;
   source_type: string | null;
   source_id: string | null;
+  created_at: string;
+}
+
+/** Lightweight shape of the graph_nodes the intelligence endpoint already
+ *  returns. Surfaced as counts (+ names) on the Canvas so the richest layer of
+ *  knowledge isn't invisible (audit M1). */
+interface KnowledgeNode {
+  id: string;
+  name: string;
+  node_type: string;
+  summary: string | null;
   created_at: string;
 }
 
@@ -70,9 +87,9 @@ export function Canvas({
   focusedMessageId,
   onSkillClick,
 }: CanvasProps) {
-  // Group entries by department. Memory is handled via the memory_facts list
-  // below (top-level Memory section) — `memory` department entries (rare;
-  // `fact` artifacts don't render anyway) are silently ignored here.
+  // Group entries by department. Facts are handled via the merged Knowledge
+  // section below — `memory` department entries (rare; `fact` artifacts don't
+  // render anyway) are silently ignored here.
   const grouped = useMemo(() => {
     const map: Record<Department, CanvasEntry[]> = {
       market: [],
@@ -101,17 +118,34 @@ export function Canvas({
   const { briefs } = useIntelligenceBriefs(projectId);
   const matchedBriefs = useMemo(() => matchBriefs(briefs, canvasEntries), [briefs, canvasEntries]);
 
-  const [facts, setFacts] = useState<MemoryFact[]>([]);
+  const [facts, setFacts] = useState<KnowledgeFact[]>([]);
+  const [nodes, setNodes] = useState<KnowledgeNode[]>([]);
+  const [alertCount, setAlertCount] = useState(0);
+  // `degraded` is true when the intelligence endpoint reports `partial` (a
+  // facet query hiccuped) OR the fetch itself failed. Either way we must NOT
+  // render a confident empty state — a transient miss shouldn't read to the
+  // founder as "you know nothing" (audit M2, UI half).
+  const [degraded, setDegraded] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
         const res = await fetch(`/api/projects/${projectId}/intelligence`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) setDegraded(true);
+          return;
+        }
         const body = await res.json();
         const inner = body?.data ?? body;
-        if (!cancelled) setFacts(Array.isArray(inner?.facts) ? inner.facts : []);
-      } catch { /* ignore */ }
+        if (cancelled) return;
+        setFacts(Array.isArray(inner?.facts) ? inner.facts : []);
+        setNodes(Array.isArray(inner?.nodes) ? inner.nodes : []);
+        setAlertCount(Array.isArray(inner?.alerts) ? inner.alerts.length : 0);
+        setDegraded(inner?.partial === true);
+      } catch {
+        if (!cancelled) setDegraded(true);
+      }
     }
     load();
     const handler = () => { if (!cancelled) load(); };
@@ -120,11 +154,21 @@ export function Canvas({
       cancelled = true;
       window.removeEventListener('lp-actions-changed', handler);
     };
-  }, [projectId]);
+  }, [projectId, reloadKey]);
+  const retryIntelligence = () => setReloadKey((k) => k + 1);
 
   const totalArtifacts = canvasEntries.filter((e) => e.artifact.type !== 'solve-progress').length;
   const visibleDepartments = DEPT_ORDER.filter((d) => grouped[d].length > 0);
   const isEmpty = !hasSolveProgress && totalArtifacts === 0 && matchedBriefs.length === 0;
+  const knowledgeCount = nodes.length + facts.length;
+
+  // Skim-first collapse: artifacts from the latest chat turn render open,
+  // older ones default-collapsed (ArtifactRenderer threads `defaultCollapsed`
+  // down to the card shell).
+  const latestTurnIndex = useMemo(
+    () => canvasEntries.reduce((max, e) => Math.max(max, e.turnIndex), 0),
+    [canvasEntries],
+  );
 
   return (
     <div
@@ -161,107 +205,113 @@ export function Canvas({
         </section>
       )}
 
-      {/* Memory — applied facts the agent has recorded for this project */}
-      {facts.length > 0 && (
-        <section data-canvas-section="memory" style={{ marginBottom: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <Icon d={I.book} size={13} style={{ color: 'var(--ink-3)' }} />
+      {/* Degraded notice (audit M2, UI half) — a facet of the knowledge fetch
+          hiccuped. Non-alarming + offers a retry, so a transient miss doesn't
+          read as a confident "you know nothing". */}
+      {degraded && (
+        <section data-canvas-section="degraded" style={{ marginBottom: 18 }}>
+          <div
+            className="lp-card"
+            style={{
+              padding: '10px 12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              borderColor: 'var(--line)',
+            }}
+          >
+            <Icon d={I.history} size={14} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.4, flex: 1 }}>
+              {locale === 'it'
+                ? 'Non siamo riusciti a caricare tutta la tua conoscenza.'
+                : "Couldn't fully load your knowledge."}
+            </span>
+            <button
+              type="button"
+              onClick={retryIntelligence}
+              className="lp-mono"
+              style={{
+                fontSize: 11,
+                color: 'var(--accent-ink)',
+                background: 'var(--accent-wash)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--r-m)',
+                padding: '3px 10px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                flexShrink: 0,
+              }}
+            >
+              <Icon d={I.history} size={12} />
+              {locale === 'it' ? 'Riprova' : 'Retry'}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* Knowledge — ONE compact summary row. The node cards, facts list and
+          Facts subheading moved to /knowledge (the browsing home); the Canvas
+          only shows counts from the /intelligence fetch above. The word
+          "memory" must not appear on this surface. */}
+      {(knowledgeCount > 0 || alertCount > 0) && (
+        <section data-canvas-section="knowledge" style={{ marginBottom: 18 }}>
+          <div
+            className="lp-card"
+            style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8 }}
+          >
+            <Icon d={I.graph} size={13} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
             <span
               className="lp-serif"
-              style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}
+              style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500, flexShrink: 0 }}
             >
-              {locale === 'it' ? 'Memoria' : 'Memory'}
+              {locale === 'it' ? 'Conoscenza' : 'Knowledge'}
             </span>
             <span
               className="lp-mono"
-              style={{ fontSize: 10, color: 'var(--ink-5)' }}
+              style={{
+                fontSize: 11,
+                color: 'var(--ink-4)',
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
             >
-              ({facts.length})
-            </span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {facts.map((f) => {
-              // Back-link: a fact spawned by a chat artifact carries the
-              // artifact's client_id in source_id. Find a matching canvas
-              // entry — if present, clicking the fact scrolls to that card.
-              const linkedEntry =
-                f.source_type === 'chat' && f.source_id
-                  ? canvasEntries.find((e) => e.artifact.id === f.source_id)
-                  : undefined;
-              const monitorLink = f.source_type === 'monitor' && f.source_id;
-              const linkable = !!linkedEntry || !!monitorLink;
-              const sourceLabel = linkedEntry
-                ? (locale === 'it' ? 'da artefatto' : 'from artifact')
-                : monitorLink
-                  ? (locale === 'it' ? 'da signal' : 'from signal')
-                  : f.source_type;
-              return (
-                <div
-                  key={f.id}
-                  className="lp-card"
-                  role={linkable ? 'button' : undefined}
-                  tabIndex={linkable ? 0 : undefined}
-                  onClick={linkable ? () => {
-                    if (linkedEntry) {
-                      const el = document.querySelector(
-                        `[data-artifact-id="${linkedEntry.artifact.id}"]`,
-                      ) as HTMLElement | null;
-                      if (el) {
-                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        el.classList.add('lp-flash');
-                        setTimeout(() => el.classList.remove('lp-flash'), 1200);
-                      }
-                    }
-                    // monitorLink: no in-page target yet; future hook
-                  } : undefined}
-                  style={{
-                    padding: 10,
-                    cursor: linkable ? 'pointer' : 'default',
-                    transition: 'border-color 100ms, background 100ms',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (linkable) {
-                      e.currentTarget.style.borderColor = 'var(--accent)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (linkable) {
-                      e.currentTarget.style.borderColor = '';
-                    }
-                  }}
-                  title={
-                    linkedEntry
-                      ? (locale === 'it'
-                          ? `Vai all'artefatto sorgente (${linkedEntry.artifact.type})`
-                          : `Jump to source artifact (${linkedEntry.artifact.type})`)
-                      : undefined
-                  }
-                >
-                  <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.4 }}>{f.fact}</div>
-                  <div
-                    style={{
-                      fontSize: 10.5,
-                      color: 'var(--ink-5)',
-                      marginTop: 4,
-                      fontFamily: 'var(--f-mono)',
-                      display: 'flex',
-                      gap: 6,
-                      alignItems: 'center',
-                    }}
+              {'— '}
+              {knowledgeCount}{' '}
+              {locale === 'it'
+                ? (knowledgeCount === 1 ? 'elemento' : 'elementi')
+                : (knowledgeCount === 1 ? 'item' : 'items')}
+              {alertCount > 0 && (
+                <>
+                  {' · '}
+                  <Link
+                    href={`/project/${projectId}/actions?lane=signal`}
+                    style={{ color: 'var(--clay)', textDecoration: 'none' }}
                   >
-                    <span>{f.kind}</span>
-                    {sourceLabel && (
-                      <>
-                        <span>·</span>
-                        <span style={{ color: linkable ? 'var(--accent-ink)' : 'var(--ink-5)' }}>
-                          {sourceLabel}{linkable ? ' →' : ''}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                    {alertCount}{' '}
+                    {locale === 'it'
+                      ? (alertCount === 1 ? 'segnale in attesa' : 'segnali in attesa')
+                      : (alertCount === 1 ? 'signal pending' : 'signals pending')}
+                  </Link>
+                </>
+              )}
+            </span>
+            <Link
+              href={`/project/${projectId}/knowledge`}
+              className="lp-mono"
+              style={{
+                fontSize: 10,
+                color: 'var(--accent-ink)',
+                marginLeft: 'auto',
+                textDecoration: 'none',
+                flexShrink: 0,
+              }}
+            >
+              {locale === 'it' ? 'Apri' : 'Open'} →
+            </Link>
           </div>
         </section>
       )}
@@ -274,10 +324,11 @@ export function Canvas({
           entries={grouped[dept]}
           handleArtifactAction={handleArtifactAction}
           focusedMessageId={focusedMessageId}
+          latestTurnIndex={latestTurnIndex}
         />
       ))}
 
-      {isEmpty && facts.length === 0 && (
+      {isEmpty && facts.length === 0 && nodes.length === 0 && alertCount === 0 && !degraded && (
         <div
           style={{
             display: 'flex',

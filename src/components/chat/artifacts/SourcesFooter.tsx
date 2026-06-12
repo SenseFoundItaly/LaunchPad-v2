@@ -2,57 +2,50 @@
 
 /**
  * SourcesFooter — renders the `sources` array of a factual artifact as a
- * row of numbered chips at the bottom of the card. Each chip shows:
- *   - An `[N]` index matching inline `[N]` prose markers
- *   - A type icon (globe, skill, data, quote, sparkle-for-inference)
- *   - The source title, truncated
- *   - On click: opens the URL (web) or navigates to the internal ref
- *   - On hover: tooltip with the quote/reasoning (when present)
+ * single muted "Sources (N)" toggle, CLOSED by default (zero-chips rule:
+ * a canvas card = title + content + collapsed sources line). Expanded, each
+ * source is one plain-text line:
+ *   N. plain-word type — title (linked when a URL/internal ref exists)
+ * The old numbered colored chips with USR/INT/INF/WEB/SKL code tags were
+ * founder-facing jargon and were removed in the 2026-06 canvas
+ * simplification. The `[N]` index survives as a plain "N." prefix so inline
+ * `[N]` prose markers still resolve.
  *
  * Used across InsightCard, EntityCard, MetricGrid, ComparisonTable, etc.
  * The component is deliberately standalone — a card passes its sources
  * prop and we take it from there. No context needed.
- *
- * Part of Phase E of the mandatory-sources plan. See
- * src/types/artifacts.ts for the Source union.
  */
 
+import { useState } from 'react';
 import type { Source } from '@/types/artifacts';
 
 interface SourcesFooterProps {
   sources: Source[] | undefined;
-  /** Heading to show before the chips. Defaults to "Sources" (capitalized). */
+  /** Heading for the toggle. Defaults to "Sources". */
   label?: string;
-  /** When true, render smaller chips (for use inside dense cards like risks). */
+  /** Smaller text (dense cards like risks). */
   compact?: boolean;
+  /**
+   * When true, the artifact's sources were repaired from the response's
+   * trailing <CITATIONS> block rather than emitted per-card (Sonnet 4.6
+   * quirk). Shown as a plain note inside the expanded list — this used to
+   * be a header chip on the card shell.
+   */
+  inferredFromResponse?: boolean;
 }
 
-const TYPE_ICONS: Record<Source['type'], string> = {
-  // ASCII fallback-friendly. We avoid emojis intentionally (see
-  // ARTIFACT_INSTRUCTIONS: "NEVER use emojis in any text output").
-  web: 'WEB',
-  skill: 'SKL',
-  internal: 'INT',
-  user: 'USR',
-  inference: 'INF',
+/** Founder-facing plain words instead of USR/INT/INF/WEB/SKL code tags. */
+const TYPE_WORDS: Record<Source['type'], string> = {
+  web: 'web',
+  skill: 'skill',
+  internal: 'internal',
+  user: 'you said',
+  inference: 'inferred',
 };
-
-const TYPE_COLORS: Record<Source['type'], string> = {
-  web: 'bg-sky/15 text-sky border-sky/30',
-  skill: 'bg-plum/15 text-plum border-plum/30',
-  internal: 'bg-moss/15 text-moss border-moss/30',
-  user: 'bg-accent/15 text-accent border-accent/30',
-  inference: 'bg-ink-5/15 text-ink-3 border-ink-5/30',
-};
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
-}
 
 /**
  * Build a tooltip text for a source. Includes type, quote if available,
- * and reasoning for inference sources (with a recursive hint about nested
- * base sources).
+ * and reasoning for inference sources.
  */
 function tooltipFor(src: Source): string {
   const parts: string[] = [`Type: ${src.type}`];
@@ -83,10 +76,6 @@ function tooltipFor(src: Source): string {
 function hrefFor(src: Source): string | undefined {
   if (src.type === 'web') return src.url;
   if (src.type === 'internal') {
-    // Stub routes — the in-app "jump to source" views aren't built yet for
-    // all refs. Graph-node view exists; others will 404 for now. Acceptable
-    // for v1 — the chip still tooltips the reference id so the founder can
-    // investigate manually.
     switch (src.ref) {
       case 'graph_node': return `/project?ref=graph_node&id=${src.ref_id}`;
       case 'score':      return `/project?ref=score&id=${src.ref_id}`;
@@ -103,63 +92,68 @@ export default function SourcesFooter({
   sources,
   label = 'Sources',
   compact = false,
+  inferredFromResponse = false,
 }: SourcesFooterProps) {
+  const [open, setOpen] = useState(false);
   const visibleSources = Array.isArray(sources) ? sources : [];
   if (visibleSources.length === 0) return null;
 
-  const chipBase = compact
-    ? 'text-[10px] px-1.5 py-0.5 gap-1'
-    : 'text-[11px] px-2 py-0.5 gap-1.5';
+  const textSize = compact ? 'text-[10px]' : 'text-[11px]';
 
   return (
     <div className="mt-3 pt-2 border-t border-line-2">
-      <div className="flex items-center flex-wrap gap-1.5">
-        <span className="text-[10px] uppercase tracking-wider text-ink-5 mr-1">
-          {label}
-        </span>
-        {visibleSources.map((src, idx) => {
-          const href = hrefFor(src);
-          const title = truncate(src.title, compact ? 28 : 48);
-          const tooltip = tooltipFor(src);
-          // Index tag — this is what prose `[N]` markers reference.
-          const indexTag = `[${idx + 1}]`;
-          const typeTag = TYPE_ICONS[src.type];
-          const colors = TYPE_COLORS[src.type];
-
-          const chipClasses = `inline-flex items-center rounded-full border ${colors} ${chipBase} hover:brightness-125 transition`;
-
-          const content = (
-            <>
-              <span className="font-mono text-ink-5">{indexTag}</span>
-              <span className="opacity-60 font-mono text-[9px]">{typeTag}</span>
-              <span className="truncate max-w-[180px]">{title}</span>
-            </>
-          );
-
-          return href ? (
-            <a
-              key={`${idx}-${src.title}`}
-              href={href}
-              target={src.type === 'web' ? '_blank' : undefined}
-              rel={src.type === 'web' ? 'noopener noreferrer' : undefined}
-              title={tooltip}
-              data-source-index={idx + 1}
-              className={chipClasses}
-            >
-              {content}
-            </a>
-          ) : (
-            <span
-              key={`${idx}-${src.title}`}
-              title={tooltip}
-              data-source-index={idx + 1}
-              className={chipClasses}
-            >
-              {content}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`${textSize} text-ink-5 hover:text-ink-3 transition-colors`}
+        aria-expanded={open}
+      >
+        {label} ({visibleSources.length}) {open ? '▾' : '▸'}
+      </button>
+      {open && (
+        <div className="mt-1.5 flex flex-col gap-1">
+          {inferredFromResponse && (
+            <span className={`${textSize} text-ink-5 italic`}>
+              Sources inferred from the response footer — the links are real,
+              but weren&apos;t attributed to this specific card.
             </span>
-          );
-        })}
-      </div>
+          )}
+          {visibleSources.map((src, idx) => {
+            const href = hrefFor(src);
+            const tooltip = tooltipFor(src);
+            const line = (
+              <>
+                <span className="font-mono text-ink-5 shrink-0">{idx + 1}.</span>{' '}
+                <span className="text-ink-5 shrink-0">{TYPE_WORDS[src.type]}</span>
+                <span className="text-ink-5"> — </span>
+                <span className="text-ink-4 truncate">{src.title}</span>
+              </>
+            );
+            return href ? (
+              <a
+                key={`${idx}-${src.title}`}
+                href={href}
+                target={src.type === 'web' ? '_blank' : undefined}
+                rel={src.type === 'web' ? 'noopener noreferrer' : undefined}
+                title={tooltip}
+                data-source-index={idx + 1}
+                className={`${textSize} flex items-baseline gap-1 hover:underline min-w-0`}
+              >
+                {line}
+              </a>
+            ) : (
+              <span
+                key={`${idx}-${src.title}`}
+                title={tooltip}
+                data-source-index={idx + 1}
+                className={`${textSize} flex items-baseline gap-1 min-w-0`}
+              >
+                {line}
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

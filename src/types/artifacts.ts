@@ -16,6 +16,8 @@ export type ArtifactType =
   | 'fact'
   | 'monitor-proposal'
   | 'budget-proposal'
+  | 'skill-suggestion'
+  | 'knowledge-suggestion'
   | 'task'
   | 'html-preview'
   | 'document'
@@ -95,7 +97,11 @@ export interface ArtifactBase {
 export interface OptionSet extends ArtifactBase {
   type: 'option-set';
   prompt: string;
-  options: { id: string; label: string; description: string }[];
+  // `credits` — the agent's estimate of what the founder spends if they pick
+  // this option (a chat-only reply ≈1, a balanced skill ≈4, a premium skill
+  // ≈10, advancing a stage = the sum of the skills it runs). Optional: pure
+  // navigation options (skip / stop / go back) carry no compute, so no chip.
+  options: { id: string; label: string; description: string; credits?: number }[];
   // Optional — option-sets are UI interaction, not factual claims.
   sources?: Source[];
 }
@@ -359,6 +365,62 @@ export interface BudgetProposalArtifact extends ArtifactBase {
   estimated_monthly_cost_usd?: number;
   // REQUIRED — every budget bump cites the founder ask or the credits-empty
   // error that motivated it. Caps are not raised silently.
+  sources: Source[];
+}
+
+/**
+ * `skill-suggestion` — EPHEMERAL inline CTA proposing a chat skill run.
+ *
+ * Founder directive (2026-06-11): "Skills should be proposed in chat, at
+ * runtime of the conversation. If ignored, they should not live anywhere."
+ * Unlike monitor-proposal / budget-proposal / task, this artifact creates NO
+ * pending_actions row and NO persisted record of any kind. It exists only in
+ * the chat transcript. The chat skill_* tool emits one of these inline; if the
+ * founder ignores it, nothing remains. If they click Run, the chat page POSTs
+ * to /api/projects/{id}/skills?run=1 which runs the skill in real time (writes
+ * skill_completions + section_scores), again WITHOUT a pending_action.
+ *
+ * Sources NOT required — this is a UI interaction (a "run this?" button with a
+ * credit cost), not a factual claim. The skill itself produces sourced
+ * evidence once it runs.
+ */
+export interface SkillSuggestionArtifact extends ArtifactBase {
+  type: 'skill-suggestion';
+  /** Folder id of the skill (e.g. 'market-research'); the POST /skills run key. */
+  skill_id: string;
+  /** Founder-facing label from SKILL.md frontmatter.name. */
+  skill_label: string;
+  /** One-line "what this will do" — shown under the label. */
+  rationale?: string;
+  /** Estimated credit spend, shown on the Run button so consent is informed. */
+  credits: number;
+  /** Optional founder-facing context passed into the skill run prompt. */
+  context?: string;
+}
+
+/**
+ * `knowledge-suggestion` — inline CTA proposing that a fact/insight the agent
+ * just stated in PROSE (no card) be applied to project intelligence.
+ *
+ * Founder directive (2026-06-11): knowledge no longer auto-saves. When the
+ * agent makes a factual claim in prose, it surfaces this inline card instead of
+ * silently writing memory. The card renders "Apply to intelligence · 2 credits";
+ * clicking persists the fact as reviewed_state='applied' AND debits the 2
+ * credits (POST /knowledge { apply: true }). If ignored, nothing persists — the
+ * card lives only in the chat transcript, mirroring skill-suggestion.
+ *
+ * Sources REQUIRED — the proposed fact is a factual claim; applying it writes
+ * provenance into memory_facts.sources.
+ */
+export interface KnowledgeSuggestionArtifact extends ArtifactBase {
+  type: 'knowledge-suggestion';
+  /** The fact/insight text to write into memory_facts on apply. */
+  fact: string;
+  /** memory_facts.kind. Defaults to 'observation' when omitted. */
+  kind?: 'fact' | 'decision' | 'observation' | 'note' | 'preference';
+  /** Flat credit cost shown on the button (always 2; field future-proofs). */
+  credits?: number;
+  // REQUIRED — applying writes this provenance into memory_facts.sources.
   sources: Source[];
 }
 
@@ -627,6 +689,8 @@ export type Artifact =
   | FactArtifact
   | MonitorProposalArtifact
   | BudgetProposalArtifact
+  | SkillSuggestionArtifact
+  | KnowledgeSuggestionArtifact
   | TaskArtifact
   | HtmlPreviewArtifact
   | DocumentArtifact

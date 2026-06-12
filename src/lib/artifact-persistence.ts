@@ -85,8 +85,10 @@ async function upsertGraphNodeFromArtifact(
     attributes: Record<string, unknown>;
     srcJson: string | null;
     /** Review state for NEW nodes only — the UPDATE path always preserves the
-     *  existing reviewed_state. Defaults to 'applied' (chat-persisted
-     *  intelligence is visible by default). */
+     *  existing reviewed_state. Defaults to 'pending': chat-surfaced
+     *  intelligence is a PROPOSAL the founder applies (2 credits) before it
+     *  enters project knowledge. Callers with their own evidence (web-sourced
+     *  competitor rows the founder watched get researched) pass 'applied'. */
     reviewedState?: 'pending' | 'applied';
   },
 ): Promise<string | undefined> {
@@ -118,7 +120,7 @@ async function upsertGraphNodeFromArtifact(
       input.summary,
       JSON.stringify(input.attributes),
       input.srcJson,
-      input.reviewedState ?? 'applied',
+      input.reviewedState ?? 'pending',
     );
     return id;
   } catch (err) {
@@ -224,17 +226,14 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     return { type: a.type, persisted: true, target: 'graph_nodes (update)', persisted_id: existing.id };
   }
 
-  // Provenance-based review state. Competitor entities feed the Stage-2
-  // journey gate (competitors_mapped counts graph_nodes WHERE
-  // node_type='competitor' AND reviewed_state='applied' — see
-  // src/lib/journey/snapshot.ts), so their state must reflect evidence:
-  // sourced research the founder watched happen in-chat is evidence, not a
-  // proposal → auto-apply when the card carries at least one web source.
-  // Unsourced/inferred competitor claims stay 'pending' for review so a
-  // hallucinated rival can't silently close an evidence gate. Non-competitor
-  // entity types keep today's default ('applied').
-  const isCompetitor = (a.entity_type ?? '').trim().toLowerCase() === 'competitor';
-  const reviewedState = isCompetitor && !hasWebSource(a.sources) ? 'pending' : 'applied';
+  // Knowledge-as-proposal (2026-06-11 founder directive): chat-surfaced
+  // entities are NOT auto-applied. Every new entity-card node persists as
+  // 'pending' — a proposal the founder applies (on the card or in the Inbox,
+  // costing 2 credits) before it enters project knowledge / closes an evidence
+  // gate. The per-row competitor extraction below (web-sourced research the
+  // founder watched happen) is the one evidence path that still writes
+  // 'applied' — it passes reviewedState explicitly.
+  const reviewedState: 'pending' = 'pending';
 
   const id = `node_${crypto.randomUUID().slice(0, 12)}`;
   await run(
@@ -313,6 +312,10 @@ async function persistInsightCard(ctx: PersistContext, a: InsightCard): Promise<
     // `buildMemoryContext` calls can surface the URL/quote alongside the
     // fact text.
     sources: a.sources,
+    // CHAT-ARTIFACT knowledge is a PROPOSAL — it stays 'pending' until the
+    // founder applies it (on the card or in the Inbox, costing 2 credits).
+    // Reverses the prior auto-apply ("Saved ✓") behaviour.
+    reviewedState: 'pending',
   });
 
   return { type: a.type, persisted: true, target: 'memory_facts (observation)', persisted_id: factId || undefined };

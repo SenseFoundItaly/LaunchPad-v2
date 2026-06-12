@@ -2,37 +2,34 @@
 
 import { useEffect, useRef } from 'react';
 import type { EntityCard } from '@/types/artifacts';
-import { useReviewState } from '@/hooks/useReviewState';
-import UnifiedReviewControls from './UnifiedReviewControls';
 import ArtifactCardShell from './ArtifactCardShell';
+import KnowledgeApplyControls from './SavedHint';
 import MonitorChip from './MonitorChip';
 
 interface EntityCardInlineProps {
   artifact: EntityCard;
   onEntityDiscovered: (entity: EntityCard) => void;
   onAction?: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
+  /** Mount collapsed (older-turn artifacts on the canvas). */
+  defaultCollapsed?: boolean;
 }
 
-import { entityPalette } from '@/lib/brand-palette';
-
-function getTypeColor(entityType: string): string {
-  return entityPalette(entityType).chip;
-}
-
+/**
+ * Entity card — name + summary + watch affordance + collapsed sources +
+ * Apply/Dismiss footer. Founder directive (2026-06-11): the entity persists as
+ * a PROPOSAL (graph_nodes, reviewed_state='pending'); applying it (2 credits)
+ * folds it into project intelligence. The MonitorChip stays — it's a
+ * functional "watch this entity" affordance, not decoration.
+ */
 export default function EntityCardInline({
   artifact,
   onEntityDiscovered,
   onAction,
+  defaultCollapsed,
 }: EntityCardInlineProps) {
   const discoveredRef = useRef(false);
 
-  const review = useReviewState({
-    artifactId: artifact.id,
-    persistedId: artifact.persisted_id,
-    reviewedState: artifact.reviewed_state,
-    type: 'graph_node',
-    onAction,
-  });
+  const rejected = artifact.reviewed_state === 'rejected';
 
   useEffect(() => {
     if (!discoveredRef.current) {
@@ -46,30 +43,23 @@ export default function EntityCardInline({
       typeLabel="Entity"
       title={artifact.name}
       sources={artifact.sources}
-      dimmed={review.isRejected}
-      aiGenerated
-      headerRight={<>
-        <span
-          className={`text-xs px-2 py-0.5 rounded-full font-medium ${getTypeColor(artifact.entity_type)}`}
-        >
-          {artifact.entity_type.replace(/_/g, ' ')}
-        </span>
-        <UnifiedReviewControls
-          lane="approval"
-          state={review.reviewState}
-          onApply={() => review.handleReview('applied')}
-          onReject={() => review.handleReview('rejected')}
-          destination="Knowledge Graph"
-          impactHint="Will add as an entity that influences connections"
+      dimmed={rejected}
+      defaultCollapsed={defaultCollapsed}
+      footer={
+        <KnowledgeApplyControls
+          artifactId={artifact.id}
+          persistedId={artifact.persisted_id}
+          state={artifact.reviewed_state}
+          type="graph_node"
+          onAction={onAction}
         />
-      </>}
+      }
     >
-      <p className={`text-sm leading-relaxed mb-2 ${review.isRejected ? 'text-ink-6' : 'text-ink-3'}`}>
+      <p className={`text-sm leading-relaxed mb-2 ${rejected ? 'text-ink-6' : 'text-ink-3'}`}>
         {artifact.summary}
       </p>
-      {!review.isRejected && (
+      {!rejected && (
         <div className="flex items-center gap-2 flex-wrap text-xs text-ink-5">
-          <span>{review.isPending ? 'Pending review' : 'Added to graph'}</span>
           <MonitorChip entityId={artifact.persisted_id || artifact.id || artifact.name} />
         </div>
       )}

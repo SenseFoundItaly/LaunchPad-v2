@@ -31,6 +31,7 @@ import SourcesFooter from './SourcesFooter';
 import ArtifactCardShell from './ArtifactCardShell';
 import UnifiedReviewControls from './UnifiedReviewControls';
 import { monitorPalette } from '@/lib/brand-palette';
+import { watcherWeeklyLabel, watcherRunsPerWeek } from '@/lib/watcher-cost';
 
 interface MonitorProposalCardProps {
   artifact: MonitorProposalArtifact;
@@ -272,47 +273,22 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
  * on a not-yet-active monitor would be misleading.
  */
 function CostCallout({ artifact }: { artifact: MonitorProposalArtifact }) {
-  const hasCredits =
-    typeof artifact.estimated_daily_credits === 'number' &&
-    typeof artifact.estimated_monthly_credits === 'number';
-
-  if (!hasCredits) {
-    return (
-      <div className="text-[11px] text-ink-4 mb-3 px-2.5 py-1.5 rounded bg-paper-2/60 border border-line-2">
-        <span className="text-ink-5">Cost if applied:</span>{' '}
-        metered in credits per run — shows on your credits balance
-      </div>
-    );
-  }
-
-  const dailyCredits = artifact.estimated_daily_credits!;
-  const monthlyCredits = artifact.estimated_monthly_credits!;
-  const perRunCredits = artifact.estimated_per_run_credits;
-
-  // Two display modes:
-  //   - daily monitor:  emphasize daily rate ("≈ 2 credits/day")
-  //   - weekly monitor: per-day rate may round to 0, so we emphasize monthly
-  //     instead and surface daily as a less-prominent average.
-  const showDaily = dailyCredits >= 1;
+  // WEEKLY estimate is the founder-facing unit (founder directive 2026-06-11:
+  // "estimate usage per week of what watcher if set"). Deterministic from the
+  // cadence × per-run cost, so it ALWAYS shows — even on older proposals that
+  // never carried estimated_* fields. Prefers the artifact's per-project
+  // per-run estimate when present; otherwise the shared default.
+  const weeklyLabel = watcherWeeklyLabel(artifact.schedule, artifact.estimated_per_run_credits);
+  const runsPerWeek = watcherRunsPerWeek(artifact.schedule);
 
   return (
     <div className="text-xs mb-3 px-2.5 py-2 rounded bg-paper-2/60 border border-line-2 flex items-baseline gap-2 flex-wrap">
       <span className="text-ink-5 text-[10.5px] uppercase tracking-wider">
         Cost if applied
       </span>
-      <span className="text-ink font-medium">
-        {showDaily
-          ? `≈ ${dailyCredits} credit${dailyCredits === 1 ? '' : 's'}/day`
-          : `≈ ${monthlyCredits} credit${monthlyCredits === 1 ? '' : 's'}/month`}
-      </span>
+      <span className="text-ink font-medium">{weeklyLabel}</span>
       <span className="text-ink-5 text-[11px]">
-        {showDaily
-          ? `(${monthlyCredits} credits/month`
-          : `(~${dailyCredits} credit${dailyCredits === 1 ? '' : 's'}/day average`}
-        {typeof perRunCredits === 'number' && perRunCredits > 0
-          ? ` · ${perRunCredits.toFixed(2)} per run`
-          : ''}
-        {')'}
+        ({runsPerWeek === 1 ? '1 run' : `${runsPerWeek} runs`}/week · metered per run)
       </span>
     </div>
   );

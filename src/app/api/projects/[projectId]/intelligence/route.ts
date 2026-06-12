@@ -102,16 +102,37 @@ export async function GET(
   );
   if (!project) return error('Project not found', 404);
 
+  // Degradation tracking (audit M2 — silent failure). Each facet query below is
+  // guarded so a timeout/error degrades that facet to its empty fallback rather
+  // than 500ing the whole panel. But an all-empty 200 is ambiguous: the founder
+  // can't tell "you genuinely know nothing yet" from "a fetch hiccuped" (common
+  // on a cold first hit, warms up on retry). `degraded` flips true ONLY when a
+  // guarded query actually throws; we surface it as `partial` in the payload so
+  // the Canvas can show a non-alarming retry state instead of a confident empty
+  // one. A genuinely-empty-but-successful project keeps degraded=false.
+  let degraded = false;
+  async function guard<T>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      degraded = true;
+      console.error(`[intelligence] facet "${label}" failed for project ${projectId}:`, err);
+      return fallback;
+    }
+  }
+
   // Journey evidence — the SAME evaluation GET /api/.../stages serves, so the
   // spine verdict can never contradict the Home journey card (audit M2).
   // Kicked off here, awaited after the panel queries: buildProjectSnapshot is
   // one guarded parallel batch (every facet query degrades to empty on error),
-  // so this adds concurrency, not latency. The catch is belt-and-braces — if
-  // the snapshot ever rejects, stages fall back to pure skill verdicts (0/0
-  // evidence) instead of 500ing the whole intelligence panel.
-  const journeyPromise = buildProjectSnapshot(projectId)
-    .then((snapshot) => evaluateAllStages(snapshot))
-    .catch(() => []);
+  // so this adds concurrency, not latency. Routed through `guard` so a snapshot
+  // rejection both (a) falls back to pure skill verdicts (0/0 evidence) instead
+  // of 500ing the panel AND (b) marks the response partial.
+  const journeyPromise = guard(
+    'journey',
+    () => buildProjectSnapshot(projectId).then((snapshot) => evaluateAllStages(snapshot)),
+    [] as Awaited<ReturnType<typeof evaluateAllStages>>,
+  );
 
   // Memory panel: founder-facing surface for facts ABOUT the idea — pricing,
   // positioning, market, persona, validated assumptions. Process telemetry
@@ -120,48 +141,80 @@ export async function GET(
   // learning, but it shouldn't pollute what the founder reads as "what we
   // know". Fetch wider, filter, then trim back to 10.
   const facts = project.owner_user_id
-    ? (await listFacts(project.owner_user_id, projectId, { limit: 30 }))
-        .filter((f) =>
-          f.source_type !== 'approval_inbox' &&
-          !/^Agent proposed workflow\b/.test(f.fact || ''),
-        )
-        .slice(0, 10)
-        .map((f) => ({
-          id: f.id,
-          fact: f.fact,
-          kind: f.kind,
-          source_type: f.source_type,
-          source_id: f.source_id,
-          created_at: f.created_at,
-        }))
+    ? await guard(
+        'facts',
+        async () =>
+          (await listFacts(project.owner_user_id!, projectId, { limit: 30 }))
+            .filter((f) =>
+              f.source_type !== 'approval_inbox' &&
+              !/^Agent proposed workflow\b/.test(f.fact || ''),
+            )
+            .slice(0, 10)
+            .map((f) => ({
+              id: f.id,
+              fact: f.fact,
+              kind: f.kind,
+              source_type: f.source_type,
+              source_id: f.source_id,
+              created_at: f.created_at,
+            })),
+        [] as Array<{
+          id: string;
+          fact: string;
+          kind: string;
+          source_type: string | null;
+          source_id: string | null;
+          created_at: string;
+        }>,
+      )
     : [];
 
-  const alerts = await query<AlertRow>(
-    `SELECT id, alert_type, source, source_url, headline, body, relevance_score, created_at
-     FROM ecosystem_alerts
-     WHERE project_id = ? AND reviewed_state = 'pending'
-     ORDER BY relevance_score DESC, created_at DESC
-     LIMIT 5`,
-    projectId,
+  const alerts = await guard(
+    'alerts',
+    () =>
+      query<AlertRow>(
+        `SELECT id, alert_type, source, source_url, headline, body, relevance_score, created_at
+         FROM ecosystem_alerts
+         WHERE project_id = ? AND reviewed_state = 'pending'
+         ORDER BY relevance_score DESC, created_at DESC
+         LIMIT 5`,
+        projectId,
+      ),
+    [] as AlertRow[],
   );
 
-  const score = await get<ScoreRow>(
-    'SELECT overall_score, benchmark, scored_at FROM scores WHERE project_id = ?',
-    projectId,
+  const score = await guard(
+    'score',
+    () =>
+      get<ScoreRow>(
+        'SELECT overall_score, benchmark, scored_at FROM scores WHERE project_id = ?',
+        projectId,
+      ),
+    null as ScoreRow | null,
   );
 
-  const nodes = await query<NodeRow>(
-    `SELECT id, name, node_type, summary, created_at
-     FROM graph_nodes
-     WHERE project_id = ? AND reviewed_state = 'applied'
-     ORDER BY created_at DESC
-     LIMIT 5`,
-    projectId,
+  const nodes = await guard(
+    'nodes',
+    () =>
+      query<NodeRow>(
+        `SELECT id, name, node_type, summary, created_at
+         FROM graph_nodes
+         WHERE project_id = ? AND reviewed_state = 'applied'
+         ORDER BY created_at DESC
+         LIMIT 5`,
+        projectId,
+      ),
+    [] as NodeRow[],
   );
 
-  const completions = await query<SkillCompletionRow>(
-    'SELECT skill_id, status, summary, completed_at FROM skill_completions WHERE project_id = ?',
-    projectId,
+  const completions = await guard(
+    'completions',
+    () =>
+      query<SkillCompletionRow>(
+        'SELECT skill_id, status, summary, completed_at FROM skill_completions WHERE project_id = ?',
+        projectId,
+      ),
+    [] as SkillCompletionRow[],
   );
 
   const skillMap: Record<string, SkillData> = {};
@@ -228,5 +281,9 @@ export async function GET(
     score: score ?? null,
     nodes,
     stages,
+    // audit M2 — true only when a guarded facet query actually threw. Lets the
+    // Canvas distinguish a genuine empty-but-successful project (partial:false)
+    // from a transient hiccup that degraded one or more facets to empty.
+    partial: degraded,
   });
 }

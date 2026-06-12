@@ -32,6 +32,9 @@ interface DepartmentSectionProps {
   focusedMessageId: string | null;
   /** Default-collapsed? Defaults to false. Empty departments are hidden by the parent. */
   defaultCollapsed?: boolean;
+  /** Skim-first collapse: artifacts whose turnIndex is older than this render
+   *  with defaultCollapsed on their card shell; latest-turn artifacts open. */
+  latestTurnIndex: number;
 }
 
 const DEPT_LABELS: Record<Department, { en: string; it: string }> = {
@@ -43,24 +46,6 @@ const DEPT_LABELS: Record<Department, { en: string; it: string }> = {
   memory: { en: 'Memory', it: 'Memoria' },
 };
 
-const DEPT_ICONS: Record<Department, string> = {
-  market: I.globe,
-  product: I.layers,
-  pricing: I.dollar,
-  finance: I.fund,
-  growth: I.graph,
-  memory: I.book,
-};
-
-const DEPT_ACCENT: Record<Department, string> = {
-  market: 'var(--sky)',
-  product: 'var(--accent)',
-  pricing: 'var(--moss)',
-  finance: 'var(--moss)',
-  growth: 'var(--plum)',
-  memory: 'var(--ink-3)',
-};
-
 export function DepartmentSection({
   department,
   locale,
@@ -68,32 +53,33 @@ export function DepartmentSection({
   handleArtifactAction,
   focusedMessageId,
   defaultCollapsed = false,
+  latestTurnIndex,
 }: DepartmentSectionProps) {
   const [open, setOpen] = useState(!defaultCollapsed);
   const label = DEPT_LABELS[department][locale];
-  const accent = DEPT_ACCENT[department];
 
   return (
     <section style={{ marginBottom: 18 }}>
+      {/* Slim plain-text header: `Market · 3` — no icon chip, no card chrome.
+          Still a button: clicking toggles the section open/collapsed. */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         style={{
           width: '100%',
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
-          padding: '8px 10px',
-          background: 'var(--surface)',
-          border: '1px solid var(--line)',
-          borderRadius: 'var(--r-m)',
+          gap: 6,
+          padding: '4px 0',
+          background: 'transparent',
+          border: 'none',
           cursor: 'pointer',
           textAlign: 'left',
           color: 'inherit',
-          marginBottom: open ? 10 : 0,
+          marginBottom: open ? 8 : 2,
         }}
       >
-        <Icon d={DEPT_ICONS[department]} size={13} style={{ color: accent }} />
         <span
           className="lp-serif"
           style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}
@@ -102,9 +88,9 @@ export function DepartmentSection({
         </span>
         <span
           className="lp-mono"
-          style={{ fontSize: 10, color: 'var(--ink-5)' }}
+          style={{ fontSize: 11, color: 'var(--ink-5)' }}
         >
-          ({entries.length})
+          · {entries.length}
         </span>
         <span style={{ flex: 1 }} />
         <Icon d={open ? I.chevd : I.chevr} size={11} style={{ color: 'var(--ink-5)' }} />
@@ -123,6 +109,7 @@ export function DepartmentSection({
               entry={entry}
               focusedMessageId={focusedMessageId}
               handleArtifactAction={handleArtifactAction}
+              latestTurnIndex={latestTurnIndex}
             />
           ))}
         </div>
@@ -135,14 +122,18 @@ function ArtifactSlot({
   entry,
   focusedMessageId,
   handleArtifactAction,
+  latestTurnIndex,
 }: {
   entry: DepartmentEntry;
   focusedMessageId: string | null;
   handleArtifactAction: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
+  latestTurnIndex: number;
 }) {
   const isFocused = focusedMessageId !== null && entry.sourceMessageId === focusedMessageId;
   const isDimmed = focusedMessageId !== null && !isFocused;
   const span = spanForArtifact(entry.artifact);
+  // Skim-first: only the latest turn's artifacts open by default.
+  const collapsed = entry.turnIndex < latestTurnIndex;
 
   const handleBackLink = () => {
     const el = document.querySelector(`[data-message-id="${entry.sourceMessageId}"]`);
@@ -170,6 +161,7 @@ function ArtifactSlot({
           onAction={(a, p) => handleArtifactAction(a, p)}
           onEntityDiscovered={() => {}}
           onWorkflowDiscovered={() => {}}
+          defaultCollapsed={collapsed}
         />
       </div>
     );
@@ -219,6 +211,7 @@ function ArtifactSlot({
           onAction={(a, p) => handleArtifactAction(a, p)}
           onEntityDiscovered={() => {}}
           onWorkflowDiscovered={() => {}}
+          defaultCollapsed={collapsed}
         />
       </div>
     </div>

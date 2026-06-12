@@ -176,6 +176,34 @@ export async function extractAssumptions(
   return result;
 }
 
+/**
+ * Fire-and-forget backstop that seeds the premortem assumptions registry the
+ * FIRST time a project accumulates real idea context — so the feature no longer
+ * depends on the chat agent remembering to call the extract_assumptions tool
+ * (which it rarely did, leaving the registry empty in every project).
+ *
+ * Guarded to run AT MOST ONCE per project: extractAssumptions appends by
+ * `number`, so a second run on the same context would duplicate the registry.
+ * If any assumption already exists we return immediately. Thin context (<40
+ * chars) is skipped. The extraction itself is an LLM call, so it is detached —
+ * callers must never await meaningful latency on it.
+ */
+export async function seedAssumptionsIfEmpty(projectId: string, context: string): Promise<void> {
+  try {
+    if (context.trim().length < 40) return;
+    const existing = await get<{ one: number }>(
+      'SELECT 1 AS one FROM assumptions WHERE project_id = ? LIMIT 1',
+      projectId,
+    );
+    if (existing) return; // once-per-project — never duplicate the registry
+    void extractAssumptions(projectId, context).catch((err) => {
+      console.warn(`[assumptions] background seed failed for ${projectId}:`, (err as Error).message);
+    });
+  } catch (err) {
+    console.warn('[assumptions] seed guard failed (non-fatal):', (err as Error).message);
+  }
+}
+
 interface ExtractorItem {
   text: string;
   category: string;

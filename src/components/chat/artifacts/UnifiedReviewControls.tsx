@@ -15,8 +15,10 @@
 import type { ActionLane } from '@/lib/action-lanes';
 
 // 'monitor' lane never reaches these controls — monitors aren't pending_actions.
-// We type the maps without it so we don't have to invent meaningless labels.
-type ReviewableLane = Exclude<ActionLane, 'monitor'>;
+// 'signal' lane never reaches them either — signal_alert rows render in the
+// Inbox Signals tab with their own Accept/Dismiss verbs, not as chat artifact
+// cards. We type the maps without both so we don't invent meaningless labels.
+type ReviewableLane = Exclude<ActionLane, 'monitor' | 'signal'>;
 
 export interface UnifiedReviewControlsProps {
   lane: ReviewableLane;

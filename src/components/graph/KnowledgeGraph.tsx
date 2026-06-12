@@ -10,6 +10,8 @@ interface KnowledgeGraphProps {
   edges: GraphEdge[];
   onNodeClick?: (node: GraphNode) => void;
   onEdgeClick?: (edge: GraphEdge) => void;
+  /** Called when a PENDING node is clicked — applies it to intelligence. */
+  onApplyNode?: (node: GraphNode) => void;
 }
 
 interface SimNode extends d3.SimulationNodeDatum {
@@ -48,7 +50,7 @@ const CLUSTER_ANGLES: Record<string, number> = {
   metric: 210,
 };
 
-export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick }: KnowledgeGraphProps) {
+export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick, onApplyNode }: KnowledgeGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<d3.Simulation<SimNode, SimLink> | null>(null);
@@ -226,8 +228,12 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
       .data(simNodes).enter().append('circle')
       .attr('r', d => d.node_type === 'your_startup' ? 14 : 10)
       .attr('fill', d => getColor(d.node_type))
-      .attr('stroke', d => d.node_type === 'your_startup' ? 'var(--sky)' : 'var(--line)')
+      // Pending proposals render dashed + translucent (accent ring) so they
+      // read as "not solid yet"; applied nodes are unchanged.
+      .attr('stroke', d => d.rawData.reviewed_state === 'pending' ? 'var(--accent)' : d.node_type === 'your_startup' ? 'var(--sky)' : 'var(--line)')
       .attr('stroke-width', d => d.node_type === 'your_startup' ? 3 : 2)
+      .attr('stroke-dasharray', d => d.rawData.reviewed_state === 'pending' ? '3,2' : null)
+      .style('fill-opacity', d => d.rawData.reviewed_state === 'pending' ? 0.4 : 1)
       .style('cursor', 'pointer')
       .style('filter', d => d.node_type === 'your_startup' ? 'drop-shadow(0 0 8px var(--ink-5))' : 'none')
       .call(d3.drag<SVGCircleElement, SimNode>()
@@ -268,7 +274,16 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick 
           return ((sl.source as SimNode).id === d.id || (sl.target as SimNode).id === d.id) ? 1 : 0;
         });
         onNodeClick?.(d.rawData);
+        // Clicking a pending proposal applies it to intelligence (2 credits).
+        if (d.rawData.reviewed_state === 'pending') onApplyNode?.(d.rawData);
       });
+
+    // Hover cue — pending nodes advertise the apply cost; others show the name.
+    node.append('title').text(d =>
+      d.rawData.reviewed_state === 'pending'
+        ? 'Pending — click to apply · 2 credits'
+        : d.name,
+    );
 
     // Node labels
     nodeGroup.selectAll<SVGTextElement, SimNode>('text')

@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { query, run, get } from '@/lib/db';
 import { requireUser, AuthError } from '@/lib/auth/require-user';
+import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
+import { recordEvent } from '@/lib/memory/events';
 
 interface KnowledgeItem {
   id: string;
@@ -113,9 +115,13 @@ export async function GET(
 /**
  * POST /api/projects/{projectId}/knowledge
  *
- * Manually create a knowledge fact. Body: { title, detail?, kind }
+ * Manually create a knowledge fact. Body: { title, detail?, kind, apply?, sources? }
  * - kind = 'usp_statement' is a special case: upserts a single USP row.
- * - All other kinds create a new fact with reviewed_state = 'applied'.
+ * - apply = true (the inline 'knowledge-suggestion' card): create the fact as
+ *   reviewed_state='applied' AND debit KNOWLEDGE_APPLY_CREDITS — this is the
+ *   founder applying a prose-stated fact to intelligence in one click.
+ * - apply omitted (manual Knowledge-page create): create as 'applied' with no
+ *   debit (the founder authored it directly; nothing to charge for).
  */
 export async function POST(
   request: NextRequest,
@@ -153,11 +159,30 @@ export async function POST(
     }
   }
 
+  // Inline 'knowledge-suggestion' apply path: persist provenance + debit the
+  // 2-credit apply cost. sources is JSONB (auto-serialized — never stringify).
+  const wantsApply = body.apply === true;
+  const sources = Array.isArray(body.sources) && body.sources.length > 0 ? body.sources : null;
+
   const id = generateId('fact');
   await run(
-    `INSERT INTO memory_facts (id, project_id, user_id, fact, kind, reviewed_state, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'applied', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-    id, projectId, userId, factText, kind,
+    `INSERT INTO memory_facts (id, project_id, user_id, fact, kind, source_type, reviewed_state, sources, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'applied', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    id, projectId, userId, factText, kind, wantsApply ? 'chat' : 'manual', sources,
   );
-  return json({ id, kind, created: true }, 201);
+
+  let creditsDebited = 0;
+  if (wantsApply) {
+    try {
+      await debitCredits(projectId, KNOWLEDGE_APPLY_CREDITS);
+      creditsDebited = KNOWLEDGE_APPLY_CREDITS;
+    } catch (err) {
+      console.warn('[knowledge POST] inline-apply credit debit failed (non-fatal):', (err as Error).message);
+    }
+    try {
+      await recordEvent({ userId, projectId, eventType: 'knowledge_applied', payload: { itemId: id, table: 'fact', state: 'applied', inline: true } });
+    } catch { /* non-fatal */ }
+  }
+
+  return json({ id, kind, created: true, credits_debited: creditsDebited }, 201);
 }

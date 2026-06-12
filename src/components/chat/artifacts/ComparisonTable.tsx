@@ -1,13 +1,14 @@
 'use client';
 
 import type { ComparisonTable as ComparisonTableType, ColumnType } from '@/types/artifacts';
-import { useReviewState } from '@/hooks/useReviewState';
-import UnifiedReviewControls from './UnifiedReviewControls';
 import ArtifactCardShell from './ArtifactCardShell';
+import KnowledgeApplyControls from './SavedHint';
 
 interface ComparisonTableProps {
   artifact: ComparisonTableType;
   onAction?: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
+  /** Mount collapsed (older-turn artifacts on the canvas). */
+  defaultCollapsed?: boolean;
 }
 
 /**
@@ -78,17 +79,15 @@ function formatCell(value: string | number, colType: ColumnType | undefined): Re
   }
 }
 
-export default function ComparisonTable({ artifact, onAction }: ComparisonTableProps) {
+/**
+ * Comparison table — title + table + collapsed sources + Apply/Dismiss footer.
+ * Founder directive (2026-06-11): the comparison persists as a PROPOSAL
+ * (graph_nodes, reviewed_state='pending'); applying it (2 credits) folds it
+ * into project intelligence.
+ */
+export default function ComparisonTable({ artifact, onAction, defaultCollapsed }: ComparisonTableProps) {
   const colTypes = artifact.column_types;
-
-  const review = useReviewState({
-    artifactId: artifact.id,
-    persistedId: artifact.persisted_id,
-    reviewedState: artifact.reviewed_state,
-    type: 'tabular_review',
-    itemId: artifact.review_id,
-    onAction,
-  });
+  const rejected = artifact.reviewed_state === 'rejected';
 
   return (
     <ArtifactCardShell
@@ -96,18 +95,16 @@ export default function ComparisonTable({ artifact, onAction }: ComparisonTableP
       title={artifact.title || 'Comparison'}
       sources={artifact.sources}
       provenance={artifact.provenance}
-      dimmed={review.isRejected}
-      aiGenerated
+      dimmed={rejected}
+      defaultCollapsed={defaultCollapsed}
       className="overflow-x-auto"
       footer={
-        <UnifiedReviewControls
-          lane="approval"
-          state={review.reviewState}
-          onApply={() => review.handleReview('applied')}
-          onReject={() => review.handleReview('rejected')}
-          variant="footer"
-          destination="Reviews"
-          impactHint="Will save as a reviewed comparison"
+        <KnowledgeApplyControls
+          artifactId={artifact.id}
+          persistedId={artifact.persisted_id}
+          state={artifact.reviewed_state}
+          type="graph_node"
+          onAction={onAction}
         />
       }
     >

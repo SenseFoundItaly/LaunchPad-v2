@@ -17,7 +17,7 @@
 
 import { use, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from 'react';
 import api from '@/api';
-import { useChat } from '@/hooks/useChat';
+import { useChat, chatStoreHydrated, markChatHydrated } from '@/hooks/useChat';
 import { useProject } from '@/hooks/useProject';
 import { splitOptionLabel } from '@/components/chat/option-label';
 import { parseMessageContent } from '@/lib/artifact-parser';
@@ -43,7 +43,7 @@ import {
 // rather than in the right-side Canvas. Anything not listed stays in Canvas.
 const INLINE_ARTIFACT_TYPES = new Set<ArtifactType>([
   'option-set', 'action-suggestion', 'task',
-  'monitor-proposal', 'budget-proposal',
+  'monitor-proposal', 'budget-proposal', 'skill-suggestion', 'knowledge-suggestion',
 ]);
 
 // Message paging: long threads (40+ screens) render only this many trailing
@@ -56,6 +56,14 @@ const VISIBLE_MESSAGE_TAIL = 25;
 // content to keep auto-pinning the scroll position.
 const NEAR_BOTTOM_PX = 150;
 
+// Artifact types rendered ELSEWHERE as a single pinned surface, so they must
+// NOT also stream into the Canvas as department cards. `idea-canvas` persists
+// to the idea_canvas table (artifact-persistence) and is shown once by the
+// pinned IdeaCanvasHeader at the top of the Canvas — without this filter, every
+// idea-canvas the agent emits renders an extra (often stale) duplicate card
+// next to the live pinned snapshot.
+const PINNED_ARTIFACT_TYPES = new Set<ArtifactType>(['idea-canvas']);
+
 function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artifact[] } {
   const segments = parseMessageContent(content);
   const all = segments
@@ -63,7 +71,9 @@ function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artif
     .map((s) => (s as { type: 'artifact'; artifact: Artifact }).artifact);
   return {
     inline: all.filter((a) => INLINE_ARTIFACT_TYPES.has(a.type)),
-    canvas: all.filter((a) => !INLINE_ARTIFACT_TYPES.has(a.type)),
+    canvas: all.filter(
+      (a) => !INLINE_ARTIFACT_TYPES.has(a.type) && !PINNED_ARTIFACT_TYPES.has(a.type),
+    ),
   };
 }
 
@@ -252,7 +262,9 @@ export default function CopilotChatPage({
   const step = 'chat';
   const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages, messageCosts } = useChat(projectId, step);
   const [input, setInput] = useState('');
-  const [historyLoaded, setHistoryLoaded] = useState(false);
+  // Init true when the store already holds this thread (tab-return) so we don't
+  // flash "Loading history…" or re-fetch. Fresh mount / full refresh → false.
+  const [historyLoaded, setHistoryLoaded] = useState(() => chatStoreHydrated(projectId, step));
   const scrollRef = useRef<HTMLDivElement>(null);
   // Turn-linked canvas: which chat message is hovered (null = none).
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
@@ -318,7 +330,17 @@ export default function CopilotChatPage({
 
   // Load existing chat history for this project.
   // Race-guard: a stale response (e.g. project switch mid-fetch) is ignored.
+  //
+  // Tab-return guard: if the chat store already holds this thread (we navigated
+  // back to the Co-pilot tab, or a stream ran / completed while we were away on
+  // Know/Home), DON'T reload history — that would clobber the in-flight or
+  // just-returned response. The module store IS the live thread; trust it.
+  // History only loads on the first visit and after a full page refresh (which
+  // resets the module store), rebuilding from the server-persisted rows.
   useEffect(() => {
+    // Store already holds this thread (tab-return): skip the reload entirely.
+    // historyLoaded was initialized true above, so no "Loading…" flash.
+    if (chatStoreHydrated(projectId, step)) return;
     const controller = new AbortController();
     api.get<HistoryResp>(
       `/api/chat/history?project_id=${projectId}&step=${encodeURIComponent(step)}`,
@@ -326,6 +348,9 @@ export default function CopilotChatPage({
     )
       .then(({ data }) => {
         if (controller.signal.aborted) return;
+        // A send may have started while history was in flight — don't overwrite
+        // the fresh stream with stale history.
+        if (chatStoreHydrated(projectId, step)) return;
         const restored = data.success && Array.isArray(data.data) && data.data.length > 0
           ? data.data.map((m, i) => ({
             id: m.id ?? `restored_${i}`,
@@ -355,7 +380,12 @@ export default function CopilotChatPage({
         setMessages([]);
       })
       .finally(() => {
-        if (!controller.signal.aborted) setHistoryLoaded(true);
+        if (!controller.signal.aborted) {
+          // Remember this thread is loaded so a tab-return doesn't reload (and
+          // clobber) it. Survives until a full page refresh resets the store.
+          markChatHydrated(projectId, step);
+          setHistoryLoaded(true);
+        }
       });
     return () => {
       controller.abort();
@@ -553,13 +583,20 @@ export default function CopilotChatPage({
    */
   const handleArtifactAction = useCallback(
     async (action: string, payload: Record<string, unknown>): Promise<void> => {
-      // Knowledge item apply/reject (facts, graph_nodes, tabular_reviews)
+      // knowledge:apply — the founder clicked Apply / Dismiss on a knowledge
+      // card (insight / entity / comparison / metric) whose proposal is
+      // pending. Re-added 2026-06-11: knowledge no longer auto-applies; the
+      // card carries Apply · 2 credits / Dismiss. PATCHes the unified knowledge
+      // endpoint, which flips reviewed_state and (server-side, on
+      // pending→applied) debits KNOWLEDGE_APPLY_CREDITS. Apply broadcasts both
+      // lp-actions-changed (inbox row may exist) and lp-knowledge-changed +
+      // lp-credits-changed (Knowledge surface + credit badge refetch).
       if (action === 'knowledge:apply') {
         const itemId = String(payload.item_id ?? '');
-        const state = String(payload.state ?? 'applied');
-        if (!itemId) throw new Error('Missing item_id on knowledge action');
+        if (!itemId) throw new Error('Missing item_id on knowledge:apply');
+        const state = payload.state === 'rejected' ? 'rejected' : 'applied';
         const res = await fetch(
-          `/api/projects/${projectId}/knowledge/${itemId}`,
+          `/api/projects/${projectId}/knowledge/${encodeURIComponent(itemId)}`,
           {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -568,7 +605,42 @@ export default function CopilotChatPage({
         );
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-          throw new Error(err.error || `Knowledge review failed with status ${res.status}`);
+          throw new Error(err.error || `Knowledge ${state} failed with status ${res.status}`);
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+          window.dispatchEvent(new CustomEvent('lp-knowledge-changed', { detail: { projectId } }));
+          if (state === 'applied') {
+            window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
+          }
+        }
+        return;
+      }
+
+      // knowledge:apply-inline — the founder clicked "Apply to intelligence" on
+      // an inline knowledge-suggestion card (a prose-stated fact, no persisted
+      // row). POST /knowledge { apply: true } creates the fact as 'applied' and
+      // debits the 2 credits server-side. Broadcasts the same refetch events.
+      if (action === 'knowledge:apply-inline') {
+        const fact = String(payload.fact ?? '').trim();
+        if (!fact) throw new Error('Missing fact on knowledge:apply-inline');
+        const res = await fetch(`/api/projects/${projectId}/knowledge`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: fact,
+            kind: typeof payload.kind === 'string' ? payload.kind : 'observation',
+            apply: true,
+            sources: Array.isArray(payload.sources) ? payload.sources : [],
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `Apply failed with status ${res.status}`);
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('lp-knowledge-changed', { detail: { projectId } }));
+          window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
         }
         return;
       }
@@ -684,6 +756,36 @@ export default function CopilotChatPage({
         }
         return;
       }
+      // skill:run — the founder clicked Run on an EPHEMERAL inline
+      // skill-suggestion card. Run the skill in real time via POST /skills?run=1
+      // (skill_completions + section_scores), WITHOUT any pending_action. The
+      // credit cost was shown on the button before the click, so this is
+      // consented spend. The card manages its own running/done state; on
+      // success we broadcast so spine / readiness surfaces refetch.
+      if (action === 'skill:run') {
+        const skillId = String(payload.skill_id ?? '');
+        if (!skillId) throw new Error('Missing skill_id on skill:run');
+        const reqBody: Record<string, unknown> = { skill_id: skillId, run: true };
+        if (typeof payload.context === 'string' && payload.context) {
+          reqBody.context = payload.context;
+        }
+        const res = await fetch(`/api/projects/${projectId}/skills`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reqBody),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `Skill run failed with status ${res.status}`);
+        }
+        if (typeof window !== 'undefined') {
+          // Skill writes skill_completions + section_scores → spine, readiness,
+          // and skill surfaces should refetch.
+          window.dispatchEvent(new CustomEvent('lp-skills-changed', { detail: { projectId, skillId } }));
+          window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+        }
+        return;
+      }
       // Fallback for other artifact actions — re-send as chat so the agent
       // can react. Matches legacy OptionSetCard / ActionSuggestionCard usage.
       if (action === 'select-option' && typeof payload.label === 'string') {
@@ -734,9 +836,6 @@ export default function CopilotChatPage({
               </span>
             )}
             {isStreaming && <Pill kind="live" dot>streaming</Pill>}
-            <span className="lp-mono" style={{ fontSize: 10 }}>
-              ctx · {messages.length} msgs
-            </span>
             <ContextExportBtn
               projectId={projectId}
               project={project}
@@ -762,7 +861,7 @@ export default function CopilotChatPage({
             background: 'var(--paper)',
           }}
         >
-          <ChatHeader project={project} locale={locale} />
+          <ChatHeader project={project} locale={locale} projectId={projectId} />
 
           <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <div
@@ -909,10 +1008,9 @@ export default function CopilotChatPage({
         </div>
       </div>
 
-      <StatusBar
-        heartbeatLabel={isStreaming ? 'streaming' : 'idle'}
-        budget={`${canvasArtifacts.length} artifact${canvasArtifacts.length === 1 ? '' : 's'}`}
-      />
+      {/* Slimmed (2026-06): streaming/idle only — the artifact count and tz
+          segments were founder-facing noise. */}
+      <StatusBar heartbeatLabel={isStreaming ? 'streaming' : 'idle'} />
     </div>
   );
 }
@@ -924,11 +1022,14 @@ export default function CopilotChatPage({
 function ChatHeader({
   project,
   locale,
+  projectId,
 }: {
   project: unknown;
   locale: 'en' | 'it';
+  projectId: string;
 }) {
   const p = project as { name?: string; description?: string } | null;
+  const subtitle = useCurrentSubtask(projectId, locale);
   return (
     <div style={{ padding: '14px 20px 12px', borderBottom: '1px solid var(--line)' }}>
       <h2
@@ -938,14 +1039,68 @@ function ChatHeader({
         {p?.name || ''}
         <span className="lp-dot lp-pulse" style={{ background: 'var(--moss)', width: 6, height: 6 }} />
       </h2>
-      <div
-        className="lp-mono"
-        style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}
-      >
-        {locale === 'it' ? 'Validazione ICP' : 'Validate ICP'}
-      </div>
+      {subtitle && (
+        <div
+          className="lp-mono"
+          style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}
+        >
+          {subtitle}
+        </div>
+      )}
     </div>
   );
+}
+
+// The subtitle under the project name = what the founder is validating RIGHT
+// NOW: the active stage's first unmet substep (its check label). Was hardcoded
+// "Validate ICP", which lied once the founder moved past ICP. Reacts to
+// lp-actions-changed so it advances as substeps clear (same signal SpineSection
+// uses). Returns null while loading / when nothing is active, so the header
+// shows no stale placeholder.
+function useCurrentSubtask(projectId: string, locale: 'en' | 'it'): string | null {
+  const [subtitle, setSubtitle] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/stages`);
+        const body = await res.json();
+        if (cancelled) return;
+        const inner = body?.data ?? body;
+        const evals: Array<{
+          stage: { label: string };
+          status: string;
+          results: Array<{ check: { label: string }; result: { passed: boolean } }>;
+        }> = Array.isArray(inner?.evaluations) ? inner.evaluations : [];
+        const active = evals.find((e) => e.status === 'active');
+        if (!active) {
+          // No active stage: either nothing started or everything's validated.
+          const allDone = evals.length > 0 && evals.every((e) => e.status === 'done');
+          setSubtitle(allDone ? (locale === 'it' ? 'Tutte le tappe validate' : 'All stages validated') : null);
+          return;
+        }
+        const openCheck = active.results.find((r) => !r.result.passed);
+        if (openCheck) {
+          setSubtitle(
+            (locale === 'it' ? 'In validazione · ' : 'Validating · ') + openCheck.check.label,
+          );
+        } else {
+          // Active stage with every substep passed — about to advance.
+          setSubtitle(active.stage.label + (locale === 'it' ? ' · pronto ad avanzare' : ' · ready to advance'));
+        }
+      } catch {
+        /* leave whatever was there; non-fatal */
+      }
+    }
+    load();
+    const handler = () => { if (!cancelled) load(); };
+    window.addEventListener('lp-actions-changed', handler);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('lp-actions-changed', handler);
+    };
+  }, [projectId, locale]);
+  return subtitle;
 }
 
 function ChatEmptyState({
@@ -1359,7 +1514,7 @@ function InlineArtifact({
   const a = artifact as unknown as Record<string, unknown>;
 
   if (artifact.type === 'option-set' && Array.isArray(a.options)) {
-    const options = a.options as Array<{ id?: string; label?: string; description?: string }>;
+    const options = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number }>;
     const prompt = typeof a.prompt === 'string' ? a.prompt : '';
     return (
       <div
@@ -1411,16 +1566,34 @@ function InlineArtifact({
                   minWidth: 0,
                 }}
               >
-                <div
-                  style={{
-                    fontSize: 12.5,
-                    fontWeight: 500,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {split.label || `Option ${i + 1}`}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      flex: 1,
+                      minWidth: 0,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {split.label || `Option ${i + 1}`}
+                  </span>
+                  {/* Per-option credit estimate — what this choice spends. */}
+                  {typeof o.credits === 'number' && o.credits > 0 && (
+                    <span
+                      className="lp-mono"
+                      style={{
+                        flexShrink: 0,
+                        fontSize: 10,
+                        color: 'var(--ink-5)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      ≈{o.credits} {o.credits === 1 ? 'credit' : 'credits'}
+                    </span>
+                  )}
                 </div>
                 {split.description && (
                   <div
@@ -1492,11 +1665,210 @@ function InlineArtifact({
     );
   }
 
+  if (artifact.type === 'skill-suggestion') {
+    return <SkillSuggestionCard artifact={artifact} onAction={onAction} />;
+  }
+
+  if (artifact.type === 'knowledge-suggestion') {
+    return <KnowledgeSuggestionCard artifact={artifact} onAction={onAction} />;
+  }
+
   if (artifact.type === 'task') {
     return <TaskCard artifact={artifact} onAction={onAction} />;
   }
 
   return null;
+}
+
+// ─── SkillSuggestionCard ──────────────────────────────────────────────────────
+//
+// EPHEMERAL inline skill proposal. Founder directive (2026-06-11): skills are
+// proposed at conversation runtime; if ignored, nothing persists (this card is
+// just part of the chat transcript — no pending_action, no DB row). Clicking Run
+// fires the skill in real time via POST /skills?run=1 (skill_completions +
+// section_scores) through handleArtifactAction's 'skill:run' verb. The credit
+// cost is shown on the button BEFORE the click so the spend is consented; an
+// inline running/done state appears AFTER.
+function SkillSuggestionCard({
+  artifact,
+  onAction,
+}: {
+  artifact: Artifact;
+  onAction?: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
+}) {
+  const a = artifact as unknown as Record<string, unknown>;
+  const skillId = typeof a.skill_id === 'string' ? a.skill_id : '';
+  const label = typeof a.skill_label === 'string' && a.skill_label ? a.skill_label : (skillId || 'Skill');
+  const rationale = typeof a.rationale === 'string' ? a.rationale : '';
+  const credits = typeof a.credits === 'number' ? a.credits : null;
+  const context = typeof a.context === 'string' ? a.context : '';
+  const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [errMsg, setErrMsg] = useState('');
+
+  const run = async () => {
+    if (state === 'running' || state === 'done' || !skillId) return;
+    setState('running');
+    setErrMsg('');
+    try {
+      await onAction?.('skill:run', { skill_id: skillId, context });
+      setState('done');
+    } catch (e) {
+      setState('error');
+      setErrMsg(e instanceof Error ? e.message : 'Run failed');
+    }
+  };
+
+  const btnLabel =
+    state === 'running' ? 'Running…' :
+    state === 'done' ? 'Done' :
+    state === 'error' ? 'Retry' :
+    credits != null ? `Run (≈${credits} credits)` : 'Run';
+
+  // Inline, NOT a separate bordered section: the skill CTA flows within the
+  // assistant's message (founder directive 2026-06-11 — "should not render as
+  // a separate section"). A button-led row + muted rationale, no card chrome.
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, margin: '2px 0' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={run}
+          disabled={state === 'running' || state === 'done'}
+          style={{
+            flexShrink: 0,
+            padding: '5px 12px',
+            borderRadius: 999,
+            background: state === 'done' ? 'var(--paper-3)' : 'var(--ink)',
+            color: state === 'done' ? 'var(--ink-3)' : 'var(--paper)',
+            border: 'none',
+            cursor: state === 'running' || state === 'done' ? 'default' : 'pointer',
+            fontSize: 11.5,
+            fontFamily: 'inherit',
+            fontWeight: 500,
+            opacity: state === 'running' ? 0.7 : 1,
+          }}
+        >
+          {btnLabel}
+        </button>
+        <span style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 500 }}>
+          {label}
+          {state === 'idle' && credits != null && (
+            <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--ink-5)', fontWeight: 400 }}>
+              ≈{credits} credits
+            </span>
+          )}
+        </span>
+      </div>
+      {state === 'idle' && rationale && (
+        <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.4 }}>{rationale}</div>
+      )}
+      {state === 'running' && (
+        <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+          Running in real time — this writes validation evidence when it finishes.
+        </div>
+      )}
+      {state === 'done' && (
+        <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+          Skill ran — readiness and the spine have been updated.
+        </div>
+      )}
+      {state === 'error' && errMsg && (
+        <div style={{ fontSize: 11, color: 'var(--clay)' }}>{errMsg}</div>
+      )}
+    </div>
+  );
+}
+
+// ─── KnowledgeSuggestionCard ──────────────────────────────────────────────────
+//
+// EPHEMERAL inline knowledge proposal. Founder directive (2026-06-11): when the
+// agent states a fact/insight in PROSE (no card), it surfaces this CTA instead
+// of silently writing memory. Clicking "Apply to intelligence · 2 credits"
+// POSTs to /knowledge { apply: true } via handleArtifactAction's
+// 'knowledge:apply-inline' verb — which persists the fact as applied AND debits
+// 2 credits server-side. If ignored, nothing persists (transcript only).
+function KnowledgeSuggestionCard({
+  artifact,
+  onAction,
+}: {
+  artifact: Artifact;
+  onAction?: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
+}) {
+  const a = artifact as unknown as Record<string, unknown>;
+  const fact = typeof a.fact === 'string' ? a.fact : '';
+  const kind = typeof a.kind === 'string' ? a.kind : 'observation';
+  const credits = typeof a.credits === 'number' ? a.credits : 2;
+  const sources = Array.isArray(a.sources) ? a.sources : [];
+  const [state, setState] = useState<'idle' | 'applying' | 'done' | 'error'>('idle');
+  const [errMsg, setErrMsg] = useState('');
+
+  const apply = async () => {
+    if (state === 'applying' || state === 'done' || !fact) return;
+    setState('applying');
+    setErrMsg('');
+    try {
+      await onAction?.('knowledge:apply-inline', { fact, kind, sources });
+      setState('done');
+    } catch (e) {
+      setState('error');
+      setErrMsg(e instanceof Error ? e.message : 'Apply failed');
+    }
+  };
+
+  if (!fact) return null;
+
+  const btnLabel =
+    state === 'applying' ? 'Applying…' :
+    state === 'done' ? 'Applied ✓' :
+    state === 'error' ? 'Retry' :
+    `Apply to intelligence · ${credits} credits`;
+
+  return (
+    <div
+      style={{
+        border: '1px solid var(--line-2)',
+        borderRadius: 'var(--r-m)',
+        background: 'var(--surface)',
+        padding: 10,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.4 }}>{fact}</div>
+        {state === 'done' && (
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4 }}>
+            Saved to project intelligence.
+          </div>
+        )}
+        {state === 'error' && errMsg && (
+          <div style={{ fontSize: 11, color: 'var(--clay)', marginTop: 4 }}>{errMsg}</div>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={apply}
+        disabled={state === 'applying' || state === 'done'}
+        style={{
+          flexShrink: 0,
+          padding: '6px 11px',
+          borderRadius: 'var(--r-m)',
+          background: state === 'done' ? 'var(--paper-3)' : 'var(--moss)',
+          color: state === 'done' ? 'var(--ink-3)' : 'var(--paper)',
+          border: 'none',
+          cursor: state === 'applying' || state === 'done' ? 'default' : 'pointer',
+          fontSize: 11.5,
+          fontFamily: 'inherit',
+          fontWeight: 500,
+          opacity: state === 'applying' ? 0.7 : 1,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {btnLabel}
+      </button>
+    </div>
+  );
 }
 
 // ─── TaskCard ─────────────────────────────────────────────────────────────────

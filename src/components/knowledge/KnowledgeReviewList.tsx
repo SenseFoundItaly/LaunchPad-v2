@@ -37,6 +37,12 @@ export interface KnowledgeReviewListProps {
    * facts appear without a full reload.
    */
   refreshNonce?: number;
+  /**
+   * Controlled review-state filter. When set, the internal tab bar is hidden
+   * and only this state's items render — the Knowledge page's filter-chip
+   * row owns the selection instead.
+   */
+  state?: 'pending' | 'applied' | 'rejected';
 }
 
 // =============================================================================
@@ -81,6 +87,21 @@ const STRINGS: Record<string, { en: string; it: string }> = {
 
 function t(key: string, locale: 'en' | 'it'): string {
   return STRINGS[key]?.[locale] ?? STRINGS[key]?.en ?? key;
+}
+
+/** Short founder-facing "when" stamp: today / yesterday / 5d ago / Mar 5. */
+function relTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}),
+  });
 }
 
 // =============================================================================
@@ -172,10 +193,17 @@ function KnowledgeItemCard({
         >
           {item.title}
         </span>
+        <span
+          className="lp-mono"
+          style={{ fontSize: 10, color: 'var(--ink-5)', flexShrink: 0 }}
+        >
+          {relTime(item.created_at)}
+        </span>
         <ChevronIcon open={isExpanded} />
       </div>
 
-      {/* Expanded detail + actions */}
+      {/* Expanded detail + actions — internal type names stay down here,
+          out of the default row. */}
       {isExpanded && (
         <div style={{ padding: '0 10px 10px', borderTop: '1px solid var(--line)' }}>
           {item.detail && (
@@ -183,14 +211,13 @@ function KnowledgeItemCard({
               {item.detail}
             </p>
           )}
-          {item.kind && item.kind !== 'review' && (
-            <p
-              className="lp-mono"
-              style={{ fontSize: 10, color: 'var(--ink-5)', margin: '4px 0 8px' }}
-            >
-              {item.kind}
-            </p>
-          )}
+          <p
+            className="lp-mono"
+            style={{ fontSize: 10, color: 'var(--ink-5)', margin: '4px 0 8px' }}
+          >
+            {item.kind && item.kind !== 'review' ? `${item.kind} · ` : ''}
+            {new Date(item.created_at).toLocaleString()}
+          </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, paddingTop: 4 }}>
             {actions}
           </div>
@@ -219,7 +246,7 @@ function IntelligenceWarning({ locale }: { locale: 'en' | 'it' }) {
 // Main component
 // =============================================================================
 
-export default function KnowledgeReviewList({ projectId, locale, compact, refreshNonce }: KnowledgeReviewListProps) {
+export default function KnowledgeReviewList({ projectId, locale, compact, refreshNonce, state }: KnowledgeReviewListProps) {
   const [activeTab, setActiveTab] = useState<KnowledgeTab>('pending');
   const [pendingItems, setPendingItems] = useState<KnowledgeItem[]>([]);
   const [appliedItems, setAppliedItems] = useState<KnowledgeItem[]>([]);
@@ -281,6 +308,12 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
       void fetchItemsForTab(tab);
     }
   }, [refreshNonce, fetchItemsForTab]);
+
+  // Controlled mode: when the parent switches the state filter, collapse any
+  // open card — the expanded id may not exist in the new list.
+  useEffect(() => {
+    setExpandedId(null);
+  }, [state]);
 
   function handleTabClick(tab: KnowledgeTab) {
     setActiveTab(tab);
@@ -481,15 +514,15 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
   // Determine which items + actions to render
   // ---------------------------------------------------------------------------
 
-  const currentItems = compact
-    ? pendingItems
-    : activeTab === 'pending'
-      ? pendingItems
-      : activeTab === 'applied'
-        ? appliedItems
-        : rejectedItems;
+  // Effective tab: compact always shows pending; a controlled `state` prop
+  // (the Knowledge page's chip row) wins over the internal tab bar.
+  const currentTab: KnowledgeTab = compact ? 'pending' : (state ?? activeTab);
 
-  const currentTab = compact ? 'pending' : activeTab;
+  const currentItems = currentTab === 'pending'
+    ? pendingItems
+    : currentTab === 'applied'
+      ? appliedItems
+      : rejectedItems;
 
   const emptyKey = currentTab === 'pending'
     ? 'emptyPending'
@@ -555,8 +588,9 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
 
   return (
     <div className="space-y-2">
-      {/* Tab bar (full mode only) */}
-      {!compact && (
+      {/* Tab bar (full uncontrolled mode only — hidden when the parent's
+          filter-chip row drives the state via the `state` prop) */}
+      {!compact && !state && (
         <div className="flex gap-0 border-b border-line-2">
           {tabs.map(({ key, label, count }) => (
             <button

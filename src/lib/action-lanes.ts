@@ -13,6 +13,11 @@
  * Lanes:
  *   - TODO:         things the founder DOES (action verbs: done/snooze/dismiss)
  *   - APPROVAL:     things the agent DRAFTED and the founder applies/edits/rejects
+ *   - SIGNAL:       watcher findings — ecosystem alerts materialized as
+ *                   signal_alert pending_actions. Own founder-facing "Signals"
+ *                   tab with full pending / approved / rejected history plus
+ *                   the watcher run log. Split out of APPROVAL because monitor
+ *                   runs drop these in bursts and they drowned the drafts.
  *   - NOTIFICATION: things the system FINISHED that the founder just acknowledges
  *   - MONITOR:      active background watchers. NOT derived from pending_actions —
  *                   this lane reads from /monitors directly. We keep it inside
@@ -27,7 +32,7 @@
 
 import type { PendingActionType } from '@/types';
 
-export type ActionLane = 'todo' | 'approval' | 'notification' | 'monitor';
+export type ActionLane = 'todo' | 'approval' | 'signal' | 'notification' | 'monitor';
 
 export const ACTION_LANE: Record<PendingActionType, ActionLane> = {
   task: 'todo',
@@ -47,15 +52,17 @@ export const ACTION_LANE: Record<PendingActionType, ActionLane> = {
   proposed_graph_update: 'approval',
   // Unified inbox surface — materialized from other proposal tables.
   //
-  // signal_alert is an APPROVAL, not a notification: its apply executor
-  // (acceptAlertIntoKnowledge) files the finding into the knowledge graph,
-  // so the founder is making a review decision, not clearing a notice. When
-  // it lived in the notification lane the only verb was "Acknowledge"
-  // (reject) — Accept was unreachable AND the cron stale-sweep
-  // (dismissStaleNotifications uses typesForLane('notification')) silently
-  // discarded unreviewed signals after 7 days without ever running the
-  // executor. Both fixed by this one mapping.
-  signal_alert: 'approval',
+  // signal_alert gets its OWN lane (history: notification → approval →
+  // signal). Its apply executor (acceptAlertIntoKnowledge) files the finding
+  // into the knowledge graph, so the founder is making a review decision —
+  // but watcher runs drop these in bursts and they drowned the drafts in the
+  // generic Approvals tab. The Signals tab shows the full pending / approved /
+  // rejected history plus the watcher run log. It must NEVER go back to
+  // 'notification': the cron stale-sweep (dismissStaleNotifications uses
+  // typesForLane('notification')) would silently discard unreviewed signals
+  // after 7 days without ever running the executor, and the only verb there
+  // was "Acknowledge" (reject) — Accept was unreachable.
+  signal_alert: 'signal',
   intelligence_brief: 'approval',
   assumption_review: 'approval',
 };

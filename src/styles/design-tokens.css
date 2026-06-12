@@ -124,6 +124,16 @@
 }
 .lp-flash { animation: lp-flash-bg 1.2s ease-out; border-radius: var(--r-m); }
 
+/* Credit deduction feedback: when a turn charges the balance, the chip pops
+   (zoom in → land → zoom out, driven imperatively via WAAPI in CreditsBadge)
+   and a small "−N" delta floats up and fades, so the spend is legible. */
+@keyframes lp-credit-delta {
+  0%   { opacity: 0; transform: translateY(3px) scale(.9); }
+  25%  { opacity: 1; transform: translateY(-1px) scale(1); }
+  100% { opacity: 0; transform: translateY(-13px) scale(1); }
+}
+.lp-credit-delta { animation: lp-credit-delta .95s ease-out forwards; }
+
 /* Markdown prose inside assistant bubbles */
 .lp-md p { margin: 0 0 6px; }
 .lp-md p:last-child { margin-bottom: 0; }

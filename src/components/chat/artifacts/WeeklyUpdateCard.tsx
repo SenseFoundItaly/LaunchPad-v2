@@ -7,38 +7,11 @@ interface WeeklyUpdateCardProps {
   artifact: WeeklyUpdateArtifact;
 }
 
-/**
- * TODO(user): Choose how to visualize morale (1-10 scale).
- *
- * Morale is the most "human" data point in the card — a number that summarizes
- * how the founder felt during the period. The visualization sets the emotional
- * tone of the card.
- *
- * Options to weigh:
- *  - Numeric chip "7/10" — neutral, scannable, no judgment
- *  - 10 filled bars / dots — emphasizes scale and trajectory across weeks
- *  - Color gradient red→amber→green — adds verdict, but might feel
- *    judgemental on a low-morale week (when the founder needs support, not
- *    a red light)
- *  - Hidden emoji — softer, but encodes an interpretation
- *
- * The data is sensitive — this is the founder rating their own week. The
- * choice teaches the product's tone: is it a tracker or a confidant?
- *
- * Constraints:
- *  - score is 1-10 integer, may be undefined
- *  - Return JSX. Return null if undefined.
- *  - Compact — sits in `headerRight`.
- */
-function renderMoraleIndicator(score: number | undefined): React.ReactNode {
-  if (score === undefined) return null;
-  // TODO: implement
-  return (
-    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-paper-2 text-ink-3 font-mono">
-      Morale {score}/10
-    </span>
-  );
-}
+// NOTE: the morale header-chip design question (old TODO scaffold) was
+// settled by the 2026-06 zero-chips rule — morale renders as a plain muted
+// text line at the top of the body. Plain number, no color verdict: the
+// founder is rating their own week, and a red chip on a hard week reads as
+// judgment, not support.
 
 function Section({
   label,
@@ -72,9 +45,10 @@ export default function WeeklyUpdateCard({ artifact }: WeeklyUpdateCardProps) {
       typeLabel="Update"
       title={`${artifact.title} · ${artifact.period}`}
       sources={artifact.sources}
-      aiGenerated
-      headerRight={renderMoraleIndicator(artifact.morale)}
     >
+      {artifact.morale !== undefined && (
+        <div className="text-[10px] text-ink-5 mb-1.5">Morale {artifact.morale}/10</div>
+      )}
       {artifact.generated_summary && (
         <p className="text-sm text-ink-3 italic mb-3 pb-2 border-b border-line-2">
           {artifact.generated_summary}

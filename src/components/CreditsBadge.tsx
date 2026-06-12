@@ -1,7 +1,15 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+
+// The "+ 100 free credits" self-serve mint is a dev/E2E affordance, not a
+// founder feature — gate it so it never renders in production. Next.js inlines
+// process.env.NODE_ENV into the client bundle, so this is the same client-safe
+// signal used elsewhere (e.g. ChatMessage's isDev). E2E_AUTH_ENABLED is
+// server-only and not exposed to the client, so NODE_ENV is the right gate.
+const SHOW_DEV_CREDIT_BUMP = process.env.NODE_ENV !== 'production';
 
 /**
  * CreditsBadge — TopBar pill showing remaining monthly credits + soft daily anchor.
@@ -59,6 +67,36 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
       return body.data;
     },
   });
+
+  // Deduction animation: when `remaining` drops (a turn / skill / apply charged
+  // the balance), pop the chip — zoom in, the new number lands, zoom out — and
+  // float a "−N" delta. The chat fires lp-actions-changed at turn end, which
+  // invalidates the credits query, so this reacts on every charge.
+  const chipRef = useRef<HTMLSpanElement>(null);
+  const prevRemaining = useRef<number | null>(null);
+  const [delta, setDelta] = useState<number | null>(null);
+  const [popKey, setPopKey] = useState(0);
+  useEffect(() => {
+    const cur = snap?.remaining;
+    if (typeof cur !== 'number') return;
+    const prev = prevRemaining.current;
+    prevRemaining.current = cur;
+    if (prev == null || cur >= prev) return; // first load or a refill — no pop
+    setDelta(prev - cur);
+    setPopKey((k) => k + 1);
+    // Imperative pop so it replays on every charge (a CSS class wouldn't
+    // re-trigger without a remount, which would drop the dropdown + ref).
+    chipRef.current?.animate(
+      [
+        { transform: 'scale(1)' },
+        { transform: 'scale(1.18)', offset: 0.35 },
+        { transform: 'scale(1)' },
+      ],
+      { duration: 480, easing: 'cubic-bezier(.34,1.56,.64,1)' },
+    );
+    const t = setTimeout(() => setDelta(null), 950);
+    return () => clearTimeout(t);
+  }, [snap?.remaining]);
 
   // Click-outside to close dropdown
   useEffect(() => {
@@ -151,7 +189,28 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
 
   return (
     <div ref={dropdownRef} style={{ position: 'relative', display: 'inline-block' }}>
+      {/* Floating "−N" deduction, fades up above the chip on each charge. */}
+      {delta != null && (
+        <span
+          key={popKey}
+          className="lp-credit-delta"
+          style={{
+            position: 'absolute',
+            top: -11,
+            right: 6,
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: 'var(--f-mono)',
+            color: 'var(--clay)',
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}
+        >
+          −{delta}
+        </span>
+      )}
       <span
+        ref={chipRef}
         className="lp-chip"
         onClick={() => setOpen(!open)}
         style={{ background: bg, color: fg, position: 'relative', overflow: 'hidden', cursor: 'pointer' }}
@@ -214,25 +273,45 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
               ${snap.used_usd.toFixed(2)} / ${snap.cap_usd.toFixed(2)} USD — internal metering
             </div>
           )}
-          <button
-            onClick={handleBump}
-            disabled={bumping}
+          {/* Deep-link to the full per-project usage & spend breakdown.
+              Closing the dropdown on click keeps it from lingering over the
+              navigation. */}
+          <Link
+            href={`/project/${projectId}/usage`}
+            onClick={() => setOpen(false)}
             style={{
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: 6,
-              border: 'none',
-              cursor: bumping ? 'wait' : 'pointer',
-              fontWeight: 600,
+              display: 'block',
+              marginBottom: SHOW_DEV_CREDIT_BUMP ? 10 : 0,
               fontSize: 13,
-              background: empty ? 'var(--clay)' : 'var(--accent)',
-              color: 'white',
-              opacity: bumping ? 0.6 : 1,
-              transition: 'opacity 0.15s',
+              fontWeight: 600,
+              color: 'var(--accent-ink)',
+              textDecoration: 'none',
             }}
           >
-            {bumping ? 'Adding...' : '+ 100 free credits'}
-          </button>
+            View usage &amp; spend →
+          </Link>
+          {/* Dev/E2E-only: self-serve credit mint must never reach founders. */}
+          {SHOW_DEV_CREDIT_BUMP && (
+            <button
+              onClick={handleBump}
+              disabled={bumping}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: 6,
+                border: 'none',
+                cursor: bumping ? 'wait' : 'pointer',
+                fontWeight: 600,
+                fontSize: 13,
+                background: empty ? 'var(--clay)' : 'var(--accent)',
+                color: 'white',
+                opacity: bumping ? 0.6 : 1,
+                transition: 'opacity 0.15s',
+              }}
+            >
+              {bumping ? 'Adding...' : '+ 100 free credits'}
+            </button>
+          )}
         </div>
       )}
     </div>

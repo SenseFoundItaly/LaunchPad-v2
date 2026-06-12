@@ -303,9 +303,9 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
   }
 
   // ── 3. assumptions → pending_actions(action_type='assumption_review') ────
-  // Skipped if the assumptions table doesn't exist yet in this DB (the
-  // schema-defined table hasn't been migrated to the shared Supabase as of
-  // this writing — see plan §"things to verify").
+  // The assumptions table exists (migration 016) and this materialization is
+  // live — open assumptions are pulled into the inbox here. The try/catch
+  // below stays as a defensive guard for any DB that hasn't applied 016 yet.
   try {
     const newAssumptions = await query<{
       id: string; number: number; category: string; text: string;
@@ -348,11 +348,100 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
     }
   } catch (err) {
     const msg = (err as Error).message;
-    // assumptions table not yet migrated — silently skip; the rest of the
-    // inbox still works.
+    // The assumptions table is live as of migration 016; this branch only
+    // trips on a DB that hasn't applied 016 — silently skip then, since the
+    // rest of the inbox still works. Any other error is surfaced.
     if (!/assumptions.*does not exist/i.test(msg)) {
       console.warn('[materialize] assumption_review skipped:', msg);
     }
+  }
+
+  // ── 4. pending chat knowledge → pending_actions(action_type='proposed_graph_update') ──
+  // Founder directive 2026-06-11: chat-surfaced knowledge (insight/entity/
+  // comparison/metric) no longer auto-applies — it persists 'pending' in
+  // graph_nodes / memory_facts and must ALSO appear in the Inbox so the founder
+  // can apply (2 credits) or dismiss it from there, not just on the chat card.
+  //
+  // We materialize each pending knowledge row as a synthetic
+  // 'proposed_graph_update' (the Inbox allow-list shows this type). The payload
+  // carries knowledge_source={table,id} so the apply executor + dismiss path
+  // flip THAT existing row instead of creating a new node. Idempotent via
+  // NOT EXISTS on payload.knowledge_source->>'id' (and we skip rows already
+  // terminal — only pending knowledge becomes an open inbox row). Best-effort.
+  try {
+    // 4a. pending graph_nodes (entity-card / comparison-table / metric-grid).
+    const pendingNodes = await query<{
+      id: string; name: string; node_type: string | null; summary: string | null;
+    }>(
+      `SELECT gn.id, gn.name, gn.node_type, gn.summary
+         FROM graph_nodes gn
+        WHERE gn.project_id = ?
+          AND gn.reviewed_state = 'pending'
+          AND NOT EXISTS (
+            SELECT 1 FROM pending_actions pa
+             WHERE pa.project_id = gn.project_id
+               AND pa.action_type = 'proposed_graph_update'
+               AND (pa.payload->'knowledge_source'->>'id') = gn.id
+          )`,
+      projectId,
+    );
+    for (const n of pendingNodes) {
+      const id = generateId('pa');
+      const now = new Date().toISOString();
+      const payload = {
+        knowledge_source: { table: 'graph_nodes', id: n.id },
+        node_type: n.node_type,
+      };
+      await run(
+        `INSERT INTO pending_actions
+           (id, project_id, action_type, title, rationale, payload, status,
+            estimated_impact, priority, created_at, updated_at)
+         VALUES (?, ?, 'proposed_graph_update', ?, ?, ?, 'pending', 'medium', 'medium', ?, ?)`,
+        id, projectId,
+        n.name?.slice(0, 120) || 'Knowledge proposal',
+        (n.summary ?? '').slice(0, 500) || null,
+        payload,
+        now, now,
+      );
+    }
+
+    // 4b. pending memory_facts (insight-card / chat fact). source_type='chat'
+    // scopes this to chat-origin proposals (monitor/skill/manual facts default
+    // to 'applied' and never reach here).
+    const pendingFacts = await query<{ id: string; fact: string }>(
+      `SELECT mf.id, mf.fact
+         FROM memory_facts mf
+        WHERE mf.project_id = ?
+          AND mf.reviewed_state = 'pending'
+          AND mf.source_type = 'chat'
+          AND NOT EXISTS (
+            SELECT 1 FROM pending_actions pa
+             WHERE pa.project_id = mf.project_id
+               AND pa.action_type = 'proposed_graph_update'
+               AND (pa.payload->'knowledge_source'->>'id') = mf.id
+          )`,
+      projectId,
+    );
+    for (const f of pendingFacts) {
+      const id = generateId('pa');
+      const now = new Date().toISOString();
+      const payload = {
+        knowledge_source: { table: 'memory_facts', id: f.id },
+      };
+      await run(
+        `INSERT INTO pending_actions
+           (id, project_id, action_type, title, rationale, payload, status,
+            estimated_impact, priority, created_at, updated_at)
+         VALUES (?, ?, 'proposed_graph_update', ?, ?, ?, 'pending', 'medium', 'medium', ?, ?)`,
+        id, projectId,
+        f.fact.slice(0, 120),
+        f.fact.slice(0, 500),
+        payload,
+        now, now,
+      );
+    }
+  } catch (err) {
+    console.warn('[materialize] chat-knowledge proposals skipped:', (err as Error).message);
   }
 }
 

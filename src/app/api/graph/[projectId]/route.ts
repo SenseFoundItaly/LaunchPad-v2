@@ -11,28 +11,35 @@ export async function GET(
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
 
-  const rows = await query('SELECT id FROM projects WHERE id = ?', projectId);
+  const rows = await query<{ id: string; name: string | null }>(
+    'SELECT id, name FROM projects WHERE id = ?',
+    projectId,
+  );
   if (rows.length === 0) {return error('Project not found', 404);}
+  const projectName = (rows[0]?.name as string) || 'Your startup';
 
+  // Include PENDING proposals alongside applied knowledge — the founder
+  // reviews/applies them right in the graph (dashed nodes), so they must be
+  // visible here even before they're folded into intelligence.
   const nodes = await query(
-    "SELECT * FROM graph_nodes WHERE project_id = ? AND reviewed_state = 'applied' ORDER BY created_at",
+    "SELECT * FROM graph_nodes WHERE project_id = ? AND reviewed_state IN ('applied','pending') ORDER BY created_at",
     projectId,
   );
   const edges = await query('SELECT * FROM graph_edges WHERE project_id = ? ORDER BY created_at', projectId);
 
   // attributes is JSONB — postgres.js returns it already parsed
-  const parsedNodes = nodes.map((n: Record<string, unknown>) => ({
+  const parsedNodes: Array<Record<string, unknown>> = nodes.map((n: Record<string, unknown>) => ({
     ...n,
     attributes: n.attributes || {},
   }));
 
-  // Only include edges where both endpoints are applied (visible) nodes
-  const appliedNodeIds = new Set(parsedNodes.map((n: Record<string, unknown>) => n.id));
+  // Real edges: both endpoints must be visible (applied OR pending).
+  const visibleNodeIds = new Set(parsedNodes.map((n: Record<string, unknown>) => n.id as string));
 
   // Map edge fields to match GraphEdge interface (source/target instead of source_node_id/target_node_id)
-  const parsedEdges = edges
+  const realEdges = edges
     .filter((e: Record<string, unknown>) =>
-      appliedNodeIds.has(e.source_node_id as string) && appliedNodeIds.has(e.target_node_id as string),
+      visibleNodeIds.has(e.source_node_id as string) && visibleNodeIds.has(e.target_node_id as string),
     )
     .map((e: Record<string, unknown>) => ({
       id: e.id,
@@ -41,7 +48,45 @@ export async function GET(
       relation: e.relation,
       label: e.label,
       weight: e.weight,
+      virtual: false,
     }));
 
-  return json({ nodes: parsedNodes, edges: parsedEdges });
+  // "Linked to the project": pending proposals are created without edges, so
+  // they'd float. Synthesize a virtual root → node edge for any visible node
+  // that has no real edge, so everything hangs off `your_startup`. NOT written
+  // to the DB — the real edge gets created only when the node is applied.
+  const rootRow = parsedNodes.find((n) => n.node_type === 'your_startup');
+  let rootId = rootRow?.id as string | undefined;
+  // Older projects may lack a your_startup root — synthesize a virtual center
+  // so every node (incl. pending proposals) visibly hangs off the project.
+  if (!rootId) {
+    rootId = `virt_root_${projectId}`;
+    parsedNodes.unshift({
+      id: rootId,
+      project_id: projectId,
+      name: projectName,
+      node_type: 'your_startup',
+      summary: '',
+      attributes: {},
+      reviewed_state: 'applied',
+    });
+  }
+  const connected = new Set<string>();
+  for (const e of realEdges) { connected.add(e.source as string); connected.add(e.target as string); }
+  const virtualEdges: Array<Record<string, unknown>> = [];
+  for (const n of parsedNodes) {
+    const nid = n.id as string;
+    if (nid === rootId || connected.has(nid)) continue;
+    virtualEdges.push({
+      id: `virt_${nid}`,
+      source: rootId,
+      target: nid,
+      relation: 'belongs_to',
+      label: null,
+      weight: 0.5,
+      virtual: true,
+    });
+  }
+
+  return json({ nodes: parsedNodes, edges: [...realEdges, ...virtualEdges] });
 }

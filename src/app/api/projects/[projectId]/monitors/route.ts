@@ -172,6 +172,7 @@ export async function GET(
  *   - objective   (optional, but recommended — drives the detail page header)
  *   - prompt      (optional — what the monitor agent is asked each tick)
  *   - schedule    (one of: hourly, daily, weekly, monthly, manual)
+ *   - time_of_day (optional HH:MM — anchors the first run's clock time)
  *   - type        (defaults to 'general' — ecosystem-shape monitors use 'ecosystem')
  *   - kind        (optional secondary tag, e.g. 'competitor', 'regulation')
  *   - urls_to_track (optional string[] — checked by ecosystem-type monitors)
@@ -225,6 +226,15 @@ export async function POST(
   const type = typeof body.type === 'string' && body.type.trim() ? body.type.trim() : 'general';
   const kind = typeof body.kind === 'string' && body.kind.trim() ? body.kind.trim() : null;
 
+  // Optional time-of-day (HH:MM) for the founder's "+ New watcher" form. When
+  // present we anchor the FIRST run at that clock time today (or tomorrow if
+  // it's already passed); the cron then re-derives subsequent ticks from the
+  // cadence. This keeps the form's "run at 09:00 daily" promise visible on the
+  // next_run without adding a schedule grammar to the cron.
+  const timeOfDay = typeof body.time_of_day === 'string'
+    ? body.time_of_day.trim()
+    : '';
+
   // urls_to_track: must be an array of non-empty strings if present.
   // Pass the JS array directly — postgres.js auto-serializes for JSONB.
   // (Pre-stringifying breaks even with ?::jsonb cast — verified empirically.)
@@ -237,7 +247,17 @@ export async function POST(
   }
 
   const id = generateId('mon');
-  const nextRun = calculateNextRun(schedule);
+  // next_run: by default cadence-relative (calculateNextRun). If a HH:MM
+  // time-of-day was supplied, anchor the first tick to that clock time today,
+  // rolling to tomorrow when it's already in the past.
+  let nextRun = calculateNextRun(schedule);
+  const hhmm = timeOfDay.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (hhmm && schedule !== 'manual') {
+    const anchor = new Date();
+    anchor.setHours(Number(hhmm[1]), Number(hhmm[2]), 0, 0);
+    if (anchor.getTime() <= Date.now()) anchor.setDate(anchor.getDate() + 1);
+    nextRun = anchor.toISOString();
+  }
 
   await run(
     `INSERT INTO monitors

@@ -594,11 +594,12 @@ function ExtractionHelp() {
       </button>
       {open && (
         <p style={{ margin: '6px 0 0', lineHeight: 1.5 }}>
-          Uploaded files are decoded as text and stored as project memory so
+          Uploaded files are decoded as text and stored as project knowledge so
           chat can quote them. We also ask a small model to surface up to 8
           entities per file (companies, personas, regulations…) as{' '}
-          <em>pending</em> proposals. Approve them on the{' '}
-          <strong>Review</strong> tab to wire them into the graph.
+          <em>pending</em> proposals. Approve them under{' '}
+          <strong>Needs review</strong> on the Knowledge page to wire them into
+          the graph.
         </p>
       )}
     </div>

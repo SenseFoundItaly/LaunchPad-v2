@@ -168,6 +168,7 @@ export async function PATCH(
     status: string;
     name: string;
     prompt: string;
+    objective: string;
   }>;
   try {
     body = await request.json();
@@ -200,6 +201,16 @@ export async function PATCH(
 
   if (body.name) { sets.push('name = ?'); values.push(body.name); }
   if (body.prompt !== undefined) { sets.push('prompt = ?'); values.push(body.prompt); }
+  // Founder-facing "objective" is read as `objective ?? linked_quote` (see GET).
+  // Write BOTH so the displayed text follows an edit regardless of which the
+  // reader prefers — and so it stays consistent with the create route, which
+  // stored the founder's prompt into linked_quote. The objective column is
+  // present on this DB (the 20260603 migration is applied), so writing it is safe.
+  if (body.objective !== undefined) {
+    const obj = body.objective.trim() || null;
+    sets.push('objective = ?'); values.push(obj);
+    sets.push('linked_quote = ?'); values.push(obj);
+  }
   if (body.schedule) { sets.push('schedule = ?'); values.push(body.schedule); }
   if (body.status) { sets.push('status = ?'); values.push(body.status); }
 

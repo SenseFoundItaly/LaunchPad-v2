@@ -1,8 +1,10 @@
 /**
  * Ecosystem Alert Parser — extracts structured :::artifact{"type":"ecosystem_alert"}
  * blocks from an agent response and persists them into the ecosystem_alerts
- * table with dedupe. Optionally auto-queues high-relevance findings as
- * pending_actions for the approval inbox.
+ * table with dedupe. High-relevance findings auto-queue as
+ * action_type='signal_alert' pending_actions for the approval inbox —
+ * ALWAYS signal_alert, never another ticket type (see the auto-queue block
+ * in persistEcosystemAlerts for the invariant and its history).
  *
  * Lives separately from the generic artifact-parser.ts because the parsing
  * target is DB persistence (not UI rendering) and because the validation
@@ -15,7 +17,7 @@ import { computeDedupeHash } from '@/lib/ecosystem-monitors';
 import { createPendingAction } from '@/lib/pending-actions';
 import { updateCompetitorProfile } from '@/lib/competitor-profiles';
 import { logSignalActivity } from '@/lib/signal-activity-log';
-import type { EcosystemAlertType, PendingActionType } from '@/types';
+import type { EcosystemAlertType } from '@/types';
 
 export interface ParsedEcosystemAlert {
   alert_type: EcosystemAlertType;
@@ -82,14 +84,6 @@ const VALID_ALERT_TYPES: ReadonlySet<string> = new Set<EcosystemAlertType>([
   'pricing_change',
   'product_launch',
 ]);
-
-const SUGGESTED_ACTION_TO_PENDING_TYPE: Record<string, PendingActionType> = {
-  draft_email: 'draft_email',
-  draft_linkedin_post: 'draft_linkedin_post',
-  draft_linkedin_dm: 'draft_linkedin_dm',
-  proposed_hypothesis: 'proposed_hypothesis',
-  proposed_graph_update: 'proposed_graph_update',
-};
 
 export function extractEcosystemAlerts(text: string): {
   parsed: ParsedEcosystemAlert[];
@@ -303,31 +297,84 @@ export async function persistEcosystemAlerts(
     }
   }
 
+  // ── Auto-queue: a signal is ONE thing ──────────────────────────────────
+  // INVARIANT: every watcher finding materializes as action_type='signal_alert'
+  // — accept routes to knowledge, reject dismisses; no type mutation. Findings
+  // used to FAN OUT into a different ticket type per the alert's
+  // suggested_action (proposed_hypothesis, draft_email, …). That polymorphism
+  // caused producer-badge confusion in the inbox, batch-scope bugs, and
+  // hypothesis rows that CLAIMED the alert's FK and shadowed the
+  // signal→knowledge loop (observed: NonnaBox cert — 2 approved alerts,
+  // 0 signal-origin graph_nodes). suggested_action survives ONLY as advisory
+  // display data in payload.suggested_action — a hint, never a type — and is
+  // no longer REQUIRED to queue: a high-relevance alert with no
+  // suggested_action is still a signal the founder must review.
   const candidates = persistedAlerts
-    .filter(p => p.alertId && p.alert.suggested_action && p.alert.relevance_score >= threshold)
-    .filter(p => SUGGESTED_ACTION_TO_PENDING_TYPE[p.alert.suggested_action!])
+    // alertId guard: alerts whose DB write failed have no FK target — never queue.
+    .filter(p => p.alertId && p.alert.relevance_score >= threshold)
     .sort((a, b) => (b.alert.relevance_score * b.alert.confidence) - (a.alert.relevance_score * a.alert.confidence));
 
-  for (let i = 0; i < candidates.length; i++) {
+  // Dedupe against pending_actions already holding the alert's FK. Monitor
+  // re-runs upsert the SAME alert row (ON CONFLICT keeps the surviving id),
+  // and materialize-on-read (pending-actions.ts) also creates signal_alert
+  // rows keyed on this FK — one alert must yield one ticket, ever. Non-fatal:
+  // on lookup failure fall through unfiltered (worst case a duplicate ticket,
+  // never a dropped signal).
+  let queueable = candidates;
+  if (candidates.length > 0) {
+    try {
+      const ids = candidates.map(c => c.alertId!);
+      const existing = await query<{ ecosystem_alert_id: string }>(
+        `SELECT ecosystem_alert_id FROM pending_actions
+          WHERE ecosystem_alert_id IN (${ids.map(() => '?').join(',')})`,
+        ...ids,
+      );
+      const claimed = new Set(existing.map(r => r.ecosystem_alert_id));
+      queueable = candidates.filter(c => !claimed.has(c.alertId!));
+    } catch (err) {
+      console.warn('pending_action dedupe lookup failed (queueing unfiltered):', (err as Error).message);
+    }
+  }
+
+  for (let i = 0; i < queueable.length; i++) {
     if (i >= maxPending) {
       result.pending_actions_skipped_cap++;
       continue;
     }
-    const c = candidates[i];
+    const c = queueable[i];
     try {
       await createPendingAction({
         project_id: opts.projectId,
         monitor_run_id: opts.monitorRunId,
         ecosystem_alert_id: c.alertId!,
-        action_type: SUGGESTED_ACTION_TO_PENDING_TYPE[c.alert.suggested_action!],
+        action_type: 'signal_alert',
         title: c.alert.headline,
         rationale: `Auto-queued from ${c.alert.alert_type} alert (relevance ${c.alert.relevance_score.toFixed(2)}, confidence ${c.alert.confidence.toFixed(2)})`,
         estimated_impact: c.alert.relevance_score >= 0.9 ? 'high' : 'medium',
+        // Same priority bands as materializeProposalsFromSources (pending-actions.ts)
+        // so parser-queued and read-time-materialized signal tickets sort
+        // identically in the inbox.
+        priority: c.alert.relevance_score >= 0.85 ? 'critical'
+                : c.alert.relevance_score >= 0.7  ? 'high'
+                : c.alert.relevance_score >= 0.5  ? 'medium' : 'low',
         payload: {
-          source_alert_headline: c.alert.headline,
+          // Mirrors the materializer's signal_alert payload shape…
+          alert_type: c.alert.alert_type,
           source_url: c.alert.source_url,
+          body: c.alert.body,
+          relevance_score: c.alert.relevance_score,
+          confidence: c.alert.confidence,
+          // …plus the model's suggested_action as an ADVISORY hint the UI may
+          // render. It is NOT an action_type — see the invariant above.
+          suggested_action: c.alert.suggested_action,
+          // Legacy keys kept for payload readers expecting the old shape
+          // (e.g. action-executors falls back to payload.draft_seed).
+          source_alert_headline: c.alert.headline,
           draft_seed: c.alert.body,
         },
+        sources: c.alert.source_url
+          ? [{ type: 'web', title: c.alert.headline.slice(0, 80), url: c.alert.source_url }]
+          : undefined,
       });
       result.pending_actions_created++;
     } catch (err) {

@@ -25,7 +25,7 @@ export const stageIdeaValidation: Stage = {
       evaluate: (s) => {
         const ok = !!s.idea_canvas?.problem?.trim();
         return ok
-          ? { passed: true, evidence: 'Problem articulated in canvas' }
+          ? { passed: true, evidence: "You've written down the problem you're solving." }
           : { passed: false, gap: 'Write a one-line problem statement in chat' };
       },
     },
@@ -36,7 +36,7 @@ export const stageIdeaValidation: Stage = {
       evaluate: (s) => {
         const ok = !!s.idea_canvas?.solution?.trim();
         return ok
-          ? { passed: true, evidence: 'Solution drafted' }
+          ? { passed: true, evidence: "You've described the solution you'll build." }
           : { passed: false, gap: 'Describe what you would build' };
       },
     },
@@ -47,19 +47,19 @@ export const stageIdeaValidation: Stage = {
       evaluate: (s) => {
         const ok = !!s.idea_canvas?.value_proposition?.trim();
         return ok
-          ? { passed: true, evidence: 'Value prop captured' }
+          ? { passed: true, evidence: "You've stated why the customer will care." }
           : { passed: false, gap: 'Say why the customer would care' };
       },
     },
     {
       id: 'solution_detailed',
-      label: 'Solution detailed (80+ chars)',
+      label: 'Solution described in depth',
       source: 'idea_canvas.solution',
       evaluate: (s) => {
         const sol = s.idea_canvas?.solution?.trim() ?? '';
         const ok = sol.length >= 80;
         return ok
-          ? { passed: true, evidence: `Solution: ${sol.length} chars` }
+          ? { passed: true, evidence: 'Your solution is described in enough detail to act on.' }
           : { passed: false, gap: 'Expand the solution description' };
       },
     },
@@ -70,7 +70,7 @@ export const stageIdeaValidation: Stage = {
       evaluate: (s) => {
         const ok = !!s.idea_canvas?.competitive_advantage?.trim();
         return ok
-          ? { passed: true, evidence: 'Edge captured in canvas' }
+          ? { passed: true, evidence: "You've named what makes you win against the alternatives." }
           : { passed: false, gap: 'Say why you win vs. the alternatives' };
       },
     },
@@ -82,7 +82,7 @@ export const stageIdeaValidation: Stage = {
         const vp = s.idea_canvas?.value_proposition?.trim() ?? '';
         const ok = vp.length >= 30;
         return ok
-          ? { passed: true, evidence: `Value prop: ${vp.length} chars` }
+          ? { passed: true, evidence: 'Your value proposition is sharp and specific.' }
           : { passed: false, gap: 'Tighten the value prop' };
       },
     },

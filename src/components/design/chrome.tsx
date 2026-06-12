@@ -28,6 +28,7 @@ import { usePathname } from 'next/navigation';
 import { Icon, I, type IconKey } from './icons';
 import { ShareButton } from '@/components/project/ShareButton';
 import { CreditsBadge } from '@/components/CreditsBadge';
+import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
 
 // =============================================================================
 // TopBar — 38px, brand mark + breadcrumbs + right slot
@@ -151,6 +152,9 @@ export interface NavRailProps {
 
 export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRailProps) {
   const pathname = usePathname() || '';
+  // Self-fetched (cached + shared across pages) so the "Know" count shows on
+  // every surface without each page having to thread it down as a prop.
+  const { count: knowledgeCount } = useKnowledgeCount(projectId);
 
   function isActive(item: NavItem): boolean {
     if (current) return current === item.id;
@@ -197,7 +201,10 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
           item={it}
           projectId={projectId}
           active={isActive(it)}
-          badge={it.id === 'inbox' ? inboxBadge : undefined}
+          badge={it.id === 'inbox' ? inboxBadge : it.id === 'knowledge' ? knowledgeCount : undefined}
+          // Inbox badge = items needing action (urgent → clay). The Know badge
+          // is just an informational item count (neutral), not an alert.
+          badgeTone={it.id === 'knowledge' ? 'count' : 'alert'}
           streaming={it.id === 'chat' ? chatStreaming : undefined}
         />
       ))}
@@ -229,7 +236,8 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
   );
 }
 
-function NavRailItem({ item, projectId, active, badge, streaming }: { item: NavItem; projectId: string; active: boolean; badge?: number; streaming?: boolean }) {
+function NavRailItem({ item, projectId, active, badge, badgeTone = 'alert', streaming }: { item: NavItem; projectId: string; active: boolean; badge?: number; badgeTone?: 'alert' | 'count'; streaming?: boolean }) {
+  const isCount = badgeTone === 'count';
   return (
     <Link
       href={`/project/${projectId}/${item.route}`}
@@ -261,8 +269,10 @@ function NavRailItem({ item, projectId, active, badge, streaming }: { item: NavI
             minWidth: 14,
             height: 14,
             borderRadius: 7,
-            background: 'var(--clay)',
-            color: 'var(--on-accent)',
+            background: isCount ? 'var(--paper-3)' : 'var(--clay)',
+            color: isCount ? 'var(--ink-4)' : 'var(--on-accent)',
+            border: isCount ? '1px solid var(--line)' : 'none',
+            boxSizing: 'border-box',
             fontSize: 9,
             fontWeight: 700,
             fontFamily: 'var(--f-mono)',

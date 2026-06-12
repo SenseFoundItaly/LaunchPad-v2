@@ -205,8 +205,11 @@ export function StatusBar({
   heartbeatKind = 'healthy',
   gateway,
   ctxLabel,
-  budget = 'budget · —',
-  tz = 'tz · Europe/Rome',
+  // budget/tz render only when explicitly passed (2026-06 simplification —
+  // the old defaults put "budget · —" and a hardcoded "tz · Europe/Rome"
+  // on every page, pure founder-facing noise).
+  budget,
+  tz,
 }: StatusBarProps) {
   const dotStyle = HEARTBEAT_DOT[heartbeatKind] || HEARTBEAT_DOT.healthy;
   return (
@@ -239,8 +242,8 @@ export function StatusBar({
       {hints.map((h, i) => (
         <span key={i} style={{ opacity: 0.8 }}>{h}</span>
       ))}
-      <span>{budget}</span>
-      <span>{tz}</span>
+      {budget && <span>{budget}</span>}
+      {tz && <span>{tz}</span>}
     </div>
   );
 }

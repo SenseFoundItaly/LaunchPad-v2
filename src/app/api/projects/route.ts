@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { query, run } from '@/lib/db';
 import { json, error, mapProject } from '@/lib/api-helpers';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
+import { ensureStartupRootNode } from '@/lib/knowledge/root-node';
 
 export async function GET() {
   try {
@@ -65,6 +66,14 @@ export async function POST(request: NextRequest) {
     now,
     now,
   );
+
+  // Seed the knowledge-graph root (node_type='your_startup'). The two edge-
+  // writers (artifact-persistence + knowledge/upload) only draw "root → new
+  // entity" edges `if (root)`, looking it up by project_id + this node_type —
+  // without this node the graph stays permanently edge-less. ensureStartupRootNode
+  // is idempotent and non-fatal (swallows its own errors), so awaiting it can't
+  // break project creation.
+  await ensureStartupRootNode(id);
 
   // No auto-seeded monitors. Ecosystem monitors and the weekly health check are
   // now created on demand from chat — the founder approves a propose_monitor

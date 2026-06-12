@@ -36,6 +36,15 @@ export interface RecordFactInput {
   /** @deprecated confidence column dropped; accepted but ignored for back-compat. */
   confidence?: number;
   sources?: Source[];
+  /**
+   * Review state for NEW facts (the UPDATE/dedup path never changes an
+   * existing fact's state). Defaults to 'applied' so every existing caller
+   * (monitor/skill/approval-inbox/manual extraction) keeps today's behaviour.
+   * The chat artifact-persistence path passes 'pending' so chat-surfaced
+   * knowledge becomes a PROPOSAL the founder applies (costs 2 credits) — it
+   * does NOT silently enter agent context until approved.
+   */
+  reviewedState?: ReviewedState;
 }
 
 /**
@@ -43,9 +52,11 @@ export interface RecordFactInput {
  * (user, project, kind), bumps updated_at + confidence instead of inserting
  * a duplicate. Also writes a memory_event(type='fact_recorded').
  *
- * Facts insert as reviewed_state='applied' — the prior pending-review gate
- * was removed when the chat-driven extraction proved reliable enough to skip
- * founder approval. Founders can still delete/edit from the Knowledge page.
+ * Facts default to reviewed_state='applied' for backend callers (monitor,
+ * skill, approval-inbox, manual). The chat artifact-persistence path passes
+ * reviewedState='pending' so chat-surfaced knowledge is a PROPOSAL the founder
+ * applies (2 credits) rather than auto-entering agent context. Founders curate
+ * applied facts on the Knowledge page.
  *
  * @returns UUID on success, '' on failure.
  */
@@ -81,10 +92,11 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
       id = existing.id;
     } else {
       id = crypto.randomUUID();
+      const reviewedState: ReviewedState = input.reviewedState ?? 'applied';
       await run(
         `INSERT INTO memory_facts
            (id, user_id, project_id, fact, kind, source_type, source_id, reviewed_state, sources)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'applied', ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         input.userId,
         input.projectId,
@@ -92,6 +104,7 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
         kind,
         input.sourceType ?? null,
         input.sourceId ?? null,
+        reviewedState,
         sourcesJson,
       );
     }

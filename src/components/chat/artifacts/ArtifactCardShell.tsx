@@ -60,7 +60,9 @@ export default function ArtifactCardShell({
   className,
   outerClassName,
   style,
-  aiGenerated = false,
+  // aiGenerated intentionally not destructured — accepted for caller
+  // compatibility but no longer rendered (zero-chips rule: everything on
+  // the canvas is AI-generated, so the badge carried no information).
   provenance,
   inspectable = true,
 }: ArtifactCardShellProps) {
@@ -89,35 +91,17 @@ export default function ArtifactCardShell({
       } ${collapsed ? 'p-2' : 'px-3 py-2.5'} ${outerClassName || ''}`}
       style={style}
     >
-      {/* Header row */}
+      {/* Header row — zero-chips rule: title + affordances only. The type
+          label and AI badge were removed (everything on the canvas is
+          AI-generated and a table already looks like a table); typeLabel
+          survives as the title fallback + aria text. The provenance=fallback
+          warning moved into SourcesFooter as a plain note. */}
       <div
         className={`flex items-center gap-2 ${collapsed ? '' : 'mb-1.5'}`}
       >
-        <span className="text-[10px] uppercase tracking-wider text-ink-5 font-mono shrink-0">
-          {typeLabel}
+        <span className="text-sm font-semibold text-ink truncate">
+          {title || typeLabel}
         </span>
-        {aiGenerated && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-plum-wash text-plum font-mono uppercase tracking-wider shrink-0">
-            AI
-          </span>
-        )}
-        {provenance === 'fallback' && (
-          <span
-            className="text-[9px] px-1.5 py-0.5 rounded-full font-mono uppercase tracking-wider shrink-0"
-            style={{
-              background: 'var(--amber-wash, #fff3cd)',
-              color: 'var(--amber, #b45309)',
-            }}
-            title="Sources inferred from the response footer rather than emitted per-card. The URLs are real, but the agent didn't attribute them to this specific card."
-          >
-            Sources inferred
-          </span>
-        )}
-        {title && (
-          <span className="text-sm font-semibold text-ink truncate">
-            {title}
-          </span>
-        )}
         <span className="flex-1" />
         {headerRight && (
           <div className="flex items-center gap-2 shrink-0">
@@ -180,7 +164,7 @@ export default function ArtifactCardShell({
             {children}
           </div>
           {footer}
-          <SourcesFooter sources={sources} />
+          <SourcesFooter sources={sources} inferredFromResponse={provenance === 'fallback'} />
         </>
       )}
 
@@ -207,19 +191,9 @@ export default function ArtifactCardShell({
             }}
           >
             <div className="flex items-center gap-3 px-4 py-3 border-b border-line">
-              <span className="text-[10px] uppercase tracking-wider text-ink-5 font-mono">
-                {typeLabel}
+              <span className="text-sm font-semibold text-ink truncate">
+                {title || typeLabel}
               </span>
-              {aiGenerated && (
-                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-plum-wash text-plum font-mono uppercase tracking-wider">
-                  AI
-                </span>
-              )}
-              {title && (
-                <span className="text-sm font-semibold text-ink truncate">
-                  {title}
-                </span>
-              )}
               <span className="flex-1" />
               <button
                 type="button"
@@ -239,7 +213,7 @@ export default function ArtifactCardShell({
                 {children}
               </div>
               {footer}
-              <SourcesFooter sources={sources} />
+              <SourcesFooter sources={sources} inferredFromResponse={provenance === 'fallback'} />
             </div>
           </div>
         </div>

@@ -20,6 +20,8 @@ export interface GraphNode {
   node_type: GraphNodeType;
   summary: string;
   attributes: Record<string, unknown>;
+  /** 'pending' = a proposal the founder hasn't applied yet (renders dashed). */
+  reviewed_state?: 'applied' | 'pending' | 'rejected';
   x?: number;
   y?: number;
   fx?: number | null;
@@ -33,6 +35,8 @@ export interface GraphEdge {
   relation: string;
   label?: string;
   weight: number;
+  /** Synthesized root→node link for an otherwise-unconnected node (not in DB). */
+  virtual?: boolean;
 }
 
 export interface KnowledgeGraphData {

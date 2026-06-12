@@ -1,7 +1,6 @@
 'use client';
 
 import type { PersonaCard as PersonaCardArtifact } from '@/types/artifacts';
-import { entityPalette } from '@/lib/brand-palette';
 import ArtifactCardShell from './ArtifactCardShell';
 
 interface PersonaCardProps {
@@ -15,38 +14,11 @@ const ARCHETYPE_LABEL: Record<PersonaCardArtifact['archetype'], string> = {
   competitor: 'Competitor',
 };
 
-/**
- * TODO(user): Render an engagement-score indicator for `score` (1-10 scale).
- *
- * This is a product decision, not boilerplate. Stage 2 simulation personas
- * carry `engagement_score` as their primary signal — how strongly they reacted
- * to the founder's idea. The founder will scan a row of persona cards looking
- * for outliers, so this indicator needs to make 8 visually distinct from 3
- * at a glance.
- *
- * Constraints to consider:
- *  - Stay within the project's design system (entityPalette, CSS variables,
- *    no new Tailwind classes). The persona slot is `cat-gold` (palette index 6).
- *  - Match the visual weight of EntityCard's type chip — this sits in
- *    `headerRight` so it must be compact.
- *  - 5-10 lines of JSX. Return null if score is undefined (Stage 1 personas
- *    don't have it yet).
- *
- * A few approaches to weigh:
- *  - Numeric chip "8/10" → simplest, scannable, no color encoding
- *  - Filled bar (8 of 10 segments lit) → emphasizes magnitude visually
- *  - Color-graded chip (red <4, amber 4-6, green >6) → adds a verdict layer
- *
- * Whichever you pick, the choice teaches the founder how to read the row.
- */
-function renderEngagementIndicator(score: number | undefined): React.ReactNode {
-  if (score === undefined) return null;
-  // TODO: implement
-  return null;
-}
+// NOTE: the engagement-score header-chip design question (old TODO scaffold)
+// was settled by the 2026-06 zero-chips rule — archetype + engagement render
+// as one plain muted text line at the top of the body, no header chips.
 
 export default function PersonaCard({ artifact }: PersonaCardProps) {
-  const palette = entityPalette('persona');
   const hasPlanning =
     artifact.demographics ||
     (artifact.jobs_to_be_done?.length ?? 0) > 0 ||
@@ -55,21 +27,18 @@ export default function PersonaCard({ artifact }: PersonaCardProps) {
   const hasValidation = artifact.reaction || artifact.quote;
 
   return (
+    // Archetype header chip removed (2026-06 zero-chips rule) — the
+    // archetype renders as a plain muted line at the top of the body.
     <ArtifactCardShell
       typeLabel="Persona"
       title={artifact.name}
       sources={artifact.sources}
       provenance={artifact.provenance}
-      aiGenerated
-      headerRight={
-        <>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${palette.chip}`}>
-            {ARCHETYPE_LABEL[artifact.archetype]}
-          </span>
-          {renderEngagementIndicator(artifact.engagement_score)}
-        </>
-      }
     >
+      <div className="text-[10px] text-ink-5 mb-1.5">
+        {ARCHETYPE_LABEL[artifact.archetype]}
+        {artifact.engagement_score !== undefined && ` · engagement ${artifact.engagement_score}/10`}
+      </div>
       {artifact.demographics && (
         <p className="text-sm text-ink-3 mb-2">{artifact.demographics}</p>
       )}

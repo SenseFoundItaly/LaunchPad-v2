@@ -6,7 +6,6 @@ import { recordEvent } from './memory/events';
 import { run } from './db';
 import { generateId } from './api-helpers';
 import { computeSectionScoresFromSummary } from './section-scoring';
-import { createPendingAction } from './pending-actions';
 
 /**
  * Skills-as-tools — converts every launchpad-skills/<skill>/SKILL.md into an
@@ -153,42 +152,58 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
         },
       });
 
-      // Architecture C (real-time, approve-first): chat PROPOSES the skill; it
-      // does NOT run it inline. Create a run_skill pending_action the founder
-      // approves (cost shown), then the run_skill executor runs it real-time via
-      // the unified runSkill. This keeps the chat turn fast (a DB insert, not a
-      // 120s blocking LLM call — the root cause of the 180s chat timeouts) and
-      // gives the founder consent + cost transparency before spending budget.
-      {
-        const propTier = skill.frontmatter.model_tier ?? 'balanced';
-        // Credits are the ONLY founder-facing money unit (matches the TopBar
-        // badge + Inbox review card). EUR/USD stays internal accounting.
-        const estCredits = propTier === 'premium' ? 10 : propTier === 'cheap' ? 1 : 4;
-        try {
-          const proposal = await createPendingAction({
-            project_id: opts.projectId,
-            action_type: 'run_skill',
-            title: `Run ${skill.frontmatter.name}? (≈${estCredits} credits)`,
-            rationale: context ? context.slice(0, 280) : `Kick off ${skill.frontmatter.name} for this project.`,
-            payload: { skill_id: skill.id, skill_label: skill.frontmatter.name, owner_user_id: opts.userId, context },
-            estimated_impact: 'high',
-            priority: 'high',
-          });
-          return {
-            content: [{
-              type: 'text',
-              text: `Proposed "${skill.frontmatter.name}" (≈${estCredits} credits) — queued for the founder's one-click approval in the Inbox. It runs in real time once approved. Tell the founder what it will do and that it's ready to approve; do NOT wait for results this turn. (action ${proposal.id})`,
-            }],
-            details: { skill_id: skill.id, proposed: true },
-          };
-        } catch (err) {
-          return {
-            content: [{ type: 'text', text: `Could not queue ${skill.frontmatter.name}: ${(err as Error).message}` }],
-            details: { skill_id: skill.id, proposed: false },
-          };
-        }
-      }
-
+      // Ephemeral inline proposal (founder directive 2026-06-11): chat PROPOSES
+      // the skill as an EPHEMERAL inline suggestion in this chat turn. It does
+      // NOT run the skill inline, and — unlike the legacy flow — it creates NO
+      // pending_action and NO DB row of any kind. If the founder ignores the
+      // suggestion, nothing persists; it lives only in the chat transcript. If
+      // they click Run, the chat page POSTs to /api/projects/{id}/skills?run=1
+      // which runs the skill in real time (skill_completions + section_scores),
+      // still without a pending_action.
+      //
+      // NOTE: action_type 'run_skill' is now LEGACY. The executor + DB CHECK are
+      // kept for back-compat with any pre-existing rows, but this tool no longer
+      // CREATES run_skill rows and the Inbox is no longer the path to run a
+      // skill. See src/lib/action-executors.ts (runSkillExecutor).
+      const propTier = skill.frontmatter.model_tier ?? 'balanced';
+      // Credits are the ONLY founder-facing money unit (matches the TopBar
+      // badge). EUR/USD stays internal accounting.
+      const estCredits = propTier === 'premium' ? 10 : propTier === 'cheap' ? 1 : 4;
+      const rationale = context
+        ? context.slice(0, 280)
+        : `Kick off ${skill.frontmatter.name} for this project.`;
+      // The agent surfaces the proposal by EMITTING a skill-suggestion artifact
+      // in its visible prose (tool RESULTS are not streamed to the client — only
+      // prose is parsed for artifacts). We hand it the exact block to emit so the
+      // chat page can render the inline Run button + credit label.
+      // Escape for embedding inside a single-line JSON string: backslash, quote,
+      // and the control chars that would otherwise break the artifact body JSON.
+      const safe = (s: string) =>
+        s.replace(/\\/g, '\\\\')
+          .replace(/"/g, '\\"')
+          .replace(/\n/g, '\\n')
+          .replace(/\r/g, '\\r')
+          .replace(/\t/g, '\\t');
+      const artifactId = `skl_${skill.id.replace(/[^a-z0-9]/gi, '_')}`;
+      const artifactBlock =
+        `:::artifact{"type":"skill-suggestion","id":"${artifactId}"}\n` +
+        `{"skill_id":"${safe(skill.id)}","skill_label":"${safe(skill.frontmatter.name)}",` +
+        `"credits":${estCredits},"rationale":"${safe(rationale)}"` +
+        (context ? `,"context":"${safe(context.slice(0, 500))}"` : '') +
+        `}\n:::`;
+      return {
+        content: [{
+          type: 'text',
+          text:
+            `Proposing "${skill.frontmatter.name}" (≈${estCredits} credits) as an inline suggestion. ` +
+            `This is EPHEMERAL — no Inbox row, nothing persists unless the founder clicks Run. ` +
+            `In your visible reply, tell the founder in one line what this skill will do, then emit ` +
+            `EXACTLY this artifact block (do not alter it) so they can run it with one click:\n\n` +
+            `${artifactBlock}\n\n` +
+            `Do NOT claim or invent the skill's findings — it has not run yet. Still end your turn with your trailing option-set as usual.`,
+        }],
+        details: { skill_id: skill.id, proposed: true, ephemeral: true },
+      };
     },
   };
 }

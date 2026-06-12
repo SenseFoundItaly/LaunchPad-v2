@@ -1,7 +1,6 @@
 'use client';
 
-import type { Artifact, EntityCard, Source, WorkflowCard } from '@/types/artifacts';
-import { Pill } from '@/components/design/primitives';
+import type { Artifact, EntityCard, WorkflowCard } from '@/types/artifacts';
 import OptionSetCard from './OptionSetCard';
 import InsightCard from './InsightCard';
 import ComparisonTable from './ComparisonTable';
@@ -30,109 +29,79 @@ interface ArtifactRendererProps {
   onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
   onEntityDiscovered: (entity: EntityCard) => void;
   onWorkflowDiscovered?: (workflow: WorkflowCard) => void;
+  /**
+   * Mount the card collapsed (title row only). The canvas passes true for
+   * artifacts from older turns so the latest work renders open and history
+   * stays skimmable. Cards that don't wrap ArtifactCardShell ignore it.
+   */
+  defaultCollapsed?: boolean;
 }
 
-/**
- * Metric provenance pill — founder-asserted numbers must not render with the
- * same visual authority as measured facts. Returns a muted "self-reported"
- * pill UNLESS at least one `web` or `skill` source backs the artifact;
- * user/inference/internal-only (or missing/malformed) sources mean the
- * numbers are unverified self-reports by definition.
- *
- * Defensive on purpose: artifacts come from a parser over model output, so
- * `sources` can be absent or contain junk entries — never crash, just show
- * the pill.
- */
-function metricProvenancePill(sources?: Source[]): React.ReactNode {
-  const list = Array.isArray(sources) ? sources : [];
-  const verified = list.some((s) => {
-    const t = s && typeof s === 'object' ? (s as { type?: unknown }).type : undefined;
-    return t === 'web' || t === 'skill';
-  });
-  if (verified) return null;
-  return (
-    <span
-      title="Founder-asserted numbers — not yet verified by a web source or workflow/skill run."
-      style={{ opacity: 0.85, flexShrink: 0 }}
-    >
-      <Pill kind="n">self-reported</Pill>
-    </span>
-  );
-}
+// NOTE: the "self-reported" metric-provenance pill was removed in the
+// 2026-06 canvas simplification (zero-chips rule). Provenance tiers remain
+// founder-visible on the Knowledge page; per-card chips were jargon.
 
 export default function ArtifactRenderer({
   artifact,
   onAction,
   onEntityDiscovered,
   onWorkflowDiscovered,
+  defaultCollapsed,
 }: ArtifactRendererProps) {
   switch (artifact.type) {
     case 'option-set':
       return <OptionSetCard artifact={artifact} onAction={onAction} />;
     case 'insight-card':
-      return <InsightCard artifact={artifact} onAction={onAction} />;
+      return <InsightCard artifact={artifact} onAction={onAction} defaultCollapsed={defaultCollapsed} />;
     case 'comparison-table':
-      return <ComparisonTable artifact={artifact} onAction={onAction} />;
+      return <ComparisonTable artifact={artifact} onAction={onAction} defaultCollapsed={defaultCollapsed} />;
     case 'action-suggestion':
       return <ActionSuggestionCard artifact={artifact} onAction={onAction} />;
     case 'score-badge':
       return <ScoreBadge artifact={artifact} />;
     case 'entity-card':
-      return <EntityCardInline artifact={artifact} onEntityDiscovered={onEntityDiscovered} onAction={onAction} />;
+      return <EntityCardInline artifact={artifact} onEntityDiscovered={onEntityDiscovered} onAction={onAction} defaultCollapsed={defaultCollapsed} />;
     case 'workflow-card':
       return (
         <WorkflowCardInline
           artifact={artifact}
           onWorkflowDiscovered={onWorkflowDiscovered || (() => {})}
           onAction={onAction}
+          defaultCollapsed={defaultCollapsed}
         />
       );
     case 'radar-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
           <RadarChart data={artifact.data} />
         </ArtifactCardShell>
       );
     case 'bar-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
           <BarChart data={artifact.data} />
         </ArtifactCardShell>
       );
     case 'pie-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
           <PieChart data={artifact.data} />
         </ArtifactCardShell>
       );
     case 'gauge-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} headerRight={metricProvenancePill(artifact.sources)}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
           <GaugeChart score={artifact.score} maxScore={artifact.maxScore} verdict={artifact.verdict} />
         </ArtifactCardShell>
       );
     case 'score-card':
       return (
-        <ArtifactCardShell typeLabel="Score" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} headerRight={metricProvenancePill(artifact.sources)}>
+        <ArtifactCardShell typeLabel="Score" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
           <ScoreCard title="" score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />
         </ArtifactCardShell>
       );
-    case 'metric-grid': {
-      // MetricGridCard owns its ArtifactCardShell header, so the provenance
-      // pill attaches here at the renderer level, flush with the card's
-      // top-right corner (the -8px margin cancels the card's my-2 top gap).
-      // One pill per grid — per-cell badges would be clutter.
-      const pill = metricProvenancePill(artifact.sources);
-      if (!pill) return <MetricGridCard artifact={artifact} onAction={onAction} />;
-      return (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -8 }}>
-            {pill}
-          </div>
-          <MetricGridCard artifact={artifact} onAction={onAction} />
-        </div>
-      );
-    }
+    case 'metric-grid':
+      return <MetricGridCard artifact={artifact} onAction={onAction} defaultCollapsed={defaultCollapsed} />;
     case 'sensitivity-slider':
       return <SensitivitySliderCard artifact={artifact} onAction={onAction} />;
     case 'monitor-proposal':

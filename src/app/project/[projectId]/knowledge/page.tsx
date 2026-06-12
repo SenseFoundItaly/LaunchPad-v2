@@ -1,33 +1,24 @@
 'use client';
 
 /**
- * Knowledge — tabbed surface.
+ * Knowledge — the project's knowledge GRAPH, full-bleed (2026-06: the only
+ * Knowledge surface; the old All / Review / Upload tabs were removed).
  *
- * All:       the unified knowledge read-layer (every store, one provenance-
- *            tagged list) — the default founder-facing answer to "what does
- *            my project know?".
- * Review:    upload zone + KnowledgeReviewList (memory_facts + graph_nodes +
- *            tabular_reviews review/approve flow).
- * Data Room: unified doc list + edit/export.
- * Graph:     live D3 force-directed graph of the project's applied entities
- *            (falls back to a labeled entity grid while 0 relationships are
- *            mapped — floating unlinked dots read as broken).
+ * Shows applied entities AND pending proposals together: pending nodes render
+ * dashed and hang off the `your_startup` root (the /api/graph route synthesizes
+ * a virtual link so nothing floats), so the founder sees what's proposed and
+ * can apply it (2 credits, debited server-side) by clicking it. The Co-pilot
+ * proposes new knowledge in chat; un-applied items also wait in the Inbox.
  */
 
-import { use, useState } from 'react';
+import { use } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { Pill, StatusBar } from '@/components/design/primitives';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
-import KnowledgeReviewList from '@/components/knowledge/KnowledgeReviewList';
-import KnowledgeUpload from '@/components/knowledge/KnowledgeUpload';
 import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
-import DataRoomPanel from '@/components/knowledge/DataRoomPanel';
-import AllKnowledgePanel from '@/components/knowledge/AllKnowledgePanel';
 import EntityGridFallback from '@/components/knowledge/EntityGridFallback';
 import type { GraphNode, GraphEdge } from '@/types/graph';
-
-type KnowledgeTab = 'all' | 'review' | 'data-room' | 'graph';
 
 interface GraphResponse {
   nodes: GraphNode[];
@@ -45,22 +36,8 @@ export default function KnowledgePage({
   const { count: inboxBadge } = useOpenActionCount(projectId);
   const qc = useQueryClient();
 
-  const [tab, setTab] = useState<KnowledgeTab>('all');
-  const [lastIngested, setLastIngested] = useState(0);
-  // Entity proposals queued from the last upload. Pending nodes only — the
-  // graph pane filters to applied, so the user must approve them in the
-  // KnowledgeReviewList before they appear on the right.
-  const [lastProposed, setLastProposed] = useState(0);
-  // KnowledgeReviewList still uses a nonce prop to force its per-tab refetch
-  // (its internal state isn't queryified). Upload bumps it; Apply/Reject
-  // inside the list invalidates via the lp-knowledge-changed event bridge.
-  const [refreshNonce, setRefreshNonce] = useState(0);
-
-  // Graph: cached in TanStack Query under ['knowledge', projectId, 'graph'].
-  // The QueryProvider event bridge auto-invalidates this whenever
-  // lp-knowledge-changed fires (which KnowledgeReviewList dispatches on
-  // every approve/reject), so the old debounce + nonce plumbing is no longer
-  // needed — useQuery dedups concurrent invalidations naturally.
+  // Graph: cached under ['knowledge', projectId, 'graph']; the QueryProvider
+  // event bridge auto-invalidates on lp-knowledge-changed (Apply/Dismiss).
   const {
     data: graph = EMPTY_GRAPH,
     isLoading: graphLoading,
@@ -83,14 +60,31 @@ export default function KnowledgePage({
   });
   const graphError = graphErrObj instanceof Error ? graphErrObj.message : null;
 
-  // Refresh after an upload — bypasses the event bridge because uploads
-  // don't currently dispatch lp-knowledge-changed (only Apply/Reject does).
-  function invalidateKnowledge() {
-    void qc.invalidateQueries({ queryKey: ['knowledge', projectId] });
-  }
-
   const nodeCount = graph.nodes.length;
   const edgeCount = graph.edges.length;
+  const pendingCount = graph.nodes.filter(
+    (n) => (n as { reviewed_state?: string }).reviewed_state === 'pending',
+  ).length;
+
+  // Apply a pending node into intelligence. The knowledge PATCH debits 2
+  // credits server-side on pending→applied; we refetch so the node flips solid.
+  async function applyNode(node: GraphNode) {
+    const id = (node as { id?: string }).id;
+    if (!id) return;
+    try {
+      const res = await fetch(`/api/projects/${projectId}/knowledge/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: 'applied' }),
+      });
+      if (!res.ok) return;
+      window.dispatchEvent(new CustomEvent('lp-credits-changed'));
+      window.dispatchEvent(new CustomEvent('lp-knowledge-changed'));
+      void qc.invalidateQueries({ queryKey: ['knowledge', projectId] });
+    } catch {
+      /* non-fatal — the node stays pending, founder can retry */
+    }
+  }
 
   return (
     <div className="lp-frame">
@@ -104,10 +98,9 @@ export default function KnowledgePage({
                 {nodeCount} node{nodeCount === 1 ? '' : 's'} · {edgeCount} edge{edgeCount === 1 ? '' : 's'}
               </Pill>
             )}
-            {lastIngested > 0 && (
-              <Pill kind="ok" dot>
-                +{lastIngested} ingested
-                {lastProposed > 0 && ` · +${lastProposed} proposals`}
+            {pendingCount > 0 && (
+              <Pill kind="live" dot>
+                {pendingCount} pending
               </Pill>
             )}
           </>
@@ -117,107 +110,41 @@ export default function KnowledgePage({
         <NavRail projectId={projectId} current="knowledge" inboxBadge={inboxBadge} />
 
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          {/* Tab strip — four sibling surfaces over the same project knowledge.
-              All = unified provenance-tagged read across every store (default).
-              Review = upload + approve flow. Data Room = unified doc list +
-              edit/export. Graph = D3 force-directed entity view. They live as
-              tabs (not side-by-side) so each gets full width when active. */}
-          <div
-            role="tablist"
-            style={{
-              display: 'flex',
-              gap: 4,
-              padding: '8px 16px 0',
-              borderBottom: '1px solid var(--line)',
-              background: 'var(--paper)',
-            }}
-          >
-            <TabButton active={tab === 'all'} onClick={() => setTab('all')}>All knowledge</TabButton>
-            <TabButton active={tab === 'review'} onClick={() => setTab('review')}>Review</TabButton>
-            <TabButton active={tab === 'data-room'} onClick={() => setTab('data-room')}>Data Room</TabButton>
-            <TabButton active={tab === 'graph'} onClick={() => setTab('graph')}>Graph</TabButton>
-          </div>
-
-          {tab === 'all' && (
-            <div
-              style={{
-                flex: 1,
-                minHeight: 0,
-                overflow: 'auto',
-                padding: '20px 24px',
-                background: 'var(--paper)',
-              }}
-            >
-              <AllKnowledgePanel projectId={projectId} />
-            </div>
-          )}
-
-          {tab === 'review' && (
-            <div
-              style={{
-                flex: 1,
-                minHeight: 0,
-                overflow: 'auto',
-                padding: '20px 24px',
-                background: 'var(--paper)',
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 920, margin: '0 auto' }}>
-                <KnowledgeUpload
-                  projectId={projectId}
-                  onUploaded={(n, proposed) => {
-                    setLastIngested(n);
-                    setLastProposed(proposed ?? 0);
-                    setRefreshNonce((v) => v + 1);
-                    invalidateKnowledge();
-                  }}
-                />
-
-                <section
-                  style={{
-                    background: 'var(--surface)',
-                    border: '1px solid var(--line)',
-                    borderRadius: 'var(--r-l)',
-                    padding: 14,
-                  }}
-                >
-                  <KnowledgeReviewList
-                    projectId={projectId}
-                    locale="en"
-                    refreshNonce={refreshNonce}
-                  />
-                </section>
+          <div style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
+            {graphLoading ? (
+              <GraphEmpty message="Loading graph…" />
+            ) : graphError ? (
+              <GraphEmpty message={`Couldn’t load graph: ${graphError}`} tone="error" />
+            ) : nodeCount === 0 ? (
+              <GraphEmpty message="No knowledge yet. As you chat, the Co-pilot proposes facts and entities — apply them to build this graph." />
+            ) : edgeCount === 0 ? (
+              // Nodes but zero relationships: the force viz would render
+              // disconnected floating dots. Show a labeled grid instead.
+              <EntityGridFallback nodes={graph.nodes} />
+            ) : (
+              <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} />
+            )}
+            {pendingCount > 0 && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 12,
+                  bottom: 12,
+                  fontSize: 10.5,
+                  color: 'var(--ink-5)',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 6,
+                  padding: '4px 8px',
+                }}
+              >
+                Dashed = pending · click to apply (2 credits)
               </div>
-            </div>
-          )}
-
-          {tab === 'data-room' && <DataRoomPanel projectId={projectId} />}
-
-          {tab === 'graph' && (
-            <div style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
-              {graphLoading ? (
-                <GraphEmpty message="Loading graph…" />
-              ) : graphError ? (
-                <GraphEmpty message={`Couldn’t load graph: ${graphError}`} tone="error" />
-              ) : !graph || graph.nodes.length === 0 ? (
-                <GraphEmpty
-                  message="No entities yet. Approve knowledge proposals in the Review tab to populate the graph."
-                />
-              ) : graph.edges.length === 0 ? (
-                // Nodes but zero relationships: the force viz would render
-                // disconnected floating dots that look broken. Show the same
-                // entities as a labeled grid until edges exist.
-                <EntityGridFallback nodes={graph.nodes} />
-              ) : (
-                <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} />
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Status bar reports only what this page actually fetched (the graph
-          query above) — no invented heartbeat/gateway state. */}
       <StatusBar
         heartbeatLabel={
           graphLoading
@@ -225,44 +152,9 @@ export default function KnowledgePage({
             : `graph · ${edgeCount} edge${edgeCount === 1 ? '' : 's'}`
         }
         ctxLabel="knowledge"
-        budget={
-          lastIngested > 0
-            ? `${lastIngested} file${lastIngested === 1 ? '' : 's'} added`
-            : `${nodeCount} entit${nodeCount === 1 ? 'y' : 'ies'}`
-        }
+        budget={`${nodeCount} entit${nodeCount === 1 ? 'y' : 'ies'}`}
       />
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      style={{
-        padding: '8px 14px',
-        border: 'none',
-        background: 'transparent',
-        cursor: 'pointer',
-        fontSize: 12,
-        fontWeight: active ? 600 : 500,
-        color: active ? 'var(--ink-1)' : 'var(--ink-5)',
-        borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-        marginBottom: -1,
-      }}
-    >
-      {children}
-    </button>
   );
 }
 

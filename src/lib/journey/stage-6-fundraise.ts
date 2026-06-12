@@ -27,7 +27,7 @@ export const stageFundraise: Stage = {
         }
         const ok = months >= 12;
         return ok
-          ? { passed: true, evidence: `${months.toFixed(1)} months runway` }
+          ? { passed: true, evidence: `You have ${months.toFixed(1)} months of runway.` }
           : { passed: false, gap: `${months.toFixed(1)}mo — raise or cut burn` };
       },
     },
@@ -43,7 +43,7 @@ export const stageFundraise: Stage = {
         );
         const ok = hasRound || hasRevenue;
         return ok
-          ? { passed: true, evidence: hasRound ? `Round open: ${round?.status}` : 'Revenue tracked' }
+          ? { passed: true, evidence: hasRound ? 'Your raise is open and in motion.' : "You're generating revenue." }
           : { passed: false, gap: 'Open a round or wire revenue metric' };
       },
     },

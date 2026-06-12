@@ -1,4 +1,13 @@
 import { get } from '@/lib/db';
+import { upsertMonthlyBudget } from '@/lib/cost-meter';
+
+/**
+ * Flat credit cost to APPLY a knowledge proposal (insight / entity /
+ * comparison / metric / fact) into project intelligence. Charged once, on the
+ * pending→applied transition — never on re-apply or on dismiss. Founder
+ * directive 2026-06-11: surfacing knowledge is free; APPLYING it costs 2.
+ */
+export const KNOWLEDGE_APPLY_CREDITS = 2;
 
 /**
  * Credits — a UX abstraction over project_budgets.
@@ -103,4 +112,36 @@ export async function getCreditsSnapshot(projectId: string): Promise<CreditsSnap
 
 export async function getCreditsRemaining(projectId: string): Promise<number> {
   return (await getCreditsSnapshot(projectId)).remaining;
+}
+
+/**
+ * Debit a flat number of CREDITS from a project's monthly budget.
+ *
+ * Credits are a UX skin over `project_budgets.current_llm_usd` (remaining =
+ * cap_credits - round(current_llm_usd * creditsPerDollar)). There is no
+ * separate credit ledger column, so a debit is implemented as an increment of
+ * current_llm_usd by the USD-equivalent of `credits` at the project's own
+ * cap ratio. We reuse upsertMonthlyBudget (the same accumulator the LLM
+ * cost-meter uses), keeping one accounting path.
+ *
+ * Used by the knowledge-apply path (server-side, on pending→applied) so the
+ * debit can't be skipped by a client that never fires it. Idempotency (don't
+ * debit on re-apply) is the CALLER's responsibility — only call this when the
+ * row actually transitions into 'applied'.
+ *
+ * Best-effort: returns the USD amount debited (0 when no budget row / cap is
+ * configured yet — credits are unbounded then, so there's nothing to charge).
+ */
+export async function debitCredits(projectId: string, credits: number): Promise<number> {
+  if (credits <= 0) return 0;
+  const budget = await getCurrentBudget(projectId);
+  // No budget row or zero cap → credits aren't being metered for this project
+  // yet; nothing to debit against. (A row is created lazily on first LLM call.)
+  if (!budget || budget.cap_llm_usd <= 0) return 0;
+  const capCredits = budget.cap_credits ?? DEFAULT_CAP_CREDITS;
+  const creditsPerDollar = capCredits / budget.cap_llm_usd;
+  if (creditsPerDollar <= 0) return 0;
+  const usdDelta = credits / creditsPerDollar;
+  await upsertMonthlyBudget(projectId, currentPeriodMonth(), usdDelta);
+  return usdDelta;
 }

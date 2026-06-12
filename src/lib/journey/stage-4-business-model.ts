@@ -22,7 +22,7 @@ export const stageBusinessModel: Stage = {
         const p = s.pricing_state?.anchor_price;
         const ok = p != null && p > 0;
         return ok
-          ? { passed: true, evidence: `Anchor: $${p}` }
+          ? { passed: true, evidence: `You've set an anchor price ($${p}).` }
           : { passed: false, gap: 'Pick an anchor price with Co-pilot' };
       },
     },
@@ -34,7 +34,7 @@ export const stageBusinessModel: Stage = {
         const n = s.pricing_state?.tiers?.length ?? 0;
         const ok = n >= 2;
         return ok
-          ? { passed: true, evidence: `${n} tiers` }
+          ? { passed: true, evidence: `You've defined ${n} pricing tiers.` }
           : { passed: false, gap: `${n} of 2 — at least 2 tiers (good/better)` };
       },
     },
@@ -46,7 +46,7 @@ export const stageBusinessModel: Stage = {
         const wtp = s.pricing_state?.wtp;
         const ok = wtp && Object.keys(wtp).length > 0;
         return ok
-          ? { passed: true, evidence: `WTP method: ${(wtp as Record<string, unknown>).method ?? 'set'}` }
+          ? { passed: true, evidence: "You've researched what customers are willing to pay." }
           : { passed: false, gap: 'Run van Westendorp or interview WTP' };
       },
     },
@@ -57,7 +57,7 @@ export const stageBusinessModel: Stage = {
       evaluate: (s) => {
         const ok = !!s.pricing_state?.model;
         return ok
-          ? { passed: true, evidence: `Model: ${s.pricing_state?.model}` }
+          ? { passed: true, evidence: `You've chosen a pricing model (${s.pricing_state?.model}).` }
           : { passed: false, gap: 'Choose subscription / usage / seat / hybrid' };
       },
     },
@@ -74,7 +74,7 @@ export const stageBusinessModel: Stage = {
         const ratio = ltv / cac;
         const ok = ratio >= 1;
         return ok
-          ? { passed: true, evidence: `LTV : CAC = ${ratio.toFixed(2)}x` }
+          ? { passed: true, evidence: `Your unit economics work — LTV is ${ratio.toFixed(2)}× your cost to acquire a customer.` }
           : { passed: false, gap: `LTV : CAC = ${ratio.toFixed(2)}x — under 1, rework pricing or CAC` };
       },
     },

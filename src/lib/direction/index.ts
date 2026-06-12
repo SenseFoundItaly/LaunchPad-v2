@@ -23,6 +23,18 @@ export interface FreshSignal {
   created_at: string;
 }
 
+/** Unreviewed watcher signals awaiting founder review — the "a signal is ONE
+ *  thing" simplification: every watcher finding lands as a signal_alert ticket
+ *  and, until the founder acts on it, gets re-surfaced in chat EVERY turn
+ *  (unlike fresh_signals, which is windowed by the last chat message and
+ *  silently expires). */
+export interface PendingSignalsSummary {
+  /** Total unreviewed ecosystem_alerts for the project. */
+  total: number;
+  /** Top 3 by relevance_score — the headlines the chat reminder lists. */
+  top: FreshSignal[];
+}
+
 /** Adversarial-spine override emitted by `detectRiskOverrides` (iteration 3).
  *  When non-empty, the opener must surface the override as a visible artifact
  *  BEFORE advancing the founder. Iteration 3 ships only the `thin_evidence`
@@ -61,6 +73,10 @@ export interface NextBestAction {
   /** ecosystem_alerts newer than the last chat message — the "what changed
    *  since last time" line. Empty on first session (no prior message). */
   fresh_signals: FreshSignal[];
+  /** Unreviewed signals (reviewed_state NULL/pending) regardless of recency —
+   *  surfaced every turn until the founder acts in Inbox → Signals.
+   *  Degrades to { total: 0, top: [] } when the query fails. */
+  pending_signals: PendingSignalsSummary;
   /** Adversarial-spine overrides. Non-empty when a completed stage looks GO
    *  on paper but evidence is thin. Iteration 3 ships only `thin_evidence`. */
   risk_overrides: RiskOverride[];
@@ -93,6 +109,35 @@ async function freshSignals(projectId: string, since: string | Date | null | und
     // ecosystem_alerts may be absent on a stale DB — degrade to no signals
     // rather than failing the whole opener.
     return [];
+  }
+}
+
+/**
+ * Fetch the unreviewed-signal backlog: ecosystem_alerts the founder hasn't
+ * acted on yet (reviewed_state NULL or 'pending'), top 3 by relevance plus a
+ * total count (COUNT(*) OVER () — one query, no second round-trip). Unlike
+ * freshSignals() this is NOT windowed by the last chat message: pending
+ * signals stay in the chat context every turn until the founder accepts or
+ * dismisses them in Inbox → Signals ("if nothing is done they are surfaced
+ * in the chat as pending"). Same degradation contract as freshSignals():
+ * non-fatal, returns the empty summary on any query failure.
+ */
+async function pendingSignals(projectId: string): Promise<PendingSignalsSummary> {
+  try {
+    const rows = await query<{ headline: string; created_at: string; total: string | number }>(
+      `SELECT headline, created_at, COUNT(*) OVER () AS total
+         FROM ecosystem_alerts
+        WHERE project_id = ? AND (reviewed_state IS NULL OR reviewed_state = 'pending')
+        ORDER BY relevance_score DESC
+        LIMIT 3`,
+      projectId,
+    );
+    return {
+      total: rows.length > 0 ? Number(rows[0].total) || rows.length : 0,
+      top: rows.map((r) => ({ headline: r.headline, created_at: String(r.created_at) })),
+    };
+  } catch {
+    return { total: 0, top: [] };
   }
 }
 
@@ -148,7 +193,11 @@ export async function computeNextBestAction(projectId: string, opts: ComputeOpts
   const evaluations = evaluateAllStages(snapshot);
   const active = activeStage(evaluations);
   const readiness = await getStageReadiness(projectId);
-  const fresh = await freshSignals(projectId, opts.lastChatAt);
+  // Independent queries, both individually non-fatal — fetch in parallel.
+  const [fresh, pending] = await Promise.all([
+    freshSignals(projectId, opts.lastChatAt),
+    pendingSignals(projectId),
+  ]);
 
   const cold_start = isColdStart(snapshot.idea_canvas);
 
@@ -191,6 +240,7 @@ export async function computeNextBestAction(projectId: string, opts: ComputeOpts
     action,
     rationale,
     fresh_signals: fresh,
+    pending_signals: pending,
     risk_overrides,
   };
 }
@@ -229,6 +279,14 @@ export function renderDirectionForPrompt(nba: NextBestAction): string {
   if (nba.fresh_signals.length > 0) {
     lines.push('Since the last conversation, these signals fired (open with the most relevant):');
     for (const s of nba.fresh_signals) lines.push(`  - ${s.headline}`);
+  }
+  // Unreviewed-signal backlog — unlike fresh_signals this repeats EVERY turn
+  // until the founder acts on the signals in Inbox → Signals (product
+  // decision: pending signals never silently expire from chat).
+  if (nba.pending_signals.total > 0) {
+    const n = nba.pending_signals.total;
+    lines.push(`PENDING SIGNALS AWAITING REVIEW (${n}): the founder has ${n} watcher signal${n === 1 ? '' : 's'} waiting in the Inbox → Signals tab. Briefly remind them once per conversation (one sentence, not pushy) and offer to summarize.`);
+    for (const s of nba.pending_signals.top) lines.push(`  - ${s.headline}`);
   }
   return lines.join('\n');
 }

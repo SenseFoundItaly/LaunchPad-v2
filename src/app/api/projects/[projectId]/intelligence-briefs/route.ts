@@ -8,7 +8,8 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
  * GET /api/projects/{projectId}/intelligence-briefs
  *
  * Query params:
- *   status  — filter by brief status (active | expired | superseded)
+ *   status  — filter by brief status (active | expired | superseded | dismissed).
+ *             Omitted → defaults to excluding dismissed briefs.
  *   entity  — filter by entity_name
  *   limit   — max results (default 20)
  */
@@ -28,8 +29,15 @@ export async function GET(
   const values: unknown[] = [projectId];
 
   if (status) {
+    // Explicit status is always honored — including 'dismissed', so a caller
+    // can deliberately fetch dismissed briefs.
     conditions.push('status = ?');
     values.push(status);
+  } else {
+    // Default (no status param): exclude dismissed briefs. A bare GET used to
+    // return every brief, including status='dismissed' rows the founder had
+    // already cleared. Active/expired/superseded all remain visible.
+    conditions.push("status != 'dismissed'");
   }
   if (entity) {
     conditions.push('entity_name = ?');

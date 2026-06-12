@@ -32,6 +32,7 @@ import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readine
 import {
   listAssumptions,
   extractAssumptions,
+  seedAssumptionsIfEmpty,
   markValidated,
   markInvalidated,
   getAssumption,
@@ -1856,6 +1857,22 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
       fields.business_model,
       fields.competitive_advantage,
     );
+
+    // Backstop the premortem layer: the first time the canvas carries real
+    // substance, seed the assumptions registry. The helper guards itself to
+    // run at most once per project and detaches the LLM extraction, so this
+    // never blocks the tool result. This is what makes assumption_review
+    // tickets actually appear — previously the agent had to remember the
+    // extract_assumptions tool, so the registry sat empty in every project.
+    const seedContext = [
+      fields.problem && `Problem: ${fields.problem}`,
+      fields.solution && `Solution: ${fields.solution}`,
+      fields.target_market && `Target market: ${fields.target_market}`,
+      fields.value_proposition && `Value proposition: ${fields.value_proposition}`,
+      fields.business_model && `Business model: ${fields.business_model}`,
+      fields.competitive_advantage && `Competitive advantage: ${fields.competitive_advantage}`,
+    ].filter(Boolean).join('\n\n');
+    void seedAssumptionsIfEmpty(ctx.projectId, seedContext);
 
     return {
       content: [{ type: 'text', text: `Updated idea_canvas: ${provided.join(', ')}. Stage 1 readiness will recompute on next get_project_summary.` }],

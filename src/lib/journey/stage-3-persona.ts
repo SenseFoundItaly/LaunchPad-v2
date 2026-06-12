@@ -22,7 +22,7 @@ export const stagePersona: Stage = {
       evaluate: (s) => {
         const ok = !!s.idea_canvas?.target_market?.trim();
         return ok
-          ? { passed: true, evidence: 'Target market specified' }
+          ? { passed: true, evidence: "You've named your target market." }
           : { passed: false, gap: 'Name the target market' };
       },
     },
@@ -34,7 +34,7 @@ export const stagePersona: Stage = {
         const n = countMemoryFactsMatching(s, ['ICP', 'ideal customer', 'persona', 'beachhead']);
         const ok = n > 0;
         return ok
-          ? { passed: true, evidence: `${n} ICP fact${n === 1 ? '' : 's'}` }
+          ? { passed: true, evidence: "You've described your ideal customer." }
           : { passed: false, gap: 'Describe the ideal customer profile' };
       },
     },
@@ -46,7 +46,7 @@ export const stagePersona: Stage = {
         const n = countMemoryFactsMatching(s, ['channel', 'acquisition', 'reach customers', 'outreach', 'distribution']);
         const ok = n > 0;
         return ok
-          ? { passed: true, evidence: `${n} channel fact${n === 1 ? '' : 's'}` }
+          ? { passed: true, evidence: "You've identified how you'll reach customers." }
           : { passed: false, gap: 'Identify at least one acquisition channel' };
       },
     },
@@ -58,7 +58,7 @@ export const stagePersona: Stage = {
         const totalSignals = s.competitors.reduce((sum, c) => sum + (c.total_signals ?? 0), 0);
         const ok = totalSignals >= 10;
         return ok
-          ? { passed: true, evidence: `${totalSignals} signals across competitors` }
+          ? { passed: true, evidence: `Your segment is backed by ${totalSignals} market signals.` }
           : { passed: false, gap: `${totalSignals} of 10 — let monitors run longer` };
       },
     },

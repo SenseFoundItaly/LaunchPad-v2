@@ -35,6 +35,7 @@ import type { Locale } from '@/lib/agent-prompt';
 import { checkDedup, computeDedupHash } from './monitor-dedup';
 import { recordEvent } from './memory/events';
 import { recordFact } from './memory/facts';
+import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from './credits';
 import { outputInstructions, projectContext } from './ecosystem-monitors';
 import { entityNameFromHeadline } from './ecosystem-alert-parser';
 import type { MonitorPromptContext } from './ecosystem-monitors';
@@ -266,6 +267,44 @@ const proposedHypothesis: ActionHandler = async (action) => {
 
 const proposedGraphUpdate: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
+
+  // Chat-knowledge proposal (materialized by materializeProposalsFromSources):
+  // the graph_node / memory_fact ALREADY exists as 'pending'. Applying just
+  // flips that row to 'applied' and debits the 2-credit apply cost — we must
+  // NOT mint a second node here. Idempotent: only debit when the row actually
+  // transitions out of 'pending'.
+  const ks = (payload.knowledge_source ?? null) as { table?: string; id?: string } | null;
+  if (ks && (ks.table === 'graph_nodes' || ks.table === 'memory_facts') && ks.id) {
+    const table = ks.table;
+    const tsCol = table === 'memory_facts' ? ', updated_at = CURRENT_TIMESTAMP' : '';
+    const prev = await query<{ reviewed_state: string }>(
+      `SELECT reviewed_state FROM ${table} WHERE id = ?`,
+      ks.id,
+    );
+    const wasPending = prev[0]?.reviewed_state !== 'applied';
+    await run(
+      `UPDATE ${table} SET reviewed_state = 'applied'${tsCol} WHERE id = ?`,
+      ks.id,
+    );
+    let creditsNote = '';
+    if (wasPending) {
+      try {
+        await debitCredits(action.project_id, KNOWLEDGE_APPLY_CREDITS);
+        creditsNote = ` (${KNOWLEDGE_APPLY_CREDITS} credits)`;
+      } catch (err) {
+        console.warn('[proposedGraphUpdate] knowledge credit debit failed (non-fatal):', (err as Error).message);
+      }
+    }
+    return {
+      ok: true,
+      deliverable: {
+        mode: 'direct',
+        created_row_id: ks.id,
+        narrative: `Applied to project intelligence${creditsNote}.`,
+      },
+    };
+  }
+
   const name = String(payload.name || action.title);
   const nodeType = String(payload.node_type || 'technology');
   const summary = typeof payload.summary === 'string' ? payload.summary : String(payload.draft_seed || '');
@@ -288,9 +327,23 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
   // attributes passed RAW: graph_nodes.attributes is JSONB; postgres.js
   // auto-serializes objects — JSON.stringify here double-encodes (same bug class
   // as pricing_state).
-  await run(
+  // Atomic upsert on (project_id, LOWER(name)) — migration 018's unique index.
+  // The prior plain INSERT raced under pgbouncer transaction pooling (two
+  // approvals of the same entity → duplicate byte-identical nodes). ON CONFLICT
+  // collapses a re-approval of an already-tracked entity into an UPDATE of the
+  // mutable fields. RETURNING id resolves to the surviving (possibly pre-existing)
+  // node so the alert back-link below claims the right node. COALESCE on summary
+  // keeps a prior non-empty summary if this approval carried an empty one.
+  const insertedNode = await query<{ id: string }>(
     `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'applied')`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'applied')
+     ON CONFLICT (project_id, LOWER(name)) DO UPDATE SET
+       node_type = EXCLUDED.node_type,
+       summary = COALESCE(NULLIF(EXCLUDED.summary, ''), graph_nodes.summary),
+       attributes = COALESCE(EXCLUDED.attributes, graph_nodes.attributes),
+       sources = COALESCE(EXCLUDED.sources, graph_nodes.sources),
+       reviewed_state = 'applied'
+     RETURNING id`,
     nodeId,
     action.project_id,
     name,
@@ -299,6 +352,9 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
     attributes ?? null,
     sources,
   );
+  // Resolve to the row that actually survived the conflict (its id may differ
+  // from the freshly generated nodeId if an earlier node for this entity won).
+  const resolvedNodeId = insertedNode[0]?.id ?? nodeId;
 
   // Alert-derived graph updates (auto-fanout routes an alert's review as
   // proposed_graph_update per its suggested_action) CLAIM the alert's FK —
@@ -309,13 +365,13 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
   // of upserting a second one. Without this the claimed alert stayed
   // `pending` forever (observed: SpareSeat run — 3 alerts accepted, the one
   // routed as proposed_graph_update never was). No-op without an alert FK.
-  await acceptAlertIntoKnowledge(action, { existingNodeId: nodeId });
+  await acceptAlertIntoKnowledge(action, { existingNodeId: resolvedNodeId });
 
   return {
     ok: true,
     deliverable: {
       mode: 'direct',
-      created_row_id: nodeId,
+      created_row_id: resolvedNodeId,
       narrative: locale === 'it'
         ? `Nodo aggiunto al knowledge graph (type: ${nodeType}).`
         : `Added to knowledge graph (type: ${nodeType}).`,
@@ -889,43 +945,43 @@ async function upsertAlertGraphNode(
     ? `${alert.headline} — ${alert.body}`
     : alert.headline;
 
-  // Upsert by (project_id, lower(name)) so re-approving the same finding (or
-  // a finding about an already-tracked entity) updates rather than duplicates.
-  // reviewed_state='applied': the founder just approved this signal, so it's
-  // visible to the Intelligence panel + journey gates (which filter applied).
+  // Atomic upsert on (project_id, LOWER(name)) — migration 018's unique index.
+  // Re-approving the same finding (or a finding about an already-tracked entity)
+  // UPDATES the existing node rather than duplicating it. The previous
+  // SELECT-then-UPDATE|INSERT raced under pgbouncer transaction pooling: a batch
+  // of same-entity accepts could have accept #2's SELECT miss accept #1's
+  // not-yet-visible INSERT, yielding byte-identical duplicate nodes (observed:
+  // 3 accepts of "AI Plant Doctor" → 2 nodes). A single statement closes that
+  // window. reviewed_state='applied': the founder just approved this signal, so
+  // it's visible to the Intelligence panel + journey gates (which filter
+  // applied). attributes and [provenance] are passed RAW — graph_nodes.attributes
+  // and .sources are JSONB and postgres.js auto-serializes; JSON.stringify would
+  // double-encode. RETURNING id surfaces the surviving node id (whether inserted
+  // or pre-existing) so the function still returns it for the alert back-link.
   try {
-    const existing = await query<{ id: string }>(
-      'SELECT id FROM graph_nodes WHERE project_id = ? AND LOWER(name) = LOWER(?) LIMIT 1',
-      action.project_id,
-      nodeName,
-    );
-    if (existing.length > 0) {
-      const graphNodeId = existing[0].id;
-      await run(
-        `UPDATE graph_nodes
-            SET summary = ?, attributes = ?, sources = ?, reviewed_state = 'applied'
-          WHERE id = ?`,
-        nodeSummary,
-        attributes,
-        [provenance],
-        graphNodeId,
-      );
-      return graphNodeId;
-    }
-    const graphNodeId = generateId('gnode');
-    await run(
+    const upserted = await query<{ id: string }>(
       `INSERT INTO graph_nodes
          (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'applied')`,
-      graphNodeId,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'applied')
+       ON CONFLICT (project_id, LOWER(name)) DO UPDATE SET
+         summary = ?,
+         attributes = ?,
+         sources = ?,
+         reviewed_state = 'applied'
+       RETURNING id`,
+      generateId('gnode'),
       action.project_id,
       nodeName,
       nodeType,
       nodeSummary,
       attributes,
       [provenance],
+      // ON CONFLICT DO UPDATE SET — same fields the old UPDATE branch set.
+      nodeSummary,
+      attributes,
+      [provenance],
     );
-    return graphNodeId;
+    return upserted[0]?.id ?? null;
   } catch (err) {
     console.warn('[acceptAlertIntoKnowledge] graph_node write failed (non-fatal):', (err as Error).message);
     return null;
@@ -1069,6 +1125,17 @@ export async function dismissAlertSource(action: PendingAction): Promise<void> {
       await run(
         `UPDATE assumptions SET status = 'dismissed', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
         payload.assumption_id,
+      );
+    }
+    // Materialized chat-knowledge proposal — flip the source graph_node /
+    // memory_fact to 'rejected' so the dismissed proposal stops surfacing on
+    // Knowledge / Intelligence. No credit debit on dismiss.
+    const ks = (payload.knowledge_source ?? null) as { table?: string; id?: string } | null;
+    if (ks && (ks.table === 'graph_nodes' || ks.table === 'memory_facts') && ks.id) {
+      const tsCol = ks.table === 'memory_facts' ? ', updated_at = CURRENT_TIMESTAMP' : '';
+      await run(
+        `UPDATE ${ks.table} SET reviewed_state = 'rejected'${tsCol} WHERE id = ?`,
+        ks.id,
       );
     }
   } catch (err) {

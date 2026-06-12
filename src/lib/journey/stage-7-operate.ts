@@ -23,7 +23,7 @@ export const stageOperate: Stage = {
         const active = s.growth_loops.filter((l) => l.status === 'active').length;
         const ok = active >= 1;
         return ok
-          ? { passed: true, evidence: `${active} active loop${active === 1 ? '' : 's'}` }
+          ? { passed: true, evidence: `You have ${active} growth loop${active === 1 ? '' : 's'} running.` }
           : { passed: false, gap: 'Design a growth loop with Co-pilot' };
       },
     },
@@ -35,7 +35,7 @@ export const stageOperate: Stage = {
         const n = s.metrics.length;
         const ok = n >= 3;
         return ok
-          ? { passed: true, evidence: `${n} metrics tracked` }
+          ? { passed: true, evidence: `You're tracking ${n} metrics.` }
           : { passed: false, gap: `${n} of 3 — wire activation, retention, revenue` };
       },
     },

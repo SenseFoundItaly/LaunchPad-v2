@@ -30,7 +30,7 @@ export const stageMarketValidation: Stage = {
         const p = s.idea_canvas?.problem?.trim() ?? '';
         const ok = p.length >= 40;
         return ok
-          ? { passed: true, evidence: `Problem statement: ${p.length} chars` }
+          ? { passed: true, evidence: 'Your problem statement is specific and well-formed.' }
           : { passed: false, gap: 'Sharpen the problem to at least 40 chars' };
       },
     },
@@ -41,7 +41,7 @@ export const stageMarketValidation: Stage = {
       evaluate: (s) => {
         const ok = !!s.idea_canvas?.target_market?.trim();
         return ok
-          ? { passed: true, evidence: 'Target market specified' }
+          ? { passed: true, evidence: "You've named the customer segment you're targeting." }
           : { passed: false, gap: 'Name a specific customer segment' };
       },
     },
@@ -53,7 +53,7 @@ export const stageMarketValidation: Stage = {
         const n = s.competitors.length;
         const ok = n >= 3;
         return ok
-          ? { passed: true, evidence: `${n} competitors tracked` }
+          ? { passed: true, evidence: `You've mapped ${n} competitors in your space.` }
           : { passed: false, gap: `${n} of 3 — ask Co-pilot to research more` };
       },
     },
@@ -65,7 +65,7 @@ export const stageMarketValidation: Stage = {
         const n = countMemoryFactsMatching(s, ['market size', 'TAM', 'SAM', 'SOM', 'addressable']);
         const ok = n > 0;
         return ok
-          ? { passed: true, evidence: `${n} fact${n === 1 ? '' : 's'} mentioning market sizing` }
+          ? { passed: true, evidence: "You've sized the market (TAM/SAM/SOM)." }
           : { passed: false, gap: 'Estimate TAM/SAM with Co-pilot' };
       },
     },
@@ -79,7 +79,7 @@ export const stageMarketValidation: Stage = {
         const n = s.interviews.length;
         const ok = n >= 5;
         return ok
-          ? { passed: true, evidence: `${n} interviews logged` }
+          ? { passed: true, evidence: `You've logged ${n} customer interviews.` }
           : { passed: false, gap: `${n} of 5 — tell the Co-pilot "I talked to X about Y" to log` };
       },
     },
@@ -94,12 +94,12 @@ export const stageMarketValidation: Stage = {
         // that captured pain before the interviews table existed.
         const withPain = s.interviews.filter((i) => i.top_pain && i.top_pain.trim().length > 5).length;
         if (withPain > 0) {
-          return { passed: true, evidence: `${withPain} interview${withPain === 1 ? '' : 's'} with verbatim pain quote` };
+          return { passed: true, evidence: `${withPain} interview${withPain === 1 ? '' : 's'} captured the pain in the customer's own words.` };
         }
         const n = countMemoryFactsMatching(s, ['biggest pain', 'frustration', 'top problem', 'urgent']);
         const ok = n > 0;
         return ok
-          ? { passed: true, evidence: `${n} pain-point fact${n === 1 ? '' : 's'}` }
+          ? { passed: true, evidence: "You've captured the top pain customers feel." }
           : { passed: false, gap: 'Pin the single biggest pain in chat' };
       },
     },
@@ -116,7 +116,7 @@ export const stageMarketValidation: Stage = {
         const active = activeMonitors + activeWatchSources;
         const ok = active >= 1;
         return ok
-          ? { passed: true, evidence: `${active} live watcher${active === 1 ? '' : 's'}` }
+          ? { passed: true, evidence: `You have ${active} watcher${active === 1 ? '' : 's'} tracking this market.` }
           : { passed: false, gap: 'Set at least one watcher on competitors or trends' };
       },
     },
@@ -128,7 +128,7 @@ export const stageMarketValidation: Stage = {
         const n = countMemoryFactsMatching(s, ['unlike', 'better than', 'differentiator', 'vs', 'compared to']);
         const ok = n > 0;
         return ok
-          ? { passed: true, evidence: `${n} differentiation fact${n === 1 ? '' : 's'}` }
+          ? { passed: true, evidence: "You've evidenced how you're different from competitors." }
           : { passed: false, gap: 'Pin what makes you different in chat' };
       },
     },

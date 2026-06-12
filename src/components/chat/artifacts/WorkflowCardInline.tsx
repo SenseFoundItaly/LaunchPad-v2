@@ -8,20 +8,15 @@ interface WorkflowCardInlineProps {
   artifact: WorkflowCard;
   onWorkflowDiscovered: (workflow: WorkflowCard) => void;
   onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
+  /** Mount collapsed (older-turn artifacts on the canvas). */
+  defaultCollapsed?: boolean;
 }
-
-import { workflowPalette } from '@/lib/brand-palette';
-
-const PRIORITY_COLORS: Record<string, string> = {
-  high: 'text-clay',
-  medium: 'text-accent',
-  low: 'text-ink-4',
-};
 
 export default function WorkflowCardInline({
   artifact,
   onWorkflowDiscovered,
   onAction,
+  defaultCollapsed,
 }: WorkflowCardInlineProps) {
   const discoveredRef = useRef(false);
   const [completed, setCompleted] = useState<Set<number>>(new Set());
@@ -52,19 +47,14 @@ export default function WorkflowCardInline({
   const pct = total > 0 ? (doneCount / total) * 100 : 0;
 
   return (
+    // Category + priority header chips removed (2026-06 zero-chips rule);
+    // the checklist, progress bar, and coming-soon note are functional and stay.
     <ArtifactCardShell
       typeLabel="Workflow"
       title={artifact.title}
       sources={artifact.sources}
       provenance={artifact.provenance}
-      headerRight={<>
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${workflowPalette(artifact.category).chip}`}>
-          {artifact.category}
-        </span>
-        <span className={`text-xs font-medium ${PRIORITY_COLORS[artifact.priority] || 'text-ink-4'}`}>
-          {artifact.priority}
-        </span>
-      </>}
+      defaultCollapsed={defaultCollapsed}
     >
       <p className="text-sm text-ink-3 mb-3">{artifact.description}</p>
 

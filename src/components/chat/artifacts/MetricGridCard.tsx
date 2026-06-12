@@ -2,27 +2,29 @@
 
 import { useState } from 'react';
 import type { MetricGrid } from '@/types/artifacts';
-import { useReviewState } from '@/hooks/useReviewState';
-import UnifiedReviewControls from './UnifiedReviewControls';
 import ArtifactCardShell from './ArtifactCardShell';
+import KnowledgeApplyControls from './SavedHint';
 
 interface MetricGridCardProps {
   artifact: MetricGrid;
   onAction?: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
+  /** Mount collapsed (older-turn artifacts on the canvas). */
+  defaultCollapsed?: boolean;
 }
 
-export default function MetricGridCard({ artifact, onAction }: MetricGridCardProps) {
+/**
+ * Metric grid — title + editable metric tiles + collapsed sources +
+ * Apply/Dismiss footer. Founder directive (2026-06-11): the metric grid
+ * persists as a PROPOSAL (graph_nodes, reviewed_state='pending'); applying it
+ * (2 credits) folds it into project intelligence. Click-to-edit on values is
+ * functional and stays.
+ */
+export default function MetricGridCard({ artifact, onAction, defaultCollapsed }: MetricGridCardProps) {
   const [metrics, setMetrics] = useState(artifact.metrics);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
 
-  const review = useReviewState({
-    artifactId: artifact.id,
-    persistedId: artifact.persisted_id,
-    reviewedState: artifact.reviewed_state,
-    type: 'fact',
-    onAction,
-  });
+  const rejected = artifact.reviewed_state === 'rejected';
 
   function startEdit(idx: number) {
     setEditingIdx(idx);
@@ -43,17 +45,15 @@ export default function MetricGridCard({ artifact, onAction }: MetricGridCardPro
       title={artifact.title || ''}
       sources={artifact.sources}
       provenance={artifact.provenance}
-      dimmed={review.isRejected}
-      aiGenerated
+      dimmed={rejected}
+      defaultCollapsed={defaultCollapsed}
       footer={
-        <UnifiedReviewControls
-          lane="approval"
-          state={review.reviewState}
-          onApply={() => review.handleReview('applied')}
-          onReject={() => review.handleReview('rejected')}
-          variant="footer"
-          destination="Facts"
-          impactHint="Will inform future AI responses"
+        <KnowledgeApplyControls
+          artifactId={artifact.id}
+          persistedId={artifact.persisted_id}
+          state={artifact.reviewed_state}
+          type="graph_node"
+          onAction={onAction}
         />
       }
     >
