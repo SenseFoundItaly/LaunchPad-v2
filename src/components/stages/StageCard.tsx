@@ -62,18 +62,6 @@ export function StageCard({ projectId }: { projectId: string }) {
   // Edge case: everything done → show the last stage as a "all clear" card.
   const headline = active ?? data.evaluations[data.evaluations.length - 1];
 
-  // Time-gated detection: some checks can't be closed by founder action right
-  // now — they need watchers/monitors to accumulate signals over time
-  // (segment_signals, or any gap that says "let monitors run"). When EVERY
-  // open gap on the active stage is time-gated, "go talk to the Co-pilot"
-  // is the wrong CTA — waiting is the action.
-  const openGaps = active ? active.results.filter((r) => !r.result.passed) : [];
-  const onlyTimeGatedGaps =
-    openGaps.length > 0 &&
-    openGaps.every(
-      (r) => r.check.id === 'segment_signals' || /let monitors run/i.test(r.result.gap ?? ''),
-    );
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* Past stages — compact strip */}
@@ -117,27 +105,11 @@ export function StageCard({ projectId }: { projectId: string }) {
             gap: 10,
           }}>
             <span style={{ fontSize: 12, color: 'var(--ink-3)', flex: 1 }}>
-              {onlyTimeGatedGaps
-                ? 'Monitors running — check back after the next weekly scan.'
-                : 'Next: address the gaps above with the Co-pilot.'}
+              Next: address the gaps above with the Co-pilot.
             </span>
-            {onlyTimeGatedGaps ? (
-              <>
-                {/* Waiting IS the action — a primary "Open Co-pilot" CTA here
-                    contradicts the message (audit p5). Disabled-styled state
-                    label, with the Co-pilot demoted to a secondary link. */}
-                <span style={waitingStyle} aria-disabled="true">
-                  Waiting on weekly scan
-                </span>
-                <Link href={`/project/${projectId}/chat`} style={secondaryCtaStyle}>
-                  Open Co-pilot →
-                </Link>
-              </>
-            ) : (
-              <Link href={`/project/${projectId}/chat`} style={ctaStyle}>
-                Open Co-pilot →
-              </Link>
-            )}
+            <Link href={`/project/${projectId}/chat`} style={ctaStyle}>
+              Open Co-pilot →
+            </Link>
           </div>
         )}
       </Panel>
@@ -252,30 +224,6 @@ const ctaStyle: React.CSSProperties = {
   color: 'var(--paper)',
   borderRadius: 6,
   textDecoration: 'none',
-  fontSize: 11.5,
-  fontWeight: 500,
-};
-
-/** Time-gated state — looks like a disabled button: nothing to click yet. */
-const waitingStyle: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '5px 10px',
-  background: 'var(--paper-2)',
-  color: 'var(--ink-5)',
-  border: '1px solid var(--line-2)',
-  borderRadius: 6,
-  fontSize: 11.5,
-  fontWeight: 500,
-  cursor: 'default',
-};
-
-/** Secondary link next to the waiting state — Co-pilot stays reachable. */
-const secondaryCtaStyle: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '5px 6px',
-  color: 'var(--ink-3)',
-  textDecoration: 'underline',
-  textUnderlineOffset: 3,
   fontSize: 11.5,
   fontWeight: 500,
 };

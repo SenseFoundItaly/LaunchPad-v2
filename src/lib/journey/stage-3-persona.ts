@@ -50,17 +50,12 @@ export const stagePersona: Stage = {
           : { passed: false, gap: 'Identify at least one acquisition channel' };
       },
     },
-    {
-      id: 'segment_signals',
-      label: 'Segment validated by signals',
-      source: 'competitor_profiles + monitors',
-      evaluate: (s) => {
-        const totalSignals = s.competitors.reduce((sum, c) => sum + (c.total_signals ?? 0), 0);
-        const ok = totalSignals >= 10;
-        return ok
-          ? { passed: true, evidence: `Your segment is backed by ${totalSignals} market signals.` }
-          : { passed: false, gap: `${totalSignals} of 10 — let monitors run longer` };
-      },
-    },
+    // NOTE: a former 4th check `segment_signals` gated this stage on ≥10
+    // watcher-attributed competitor signals ("X of 10 — let monitors run
+    // longer"). Removed 2026-06-12: that measured monitoring THROUGHPUT, not
+    // founder validation — a passive, agent-gated dead-end with no founder
+    // action, which could also stall the stage forever when no watchers were
+    // set up. Persona/Segment now validates purely on founder-driven evidence
+    // (target market · ICP · channels).
   ],
 };
