@@ -1134,6 +1134,10 @@ function ExtractedKnowledgeView({
   const applicableIds = entities.map((e) => e.node_id).filter((x): x is string => !!x);
   const applyCredits = applicableIds.length * APPLY_COST;
   const checkedCount = checkedWatchers.size;
+  // Applying also generates a personalized AI brief (one Sonnet call, metered).
+  // Estimate shown on the button; actual cost is metered server-side.
+  const BRIEF_CREDITS_EST = 3;
+  const upfrontCredits = applyCredits + BRIEF_CREDITS_EST;
 
   function toggleWatcher(i: number) {
     setCheckedWatchers((prev) => {
@@ -1171,6 +1175,13 @@ function ExtractedKnowledgeView({
           ),
         );
       }
+      // Generate the personalized opening brief LAST (so it reads the just-applied
+      // canvas/entities) and AWAIT it — it persists as the first chat message, so
+      // it must exist before we route into chat. Best-effort: on failure the chat
+      // falls back to the deterministic briefing empty-state.
+      await fetch(`/api/projects/${projectId}/brief`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      }).catch(() => null);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
       }
@@ -1179,16 +1190,20 @@ function ExtractedKnowledgeView({
     }
   }
 
-  // Compose the primary button label from what's actually committed.
+  // Compose the primary button label: list the actions, then ONE upfront credit
+  // total (entities exact + AI brief estimate; ~ signals the brief is metered).
+  // Watcher cost is weekly (shown per-row), never folded into this number.
   const N = applicableIds.length;
   const W = checkedCount;
-  const entPart = N > 0 ? `apply ${N} entit${N === 1 ? 'y' : 'ies'} · ${applyCredits} credits` : null;
-  const watchPart = W > 0 ? `start ${W} watcher${W === 1 ? '' : 's'}` : null;
+  const actionBits = [
+    canvasFields.length > 0 ? 'canvas' : null,
+    N > 0 ? `${N} entit${N === 1 ? 'y' : 'ies'}` : null,
+    W > 0 ? `${W} watcher${W === 1 ? '' : 's'}` : null,
+  ].filter(Boolean);
   const primaryLabel = applying
     ? 'Applying…'
-    : canvasFields.length > 0
-      ? [`Use canvas`, entPart, watchPart].filter(Boolean).join(' + ') + ' → Co-pilot'
-      : [entPart ? `Apply ${N} entit${N === 1 ? 'y' : 'ies'} · ${applyCredits} credits` : 'Continue', watchPart].filter(Boolean).join(' · ') + ' → Co-pilot';
+    : (actionBits.length > 0 ? `Apply ${actionBits.join(' + ')} + AI brief` : 'Start with an AI brief')
+      + ` · ~${upfrontCredits} credits → Co-pilot`;
 
   const primaryBtnStyle: React.CSSProperties = {
     padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none',
@@ -1298,6 +1313,9 @@ function ExtractedKnowledgeView({
             Skip
           </button>
         )}
+      </div>
+      <div style={{ fontSize: 10.5, color: 'var(--ink-6)', marginTop: 8, lineHeight: 1.4 }}>
+        ~{upfrontCredits} credits = {applyCredits > 0 ? `${applyCredits} to apply entities + ` : ''}~{BRIEF_CREDITS_EST} for a personalized AI brief of what I learned (canvas is free; watchers metered weekly). Skip applies nothing.
       </div>
     </div>
   );
