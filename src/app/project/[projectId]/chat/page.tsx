@@ -29,6 +29,7 @@ import { TopBar, NavRail } from '@/components/design/chrome';
 // chat-specific controls (model picker, context export).
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
+import { checkActionPrompt } from '@/lib/journey-prompts';
 import { buildContextMarkdown } from '@/lib/context-export';
 import type { ContextExportData } from '@/lib/context-export';
 import { openPrintPreview } from '@/lib/print-utils';
@@ -1006,6 +1007,18 @@ export default function CopilotChatPage({
               // a skill: route through 'I choose: <kickoff>' click path."
               if (!isStreaming) sendMessage(`I choose: ${label}`);
             }}
+            onPickPrompt={(prompt) => {
+              // A substep was clicked in the (right-pane) Canvas — load the
+              // prompt into the (left-pane) composer and focus it so the founder
+              // sees it ready to send. No auto-send: they review/edit + send.
+              setInput(prompt);
+              if (typeof document !== 'undefined') {
+                const tas = Array.from(document.querySelectorAll('textarea')) as HTMLTextAreaElement[];
+                const composer = tas.find((t) => /co-pilot/i.test(t.placeholder)) ?? tas[0];
+                composer?.focus();
+                composer?.scrollIntoView({ block: 'nearest' });
+              }
+            }}
           />
         </div>
       </div>
@@ -1111,24 +1124,6 @@ interface EmptyStateStage {
   passed: number;
   total: number;
   results: Array<{ check: { id: string; label: string }; result: { passed: boolean; gap?: string } }>;
-}
-
-// Turn an open validation check into an actionable co-pilot prompt (keyword-
-// matched on the check label, so it's robust to check-id changes).
-function checkActionPrompt(label: string): string {
-  const l = label.toLowerCase();
-  if (/segment|icp|ideal customer|persona|beachhead/.test(l)) return 'Help me define and validate my target customer segment.';
-  if (/competitor/.test(l)) return 'Research and map my top competitors.';
-  if (/interview/.test(l)) return "Help me log customer interviews — I'll tell you who I spoke to and what they said.";
-  if (/watcher|monitor/.test(l)) return 'Set up a watcher on my key competitors or market trends.';
-  if (/market size|\btam\b|\bsam\b|\bsom\b/.test(l)) return 'Help me size my market (TAM / SAM / SOM).';
-  if (/channel|acquisition|reach|distribution/.test(l)) return 'Help me identify my acquisition channels.';
-  if (/business model|revenue|pricing|unit econ/.test(l)) return 'Help me define my business model.';
-  if (/differentiat|competitive|edge|advantage/.test(l)) return "Help me articulate how I'm different from competitors.";
-  if (/value prop/.test(l)) return 'Help me sharpen my value proposition.';
-  if (/problem/.test(l)) return 'Help me sharpen my problem statement.';
-  if (/solution/.test(l)) return 'Help me describe my solution in more depth.';
-  return `Help me with: ${label}`;
 }
 
 function ChatEmptyState({

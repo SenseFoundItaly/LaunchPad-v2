@@ -52,6 +52,9 @@ interface CanvasProps {
    *  sends `I choose: <label>` through the chat so the agent kicks off the
    *  skill — same convention as the inline option-set CTA. */
   onSkillClick?: (skillLabel: string) => void;
+  /** Click an unmet Spine substep → pre-fill the chat composer with a prompt to
+   *  work on it. Threaded to the chat page's setInput. */
+  onPickPrompt?: (prompt: string) => void;
 }
 
 /** Applied memory_facts row (DB store name; founder-facing label is just
@@ -86,6 +89,7 @@ export function Canvas({
   handleArtifactAction,
   focusedMessageId,
   onSkillClick,
+  onPickPrompt,
 }: CanvasProps) {
   // Group entries by department. Facts are handled via the merged Knowledge
   // section below — `memory` department entries (rare; `fact` artifacts don't
@@ -177,7 +181,7 @@ export function Canvas({
     >
       <IdeaCanvasHeader projectId={projectId} locale={locale} factCount={facts.length} />
 
-      <SpineSection projectId={projectId} locale={locale} onSkillClick={onSkillClick} />
+      <SpineSection projectId={projectId} locale={locale} onSkillClick={onSkillClick} onPickPrompt={onPickPrompt} />
 
       {hasSolveProgress && (
         <div style={{ marginBottom: 14 }}>

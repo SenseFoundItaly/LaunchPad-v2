@@ -17,6 +17,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { checkActionPrompt } from '@/lib/journey-prompts';
 
 interface CheckRow {
   check: { id: string; label: string; source?: string };
@@ -37,6 +39,35 @@ interface SpineSectionProps {
   /** Retained for parent compatibility. The spine no longer launches skills
    *  — it's a validation tracker — so this is currently unused. */
   onSkillClick?: (skillLabel: string) => void;
+  /** Click an UNMET substep → pre-fill the chat composer with a tailored prompt
+   *  to work on it (wired to the chat page's setInput). */
+  onPickPrompt?: (prompt: string) => void;
+}
+
+// Canvas-field sources that have a VISIBLE home in the pinned IdeaCanvasHeader
+// (the 5 fields it renders) — only these get a "view in canvas" jump.
+const CANVAS_VIEW_FIELDS = new Set(['problem', 'solution', 'target_market', 'value_proposition', 'business_model']);
+
+/** Where a validated substep's proof can be "viewed" — derived from its source.
+ *  null = inline-only (no surface to jump to). */
+function jumpTarget(source: string | undefined): { kind: 'canvas'; field: string } | { kind: 'know' } | null {
+  if (!source) return null;
+  const m = source.match(/idea_canvas\.(\w+)/);
+  if (m && CANVAS_VIEW_FIELDS.has(m[1])) return { kind: 'canvas', field: m[1] };
+  if (/competitor/i.test(source)) return { kind: 'know' };
+  return null;
+}
+
+// Scroll the pinned Idea Canvas field into view and flash it (reuses the
+// codebase's lp-flash highlight). The field carries id="canvasfield-<name>"
+// (set in IdeaCanvasHeader).
+function viewCanvasField(field: string) {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById(`canvasfield-${field}`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('lp-flash');
+  setTimeout(() => el.classList.remove('lp-flash'), 1300);
 }
 
 const STATE: Record<StageEval['status'], { color: string; en: string; it: string }> = {
@@ -45,7 +76,8 @@ const STATE: Record<StageEval['status'], { color: string; en: string; it: string
   pending: { color: 'var(--ink-5)', en: 'Not started', it: 'Da iniziare' },
 };
 
-export function SpineSection({ projectId, locale }: SpineSectionProps) {
+export function SpineSection({ projectId, locale, onPickPrompt }: SpineSectionProps) {
+  const router = useRouter();
   const [evals, setEvals] = useState<StageEval[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [openStage, setOpenStage] = useState<string | null>(null);
@@ -193,16 +225,28 @@ export function SpineSection({ projectId, locale }: SpineSectionProps) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
             {openEval.results.map((r, i) => {
               const ok = r.result.passed;
+              const isGap = !ok;
               const detail = ok ? r.result.evidence : r.result.gap;
               const rowId = r.check.id || String(i);
               const hasProof = ok && !!r.result.proof;
               const proofOpen = openProof === rowId;
+              const jt = hasProof ? jumpTarget(r.check.source) : null;
+              // ○ unmet → pre-fill chat to work on it; ✓ with proof → toggle the
+              // inline proof. ✓ without proof = not clickable.
+              const canPrefill = isGap && !!onPickPrompt;
+              const clickable = canPrefill || hasProof;
+              const onRowClick = canPrefill
+                ? () => onPickPrompt?.(checkActionPrompt(r.check.label))
+                : hasProof
+                  ? () => setOpenProof(proofOpen ? null : rowId)
+                  : undefined;
               return (
                 <div key={rowId}>
                   <div
-                    onClick={hasProof ? () => setOpenProof(proofOpen ? null : rowId) : undefined}
-                    role={hasProof ? 'button' : undefined}
-                    style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5, lineHeight: 1.4, cursor: hasProof ? 'pointer' : 'default' }}
+                    onClick={onRowClick}
+                    role={clickable ? 'button' : undefined}
+                    title={canPrefill ? (locale === 'it' ? 'Chiedi al co-pilot di lavorarci' : 'Ask the co-pilot to work on this') : undefined}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5, lineHeight: 1.4, cursor: clickable ? 'pointer' : 'default' }}
                   >
                     <span
                       aria-hidden
@@ -228,17 +272,39 @@ export function SpineSection({ projectId, locale }: SpineSectionProps) {
                         {proofOpen ? (locale === 'it' ? 'nascondi' : 'hide') : (locale === 'it' ? 'prova' : 'proof')}
                       </span>
                     )}
+                    {canPrefill && (
+                      <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--accent)', flexShrink: 0, marginTop: 2, whiteSpace: 'nowrap' }}>
+                        {locale === 'it' ? '→ chiedi' : '→ ask co-pilot'}
+                      </span>
+                    )}
                   </div>
                   {hasProof && proofOpen && (
                     <div style={{ margin: '4px 0 2px 23px', padding: '6px 9px', background: 'var(--surface)', borderLeft: '2px solid var(--moss)', borderRadius: 4 }}>
                       <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                         {r.result.proof}
                       </div>
-                      {r.check.source && (
-                        <div className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-6)', marginTop: 4 }}>
-                          {locale === 'it' ? 'da' : 'from'} {r.check.source}
-                        </div>
-                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 5, flexWrap: 'wrap' }}>
+                        {r.check.source && (
+                          <span className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-6)' }}>
+                            {locale === 'it' ? 'da' : 'from'} {r.check.source}
+                          </span>
+                        )}
+                        {jt && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (jt.kind === 'canvas') viewCanvasField(jt.field);
+                              else router.push(`/project/${projectId}/knowledge`);
+                            }}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--f-mono)', fontSize: 9.5, color: 'var(--accent)' }}
+                          >
+                            {jt.kind === 'canvas'
+                              ? (locale === 'it' ? '→ vedi nel canvas' : '→ view in canvas')
+                              : (locale === 'it' ? '→ vedi in Know' : '→ view in Know')}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

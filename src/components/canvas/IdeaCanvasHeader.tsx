@@ -159,11 +159,11 @@ export function IdeaCanvasHeader({ projectId, locale, factCount = 0 }: IdeaCanva
             lineHeight: 1.45,
           }}
         >
-          <Field label={L.problem} value={data?.problem} />
-          <Field label={L.solution} value={data?.solution} />
-          <Field label={L.target} value={data?.target_market} />
-          <Field label={L.value} value={data?.value_proposition} />
-          <Field label={L.model} value={data?.business_model} full />
+          <Field label={L.problem} value={data?.problem} anchorId="canvasfield-problem" />
+          <Field label={L.solution} value={data?.solution} anchorId="canvasfield-solution" />
+          <Field label={L.target} value={data?.target_market} anchorId="canvasfield-target_market" />
+          <Field label={L.value} value={data?.value_proposition} anchorId="canvasfield-value_proposition" />
+          <Field label={L.model} value={data?.business_model} anchorId="canvasfield-business_model" full />
         </div>
       )}
     </div>
@@ -174,13 +174,16 @@ function Field({
   label,
   value,
   full,
+  anchorId,
 }: {
   label: string;
   value?: string | null;
   full?: boolean;
+  /** Scroll/flash target for the Spine "view in canvas" jump. */
+  anchorId?: string;
 }) {
   return (
-    <div style={{ gridColumn: full ? '1 / -1' : undefined, minWidth: 0 }}>
+    <div id={anchorId} style={{ gridColumn: full ? '1 / -1' : undefined, minWidth: 0, borderRadius: 4 }}>
       <div
         className="lp-mono"
         style={{

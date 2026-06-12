@@ -5,6 +5,7 @@ import { requireUser, AuthError } from '@/lib/auth/require-user';
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
 import { buildProjectSnapshot, evaluateAllStages } from '@/lib/journey';
+import { checkActionPrompt } from '@/lib/journey-prompts';
 
 /**
  * POST /api/projects/{projectId}/brief
@@ -20,24 +21,6 @@ import { buildProjectSnapshot, evaluateAllStages } from '@/lib/journey';
  * the LLM's; a deterministic option-set of the active stage's OPEN checks is
  * appended so the next steps are reliable, clickable, and never hallucinated.
  */
-
-// Keyword-mapped actionable prompt for an open validation check (same logic as
-// the chat empty-state, kept here so the brief's option-set is self-contained).
-function nextStepPrompt(label: string): string {
-  const l = label.toLowerCase();
-  if (/segment|icp|ideal customer|persona|beachhead/.test(l)) return 'Help me define and validate my target customer segment.';
-  if (/competitor/.test(l)) return 'Research and map my top competitors.';
-  if (/interview/.test(l)) return "Help me log customer interviews — I'll tell you who I spoke to and what they said.";
-  if (/watcher|monitor/.test(l)) return 'Set up a watcher on my key competitors or market trends.';
-  if (/market size|\btam\b|\bsam\b|\bsom\b/.test(l)) return 'Help me size my market (TAM / SAM / SOM).';
-  if (/channel|acquisition|reach|distribution/.test(l)) return 'Help me identify my acquisition channels.';
-  if (/business model|revenue|pricing|unit econ/.test(l)) return 'Help me define my business model.';
-  if (/differentiat|competitive|edge|advantage/.test(l)) return "Help me articulate how I'm different from competitors.";
-  if (/value prop/.test(l)) return 'Help me sharpen my value proposition.';
-  if (/problem/.test(l)) return 'Help me sharpen my problem statement.';
-  if (/solution/.test(l)) return 'Help me describe my solution in more depth.';
-  return `Help me with: ${label}`;
-}
 
 interface CanvasRow {
   problem: string | null;
@@ -147,7 +130,7 @@ ${ctx}`;
   if (openChecks.length > 0) {
     const options = openChecks.slice(0, 4).map((r, i) => ({
       id: `step_${i}`,
-      label: nextStepPrompt(r.check.label),
+      label: checkActionPrompt(r.check.label),
       description: r.result.gap || r.check.label,
       credits: 1,
     }));
