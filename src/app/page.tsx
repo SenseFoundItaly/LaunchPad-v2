@@ -188,9 +188,19 @@ export default function HomePage() {
             setCreating(false);
             return; // show the results view; route to chat on "Continue"
           }
-          setUploadStatus(`Created the project, but the upload failed: ${body?.error || res.status}. Continuing to chat…`);
+          // Upload failed — surface it instead of silently routing into an
+          // empty project (that silence masked a real 415 CSRF-guard bug).
+          setCreateError(
+            `Upload failed: ${body?.error || `HTTP ${res.status}`}. Your project "${newName.trim()}" was created — open it from your list, or try again with a different file.`,
+          );
+          setCreating(false);
+          return;
         } catch (err) {
-          setUploadStatus(`Created the project, but the upload errored: ${(err as Error).message}. Continuing to chat…`);
+          setCreateError(
+            `Upload errored: ${(err as Error).message}. Your project "${newName.trim()}" was created — open it from your list, or retry.`,
+          );
+          setCreating(false);
+          return;
         }
       }
 

@@ -33,12 +33,23 @@ export async function middleware(req: NextRequest) {
   // CSRF mitigation: reject mutating API requests without JSON Content-Type.
   // Browsers cannot set Content-Type: application/json from plain form
   // submissions, so this blocks cross-origin form-based CSRF attacks.
-  // Exempt /api/auth/* (session management uses cookies, not JSON bodies).
+  // Exemptions:
+  //   - /api/auth/*  — session management uses cookies, not JSON bodies.
+  //   - file uploads — multipart/form-data is REQUIRED to send a file, so the
+  //     JSON-only rule would 415 every legitimate upload. Scope the exemption
+  //     to dedicated upload endpoints (path ends in /upload) and to multipart
+  //     specifically; those routes are auth-gated, and the residual CSRF risk
+  //     (an attacker tricking a logged-in user into uploading to their OWN
+  //     knowledge base) is minimal. Every other mutating route still needs JSON.
+  const contentType = req.headers.get('content-type') || '';
+  const isMultipartUpload =
+    contentType.includes('multipart/form-data') && req.nextUrl.pathname.endsWith('/upload');
   if (
     MUTATING_METHODS.has(req.method) &&
     req.nextUrl.pathname.startsWith('/api/') &&
     !req.nextUrl.pathname.startsWith('/api/auth/') &&
-    !req.headers.get('content-type')?.includes('application/json')
+    !contentType.includes('application/json') &&
+    !isMultipartUpload
   ) {
     return new NextResponse(
       JSON.stringify({ error: 'Content-Type must be application/json' }),
