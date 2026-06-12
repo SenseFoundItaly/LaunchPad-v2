@@ -5,7 +5,7 @@ import { requireUser, AuthError } from '@/lib/auth/require-user';
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
 
-const MAX_FILE_BYTES = 1_048_576; // 1 MiB per file — anything larger is rarely useful as a single fact
+const MAX_FILE_BYTES = 10_485_760; // 10 MiB per file — real PDFs/decks are bigger than a text note
 const MAX_FILES_PER_REQUEST = 10;
 
 // Mime types we accept as text-content uploads. We deliberately stay narrow:
@@ -45,6 +45,69 @@ function isTextlike(file: File): boolean {
   return TEXT_EXTENSIONS.has(fileExtension(file.name));
 }
 
+// ─── document text extraction ────────────────────────────────────────────────
+//
+// Pulls plain text out of a file regardless of format. PDF (unpdf, pdfjs-based,
+// serverless-friendly) and Word .docx (mammoth) are parsed; everything textlike
+// is UTF-8 decoded. The parsers are dynamically imported so a text-only upload
+// never loads them (smaller cold-start). Scanned/image-only PDFs have no text
+// layer and decode to '' → the caller skips them with a clear reason (no OCR).
+//
+// Stored fact text is capped — a 200-page PDF would otherwise bloat every chat
+// turn's memory context. The entity extractor samples the head separately.
+const MAX_STORED_TEXT = 50_000;
+
+type ExtractKind = 'text' | 'pdf' | 'docx';
+async function extractFileText(
+  file: File,
+): Promise<{ text: string; kind: ExtractKind } | { text: ''; kind: null; reason: string }> {
+  const ext = fileExtension(file.name);
+  const buf = Buffer.from(await file.arrayBuffer());
+
+  if (file.type === 'application/pdf' || ext === 'pdf') {
+    try {
+      const { extractText, getDocumentProxy } = await import('unpdf');
+      const pdf = await getDocumentProxy(new Uint8Array(buf));
+      const { text } = await extractText(pdf, { mergePages: true });
+      const joined = (Array.isArray(text) ? text.join('\n') : text || '').trim();
+      return { text: joined, kind: 'pdf' };
+    } catch (e) {
+      return { text: '', kind: null, reason: `Could not read PDF: ${(e as Error).message}` };
+    }
+  }
+
+  if (
+    file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    ext === 'docx'
+  ) {
+    try {
+      const mod = await import('mammoth');
+      // mammoth is CJS — the namespace carries extractRawText (verified in Node
+      // and per its types); fall back to `.default` only if a bundler interop
+      // moves it there. Cast through unknown so tsc accepts the dual shape.
+      const extractRawText =
+        mod.extractRawText ??
+        (mod as unknown as { default?: { extractRawText?: typeof mod.extractRawText } }).default?.extractRawText;
+      if (!extractRawText) throw new Error('mammoth.extractRawText unavailable');
+      const { value } = await extractRawText({ buffer: buf });
+      return { text: (value || '').trim(), kind: 'docx' };
+    } catch (e) {
+      return { text: '', kind: null, reason: `Could not read Word doc: ${(e as Error).message}` };
+    }
+  }
+
+  // Legacy binary .doc isn't OOXML — mammoth can't read it.
+  if (ext === 'doc' || file.type === 'application/msword') {
+    return { text: '', kind: null, reason: 'Legacy .doc isn’t supported — save as .docx or PDF.' };
+  }
+
+  if (isTextlike(file)) {
+    return { text: new TextDecoder('utf-8', { fatal: false }).decode(buf).trim(), kind: 'text' };
+  }
+
+  return { text: '', kind: null, reason: `Unsupported type (${file.type || ext || 'unknown'}). Upload PDF, Word (.docx), or text/markdown.` };
+}
+
 // ─── entity extractor ────────────────────────────────────────────────────────
 //
 // Optional extra pass run when the request includes ?extract=1. For each
@@ -68,7 +131,7 @@ interface ExtractedEntity {
   summary: string;
 }
 
-const EXTRACT_PROMPT = `From the text below, extract up to 8 distinct real-world entities (companies, products, regulations, market segments, personas, technologies, partners, risks, trends).
+const EXTRACT_PROMPT = `From the text below, extract up to 12 distinct real-world entities (companies, products, regulations, market segments, personas, technologies, partners, risks, trends).
 
 Return a JSON array. Each object: { "name": string, "node_type": string, "summary": one-sentence string }.
 
@@ -89,8 +152,8 @@ TEXT:
  */
 async function extractEntities(text: string, projectId: string): Promise<ExtractedEntity[]> {
   // Cap input — Haiku context isn't the bottleneck but cost/latency are.
-  // 6k chars is plenty for entity extraction; longer docs sample the head.
-  const truncated = text.length > 6000 ? text.slice(0, 6000) : text;
+  // 16k chars covers most decks / one-pagers in full; longer docs sample the head.
+  const truncated = text.length > 16000 ? text.slice(0, 16000) : text;
   try {
     const startedAt = Date.now();
     const { text: raw, usage } = await runAgent(EXTRACT_PROMPT.replace('{TEXT}', truncated), {
@@ -122,7 +185,7 @@ async function extractEntities(text: string, projectId: string): Promise<Extract
       const summary = typeof e.summary === 'string' ? e.summary.trim() : '';
       if (!name || !ALLOWED_NODE_TYPES.has(node_type)) continue;
       out.push({ name, node_type, summary });
-      if (out.length >= 8) break;
+      if (out.length >= 12) break;
     }
     return out;
   } catch (err) {
@@ -262,21 +325,16 @@ export async function POST(
   }
 
   const results: IngestResult[] = [];
+  // Collected across files for the UI's "knowledge populating" view — the
+  // actual entities the upload surfaced, so onboarding can show them as cards.
+  const extractedEntities: Array<{ name: string; node_type: string; summary: string; filename: string }> = [];
 
   for (const file of files) {
-    if (!isTextlike(file)) {
-      results.push({
-        filename: file.name,
-        status: 'skipped',
-        reason: `Unsupported type (${file.type || 'unknown'}). Convert to text/markdown first.`,
-      });
-      continue;
-    }
     if (file.size > MAX_FILE_BYTES) {
       results.push({
         filename: file.name,
         status: 'skipped',
-        reason: `File exceeds ${MAX_FILE_BYTES / 1024} KiB limit (${file.size} bytes).`,
+        reason: `File exceeds ${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB limit (${file.size} bytes).`,
       });
       continue;
     }
@@ -285,11 +343,26 @@ export async function POST(
       continue;
     }
 
-    const bytes = await file.arrayBuffer();
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes).trim();
-    if (!text) {
-      results.push({ filename: file.name, status: 'skipped', reason: 'File decoded to empty text.' });
+    // Format-aware extraction: PDF (unpdf) / Word .docx (mammoth) / text.
+    const extracted = await extractFileText(file);
+    if (extracted.kind === null) {
+      results.push({ filename: file.name, status: 'skipped', reason: extracted.reason });
       continue;
+    }
+    let text = extracted.text;
+    if (!text) {
+      results.push({
+        filename: file.name,
+        status: 'skipped',
+        reason: extracted.kind === 'pdf'
+          ? 'No text layer found (scanned/image PDF?) — nothing to extract.'
+          : 'File has no readable text.',
+      });
+      continue;
+    }
+    const fullChars = text.length;
+    if (text.length > MAX_STORED_TEXT) {
+      text = `${text.slice(0, MAX_STORED_TEXT)}\n\n[document truncated for context — ${fullChars} chars total]`;
     }
 
     // Prepend the filename so the LLM sees provenance inline even without
@@ -319,6 +392,7 @@ export async function POST(
       if (entities.length > 0) {
         const inserted = await persistExtracted(projectId, entities, id, file.name);
         result.entities_proposed = inserted;
+        for (const e of entities) extractedEntities.push({ ...e, filename: file.name });
       } else {
         result.entities_proposed = 0;
       }
@@ -347,6 +421,9 @@ export async function POST(
     skipped: skippedCount,
     entities_proposed: totalEntitiesProposed,
     extracted: shouldExtract,
+    // The actual entities surfaced — drives the onboarding "knowledge
+    // populating" view so the founder sees what was pulled from their docs.
+    extracted_entities: extractedEntities,
     results,
   }, 201);
 }

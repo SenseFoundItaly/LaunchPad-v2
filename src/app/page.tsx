@@ -7,6 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import api from '@/api';
 import { TopBar } from '@/components/design/chrome';
 import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
+import { NODE_COLORS } from '@/types/graph';
 
 interface DashboardProject {
   project_id: string;
@@ -63,6 +64,16 @@ export default function HomePage() {
   const [createMode, setCreateMode] = useState<'scratch' | 'knowledge'>('scratch');
   const [createFiles, setCreateFiles] = useState<File[]>([]);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  // Knowledge-populating flow: after a knowledge-mode upload, hold the project
+  // we made + what the extraction surfaced, so we can show the founder the
+  // artifacts pulled from their docs BEFORE routing into chat (instead of
+  // silently dumping them in the graph).
+  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
+  const [extractResult, setExtractResult] = useState<{
+    ingested: number;
+    skipped: number;
+    entities: Array<{ name: string; node_type: string; summary: string; filename: string }>;
+  } | null>(null);
   const [expandedSignals, setExpandedSignals] = useState<Set<string>>(new Set());
   const [showSignals, setShowSignals] = useState(false);
   const signalPanelRef = useRef<HTMLDivElement>(null);
@@ -110,6 +121,7 @@ export default function HomePage() {
     setCreating(true);
     setCreateError(null);
     setUploadStatus(null);
+    setExtractResult(null);
     try {
       const { data } = await api.post('/api/projects', {
         name: newName.trim(),
@@ -122,30 +134,42 @@ export default function HomePage() {
       }
       const projectId = data.data.project_id || data.data.id;
 
-      // Knowledge-mode: upload any selected files BEFORE routing so the
-      // founder lands in a project that already has its knowledge layer
-      // primed. Failures here don't roll back project creation — the chat
-      // route still works, the founder just sees a non-fatal warning and
-      // can retry uploads from /knowledge.
+      setCreatedProjectId(projectId);
+
+      // Knowledge-mode: upload + extract BEFORE routing so the founder lands in
+      // a project that already has its knowledge layer primed. On success we
+      // PAUSE on a results view showing what was pulled from the docs (the
+      // founder continues to chat from there); failures fall through to chat
+      // with a non-fatal note.
       if (createMode === 'knowledge' && createFiles.length > 0) {
         try {
-          setUploadStatus(`Uploading ${createFiles.length} file${createFiles.length > 1 ? 's' : ''}…`);
+          setUploadStatus(`Reading ${createFiles.length} document${createFiles.length > 1 ? 's' : ''} and extracting knowledge…`);
           const fd = new FormData();
-          for (const f of createFiles) fd.append('files', f, f.name);
-          const res = await fetch(`/api/projects/${projectId}/knowledge/upload`, {
+          // Field name MUST be `file` (the route reads form.getAll('file')), and
+          // ?extract=1 turns on entity extraction → pending graph nodes.
+          for (const f of createFiles) fd.append('file', f, f.name);
+          const res = await fetch(`/api/projects/${projectId}/knowledge/upload?extract=1`, {
             method: 'POST',
             body: fd,
           });
           const body = await res.json().catch(() => null);
-          if (!res.ok || !body?.success) {
-            setUploadStatus(
-              `Created project, but upload failed: ${body?.error || res.status}. You can retry from the Knowledge tab.`,
-            );
+          if (res.ok && body?.success && body.data) {
+            const d = body.data as {
+              ingested?: number;
+              skipped?: number;
+              extracted_entities?: Array<{ name: string; node_type: string; summary: string; filename: string }>;
+            };
+            setExtractResult({
+              ingested: d.ingested ?? 0,
+              skipped: d.skipped ?? 0,
+              entities: Array.isArray(d.extracted_entities) ? d.extracted_entities : [],
+            });
+            setCreating(false);
+            return; // show the results view; route to chat on "Continue"
           }
+          setUploadStatus(`Created the project, but the upload failed: ${body?.error || res.status}. Continuing to chat…`);
         } catch (err) {
-          setUploadStatus(
-            `Created project, but upload errored: ${(err as Error).message}. Continuing to chat.`,
-          );
+          setUploadStatus(`Created the project, but the upload errored: ${(err as Error).message}. Continuing to chat…`);
         }
       }
 
@@ -566,6 +590,17 @@ export default function HomePage() {
                       New project
                     </div>
 
+                    {extractResult ? (
+                      <ExtractedKnowledgeView
+                        result={extractResult}
+                        onContinue={() => {
+                          if (createdProjectId) router.push(`/project/${createdProjectId}/chat`);
+                        }}
+                      />
+                    ) : creating && createMode === 'knowledge' && createFiles.length > 0 ? (
+                      <ExtractingView files={createFiles} status={uploadStatus} />
+                    ) : (
+                    <>
                     {/* Mode toggle — scratch vs. existing knowledge */}
                     <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                       {([
@@ -665,6 +700,8 @@ export default function HomePage() {
                           setCreateMode('scratch');
                           setCreateFiles([]);
                           setUploadStatus(null);
+                          setExtractResult(null);
+                          setCreatedProjectId(null);
                         }}
                         style={{
                           padding: '7px 10px',
@@ -707,7 +744,7 @@ export default function HomePage() {
                               Upload documents
                             </div>
                             <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>
-                              Up to 10 textlike files (.md, .txt, .csv, .json, .pdf-extracted text, etc.), 1 MiB each. Ingested into the project's knowledge layer.
+                              PDF, Word (.docx), or text — up to 10 files, 10 MB each. We extract the full text and pull out entities to seed your knowledge graph.
                             </div>
                           </div>
                           <span
@@ -729,7 +766,7 @@ export default function HomePage() {
                           id="create-knowledge-files"
                           type="file"
                           multiple
-                          accept=".txt,.md,.markdown,.rst,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.htm,.log,.ini,.conf,.env,.ts,.tsx,.js,.jsx,.mjs,.cjs,.py,.rb,.go,.rs,.java,.sh,.bash,.zsh,.sql,.css,.scss,.toml,text/*,application/json,application/xml,application/yaml,application/x-yaml,application/javascript,application/typescript,application/sql,application/csv"
+                          accept=".pdf,.docx,.txt,.md,.markdown,.rst,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.htm,.log,.ini,.conf,.env,.ts,.tsx,.js,.jsx,.mjs,.cjs,.py,.rb,.go,.rs,.java,.sh,.bash,.zsh,.sql,.css,.scss,.toml,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/*,application/json,application/xml,application/yaml,application/x-yaml,application/javascript,application/typescript,application/sql,application/csv"
                           onChange={(e) => {
                             const list = Array.from(e.target.files || []).slice(0, 10);
                             setCreateFiles(list);
@@ -789,6 +826,8 @@ export default function HomePage() {
                       <div style={{ marginTop: 8, fontSize: 12, color: 'var(--clay, #c0392b)' }}>
                         {createError}
                       </div>
+                    )}
+                    </>
                     )}
                   </div>
                 )}
@@ -1002,4 +1041,88 @@ export default function HomePage() {
 
 function safeHost(url: string): string {
   try { return new URL(url).hostname; } catch { return url.slice(0, 40); }
+}
+
+// ─── Knowledge-populating flow (create-from-documents) ───────────────────────
+
+/** Shown while the upload is parsing docs + extracting entities. */
+function ExtractingView({ files, status }: { files: File[]; status: string | null }) {
+  return (
+    <div style={{ padding: '6px 0 4px' }}>
+      <div className="lp-pulse" style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 8 }}>
+        {status || 'Reading your documents and extracting knowledge…'}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {files.map((f, i) => (
+          <span key={`${f.name}-${i}`} className="lp-chip" style={{ background: 'var(--paper-2)', color: 'var(--ink-4)' }}>
+            {f.name}
+          </span>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-5)', marginTop: 10 }}>
+        Parsing PDFs / Word and pulling out entities — this can take a few seconds per file.
+      </div>
+    </div>
+  );
+}
+
+/** Shown after extraction: the entities pulled from the docs, then continue. */
+function ExtractedKnowledgeView({
+  result,
+  onContinue,
+}: {
+  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string }> };
+  onContinue: () => void;
+}) {
+  const { ingested, skipped, entities } = result;
+  return (
+    <div>
+      <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 3 }}>
+        ✓ Read {ingested} document{ingested === 1 ? '' : 's'}
+        {skipped > 0 ? ` · ${skipped} skipped` : ''}.
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 12 }}>
+        {entities.length > 0
+          ? `Pulled ${entities.length} entit${entities.length === 1 ? 'y' : 'ies'} into your knowledge graph — review & apply them anytime in Know.`
+          : 'No distinct entities surfaced, but the full text is now in your knowledge layer.'}
+      </div>
+      {entities.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto', marginBottom: 14 }}>
+          {entities.map((e, i) => (
+            <div
+              key={`${e.name}-${i}`}
+              style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '7px 10px', background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}
+            >
+              <span className="lp-dot" style={{ background: NODE_COLORS[e.node_type] || 'var(--ink-5)', marginTop: 5, flexShrink: 0 }} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+                  {e.name}
+                  <span style={{ fontWeight: 400, color: 'var(--ink-5)', fontSize: 11 }}> · {e.node_type.replace(/_/g, ' ')}</span>
+                </div>
+                {e.summary && (
+                  <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 1, lineHeight: 1.4 }}>{e.summary}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <button
+        onClick={onContinue}
+        style={{
+          padding: '8px 16px',
+          background: 'var(--ink)',
+          color: 'var(--paper)',
+          border: 'none',
+          borderRadius: 'var(--r-m)',
+          fontSize: 12.5,
+          fontWeight: 500,
+          cursor: 'pointer',
+          fontFamily: 'inherit',
+        }}
+      >
+        Continue to Co-pilot →
+      </button>
+    </div>
+  );
 }
