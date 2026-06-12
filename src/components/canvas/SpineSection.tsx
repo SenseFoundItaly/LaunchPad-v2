@@ -20,7 +20,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 interface CheckRow {
   check: { id: string; label: string; source?: string };
-  result: { passed: boolean; evidence?: string; gap?: string };
+  result: { passed: boolean; evidence?: string; gap?: string; proof?: string };
 }
 
 interface StageEval {
@@ -50,6 +50,8 @@ export function SpineSection({ projectId, locale }: SpineSectionProps) {
   const [loaded, setLoaded] = useState(false);
   const [openStage, setOpenStage] = useState<string | null>(null);
   const [userPicked, setUserPicked] = useState(false);
+  // Which validated substep has its proof expanded (by check id).
+  const [openProof, setOpenProof] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -192,27 +194,53 @@ export function SpineSection({ projectId, locale }: SpineSectionProps) {
             {openEval.results.map((r, i) => {
               const ok = r.result.passed;
               const detail = ok ? r.result.evidence : r.result.gap;
+              const rowId = r.check.id || String(i);
+              const hasProof = ok && !!r.result.proof;
+              const proofOpen = openProof === rowId;
               return (
-                <div key={r.check.id || i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5, lineHeight: 1.4 }}>
-                  <span
-                    aria-hidden
-                    style={{
-                      width: 15, height: 15, borderRadius: 8, flexShrink: 0, marginTop: 1,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 9, fontWeight: 700,
-                      background: ok ? 'var(--moss)' : 'transparent',
-                      color: ok ? 'var(--paper)' : 'var(--ink-5)',
-                      border: ok ? 'none' : '1.5px solid var(--line-2)',
-                    }}
+                <div key={rowId}>
+                  <div
+                    onClick={hasProof ? () => setOpenProof(proofOpen ? null : rowId) : undefined}
+                    role={hasProof ? 'button' : undefined}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5, lineHeight: 1.4, cursor: hasProof ? 'pointer' : 'default' }}
                   >
-                    {ok ? '✓' : ''}
-                  </span>
-                  <span style={{ color: ok ? 'var(--ink-2)' : 'var(--ink-3)' }}>
-                    {r.check.label}
-                    {detail && (
-                      <span style={{ color: 'var(--ink-5)' }}> — {detail}</span>
+                    <span
+                      aria-hidden
+                      style={{
+                        width: 15, height: 15, borderRadius: 8, flexShrink: 0, marginTop: 1,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 9, fontWeight: 700,
+                        background: ok ? 'var(--moss)' : 'transparent',
+                        color: ok ? 'var(--paper)' : 'var(--ink-5)',
+                        border: ok ? 'none' : '1.5px solid var(--line-2)',
+                      }}
+                    >
+                      {ok ? '✓' : ''}
+                    </span>
+                    <span style={{ color: ok ? 'var(--ink-2)' : 'var(--ink-3)', flex: 1, minWidth: 0 }}>
+                      {r.check.label}
+                      {detail && (
+                        <span style={{ color: 'var(--ink-5)' }}> — {detail}</span>
+                      )}
+                    </span>
+                    {hasProof && (
+                      <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--accent)', flexShrink: 0, marginTop: 2 }}>
+                        {proofOpen ? (locale === 'it' ? 'nascondi' : 'hide') : (locale === 'it' ? 'prova' : 'proof')}
+                      </span>
                     )}
-                  </span>
+                  </div>
+                  {hasProof && proofOpen && (
+                    <div style={{ margin: '4px 0 2px 23px', padding: '6px 9px', background: 'var(--surface)', borderLeft: '2px solid var(--moss)', borderRadius: 4 }}>
+                      <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {r.result.proof}
+                      </div>
+                      {r.check.source && (
+                        <div className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-6)', marginTop: 4 }}>
+                          {locale === 'it' ? 'da' : 'from'} {r.check.source}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

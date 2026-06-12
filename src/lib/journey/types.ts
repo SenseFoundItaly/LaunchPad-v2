@@ -44,6 +44,11 @@ export interface CheckResult {
   /** Short hint of what's missing or what to do to pass — only set when
    *  `passed === false`. */
   gap?: string;
+  /** The ACTUAL content that satisfied the check — the real canvas field text,
+   *  competitor list, etc., resolved from the check's `source`. Lets the UI
+   *  expand a passed substep to show the founder its concrete proof, not just
+   *  the verdict sentence. Set in evaluateAllStages, not by the check itself. */
+  proof?: string;
 }
 
 export interface Stage {

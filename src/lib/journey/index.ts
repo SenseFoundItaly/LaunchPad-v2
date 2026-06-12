@@ -44,13 +44,40 @@ export const STAGES: Stage[] = [
   stageOperate,
 ];
 
+/**
+ * Resolve the ACTUAL proof content a passed check read, from its `source`
+ * pointer + the snapshot. Generic (one resolver, no per-check edits) — the
+ * `source` strings already declare where the evidence lives:
+ *   - "idea_canvas.<field>" → that canvas field's text
+ *   - anything mentioning "competitor"/"competitor_profiles" → the mapped names
+ * Returns undefined for sources we can't resolve to concrete text (e.g.
+ * keyword fact searches), in which case the UI keeps the evidence sentence.
+ */
+function resolveProof(source: string, snapshot: ProjectSnapshot): string | undefined {
+  const canvasMatch = source.match(/idea_canvas\.(\w+)/);
+  if (canvasMatch && snapshot.idea_canvas) {
+    const v = (snapshot.idea_canvas as Record<string, unknown>)[canvasMatch[1]];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  if (/competitor/i.test(source) && snapshot.competitors.length > 0) {
+    return snapshot.competitors.map((c) => c.name).filter(Boolean).join(', ');
+  }
+  return undefined;
+}
+
 export function evaluateAllStages(snapshot: ProjectSnapshot): StageEvaluation[] {
   // First pass — run all checks, record pass counts.
   const raw = STAGES.map((stage) => {
-    const results = stage.checks.map((check) => ({
-      check: { id: check.id, label: check.label, source: check.source },
-      result: check.evaluate(snapshot),
-    }));
+    const results = stage.checks.map((check) => {
+      const result = check.evaluate(snapshot);
+      // Enrich a PASSED check with the concrete proof it read, so the UI can
+      // show the founder the actual evidence (not just "you did this").
+      if (result.passed && result.proof === undefined) {
+        const proof = resolveProof(check.source, snapshot);
+        if (proof) result.proof = proof;
+      }
+      return { check: { id: check.id, label: check.label, source: check.source }, result };
+    });
     const passed = results.filter((r) => r.result.passed).length;
     return { stage, passed, total: stage.checks.length, results };
   });
