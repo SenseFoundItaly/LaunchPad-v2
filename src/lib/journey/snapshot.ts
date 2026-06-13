@@ -136,14 +136,20 @@ function mergeCompetitors(
  *  spine-gated check (market_size, differentiation_evidence, pain_validated, …)
  *  green with zero approval. The founder must assert evidence explicitly. This
  *  exclusion applies UNIFORMLY to every keyword check (Stage-2 market validation,
- *  Stage-3 ICP/channels, Stage-5 users, …) — file dumps satisfy none of them. The
- *  fact is still retained as general knowledge/context; it just doesn't count here. */
+ *  Stage-3 ICP/channels, Stage-5 users, …) — file dumps satisfy none of them.
+ *
+ *  Monitor-generated facts (source_type='monitor') are ALSO excluded: they are
+ *  kind='observation' intel from the watch pipeline (cron auto-capture +
+ *  acceptAlertIntoKnowledge), NOT founder-ASSERTED validation evidence. Configuring
+ *  a monitor is a yes to watching, not a yes to "this fact validates my spine."
+ *  Both file dumps and monitor intel stay as general knowledge/context; they just
+ *  don't count toward a gated check. */
 export function countMemoryFactsMatching(
   snapshot: ProjectSnapshot,
   keywords: string[],
 ): number {
   const re = new RegExp(keywords.join('|'), 'i');
   return snapshot.memory_facts.filter(
-    (f) => f.source_type !== 'file' && f.kind !== 'file_upload' && re.test(f.content),
+    (f) => f.source_type !== 'file' && f.kind !== 'file_upload' && f.source_type !== 'monitor' && re.test(f.content),
   ).length;
 }
