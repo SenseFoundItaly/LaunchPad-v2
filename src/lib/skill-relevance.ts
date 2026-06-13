@@ -27,7 +27,9 @@ interface SkillManifestEntry {
 interface ProjectContext {
   name: string;
   description: string;
-  current_step: number;
+  /** The LIVE journey active-stage number (1-7) from the evaluator — NOT the
+   *  legacy projects.current_step column. Callers must pass the derived value. */
+  stageNumber: number;
 }
 
 // Module-level cache: (message-normalized + projectId + current_step) → ranked ids.
@@ -63,7 +65,7 @@ export async function rankSkillsForQuery(
   if (skills.length <= topN) return skills;
 
   // Cache hit?
-  const key = cacheKey(message, project.id, project.current_step);
+  const key = cacheKey(message, project.id, project.stageNumber);
   const cached = rankCache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
     const byId = new Map(skills.map((s) => [s.id, s]));
@@ -81,7 +83,7 @@ export async function rankSkillsForQuery(
 
     const systemPrompt = `You are a skill router. Given a founder's chat message and the list of available startup-coaching skills, return the ${topN} skill ids that are most likely to help answer the message. Respond ONLY with a JSON array of ids, no prose, no markdown fences.`;
 
-    const userPrompt = `Project: ${project.name} (stage ${project.current_step})
+    const userPrompt = `Project: ${project.name} (stage ${project.stageNumber})
 ${project.description ? `Description: ${project.description.slice(0, 200)}\n` : ''}
 Founder message: ${message.slice(0, 500)}
 

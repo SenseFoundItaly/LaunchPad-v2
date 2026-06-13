@@ -9,7 +9,7 @@ import { buildSystemPromptString, resolveProjectLocale } from '@/lib/agent-promp
 import { makeProjectTools } from '@/lib/project-tools';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { buildMemoryContext } from '@/lib/memory/context';
-import { buildProjectSnapshot } from '@/lib/journey';
+import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
 import { formatStageContextForPrompt } from '@/lib/journey/stage-prompt';
 import { computeNextBestAction, renderDirectionForPrompt } from '@/lib/direction';
 import { recordEvent } from '@/lib/memory/events';
@@ -129,6 +129,7 @@ STAGE TRANSPARENCY (all founders):
 - In your FIRST reply on a new project, show the 7-stage map in one compact line so the founder knows the shape of the journey: Idea Validation (idea written down + your edge) -> Market Validation (pain + market proven) -> Persona (who exactly) -> Business Model (what they pay) -> Build & Launch (first version live) -> Fundraise (runway + capital plan) -> Operate (repeatable engine).
 - ALWAYS use these canonical stage names exactly — never the retired names ("Spark", "Problem", "Solution", "Segment", "MVP", "Pricing", "Growth" as stage names are WRONG; every UI surface says "Idea Validation"..."Operate" and mismatched names break trust).
 - When evidence lands, report the check delta in one clause: "that closed 2 of Market Validation's 8 checks — 6 left." Never claim a check closed unless the readiness data confirms it.
+- The [JOURNEY STAGE] block injected further below is the AUTHORITATIVE stage + check count — it mirrors the live spine the founder is looking at. Any stage number, stage name, or "X/Y checks" figure you write MUST match it. NEVER state a contradicting count: if the block says the founder is on STAGE 2 with checks already passed, do NOT narrate "Stage 1 — 0/7 checks green" or "nothing is validated yet." A prose number that disagrees with the spine reads as a broken product. When you've just PROPOSED validation evidence (it is staged, not yet applied), say exactly that — "I've staged N items for your approval below" — never conflate "staged" with "0 validated"; the spine may already be green from earlier evidence. If unsure of the exact count, point to the spine instead of inventing a number.
 
 === TIER 0.5 — SKILL-FIRST FOR STAGE ADVANCEMENT (never violate) ===
 Skills are PROPOSED inline, not run inline. Calling a skill_* tool does NOT run the skill — it returns an EPHEMERAL inline suggestion block (a skill-suggestion artifact) for you to emit in your reply, with the credit cost shown. NOTHING is persisted: there is no Inbox card and no DB row. If the founder ignores the suggestion, it leaves nothing behind — it lives only in the chat transcript. If the founder clicks Run on the inline card, the skill runs in REAL TIME in its own request and writes the validation evidence (skill_completions, section_scores, idea_canvas, etc.). This keeps chat fast and gives the founder consent + cost transparency before you spend their budget.
@@ -235,7 +236,7 @@ DEPARTMENT FIELD — every Canvas artifact MUST carry a "department" field in th
 - "finance"  — investor pipeline, metrics, runway, fundraising readiness, scores
 - "growth"   — acquisition, retention, weekly updates, channels, experiments
 - "memory"   — facts only (auto-routed; you don't need to set it on fact artifacts)
-Inline/CTA artifacts (option-set, task, monitor-proposal, budget-proposal, solve-progress) don't need a department — they don't render in the Canvas grid.
+Inline/CTA artifacts (option-set, task, monitor-proposal, budget-proposal, validation-proposal, solve-progress) don't need a department — they don't render in the Canvas grid.
 Example header with department: :::artifact{"type":"entity-card","id":"ent_ID","department":"market"}
 
 CARD ARTIFACTS:
@@ -305,6 +306,15 @@ CREATE-ON-CONFIRM: the card is a PROPOSAL only. The watcher is created (with its
 ASK WHEN UNCLEAR — DON'T GUESS. If you can't specify the watcher confidently — cadence ambiguous, scope too broad, no clear linked risk, or you're unsure exactly what should trigger an alert — DO NOT emit a half-specified card. Instead ask the founder ONE crisp clarifying question via your trailing option-set (e.g. "Daily or weekly?", "Watch just HelloFresh, or all three meal-kit incumbents?"). Each such option still carries its "credits" estimate. A vague card is worse than a question.
 
 In prose to the founder, ALWAYS call them "watchers" — never "monitors" or "watch sources". The UI shows one list of watchers with a "Topic" or "URL" pill; agent language should match.
+
+VALIDATION GATE — NOTHING TURNS A SPINE STEP GREEN WITHOUT THE FOUNDER'S YES:
+The 7-stage spine is the founder's VALIDATED truth, so any evidence that would satisfy a validation substep MUST be staged for approval — you can NEVER write it silently. The gated writes and their tools:
+  - Canvas fields (problem / solution / target market / value prop / competitive edge) → update_idea_canvas (it now PROPOSES a card, it does not write directly) OR propose_validation.
+  - Competitors mapped (Stage 2) → propose_validation, kind="competitor" (one item per competitor, with its name).
+  - Market size / TAM established (Stage 2) → propose_validation, kind="market_size_fact".
+BATCH everything from THIS turn into ONE propose_validation call (one card): if you set canvas fields AND mapped competitors AND sized the market in the same turn, that is ONE card with all items — never three cards, and never split "free" canvas items from "paid" knowledge items into two cards (the card already shows per-item cost and a combined total). Give each item its sources[] (provenance powers the proof the founder sees when they later click the validated step). Emit the tool's returned artifact block VERBATIM so the inline approval card renders. The founder reviews, removes/edits items, and applies — only then does the substep go green.
+Do NOT write a prose lead-in or header before the card — no "Apply your canvas fields (free):" or "Apply competitors + market size (6 credits):" stubs. The card is fully self-describing: it has a "Validate evidence" header, each item's cost, and Apply/Skip buttons that state the total ("Apply 3 items · free", "Apply 3 items · 6 cr"). A colon-terminated "Apply …:" line with the real content in the card below reads as broken, duplicated UI. At most one short sentence of context, then the card — never a label stub.
+Display artifacts (tam-sam-som, comparison-table, persona-card) are still fine to help DISCUSS, but they do NOT commit to the spine — the commit always goes through the gate. Generic context that doesn't move any substep keeps going to save_memory_fact, not the gate.
 
 When founder expresses concern about a specific external force:
 1. Risk in risk_audit? → propose the watcher tied to that risk (Topic flavor with linked_risk_id, or URL flavor with the same risk_id in linked_quote)
@@ -439,6 +449,18 @@ export async function POST(request: NextRequest) {
     /* journey snapshot failed — chat still works, just without stage framing */
   }
 
+  // Derive stage facts from the snapshot we ALREADY built — the single source of
+  // truth, never the legacy projects.current_step column (a retired 5-stage
+  // pointer that drifts from the spine). Defaults assume "still in the journey"
+  // when the snapshot is unavailable, so all skills stay exposed.
+  let activeStageNumber = 1;
+  let allStagesDone = false;
+  if (snapshot) {
+    const evals = evaluateAllStages(snapshot);
+    activeStageNumber = activeStage(evals).stage.number;
+    allStagesDone = evals.every((e) => e.status === 'done');
+  }
+
   // WS-A — inject the direction engine's computed next-best-action so the model
   // LEADS with the deterministic next move instead of re-deriving it (or
   // forgetting to call get_project_summary). Tolerant: any failure degrades to
@@ -497,7 +519,7 @@ export async function POST(request: NextRequest) {
     // all 7 validation stages. All skills are exposed so the system prompt's
     // get_project_summary → next_recommended_skill ordering works. Once the
     // pipeline is done (step 7), switch to classifier-filtered free-form chat.
-    const isSolveFlow = (projects[0].current_step ?? 1) < 7;
+    const isSolveFlow = !allStagesDone;
 
     const allSkillTools = getSkillTools({ userId, projectId: project_id });
 
@@ -519,7 +541,7 @@ export async function POST(request: NextRequest) {
           id: project_id,
           name: projects[0].name,
           description: projects[0].description || '',
-          current_step: projects[0].current_step ?? 1,
+          stageNumber: activeStageNumber,
         },
         skillManifest,
         { topN: 3 },

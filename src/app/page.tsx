@@ -94,8 +94,10 @@ export default function HomePage() {
   const [extractResult, setExtractResult] = useState<{
     ingested: number;
     skipped: number;
-    entities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string }>;
+    entities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string; validates?: string | null }>;
     canvas: ProposedCanvas | null;
+    canvasValidates: Record<string, string>;
+    spineSteps: number;
     monitors: ProposedMonitor[];
   } | null>(null);
   const [expandedSignals, setExpandedSignals] = useState<Set<string>>(new Set());
@@ -181,8 +183,10 @@ export default function HomePage() {
             const d = body.data as {
               ingested?: number;
               skipped?: number;
-              extracted_entities?: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string }>;
+              extracted_entities?: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string; validates?: string | null }>;
               proposed_canvas?: ProposedCanvas | null;
+              canvas_validates?: Record<string, string>;
+              spine_steps?: number;
               proposed_monitors?: ProposedMonitor[];
             };
             setExtractResult({
@@ -190,6 +194,8 @@ export default function HomePage() {
               skipped: d.skipped ?? 0,
               entities: Array.isArray(d.extracted_entities) ? d.extracted_entities : [],
               canvas: d.proposed_canvas ?? null,
+              canvasValidates: d.canvas_validates ?? {},
+              spineSteps: d.spine_steps ?? 0,
               monitors: Array.isArray(d.proposed_monitors) ? d.proposed_monitors : [],
             });
             setCreating(false);
@@ -1112,11 +1118,11 @@ function ExtractedKnowledgeView({
   projectId,
   onContinue,
 }: {
-  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string }>; canvas: ProposedCanvas | null; monitors: ProposedMonitor[] };
+  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string; validates?: string | null }>; canvas: ProposedCanvas | null; canvasValidates: Record<string, string>; spineSteps: number; monitors: ProposedMonitor[] };
   projectId: string | null;
   onContinue: () => void;
 }) {
-  const { ingested, skipped, entities, canvas, monitors } = result;
+  const { ingested, skipped, entities, canvas, canvasValidates, spineSteps, monitors } = result;
   const [applying, setApplying] = useState(false);
   // Watchers default UNCHECKED — they carry recurring weekly cost, so opting
   // into ongoing spend is a deliberate choice, not a default (approve-first).
@@ -1223,6 +1229,16 @@ function ExtractedKnowledgeView({
           : 'The full text is now in your knowledge layer.'}
       </div>
 
+      {/* Spine framing — nothing turns a validation step green without the
+          founder's yes, so the draft headlines WHAT this document can validate. */}
+      {spineSteps > 0 && (
+        <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--accent-wash)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
+          <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+            This document can validate <strong style={{ color: 'var(--ink)' }}>{spineSteps}</strong> validation step{spineSteps === 1 ? '' : 's'} on your spine. Approve what you want below — nothing is validated without your yes.
+          </div>
+        </div>
+      )}
+
       {/* Canvas drafted from the docs — applying it seeds Stage 1 (Idea Validation). */}
       {canvasFields.length > 0 && (
         <div style={{ marginBottom: 14, padding: 12, background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
@@ -1232,7 +1248,12 @@ function ExtractedKnowledgeView({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto' }}>
             {canvasFields.map((f) => (
               <div key={f.key}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-3)' }}>{f.label}</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-3)' }}>{f.label}</div>
+                  {canvasValidates[f.key] && (
+                    <span style={{ fontSize: 10, color: 'var(--accent-ink)' }}>validates {canvasValidates[f.key]}</span>
+                  )}
+                </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.45 }}>{canvas![f.key]}</div>
               </div>
             ))}
@@ -1254,6 +1275,9 @@ function ExtractedKnowledgeView({
                     {e.name}
                     <span style={{ fontWeight: 400, color: 'var(--ink-5)', fontSize: 11 }}> · {e.node_type.replace(/_/g, ' ')}</span>
                   </div>
+                  {e.validates && (
+                    <div style={{ fontSize: 10, color: 'var(--accent-ink)', marginTop: 1 }}>validates {e.validates}</div>
+                  )}
                   {e.summary && (
                     <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 1, lineHeight: 1.4 }}>{e.summary}</div>
                   )}

@@ -36,6 +36,8 @@ import { checkDedup, computeDedupHash } from './monitor-dedup';
 import { recordEvent } from './memory/events';
 import { recordFact } from './memory/facts';
 import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from './credits';
+import { seedAssumptionsIfEmpty } from './assumptions';
+import type { Source } from '@/types/artifacts';
 import { outputInstructions, projectContext } from './ecosystem-monitors';
 import { entityNameFromHeadline } from './ecosystem-alert-parser';
 import type { MonitorPromptContext } from './ecosystem-monitors';
@@ -1250,6 +1252,143 @@ const runSkillExecutor: ActionHandler = async (action) => {
   };
 };
 
+/**
+ * applyValidationProposal — commits the founder-approved batch of validation
+ * evidence to the spine (founder directive 2026-06-12: nothing turns a substep
+ * green without this yes). Reads the (possibly edited) items from
+ * edited_payload — the founder may have removed or edited items on the card —
+ * and persists each by kind:
+ *   - canvas_field   → idea_canvas upsert (+ assumptions seeding)
+ *   - competitor     → graph_nodes (node_type='competitor', applied)
+ *   - market_size_fact → memory_facts (applied)
+ * Knowledge items carry a credit cost; canvas fields are free. One combined
+ * debit. Idempotent-ish: canvas COALESCE preserves prior values, competitor
+ * upsert collapses re-approval, recordFact dedups by text.
+ */
+const applyValidationProposal: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const locale = await localeFor(action);
+  if (items.length === 0) {
+    return {
+      ok: true,
+      deliverable: {
+        mode: 'direct',
+        narrative: locale === 'it' ? 'Nessun elemento da applicare.' : 'No items to apply.',
+      },
+    };
+  }
+
+  // memory_facts are user-scoped — resolve the project owner (mirrors run_skill).
+  const ownerRows = await query<{ owner_user_id: string | null }>(
+    'SELECT owner_user_id FROM projects WHERE id = ?',
+    action.project_id,
+  );
+  const ownerUserId = ownerRows[0]?.owner_user_id || '';
+
+  const CANVAS_COLS = [
+    'problem', 'solution', 'target_market',
+    'value_proposition', 'business_model', 'competitive_advantage',
+  ] as const;
+
+  const applied: string[] = [];
+  const canvasFields: Record<string, string> = {};
+  let creditsToDebit = 0;
+
+  for (const raw of items) {
+    const it = raw as {
+      kind?: string; field?: string; name?: string; value?: string;
+      credits?: number; sources?: Source[]; label?: string;
+    };
+    const value = typeof it.value === 'string' ? it.value.trim() : '';
+    if (!value) continue;
+    const sources: Source[] | null =
+      Array.isArray(it.sources) && it.sources.length > 0 ? it.sources : null;
+
+    if (it.kind === 'canvas_field' && it.field && (CANVAS_COLS as readonly string[]).includes(it.field)) {
+      canvasFields[it.field] = value;
+      applied.push(it.label || it.field);
+    } else if (it.kind === 'competitor') {
+      const name = (it.name || '').trim() || value.slice(0, 80);
+      const nodeId = generateId('gnode');
+      // Mirrors proposedGraphUpdate's competitor upsert (applied, atomic on
+      // (project_id, LOWER(name)) per migration 018). sources passed RAW —
+      // graph_nodes.sources is JSONB; postgres.js auto-serializes.
+      await run(
+        `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, sources, reviewed_state)
+         VALUES (?, ?, ?, 'competitor', ?, ?, 'applied')
+         ON CONFLICT (project_id, LOWER(name)) DO UPDATE SET
+           summary = COALESCE(NULLIF(EXCLUDED.summary, ''), graph_nodes.summary),
+           sources = COALESCE(EXCLUDED.sources, graph_nodes.sources),
+           reviewed_state = 'applied'`,
+        nodeId, action.project_id, name, value, sources,
+      );
+      applied.push(`Competitor: ${name}`);
+      creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+    } else if (it.kind === 'market_size_fact' && ownerUserId) {
+      await recordFact({
+        userId: ownerUserId,
+        projectId: action.project_id,
+        fact: value,
+        kind: 'fact',
+        sources: sources ?? undefined,
+      });
+      applied.push('Market size');
+      creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+    }
+  }
+
+  // One canvas upsert for every approved canvas field.
+  if (Object.keys(canvasFields).length > 0) {
+    await run(
+      `INSERT INTO idea_canvas (project_id, problem, solution, target_market, value_proposition, business_model, competitive_advantage)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (project_id) DO UPDATE SET
+         problem               = COALESCE(NULLIF(EXCLUDED.problem, ''),               idea_canvas.problem),
+         solution              = COALESCE(NULLIF(EXCLUDED.solution, ''),              idea_canvas.solution),
+         target_market         = COALESCE(NULLIF(EXCLUDED.target_market, ''),         idea_canvas.target_market),
+         value_proposition     = COALESCE(NULLIF(EXCLUDED.value_proposition, ''),     idea_canvas.value_proposition),
+         business_model        = COALESCE(NULLIF(EXCLUDED.business_model, ''),        idea_canvas.business_model),
+         competitive_advantage = COALESCE(NULLIF(EXCLUDED.competitive_advantage, ''), idea_canvas.competitive_advantage)`,
+      action.project_id,
+      canvasFields.problem ?? '',
+      canvasFields.solution ?? '',
+      canvasFields.target_market ?? '',
+      canvasFields.value_proposition ?? '',
+      canvasFields.business_model ?? '',
+      canvasFields.competitive_advantage ?? '',
+    );
+    // Seed the assumptions registry off the freshly-approved canvas (moved here
+    // from update_idea_canvas — seeding must follow the actual write).
+    const seedContext = Object.entries(canvasFields).map(([k, v]) => `${k}: ${v}`).join('\n\n');
+    void seedAssumptionsIfEmpty(action.project_id, seedContext);
+  }
+
+  if (applied.length === 0) {
+    return { ok: false, error: 'No valid validation items to apply.' };
+  }
+
+  let creditsNote = '';
+  if (creditsToDebit > 0) {
+    try {
+      await debitCredits(action.project_id, creditsToDebit);
+      creditsNote = ` (${creditsToDebit} credits)`;
+    } catch (err) {
+      console.warn('[applyValidationProposal] credit debit failed (non-fatal):', (err as Error).message);
+    }
+  }
+
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct',
+      narrative: locale === 'it'
+        ? `Convalida applicata: ${applied.join(', ')}${creditsNote}.`
+        : `Validated: ${applied.join(', ')}${creditsNote}.`,
+    },
+  };
+};
+
 const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   draft_email: draftEmail,
   draft_linkedin_post: draftLinkedInPost,
@@ -1266,6 +1405,7 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   configure_budget: configureBudget,
   configure_watch_source: configureWatchSource,
   run_skill: runSkillExecutor,
+  validation_proposal: applyValidationProposal,
   // Placeholder until the Phase-2 workflows execution layer ships. The
   // workflow-card fan-out into per-step pending_actions was removed (2026-06),
   // so this rarely materializes today; when it does, be honest rather than

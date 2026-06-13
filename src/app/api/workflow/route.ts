@@ -73,8 +73,12 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // NOTE: deliberately does NOT write projects.current_step — that legacy
+      // 5-stage column is deprecated and no longer read for stage display
+      // (Stage 5 / Build & Launch is evaluated from the workflow table + journey
+      // checks, not this column). See getActiveStage() in '@/lib/journey'.
       await run(
-        `UPDATE projects SET status = 'workflow_complete', current_step = 5, updated_at = $1 WHERE id = $2`,
+        `UPDATE projects SET status = 'workflow_complete', updated_at = $1 WHERE id = $2`,
         new Date().toISOString(),
         projectId,
       );

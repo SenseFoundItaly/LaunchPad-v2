@@ -21,7 +21,8 @@ import { useChat, chatStoreHydrated, markChatHydrated } from '@/hooks/useChat';
 import { useProject } from '@/hooks/useProject';
 import { splitOptionLabel } from '@/components/chat/option-label';
 import { parseMessageContent } from '@/lib/artifact-parser';
-import type { Artifact, ArtifactType } from '@/types/artifacts';
+import type { Artifact, ArtifactType, ValidationProposalArtifact } from '@/types/artifacts';
+import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
 import { Canvas } from '@/components/canvas/Canvas';
 import { TopBar, NavRail } from '@/components/design/chrome';
 // CreditsBadge is now mounted globally inside TopBar (see chrome.tsx) so we
@@ -45,7 +46,26 @@ import {
 // rather than in the right-side Canvas. Anything not listed stays in Canvas.
 const INLINE_ARTIFACT_TYPES = new Set<ArtifactType>([
   'option-set', 'action-suggestion', 'task',
-  'monitor-proposal', 'budget-proposal', 'skill-suggestion', 'knowledge-suggestion',
+  'monitor-proposal', 'budget-proposal', 'validation-proposal',
+  'skill-suggestion', 'knowledge-suggestion',
+]);
+
+// Approval gates that carry their own Apply/Skip decision and ACTUALLY render
+// inline today. While one is pending in a turn, the founder's next action IS
+// that card — so the proactive "what next?" suggestions below are noise that
+// competes with it. monitor/budget proposals are intentionally NOT here:
+// InlineArtifact renders nothing for them (they're Inbox-primary), so
+// suppressing suggestions on those turns would leave the founder with no
+// actionable surface. Add them here only once they render inline.
+const GATE_ARTIFACT_TYPES = new Set<ArtifactType>([
+  'validation-proposal',
+]);
+// Proactive next-step suggestions. Suppressed in any turn that also renders a
+// gate card (the founder should resolve the gate first, then we resume
+// suggesting). The QuickReplies fallback never fires here either, because the
+// gate card keeps the inline list non-empty.
+const SUGGESTION_ARTIFACT_TYPES = new Set<ArtifactType>([
+  'option-set', 'action-suggestion', 'skill-suggestion', 'knowledge-suggestion',
 ]);
 
 // Message paging: long threads (40+ screens) render only this many trailing
@@ -536,7 +556,12 @@ export default function CopilotChatPage({
     for (const m of messages) {
       if (m.role !== 'assistant' || !m.content) continue;
       const split = classifyArtifacts(m.content);
-      if (split.inline.length > 0) inlineMap.set(m.id, split.inline);
+      // Gate present → drop the proactive suggestion cards from this turn so the
+      // Apply/Skip decision stands alone (the gate card itself stays).
+      const inline = split.inline.some((a) => GATE_ARTIFACT_TYPES.has(a.type))
+        ? split.inline.filter((a) => !SUGGESTION_ARTIFACT_TYPES.has(a.type))
+        : split.inline;
+      if (inline.length > 0) inlineMap.set(m.id, inline);
       // Accumulate canvas artifacts across all messages. Later messages
       // with the same artifact id overwrite earlier ones (e.g. solve-progress
       // updates use the same id "solve_1").
@@ -671,11 +696,12 @@ export default function CopilotChatPage({
       }
       if (
         action === 'monitor:apply' || action === 'monitor:dismiss' ||
-        action === 'budget:apply' || action === 'budget:dismiss'
+        action === 'budget:apply' || action === 'budget:dismiss' ||
+        action === 'validation:apply' || action === 'validation:dismiss'
       ) {
         const pendingActionId = String(payload.pending_action_id ?? '');
         if (!pendingActionId) throw new Error(`Missing pending_action_id on ${action}`);
-        const isApply = action === 'monitor:apply' || action === 'budget:apply';
+        const isApply = action === 'monitor:apply' || action === 'budget:apply' || action === 'validation:apply';
         const transition = isApply ? 'apply' : 'reject';
         const body: Record<string, unknown> = { transition };
         if (isApply && payload.overrides) {
@@ -701,6 +727,12 @@ export default function CopilotChatPage({
           window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
           // Budget cap changed → CreditsBadge listens for this event to refetch.
           if (action === 'budget:apply') {
+            window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
+          }
+          // Applying validation evidence writes canvas/knowledge, debits credits,
+          // and moves the spine — nudge the Canvas, Knowledge count, and credits.
+          if (action === 'validation:apply') {
+            window.dispatchEvent(new CustomEvent('lp-knowledge-changed', { detail: { projectId } }));
             window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
           }
         }
@@ -1504,6 +1536,45 @@ function MdProse({ text }: { text: string }) {
       nodes.push(<ol key={`ol${i2}`}>{items}</ol>);
       continue;
     }
+    // GFM pipe table — a header row immediately followed by a delimiter row
+    // (|---|---|). Must run BEFORE the paragraph collector below, which would
+    // otherwise join every row with spaces into the "| A | B | |---|---| | 1 |"
+    // mush. Requiring a `|` in the delimiter row disambiguates it from a `---`
+    // horizontal rule.
+    const isDelimiterRow = (l: string) =>
+      l.includes('|') && l.includes('-') &&
+      /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/.test(l);
+    const looksLikeRow = (l: string) => l.includes('|') && l.trim() !== '';
+    if (looksLikeRow(line) && i2 + 1 < lines.length && isDelimiterRow(lines[i2 + 1])) {
+      const splitCells = (l: string) =>
+        l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+      const headers = splitCells(line);
+      const startKey = i2;
+      i2 += 2; // consume the header + delimiter rows
+      const bodyRows: string[][] = [];
+      while (i2 < lines.length && looksLikeRow(lines[i2]) && !isDelimiterRow(lines[i2])) {
+        bodyRows.push(splitCells(lines[i2]));
+        i2++;
+      }
+      nodes.push(
+        <table key={`tbl${startKey}`}>
+          <thead>
+            <tr>
+              {headers.map((h, ci) => <th key={ci}>{inline(h, `th${startKey}-${ci}`)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {bodyRows.map((cells, ri) => (
+              <tr key={ri}>
+                {/* index off headers so ragged rows stay column-aligned */}
+                {headers.map((_, ci) => <td key={ci}>{inline(cells[ci] ?? '', `td${startKey}-${ri}-${ci}`)}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>,
+      );
+      continue;
+    }
     // Blank line = paragraph break (skip)
     if (line.trim() === '') { i2++; continue; }
     // Paragraph — collect until blank line or special block
@@ -1756,6 +1827,21 @@ function InlineArtifact({
 
   if (artifact.type === 'task') {
     return <TaskCard artifact={artifact} onAction={onAction} />;
+  }
+
+  // validation-proposal — the in-chat approval gate for a batch of validation
+  // evidence (founder directive 2026-06-12: nothing turns a spine substep green
+  // without the founder's yes). Renders inline in the thread that produced it,
+  // not the canvas — the founder reviews/edits/applies right where the agent
+  // proposed it. onAction is always supplied by Msg; the ?? noop satisfies the
+  // card's required prop without changing behaviour.
+  if (artifact.type === 'validation-proposal') {
+    return (
+      <ValidationProposalCard
+        artifact={artifact as ValidationProposalArtifact}
+        onAction={onAction ?? (() => {})}
+      />
+    );
   }
 
   return null;

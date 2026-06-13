@@ -3,6 +3,10 @@ export interface Project {
   name: string;
   description: string;
   status: string;
+  /** @deprecated Legacy 5-stage pointer (idea/mvp/pmf/growth/scale → 1-5), NOT
+   *  the canonical 7-stage journey. Do NOT read for stage display: it is not
+   *  advanced when journey checks pass and drifts from the spine. Use
+   *  getActiveStage()/activeStageFor() from '@/lib/journey'. */
   current_step: number;
   created_at: string;
   updated_at: string;
@@ -262,10 +266,6 @@ export interface FundraisingData {
 }
 
 // === Startup Journey ===
-export interface StageInfo {
-  current_stage: 'idea' | 'mvp' | 'pmf' | 'growth' | 'scale';
-  started_at: string;
-}
 export interface Milestone {
   milestone_id: string;
   week: number;
@@ -295,12 +295,6 @@ export interface ScalingPlan {
     risks: string[];
     status: string;
   }[];
-}
-export interface JourneyData {
-  stage_info: StageInfo | null;
-  milestones: Milestone[];
-  updates: StartupUpdate[];
-  scaling_plan: ScalingPlan | null;
 }
 
 // === Ecosystem Intelligence (Layer 1 autonomous feed) ===
@@ -366,6 +360,7 @@ export type PendingActionType =
   | 'configure_watch_source'        // chat-proposed watch source awaiting founder review
   | 'run_skill'                     // chat-proposed skill kickoff — founder approves (cost shown), then it runs real-time via runSkill
   | 'skill_rerun_result'            // heartbeat-executor refreshed a stale analytical skill — surfaces new score in inbox
+  | 'validation_proposal'           // chat/upload-proposed batch of validation evidence (canvas/competitors/market) — founder approves which items commit to the spine
   | 'task'                          // chat-proposed founder task (TODO) — Mark done / Snooze / Dismiss
   // Unified-inbox surface (materialized from ecosystem_alerts, intelligence_briefs, assumptions on read).
   // The underlying row stays in its own table; the synthetic pending_action mirrors it so accept/reject

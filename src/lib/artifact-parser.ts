@@ -171,7 +171,7 @@ function classifyDepartmentFromType(t: Artifact['type']): 'market' | 'product' |
     case 'insight-card':
       return 'market'; // default for generic entities; agent should override
     default:
-      return undefined; // option-set, task, monitor-proposal, budget-proposal, html-preview, document, solve-progress, score-badge
+      return undefined; // option-set, task, monitor-proposal, budget-proposal, validation-proposal, html-preview, document, solve-progress, score-badge
   }
 }
 

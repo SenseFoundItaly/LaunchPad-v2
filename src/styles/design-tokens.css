@@ -146,6 +146,9 @@
 .lp-md code { font-family: var(--f-mono); font-size: 0.85em; background: var(--paper-2); padding: 1px 4px; border-radius: 3px; }
 .lp-md pre { background: var(--paper-2); padding: 10px; border-radius: var(--r-m); overflow: auto; }
 .lp-md pre code { background: none; padding: 0; }
+.lp-md table { border-collapse: collapse; margin: 6px 0 10px; width: 100%; font-size: 12px; }
+.lp-md th, .lp-md td { border: 1px solid var(--line-2); padding: 4px 8px; text-align: left; vertical-align: top; }
+.lp-md th { background: var(--paper-2); font-weight: 600; color: var(--ink); white-space: nowrap; }
 .lp-md a { color: var(--accent-ink); text-decoration: underline; }
 
 /* tiny icons */

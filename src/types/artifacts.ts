@@ -16,6 +16,7 @@ export type ArtifactType =
   | 'fact'
   | 'monitor-proposal'
   | 'budget-proposal'
+  | 'validation-proposal'
   | 'skill-suggestion'
   | 'knowledge-suggestion'
   | 'task'
@@ -369,6 +370,58 @@ export interface BudgetProposalArtifact extends ArtifactBase {
 }
 
 /**
+ * `validation-proposal` — in-chat inline card representing a BATCH of validation
+ * evidence the agent (or upload extractor) wants to commit to the founder's
+ * spine. The founder approves which items land — nothing turns a substep green
+ * without their yes (founder directive 2026-06-12).
+ *
+ * Pairs with a `pending_actions` row (`action_type='validation_proposal'`); the
+ * payload mirrors `items` so the applyValidationProposal executor persists
+ * straight from it. Each item carries the substep(s) it satisfies (computed
+ * server-side from the real check definitions via journey/validation-targets),
+ * its own sources (provenance for the post-approval proof view), and a credit
+ * cost. The card supports per-item REMOVE and EDIT before applying; the founder
+ * sends back the surviving (possibly edited) items as edited_payload.
+ *
+ * Top-level sources are NOT required — provenance lives per-item.
+ */
+export interface ValidationProposalItem {
+  /** Stable id within the batch — addresses the item for remove/edit. */
+  id: string;
+  kind: 'canvas_field' | 'competitor' | 'market_size_fact';
+  /** Present for canvas_field — which idea_canvas column this writes. */
+  field?: 'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model' | 'competitive_advantage';
+  /** Present for competitor — the competitor's name (the node label). */
+  name?: string;
+  /** Human display label, e.g. "Problem", "Competitor", "Market size". */
+  label: string;
+  /** The actual content that will be written (canvas text / competitor summary /
+   *  market-sizing statement). Editable on the card. */
+  value: string;
+  /** "Problem clearly defined — Stage 2" — null when the item maps to
+   *  no substep (rare; a context canvas field like business_model). */
+  validates: string | null;
+  /** Structured targets the executor uses to know what this satisfies. */
+  targets: Array<{ stage_number: number; stage_label: string; check_id: string; check_label: string }>;
+  /** Credits debited if this item is applied. Canvas fields are free (the
+   *  founder's own idea); knowledge items cost KNOWLEDGE_APPLY_CREDITS. */
+  credits: number;
+  /** Per-item provenance — feeds the post-approval substep proof view. */
+  sources?: Source[];
+}
+
+export interface ValidationProposalArtifact extends ArtifactBase {
+  type: 'validation-proposal';
+  pending_action_id: string;
+  /** Where the batch came from — drives the card's framing copy. */
+  origin: 'chat' | 'upload';
+  items: ValidationProposalItem[];
+  /** Sum of item credits across the batch (recomputed on the card as the
+   *  founder removes items). */
+  combined_credits: number;
+}
+
+/**
  * `skill-suggestion` — EPHEMERAL inline CTA proposing a chat skill run.
  *
  * Founder directive (2026-06-11): "Skills should be proposed in chat, at
@@ -689,6 +742,7 @@ export type Artifact =
   | FactArtifact
   | MonitorProposalArtifact
   | BudgetProposalArtifact
+  | ValidationProposalArtifact
   | SkillSuggestionArtifact
   | KnowledgeSuggestionArtifact
   | TaskArtifact

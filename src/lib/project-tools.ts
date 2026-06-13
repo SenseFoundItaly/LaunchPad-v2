@@ -27,12 +27,17 @@ import { createPendingAction } from '@/lib/pending-actions';
 import { recordFact } from '@/lib/memory/facts';
 import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
-import { getCreditsRemaining } from '@/lib/credits';
+import { getCreditsRemaining, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readiness';
+import { getActiveStage } from '@/lib/journey';
+import {
+  validationTargetsFor,
+  validationLabel,
+  type ValidationItemKind,
+} from '@/lib/journey/validation-targets';
 import {
   listAssumptions,
   extractAssumptions,
-  seedAssumptionsIfEmpty,
   markValidated,
   markInvalidated,
   getAssumption,
@@ -278,10 +283,18 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
     );
     const research = researchRows[0];
 
+    // Stage = the LIVE journey active stage (single source of truth), never the
+    // legacy projects.current_step column — that belongs to a retired 5-stage
+    // taxonomy and is not advanced when journey checks pass, so it drifts and
+    // made chat narrate "Stage 1 — 0/7" against an already-green spine.
+    const active = await getActiveStage(ctx.projectId);
+
     const lines: string[] = [];
     lines.push(`Project: ${project.name}${project.description ? ` — ${project.description}` : ''}`);
     lines.push(`Locale: ${project.locale || 'en'}${project.partner_slug ? ` · Partner: ${project.partner_slug}` : ''}`);
-    lines.push(`Current stage: ${project.current_step}/7`);
+    lines.push(active
+      ? `Current stage: ${active.stage.number}/7 — ${active.stage.label} (${active.passed}/${active.total} checks passed)`
+      : `Current stage: unavailable (stage data could not be computed)`);
 
     if (idea) {
       lines.push('\nIdea Canvas:');
@@ -1799,15 +1812,172 @@ const huntBlackSwansTool = (ctx: ToolContext): AgentTool => ({
   },
 });
 
+// =============================================================================
+// VALIDATION GATE — propose_validation + the shared staging helper.
+//
+// Founder directive (2026-06-12): NOTHING turns a spine substep green without
+// the founder's explicit yes. Instead of writing canvas fields / competitors /
+// market sizing directly (which silently flips checks), the agent STAGES a
+// batch as a pending_action(action_type='validation_proposal') and emits ONE
+// inline ValidationProposalCard. The founder reviews the batch — per-item
+// remove/edit, combined credit cost — and approves which items commit via the
+// applyValidationProposal executor. update_idea_canvas (below) routes through
+// the same helper, so even the legacy direct-write habit now gates.
+//
+// Phase 1 kinds: canvas_field, competitor, market_size_fact. Context that does
+// NOT move the spine (generic facts) keeps auto-saving via save_memory_fact.
+// =============================================================================
+
+interface RawValidationItem {
+  kind: ValidationItemKind;
+  field?: string;
+  name?: string;
+  value: string;
+  sources?: Source[];
+}
+
+const CANVAS_FIELD_LABELS: Record<string, string> = {
+  problem: 'Problem',
+  solution: 'Solution',
+  target_market: 'Target market',
+  value_proposition: 'Value proposition',
+  business_model: 'Business model',
+  competitive_advantage: 'Competitive edge',
+};
+
+function itemDisplayLabel(item: RawValidationItem): string {
+  if (item.kind === 'canvas_field') return CANVAS_FIELD_LABELS[item.field ?? ''] ?? 'Idea Canvas';
+  if (item.kind === 'competitor') return 'Competitor';
+  return 'Market size';
+}
+
+/** Credits to commit one item. Canvas fields are free (the founder's own idea
+ *  stated onto their canvas); knowledge items that land in the graph/facts cost
+ *  the standard knowledge-apply fee. */
+function itemCredits(kind: ValidationItemKind): number {
+  return kind === 'canvas_field' ? 0 : KNOWLEDGE_APPLY_CREDITS;
+}
+
+/**
+ * Stage a batch of validation evidence as a single pending_action and return
+ * the inline artifact block the agent must echo verbatim. Shared by
+ * propose_validation and update_idea_canvas so both paths gate identically.
+ */
+async function stageValidationProposal(
+  ctx: ToolContext,
+  rawItems: RawValidationItem[],
+  origin: 'chat' | 'upload',
+): Promise<
+  | { ok: true; artifactBlock: string; pendingActionId: string; itemCount: number }
+  | { ok: false; error: string }
+> {
+  const cleaned = rawItems
+    .map((r) => ({
+      ...r,
+      value: (r.value ?? '').trim().slice(0, 1600),
+      name: r.name?.trim().slice(0, 160),
+    }))
+    .filter((r) => r.value.length > 0);
+  if (cleaned.length === 0) {
+    return { ok: false, error: 'propose_validation requires at least one item with a non-empty value.' };
+  }
+
+  const items = cleaned.map((r, i) => {
+    const targets = validationTargetsFor(r.kind, r.field);
+    return {
+      id: `item_${i}`,
+      kind: r.kind,
+      field: r.field,
+      name: r.name,
+      label: itemDisplayLabel(r),
+      value: r.value,
+      validates: validationLabel(targets),
+      targets,
+      credits: itemCredits(r.kind),
+      sources: Array.isArray(r.sources) ? r.sources : [],
+    };
+  });
+
+  const combined_credits = items.reduce((s, it) => s + it.credits, 0);
+  const gated = items.filter((it) => it.targets.length > 0).length;
+  const title = `Validation evidence — ${items.length} item(s)${gated > 0 ? `, ${gated} spine step(s)` : ''}`;
+
+  let pendingAction;
+  try {
+    pendingAction = await createPendingAction({
+      project_id: ctx.projectId,
+      action_type: 'validation_proposal',
+      title,
+      rationale: `Founder approval gate — ${items.map((it) => it.validates ?? it.label).join('; ')}`.slice(0, 400),
+      payload: { origin, items },
+      estimated_impact: 'medium',
+    });
+  } catch (err) {
+    return { ok: false, error: `Failed to stage validation proposal: ${(err as Error).message}` };
+  }
+
+  const artifactId = `valp_${pendingAction.id.slice(-12)}`;
+  const artifactBody = { pending_action_id: pendingAction.id, origin, items, combined_credits };
+  const artifactBlock = [
+    `:::artifact{"type":"validation-proposal","id":"${artifactId}"}`,
+    JSON.stringify(artifactBody),
+    ':::',
+  ].join('\n');
+
+  return { ok: true, artifactBlock, pendingActionId: pendingAction.id, itemCount: items.length };
+}
+
+const proposeValidationTool = (ctx: ToolContext): AgentTool => ({
+  name: 'propose_validation',
+  label: 'Propose validation evidence',
+  description:
+    'Stage a BATCH of validation evidence for the founder to approve onto their spine. Call this whenever you have gathered something that would satisfy a validation substep — refined a canvas field (problem/solution/target market/value prop/competitive edge), mapped competitors, or established market size. NOTHING turns a spine step green without the founder approving it here, so this is the ONLY way to commit that evidence — never write it silently. Group everything from this turn into ONE call (one card); never fire multiple proposals in a turn. Emit the returned artifact block VERBATIM so the inline approval card renders. Generic context that does NOT move the spine goes to save_memory_fact instead, not here.',
+  parameters: Type.Object({
+    items: Type.Array(
+      Type.Object({
+        kind: Type.String({ description: 'One of: canvas_field, competitor, market_size_fact.' }),
+        field: Type.Optional(Type.String({ description: 'For kind=canvas_field ONLY: which canvas field — problem | solution | target_market | value_proposition | business_model | competitive_advantage.' })),
+        name: Type.Optional(Type.String({ description: 'For kind=competitor ONLY: the competitor name (e.g. "HelloFresh").' })),
+        value: Type.String({ description: 'The actual content to commit: the canvas field text, the competitor summary (what they do + how you differ), or the market-sizing statement (e.g. "TAM ~EUR 2.4B: 12M EU households x ...").' }),
+        sources: Type.Optional(Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] provenance for this item (web/skill/user/inference). Feeds the proof shown when the founder later clicks the validated substep. Strongly recommended for competitors and market size.' })),
+      }),
+      { description: 'The batch of evidence items — only what this turn actually produced.' },
+    ),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { items?: RawValidationItem[] };
+    const rawItems = Array.isArray(p.items) ? p.items : [];
+    const validKinds = new Set(['canvas_field', 'competitor', 'market_size_fact']);
+    for (const it of rawItems) {
+      if (!validKinds.has(it.kind)) {
+        return { content: [{ type: 'text', text: `Invalid item kind "${it.kind}". Must be canvas_field | competitor | market_size_fact.` }], details: { error: true } };
+      }
+      if (it.kind === 'canvas_field' && !it.field) {
+        return { content: [{ type: 'text', text: 'canvas_field items require a "field" (problem | solution | target_market | value_proposition | business_model | competitive_advantage).' }], details: { error: true } };
+      }
+    }
+    const res = await stageValidationProposal(ctx, rawItems, 'chat');
+    if (!res.ok) {
+      return { content: [{ type: 'text', text: res.error }], details: { error: true } };
+    }
+    return {
+      content: [{ type: 'text', text: `Validation proposal staged (${res.itemCount} item(s), pending_action ${res.pendingActionId}). Emit the following artifact block VERBATIM in your reply so the founder's approval card renders:\n\n${res.artifactBlock}` }],
+      details: { pending_action_id: res.pendingActionId },
+    };
+  },
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
-// update_idea_canvas — direct write path for Stage 1 scoring
+// update_idea_canvas — now ROUTES THROUGH THE VALIDATION GATE (was a direct
+// write). Canvas fields satisfy Stage-1/2/3 substeps, so they cannot be written
+// silently; this tool stages a validation_proposal and the founder approves.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
   name: 'update_idea_canvas',
   label: 'Update Idea Canvas',
   description:
-    'Upsert the founder\'s Lean / Idea Canvas. Call this whenever the founder has articulated (or you have synthesized from the conversation) one or more canvas fields — problem, solution, target market, value proposition, business model, competitive advantage. Each field is independently optional: passing one fills only that field; existing values are preserved via COALESCE. Triggers Stage 1 readiness re-scoring downstream. Prefer this over emitting an `idea-canvas` artifact in chat — the artifact is view-only; this tool is what actually populates the canonical idea_canvas row.',
+    'Propose one or more Idea Canvas fields (problem, solution, target market, value proposition, business model, competitive advantage) for the founder to approve onto their canvas. Call this whenever the founder has articulated — or you have synthesized — canvas content. It does NOT write directly: canvas fields turn Stage 1-3 substeps green, so they go through the founder approval gate (a validation_proposal card). Pass every field you have in ONE call so the founder sees a single card. If you are ALSO proposing competitors or market size this turn, prefer propose_validation to batch them together. Emit the returned artifact block VERBATIM so the approval card renders.',
   parameters: Type.Object({
     problem: Type.Optional(Type.String({ description: 'The specific pain the target user experiences. Concrete, not generic. Quote the founder when possible.' })),
     solution: Type.Optional(Type.String({ description: 'What you build to solve it. The "what", not the "how" — keep tech details out.' })),
@@ -1822,61 +1992,30 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
       string
     >>;
     const clean = (v: string | undefined): string => (typeof v === 'string' ? v.trim().slice(0, 1200) : '');
-    const fields = {
-      problem: clean(p.problem),
-      solution: clean(p.solution),
-      target_market: clean(p.target_market),
-      value_proposition: clean(p.value_proposition),
-      business_model: clean(p.business_model),
-      competitive_advantage: clean(p.competitive_advantage),
-    };
+    const order = ['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage'] as const;
 
-    const provided = Object.entries(fields).filter(([, v]) => v.length > 0).map(([k]) => k);
-    if (provided.length === 0) {
+    // Build canvas_field items from the provided fields and route them through
+    // the validation gate. The actual idea_canvas write + assumptions seeding
+    // happen in applyValidationProposal once the founder approves.
+    const rawItems: RawValidationItem[] = [];
+    for (const field of order) {
+      const value = clean(p[field]);
+      if (value.length > 0) rawItems.push({ kind: 'canvas_field', field, value });
+    }
+    if (rawItems.length === 0) {
       return {
         content: [{ type: 'text', text: 'update_idea_canvas requires at least one non-empty field.' }],
         details: { error: 'no_fields' },
       };
     }
 
-    await run(
-      `INSERT INTO idea_canvas (project_id, problem, solution, target_market, value_proposition, business_model, competitive_advantage)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (project_id) DO UPDATE SET
-         problem               = COALESCE(NULLIF(EXCLUDED.problem, ''),               idea_canvas.problem),
-         solution              = COALESCE(NULLIF(EXCLUDED.solution, ''),              idea_canvas.solution),
-         target_market         = COALESCE(NULLIF(EXCLUDED.target_market, ''),         idea_canvas.target_market),
-         value_proposition     = COALESCE(NULLIF(EXCLUDED.value_proposition, ''),     idea_canvas.value_proposition),
-         business_model        = COALESCE(NULLIF(EXCLUDED.business_model, ''),        idea_canvas.business_model),
-         competitive_advantage = COALESCE(NULLIF(EXCLUDED.competitive_advantage, ''), idea_canvas.competitive_advantage)`,
-      ctx.projectId,
-      fields.problem,
-      fields.solution,
-      fields.target_market,
-      fields.value_proposition,
-      fields.business_model,
-      fields.competitive_advantage,
-    );
-
-    // Backstop the premortem layer: the first time the canvas carries real
-    // substance, seed the assumptions registry. The helper guards itself to
-    // run at most once per project and detaches the LLM extraction, so this
-    // never blocks the tool result. This is what makes assumption_review
-    // tickets actually appear — previously the agent had to remember the
-    // extract_assumptions tool, so the registry sat empty in every project.
-    const seedContext = [
-      fields.problem && `Problem: ${fields.problem}`,
-      fields.solution && `Solution: ${fields.solution}`,
-      fields.target_market && `Target market: ${fields.target_market}`,
-      fields.value_proposition && `Value proposition: ${fields.value_proposition}`,
-      fields.business_model && `Business model: ${fields.business_model}`,
-      fields.competitive_advantage && `Competitive advantage: ${fields.competitive_advantage}`,
-    ].filter(Boolean).join('\n\n');
-    void seedAssumptionsIfEmpty(ctx.projectId, seedContext);
-
+    const res = await stageValidationProposal(ctx, rawItems, 'chat');
+    if (!res.ok) {
+      return { content: [{ type: 'text', text: res.error }], details: { error: true } };
+    }
     return {
-      content: [{ type: 'text', text: `Updated idea_canvas: ${provided.join(', ')}. Stage 1 readiness will recompute on next get_project_summary.` }],
-      details: { updated_fields: provided },
+      content: [{ type: 'text', text: `Idea Canvas update staged for founder approval (${rawItems.length} field(s), pending_action ${res.pendingActionId}). Emit the following artifact block VERBATIM so the approval card renders:\n\n${res.artifactBlock}` }],
+      details: { pending_action_id: res.pendingActionId, staged_fields: rawItems.map((r) => r.field) },
     };
   },
 });
@@ -2511,6 +2650,7 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     extractAssumptionsTool(ctx),
     markAssumptionTool(ctx),
     huntBlackSwansTool(ctx),
+    proposeValidationTool(ctx),
     updateIdeaCanvasTool(ctx),
     updatePricingTool(ctx),
     saveMemoryFactTool(ctx),

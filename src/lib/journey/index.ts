@@ -7,6 +7,7 @@
  */
 
 import type { ProjectSnapshot, Stage, StageEvaluation } from './types';
+import { buildProjectSnapshot } from './snapshot';
 import { stageIdeaValidation } from './stage-1-idea-validation';
 import { stageMarketValidation } from './stage-2-market-validation';
 import { stagePersona } from './stage-3-persona';
@@ -104,4 +105,32 @@ export function evaluateAllStages(snapshot: ProjectSnapshot): StageEvaluation[] 
  *  done stage if everything is complete. Used by Home/Dashboard headlines. */
 export function activeStage(evaluations: StageEvaluation[]): StageEvaluation {
   return evaluations.find((e) => e.status === 'active') ?? evaluations[evaluations.length - 1];
+}
+
+/**
+ * SINGLE SOURCE OF TRUTH for "what stage is this project on."
+ *
+ * Use this ANYWHERE you would be tempted to read the legacy
+ * `projects.current_step` column for stage display. That column belongs to a
+ * retired 5-stage taxonomy (idea/mvp/pmf/growth/scale) and is NOT advanced when
+ * journey checks pass, so it drifts from the real spine — the root cause of
+ * chat narrating "Stage 1 — 0/7" while the spine shows a later stage Validated.
+ * This recomputes the active stage from the live evaluator, so it can never lag.
+ *
+ * Returns null only when the snapshot build fails (missing tables on a brand-new
+ * project) — callers should degrade gracefully, never assume a stage.
+ */
+export async function getActiveStage(projectId: string): Promise<StageEvaluation | null> {
+  try {
+    const snapshot = await buildProjectSnapshot(projectId);
+    return activeStage(evaluateAllStages(snapshot));
+  } catch {
+    return null;
+  }
+}
+
+/** Synchronous variant for callers that ALREADY hold a snapshot (e.g. the chat
+ *  route builds one once per turn) — reuse it instead of a second DB round-trip. */
+export function activeStageFor(snapshot: ProjectSnapshot): StageEvaluation {
+  return activeStage(evaluateAllStages(snapshot));
 }

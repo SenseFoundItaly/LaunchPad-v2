@@ -1081,6 +1081,7 @@ function producerFromType(type: PendingActionType, ecosystemAlertId?: string | n
     configure_budget: 'chat',
     configure_watch_source: 'chat',
     run_skill: 'chat',
+    validation_proposal: 'chat',
     task: 'chat',
     // Assumption extraction runs inside a chat tool call (project-tools →
     // lib/assumptions.ts), so the review rows are chat-produced too.
@@ -1112,6 +1113,7 @@ const TYPE_LABEL: Record<PendingActionType, string> = {
   configure_budget:             'Budget change',
   configure_watch_source:       'New watcher',
   run_skill:                    'Skill kickoff',
+  validation_proposal:          'Validation',
   skill_rerun_result:           'Skill refresh',
   task:                         'TODO',
   // Unified-inbox surface (Phase 1 consolidation).

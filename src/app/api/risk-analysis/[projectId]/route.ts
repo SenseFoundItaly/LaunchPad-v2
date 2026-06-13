@@ -20,6 +20,7 @@ import { json, error } from '@/lib/api-helpers';
 import { chatJSONByTask } from '@/lib/llm';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { recordEvent } from '@/lib/memory/events';
+import { getActiveStage } from '@/lib/journey';
 
 const RISK_SKILL_PATH = join(process.cwd(), 'launchpad-skills', 'risk-scoring', 'SKILL.md');
 
@@ -87,10 +88,16 @@ export async function POST(
     projectId,
   );
 
+  // Derive the stage from the live journey evaluator, not the legacy
+  // projects.current_step column (a retired 5-stage pointer that drifts).
+  const activeStageEval = await getActiveStage(projectId);
+
   const projectContext = [
     `PROJECT: ${project.name}`,
     project.description ? `DESCRIPTION: ${project.description}` : null,
-    `CURRENT STAGE: step ${project.current_step}`,
+    activeStageEval
+      ? `CURRENT STAGE: ${activeStageEval.stage.number}/7 — ${activeStageEval.stage.label}`
+      : null,
     score ? `OVERALL SCORE: ${score.overall_score}/10` : null,
     score?.dimensions ? `DIMENSION SCORES: ${score.dimensions}` : null,
     body.context ? `FOCUS HINT: ${body.context}` : null,

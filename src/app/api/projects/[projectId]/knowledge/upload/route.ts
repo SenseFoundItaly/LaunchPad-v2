@@ -4,6 +4,7 @@ import { run, get } from '@/lib/db';
 import { requireUser, AuthError } from '@/lib/auth/require-user';
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
+import { validationTargetsFor, validationLabel } from '@/lib/journey/validation-targets';
 
 const MAX_FILE_BYTES = 10_485_760; // 10 MiB per file — real PDFs/decks are bigger than a text note
 const MAX_FILES_PER_REQUEST = 10;
@@ -567,6 +568,33 @@ export async function POST(
         ])
       : [null, [] as ProposedMonitor[]];
 
+  // Spine framing (founder directive 2026-06-12): label each extracted item
+  // with the validation substep it would turn green, computed from the REAL
+  // check definitions. The upload draft frames approval around the spine
+  // ("this document can validate N steps") instead of a generic entity dump.
+  const entitiesWithTargets = extractedEntities.map((e) => ({
+    ...e,
+    validates: e.node_type === 'competitor'
+      ? validationLabel(validationTargetsFor('competitor'))
+      : null,
+  }));
+  const canvasValidates: Record<string, string> = {};
+  if (proposedCanvas) {
+    const canvasRow = proposedCanvas as unknown as Record<string, unknown>;
+    for (const f of ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage'] as const) {
+      const v = canvasRow[f];
+      if (typeof v === 'string' && v.trim()) {
+        const label = validationLabel(validationTargetsFor('canvas_field', f));
+        if (label) canvasValidates[f] = label;
+      }
+    }
+  }
+  // Count of distinct spine steps this document can light up — the draft's headline.
+  const spineSteps = new Set<string>([
+    ...Object.values(canvasValidates),
+    ...entitiesWithTargets.map((e) => e.validates).filter((v): v is string => !!v),
+  ]).size;
+
   return json({
     ingested: ingestedCount,
     skipped: skippedCount,
@@ -574,9 +602,14 @@ export async function POST(
     extracted: shouldExtract,
     // The actual entities surfaced — drives the onboarding "knowledge
     // populating" view so the founder sees what was pulled from their docs.
-    extracted_entities: extractedEntities,
+    // Each carries `validates`: the spine substep it would turn green (or null).
+    extracted_entities: entitiesWithTargets,
     // Lean-canvas draft (or null) for the founder to confirm → Stage 1.
     proposed_canvas: proposedCanvas,
+    // Per-field map: which canvas field validates which substep.
+    canvas_validates: canvasValidates,
+    // How many distinct spine steps this document can validate.
+    spine_steps: spineSteps,
     // Suggested watchers (or []) for the founder to opt into.
     proposed_monitors: proposedMonitors,
     results,

@@ -12,6 +12,7 @@ import MetricGridCard from './MetricGridCard';
 import SensitivitySliderCard from './SensitivitySliderCard';
 import MonitorProposalCard from './MonitorProposalCard';
 import BudgetProposalCard from './BudgetProposalCard';
+import ValidationProposalCard from './ValidationProposalCard';
 import HtmlPreviewCard from './HtmlPreviewCard';
 import DocumentCard from './DocumentCard';
 import SolveProgressCard from './SolveProgressCard';
@@ -108,6 +109,8 @@ export default function ArtifactRenderer({
       return <MonitorProposalCard artifact={artifact} onAction={onAction} />;
     case 'budget-proposal':
       return <BudgetProposalCard artifact={artifact} onAction={onAction} />;
+    case 'validation-proposal':
+      return <ValidationProposalCard artifact={artifact} onAction={onAction} />;
     case 'html-preview':
       return <HtmlPreviewCard artifact={artifact} />;
     case 'document':

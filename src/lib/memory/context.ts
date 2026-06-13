@@ -44,7 +44,12 @@ export function formatMemoryContextMarkdown(ctx: ProjectContext): string {
     parts.push('## Project');
     parts.push(`- Name: ${ctx.project.name}`);
     if (ctx.project.description) parts.push(`- Description: ${ctx.project.description}`);
-    parts.push(`- Stage: ${ctx.project.status} (step ${ctx.project.current_step})`);
+    // Project lifecycle status only — NOT a journey stage. The authoritative
+    // validation stage is injected separately via the [JOURNEY STAGE] block,
+    // derived from the live evaluator. We deliberately do NOT surface the legacy
+    // projects.current_step here: it's a retired 5-stage pointer that drifts from
+    // the spine and was making the agent state a contradicting stage/check count.
+    parts.push(`- Status: ${ctx.project.status}`);
     if (ctx.project.locale && ctx.project.locale !== 'en') parts.push(`- Locale: ${ctx.project.locale}`);
     parts.push('');
   } else if (ctx.failedSections.includes('project')) {
