@@ -562,11 +562,14 @@ async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): 
   // Per-row competitor extraction — the Stage-2 journey gate
   // (competitors_mapped, src/lib/journey/snapshot.ts) counts individual
   // graph_nodes with node_type='competitor' AND reviewed_state='applied'.
-  // A single 'competitor_set' summary node leaves that gate at 0 even when
-  // the founder just watched the copilot research 3 competitors — the
-  // chat-vs-journey contradiction this fixes. Only fires when the table
-  // plausibly compares competitors AND carries web-source provenance;
-  // wrapped so a malformed table can never break the rest of the flush.
+  // A single 'competitor_set' summary node leaves that gate at 0, so we also
+  // surface each competitor as its own node. Per the 2026-06-12 founder-
+  // approval directive these rows persist as 'pending' PROPOSALS — they appear
+  // in the founder's review surface but do NOT count toward the gate until the
+  // founder approves them, so an agent-emitted table can't silently turn the
+  // spine green. Only fires when the table plausibly compares competitors AND
+  // carries web-source provenance; wrapped so a malformed table can never
+  // break the rest of the flush.
   let extracted = 0;
   const headerText = `${titleText} ${a.columns.join(' ').toLowerCase()}`;
   const isCompetitorTable =
@@ -584,7 +587,7 @@ async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): 
   return {
     type: a.type,
     persisted: true,
-    target: extracted > 0 ? `${baseTarget} + ${extracted} applied competitor node(s)` : baseTarget,
+    target: extracted > 0 ? `${baseTarget} + ${extracted} pending competitor node(s)` : baseTarget,
     persisted_id: nodeId,
   };
 }
@@ -594,9 +597,15 @@ const MAX_COMPETITOR_ROWS_PER_TABLE = 6;
 
 /**
  * Upsert each row of a web-sourced competitor comparison-table as its own
- * graph_node (node_type='competitor', reviewed_state='applied' on insert —
- * the upsert helper's UPDATE path preserves an existing node's state). Skips
- * the founder's own product row when identifiable from the 'your_startup'
+ * graph_node (node_type='competitor', reviewed_state='pending' on insert —
+ * the upsert helper's UPDATE path preserves an existing node's state).
+ * Founder-approval gate (2026-06-12 directive): nothing turns a journey-spine
+ * substep green without explicit founder approval, so chat-emitted competitor
+ * rows persist as PROPOSALS. They only count toward the Stage-2
+ * competitors_mapped gate (which requires reviewed_state='applied', see
+ * src/lib/journey/snapshot.ts) after the founder approves them — an
+ * agent-emitted comparison-table can no longer silently turn the spine green.
+ * Skips the founder's own product row when identifiable from the 'your_startup'
  * root node or a self-referential label. Dedup is the helper's
  * (project_id, LOWER(name)) match, so re-emissions update in place.
  * Returns the number of rows persisted.
@@ -637,9 +646,13 @@ async function extractCompetitorRows(
       summary,
       attributes,
       srcJson,
-      // Same provenance rule as entity-cards: web-sourced research the
-      // founder watched in-chat is evidence, not a proposal.
-      reviewedState: 'applied',
+      // Founder-approval gate (2026-06-12 directive): mirror the entity-card
+      // path (persistEntityCard) — chat-surfaced competitors are PROPOSALS,
+      // not auto-applied evidence. Persisting 'pending' keeps them out of the
+      // Stage-2 competitors_mapped count (which filters reviewed_state='applied'
+      // in src/lib/journey/snapshot.ts) until the founder explicitly approves,
+      // so an agent-emitted table can't silently turn the spine green.
+      reviewedState: 'pending',
     });
     if (id) extracted++;
   }

@@ -56,7 +56,11 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     query('SELECT current_step, status FROM workflow WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT id, status FROM growth_loops WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT id, name, current_value FROM metrics WHERE project_id = ?', projectId).catch(() => []),
-    query("SELECT id, fact AS content FROM memory_facts WHERE project_id = ? AND reviewed_state = 'applied'", projectId).catch(() => []),
+    // Carry source_type/kind alongside the content so the keyword-count path can
+    // exclude raw uploaded document bodies (source_type='file'/kind='file_upload')
+    // — see countMemoryFactsMatching. A document dump is not a founder assertion
+    // and must not auto-satisfy any gated spine check.
+    query("SELECT id, fact AS content, source_type, kind FROM memory_facts WHERE project_id = ? AND reviewed_state = 'applied'", projectId).catch(() => []),
     query('SELECT id, person_name, top_pain, wtp_amount, urgency FROM interviews WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT target_amount, raised_amount, status FROM fundraising_rounds WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT id, name, stage FROM investors WHERE project_id = ?', projectId).catch(() => []),
@@ -123,11 +127,23 @@ function mergeCompetitors(
 
 /** Helper for memory_facts keyword search — checks count facts whose content
  *  matches any of the keywords (case-insensitive). Loose by design; we'll
- *  formalize tags later. */
+ *  formalize tags later.
+ *
+ *  Raw uploaded document bodies are EXCLUDED from the count. The knowledge-upload
+ *  route stores the verbatim file body as an applied memory_fact tagged
+ *  source_type='file' / kind='file_upload'. A document is not a founder-validated
+ *  assertion: a PDF that merely mentions "market" or "vs" must never flip a
+ *  spine-gated check (market_size, differentiation_evidence, pain_validated, …)
+ *  green with zero approval. The founder must assert evidence explicitly. This
+ *  exclusion applies UNIFORMLY to every keyword check (Stage-2 market validation,
+ *  Stage-3 ICP/channels, Stage-5 users, …) — file dumps satisfy none of them. The
+ *  fact is still retained as general knowledge/context; it just doesn't count here. */
 export function countMemoryFactsMatching(
   snapshot: ProjectSnapshot,
   keywords: string[],
 ): number {
   const re = new RegExp(keywords.join('|'), 'i');
-  return snapshot.memory_facts.filter((f) => re.test(f.content)).length;
+  return snapshot.memory_facts.filter(
+    (f) => f.source_type !== 'file' && f.kind !== 'file_upload' && re.test(f.content),
+  ).length;
 }

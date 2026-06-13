@@ -2114,16 +2114,33 @@ const saveMemoryFactTool = (ctx: ToolContext): AgentTool => ({
       };
     }
 
+    // Spine-moving detection. This keyword set MIRRORS the canonical Stage-2
+    // `market_size` check in src/lib/journey/stage-2-market-validation.ts
+    // (countMemoryFactsMatching(s, [...])). A market-sizing fact, if persisted
+    // 'applied', would silently turn the "Market size estimated" substep GREEN
+    // with no founder approval — violating the 2026-06-12 invariant. Keep this
+    // list in lockstep with that check; it is a mirror, not a divergent copy.
+    const MARKET_SIZE_KEYWORDS = ['market size', 'TAM', 'SAM', 'SOM', 'addressable'];
+    const lowered = content.toLowerCase();
+    const isSpineMoving = MARKET_SIZE_KEYWORDS.some((kw) => lowered.includes(kw.toLowerCase()));
+
     // Delegate to recordFact (handles dedup, source persistence, memory_event
-    // emission, reviewed_state='pending' so founder can audit before context
-    // includes it). Inferred kind = 'fact'; refinement to 'observation'/
-    // 'decision' can come in a follow-up tool variant.
+    // emission). Reviewed-state split honours BOTH live decisions:
+    //   • generic context facts AUTO-APPLY (reviewed_state='applied', recordFact's
+    //     default) — preserves the "facts applied by default" decision.
+    //   • spine-moving (market-sizing) facts persist PENDING so they land in the
+    //     founder's inbox for approval and do NOT auto-count toward the Stage-2
+    //     check (snapshot.ts counts only reviewed_state='applied'). Mirrors the
+    //     knowledge-as-proposal pattern at src/app/api/chat/route.ts (fact artifact).
+    // Inferred kind = 'fact'; refinement to 'observation'/'decision' can come in
+    // a follow-up tool variant.
     const id = await recordFact({
       userId: ctx.userId,
       projectId: ctx.projectId,
       fact: content,
       sourceType: 'chat',
       sources: p.sources,
+      ...(isSpineMoving ? { reviewedState: 'pending' as const } : {}),
     });
 
     if (!id) {

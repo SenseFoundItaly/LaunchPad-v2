@@ -125,7 +125,10 @@ export const stageMarketValidation: Stage = {
       label: 'Differentiation evidenced',
       source: 'memory_facts (vs. competitors)',
       evaluate: (s) => {
-        const n = countMemoryFactsMatching(s, ['unlike', 'better than', 'differentiator', 'vs', 'compared to']);
+        // NOTE: 'vs' was removed — as a bare substring it matched almost any
+        // comparison ("email vs calls"), letting unrelated facts falsely green
+        // this check. The remaining phrases are specific differentiation signals.
+        const n = countMemoryFactsMatching(s, ['unlike', 'better than', 'differentiator', 'compared to']);
         const ok = n > 0;
         return ok
           ? { passed: true, evidence: "You've evidenced how you're different from competitors." }

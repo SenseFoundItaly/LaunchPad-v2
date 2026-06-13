@@ -118,8 +118,17 @@ export interface ProjectSnapshot {
   /** Memory facts — qualitative evidence the chat agent has captured.
    *  Tagging convention is loose; checks search by content keyword for now.
    *  Filtered to reviewed_state IN ('accepted','pending') — rejected facts
-   *  must not count as evidence. */
-  memory_facts: Array<{ id: string; content: string }>;
+   *  must not count as evidence.
+   *  `source_type`/`kind` carry the fact's provenance so countMemoryFactsMatching
+   *  can EXCLUDE raw uploaded document bodies (source_type='file' /
+   *  kind='file_upload') from gated keyword checks — a document is not a
+   *  founder-validated assertion. Nullable: legacy/chat-captured facts may lack them. */
+  memory_facts: Array<{
+    id: string;
+    content: string;
+    source_type: string | null;
+    kind: string | null;
+  }>;
   /** Structured interviews — Stage 2 evidence. Populated via log_interview
    *  tool from chat or POST /api/projects/[id]/interviews. */
   interviews: Array<{
