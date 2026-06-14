@@ -5,7 +5,8 @@ import { chatWithUsage, type UserKeyOverride } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
 import { logUsageToDb, logToLangfuse, estimateCost } from '@/lib/telemetry';
 import { runAgentStream } from '@/lib/pi-agent';
-import { buildSystemPromptString, resolveProjectLocale } from '@/lib/agent-prompt';
+import { buildSystemPromptString } from '@/lib/agent-prompt';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { makeProjectTools } from '@/lib/project-tools';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { buildMemoryContext } from '@/lib/memory/context';
@@ -484,7 +485,9 @@ export async function POST(request: NextRequest) {
   // then ARTIFACT_INSTRUCTIONS, then stage context (highest signal for
   // "what to talk about"), then per-project context + memory + recently-
   // completed skill summaries.
-  const locale = await resolveProjectLocale(project_id, query);
+  // Account-wide language wins (users.locale), falling back to the project's
+  // legacy locale, then English — see src/lib/i18n/resolve-locale.ts.
+  const locale = await resolveLocale(userId, project_id);
   const skillContext = await buildCompletedSkillContext(project_id, lastMessage);
   let systemPrompt = buildSystemPromptString({
     locale,

@@ -86,8 +86,10 @@ export async function chatJSON<T = Record<string, unknown>>(
  * complexity tier (see src/lib/llm/router.ts). Use this for any new call site
  * where you'd otherwise pass a hardcoded provider.
  *
- * When `opts.projectId` is provided, token usage is recorded via recordUsage()
- * which handles both the DB log row and the Langfuse trace.
+ * `projectId` is REQUIRED: token usage is always recorded via recordUsage(),
+ * which handles both the DB log row and the Langfuse trace. Making it required
+ * (rather than optional) prevents a caller from silently skipping metering +
+ * Langfuse — every task-routed call lands in the budget and the dashboard.
  *
  * When `opts.userKey` is provided (BYOK), the per-request API key is used
  * instead of the global env var. Usage is still logged for the project but
@@ -100,16 +102,16 @@ export async function chatJSON<T = Record<string, unknown>>(
 export async function chatJSONByTask<T = Record<string, unknown>>(
   messages: Message[],
   task: TaskLabel | string,
-  opts?: { projectId?: string; temperature?: number; userKey?: UserKeyOverride },
+  opts: { projectId: string; temperature?: number; userKey?: UserKeyOverride },
 ): Promise<T> {
   const { provider, model, maxTokens } = pickModel(task);
   const startedAt = Date.now();
   const { text: raw, usage } = await chatWithUsage(
-    messages, provider, opts?.temperature ?? 0.3, maxTokens, model, opts?.userKey,
+    messages, provider, opts.temperature ?? 0.3, maxTokens, model, opts.userKey,
   );
   const latencyMs = Date.now() - startedAt;
 
-  if (opts?.projectId) {
+  if (opts.projectId) {
     // Prefer OpenRouter's provider-reported cost when present (matches
     // billing exactly). When absent (OpenAI / Anthropic direct), fall back
     // to the PRICING-table estimate so the meter still records something.
@@ -135,7 +137,7 @@ export async function chatJSONByTask<T = Record<string, unknown>>(
         cost: { total: costUsd },
       } as any,
       latency_ms: latencyMs,
-      ...(opts?.userKey ? { key_source: 'user' } : {}),
+      ...(opts.userKey ? { key_source: 'user' } : {}),
     }).catch(err => console.warn(`[${task}] recordUsage failed:`, (err as Error).message));
   }
 

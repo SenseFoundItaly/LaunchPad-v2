@@ -174,7 +174,7 @@ export async function POST(
   let creditsDebited = 0;
   if (wantsApply) {
     try {
-      await debitCredits(projectId, KNOWLEDGE_APPLY_CREDITS);
+      await debitCredits(projectId, KNOWLEDGE_APPLY_CREDITS, 'knowledge_apply');
       creditsDebited = KNOWLEDGE_APPLY_CREDITS;
     } catch (err) {
       console.warn('[knowledge POST] inline-apply credit debit failed (non-fatal):', (err as Error).message);

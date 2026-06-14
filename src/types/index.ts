@@ -11,6 +11,9 @@ export interface Project {
   created_at: string;
   updated_at: string;
   llm_provider: string;
+  /** The language the project was created in, then frozen. Drives the agent's
+   *  responses and the UI chrome while inside this project. Short code: en/it/… */
+  locale: string;
   error: string | null;
   /** 'owner' = the current user's org owns this project; 'member' = shared
    *  with them. Server-set by /api/projects/{id}. Undefined on older

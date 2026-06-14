@@ -3,6 +3,7 @@
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { getSupabaseBrowser } from '@/lib/auth/supabase-browser';
+import { useT } from '@/components/providers/LocaleProvider';
 
 /**
  * Next.js 16 requires any client component that reads URL search params during
@@ -12,6 +13,7 @@ import { getSupabaseBrowser } from '@/lib/auth/supabase-browser';
  */
 
 function LoginForm() {
+  const t = useT();
   const search = useSearchParams();
   const nextPath = search.get('next') || '/';
   const [email, setEmail] = useState('');
@@ -41,8 +43,7 @@ function LoginForm() {
   if (status === 'sent') {
     return (
       <div className="rounded border border-moss/30 bg-moss-wash p-4 text-sm">
-        Check <span className="font-medium">{email}</span> — we sent a login link.
-        Open it on this device to finish signing in.
+        {t('login.sent-check-prefix')} <span className="font-medium">{email}</span> {t('login.sent-check-suffix')}
       </div>
     );
   }
@@ -53,7 +54,7 @@ function LoginForm() {
         type="email"
         required
         autoComplete="email"
-        placeholder="you@company.com"
+        placeholder={t('login.email-placeholder')}
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         className="w-full rounded bg-surface border border-line-2 px-3 py-2 text-sm text-ink outline-none focus:border-ink-4"
@@ -64,7 +65,7 @@ function LoginForm() {
         disabled={status === 'sending'}
         className="w-full rounded bg-ink text-paper py-2 text-sm font-medium disabled:opacity-50"
       >
-        {status === 'sending' ? 'Sending...' : 'Email me a login link'}
+        {status === 'sending' ? t('login.sending') : t('login.send-button')}
       </button>
       {error && (
         <div className="text-sm text-clay">{error}</div>
@@ -74,14 +75,15 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
+  const t = useT();
   return (
     <div className="min-h-screen flex items-center justify-center bg-paper text-ink px-4">
       <div className="w-full max-w-sm">
         <h1 className="text-2xl font-semibold mb-2">SENSEFOUND</h1>
         <p className="text-sm text-ink-4 mb-6">
-          Sign in with a magic link. We&apos;ll send a secure one-time login to your inbox.
+          {t('login.subtitle')}
         </p>
-        <Suspense fallback={<div className="text-sm text-ink-5">Loading…</div>}>
+        <Suspense fallback={<div className="text-sm text-ink-5">{t('common.loading')}</div>}>
           <LoginForm />
         </Suspense>
       </div>

@@ -34,7 +34,7 @@ export async function POST(
 
   const { projectId } = await params;
 
-  let body: { item_ids?: unknown };
+  let body: { item_ids?: unknown; skip_charge?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -46,6 +46,12 @@ export async function POST(
   if (itemIds.length === 0) {
     return error('item_ids must be a non-empty array of node ids', 400);
   }
+  // skip_charge=true → apply WITHOUT the per-entity debit. Used by the
+  // Knowledge-page document popup, where the flat per-document audit fee was
+  // already billed at upload (?audit_charge=1), so applying is free. Credits
+  // are a soft UX skin over the dollar budget (the real cap is cap_llm_usd),
+  // so this isn't a billing-bypass risk — just avoids double-charging.
+  const skipCharge = body.skip_charge === true;
 
   let appliedCount = 0;
   for (const id of itemIds) {
@@ -74,10 +80,11 @@ export async function POST(
 
   // ONE combined debit, computed from what actually transitioned. Non-fatal:
   // the nodes are already applied; a failed debit shouldn't unwind them.
+  // Skipped entirely when skip_charge=true (the audit fee already covered it).
   let creditsDebited = 0;
-  if (appliedCount > 0) {
+  if (appliedCount > 0 && !skipCharge) {
     try {
-      await debitCredits(projectId, appliedCount * KNOWLEDGE_APPLY_CREDITS);
+      await debitCredits(projectId, appliedCount * KNOWLEDGE_APPLY_CREDITS, 'knowledge_apply');
       creditsDebited = appliedCount * KNOWLEDGE_APPLY_CREDITS;
     } catch (e) {
       console.warn('[knowledge/apply-batch] debitCredits failed:', (e as Error).message);

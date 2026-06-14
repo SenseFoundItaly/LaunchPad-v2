@@ -9,6 +9,8 @@ import { TopBar } from '@/components/design/chrome';
 import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
 import { NODE_COLORS } from '@/types/graph';
 import { watcherWeeklyLabel } from '@/lib/watcher-cost';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 
 // A watcher the upload extractor suggests from a founder's docs (opt-in).
 type ProposedMonitor = { name: string; aim: string; cadence: 'daily' | 'weekly' };
@@ -22,13 +24,13 @@ type ProposedCanvas = {
   business_model: string;
   competitive_advantage: string;
 };
-const CANVAS_FIELD_LABELS: Array<{ key: keyof ProposedCanvas; label: string }> = [
-  { key: 'problem', label: 'Problem' },
-  { key: 'solution', label: 'Solution' },
-  { key: 'target_market', label: 'Target market' },
-  { key: 'value_proposition', label: 'Value proposition' },
-  { key: 'competitive_advantage', label: 'Competitive edge' },
-  { key: 'business_model', label: 'Business model' },
+const CANVAS_FIELD_LABELS: Array<{ key: keyof ProposedCanvas; labelKey: MessageKey }> = [
+  { key: 'problem', labelKey: 'home.canvas-field-problem' },
+  { key: 'solution', labelKey: 'home.canvas-field-solution' },
+  { key: 'target_market', labelKey: 'home.canvas-field-target-market' },
+  { key: 'value_proposition', labelKey: 'home.canvas-field-value-proposition' },
+  { key: 'competitive_advantage', labelKey: 'home.canvas-field-competitive-edge' },
+  { key: 'business_model', labelKey: 'home.canvas-field-business-model' },
 ];
 
 interface DashboardProject {
@@ -66,6 +68,7 @@ interface DashboardStats {
 }
 
 export default function HomePage() {
+  const t = useT();
   const router = useRouter();
   const [projects, setProjects] = useState<DashboardProject[]>([]);
   const [signals, setSignals] = useState<DashboardSignal[]>([]);
@@ -154,7 +157,7 @@ export default function HomePage() {
         description: newDesc.trim(),
       });
       if (!(data.success && data.data)) {
-        setCreateError(data.error || 'Failed to create project');
+        setCreateError(data.error || t('home.error-create-failed'));
         setCreating(false);
         return;
       }
@@ -169,7 +172,11 @@ export default function HomePage() {
       // with a non-fatal note.
       if (createMode === 'knowledge' && createFiles.length > 0) {
         try {
-          setUploadStatus(`Reading ${createFiles.length} document${createFiles.length > 1 ? 's' : ''} and extracting knowledge…`);
+          setUploadStatus(
+            createFiles.length > 1
+              ? t('home.upload-status-reading-many', { count: createFiles.length })
+              : t('home.upload-status-reading-one', { count: createFiles.length }),
+          );
           const fd = new FormData();
           // Field name MUST be `file` (the route reads form.getAll('file')), and
           // ?extract=1 turns on entity extraction → pending graph nodes.
@@ -204,13 +211,19 @@ export default function HomePage() {
           // Upload failed — surface it instead of silently routing into an
           // empty project (that silence masked a real 415 CSRF-guard bug).
           setCreateError(
-            `Upload failed: ${body?.error || `HTTP ${res.status}`}. Your project "${newName.trim()}" was created — open it from your list, or try again with a different file.`,
+            t('home.error-upload-failed', {
+              reason: body?.error || `HTTP ${res.status}`,
+              name: newName.trim(),
+            }),
           );
           setCreating(false);
           return;
         } catch (err) {
           setCreateError(
-            `Upload errored: ${(err as Error).message}. Your project "${newName.trim()}" was created — open it from your list, or retry.`,
+            t('home.error-upload-errored', {
+              reason: (err as Error).message,
+              name: newName.trim(),
+            }),
           );
           setCreating(false);
           return;
@@ -219,7 +232,7 @@ export default function HomePage() {
 
       router.push(`/project/${projectId}/chat`);
     } catch (err) {
-      setCreateError((err as Error).message || 'Network error — please try again');
+      setCreateError((err as Error).message || t('home.error-network'));
     }
     setCreating(false);
   }
@@ -241,12 +254,12 @@ export default function HomePage() {
   function relativeTime(iso: string): string {
     const diff = Date.now() - new Date(iso).getTime();
     const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'now';
-    if (mins < 60) return `${mins}m ago`;
+    if (mins < 1) return t('home.time-now');
+    if (mins < 60) return t('home.time-minutes-ago', { count: mins });
     const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
+    if (hrs < 24) return t('home.time-hours-ago', { count: hrs });
     const days = Math.floor(hrs / 24);
-    return `${days}d ago`;
+    return t('home.time-days-ago', { count: days });
   }
 
   const severityKind = (s: string): 'ok' | 'warn' | 'live' | 'n' =>
@@ -255,10 +268,12 @@ export default function HomePage() {
   return (
     <div className="lp-frame">
       <TopBar
-        breadcrumb={['Home']}
+        breadcrumb={[t('home.breadcrumb')]}
         right={
           <span className="lp-mono" style={{ fontSize: 10 }}>
-            {stats.total_projects} project{stats.total_projects !== 1 ? 's' : ''}
+            {stats.total_projects !== 1
+              ? t('home.project-count-many', { count: stats.total_projects })
+              : t('home.project-count-one', { count: stats.total_projects })}
           </span>
         }
       />
@@ -287,7 +302,7 @@ export default function HomePage() {
               fontFamily: 'var(--f-mono)',
             }}
           >
-            Projects
+            {t('home.projects-heading')}
           </div>
 
           <div style={{ flex: 1, overflow: 'auto' }}>
@@ -340,7 +355,7 @@ export default function HomePage() {
                 </span>
                 {p.access_kind === 'member' && (
                   <span
-                    title={p.owner_email ? `Shared by ${p.owner_email}` : 'Shared with you'}
+                    title={p.owner_email ? t('home.shared-by', { email: p.owner_email }) : t('home.shared-with-you')}
                     className="lp-mono"
                     style={{
                       fontSize: 9,
@@ -352,7 +367,7 @@ export default function HomePage() {
                       textTransform: 'uppercase',
                     }}
                   >
-                    Shared
+                    {t('home.shared')}
                   </span>
                 )}
                 {p.weekly_alerts > 0 && (
@@ -393,7 +408,7 @@ export default function HomePage() {
               }}
             >
               <Icon d={I.plus} size={12} />
-              New project
+              {t('home.new-project')}
             </button>
           </div>
         </div>
@@ -422,11 +437,11 @@ export default function HomePage() {
               className="lp-serif"
               style={{ fontSize: 22, fontWeight: 400, letterSpacing: -0.3, margin: 0 }}
             >
-              Workspace
+              {t('home.workspace')}
             </h1>
             <span style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-              {stats.total_analyses_completed} analyses completed
+              {t('home.analyses-completed', { count: stats.total_analyses_completed })}
             </span>
             <div ref={signalPanelRef} style={{ position: 'relative' }}>
               <button
@@ -446,7 +461,9 @@ export default function HomePage() {
                   fontWeight: 600,
                 }}
               >
-                {stats.total_alerts_this_week} signal{stats.total_alerts_this_week !== 1 ? 's' : ''}
+                {stats.total_alerts_this_week !== 1
+                  ? t('home.signal-count-many', { count: stats.total_alerts_this_week })
+                  : t('home.signal-count-one', { count: stats.total_alerts_this_week })}
               </button>
 
               {showSignals && signals.length > 0 && (
@@ -476,7 +493,7 @@ export default function HomePage() {
                       borderBottom: '1px solid var(--line)',
                     }}
                   >
-                    Recent signals
+                    {t('home.recent-signals')}
                   </div>
                   {signals.map((s, i) => {
                     const expanded = expandedSignals.has(s.id);
@@ -620,7 +637,7 @@ export default function HomePage() {
                   textAlign: 'center',
                 }}
               >
-                Loading…
+                {t('common.loading')}
               </div>
             ) : (
               <>
@@ -631,7 +648,7 @@ export default function HomePage() {
                     style={{ padding: 16, marginBottom: 20 }}
                   >
                     <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
-                      New project
+                      {t('home.new-project')}
                     </div>
 
                     {extractResult ? (
@@ -649,8 +666,8 @@ export default function HomePage() {
                     {/* Mode toggle — scratch vs. existing knowledge */}
                     <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                       {([
-                        { id: 'scratch', label: 'Start from scratch', desc: 'Blank slate. Shape the canvas via chat.' },
-                        { id: 'knowledge', label: 'Start from existing knowledge', desc: 'Upload docs to seed the knowledge layer.' },
+                        { id: 'scratch', labelKey: 'home.mode-scratch-label', descKey: 'home.mode-scratch-desc' },
+                        { id: 'knowledge', labelKey: 'home.mode-knowledge-label', descKey: 'home.mode-knowledge-desc' },
                       ] as const).map((opt) => {
                         const selected = createMode === opt.id;
                         return (
@@ -672,10 +689,10 @@ export default function HomePage() {
                             }}
                           >
                             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
-                              {opt.label}
+                              {t(opt.labelKey)}
                             </div>
                             <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>
-                              {opt.desc}
+                              {t(opt.descKey)}
                             </div>
                           </button>
                         );
@@ -687,7 +704,7 @@ export default function HomePage() {
                         autoFocus
                         value={newName}
                         onChange={(e) => setNewName(e.target.value)}
-                        placeholder="Project name"
+                        placeholder={t('home.project-name-placeholder')}
                         onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
                         style={{
                           flex: 1,
@@ -704,7 +721,7 @@ export default function HomePage() {
                       <input
                         value={newDesc}
                         onChange={(e) => setNewDesc(e.target.value)}
-                        placeholder="Description (optional)"
+                        placeholder={t('home.description-placeholder')}
                         onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
                         style={{
                           flex: 1,
@@ -734,7 +751,7 @@ export default function HomePage() {
                           opacity: creating || !newName.trim() ? 0.5 : 1,
                         }}
                       >
-                        {creating ? (uploadStatus ? 'Uploading…' : 'Creating…') : 'Create'}
+                        {creating ? (uploadStatus ? t('home.uploading') : t('home.creating')) : t('home.create')}
                       </button>
                       <button
                         onClick={() => {
@@ -759,7 +776,7 @@ export default function HomePage() {
                           fontFamily: 'inherit',
                         }}
                       >
-                        Cancel
+                        {t('common.cancel')}
                       </button>
                     </div>
 
@@ -786,10 +803,10 @@ export default function HomePage() {
                         >
                           <div>
                             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)' }}>
-                              Upload documents
+                              {t('home.upload-documents')}
                             </div>
                             <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>
-                              PDF, Word (.docx), or text — up to 10 files, 10 MB each. We extract the full text and pull out entities to seed your knowledge graph.
+                              {t('home.upload-documents-desc')}
                             </div>
                           </div>
                           <span
@@ -804,7 +821,7 @@ export default function HomePage() {
                               whiteSpace: 'nowrap',
                             }}
                           >
-                            Choose files
+                            {t('home.choose-files')}
                           </span>
                         </label>
                         <input
@@ -852,7 +869,7 @@ export default function HomePage() {
                                     padding: 0,
                                     lineHeight: 1,
                                   }}
-                                  aria-label={`Remove ${f.name}`}
+                                  aria-label={t('home.remove-file', { name: f.name })}
                                 >
                                   ×
                                 </button>
@@ -890,7 +907,7 @@ export default function HomePage() {
                         marginBottom: 10,
                       }}
                     >
-                      Projects
+                      {t('home.projects-heading')}
                     </div>
                     <div
                       style={{
@@ -959,7 +976,7 @@ export default function HomePage() {
                                   </span>
                                   {p.access_kind === 'member' && (
                                     <span
-                                      title={p.owner_email ? `Shared by ${p.owner_email}` : 'Shared with you'}
+                                      title={p.owner_email ? t('home.shared-by', { email: p.owner_email }) : t('home.shared-with-you')}
                                       className="lp-mono"
                                       style={{
                                         fontSize: 9,
@@ -972,7 +989,7 @@ export default function HomePage() {
                                         flexShrink: 0,
                                       }}
                                     >
-                                      Shared
+                                      {t('home.shared')}
                                     </span>
                                   )}
                                 </div>
@@ -1008,7 +1025,7 @@ export default function HomePage() {
                               }}
                             >
                               <span>
-                                {Math.round((p.analyses_completed / p.total_analyses) * 100)}% validated
+                                {t('home.percent-validated', { percent: Math.round((p.analyses_completed / p.total_analyses) * 100) })}
                               </span>
                               <span>·</span>
                               <span>
@@ -1042,11 +1059,10 @@ export default function HomePage() {
                         className="lp-serif"
                         style={{ fontSize: 20, fontWeight: 400, margin: 0, color: 'var(--ink-3)' }}
                       >
-                        No projects yet.
+                        {t('home.empty-title')}
                       </h3>
                       <p style={{ margin: 0, maxWidth: 360, fontSize: 13, lineHeight: 1.55 }}>
-                        Create your first project to start validating your startup idea with the
-                        co-pilot.
+                        {t('home.empty-desc')}
                       </p>
                       <button
                         onClick={() => setShowCreate(true)}
@@ -1063,7 +1079,7 @@ export default function HomePage() {
                           fontFamily: 'inherit',
                         }}
                       >
-                        Create project
+                        {t('home.create-project')}
                       </button>
                     </div>
                   )
@@ -1075,10 +1091,10 @@ export default function HomePage() {
       </div>
 
       <StatusBar
-        heartbeatLabel="heartbeat · idle"
+        heartbeatLabel={t('home.status-heartbeat-idle')}
         gateway="pi-agent · anthropic"
-        ctxLabel={`${stats.total_projects} projects`}
-        budget={`${stats.total_alerts_this_week} signals`}
+        ctxLabel={t('home.status-projects', { count: stats.total_projects })}
+        budget={t('home.status-signals', { count: stats.total_alerts_this_week })}
       />
     </div>
   );
@@ -1092,10 +1108,11 @@ function safeHost(url: string): string {
 
 /** Shown while the upload is parsing docs + extracting entities. */
 function ExtractingView({ files, status }: { files: File[]; status: string | null }) {
+  const t = useT();
   return (
     <div style={{ padding: '6px 0 4px' }}>
       <div className="lp-pulse" style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 8 }}>
-        {status || 'Reading your documents and extracting knowledge…'}
+        {status || t('home.extracting-reading')}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
         {files.map((f, i) => (
@@ -1105,7 +1122,7 @@ function ExtractingView({ files, status }: { files: File[]; status: string | nul
         ))}
       </div>
       <div style={{ fontSize: 11, color: 'var(--ink-5)', marginTop: 10 }}>
-        Parsing PDFs / Word and pulling out entities — this can take a few seconds per file.
+        {t('home.extracting-parsing')}
       </div>
     </div>
   );
@@ -1122,6 +1139,7 @@ function ExtractedKnowledgeView({
   projectId: string | null;
   onContinue: () => void;
 }) {
+  const t = useT();
   const { ingested, skipped, entities, canvas, canvasValidates, spineSteps, monitors } = result;
   const [applying, setApplying] = useState(false);
   // Watchers default UNCHECKED — they carry recurring weekly cost, so opting
@@ -1202,14 +1220,16 @@ function ExtractedKnowledgeView({
   const N = applicableIds.length;
   const W = checkedCount;
   const actionBits = [
-    canvasFields.length > 0 ? 'canvas' : null,
-    N > 0 ? `${N} entit${N === 1 ? 'y' : 'ies'}` : null,
-    W > 0 ? `${W} watcher${W === 1 ? '' : 's'}` : null,
+    canvasFields.length > 0 ? t('home.action-bit-canvas') : null,
+    N > 0 ? (N === 1 ? t('home.action-bit-entity-one', { count: N }) : t('home.action-bit-entity-many', { count: N })) : null,
+    W > 0 ? (W === 1 ? t('home.action-bit-watcher-one', { count: W }) : t('home.action-bit-watcher-many', { count: W })) : null,
   ].filter(Boolean);
   const primaryLabel = applying
-    ? 'Applying…'
-    : (actionBits.length > 0 ? `Apply ${actionBits.join(' + ')} + AI brief` : 'Start with an AI brief')
-      + ` · ~${upfrontCredits} credits → Co-pilot`;
+    ? t('home.applying')
+    : (actionBits.length > 0
+        ? t('home.primary-apply', { actions: actionBits.join(' + ') })
+        : t('home.primary-start-brief'))
+      + t('home.primary-credits-suffix', { credits: upfrontCredits });
 
   const primaryBtnStyle: React.CSSProperties = {
     padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none',
@@ -1220,13 +1240,20 @@ function ExtractedKnowledgeView({
   return (
     <div>
       <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 3 }}>
-        ✓ Read {ingested} document{ingested === 1 ? '' : 's'}
-        {skipped > 0 ? ` · ${skipped} skipped` : ''}.
+        {skipped > 0
+          ? (ingested === 1
+              ? t('home.read-documents-one-skipped', { count: ingested, skipped })
+              : t('home.read-documents-many-skipped', { count: ingested, skipped }))
+          : (ingested === 1
+              ? t('home.read-documents-one', { count: ingested })
+              : t('home.read-documents-many', { count: ingested }))}
       </div>
       <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 12 }}>
         {entities.length > 0
-          ? `Pulled ${entities.length} entit${entities.length === 1 ? 'y' : 'ies'} from your documents — review below, then apply.`
-          : 'The full text is now in your knowledge layer.'}
+          ? (entities.length === 1
+              ? t('home.pulled-entities-one', { count: entities.length })
+              : t('home.pulled-entities-many', { count: entities.length }))
+          : t('home.full-text-in-knowledge')}
       </div>
 
       {/* Spine framing — nothing turns a validation step green without the
@@ -1234,7 +1261,8 @@ function ExtractedKnowledgeView({
       {spineSteps > 0 && (
         <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--accent-wash)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
           <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
-            This document can validate <strong style={{ color: 'var(--ink)' }}>{spineSteps}</strong> validation step{spineSteps === 1 ? '' : 's'} on your spine. Approve what you want below — nothing is validated without your yes.
+            {t('home.spine-framing-prefix')} <strong style={{ color: 'var(--ink)' }}>{spineSteps}</strong>{' '}
+            {spineSteps === 1 ? t('home.spine-framing-suffix-one') : t('home.spine-framing-suffix-many')}
           </div>
         </div>
       )}
@@ -1243,15 +1271,15 @@ function ExtractedKnowledgeView({
       {canvasFields.length > 0 && (
         <div style={{ marginBottom: 14, padding: 12, background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
           <div style={{ fontSize: 11, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, fontFamily: 'var(--f-mono)', marginBottom: 8 }}>
-            Canvas drafted from your documents <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--ink-6)' }}>· free</span>
+            {t('home.canvas-drafted-heading')} <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--ink-6)' }}>{t('home.canvas-drafted-free')}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto' }}>
             {canvasFields.map((f) => (
               <div key={f.key}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-3)' }}>{f.label}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-3)' }}>{t(f.labelKey)}</div>
                   {canvasValidates[f.key] && (
-                    <span style={{ fontSize: 10, color: 'var(--accent-ink)' }}>validates {canvasValidates[f.key]}</span>
+                    <span style={{ fontSize: 10, color: 'var(--accent-ink)' }}>{t('home.validates', { target: canvasValidates[f.key] })}</span>
                   )}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.45 }}>{canvas![f.key]}</div>
@@ -1276,7 +1304,7 @@ function ExtractedKnowledgeView({
                     <span style={{ fontWeight: 400, color: 'var(--ink-5)', fontSize: 11 }}> · {e.node_type.replace(/_/g, ' ')}</span>
                   </div>
                   {e.validates && (
-                    <div style={{ fontSize: 10, color: 'var(--accent-ink)', marginTop: 1 }}>validates {e.validates}</div>
+                    <div style={{ fontSize: 10, color: 'var(--accent-ink)', marginTop: 1 }}>{t('home.validates', { target: e.validates })}</div>
                   )}
                   {e.summary && (
                     <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 1, lineHeight: 1.4 }}>{e.summary}</div>
@@ -1287,7 +1315,9 @@ function ExtractedKnowledgeView({
           </div>
           {applicableIds.length > 0 && (
             <div style={{ fontSize: 11, color: 'var(--ink-5)', marginBottom: 14 }}>
-              {applicableIds.length} entit{applicableIds.length === 1 ? 'y' : 'ies'} · {applyCredits} credits to apply now — or apply later in Know.
+              {applicableIds.length === 1
+                ? t('home.apply-entities-line-one', { count: applicableIds.length, credits: applyCredits })
+                : t('home.apply-entities-line-many', { count: applicableIds.length, credits: applyCredits })}
             </div>
           )}
         </>
@@ -1297,7 +1327,7 @@ function ExtractedKnowledgeView({
       {monitors.length > 0 && (
         <div style={{ marginBottom: 14, padding: 12, background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
           <div style={{ fontSize: 11, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, fontFamily: 'var(--f-mono)', marginBottom: 8 }}>
-            Suggested watchers — ongoing scans (opt-in)
+            {t('home.suggested-watchers-heading')}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {monitors.map((w, i) => (
@@ -1319,7 +1349,7 @@ function ExtractedKnowledgeView({
             ))}
           </div>
           <div style={{ fontSize: 10.5, color: 'var(--ink-6)', marginTop: 8, lineHeight: 1.4 }}>
-            Watchers run on a schedule and use credits each run — separate from the one-time cost of applying entities.
+            {t('home.watchers-footnote')}
           </div>
         </div>
       )}
@@ -1334,12 +1364,16 @@ function ExtractedKnowledgeView({
             disabled={applying}
             style={{ padding: '8px 10px', background: 'transparent', color: 'var(--ink-4)', border: 'none', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline', textUnderlineOffset: 3 }}
           >
-            Skip
+            {t('home.skip')}
           </button>
         )}
       </div>
       <div style={{ fontSize: 10.5, color: 'var(--ink-6)', marginTop: 8, lineHeight: 1.4 }}>
-        ~{upfrontCredits} credits = {applyCredits > 0 ? `${applyCredits} to apply entities + ` : ''}~{BRIEF_CREDITS_EST} for a personalized AI brief of what I learned (canvas is free; watchers metered weekly). Skip applies nothing.
+        {t('home.credits-footnote', {
+          total: upfrontCredits,
+          applyClause: applyCredits > 0 ? t('home.credits-footnote-apply-clause', { credits: applyCredits }) : '',
+          brief: BRIEF_CREDITS_EST,
+        })}
       </div>
     </div>
   );

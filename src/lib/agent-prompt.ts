@@ -18,8 +18,11 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { DEFAULT_LOCALE, LOCALE_ENGLISH_NAME, asLocale, type Locale } from '@/lib/i18n/locales';
 
-export type Locale = 'en' | 'it';
+// Re-exported so existing callers (action-executors, chat route) keep importing
+// `Locale` from here, but the type now widens with the registry automatically.
+export type { Locale };
 export type PromptContext = 'chat' | 'cron' | 'monitor' | 'skill';
 
 const AGENTS_DIR = join(process.cwd(), 'agents');
@@ -31,7 +34,11 @@ const SKILLS_DIR = join(process.cwd(), 'launchpad-skills');
 const fileCache = new Map<string, string>();
 
 function loadMarkdown(dir: string, baseName: string, locale: Locale): string | null {
-  const localized = locale === 'it' ? join(dir, `${baseName}.it.md`) : null;
+  // Try the curated per-language file (e.g. SOUL.it.md) for ANY non-default
+  // locale, then fall back to the English base. Curated files only exist for
+  // some languages — the language directive in buildSystemPrompt guarantees the
+  // *output* language even when only the English markdown is found.
+  const localized = locale !== DEFAULT_LOCALE ? join(dir, `${baseName}.${locale}.md`) : null;
   const fallback = join(dir, `${baseName}.md`);
 
   for (const path of [localized, fallback].filter((p): p is string => p !== null)) {
@@ -53,6 +60,24 @@ function loadMarkdown(dir: string, baseName: string, locale: Locale): string | n
 function loadSkill(skillId: string, locale: Locale): string | null {
   const skillDir = join(SKILLS_DIR, skillId);
   return loadMarkdown(skillDir, 'SKILL', locale);
+}
+
+/**
+ * The "respond in X" directive injected for non-English locales. Returns null
+ * for the default locale (no directive needed — the English prompts already
+ * speak English). Worded to pin the failure modes we actually see: drifting
+ * back to English mid-conversation, and over-translating proper nouns or the
+ * structured keys inside :::artifact blocks.
+ */
+function languageDirective(locale: Locale): string | null {
+  if (locale === DEFAULT_LOCALE) return null;
+  const language = LOCALE_ENGLISH_NAME[locale];
+  return [
+    `## Language`,
+    `Always write every founder-facing word — chat replies AND the prose inside artifacts — in ${language}.`,
+    `Stay in ${language} for the entire conversation, even if earlier turns were in another language.`,
+    `Do NOT translate: brand/product names, people's names, code, URLs, or the structured field *keys* inside :::artifact blocks (only their human-readable values).`,
+  ].join('\n');
 }
 
 // =============================================================================
@@ -90,7 +115,7 @@ export interface SystemPromptParts {
  * a future cache-aware caller can attach cache_control to the static half.
  */
 export function buildSystemPrompt(input: BuildSystemPromptInput = {}): SystemPromptParts {
-  const locale: Locale = input.locale === 'it' ? 'it' : 'en';
+  const locale: Locale = asLocale(input.locale);
   const context: PromptContext = input.context || 'chat';
 
   const parts: string[] = [];
@@ -112,6 +137,14 @@ export function buildSystemPrompt(input: BuildSystemPromptInput = {}): SystemPro
     const skill = loadSkill(input.activeSkillId, locale);
     if (skill) parts.push(skill);
   }
+
+  // Language directive (instruction-injection). Appended last so recency keeps
+  // it salient, and kept in the static prefix so it stays cache-stable per
+  // locale. This is what makes ANY supported language work without a curated
+  // translation of every prompt file — the model obeys the directive even when
+  // only the English markdown above was loaded.
+  const directive = languageDirective(locale);
+  if (directive) parts.push(directive);
 
   const staticPrefix = parts.join('\n\n---\n\n');
 

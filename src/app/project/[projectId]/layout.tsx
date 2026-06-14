@@ -1,14 +1,32 @@
 'use client';
 
 import { use } from 'react';
+import { usePathname } from 'next/navigation';
 import { useProject } from '@/hooks/useProject';
+import { useOpenActionCount } from '@/hooks/useOpenActionCount';
+import { LocaleProvider } from '@/components/providers/LocaleProvider';
+import { asLocale } from '@/lib/i18n/locales';
+import { ChromeProvider, useChromeState } from '@/components/design/chrome-context';
+import { TopBar, NavRail } from '@/components/design/chrome';
+import { StatusBar } from '@/components/design/primitives';
 
 /**
- * Project layout — minimal guard. Each project page renders its own
- * TopBar + NavRail + StatusBar chrome, so the layout's only job is the
- * project-loading + not-found gate. The legacy ProjectSidebar (and its
- * 7-stage skill nav) was retired in the v2 simplification.
+ * Project layout — owns the PERSISTENT chrome (TopBar + NavRail + StatusBar)
+ * plus the project-loading gate and the frozen per-project locale.
+ *
+ * The chrome lives here (not in each page) so it survives tab navigation: only
+ * the content slot re-mounts (keyed on pathname) and crossfades via lp-rise,
+ * while TopBar/NavRail/StatusBar stay mounted — no flicker, preserved state.
+ * Per-page bits (breadcrumb, TopBar right-content, StatusBar props, chat
+ * streaming) flow up through ChromeProvider: pages call useSetChrome(...).
  */
+
+// Fallback breadcrumb tail by route segment, used until (or if) a page publishes
+// its own via useSetChrome — avoids a one-frame blank on first paint.
+const FALLBACK_CRUMB: Record<string, string> = {
+  today: 'Home', actions: 'Inbox', knowledge: 'Knowledge', chat: 'Co-pilot', usage: 'Usage',
+};
+
 export default function ProjectLayout({
   children,
   params,
@@ -16,8 +34,8 @@ export default function ProjectLayout({
   children: React.ReactNode;
   params: Promise<{ projectId: string }>;
 }) {
-  const { projectId: _projectId } = use(params);
-  const { project, loading, error } = useProject(_projectId);
+  const { projectId } = use(params);
+  const { project, loading, error } = useProject(projectId);
 
   if (loading) {
     return (
@@ -35,5 +53,49 @@ export default function ProjectLayout({
     );
   }
 
-  return <div className="h-full">{children}</div>;
+  return (
+    <LocaleProvider initialLocale={asLocale(project.locale)}>
+      <ChromeProvider>
+        <ProjectChrome projectId={projectId} projectName={project.name}>
+          {children}
+        </ProjectChrome>
+      </ChromeProvider>
+    </LocaleProvider>
+  );
+}
+
+function ProjectChrome({
+  projectId,
+  projectName,
+  children,
+}: {
+  projectId: string;
+  projectName: string;
+  children: React.ReactNode;
+}) {
+  const pathname = usePathname() || '';
+  const seg = pathname.split('/')[3] ?? ''; // /project/<id>/<seg>
+  const { count: inboxBadge } = useOpenActionCount(projectId);
+  const chrome = useChromeState();
+
+  const breadcrumb =
+    chrome.breadcrumb ?? ['Project', FALLBACK_CRUMB[seg] ?? projectName ?? ''];
+
+  return (
+    <div className="lp-frame">
+      <TopBar projectId={projectId} breadcrumb={breadcrumb} right={chrome.right} />
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        {/* current is inferred from pathname (NavRail.isActive matches item.route
+            against the URL), so no per-page `current` prop is needed. */}
+        <NavRail projectId={projectId} inboxBadge={inboxBadge} chatStreaming={chrome.chatStreaming} />
+        {/* Content slot: re-mounts on tab change (key) and crossfades in. The
+            chrome above/around it stays mounted. display:flex so multi-column
+            pages (chat = column + canvas) and single-column pages both fit. */}
+        <div key={pathname} className="lp-rise" style={{ flex: 1, minWidth: 0, display: 'flex', minHeight: 0 }}>
+          {children}
+        </div>
+      </div>
+      <StatusBar {...(chrome.status ?? {})} />
+    </div>
+  );
 }

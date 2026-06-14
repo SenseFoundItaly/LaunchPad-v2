@@ -4,6 +4,8 @@ import { query, run } from '@/lib/db';
 import { json, error, mapProject } from '@/lib/api-helpers';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { ensureStartupRootNode } from '@/lib/knowledge/root-node';
+import { isLocale } from '@/lib/i18n/locales';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
 
 export async function GET() {
   try {
@@ -49,7 +51,10 @@ export async function POST(request: NextRequest) {
 
   const id = `proj_${uuid().slice(0, 12)}`;
   const now = new Date().toISOString();
-  const locale = body.locale === 'it' ? 'it' : 'en';
+  // The project is "created in" a language and then frozen there. An explicit
+  // body.locale (onboarding / white-label partner) wins; otherwise inherit the
+  // creator's account-wide language (users.locale → 'en').
+  const locale = isLocale(body.locale) ? body.locale : await resolveLocale(user.userId, null);
   const partnerSlug = typeof body.partner_slug === 'string' ? body.partner_slug : null;
 
   await run(

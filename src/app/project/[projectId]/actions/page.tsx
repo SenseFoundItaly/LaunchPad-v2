@@ -22,11 +22,11 @@
 
 import { use, useEffect, useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { TopBar, NavRail } from '@/components/design/chrome';
-import { useOpenActionCount } from '@/hooks/useOpenActionCount';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
+import { useSetChrome } from '@/components/design/chrome-context';
 import {
   Pill,
-  StatusBar,
   Icon,
   I,
   IconBtn,
@@ -59,9 +59,11 @@ import { PayloadSummary } from '@/components/actions/PayloadSummary';
 // The old Signals tab is GONE: watcher findings (signal_alert) now live in the
 // Inbox. The status/type/producer filters and the batch bar are gone too.
 type DisplayTab = 'inbox' | 'monitor';
-const TAB_LABEL: Record<DisplayTab, string> = {
-  inbox: 'Inbox',
-  monitor: 'Watchers',
+// i18n keys for the tab labels — resolved via t(...) at the render site
+// (LaneTabs), mirroring how NavRail stores `labelKey` and resolves with t().
+const TAB_LABEL_KEY: Record<DisplayTab, MessageKey> = {
+  inbox: 'actions.tab-inbox',
+  monitor: 'actions.tab-watchers',
 };
 const TAB_ORDER: DisplayTab[] = ['inbox', 'monitor'];
 
@@ -114,8 +116,8 @@ export default function TicketsPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
-  const { count: inboxBadge } = useOpenActionCount(projectId);
   const qc = useQueryClient();
+  const t = useT();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -304,64 +306,69 @@ export default function TicketsPage({
   // Open count = the apply-to-intelligence rows awaiting a decision.
   const openCount = tabOpenCounts.inbox;
 
+  // Publish this page's chrome bits to the persistent project layout (TopBar
+  // breadcrumb + right pill, StatusBar). Props copied verbatim from the
+  // TopBar/StatusBar this page used to render itself.
+  useSetChrome(
+    {
+      breadcrumb: [t('actions.breadcrumb-project'), t('actions.breadcrumb-inbox')],
+      right: (
+        <Pill kind="n">
+          {t('actions.right-pill', { total: actions.length, count: openCount })}
+        </Pill>
+      ),
+      status: {
+        heartbeatLabel: t('actions.heartbeat-label'),
+        gateway: 'pi-agent · anthropic',
+        ctxLabel: `ctx · ${filteredActions.length} / ${actions.length}`,
+        budget: t('actions.open-count', { count: openCount }),
+      },
+    },
+    [actions.length, openCount, filteredActions.length],
+  );
+
   return (
-    <div className="lp-frame">
-      <TopBar
-        projectId={projectId}
-        breadcrumb={['Project', 'Inbox']}
-        right={
-          <Pill kind="n">
-            {actions.length} · {openCount} open
-          </Pill>
-        }
+    <div className="lp-rise" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <InboxSubhead />
+      <LaneTabs
+        active={tab}
+        counts={tabCounts}
+        onChange={handleTabChange}
       />
 
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <NavRail projectId={projectId} current="tickets" inboxBadge={inboxBadge} />
-
-        <div className="lp-rise" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <InboxSubhead />
-          <LaneTabs
-            active={tab}
-            counts={tabCounts}
-            onChange={handleTabChange}
+      {tab === 'monitor' ? (
+        // Watchers lane reads from /watchers, not /actions. The panel owns
+        // its own scroll, renders the "+ New watcher" form inline, and
+        // expands rows in place (config + run logs). deepLinkWatcherId
+        // pre-expands the row from ?watcher=<id>.
+        <div style={{ flex: 1, overflow: 'auto', background: 'var(--paper)' }}>
+          <MonitorListPanel
+            projectId={projectId}
+            initialExpandedWatcherId={deepLinkWatcherId ?? undefined}
           />
-
-          {tab === 'monitor' ? (
-            // Watchers lane reads from /watchers, not /actions. The panel owns
-            // its own scroll, renders the "+ New watcher" form inline, and
-            // expands rows in place (config + run logs). deepLinkWatcherId
-            // pre-expands the row from ?watcher=<id>.
-            <div style={{ flex: 1, overflow: 'auto', background: 'var(--paper)' }}>
-              <MonitorListPanel
-                projectId={projectId}
-                initialExpandedWatcherId={deepLinkWatcherId ?? undefined}
-              />
-            </div>
-          ) : (
-            // Inbox = the ONE apply-to-intelligence queue. No toolbar, no
-            // filters: a flat list where each row is title + brief + one
-            // action pair (Apply · 2 credits / Dismiss). Selecting a row opens
-            // the read-only inspector pane on the right.
-            <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
-              <InboxList
-                rows={filteredActions}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
-                onTransition={transition}
-                loading={loading}
-                error={error}
-              />
-              {selected && (
-                <TicketDetail
-                  action={selected}
-                  onTransition={transition}
-                />
-              )}
-            </div>
+        </div>
+      ) : (
+        // Inbox = the ONE apply-to-intelligence queue. No toolbar, no
+        // filters: a flat list where each row is title + brief + one
+        // action pair (Apply · 2 credits / Dismiss). Selecting a row opens
+        // the read-only inspector pane on the right.
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
+          <InboxList
+            rows={filteredActions}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onTransition={transition}
+            loading={loading}
+            error={error}
+          />
+          {selected && (
+            <TicketDetail
+              action={selected}
+              onTransition={transition}
+            />
           )}
         </div>
-      </div>
+      )}
 
       {notice && (
         // Narrative toast — what the apply actually DID, straight from the
@@ -371,7 +378,7 @@ export default function TicketsPage({
           role="status"
           aria-live="polite"
           onClick={() => setNotice(null)}
-          title="Dismiss"
+          title={t('actions.dismiss')}
           style={{
             position: 'fixed',
             right: 16,
@@ -398,13 +405,6 @@ export default function TicketsPage({
           <span>{notice.text}</span>
         </div>
       )}
-
-      <StatusBar
-        heartbeatLabel="watchers · scheduled"
-        gateway="pi-agent · anthropic"
-        ctxLabel={`ctx · ${filteredActions.length} / ${actions.length}`}
-        budget={`${openCount} open`}
-      />
     </div>
   );
 }
@@ -417,6 +417,7 @@ export default function TicketsPage({
 // =============================================================================
 
 function InboxSubhead() {
+  const t = useT();
   return (
     <div
       style={{
@@ -432,10 +433,10 @@ function InboxSubhead() {
       }}
     >
       <span style={{ color: 'var(--ink-2)', fontWeight: 500 }}>
-        Apply to your project intelligence.
+        {t('actions.subhead-title')}
       </span>
       <span>
-        Watcher findings and knowledge proposals. Apply or dismiss — each applied item lands in Knowledge.
+        {t('actions.subhead-desc')}
       </span>
     </div>
   );
@@ -454,6 +455,7 @@ function LaneTabs({
   counts: Record<DisplayTab, number>;
   onChange: (t: DisplayTab) => void;
 }) {
+  const t = useT();
   return (
     <div
       style={{
@@ -487,7 +489,7 @@ function LaneTabs({
               marginBottom: -1, // overlap the border-bottom for active underline
             }}
           >
-            <span>{TAB_LABEL[l]}</span>
+            <span>{t(TAB_LABEL_KEY[l])}</span>
             {counts[l] > 0 && (
               <Pill kind={isActive ? 'info' : 'n'}>{counts[l]}</Pill>
             )}
@@ -516,13 +518,15 @@ const STATUS_PILL: Record<PendingActionStatus, PillKind> = {
 // "applied" reads as bureaucratic success; "Approved" says what the founder
 // actually did. "rejected" → "Dismissed" because half the rejects are just
 // clearing notifications, not value judgements.
-const STATUS_LABEL: Record<PendingActionStatus, string> = {
-  pending: 'Waiting',
-  edited: 'Edited',
-  applied: 'Approved',
-  sent: 'Done',
-  rejected: 'Dismissed',
-  failed: 'Failed',
+// i18n keys for the founder-facing status labels — resolved via t(...) at the
+// render site (TicketDetail). The map keys stay the raw machine status values.
+const STATUS_LABEL_KEY: Record<PendingActionStatus, MessageKey> = {
+  pending: 'actions.status-waiting',
+  edited: 'actions.status-edited',
+  applied: 'actions.status-approved',
+  sent: 'actions.status-done',
+  rejected: 'actions.status-dismissed',
+  failed: 'actions.status-failed',
 };
 
 // The flat credit cost shown on the inbox Apply button. The actual debit is
@@ -575,6 +579,7 @@ function InboxList({
   loading: boolean;
   error: string | null;
 }) {
+  const t = useT();
   if (error) {
     return (
       <div style={{ padding: 20, color: 'var(--clay)', fontSize: 12 }}>
@@ -585,14 +590,14 @@ function InboxList({
   if (loading && rows.length === 0) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
-        Loading inbox…
+        {t('actions.loading-inbox')}
       </div>
     );
   }
   if (rows.length === 0) {
     return (
       <div style={{ padding: 60, textAlign: 'center', color: 'var(--ink-5)', fontSize: 12 }}>
-        Inbox zero. Watcher findings and knowledge proposals land here for you to apply to your project intelligence.
+        {t('actions.empty-state')}
       </div>
     );
   }
@@ -628,6 +633,7 @@ function InboxRow({
   onSelect: (id: string) => void;
   onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
 }) {
+  const t = useT();
   // Short brief: first line of the rationale, trimmed to one tidy line.
   const brief = typeof action.rationale === 'string' ? action.rationale.trim() : '';
   const briefLine = brief.length > 160 ? `${brief.slice(0, 160)}…` : brief;
@@ -647,7 +653,7 @@ function InboxRow({
     >
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <TypeChip title={humanizeActionType(action.action_type)} />
+          <TypeChip title={typeLabelKey(action.action_type) ? t(typeLabelKey(action.action_type)!) : action.action_type.replace(/_/g, ' ')} />
           <span style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.45, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {action.title}
           </span>
@@ -664,14 +670,14 @@ function InboxRow({
           onClick={(e) => { e.stopPropagation(); onTransition(action.id, 'apply'); }}
           style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--moss)', color: 'var(--paper)', cursor: 'pointer', whiteSpace: 'nowrap' }}
         >
-          Apply · {APPLY_CREDITS} credits
+          {t('actions.apply-credits', { credits: APPLY_CREDITS })}
         </button>
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onTransition(action.id, 'reject'); }}
           style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-2)', cursor: 'pointer', whiteSpace: 'nowrap' }}
         >
-          Dismiss
+          {t('actions.dismiss')}
         </button>
       </div>
     </div>
@@ -689,6 +695,7 @@ function TicketDetail({
   action: PendingAction;
   onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
 }) {
+  const t = useT();
   const producer = producerFromType(action.action_type, action.ecosystem_alert_id);
   const canAct = action.status === 'pending' || action.status === 'edited';
   const awaitingClick = action.status === 'applied';
@@ -701,7 +708,7 @@ function TicketDetail({
       <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <Pill kind={STATUS_PILL[action.status] || 'n'} dot>
-            {STATUS_LABEL[action.status] ?? action.status}
+            {STATUS_LABEL_KEY[action.status] ? t(STATUS_LABEL_KEY[action.status]) : action.status}
           </Pill>
           <Pill kind="n">{producer}</Pill>
         </div>
@@ -714,7 +721,7 @@ function TicketDetail({
       </div>
 
       {action.rationale && (
-        <SideSection title="Brief">
+        <SideSection title={t('actions.section-brief')}>
           <div style={{ padding: 14, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
             {action.rationale}
           </div>
@@ -731,18 +738,18 @@ function TicketDetail({
       ) : action.action_type === 'run_skill' ? (
         // Skill kickoffs SPEND credits on approval — they get a human card
         // (what you'll get / cost / duration), never a raw JSON dump.
-        <SideSection title="Skill run · review">
+        <SideSection title={t('actions.section-skill-run')}>
           <SkillProposalReview action={action} />
         </SideSection>
       ) : (
         // Everything else: tidy key→value summary; full JSON behind the
         // pane's "view raw" toggle.
-        <SideSection title="Details">
+        <SideSection title={t('actions.section-details')}>
           <PayloadSummary payload={action.edited_payload || action.payload} />
         </SideSection>
       )}
 
-      <SideSection title={canAct || awaitingClick ? 'Human actions' : 'Outcome'}>
+      <SideSection title={canAct || awaitingClick ? t('actions.section-human-actions') : t('actions.section-outcome')}>
         <LaneAwareActions action={action} canAct={canAct} awaitingClick={awaitingClick} onTransition={onTransition} />
       </SideSection>
     </div>
@@ -768,6 +775,7 @@ function LaneAwareActions({
   awaitingClick: boolean;
   onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
 }) {
+  const t = useT();
   const lane = laneFor(action.action_type);
 
   if (!canAct && !awaitingClick) {
@@ -780,10 +788,10 @@ function LaneAwareActions({
       ? action.execution_result.response.trim()
       : '';
     const outcome = action.status === 'rejected'
-      ? 'Dismissed'
+      ? t('actions.outcome-dismissed')
       : action.status === 'failed'
-        ? 'Didn’t complete'
-        : (narrative || 'Done');
+        ? t('actions.outcome-failed')
+        : (narrative || t('actions.outcome-done'));
     return (
       <div style={{ padding: 14, fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
         {outcome}
@@ -799,7 +807,7 @@ function LaneAwareActions({
           onClick={() => onTransition(action.id, 'mark_sent')}
           style={{ ...btnGhost, justifyContent: 'flex-start', color: 'var(--moss)' }}
         >
-          <Icon d={I.check} size={12} /> Mark as sent
+          <Icon d={I.check} size={12} /> {t('actions.mark-as-sent')}
         </button>
       </div>
     );
@@ -817,10 +825,10 @@ function LaneAwareActions({
           onClick={() => onTransition(action.id, 'reject')}
           style={{ ...btnGhost, justifyContent: 'flex-start' }}
         >
-          <Icon d={I.check} size={12} /> Acknowledge
+          <Icon d={I.check} size={12} /> {t('actions.acknowledge')}
         </button>
         <div style={{ fontSize: 10.5, color: 'var(--ink-5)', padding: '4px 8px', lineHeight: 1.5 }}>
-          Notifications older than 7 days clear automatically.
+          {t('actions.notifications-auto-clear')}
         </div>
       </div>
     );
@@ -833,13 +841,13 @@ function LaneAwareActions({
           onClick={() => onTransition(action.id, 'apply')}
           style={{ ...btnGhost, justifyContent: 'flex-start', color: 'var(--moss)' }}
         >
-          <Icon d={I.check} size={12} /> Mark done
+          <Icon d={I.check} size={12} /> {t('actions.mark-done')}
         </button>
         <button
           onClick={() => onTransition(action.id, 'reject')}
           style={{ ...btnGhost, justifyContent: 'flex-start', color: 'var(--clay)' }}
         >
-          <Icon d={I.stop} size={12} /> Dismiss
+          <Icon d={I.stop} size={12} /> {t('actions.dismiss')}
         </button>
       </div>
     );
@@ -856,11 +864,11 @@ function LaneAwareActions({
   //     triage, not a judgement on a draft.
   const applyLabel =
     action.action_type === 'run_skill'
-      ? `Run skill (≈${skillCreditsFromAction(action)} credits)`
+      ? t('actions.run-skill-credits', { credits: skillCreditsFromAction(action) })
       : action.action_type === 'signal_alert'
-        ? 'Accept into knowledge'
-        : 'Apply';
-  const rejectLabel = action.action_type === 'signal_alert' ? 'Dismiss' : 'Reject';
+        ? t('actions.accept-into-knowledge')
+        : t('actions.apply');
+  const rejectLabel = action.action_type === 'signal_alert' ? t('actions.dismiss') : t('actions.reject');
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <button
@@ -912,6 +920,7 @@ function SideSection({ title, children }: { title: string; children: React.React
  * ref_id?}) — the "why" behind the watcher, rendered when present.
  */
 function MonitorProposalReview({ action }: { action: PendingAction }) {
+  const t = useT();
   const raw = action.edited_payload || action.payload || {};
   const p = (typeof raw === 'object' && raw !== null) ? raw as Record<string, unknown> : {};
 
@@ -924,7 +933,7 @@ function MonitorProposalReview({ action }: { action: PendingAction }) {
   // describe themselves via query) don't show "—" as their reason to exist.
   const objective = str(p.objective) || str(p.linked_quote) || query || '—';
   const kind = str(p.kind);
-  const schedule = str(p.schedule) || 'weekly';
+  const schedule = str(p.schedule) || t('actions.schedule-weekly');
   const urls = arr(p.urls_to_track);
   const threshold = str(p.alert_threshold);
   // Prompt is what the monitor will actually run. It's typically not on the
@@ -937,17 +946,17 @@ function MonitorProposalReview({ action }: { action: PendingAction }) {
     : [];
 
   return (
-    <SideSection title="Monitor proposal">
+    <SideSection title={t('actions.monitor-proposal')}>
       <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14, fontSize: 12.5, lineHeight: 1.5 }}>
-        <Field label="Title" value={name} />
-        <Field label="Objective" value={objective} multiline />
-        {kind && <Field label="Kind" value={kind.replace(/[_-]+/g, ' ')} />}
-        <Field label="Prompt" value={prompt || '—'} multiline mono />
-        <Field label="Schedule" value={schedule} />
-        {threshold && <Field label="Alert threshold" value={threshold} multiline />}
+        <Field label={t('actions.field-title')} value={name} />
+        <Field label={t('actions.field-objective')} value={objective} multiline />
+        {kind && <Field label={t('actions.field-kind')} value={kind.replace(/[_-]+/g, ' ')} />}
+        <Field label={t('actions.field-prompt')} value={prompt || '—'} multiline mono />
+        <Field label={t('actions.field-schedule')} value={schedule} />
+        {threshold && <Field label={t('actions.field-alert-threshold')} value={threshold} multiline />}
         {urls.length > 0 && (
           <div>
-            <FieldLabel>Tracked URLs</FieldLabel>
+            <FieldLabel>{t('actions.tracked-urls')}</FieldLabel>
             <ul style={{ margin: '4px 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
               {urls.map((u) => (
                 <li key={u} style={{ fontFamily: 'var(--f-mono)', fontSize: 11.5, color: 'var(--ink-3)', wordBreak: 'break-all' }}>
@@ -959,7 +968,7 @@ function MonitorProposalReview({ action }: { action: PendingAction }) {
         )}
         {sources.length > 0 && (
           <div>
-            <FieldLabel>Sources · why this watcher</FieldLabel>
+            <FieldLabel>{t('actions.sources-why-watcher')}</FieldLabel>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 }}>
               {sources.map((s, i) => {
                 const quote = str(s.quote);
@@ -1097,33 +1106,38 @@ function producerFromType(type: PendingActionType, ecosystemAlertId?: string | n
   return map[type] || 'unknown';
 }
 
-// Human-readable label per action_type. Replaces the old underscore-to-space
-// `humanizeActionType` which surfaced raw schema slugs like "configure monitor".
-const TYPE_LABEL: Record<PendingActionType, string> = {
-  draft_email:                  'Email draft',
-  draft_linkedin_post:          'LinkedIn post',
-  draft_linkedin_dm:            'LinkedIn DM',
-  proposed_hypothesis:          'Hypothesis',
-  proposed_interview_question:  'Interview question',
-  proposed_landing_copy:        'Landing copy',
-  proposed_investor_followup:   'Investor follow-up',
-  proposed_graph_update:        'Graph update',
-  workflow_step:                'Workflow step',
-  configure_monitor:            'New watcher',
-  configure_budget:             'Budget change',
-  configure_watch_source:       'New watcher',
-  run_skill:                    'Skill kickoff',
-  validation_proposal:          'Validation',
-  skill_rerun_result:           'Skill refresh',
-  task:                         'TODO',
+// i18n key per action_type for the human-readable type chip. Replaces the old
+// underscore-to-space label that surfaced raw schema slugs like "configure
+// monitor". Resolved via t(...) at the render site (TypeChip in InboxRow);
+// the map keys stay the raw machine action_type values.
+const TYPE_LABEL_KEY: Record<PendingActionType, MessageKey> = {
+  draft_email:                  'actions.type-email-draft',
+  draft_linkedin_post:          'actions.type-linkedin-post',
+  draft_linkedin_dm:            'actions.type-linkedin-dm',
+  proposed_hypothesis:          'actions.type-hypothesis',
+  proposed_interview_question:  'actions.type-interview-question',
+  proposed_landing_copy:        'actions.type-landing-copy',
+  proposed_investor_followup:   'actions.type-investor-followup',
+  proposed_graph_update:        'actions.type-graph-update',
+  workflow_step:                'actions.type-workflow-step',
+  configure_monitor:            'actions.type-new-watcher',
+  configure_budget:             'actions.type-budget-change',
+  configure_watch_source:       'actions.type-new-watcher',
+  run_skill:                    'actions.type-skill-kickoff',
+  validation_proposal:          'actions.type-validation',
+  skill_rerun_result:           'actions.type-skill-refresh',
+  task:                         'actions.type-todo',
   // Unified-inbox surface (Phase 1 consolidation).
-  signal_alert:                 'Signal',
-  intelligence_brief:           'Brief',
-  assumption_review:            'Assumption',
+  signal_alert:                 'actions.type-signal',
+  intelligence_brief:           'actions.type-brief',
+  assumption_review:            'actions.type-assumption',
 };
 
-function humanizeActionType(type: PendingActionType): string {
-  return TYPE_LABEL[type] ?? type.replace(/_/g, ' ');
+// Returns the i18n key for an action_type's chip label, or null when the type
+// isn't in the map (the render site falls back to the slug, which is not
+// translatable copy).
+function typeLabelKey(type: PendingActionType): MessageKey | null {
+  return TYPE_LABEL_KEY[type] ?? null;
 }
 
 function timeAgo(iso: string): string {

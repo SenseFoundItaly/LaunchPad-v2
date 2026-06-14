@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { run, get } from '@/lib/db';
 import { requireUser, AuthError } from '@/lib/auth/require-user';
+import { debitCredits, DOCUMENT_AUDIT_CREDITS } from '@/lib/credits';
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
 import { validationTargetsFor, validationLabel } from '@/lib/journey/validation-targets';
@@ -437,6 +438,11 @@ export async function POST(
   // ?extract=1 so user uploads auto-propose graph entities.
   const url = new URL(request.url);
   const shouldExtract = url.searchParams.get('extract') === '1';
+  // ?audit_charge=1 → bill a flat DOCUMENT_AUDIT_CREDITS per INGESTED document
+  // (founder decision 2026-06-14). Off by default so onboarding's first-run
+  // upload stays free; the Knowledge-page "Add documents" popup opts in. When
+  // charged, applying the surfaced entities is free (apply-batch ?skip_charge).
+  const chargeAudit = url.searchParams.get('audit_charge') === '1';
 
   let form: FormData;
   try {
@@ -556,6 +562,20 @@ export async function POST(
     );
   }
 
+  // Flat per-document audit fee (opt-in via ?audit_charge=1). Charged on what
+  // ACTUALLY ingested, so skipped files cost nothing. Best-effort like every
+  // other debit — a failed charge never unwinds the ingested documents.
+  let auditCreditsDebited = 0;
+  if (chargeAudit) {
+    const owed = ingestedCount * DOCUMENT_AUDIT_CREDITS;
+    try {
+      await debitCredits(projectId, owed, 'document_audit');
+      auditCreditsDebited = owed;
+    } catch (e) {
+      console.warn('[knowledge/upload] audit debitCredits failed:', (e as Error).message);
+    }
+  }
+
   // Canvas draft (Stage 1 evidence) + suggested watchers from the combined doc
   // text — PROPOSED, not written. The founder applies/opts-in on the populating
   // screen. Run both passes concurrently (independent, same input) so we add
@@ -612,6 +632,8 @@ export async function POST(
     spine_steps: spineSteps,
     // Suggested watchers (or []) for the founder to opt into.
     proposed_monitors: proposedMonitors,
+    // Flat audit fee actually charged (0 unless ?audit_charge=1). Per-document.
+    audit_credits_debited: auditCreditsDebited,
     results,
   }, 201);
 }

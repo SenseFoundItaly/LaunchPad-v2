@@ -17,6 +17,8 @@
 
 import { use, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from 'react';
 import api from '@/api';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 import { useChat, chatStoreHydrated, markChatHydrated } from '@/hooks/useChat';
 import { useProject } from '@/hooks/useProject';
 import { splitOptionLabel } from '@/components/chat/option-label';
@@ -24,11 +26,12 @@ import { parseMessageContent } from '@/lib/artifact-parser';
 import type { Artifact, ArtifactType, ValidationProposalArtifact } from '@/types/artifacts';
 import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
 import { Canvas } from '@/components/canvas/Canvas';
+import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import { TopBar, NavRail } from '@/components/design/chrome';
 // CreditsBadge is now mounted globally inside TopBar (see chrome.tsx) so we
 // don't import or insert it here. The `right` slot below only carries the
 // chat-specific controls (model picker, context export).
-import { useOpenActionCount } from '@/hooks/useOpenActionCount';
+import { useSetChrome } from '@/components/design/chrome-context';
 import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
 import { checkActionPrompt } from '@/lib/journey-prompts';
 import { buildContextMarkdown } from '@/lib/context-export';
@@ -121,6 +124,7 @@ function ContextExportBtn({
   artifacts: Artifact[];
   disabled?: boolean;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -193,14 +197,14 @@ function ContextExportBtn({
     setOpen(false);
     const data = await gatherData();
     const md = buildContextMarkdown(data);
-    openPrintPreview(`${project?.name || 'Context'}`, md);
+    openPrintPreview(`${project?.name || t('chat.context-export-title')}`, md);
   }
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <IconBtn
         d={I.download}
-        title="Export context"
+        title={t('chat.export-context')}
         onClick={() => setOpen((v) => !v)}
         style={disabled ? { opacity: 0.4, pointerEvents: 'none' } : undefined}
       />
@@ -241,7 +245,7 @@ function ContextExportBtn({
             onMouseLeave={(e) => { (e.currentTarget.style.background = 'transparent'); }}
           >
             <Icon d={I.download} size={14} stroke={1.4} />
-            Download .md
+            {t('chat.download-md')}
           </button>
           <button
             type="button"
@@ -264,7 +268,7 @@ function ContextExportBtn({
             onMouseLeave={(e) => { (e.currentTarget.style.background = 'transparent'); }}
           >
             <Icon d={I.printer} size={14} stroke={1.4} />
-            Print / PDF
+            {t('chat.print-pdf')}
           </button>
         </div>
       )}
@@ -278,6 +282,7 @@ export default function CopilotChatPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
+  const t = useT();
   const { project } = useProject(projectId);
   // One project = one chat. The chat_messages.step column is fixed to 'chat'
   // (multi-thread routing was removed — see commit history).
@@ -290,7 +295,11 @@ export default function CopilotChatPage({
   const scrollRef = useRef<HTMLDivElement>(null);
   // Turn-linked canvas: which chat message is hovered (null = none).
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
-  const { count: inboxBadge } = useOpenActionCount(projectId);
+  // "Audit document → knowledge" popup, opened from the composer "+" menu. Runs
+  // the same priced extract→apply pipeline as the Knowledge page (a flat per-
+  // document audit fee, then free apply) — so a doc dropped in chat reaches the
+  // knowledge graph the same way a project-start doc does.
+  const [showAddDocs, setShowAddDocs] = useState(false);
 
   // --- Message paging -------------------------------------------------------
   // Render only the trailing VISIBLE_MESSAGE_TAIL messages by default; the
@@ -839,51 +848,53 @@ export default function CopilotChatPage({
     }
   }
 
+  useSetChrome(
+    {
+      breadcrumb: [project?.name || '', t('chat.breadcrumb-copilot')],
+      right: (
+        <>
+          {(project as { access_kind?: string } | null)?.access_kind === 'member' && (
+            <span
+              className="lp-mono"
+              title={
+                (project as { owner_email?: string | null } | null)?.owner_email
+                  ? t('chat.shared-by', { email: (project as { owner_email: string }).owner_email })
+                  : t('chat.shared-with-you')
+              }
+              style={{
+                fontSize: 10,
+                color: 'var(--accent-ink)',
+                background: 'var(--accent-wash)',
+                padding: '2px 7px',
+                borderRadius: 999,
+                letterSpacing: 0.3,
+                textTransform: 'uppercase',
+              }}
+            >
+              {t('chat.shared')}{(project as { owner_email?: string | null } | null)?.owner_email
+                ? ` · ${(project as { owner_email: string }).owner_email}`
+                : ''}
+            </span>
+          )}
+          {isStreaming && <Pill kind="live" dot>{t('chat.streaming')}</Pill>}
+          <ContextExportBtn
+            projectId={projectId}
+            project={project}
+            messages={messages}
+            artifacts={canvasArtifacts}
+            disabled={isStreaming}
+          />
+        </>
+      ),
+      status: { heartbeatLabel: isStreaming ? t('chat.status-streaming') : t('chat.status-idle') },
+      chatStreaming: isStreaming,
+    },
+    [project, isStreaming, messages, canvasArtifacts],
+  );
+
   return (
-    <div className="lp-frame">
-      <TopBar
-        projectId={projectId}
-        breadcrumb={[project?.name || '', 'Co-pilot']}
-        right={
-          <>
-            {(project as { access_kind?: string } | null)?.access_kind === 'member' && (
-              <span
-                className="lp-mono"
-                title={
-                  (project as { owner_email?: string | null } | null)?.owner_email
-                    ? `Shared by ${(project as { owner_email?: string | null }).owner_email}`
-                    : 'Shared with you'
-                }
-                style={{
-                  fontSize: 10,
-                  color: 'var(--accent-ink)',
-                  background: 'var(--accent-wash)',
-                  padding: '2px 7px',
-                  borderRadius: 999,
-                  letterSpacing: 0.3,
-                  textTransform: 'uppercase',
-                }}
-              >
-                Shared{(project as { owner_email?: string | null } | null)?.owner_email
-                  ? ` · ${(project as { owner_email: string }).owner_email}`
-                  : ''}
-              </span>
-            )}
-            {isStreaming && <Pill kind="live" dot>streaming</Pill>}
-            <ContextExportBtn
-              projectId={projectId}
-              project={project}
-              messages={messages}
-              artifacts={canvasArtifacts}
-              disabled={isStreaming}
-            />
-          </>
-        }
-      />
-
+    <>
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <NavRail projectId={projectId} current="chat" inboxBadge={inboxBadge} chatStreaming={isStreaming} />
-
         {/* Chat column */}
         <div
           style={{
@@ -895,7 +906,7 @@ export default function CopilotChatPage({
             background: 'var(--paper)',
           }}
         >
-          <ChatHeader project={project} locale={locale} projectId={projectId} />
+          <ChatHeader project={project} projectId={projectId} />
 
           <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <div
@@ -906,11 +917,10 @@ export default function CopilotChatPage({
             >
               {!historyLoaded && messages.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--ink-5)', padding: 20, textAlign: 'center' }}>
-                  Loading history…
+                  {t('chat.loading-history')}
                 </div>
               ) : messages.length === 0 ? (
                 <ChatEmptyState
-                  locale={locale}
                   projectId={projectId}
                   onPick={(s) => setInput(s)}
                 />
@@ -934,9 +944,7 @@ export default function CopilotChatPage({
                         cursor: 'pointer',
                       }}
                     >
-                      {locale === 'it'
-                        ? `Mostra conversazione precedente (${hiddenCount} in più)`
-                        : `Show earlier conversation (${hiddenCount} more)`}
+                      {t('chat.show-earlier', { count: hiddenCount })}
                     </button>
                   )}
                   {visibleMessages.map((m) => (
@@ -971,7 +979,7 @@ export default function CopilotChatPage({
               <button
                 type="button"
                 onClick={jumpToLatest}
-                title={locale === 'it' ? 'Vai all\'ultimo messaggio' : 'Scroll to the latest message'}
+                title={t('chat.jump-to-latest-title')}
                 style={{
                   position: 'absolute',
                   bottom: 14,
@@ -993,7 +1001,7 @@ export default function CopilotChatPage({
                 }}
               >
                 <Icon d={I.arrow} size={11} style={{ transform: 'rotate(90deg)' }} />
-                {locale === 'it' ? 'Vai all\'ultimo' : 'Jump to latest'}
+                {t('chat.jump-to-latest')}
               </button>
             )}
           </div>
@@ -1012,6 +1020,7 @@ export default function CopilotChatPage({
                 return prev ? `${prev}\n${block}` : block;
               })
             }
+            onAuditDocs={() => setShowAddDocs(true)}
           />
         </div>
 
@@ -1055,10 +1064,22 @@ export default function CopilotChatPage({
         </div>
       </div>
 
-      {/* Slimmed (2026-06): streaming/idle only — the artifact count and tz
-          segments were founder-facing noise. */}
-      <StatusBar heartbeatLabel={isStreaming ? 'streaming' : 'idle'} />
-    </div>
+      {showAddDocs && (
+        <AddDocumentsDialog
+          projectId={projectId}
+          onClose={() => setShowAddDocs(false)}
+          onApplied={(_applied, creditsDebited) => {
+            // Same event contract the chat page uses elsewhere ({ detail }), so
+            // the Knowledge graph / credits badge refresh without a reload.
+            window.dispatchEvent(new CustomEvent('lp-knowledge-changed', { detail: { projectId } }));
+            if (creditsDebited > 0) {
+              window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
+            }
+          }}
+        />
+      )}
+
+    </>
   );
 }
 
@@ -1068,15 +1089,13 @@ export default function CopilotChatPage({
 
 function ChatHeader({
   project,
-  locale,
   projectId,
 }: {
   project: unknown;
-  locale: 'en' | 'it';
   projectId: string;
 }) {
   const p = project as { name?: string; description?: string } | null;
-  const subtitle = useCurrentSubtask(projectId, locale);
+  const subtitle = useCurrentSubtask(projectId);
   return (
     <div style={{ padding: '14px 20px 12px', borderBottom: '1px solid var(--line)' }}>
       <h2
@@ -1104,7 +1123,8 @@ function ChatHeader({
 // lp-actions-changed so it advances as substeps clear (same signal SpineSection
 // uses). Returns null while loading / when nothing is active, so the header
 // shows no stale placeholder.
-function useCurrentSubtask(projectId: string, locale: 'en' | 'it'): string | null {
+function useCurrentSubtask(projectId: string): string | null {
+  const t = useT();
   const [subtitle, setSubtitle] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -1123,17 +1143,15 @@ function useCurrentSubtask(projectId: string, locale: 'en' | 'it'): string | nul
         if (!active) {
           // No active stage: either nothing started or everything's validated.
           const allDone = evals.length > 0 && evals.every((e) => e.status === 'done');
-          setSubtitle(allDone ? (locale === 'it' ? 'Tutte le tappe validate' : 'All stages validated') : null);
+          setSubtitle(allDone ? t('chat.subtask-all-validated') : null);
           return;
         }
         const openCheck = active.results.find((r) => !r.result.passed);
         if (openCheck) {
-          setSubtitle(
-            (locale === 'it' ? 'In validazione · ' : 'Validating · ') + openCheck.check.label,
-          );
+          setSubtitle(t('chat.subtask-validating', { label: openCheck.check.label }));
         } else {
           // Active stage with every substep passed — about to advance.
-          setSubtitle(active.stage.label + (locale === 'it' ? ' · pronto ad avanzare' : ' · ready to advance'));
+          setSubtitle(t('chat.subtask-ready-to-advance', { label: active.stage.label }));
         }
       } catch {
         /* leave whatever was there; non-fatal */
@@ -1146,7 +1164,7 @@ function useCurrentSubtask(projectId: string, locale: 'en' | 'it'): string | nul
       cancelled = true;
       window.removeEventListener('lp-actions-changed', handler);
     };
-  }, [projectId, locale]);
+  }, [projectId, t]);
   return subtitle;
 }
 
@@ -1159,14 +1177,13 @@ interface EmptyStateStage {
 }
 
 function ChatEmptyState({
-  locale,
   projectId,
   onPick,
 }: {
-  locale: 'en' | 'it';
   projectId: string;
   onPick: (s: string) => void;
 }) {
+  const t = useT();
   const [evals, setEvals] = useState<EmptyStateStage[]>([]);
   const [loaded, setLoaded] = useState(false);
   const { count: knowledgeCount } = useKnowledgeCount(projectId);
@@ -1210,14 +1227,26 @@ function ChatEmptyState({
   // ── Briefing: the project already has extracted / validated state ──────────
   if (loaded && hasProgress) {
     const briefParts: string[] = [];
-    if (doneStages.length > 0) briefParts.push(`${doneStages.length} stage${doneStages.length === 1 ? '' : 's'} validated`);
-    if (active) briefParts.push(`${active.stage.label} in progress (${active.passed}/${active.total})`);
-    if (knowledgeCount > 0) briefParts.push(`${knowledgeCount} knowledge entit${knowledgeCount === 1 ? 'y' : 'ies'}`);
+    if (doneStages.length > 0) {
+      briefParts.push(
+        doneStages.length === 1
+          ? t('chat.brief-stages-validated-one', { count: doneStages.length })
+          : t('chat.brief-stages-validated-other', { count: doneStages.length }),
+      );
+    }
+    if (active) briefParts.push(t('chat.brief-stage-in-progress', { label: active.stage.label, passed: active.passed, total: active.total }));
+    if (knowledgeCount > 0) {
+      briefParts.push(
+        knowledgeCount === 1
+          ? t('chat.brief-knowledge-entities-one', { count: knowledgeCount })
+          : t('chat.brief-knowledge-entities-other', { count: knowledgeCount }),
+      );
+    }
 
     return (
       <div style={{ padding: '10px 0' }}>
         <p style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 0, marginBottom: 4, lineHeight: 1.5, fontWeight: 500 }}>
-          {locale === 'it' ? 'Ecco a che punto sei — ho letto quello che hai aggiunto:' : "Here's where your project stands — I've read what you've added:"}
+          {t('chat.empty-briefing-intro')}
         </p>
         {briefParts.length > 0 && (
           <p className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)', margin: '0 0 14px', lineHeight: 1.5 }}>
@@ -1227,7 +1256,7 @@ function ChatEmptyState({
         {openChecks.length > 0 ? (
           <>
             <p style={{ fontSize: 11.5, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, fontFamily: 'var(--f-mono)', margin: '0 0 8px' }}>
-              {locale === 'it' ? 'Prossimi passi consigliati' : 'Recommended next steps'}
+              {t('chat.recommended-next-steps')}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {openChecks.slice(0, 4).map((c) => (
@@ -1242,7 +1271,7 @@ function ChatEmptyState({
           </>
         ) : (
           <p style={{ fontSize: 12.5, color: 'var(--ink-4)' }}>
-            {locale === 'it' ? 'Tutto validato in questa tappa — chiedimi di passare alla prossima.' : "This stage is fully validated — ask me to move to the next one."}
+            {t('chat.stage-fully-validated')}
           </p>
         )}
       </div>
@@ -1250,16 +1279,16 @@ function ChatEmptyState({
   }
 
   // ── Fresh project (no substance yet): early-stage starter prompts ──────────
-  const prompts = locale === 'it'
-    ? ['Aiutami a strutturare la mia idea', 'Chi sono i miei competitor?', 'Cosa dovrei validare per primo?']
-    : ['Help me structure my idea', 'Who are my competitors?', 'What should I validate first?'];
+  const prompts = [
+    t('chat.starter-structure-idea'),
+    t('chat.starter-competitors'),
+    t('chat.starter-validate-first'),
+  ];
 
   return (
     <div style={{ padding: '10px 0' }}>
       <p style={{ fontSize: 13, color: 'var(--ink-4)', marginTop: 0, marginBottom: 14, lineHeight: 1.5 }}>
-        {locale === 'it'
-          ? 'Chiedi al co-pilot qualsiasi cosa sul tuo progetto. Ho accesso a metriche, ecosystem alert, inbox e knowledge graph.'
-          : 'Ask your co-pilot anything about your project. I have access to metrics, ecosystem alerts, inbox, and the knowledge graph.'}
+        {t('chat.empty-fresh-intro')}
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {prompts.map((p) => (
@@ -1308,6 +1337,7 @@ function Msg({
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }) {
+  const t = useT();
   const [toolsExpanded, setToolsExpanded] = useState(false);
 
   if (who === 'user') {
@@ -1357,7 +1387,7 @@ function Msg({
         >
           {agent.slice(0, 2).toUpperCase()}
         </span>
-        {streaming && <Pill kind="live" dot>streaming</Pill>}
+        {streaming && <Pill kind="live" dot>{t('chat.streaming')}</Pill>}
       </div>
       {tools && tools.length === 1 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
@@ -1394,10 +1424,10 @@ function Msg({
             }}
             onClick={() => setToolsExpanded(true)}
           >
-            {tools.some((t) => t.status === 'running') && (
+            {tools.some((tool) => tool.status === 'running') && (
               <span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />
             )}
-            Using {tools.length} tools…
+            {t('chat.using-tools', { count: tools.length })}
           </span>
         </div>
       )}
@@ -1431,7 +1461,7 @@ function Msg({
             style={{ background: 'var(--paper-2)', color: 'var(--ink-4)', cursor: 'pointer' }}
             onClick={() => setToolsExpanded(false)}
           >
-            collapse
+            {t('chat.tools-collapse')}
           </span>
         </div>
       )}
@@ -1598,6 +1628,7 @@ function QuickReplies({
   rawContent: string;
   onReply?: (text: string) => void;
 }) {
+  const t = useT();
   const [dismissed, setDismissed] = useState(false);
   if (dismissed || !onReply) return null;
 
@@ -1609,14 +1640,14 @@ function QuickReplies({
 
   const chips = hasQuestion
     ? [
-      'Give me 3 concrete examples to choose from',
-      'Help me think through this step by step',
-      'Move on — I will figure this out later',
+      t('chat.quick-reply-examples'),
+      t('chat.quick-reply-step-by-step'),
+      t('chat.quick-reply-move-on'),
     ]
     : [
-      'What should I prioritize first?',
-      'Where are the biggest risks?',
-      'Give me a concrete next step',
+      t('chat.quick-reply-prioritize'),
+      t('chat.quick-reply-risks'),
+      t('chat.quick-reply-next-step'),
     ];
 
   return (
@@ -1664,6 +1695,7 @@ function InlineArtifact({
   artifact: Artifact;
   onAction?: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
 }) {
+  const t = useT();
   const a = artifact as unknown as Record<string, unknown>;
 
   if (artifact.type === 'option-set' && Array.isArray(a.options)) {
@@ -1731,7 +1763,7 @@ function InlineArtifact({
                       textOverflow: 'ellipsis',
                     }}
                   >
-                    {split.label || `Option ${i + 1}`}
+                    {split.label || t('chat.option-fallback', { n: i + 1 })}
                   </span>
                   {/* Per-option credit estimate — what this choice spends. */}
                   {typeof o.credits === 'number' && o.credits > 0 && (
@@ -1744,7 +1776,7 @@ function InlineArtifact({
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      ≈{o.credits} {o.credits === 1 ? 'credit' : 'credits'}
+                      ≈{o.credits} {o.credits === 1 ? t('chat.credit') : t('chat.credits')}
                     </span>
                   )}
                 </div>
@@ -1775,7 +1807,7 @@ function InlineArtifact({
   if (artifact.type === 'action-suggestion') {
     const title = String(a.title || '—');
     const description = typeof a.description === 'string' ? a.description : '';
-    const cta = typeof a.action_label === 'string' ? a.action_label : 'Run';
+    const cta = typeof a.action_label === 'string' ? a.action_label : t('chat.run');
     return (
       <div
         style={{
@@ -1864,9 +1896,10 @@ function SkillSuggestionCard({
   artifact: Artifact;
   onAction?: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
 }) {
+  const t = useT();
   const a = artifact as unknown as Record<string, unknown>;
   const skillId = typeof a.skill_id === 'string' ? a.skill_id : '';
-  const label = typeof a.skill_label === 'string' && a.skill_label ? a.skill_label : (skillId || 'Skill');
+  const label = typeof a.skill_label === 'string' && a.skill_label ? a.skill_label : (skillId || t('chat.skill-fallback'));
   const rationale = typeof a.rationale === 'string' ? a.rationale : '';
   const credits = typeof a.credits === 'number' ? a.credits : null;
   const context = typeof a.context === 'string' ? a.context : '';
@@ -1882,15 +1915,15 @@ function SkillSuggestionCard({
       setState('done');
     } catch (e) {
       setState('error');
-      setErrMsg(e instanceof Error ? e.message : 'Run failed');
+      setErrMsg(e instanceof Error ? e.message : t('chat.run-failed'));
     }
   };
 
   const btnLabel =
-    state === 'running' ? 'Running…' :
-    state === 'done' ? 'Done' :
-    state === 'error' ? 'Retry' :
-    credits != null ? `Run (≈${credits} credits)` : 'Run';
+    state === 'running' ? t('chat.running') :
+    state === 'done' ? t('common.done') :
+    state === 'error' ? t('common.retry') :
+    credits != null ? t('chat.run-with-credits', { credits }) : t('chat.run');
 
   // Inline, NOT a separate bordered section: the skill CTA flows within the
   // assistant's message (founder directive 2026-06-11 — "should not render as
@@ -1922,7 +1955,7 @@ function SkillSuggestionCard({
           {label}
           {state === 'idle' && credits != null && (
             <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--ink-5)', fontWeight: 400 }}>
-              ≈{credits} credits
+              ≈{credits} {t('chat.credits')}
             </span>
           )}
         </span>
@@ -1932,12 +1965,12 @@ function SkillSuggestionCard({
       )}
       {state === 'running' && (
         <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-          Running in real time — this writes validation evidence when it finishes.
+          {t('chat.skill-running-note')}
         </div>
       )}
       {state === 'done' && (
         <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-          Skill ran — readiness and the spine have been updated.
+          {t('chat.skill-done-note')}
         </div>
       )}
       {state === 'error' && errMsg && (
@@ -1962,6 +1995,7 @@ function KnowledgeSuggestionCard({
   artifact: Artifact;
   onAction?: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
 }) {
+  const t = useT();
   const a = artifact as unknown as Record<string, unknown>;
   const fact = typeof a.fact === 'string' ? a.fact : '';
   const kind = typeof a.kind === 'string' ? a.kind : 'observation';
@@ -1979,17 +2013,17 @@ function KnowledgeSuggestionCard({
       setState('done');
     } catch (e) {
       setState('error');
-      setErrMsg(e instanceof Error ? e.message : 'Apply failed');
+      setErrMsg(e instanceof Error ? e.message : t('chat.apply-failed'));
     }
   };
 
   if (!fact) return null;
 
   const btnLabel =
-    state === 'applying' ? 'Applying…' :
-    state === 'done' ? 'Applied ✓' :
-    state === 'error' ? 'Retry' :
-    `Apply to intelligence · ${credits} credits`;
+    state === 'applying' ? t('chat.applying') :
+    state === 'done' ? t('chat.applied') :
+    state === 'error' ? t('common.retry') :
+    t('chat.apply-to-intelligence', { credits });
 
   return (
     <div
@@ -2007,7 +2041,7 @@ function KnowledgeSuggestionCard({
         <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.4 }}>{fact}</div>
         {state === 'done' && (
           <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4 }}>
-            Saved to project intelligence.
+            {t('chat.saved-to-intelligence')}
           </div>
         )}
         {state === 'error' && errMsg && (
@@ -2045,11 +2079,11 @@ function KnowledgeSuggestionCard({
 // description (.lp-md), three actions — Mark done / Snooze / Dismiss.
 // Resolves to /api/projects/[projectId]/tasks/[clientArtifactId] via
 // handleArtifactAction.
-const TASK_PRIORITY_STYLES: Record<string, { bg: string; fg: string; label: string }> = {
-  critical: { bg: 'var(--clay)',     fg: 'var(--on-accent)', label: 'Critical' },
-  high:     { bg: 'var(--accent)',   fg: 'var(--ink)',       label: 'High' },
-  medium:   { bg: 'var(--sky)',      fg: 'var(--on-accent)', label: 'Medium' },
-  low:      { bg: 'var(--paper-3)',  fg: 'var(--ink-3)',  label: 'Low' },
+const TASK_PRIORITY_STYLES: Record<string, { bg: string; fg: string; labelKey: MessageKey }> = {
+  critical: { bg: 'var(--clay)',     fg: 'var(--on-accent)', labelKey: 'chat.priority-critical' },
+  high:     { bg: 'var(--accent)',   fg: 'var(--ink)',       labelKey: 'chat.priority-high' },
+  medium:   { bg: 'var(--sky)',      fg: 'var(--on-accent)', labelKey: 'chat.priority-medium' },
+  low:      { bg: 'var(--paper-3)',  fg: 'var(--ink-3)',     labelKey: 'chat.priority-low' },
 };
 
 /**
@@ -2073,6 +2107,7 @@ function TaskCard({
   artifact: Artifact;
   onAction?: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
 }) {
+  const t = useT();
   const a = artifact as unknown as Record<string, unknown>;
   const title = typeof a.title === 'string' ? a.title : '—';
   const description = typeof a.description === 'string' ? a.description : '';
@@ -2132,7 +2167,7 @@ function TaskCard({
   }
 
   if (state === 'done' || state === 'dismissed') {
-    const verb = state === 'done' ? 'Marked done' : 'Dismissed';
+    const verb = state === 'done' ? t('chat.task-marked-done') : t('chat.task-dismissed');
     return (
       <div
         style={{
@@ -2175,7 +2210,7 @@ function TaskCard({
             flexShrink: 0,
           }}
         >
-          {style.label}
+          {t(style.labelKey)}
         </span>
         <div className="lp-serif" style={{ fontSize: 13.5, lineHeight: 1.35, color: 'var(--ink)', flex: 1 }}>
           {title}
@@ -2192,7 +2227,7 @@ function TaskCard({
               flexShrink: 0,
               background: 'var(--paper-2)',
             }}
-            title="Estimated effort"
+            title={t('chat.estimated-effort')}
           >
             ~ {expansion.estimated_effort}
           </span>
@@ -2205,17 +2240,17 @@ function TaskCard({
       )}
       {due && (
         <div style={{ fontSize: 11, color: 'var(--ink-5)', marginBottom: 8, fontFamily: 'var(--f-mono)' }}>
-          due · {due}
+          {t('chat.task-due', { due })}
         </div>
       )}
       {state === 'snoozed' && (
         <div style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic', marginBottom: 6 }}>
-          Snoozed for 24h.
+          {t('chat.task-snoozed')}
         </div>
       )}
       {state === 'expanding' && (
         <div style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic', marginBottom: 6 }}>
-          Expanding plan…
+          {t('chat.task-expanding')}
         </div>
       )}
       {state === 'error' && errorMsg && (
@@ -2295,7 +2330,7 @@ function TaskCard({
           {expansion.references && expansion.references.length > 0 && (
             <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {expansion.references.map((r, i) => {
-                const label = r?.title ?? r?.url ?? `ref ${i + 1}`;
+                const label = r?.title ?? r?.url ?? t('chat.task-ref-fallback', { n: i + 1 });
                 const isLink = typeof r?.url === 'string' && r.url.length > 0;
                 const chipStyle: React.CSSProperties = {
                   fontSize: 10,
@@ -2338,7 +2373,7 @@ function TaskCard({
             opacity: state === 'pending' || state === 'expanding' ? 0.6 : 1,
           }}
         >
-          Mark done
+          {t('chat.task-mark-done')}
         </button>
         {canExpand && (
           <button
@@ -2347,7 +2382,7 @@ function TaskCard({
             // a busy signal here. Plain boolean to avoid a TS narrowing issue.
             disabled={(state as string) === 'pending'}
             onClick={() => trigger('expand')}
-            title="Ask the agent to break this down into subtasks"
+            title={t('chat.task-expand-title')}
             style={{
               padding: '6px 10px',
               borderRadius: 'var(--r-m)',
@@ -2359,7 +2394,7 @@ function TaskCard({
               fontFamily: 'inherit',
             }}
           >
-            Expand
+            {t('chat.task-expand')}
           </button>
         )}
         <button
@@ -2377,7 +2412,7 @@ function TaskCard({
             fontFamily: 'inherit',
           }}
         >
-          Snooze
+          {t('chat.task-snooze')}
         </button>
         <button
           type="button"
@@ -2394,7 +2429,7 @@ function TaskCard({
             fontFamily: 'inherit',
           }}
         >
-          Dismiss
+          {t('chat.task-dismiss')}
         </button>
       </div>
     </div>
@@ -2418,6 +2453,7 @@ function MsgActions({
   onRetry?: (content: string) => void;
   align: 'left' | 'right';
 }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -2445,7 +2481,7 @@ function MsgActions({
       <button
         type="button"
         onClick={handleCopy}
-        title={copied ? 'Copied' : 'Copy message'}
+        title={copied ? t('chat.copied') : t('chat.copy-message')}
         className="lp-msg-action-btn"
         style={{
           display: 'inline-flex',
@@ -2465,12 +2501,12 @@ function MsgActions({
         {copied ? (
           <>
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-            Copied
+            {t('chat.copied')}
           </>
         ) : (
           <>
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
-            Copy
+            {t('common.copy')}
           </>
         )}
       </button>
@@ -2478,7 +2514,7 @@ function MsgActions({
         <button
           type="button"
           onClick={() => onRetry(content)}
-          title="Resend this message"
+          title={t('chat.resend-message')}
           className="lp-msg-action-btn"
           style={{
             display: 'inline-flex',
@@ -2496,7 +2532,7 @@ function MsgActions({
           }}
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7" /><polyline points="21 3 21 9 15 9" /></svg>
-          Retry
+          {t('common.retry')}
         </button>
       )}
     </div>
@@ -2512,6 +2548,7 @@ function ChatComposer({
   locale,
   onInsertTemplate,
   onAttachText,
+  onAuditDocs,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -2521,28 +2558,26 @@ function ChatComposer({
   locale: 'en' | 'it';
   onInsertTemplate?: (text: string) => void;
   onAttachText?: (name: string, body: string) => void;
+  /** Opens the priced "audit document → knowledge" popup (distinct from the
+   *  inline text attach above, which just pastes file text into the message). */
+  onAuditDocs?: () => void;
 }) {
+  const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const templates = locale === 'it'
-    ? [
-      { label: 'Riassumi le mie metriche', text: 'Riassumi le metriche chiave del progetto e identifica i 3 segnali più importanti questa settimana.' },
-      { label: 'Analizza un competitor', text: 'Aiutami ad analizzare un competitor: chi è, cosa offre, come si differenzia da noi.' },
-      { label: 'Pianifica esperimenti ICP', text: 'Proponi 3 esperimenti rapidi (≤7 giorni) per validare il mio ICP.' },
-    ]
-    : [
-      { label: 'Summarize my metrics', text: 'Summarize my project key metrics and surface the 3 most important signals from this week.' },
-      { label: 'Analyze a competitor', text: 'Help me analyze a competitor: who they are, what they sell, how they differ from us.' },
-      { label: 'Plan ICP experiments', text: 'Propose 3 quick experiments (≤7 days) to validate my ICP.' },
-    ];
+  const templates = [
+    { label: t('chat.template-metrics-label'), text: t('chat.template-metrics-text') },
+    { label: t('chat.template-competitor-label'), text: t('chat.template-competitor-text') },
+    { label: t('chat.template-icp-label'), text: t('chat.template-icp-text') },
+  ];
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     e.target.value = '';
     if (!f) return;
     if (f.size > 200 * 1024) {
-      alert(locale === 'it' ? 'File troppo grande (max 200KB).' : 'File too large (max 200KB).');
+      alert(t('chat.file-too-large'));
       return;
     }
     const reader = new FileReader();
@@ -2568,7 +2603,7 @@ function ChatComposer({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={locale === 'it' ? 'Chiedi al co-pilot…' : 'Ask the co-pilot…'}
+          placeholder={t('chat.composer-placeholder')}
           rows={2}
           disabled={disabled}
           style={{
@@ -2600,6 +2635,7 @@ function ChatComposer({
                 onClose={() => setMenuOpen(false)}
                 onInsertTemplate={onInsertTemplate}
                 onAttach={() => fileInputRef.current?.click()}
+                onAuditDocs={onAuditDocs}
               />
             )}
             <input
@@ -2669,12 +2705,14 @@ function ComposerMenu({
   onClose,
   onInsertTemplate,
   onAttach,
+  onAuditDocs,
 }: {
   locale: 'en' | 'it';
   templates: { label: string; text: string }[];
   onClose: () => void;
   onInsertTemplate?: (text: string) => void;
   onAttach: () => void;
+  onAuditDocs?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -2761,9 +2799,24 @@ function ComposerMenu({
       >
         {locale === 'it' ? 'Allega file…' : 'Attach file…'}
         <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--ink-5)' }}>
-          .txt .md .csv .json
+          {locale === 'it' ? 'testo nel messaggio' : 'text into message'}
         </span>
       </button>
+      {onAuditDocs && (
+        <button
+          type="button"
+          style={itemStyle}
+          onClick={() => {
+            onAuditDocs();
+            onClose();
+          }}
+        >
+          {locale === 'it' ? 'Analizza documento → knowledge…' : 'Audit document → knowledge…'}
+          <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--ink-5)' }}>
+            {locale === 'it' ? 'PDF · estrae entità' : 'PDF · extracts entities'}
+          </span>
+        </button>
+      )}
     </div>
   );
 }

@@ -29,6 +29,8 @@ import { Icon, I, type IconKey } from './icons';
 import { ShareButton } from '@/components/project/ShareButton';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 
 // =============================================================================
 // TopBar — 38px, brand mark + breadcrumbs + right slot
@@ -112,19 +114,20 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
 interface NavItem {
   id: string;
   iconKey: IconKey;
-  label: string;
+  /** i18n key for the micro label — resolved via useT() at render. */
+  labelKey: MessageKey;
   /** Path segment after /project/{id}/ — e.g. 'dashboard', 'chat' */
   route: string;
   /** If true, highlight when pathname segment matches `route` loosely */
   fuzzy?: boolean;
-  /** Longer hover tooltip. Falls back to `label` when omitted. */
-  tooltip?: string;
+  /** i18n key for the longer hover tooltip. Falls back to label when omitted. */
+  tooltipKey?: MessageKey;
 }
 
 // Primary nav — the project landing surface (project stage + todos + signal log).
 const PRIMARY_ITEMS: NavItem[] = [
-  { id: 'dashboard', iconKey: 'home', label: 'Home', route: 'today',
-    tooltip: 'Dashboard — project stage, todos, and signal log' },
+  { id: 'dashboard', iconKey: 'home', labelKey: 'nav.home', route: 'today',
+    tooltipKey: 'nav.home.tooltip' },
 ];
 
 // Channels — cross-cutting activity surfaces shown below the divider.
@@ -132,12 +135,12 @@ const PRIMARY_ITEMS: NavItem[] = [
 // signal_alert + intelligence_brief now materialize into the Inbox, so the
 // channel is collapsed into the single proposal queue.
 const CHANNEL_ITEMS: NavItem[] = [
-  { id: 'inbox',     iconKey: 'tickets', label: 'Inbox',     route: 'actions',
-    tooltip: 'Inbox — proposals: tasks, drafts, signals, briefs' },
-  { id: 'knowledge', iconKey: 'book',    label: 'Know',      route: 'knowledge',
-    tooltip: 'Knowledge — graph, facts, uploads' },
-  { id: 'chat',      iconKey: 'chat',    label: 'Co-pilot',  route: 'chat',
-    tooltip: 'Co-pilot — chat + a single-scroll Canvas of everything it produces' },
+  { id: 'inbox',     iconKey: 'tickets', labelKey: 'nav.inbox',     route: 'actions',
+    tooltipKey: 'nav.inbox.tooltip' },
+  { id: 'knowledge', iconKey: 'book',    labelKey: 'nav.knowledge', route: 'knowledge',
+    tooltipKey: 'nav.knowledge.tooltip' },
+  { id: 'chat',      iconKey: 'chat',    labelKey: 'nav.copilot',   route: 'chat',
+    tooltipKey: 'nav.copilot.tooltip' },
 ];
 
 export interface NavRailProps {
@@ -152,6 +155,7 @@ export interface NavRailProps {
 
 export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRailProps) {
   const pathname = usePathname() || '';
+  const t = useT();
   // Self-fetched (cached + shared across pages) so the "Know" count shows on
   // every surface without each page having to thread it down as a prop.
   const { count: knowledgeCount } = useKnowledgeCount(projectId);
@@ -179,6 +183,8 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
         <NavRailItem
           key={it.id}
           item={it}
+          label={t(it.labelKey)}
+          tooltip={it.tooltipKey ? t(it.tooltipKey) : undefined}
           projectId={projectId}
           active={isActive(it)}
         />
@@ -199,6 +205,8 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
         <NavRailItem
           key={it.id}
           item={it}
+          label={t(it.labelKey)}
+          tooltip={it.tooltipKey ? t(it.tooltipKey) : undefined}
           projectId={projectId}
           active={isActive(it)}
           badge={it.id === 'inbox' ? inboxBadge : it.id === 'knowledge' ? knowledgeCount : undefined}
@@ -212,7 +220,7 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
       {/* User chip — links to /settings for BYOK + model preferences */}
       <Link
         href="/settings"
-        title="Settings"
+        title={t('nav.settings')}
         style={{
           width: 28,
           height: 28,
@@ -236,12 +244,12 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
   );
 }
 
-function NavRailItem({ item, projectId, active, badge, badgeTone = 'alert', streaming }: { item: NavItem; projectId: string; active: boolean; badge?: number; badgeTone?: 'alert' | 'count'; streaming?: boolean }) {
+function NavRailItem({ item, label, tooltip, projectId, active, badge, badgeTone = 'alert', streaming }: { item: NavItem; label: string; tooltip?: string; projectId: string; active: boolean; badge?: number; badgeTone?: 'alert' | 'count'; streaming?: boolean }) {
   const isCount = badgeTone === 'count';
   return (
     <Link
       href={`/project/${projectId}/${item.route}`}
-      title={item.tooltip ?? item.label}
+      title={tooltip ?? label}
       style={{
         width: 42,
         padding: '8px 0',
@@ -307,7 +315,7 @@ function NavRailItem({ item, projectId, active, badge, badgeTone = 'alert', stre
           textTransform: 'uppercase',
         }}
       >
-        {item.label}
+        {label}
       </span>
     </Link>
   );

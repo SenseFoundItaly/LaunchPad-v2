@@ -291,7 +291,7 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
     let creditsNote = '';
     if (wasPending) {
       try {
-        await debitCredits(action.project_id, KNOWLEDGE_APPLY_CREDITS);
+        await debitCredits(action.project_id, KNOWLEDGE_APPLY_CREDITS, 'knowledge_apply');
         creditsNote = ` (${KNOWLEDGE_APPLY_CREDITS} credits)`;
       } catch (err) {
         console.warn('[proposedGraphUpdate] knowledge credit debit failed (non-fatal):', (err as Error).message);
@@ -1371,7 +1371,7 @@ const applyValidationProposal: ActionHandler = async (action) => {
   let creditsNote = '';
   if (creditsToDebit > 0) {
     try {
-      await debitCredits(action.project_id, creditsToDebit);
+      await debitCredits(action.project_id, creditsToDebit, 'validation_apply');
       creditsNote = ` (${creditsToDebit} credits)`;
     } catch (err) {
       console.warn('[applyValidationProposal] credit debit failed (non-fatal):', (err as Error).message);

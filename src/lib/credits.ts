@@ -1,13 +1,11 @@
-import { get } from '@/lib/db';
+import { get, run } from '@/lib/db';
+import { generateId } from '@/lib/api-helpers';
 import { upsertMonthlyBudget } from '@/lib/cost-meter';
 
-/**
- * Flat credit cost to APPLY a knowledge proposal (insight / entity /
- * comparison / metric / fact) into project intelligence. Charged once, on the
- * pending→applied transition — never on re-apply or on dismiss. Founder
- * directive 2026-06-11: surfacing knowledge is free; APPLYING it costs 2.
- */
-export const KNOWLEDGE_APPLY_CREDITS = 2;
+// Cost constants live in a client-safe module (no db imports) so client
+// components can read them too; re-exported here so server callers keep
+// importing from '@/lib/credits'.
+export { KNOWLEDGE_APPLY_CREDITS, DOCUMENT_AUDIT_CREDITS } from '@/lib/credit-costs';
 
 /**
  * Credits — a UX abstraction over project_budgets.
@@ -129,10 +127,18 @@ export async function getCreditsRemaining(projectId: string): Promise<number> {
  * debit on re-apply) is the CALLER's responsibility — only call this when the
  * row actually transitions into 'applied'.
  *
+ * `step` is the audit label this charge appears under on the usage page (e.g.
+ * 'knowledge_apply', 'document_audit'). Pass a meaningful one so credit spend
+ * is itemized rather than bucketed under a generic default.
+ *
  * Best-effort: returns the USD amount debited (0 when no budget row / cap is
  * configured yet — credits are unbounded then, so there's nothing to charge).
  */
-export async function debitCredits(projectId: string, credits: number): Promise<number> {
+export async function debitCredits(
+  projectId: string,
+  credits: number,
+  step = 'credit_debit',
+): Promise<number> {
   if (credits <= 0) return 0;
   const budget = await getCurrentBudget(projectId);
   // No budget row or zero cap → credits aren't being metered for this project
@@ -143,5 +149,32 @@ export async function debitCredits(projectId: string, credits: number): Promise<
   if (creditsPerDollar <= 0) return 0;
   const usdDelta = credits / creditsPerDollar;
   await upsertMonthlyBudget(projectId, currentPeriodMonth(), usdDelta);
+
+  // Mirror the debit into llm_usage_logs so the usage/audit page itemizes
+  // credit spend (knowledge applies, document audits) alongside LLM token
+  // spend. Both move the same project_budgets accumulator, but only this row
+  // makes the WHAT visible — the usage route reads llm_usage_logs exclusively,
+  // so without it credit charges showed in the balance with no line item.
+  // provider='internal' / model='credit' marks it as a flat charge, not a
+  // token-metered model call. Deliberately a direct INSERT, not recordUsage():
+  // recordUsage would re-accumulate the budget (double-charge) and emit a bogus
+  // Langfuse generation for an event with no model or tokens. Best-effort — the
+  // debit already landed; a failed log row must never unwind it or throw.
+  try {
+    await run(
+      `INSERT INTO llm_usage_logs
+         (id, project_id, skill_id, step, provider, model,
+          input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+          total_cost_usd, latency_ms)
+       VALUES (?, ?, NULL, ?, 'internal', 'credit', 0, 0, 0, 0, ?, 0)`,
+      generateId('llmlg'),
+      projectId,
+      step,
+      usdDelta,
+    );
+  } catch (err) {
+    console.warn('[debitCredits] usage-log mirror failed (non-fatal):', (err as Error).message);
+  }
+
   return usdDelta;
 }

@@ -13,9 +13,9 @@
 
 import { use, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { TopBar, NavRail } from '@/components/design/chrome';
-import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
-import { useOpenActionCount } from '@/hooks/useOpenActionCount';
+import { useT } from '@/components/providers/LocaleProvider';
+import { useSetChrome } from '@/components/design/chrome-context';
+import { Pill, Icon, I } from '@/components/design/primitives';
 import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
 import EntityGridFallback from '@/components/knowledge/EntityGridFallback';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
@@ -34,7 +34,7 @@ export default function KnowledgePage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
-  const { count: inboxBadge } = useOpenActionCount(projectId);
+  const t = useT();
   const qc = useQueryClient();
   const [showAddDocs, setShowAddDocs] = useState(false);
 
@@ -75,6 +75,68 @@ export default function KnowledgePage({
   const pendingCount = graph.nodes.filter(
     (n) => (n as { reviewed_state?: string }).reviewed_state === 'pending',
   ).length;
+
+  // Publish this page's chrome bits (TopBar breadcrumb + right pills/Add-docs
+  // button, StatusBar graph counts) to the persistent project layout. Called
+  // unconditionally before any return; re-publishes when the live counts move.
+  useSetChrome(
+    {
+      breadcrumb: [t('knowledge.breadcrumb-project'), t('knowledge.breadcrumb-knowledge')],
+      right: (
+        <>
+          {nodeCount > 0 && (
+            <Pill kind="n">
+              {nodeCount === 1
+                ? t('knowledge.nodes-one', { nodes: nodeCount })
+                : t('knowledge.nodes-many', { nodes: nodeCount })}
+              {' · '}
+              {edgeCount === 1
+                ? t('knowledge.edges-one', { edges: edgeCount })
+                : t('knowledge.edges-many', { edges: edgeCount })}
+            </Pill>
+          )}
+          {pendingCount > 0 && (
+            <Pill kind="live" dot>
+              {t('knowledge.pending-count', { count: pendingCount })}
+            </Pill>
+          )}
+          <button
+            onClick={() => setShowAddDocs(true)}
+            title={t('knowledge.add-documents-tooltip')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--ink-2)',
+              background: 'var(--surface)',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--r-m)',
+              padding: '5px 10px',
+              cursor: 'pointer',
+            }}
+          >
+            <Icon d={I.plus} size={13} stroke={1.8} />
+            {t('knowledge.add-documents')}
+          </button>
+        </>
+      ),
+      status: {
+        heartbeatLabel: graphLoading
+          ? t('knowledge.status-graph-loading')
+          : edgeCount === 1
+            ? t('knowledge.status-graph-edges-one', { edges: edgeCount })
+            : t('knowledge.status-graph-edges-many', { edges: edgeCount }),
+        ctxLabel: t('knowledge.status-ctx'),
+        budget:
+          nodeCount === 1
+            ? t('knowledge.status-entities-one', { entities: nodeCount })
+            : t('knowledge.status-entities-many', { entities: nodeCount }),
+      },
+    },
+    [nodeCount, edgeCount, pendingCount, graphLoading],
+  );
 
   // Apply a pending node into intelligence. The knowledge PATCH debits 2
   // credits server-side on pending→applied; we refetch so the node flips solid.
@@ -117,93 +179,39 @@ export default function KnowledgePage({
   }
 
   return (
-    <div className="lp-frame">
-      <TopBar
-        projectId={projectId}
-        breadcrumb={['Project', 'Knowledge']}
-        right={
-          <>
-            {nodeCount > 0 && (
-              <Pill kind="n">
-                {nodeCount} node{nodeCount === 1 ? '' : 's'} · {edgeCount} edge{edgeCount === 1 ? '' : 's'}
-              </Pill>
-            )}
-            {pendingCount > 0 && (
-              <Pill kind="live" dot>
-                {pendingCount} pending
-              </Pill>
-            )}
-            <button
-              onClick={() => setShowAddDocs(true)}
-              title="Upload documents and choose what to add to your knowledge"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                fontSize: 12,
-                fontWeight: 600,
-                color: 'var(--ink-2)',
-                background: 'var(--surface)',
-                border: '1px solid var(--line)',
-                borderRadius: 'var(--r-m)',
-                padding: '5px 10px',
-                cursor: 'pointer',
-              }}
-            >
-              <Icon d={I.plus} size={13} stroke={1.8} />
-              Add documents
-            </button>
-          </>
-        }
-      />
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <NavRail projectId={projectId} current="knowledge" inboxBadge={inboxBadge} />
-
-        <div className="lp-rise" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
-            {graphLoading ? (
-              <GraphEmpty message="Loading graph…" />
-            ) : graphError ? (
-              <GraphEmpty message={`Couldn’t load graph: ${graphError}`} tone="error" />
-            ) : nodeCount === 0 ? (
-              <GraphEmpty message="No knowledge yet. As you chat, the Co-pilot proposes facts and entities — apply them to build this graph." />
-            ) : edgeCount === 0 ? (
-              // Nodes but zero relationships: the force viz would render
-              // disconnected floating dots. Show a labeled grid instead.
-              <EntityGridFallback nodes={graph.nodes} />
-            ) : (
-              <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} />
-            )}
-            {pendingCount > 0 && (
-              <div
-                style={{
-                  position: 'absolute',
-                  left: 12,
-                  bottom: 12,
-                  fontSize: 10.5,
-                  color: 'var(--ink-5)',
-                  background: 'var(--surface)',
-                  border: '1px solid var(--line)',
-                  borderRadius: 6,
-                  padding: '4px 8px',
-                }}
-              >
-                Dashed = pending · click to review
-              </div>
-            )}
+    <div className="lp-rise" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
+        {graphLoading ? (
+          <GraphEmpty message={t('knowledge.loading-graph')} />
+        ) : graphError ? (
+          <GraphEmpty message={t('knowledge.load-error', { error: graphError })} tone="error" />
+        ) : nodeCount === 0 ? (
+          <GraphEmpty message={t('knowledge.empty')} />
+        ) : edgeCount === 0 ? (
+          // Nodes but zero relationships: the force viz would render
+          // disconnected floating dots. Show a labeled grid instead.
+          <EntityGridFallback nodes={graph.nodes} />
+        ) : (
+          <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} />
+        )}
+        {pendingCount > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              left: 12,
+              bottom: 12,
+              fontSize: 10.5,
+              color: 'var(--ink-5)',
+              background: 'var(--surface)',
+              border: '1px solid var(--line)',
+              borderRadius: 6,
+              padding: '4px 8px',
+            }}
+          >
+            {t('knowledge.dashed-hint')}
           </div>
-        </div>
+        )}
       </div>
-
-      <StatusBar
-        heartbeatLabel={
-          graphLoading
-            ? 'graph · loading'
-            : `graph · ${edgeCount} edge${edgeCount === 1 ? '' : 's'}`
-        }
-        ctxLabel="knowledge"
-        budget={`${nodeCount} entit${nodeCount === 1 ? 'y' : 'ies'}`}
-      />
 
       {showAddDocs && (
         <AddDocumentsDialog

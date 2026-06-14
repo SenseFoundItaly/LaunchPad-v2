@@ -3,9 +3,8 @@
 import { use, useEffect, useState, useCallback } from 'react';
 import api from '@/api';
 import { BarChart } from '@/components/charts';
-import { TopBar, NavRail } from '@/components/design/chrome';
-import { StatusBar } from '@/components/design/primitives';
-import { useOpenActionCount } from '@/hooks/useOpenActionCount';
+import { useSetChrome } from '@/components/design/chrome-context';
+import { useT } from '@/components/providers/LocaleProvider';
 import type { ApiResponse } from '@/types';
 
 interface UsageLog {
@@ -58,10 +57,18 @@ export default function UsagePage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
-  const { count: inboxBadge } = useOpenActionCount(projectId);
+  const t = useT();
   const [data, setData] = useState<UsageData | null>(null);
   const [credits, setCredits] = useState<CreditsInfo | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useSetChrome(
+    {
+      breadcrumb: [t('usage.breadcrumb-project'), t('usage.breadcrumb-usage')],
+      status: { heartbeatLabel: 'usage', gateway: 'pi-agent · anthropic' },
+    },
+    [t],
+  );
 
   const fetchUsage = useCallback(async () => {
     try {
@@ -89,15 +96,8 @@ export default function UsagePage({
 
   if (loading) {
     return (
-      <div className="lp-frame">
-        <TopBar projectId={projectId} breadcrumb={['Project', 'Usage']} />
-        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-          <NavRail projectId={projectId} inboxBadge={inboxBadge} />
-          <div className="flex items-center justify-center flex-1 text-ink-5 text-sm">
-            Loading usage data...
-          </div>
-        </div>
-        <StatusBar heartbeatLabel="usage" gateway="pi-agent · anthropic" />
+      <div className="flex items-center justify-center flex-1 text-ink-5 text-sm">
+        {t('usage.loading')}
       </div>
     );
   }
@@ -163,32 +163,30 @@ export default function UsagePage({
   }
 
   return (
-    <div className="lp-frame">
-      <TopBar projectId={projectId} breadcrumb={['Project', 'Usage']} />
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <NavRail projectId={projectId} inboxBadge={inboxBadge} />
-        <div className="lp-rise flex-1 overflow-y-auto p-6">
-          <div className="max-w-5xl mx-auto">
-            <h3 className="text-lg font-semibold text-ink mb-6">LLM Usage</h3>
+    <div className="lp-rise flex-1 overflow-y-auto p-6">
+      <div className="max-w-5xl mx-auto">
+            <h3 className="text-lg font-semibold text-ink mb-6">{t('usage.title')}</h3>
 
         {/* Summary cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-paper border border-line rounded-xl p-4">
             <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
-              Credits Used
+              {t('usage.credits-used')}
             </div>
             <div className="text-2xl font-bold text-ink">
               {formatCredits(toCredits(summary?.total_cost_usd ?? 0))}
-              <span className="text-sm font-medium text-ink-4"> credits</span>
+              <span className="text-sm font-medium text-ink-4"> {t('usage.credits-unit')}</span>
             </div>
             <div className="text-xs text-ink-5 mt-1">
-              {formatCost(summary?.total_cost_usd ?? 0)} USD
-              {credits ? ` · ${credits.remaining}/${credits.total} left this month` : ''}
+              {formatCost(summary?.total_cost_usd ?? 0)} {t('usage.usd')}
+              {credits
+                ? ` · ${t('usage.left-this-month', { remaining: credits.remaining, total: credits.total })}`
+                : ''}
             </div>
           </div>
           <div className="bg-paper border border-line rounded-xl p-4">
             <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
-              Total Tokens
+              {t('usage.total-tokens')}
             </div>
             <div className="text-2xl font-bold text-ink">
               {formatTokens(summary?.total_tokens ?? 0)}
@@ -196,7 +194,7 @@ export default function UsagePage({
           </div>
           <div className="bg-paper border border-line rounded-xl p-4">
             <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
-              Input Tokens
+              {t('usage.input-tokens')}
             </div>
             <div className="text-2xl font-bold text-ink">
               {formatTokens(summary?.total_input_tokens ?? 0)}
@@ -204,7 +202,7 @@ export default function UsagePage({
           </div>
           <div className="bg-paper border border-line rounded-xl p-4">
             <div className="text-xs text-ink-4 uppercase tracking-wider mb-1">
-              API Calls
+              {t('usage.api-calls')}
             </div>
             <div className="text-2xl font-bold text-ink">
               {summary?.call_count ?? 0}
@@ -215,7 +213,7 @@ export default function UsagePage({
         {/* Credits by skill chart (values converted from USD at the plan ratio) */}
         {chartData.length > 0 && (
           <div className="bg-paper border border-line rounded-xl p-6 mb-8">
-            <h4 className="text-sm font-medium text-ink mb-4">Credits by Skill</h4>
+            <h4 className="text-sm font-medium text-ink mb-4">{t('usage.credits-by-skill')}</h4>
             <BarChart data={chartData} title="" height={Math.max(200, chartData.length * 40)} />
           </div>
         )}
@@ -223,24 +221,24 @@ export default function UsagePage({
         {/* Recent calls table */}
         <div className="bg-paper border border-line rounded-xl overflow-hidden">
           <div className="px-6 py-4 border-b border-line">
-            <h4 className="text-sm font-medium text-ink">Recent Calls</h4>
+            <h4 className="text-sm font-medium text-ink">{t('usage.recent-calls')}</h4>
           </div>
           {logs.length === 0 ? (
             <div className="px-6 py-12 text-center text-ink-5 text-sm">
-              No LLM usage recorded yet. Usage will appear here as you interact with skills and the workspace.
+              {t('usage.empty-state')}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-line text-ink-4 text-xs uppercase tracking-wider">
-                    <th className="px-4 py-3 text-left">Time</th>
-                    <th className="px-4 py-3 text-left">Skill / Step</th>
-                    <th className="px-4 py-3 text-left">Provider</th>
-                    <th className="px-4 py-3 text-left">Model</th>
-                    <th className="px-4 py-3 text-right">Tokens</th>
-                    <th className="px-4 py-3 text-right">Credits</th>
-                    <th className="px-4 py-3 text-right">Latency</th>
+                    <th className="px-4 py-3 text-left">{t('usage.col-time')}</th>
+                    <th className="px-4 py-3 text-left">{t('usage.col-skill-step')}</th>
+                    <th className="px-4 py-3 text-left">{t('usage.col-provider')}</th>
+                    <th className="px-4 py-3 text-left">{t('usage.col-model')}</th>
+                    <th className="px-4 py-3 text-right">{t('usage.col-tokens')}</th>
+                    <th className="px-4 py-3 text-right">{t('usage.col-credits')}</th>
+                    <th className="px-4 py-3 text-right">{t('usage.col-latency')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -284,13 +282,6 @@ export default function UsagePage({
           )}
           </div>
         </div>
-        </div>
-      </div>
-      <StatusBar
-        heartbeatLabel="usage · cost meter"
-        gateway="pi-agent · anthropic"
-        ctxLabel={`${data?.logs?.length || 0} log${(data?.logs?.length || 0) === 1 ? '' : 's'}`}
-      />
     </div>
   );
 }

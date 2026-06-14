@@ -13,10 +13,11 @@
 import { use } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { TopBar, NavRail } from '@/components/design/chrome';
-import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
+import { useSetChrome } from '@/components/design/chrome-context';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
+import { Pill, Icon, I } from '@/components/design/primitives';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
-import { useProject } from '@/hooks/useProject';
 import { StageCard } from '@/components/stages/StageCard';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { laneFor } from '@/lib/action-lanes';
@@ -48,11 +49,13 @@ interface StagesPayload {
 }
 
 // State labels reused verbatim from SpineSection so Home and the chat spine
-// speak with one voice (Validated / In progress / Not started, EN + IT).
-const STAGE_STATE: Record<StageEval['status'], { color: string; en: string; it: string }> = {
-  done: { color: 'var(--moss)', en: 'Validated', it: 'Validato' },
-  active: { color: 'var(--accent)', en: 'In progress', it: 'In corso' },
-  pending: { color: 'var(--ink-5)', en: 'Not started', it: 'Da iniziare' },
+// speak with one voice (Validated / In progress / Not started). Each carries a
+// stable i18n key resolved via t() at the render site (mirrors NavRail's
+// labelKey pattern).
+const STAGE_STATE: Record<StageEval['status'], { color: string; labelKey: MessageKey }> = {
+  done: { color: 'var(--moss)', labelKey: 'today.state-validated' },
+  active: { color: 'var(--accent)', labelKey: 'today.state-in-progress' },
+  pending: { color: 'var(--ink-5)', labelKey: 'today.state-not-started' },
 };
 
 // How many upcoming pending stages to preview after the active one, and the
@@ -61,11 +64,9 @@ const NEXT_PENDING_STAGES = 2;
 const MAX_OPEN_ROWS = 6;
 
 export default function TodayPage({ params }: { params: Promise<{ projectId: string }> }) {
+  const t = useT();
   const { projectId } = use(params);
   const { count: inboxBadge } = useOpenActionCount(projectId);
-  const { project } = useProject(projectId);
-  const locale: 'en' | 'it' =
-    (project as unknown as { locale?: string })?.locale === 'it' ? 'it' : 'en';
 
   // One list fetch covers both the inbox preview (top 3 rows) and the
   // pending-signals count (signal_alert rows live in pending_actions too).
@@ -86,38 +87,46 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
   const actions = allPending.slice(0, 3);
   const signalCount = allPending.filter((a) => laneFor(a.action_type) === 'signal').length;
 
-  return (
-    <div className="lp-frame">
-      <TopBar
-        projectId={projectId}
-        breadcrumb={['Project', 'Home']}
-        right={
-          <Pill kind={inboxBadge > 0 ? 'ok' : 'n'} dot={inboxBadge > 0}>
-            {inboxBadge} pending
-          </Pill>
-        }
-      />
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <NavRail projectId={projectId} current="dashboard" inboxBadge={inboxBadge} />
+  // Publish this page's chrome bits to the persistent layout (TopBar breadcrumb +
+  // right pill, StatusBar). No invented runtime state here — this page only knows
+  // pending actions (incl. signal rows), so the bar reports exactly that plus the
+  // watchers' documented weekly scan cadence.
+  useSetChrome(
+    {
+      breadcrumb: [t('today.breadcrumb-project'), t('today.breadcrumb-home')],
+      right: (
+        <Pill kind={inboxBadge > 0 ? 'ok' : 'n'} dot={inboxBadge > 0}>
+          {t('today.pending-count', { count: inboxBadge })}
+        </Pill>
+      ),
+      status: {
+        heartbeatLabel: t('today.watchers-cadence'),
+        ctxLabel: t('today.signals-to-review', { count: signalCount }),
+        budget: t('today.pending-count', { count: inboxBadge }),
+      },
+    },
+    [inboxBadge, signalCount, t],
+  );
 
-        <div
-          className="lp-rise"
-          style={{
-            flex: 1,
-            overflow: 'auto',
-            padding: '24px 32px',
-            background: 'var(--paper)',
-          }}
-        >
+  return (
+    <div
+      className="lp-rise"
+      style={{
+        flex: 1,
+        overflow: 'auto',
+        padding: '24px 32px',
+        background: 'var(--paper)',
+      }}
+    >
           <header style={{ marginBottom: 24 }}>
             <h1
               className="lp-serif"
               style={{ margin: 0, fontSize: 28, fontWeight: 400, letterSpacing: -0.6, lineHeight: 1.1 }}
             >
-              {greeting()}.
+              {greeting(t)}.
             </h1>
             <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--ink-4)' }}>
-              {summarize(inboxBadge, signalCount)}
+              {summarize(t, inboxBadge, signalCount)}
             </p>
           </header>
 
@@ -126,12 +135,12 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 880 }}>
               <StageCard projectId={projectId} />
-              <NextToValidate projectId={projectId} locale={locale} />
+              <NextToValidate projectId={projectId} />
               <Panel
-                label="Watchers"
+                label={t('today.watchers')}
                 icon={I.signal}
                 href={`/project/${projectId}/actions?lane=monitor`}
-                hrefLabel="Open Inbox"
+                hrefLabel={t('today.open-inbox')}
                 empty={null}
               >
                 <MonitorListPanel projectId={projectId} compact limit={4} title="" />
@@ -148,24 +157,13 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
                       borderTop: '1px solid var(--line)',
                     }}
                   >
-                    {signalCount} signal{signalCount === 1 ? '' : 's'} awaiting review →
+                    {t('today.signals-awaiting-review', { count: signalCount })}
                   </Link>
                 )}
               </Panel>
               <InboxPanel projectId={projectId} actions={actions} totalCount={inboxBadge} />
             </div>
           )}
-        </div>
-      </div>
-
-      {/* No invented runtime state here — this page only knows pending actions
-          (incl. signal rows), so the bar reports exactly that plus the
-          watchers' documented weekly scan cadence. */}
-      <StatusBar
-        heartbeatLabel="watchers · weekly cadence"
-        ctxLabel={`${signalCount} signal${signalCount === 1 ? '' : 's'} to review`}
-        budget={`${inboxBadge} pending`}
-      />
     </div>
   );
 }
@@ -183,14 +181,15 @@ function InboxPanel({
   actions: PendingAction[];
   totalCount: number;
 }) {
+  const t = useT();
   const extra = Math.max(0, totalCount - actions.length);
   return (
     <Panel
-      label="Inbox"
+      label={t('today.inbox')}
       icon={I.tickets}
       href={`/project/${projectId}/actions`}
-      hrefLabel={totalCount > 0 ? `View all (${totalCount})` : 'Open inbox'}
-      empty={actions.length === 0 ? 'No pending actions. Proposals from the co-pilot and your watchers land here.' : null}
+      hrefLabel={totalCount > 0 ? t('today.view-all', { count: totalCount }) : t('today.open-inbox-lower')}
+      empty={actions.length === 0 ? t('today.inbox-empty') : null}
     >
       {actions.map((a) => (
         <Link
@@ -231,7 +230,7 @@ function InboxPanel({
             fontFamily: 'var(--f-mono)',
           }}
         >
-          +{extra} more in inbox
+          {t('today.more-in-inbox', { count: extra })}
         </Link>
       )}
     </Panel>
@@ -251,7 +250,8 @@ function InboxPanel({
  * Home stays a thin digest. Reuses the SpineSection ✓/○ treatment + STATE
  * labels for one consistent validation voice across surfaces.
  */
-function NextToValidate({ projectId, locale }: { projectId: string; locale: 'en' | 'it' }) {
+function NextToValidate({ projectId }: { projectId: string }) {
+  const t = useT();
   const { data, isLoading } = useQuery<StagesPayload>({
     queryKey: ['stages', projectId],
     enabled: !!projectId,
@@ -263,13 +263,13 @@ function NextToValidate({ projectId, locale }: { projectId: string; locale: 'en'
     },
   });
 
-  const title = locale === 'it' ? 'Da validare' : 'Next to validate';
+  const title = t('today.next-to-validate');
 
   if (isLoading || !data) {
     return (
-      <Panel label={title} icon={I.check} href={`/project/${projectId}/chat`} hrefLabel="Co-pilot" empty={null}>
+      <Panel label={title} icon={I.check} href={`/project/${projectId}/chat`} hrefLabel={t('today.copilot')} empty={null}>
         <div style={{ padding: '14px 12px', fontSize: 12, color: 'var(--ink-5)', fontFamily: 'var(--f-mono)', textAlign: 'center' }}>
-          {locale === 'it' ? 'Caricamento…' : 'Loading…'}
+          {t('common.loading')}
         </div>
       </Panel>
     );
@@ -303,10 +303,8 @@ function NextToValidate({ projectId, locale }: { projectId: string; locale: 'en'
         label={title}
         icon={I.check}
         href={`/project/${projectId}/chat`}
-        hrefLabel="Co-pilot"
-        empty={locale === 'it'
-          ? 'Tutto validato. Niente da convalidare al momento.'
-          : 'All validated. Nothing to validate right now.'}
+        hrefLabel={t('today.copilot')}
+        empty={t('today.all-validated')}
       >
         {null}
       </Panel>
@@ -318,7 +316,7 @@ function NextToValidate({ projectId, locale }: { projectId: string; locale: 'en'
       label={title}
       icon={I.check}
       href={`/project/${projectId}/chat`}
-      hrefLabel="Co-pilot"
+      hrefLabel={t('today.copilot')}
       empty={null}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '4px 8px 6px' }}>
@@ -334,7 +332,7 @@ function NextToValidate({ projectId, locale }: { projectId: string; locale: 'en'
                   {b.stage.stage.label}
                 </span>
                 <span className="lp-mono" style={{ fontSize: 9, color: st.color, letterSpacing: 0.3 }}>
-                  {st[locale]}
+                  {t(st.labelKey)}
                 </span>
               </div>
               {b.readyToAdvance ? (
@@ -345,7 +343,7 @@ function NextToValidate({ projectId, locale }: { projectId: string; locale: 'en'
                     </div>
                   )}
                   <div style={{ fontSize: 11.5, color: 'var(--moss)' }}>
-                    {locale === 'it' ? 'pronto ad avanzare' : 'ready to advance'}
+                    {t('today.ready-to-advance')}
                   </div>
                 </div>
               ) : (
@@ -368,7 +366,7 @@ function NextToValidate({ projectId, locale }: { projectId: string; locale: 'en'
                   ))}
                   {b.hiddenOpen > 0 && (
                     <div className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', paddingLeft: 23 }}>
-                      +{b.hiddenOpen} {locale === 'it' ? 'altri' : 'more'}
+                      {t('today.more-open', { count: b.hiddenOpen })}
                     </div>
                   )}
                 </div>
@@ -470,6 +468,7 @@ function Panel({
 }
 
 function SkeletonRow() {
+  const t = useT();
   return (
     <div
       style={{
@@ -480,7 +479,7 @@ function SkeletonRow() {
         fontFamily: 'var(--f-mono)',
       }}
     >
-      Loading today…
+      {t('today.loading-today')}
     </div>
   );
 }
@@ -489,19 +488,21 @@ function SkeletonRow() {
 // Helpers
 // =============================================================================
 
-function greeting(): string {
+type TFn = (key: MessageKey, vars?: TranslateVars) => string;
+
+function greeting(t: TFn): string {
   const h = new Date().getHours();
-  if (h < 5) return 'Late';
-  if (h < 12) return 'Good morning';
-  if (h < 18) return 'Good afternoon';
-  return 'Good evening';
+  if (h < 5) return t('today.greeting-late');
+  if (h < 12) return t('today.greeting-morning');
+  if (h < 18) return t('today.greeting-afternoon');
+  return t('today.greeting-evening');
 }
 
-function summarize(inbox: number, signals: number): string {
+function summarize(t: TFn, inbox: number, signals: number): string {
   const bits: string[] = [];
-  if (inbox > 0) bits.push(`${inbox} pending action${inbox === 1 ? '' : 's'}`);
-  if (signals > 0) bits.push(`${signals} signal${signals === 1 ? '' : 's'} to review`);
-  if (bits.length === 0) return 'Nothing pending right now.';
+  if (inbox > 0) bits.push(t('today.pending-actions', { count: inbox }));
+  if (signals > 0) bits.push(t('today.signals-to-review', { count: signals }));
+  if (bits.length === 0) return t('today.nothing-pending');
   return bits.join(' · ');
 }
 

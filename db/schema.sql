@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS users (
   -- User's preferred model override. NULL = use system default routing.
   -- Values: model config key (e.g., 'claude-sonnet-4-6') or NULL.
   preferred_model VARCHAR,
+  -- Account-wide language for the UI and the agent's responses. NULL = unset,
+  -- falls back to the project locale, then 'en'. Short code: en/it/fr/es/de.
+  locale VARCHAR,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

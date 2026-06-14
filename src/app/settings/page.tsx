@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import api from '@/api';
+import { LanguageSelector } from '@/components/settings/LanguageSelector';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -286,6 +287,9 @@ export default function SettingsPage() {
             </div>
           )}
         </section>
+
+        {/* ═══ Language Section ═══ */}
+        <LanguageSelector />
 
         {/* ═══ Model Preference Section ═══ */}
         <section className="mb-10">
