@@ -17,6 +17,7 @@ import { query, get } from '@/lib/db';
 import { STAGES, SKILL_KICKOFFS, type SkillDef } from '@/lib/stages';
 import { countAssumptions, type AssumptionCounts } from '@/lib/assumptions';
 import { scoreOverall, scoreStage, type StageScore } from '@/lib/scoring';
+import { isClarificationOnly } from '@/lib/skill-output';
 import type { SkillData, SkillStatus } from '@/hooks/useSkillStatus';
 import {
   extractSectionScores,
@@ -99,6 +100,12 @@ export async function buildSkillMap(projectId: string): Promise<SkillMapBundle> 
   const persistedScores: Record<string, PersistedSectionScores> = {};
 
   for (const r of completionRows) {
+    // A clarification-only/empty output — or one the write-gate marked
+    // 'incomplete' — is NOT a real completion. Skip it so it isn't counted as a
+    // completed skill (this loop ignores DB status and derives it from staleness)
+    // and its bogus section_scores don't skew readiness. Mirrors the write-side
+    // gate + the other readers. Handles legacy 'completed' junk rows too.
+    if (r.status === 'incomplete' || isClarificationOnly(r.summary)) continue;
     byId.set(r.skill_id, r);
     if (r.section_scores && typeof r.section_scores === 'object') {
       persistedScores[r.skill_id] = r.section_scores as PersistedSectionScores;
