@@ -86,7 +86,7 @@ export default function ArtifactCardShell({
 
   return (
     <div
-      className={`my-2 bg-paper-2/50 border border-line-2 rounded-lg transition-opacity ${
+      className={`lp-rise my-2 bg-paper-2/50 border border-line-2 rounded-lg transition-opacity ${
         dimmed ? 'opacity-40' : ''
       } ${collapsed ? 'p-2' : 'px-3 py-2.5'} ${outerClassName || ''}`}
       style={style}

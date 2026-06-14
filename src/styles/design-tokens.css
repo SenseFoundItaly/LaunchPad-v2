@@ -134,6 +134,24 @@
 }
 .lp-credit-delta { animation: lp-credit-delta .95s ease-out forwards; }
 
+/* Entrance — messages + artifact cards fade/rise in as they mount. Runs once
+   on mount (React keeps the element across re-renders, so streaming updates
+   don't re-trigger it). */
+@keyframes lp-rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.lp-rise { animation: lp-rise .2s ease-out both; }
+
+/* Streaming caret — blinks at the end of the assistant bubble while tokens
+   arrive, removed when the turn ends. */
+@keyframes lp-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.lp-caret { display: inline-block; width: .5ch; margin-left: 1px; color: var(--ink-4); animation: lp-blink 1s step-end infinite; }
+
+/* Accessibility — honour reduced-motion: drop non-essential motion (entrance,
+   caret blink, ambient pulses, deltas). Functional state transitions stay. */
+@media (prefers-reduced-motion: reduce) {
+  .lp-rise, .lp-caret, .lp-credit-delta, .lp-flash, .lp-pulse { animation: none !important; }
+  .lp-scan::after { animation: none !important; }
+}
+
 /* Markdown prose inside assistant bubbles */
 .lp-md p { margin: 0 0 6px; }
 .lp-md p:last-child { margin-bottom: 0; }

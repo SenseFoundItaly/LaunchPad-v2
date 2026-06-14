@@ -1313,7 +1313,7 @@ function Msg({
   if (who === 'user') {
     return (
       <div
-        className="lp-msg-row"
+        className="lp-msg-row lp-rise"
         data-message-id={messageId}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
@@ -1338,7 +1338,7 @@ function Msg({
     );
   }
   return (
-    <div data-message-id={messageId} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ marginBottom: 18 }}>
+    <div className="lp-rise" data-message-id={messageId} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ marginBottom: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <span
           style={{
@@ -1440,11 +1440,12 @@ function Msg({
         style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink-2)' }}
       >
         <MdProse text={String(children ?? '')} />
+        {streaming && <span className="lp-caret" aria-hidden="true">▋</span>}
       </div>
       {inlineArtifacts && inlineArtifacts.length > 0 && (
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {inlineArtifacts.map((a, i) => (
-            <InlineArtifact key={i} artifact={a} onAction={onArtifactAction} />
+            <div key={i} className="lp-rise"><InlineArtifact artifact={a} onAction={onArtifactAction} /></div>
           ))}
         </div>
       )}
