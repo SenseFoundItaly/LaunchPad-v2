@@ -4,15 +4,16 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import * as d3 from 'd3';
 import type { GraphNode, GraphEdge } from '@/types/graph';
 import { NODE_COLORS } from '@/types/graph';
+import NodeDetailPanel, { type NodeNeighbor } from './NodeDetailPanel';
 
 interface KnowledgeGraphProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
   onNodeClick?: (node: GraphNode) => void;
   onEdgeClick?: (edge: GraphEdge) => void;
-  /** Called when a PENDING node is applied from its review popover — applies it to intelligence. */
+  /** Called when a PENDING node is applied from the detail drawer — applies it to intelligence. */
   onApplyNode?: (node: GraphNode) => void;
-  /** Called when a PENDING node is dismissed from its review popover — rejects it (free). */
+  /** Called when a PENDING node is dismissed from the detail drawer — rejects it (free). */
   onDismissNode?: (node: GraphNode) => void;
 }
 
@@ -60,9 +61,10 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
   const [searchQuery, setSearchQuery] = useState('');
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  // Floating review card for a clicked PENDING node. x/y are in container
-  // (post-zoom) pixels; computed via d3.zoomTransform at click time.
-  const [popover, setPopover] = useState<{ node: GraphNode; x: number; y: number } | null>(null);
+  // The node whose detail drawer is open (ANY node — applied or pending). The
+  // drawer replaced the old pending-only floating popover so there is a single
+  // detail surface for the graph. Set on node click; cleared on background click.
+  const [detailNode, setDetailNode] = useState<GraphNode | null>(null);
 
   const toggleType = useCallback((type: string) => {
     setHiddenTypes(prev => {
@@ -170,7 +172,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
     svg.call(d3.zoom<SVGSVGElement, unknown>()
       .extent([[0, 0], [width, height]])
       .scaleExtent([0.1, 4])
-      .on('zoom', (event) => { g.attr('transform', event.transform); setPopover(null); })
+      .on('zoom', (event) => { g.attr('transform', event.transform); })
     );
 
     const getLinkPath = (d: SimLink) => {
@@ -279,16 +281,10 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
           return ((sl.source as SimNode).id === d.id || (sl.target as SimNode).id === d.id) ? 1 : 0;
         });
         onNodeClick?.(d.rawData);
-        // Clicking a pending proposal opens a floating review card (apply/dismiss)
-        // anchored at the node's current screen position. Note: only CALL
-        // setPopover here (stable identity) — never READ `popover` inside this
-        // D3 closure (it would be stale), and `popover` is NOT in this effect's deps.
-        if (d.rawData.reviewed_state === 'pending') {
-          const t = d3.zoomTransform(svgRef.current!);
-          setPopover({ node: d.rawData, x: t.applyX(d.x!), y: t.applyY(d.y!) });
-        } else {
-          setPopover(null);
-        }
+        // Clicking ANY node opens the right-hand detail drawer. Only CALL the
+        // stable setter here — never READ `detailNode` inside this D3 closure (it
+        // would be stale), and it is NOT in this effect's deps.
+        setDetailNode(d.rawData);
       });
 
     // Hover cue — pending nodes invite a review; others show the name.
@@ -335,7 +331,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
     // Click background to reset
     svg.on('click', () => {
       setSelectedNodeId(null);
-      setPopover(null);
+      setDetailNode(null);
       node.attr('opacity', 1);
       nodeGroup.selectAll<SVGTextElement, SimNode>('text').attr('opacity', 1);
       link.attr('stroke', 'var(--line)').attr('stroke-width', 1.5).attr('opacity', 0.4);
@@ -348,6 +344,49 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
 
   // Import legend here to avoid circular — pass from parent instead
   const GraphLegend = require('./GraphLegend').default;
+
+  // Re-resolve the open node from the latest props each render so the drawer
+  // reflects live data after a refetch (e.g. attributes/sources filled in), not
+  // the object captured at click time. Falls back to the captured node if it has
+  // dropped out of the graph.
+  const liveDetailNode = detailNode
+    ? (nodes.find(n => n.id === detailNode.id) ?? detailNode)
+    : null;
+
+  // One-hop neighbors of the open node, derived from the RAW edge list (props),
+  // not the D3 simLinks — simLinks mutate source/target into node objects and
+  // are scoped to the effect. Virtual root→node edges count as real relations
+  // ("belongs to" the project), so the founder always sees what a node hangs off.
+  const detailNeighbors: NodeNeighbor[] = (() => {
+    if (!liveDetailNode) return [];
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    const seen = new Set<string>();
+    const out: NodeNeighbor[] = [];
+    for (const e of edges) {
+      const s = getId(e.source), t = getId(e.target);
+      let otherId: string | null = null;
+      let direction: 'out' | 'in' = 'out';
+      if (s === liveDetailNode.id) { otherId = t; direction = 'out'; }
+      else if (t === liveDetailNode.id) { otherId = s; direction = 'in'; }
+      if (!otherId) continue;
+      const other = byId.get(otherId);
+      if (!other) continue;
+      const dedupeKey = `${otherId}|${e.relation}|${direction}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      out.push({ node: other, relation: e.relation, direction });
+    }
+    return out;
+  })();
+
+  // Apply/Dismiss from the drawer mutate the node server-side and the parent
+  // refetches the graph; the open node object would go stale, so close the drawer.
+  const handleApply = onApplyNode
+    ? (n: GraphNode) => { onApplyNode(n); setDetailNode(null); }
+    : undefined;
+  const handleDismiss = onDismissNode
+    ? (n: GraphNode) => { onDismissNode(n); setDetailNode(null); }
+    : undefined;
 
   const graphContent = (
     <div ref={containerRef} className={`w-full h-full relative ${isFullscreen ? 'fixed inset-0 z-50' : ''}`} style={{
@@ -366,7 +405,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
         />
         <div className="flex-1" />
         <button
-          onClick={() => { setIsFullscreen(!isFullscreen); setPopover(null); }}
+          onClick={() => setIsFullscreen(!isFullscreen)}
           className="px-2 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-xs text-ink-4 hover:text-ink-2 transition-colors"
         >
           {isFullscreen ? 'Exit' : 'Expand'}
@@ -389,92 +428,18 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
         <svg ref={svgRef} className="w-full h-full" />
       )}
 
-      {/* Floating review card for a clicked PENDING node. Rendered as a SIBLING
-          of <svg> (NOT inside it): the D3 effect does svg.selectAll('*').remove(),
-          which would wipe anything mounted within the SVG. Position is clamped to
-          the container so the card never spills past the viewport edge. */}
-      {popover && (
-        <div
-          role="dialog"
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: 'absolute',
-            left: Math.min(
-              Math.max(8, popover.x),
-              Math.max(8, (containerRef.current?.clientWidth ?? 0) - 248),
-            ),
-            top: Math.min(
-              Math.max(8, popover.y),
-              Math.max(8, (containerRef.current?.clientHeight ?? 0) - 160),
-            ),
-            width: 240,
-            zIndex: 20,
-            background: 'var(--surface)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--r-m)',
-            padding: 12,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-          }}
-        >
-          {/* Type swatch + name */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span
-              style={{
-                width: 9,
-                height: 9,
-                borderRadius: '50%',
-                flexShrink: 0,
-                background: NODE_COLORS[popover.node.node_type] || 'var(--ink-5)',
-              }}
-            />
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.3 }}>
-              {popover.node.name}
-            </span>
-          </div>
-          {/* Type (muted) */}
-          <div style={{ fontSize: 10.5, color: 'var(--ink-4)', marginBottom: 8, textTransform: 'capitalize' }}>
-            {popover.node.node_type.replace(/_/g, ' ')}
-          </div>
-          {/* Summary */}
-          <p style={{ fontSize: 11.5, color: 'var(--ink-4)', margin: '0 0 12px', lineHeight: 1.45 }}>
-            {popover.node.summary || 'No summary provided.'}
-          </p>
-          {/* Actions */}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => { onApplyNode?.(popover.node); setPopover(null); }}
-              style={{
-                flex: 1,
-                fontSize: 11.5,
-                fontWeight: 600,
-                color: 'var(--paper)',
-                background: 'var(--ink)',
-                border: '1px solid var(--ink)',
-                borderRadius: 'var(--r-m)',
-                padding: '6px 8px',
-                cursor: 'pointer',
-              }}
-            >
-              Apply · 2 credits
-            </button>
-            <button
-              onClick={() => { onDismissNode?.(popover.node); setPopover(null); }}
-              style={{
-                fontSize: 11.5,
-                fontWeight: 500,
-                color: 'var(--ink-4)',
-                background: 'var(--surface)',
-                border: '1px solid var(--line)',
-                borderRadius: 'var(--r-m)',
-                padding: '6px 10px',
-                cursor: 'pointer',
-              }}
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Node detail drawer for the clicked node (applied OR pending). Rendered
+          as a SIBLING of <svg> (NOT inside it): the D3 effect does
+          svg.selectAll('*').remove(), which would wipe anything mounted within
+          the SVG. The drawer carries the pending Apply/Dismiss review actions. */}
+      <NodeDetailPanel
+        node={liveDetailNode}
+        neighbors={detailNeighbors}
+        onClose={() => setDetailNode(null)}
+        onSelectNeighbor={(n) => setDetailNode(n)}
+        onApply={handleApply}
+        onDismiss={handleDismiss}
+      />
 
       <GraphLegend
         activeTypes={nodes.map(n => n.node_type)}
