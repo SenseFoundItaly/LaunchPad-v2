@@ -11,13 +11,14 @@
  * proposes new knowledge in chat; un-applied items also wait in the Inbox.
  */
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TopBar, NavRail } from '@/components/design/chrome';
-import { Pill, StatusBar } from '@/components/design/primitives';
+import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
 import EntityGridFallback from '@/components/knowledge/EntityGridFallback';
+import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import type { GraphNode, GraphEdge } from '@/types/graph';
 
 interface GraphResponse {
@@ -35,6 +36,15 @@ export default function KnowledgePage({
   const { projectId } = use(params);
   const { count: inboxBadge } = useOpenActionCount(projectId);
   const qc = useQueryClient();
+  const [showAddDocs, setShowAddDocs] = useState(false);
+
+  // After the popup applies extracted entities, refetch the graph and bump the
+  // credits/knowledge listeners — same invalidation contract as applyNode below.
+  function onDocsApplied(_applied: number, creditsDebited: number) {
+    if (creditsDebited > 0) window.dispatchEvent(new CustomEvent('lp-credits-changed'));
+    window.dispatchEvent(new CustomEvent('lp-knowledge-changed'));
+    void qc.invalidateQueries({ queryKey: ['knowledge', projectId] });
+  }
 
   // Graph: cached under ['knowledge', projectId, 'graph']; the QueryProvider
   // event bridge auto-invalidates on lp-knowledge-changed (Apply/Dismiss).
@@ -123,13 +133,33 @@ export default function KnowledgePage({
                 {pendingCount} pending
               </Pill>
             )}
+            <button
+              onClick={() => setShowAddDocs(true)}
+              title="Upload documents and choose what to add to your knowledge"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--ink-2)',
+                background: 'var(--surface)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--r-m)',
+                padding: '5px 10px',
+                cursor: 'pointer',
+              }}
+            >
+              <Icon d={I.plus} size={13} stroke={1.8} />
+              Add documents
+            </button>
           </>
         }
       />
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <NavRail projectId={projectId} current="knowledge" inboxBadge={inboxBadge} />
 
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <div className="lp-rise" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
             {graphLoading ? (
               <GraphEmpty message="Loading graph…" />
@@ -174,6 +204,14 @@ export default function KnowledgePage({
         ctxLabel="knowledge"
         budget={`${nodeCount} entit${nodeCount === 1 ? 'y' : 'ies'}`}
       />
+
+      {showAddDocs && (
+        <AddDocumentsDialog
+          projectId={projectId}
+          onClose={() => setShowAddDocs(false)}
+          onApplied={onDocsApplied}
+        />
+      )}
     </div>
   );
 }

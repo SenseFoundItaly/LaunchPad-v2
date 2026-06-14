@@ -167,7 +167,7 @@ export default function UsagePage({
       <TopBar projectId={projectId} breadcrumb={['Project', 'Usage']} />
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <NavRail projectId={projectId} inboxBadge={inboxBadge} />
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="lp-rise flex-1 overflow-y-auto p-6">
           <div className="max-w-5xl mx-auto">
             <h3 className="text-lg font-semibold text-ink mb-6">LLM Usage</h3>
 

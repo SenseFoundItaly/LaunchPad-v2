@@ -319,7 +319,7 @@ export default function TicketsPage({
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <NavRail projectId={projectId} current="tickets" inboxBadge={inboxBadge} />
 
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div className="lp-rise" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <InboxSubhead />
           <LaneTabs
             active={tab}

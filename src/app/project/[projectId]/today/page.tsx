@@ -101,6 +101,7 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
         <NavRail projectId={projectId} current="dashboard" inboxBadge={inboxBadge} />
 
         <div
+          className="lp-rise"
           style={{
             flex: 1,
             overflow: 'auto',
