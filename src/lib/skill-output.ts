@@ -1,0 +1,41 @@
+/**
+ * Skill-output quality gate.
+ *
+ * A skill can "run" yet produce no real deliverable — only questions back at the
+ * founder ("I'd love to run this analysis! What's your startup idea?"). Such
+ * clarification-only output must NOT be treated as a completed skill, because it
+ * otherwise:
+ *   1. renders on founder surfaces (intelligence / knowledge) as if it were real
+ *      research ("ran 23h ago"),
+ *   2. is fed to the chat agent as "[COMPLETED SKILL DATA — you MUST reference
+ *      this]", so the agent parrots the junk, and
+ *   3. scores stage readiness from nothing (section_scores off an empty output).
+ *
+ * Used at the WRITE side (skill-executor.runSkill, POST /skills) to persist the
+ * row as status='incomplete' with no section_scores, and as a defensive filter
+ * on READERS for legacy rows already saved as 'completed'.
+ *
+ * Heuristic is deliberately CONSERVATIVE — real deliverables carry structure, so
+ * we only flag output that has NO structure (no JSON, headers, or lists) AND
+ * reads like a clarification request AND has ≥2 question marks up front. Empty /
+ * whitespace output counts as incomplete (nothing was produced). This biases
+ * toward false negatives (let some junk through) over false positives (never
+ * discard a real deliverable).
+ */
+
+// Phrases a skill uses when it's asking for input rather than delivering output.
+const CLARIFICATION_RE =
+  /\b(i need|i'd love|i would love|could you (?:share|tell|provide|give|describe)|can you (?:share|tell|provide)|what(?:'s| is| are) your|tell me (?:more|about)|to (?:get|run) started|before i (?:can|begin|start)|please (?:share|provide|describe|tell|let me know))\b/i;
+
+// Structure markers a real deliverable carries: JSON braces/brackets, markdown
+// headers, or bullet/numbered list items.
+const STRUCTURE_RE = /[{}[\]]|(?:^|\n)\s*#{1,6}\s|(?:^|\n)\s*[-*]\s|(?:^|\n)\s*\d+[.)]\s/;
+
+export function isClarificationOnly(summary: string | null | undefined): boolean {
+  const text = (summary ?? '').trim();
+  if (text.length === 0) return true; // nothing produced → not a deliverable
+  if (STRUCTURE_RE.test(text)) return false; // real deliverables carry structure
+  const head = text.slice(0, 400);
+  const questionMarks = (head.match(/\?/g) ?? []).length;
+  return CLARIFICATION_RE.test(head) && questionMarks >= 2;
+}

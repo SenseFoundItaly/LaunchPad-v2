@@ -28,6 +28,7 @@ import { estimateCost } from '@/lib/telemetry';
 import { pickModel } from '@/lib/llm/router';
 import { recordEvent } from '@/lib/memory/events';
 import { persistArtifact } from '@/lib/artifact-persistence';
+import { isClarificationOnly } from '@/lib/skill-output';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import { linkSkillCompletionToAssumptions } from '@/lib/assumptions';
 import { SKILL_KICKOFFS } from '@/lib/stages';
@@ -251,7 +252,13 @@ export async function runSkill(
 
   // UPSERT skill_completions — same shape as the POST /skills route.
   const completedAt = new Date().toISOString();
-  const sectionScores = computeSectionScoresFromSummary(skillId, text);
+  // Quality gate: a clarification-only / empty skill output is NOT a real
+  // deliverable. Persist it as 'incomplete' with no section_scores so it can't
+  // feed the chat agent as "completed evidence", score readiness from nothing,
+  // or render as a deliverable on founder surfaces. See isClarificationOnly.
+  const incomplete = isClarificationOnly(text);
+  const completionStatus = incomplete ? 'incomplete' : 'completed';
+  const sectionScores = incomplete ? null : computeSectionScoresFromSummary(skillId, text);
 
   // Version history: copy current output to a versioned row before overwriting.
   try {
@@ -289,7 +296,7 @@ export async function runSkill(
     generateId('skc'),
     projectId,
     skillId,
-    'completed',
+    completionStatus,
     text,
     sectionScores ? JSON.stringify(sectionScores) : null,
     completedAt,

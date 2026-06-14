@@ -14,6 +14,7 @@ import { typesForLane } from '@/lib/pending-actions';
 import { logSignalActivity } from '@/lib/signal-activity-log';
 import { STAGES } from '@/lib/stages';
 import { scoreOverall } from '@/lib/scoring';
+import { isClarificationOnly } from '@/lib/skill-output';
 import type { SkillData } from '@/hooks/useSkillStatus';
 import {
   extractEcosystemAlerts,
@@ -67,6 +68,10 @@ async function computeScoreDelta(projectId: string): Promise<ScoreDelta> {
     skillMapYesterday[skill.id] = { status: 'not_run' };
   }
   for (const r of rows) {
+    // Skip clarification-only/empty outputs — they are not real completions and
+    // must not inflate the heartbeat score delta (scoreOverall). Same predicate
+    // the write-side quality gate uses to mark such rows 'incomplete'.
+    if (isClarificationOnly(r.summary)) continue;
     skillMapToday[r.skill_id] = {
       status: 'completed',
       summary: r.summary || undefined,

@@ -7,6 +7,7 @@ import { STAGES, blendStageVerdict } from '@/lib/stages';
 import type { StageVerdict } from '@/lib/stages';
 import { canonicalStageId } from '@/lib/journey/canonical';
 import { buildProjectSnapshot, evaluateAllStages } from '@/lib/journey';
+import { isClarificationOnly } from '@/lib/skill-output';
 import { scoreStage } from '@/lib/scoring';
 import type { SkillData } from '@/hooks/useSkillStatus';
 
@@ -221,7 +222,12 @@ export async function GET(
   for (const stage of STAGES) {
     for (const skill of stage.skills) {
       const found = completions.find((c) => c.skill_id === skill.id);
-      skillMap[skill.id] = found
+      // Only a genuinely-completed skill with a real deliverable counts. A row
+      // saved 'completed' before the quality gate (or DB status != completed)
+      // whose output is clarification-only/empty surfaces as not-run — never as a
+      // finished deliverable. (SkillData.status has no 'incomplete' member.)
+      const validCompletion = !!found && found.status === 'completed' && !isClarificationOnly(found.summary);
+      skillMap[skill.id] = found && validCompletion
         ? {
             status: 'completed',
             summary: found.summary ?? undefined,

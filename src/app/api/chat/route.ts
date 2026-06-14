@@ -10,6 +10,7 @@ import { makeProjectTools } from '@/lib/project-tools';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { buildMemoryContext } from '@/lib/memory/context';
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
+import { isClarificationOnly } from '@/lib/skill-output';
 import { formatStageContextForPrompt } from '@/lib/journey/stage-prompt';
 import { computeNextBestAction, renderDirectionForPrompt } from '@/lib/direction';
 import { recordEvent } from '@/lib/memory/events';
@@ -1010,10 +1011,15 @@ async function buildCompletedSkillContext(projectId: string, message: string): P
   const isKickoff = Object.values(SKILL_KICKOFFS).some((k) => message.includes(k));
   if (!isKickoff) return '';
 
-  const completions = await query<{ skill_id: string; summary: string; completed_at: Date | string }>(
+  const allCompletions = await query<{ skill_id: string; summary: string; completed_at: Date | string }>(
     'SELECT skill_id, summary, completed_at FROM skill_completions WHERE project_id = ? AND status = ?',
     projectId, 'completed',
   );
+  // Defensive: drop legacy rows saved as 'completed' BEFORE the quality gate —
+  // clarification-only/empty output must not be fed to the agent as "[COMPLETED
+  // SKILL DATA — you MUST reference this]". New rows are already gated to
+  // 'incomplete' at the write side (skill-executor / POST /skills).
+  const completions = allCompletions.filter((c) => !isClarificationOnly(c.summary));
 
   if (completions.length === 0) return '';
 

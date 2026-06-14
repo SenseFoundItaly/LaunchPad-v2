@@ -5,6 +5,7 @@ import { recordEvent } from '@/lib/memory/events';
 import { computeSectionScoresFromSummary } from '@/lib/section-scoring';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { runSkill } from '@/lib/skill-executor';
+import { isClarificationOnly } from '@/lib/skill-output';
 
 /** GET: list all skill completions for a project */
 export async function GET(
@@ -80,7 +81,12 @@ export async function POST(
   }
 
   const id = generateId('skc');
-  const sectionScores = computeSectionScoresFromSummary(body.skill_id, body.summary);
+  // Quality gate (mirror of skill-executor): clarification-only/empty output is
+  // recorded 'incomplete' with no section_scores so it never counts as a real
+  // completed skill. See isClarificationOnly.
+  const incomplete = isClarificationOnly(body.summary);
+  const recordStatus = incomplete ? 'incomplete' : (body.status || 'completed');
+  const sectionScores = incomplete ? null : computeSectionScoresFromSummary(body.skill_id, body.summary);
 
   await run(
     `INSERT INTO skill_completions (id, project_id, skill_id, status, summary, section_scores, completed_at)
@@ -93,7 +99,7 @@ export async function POST(
     id,
     projectId,
     body.skill_id,
-    body.status || 'completed',
+    recordStatus,
     body.summary || null,
     sectionScores ? JSON.stringify(sectionScores) : null,
     new Date().toISOString(),
