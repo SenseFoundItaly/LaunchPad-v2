@@ -1,3 +1,5 @@
+import type { Source } from '@/types/artifacts';
+
 export type GraphNodeType =
   | 'your_startup'
   | 'competitor'
@@ -20,6 +22,14 @@ export interface GraphNode {
   node_type: GraphNodeType;
   summary: string;
   attributes: Record<string, unknown>;
+  /**
+   * Provenance links for this node — web URLs, skill runs, founder quotes, etc.
+   * Already returned by /api/graph (SELECT *), but historically untyped here so
+   * the detail panel could surface the founder-facing "where did this come from".
+   */
+  sources?: Source[];
+  /** ISO timestamp the node was captured. Returned by the API; shown in the panel. */
+  created_at?: string;
   /** 'pending' = a proposal the founder hasn't applied yet (renders dashed). */
   reviewed_state?: 'applied' | 'pending' | 'rejected';
   x?: number;
