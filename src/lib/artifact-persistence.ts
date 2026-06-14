@@ -45,6 +45,7 @@ import type {
 import { recordFact } from './memory/facts';
 import { createPendingAction } from './pending-actions';
 import { getCreditsRemaining } from './credits';
+import { autoStageValidationFromArtifact } from './auto-stage-validation';
 import type { PendingActionType } from '@/types';
 
 /**
@@ -171,20 +172,25 @@ export async function persistArtifact(ctx: PersistContext, artifact: Artifact): 
         return await persistDocumentArtifact(ctx, artifact as DocumentArtifact);
       case 'solve-progress':
         return { type: artifact.type, persisted: false, note: 'UI-only tracker' };
-      // Stage-specific cards — all are VIEWS over existing tables, not their
-      // canonical store. Persisting them again would duplicate authority:
-      //   persona-card     → data in simulation.personas / scientific_validation
-      //   risk-matrix      → data in simulation.risk_scenarios
-      //   idea-canvas      → data in idea_canvas
-      //   tam-sam-som      → data in research.market_size
-      //   investor-pipeline→ data in investors + investor_interactions + rounds
-      //   weekly-update    → data in startup_updates
-      // For canonical persona entities (e.g. "Sarah, our beachhead"), use
-      // entity-card instead — it has graph_nodes persistence + review controls.
+      // idea-canvas + tam-sam-som map to gated spine checks. The agent reliably
+      // EMITS them but rarely calls propose_validation (founder-sim 2026-06-14),
+      // so capture them deterministically: auto-stage a validation_proposal
+      // (deduped, pending) the founder can approve onto the spine — no reliance
+      // on the model calling the tool. Gate-respecting: nothing greens without
+      // approval. (Competitors are captured separately by persistComparisonTable.)
+      case 'idea-canvas':
+      case 'tam-sam-som': {
+        const r = await autoStageValidationFromArtifact(ctx.projectId, artifact);
+        return r.staged
+          ? { type: artifact.type, persisted: true, target: `validation_proposal (auto, ${r.itemCount} item(s))`, persisted_id: r.pendingActionId }
+          : { type: artifact.type, persisted: false, note: 'view-only / already staged — no new proposal' };
+      }
+      // Remaining stage cards are pure VIEWS over canonical tables (persona-card
+      // → simulation.personas; risk-matrix → simulation.risk_scenarios;
+      // investor-pipeline → investors/rounds; weekly-update → startup_updates).
+      // For a canonical persona entity, use entity-card (graph_nodes + review).
       case 'persona-card':
       case 'risk-matrix':
-      case 'idea-canvas':
-      case 'tam-sam-som':
       case 'investor-pipeline':
       case 'weekly-update':
         return { type: artifact.type, persisted: false, note: 'view-only — data lives in its canonical table' };

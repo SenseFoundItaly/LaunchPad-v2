@@ -219,6 +219,22 @@ async function main() {
       completedSkillsAfter: completedIds,
     });
 
+    // SIM founder approves any staged validation evidence (auto-captured from
+    // artifacts OR proposed by the agent) so the spine actually advances —
+    // mirrors the founder clicking Apply on the inline/Inbox card.
+    try {
+      const vps = await db()`
+        SELECT id, title FROM pending_actions
+         WHERE project_id = ${projectId} AND action_type = 'validation_proposal'
+           AND status IN ('pending','edited')`;
+      for (const vp of vps) {
+        try {
+          await api('POST', `/api/projects/${projectId}/actions/${vp.id}`, { transition: 'apply' });
+          console.log(`  ✓ approved validation_proposal: ${vp.title}`);
+        } catch (e) { console.log(`  ✗ approve failed (${vp.id}): ${e.message}`); }
+      }
+    } catch { /* non-fatal */ }
+
     const openingLine = r.fullText.split('\n').filter(l => l.trim() && !l.startsWith(':::artifact')).slice(0, 2).join(' ').slice(0, 200);
     console.log(`  T${turn.n} | ${turn.topic} | tools=[${uniqueTools.join(',')}] | skill_fires=[${skillFires.join(',')}] | latency=${dt}s | cost=$${cost.toFixed(4)} | artifacts=[${artifacts.map(a => a.type).join(',')}]`);
     if (openingLine) console.log(`  opening: "${openingLine.slice(0, 150)}${openingLine.length > 150 ? '…' : ''}"`);
