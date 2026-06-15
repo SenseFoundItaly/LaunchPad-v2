@@ -18,6 +18,7 @@ import { useState, useMemo, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Icon, I, IconBtn, Pill } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 import { openPrintPreview } from '@/lib/print-utils';
 
 interface ExtractionCounts {
@@ -152,7 +153,7 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
                     </Pill>
                     {item.indexBadge && (
                       <Pill kind={item.indexBadge.kind} dot={item.indexBadge.kind === 'ok'}>
-                        {t(item.indexBadge.labelKey, item.indexBadge.count !== undefined ? { count: item.indexBadge.count } : undefined)}
+                        {t(item.indexBadge.labelKey as MessageKey, item.indexBadge.count !== undefined ? { count: item.indexBadge.count } : undefined)}
                       </Pill>
                     )}
                     {item.typeBadge && (

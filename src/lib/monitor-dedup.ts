@@ -244,7 +244,7 @@ interface ClassifierResult {
 async function runSemanticClassifier(
   proposal: MonitorProposalInput,
   existing: ActiveMonitorRow[],
-  projectId?: string,
+  projectId: string,
 ): Promise<ClassifierResult | null> {
   // Construct a compact comparison payload — just the fields that matter
   // for overlap judgment. Avoids sending the agent 10 full monitor rows.

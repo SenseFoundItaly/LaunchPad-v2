@@ -23,6 +23,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Panel, Pill } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 import type {
   KnowledgeItem,
   KnowledgeKind,
@@ -131,14 +132,14 @@ export default function AllKnowledgePanel({ projectId }: { projectId: string }) 
             : t('kb.item-count-many', { count: summary.total })}
         </Pill>
         {KIND_GROUPS.filter(g => summary.byKind[g.kind] > 0).map(g => (
-          <Pill key={g.kind} kind="n">{summary.byKind[g.kind]} {t(g.labelLowerKey)}</Pill>
+          <Pill key={g.kind} kind="n">{summary.byKind[g.kind]} {t(g.labelLowerKey as MessageKey)}</Pill>
         ))}
         <span style={{ width: 1, height: 14, background: 'var(--line)', margin: '0 4px' }} />
         {(Object.keys(TIER_BADGE) as ProvenanceTier[])
           .filter(tier => summary.byProvenanceTier[tier] > 0)
           .map(tier => (
             <Pill key={tier} kind={TIER_BADGE[tier].kind} dot>
-              {summary.byProvenanceTier[tier]} {t(TIER_BADGE[tier].labelKey)}
+              {summary.byProvenanceTier[tier]} {t(TIER_BADGE[tier].labelKey as MessageKey)}
             </Pill>
           ))}
       </div>
@@ -147,7 +148,7 @@ export default function AllKnowledgePanel({ projectId }: { projectId: string }) 
         const group = items.filter(it => it.kind === kind);
         if (group.length === 0) return null;
         return (
-          <Panel key={kind} title={t(labelKey)} subtitle={`${group.length}`}>
+          <Panel key={kind} title={t(labelKey as MessageKey)} subtitle={`${group.length}`}>
             <div>
               {group.map((it, i) => (
                 <KnowledgeRow
@@ -194,7 +195,7 @@ function KnowledgeRow({
   const t = useT();
   const badge = TIER_BADGE[item.provenanceTier] ?? TIER_BADGE.founder_asserted;
   const hintKey = STORE_HINT[item.sourceStore];
-  const hint = hintKey ? t(hintKey) : item.sourceStore;
+  const hint = hintKey ? t(hintKey as MessageKey) : item.sourceStore;
   const refIsUrl = !!item.sourceRef && /^https?:\/\//i.test(item.sourceRef);
 
   return (
@@ -231,7 +232,7 @@ function KnowledgeRow({
         >
           {item.title}
         </div>
-        <Pill kind={badge.kind}>{t(badge.labelKey)}</Pill>
+        <Pill kind={badge.kind}>{t(badge.labelKey as MessageKey)}</Pill>
         <span
           className="lp-mono"
           style={{ fontSize: 10, color: 'var(--ink-5)', flexShrink: 0 }}
