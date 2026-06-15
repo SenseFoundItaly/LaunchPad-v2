@@ -97,7 +97,25 @@ async function getSourceAlert(alertId: string | null): Promise<EcosystemAlert | 
 }
 
 function effectivePayload(action: PendingAction): Record<string, unknown> {
-  return action.edited_payload || action.payload;
+  // Prefer the founder's edited_payload, falling back to the original payload.
+  // Both are JSONB. A fresh object round-trips as an object, but rows written
+  // before the editPendingAction fix stored a double-encoded JSON *string* in
+  // the JSONB column — so decode a string form here too. Without this, those
+  // rows read back as a string and executors see no fields (empty items →
+  // "No items to apply." → the apply silently does nothing).
+  const decode = (v: unknown): Record<string, unknown> | null => {
+    if (v == null) return null;
+    if (typeof v === 'string') {
+      try {
+        const parsed = JSON.parse(v);
+        return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+      } catch {
+        return null;
+      }
+    }
+    return typeof v === 'object' ? (v as Record<string, unknown>) : null;
+  };
+  return decode(action.edited_payload) ?? decode(action.payload) ?? {};
 }
 
 /**

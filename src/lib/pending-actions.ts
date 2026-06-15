@@ -488,7 +488,13 @@ export async function applyPendingAction(id: string): Promise<PendingAction> {
 
 export async function editPendingAction(id: string, editedPayload: Record<string, unknown>): Promise<PendingAction> {
   return applyTransition(id, 'edited', [
-    { key: 'edited_payload', value: JSON.stringify(editedPayload) },
+    // Pass the OBJECT, not JSON.stringify(...). edited_payload is a JSONB column
+    // (and applyTransition binds it with no ::jsonb cast), so postgres.js
+    // serializes an object correctly — exactly like the original `payload`
+    // insert. Stringifying stored a double-encoded JSON *string* scalar, which
+    // read back as a string; effectivePayload then saw no fields and executors
+    // no-op'd ("No items to apply." → validation applies silently did nothing).
+    { key: 'edited_payload', value: editedPayload },
   ]);
 }
 
