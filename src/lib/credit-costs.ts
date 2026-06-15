@@ -21,3 +21,13 @@ export const KNOWLEDGE_APPLY_CREDITS = 2;
  * route when ?audit_charge=1 is set.
  */
 export const DOCUMENT_AUDIT_CREDITS = 3;
+
+/**
+ * Default monthly credit pool per USER (founder decision 2026-06-14: credits
+ * are per-user, shared across all their projects). Paired with a $1.00 LLM-cost
+ * ceiling → 100 credits per $1 (1 credit ≈ $0.01 of LLM spend). These are the
+ * fallbacks when no user_budgets row exists yet; the row's own columns win.
+ */
+export const USER_MONTHLY_CREDITS = 100;
+export const USER_MONTHLY_LLM_USD = 1.0;
+export const USER_MONTHLY_WARN_LLM_USD = 0.8;

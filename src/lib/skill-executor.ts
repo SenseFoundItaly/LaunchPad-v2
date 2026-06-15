@@ -29,6 +29,8 @@ import { pickModel } from '@/lib/llm/router';
 import { recordEvent } from '@/lib/memory/events';
 import { persistArtifact } from '@/lib/artifact-persistence';
 import { isClarificationOnly } from '@/lib/skill-output';
+import { buildSkillProjectContext } from '@/lib/skill-context';
+import { persistResearchFromSkillOutput } from '@/lib/skill-research-persist';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import { linkSkillCompletionToAssumptions } from '@/lib/assumptions';
 import { SKILL_KICKOFFS } from '@/lib/stages';
@@ -51,6 +53,10 @@ export const SAFE_AUTO_RERUN_SKILL_IDS: readonly string[] = [
 ];
 
 export const STALE_DAYS = 14;
+
+/** Skills whose downstream persistence depends on a structured json payload in
+ *  the output (parsed by persistResearchFromSkillOutput). */
+const STRUCTURED_JSON_SKILLS = new Set<string>(['market-research']);
 
 const SKILLS_DIR = join(process.cwd(), 'launchpad-skills');
 
@@ -190,10 +196,31 @@ export async function runSkill(
   }
 
   const userMsg = opts.prompt || SKILL_KICKOFFS[skillId] || `Run the ${skillId} skill for the current project.`;
+
+  // Inject authoritative project context (idea_canvas, research, competitors,
+  // memory) so the skill agent doesn't run blind and ask "what's your startup?"
+  // even when the canvas is filled. '' for a brand-new project → skill may ask.
+  const projectContext = await buildSkillProjectContext(projectId).catch(() => '');
+  let systemPrompt = projectContext ? `${loaded.body}\n\n${projectContext}` : loaded.body;
+
+  // Research skills persist downstream from a structured json payload. The model
+  // sometimes returns a prose/markdown report instead of the SKILL.md json block,
+  // which persists nothing (confirmed live). Append a hard output contract so the
+  // parseable json is always present (see persistResearchFromSkillOutput).
+  if (STRUCTURED_JSON_SKILLS.has(skillId)) {
+    systemPrompt +=
+      '\n\n=== OUTPUT CONTRACT (REQUIRED) ===\n' +
+      'Your response MUST include the structured data from the "Output Format" section as a single fenced ```json code block ' +
+      '(the market_research object with market_sizing, competitors[], and trends[]). A 1-2 sentence intro is fine, but the json ' +
+      "block is mandatory — do NOT replace it with a prose-only or markdown report. This json is parsed downstream to populate " +
+      "the founder's research and knowledge graph. Keep the json COMPACT (at most 2 sources per item, at most 6 competitors) so it " +
+      "stays within length limits and closes properly; emit market_sizing and competitors FIRST.";
+  }
+
   const startedAt = Date.now();
 
   const { text, usage } = await runAgent(userMsg, {
-    systemPrompt: loaded.body,
+    systemPrompt,
     timeout: opts.timeoutMs ?? 120_000,
     task: 'skill-invoke',
   });
@@ -202,6 +229,11 @@ export async function runSkill(
   if (!text || !text.trim()) {
     throw new Error(`runSkill ${skillId}: empty output`);
   }
+
+  // Quality gate, computed up-front (before cost metering) so we can skip the
+  // credit debit for a run that produced nothing usable — the founder shouldn't
+  // pay for "what's your startup?" output. See isClarificationOnly.
+  const incomplete = isClarificationOnly(text);
 
   // Cost meter — log against the actual provider/model from the router so
   // the slug matches what was called. Inject estimated cost when the runAgent
@@ -231,6 +263,7 @@ export async function runSkill(
     model,
     usage: executorUsage as typeof usage,
     latency_ms: latencyMs,
+    skip_credit_debit: incomplete,
   }).catch(err =>
     console.warn('[skill-executor] recordUsage failed:', (err as Error).message),
   );
@@ -250,13 +283,22 @@ export async function runSkill(
     console.warn(`[skill-executor] artifact persist failed for ${skillId}:`, (err as Error).message);
   }
 
+  // Research skills emit their payload as a json block (not :::artifact segments),
+  // so persist it deterministically into research + PENDING graph_nodes — this is
+  // what makes the founder's graph activate from a market-research run. Pending =
+  // gate-respecting; the Canvas surfaces them as "proposed" for one-click apply.
+  try {
+    const r = await persistResearchFromSkillOutput(projectId, skillId, text);
+    if (r.ok) artifactsPersisted += r.competitors + (r.marketSizeNode ? 1 : 0);
+  } catch (err) {
+    console.warn(`[skill-executor] research persist failed for ${skillId}:`, (err as Error).message);
+  }
+
   // UPSERT skill_completions — same shape as the POST /skills route.
   const completedAt = new Date().toISOString();
-  // Quality gate: a clarification-only / empty skill output is NOT a real
-  // deliverable. Persist it as 'incomplete' with no section_scores so it can't
-  // feed the chat agent as "completed evidence", score readiness from nothing,
-  // or render as a deliverable on founder surfaces. See isClarificationOnly.
-  const incomplete = isClarificationOnly(text);
+  // Quality gate (computed up-front above): persist clarification-only output as
+  // 'incomplete' with no section_scores so it can't feed the chat agent as
+  // "completed evidence", score readiness from nothing, or render as a deliverable.
   const completionStatus = incomplete ? 'incomplete' : 'completed';
   const sectionScores = incomplete ? null : computeSectionScoresFromSummary(skillId, text);
 

@@ -47,6 +47,17 @@ export type KnowledgeSourceStore =
   | 'competitor_profiles'
   | 'interviews';
 
+/**
+ * Review state of an item, where the producing store has one.
+ *   'applied'  — founder-approved / live (the only state surfaced by default).
+ *   'pending'  — a proposal the founder hasn't applied yet (only present when
+ *                `includePending` is passed; render as "proposed", NEVER as
+ *                established knowledge).
+ * Stores with no review gate (competitor_profiles, interviews, briefs) are
+ * always treated as applied.
+ */
+export type KnowledgeReviewState = 'applied' | 'pending';
+
 export interface KnowledgeItem {
   id: string;
   kind: KnowledgeKind;
@@ -54,6 +65,8 @@ export interface KnowledgeItem {
   summary: string | null;
   sourceStore: KnowledgeSourceStore;
   provenanceTier: ProvenanceTier;
+  /** Review state — always 'applied' unless `includePending` surfaced a proposal. */
+  reviewedState: KnowledgeReviewState;
   /** A url or the originating store row id. */
   sourceRef: string | null;
   createdAt: string;
@@ -67,11 +80,24 @@ export interface KnowledgeSummary {
   total: number;
   byKind: Record<KnowledgeKind, number>;
   byProvenanceTier: Record<ProvenanceTier, number>;
+  /** How many of `total` are un-applied proposals (reviewedState === 'pending').
+   *  Always 0 unless `includePending` was passed. Optional so existing literal
+   *  summaries (e.g. the AllKnowledgePanel EMPTY fallback) stay valid. */
+  proposed?: number;
 }
 
 export interface GetProjectKnowledgeOptions {
   /** Hard cap per store (defensive against pathological row counts). Default 500. */
   perStoreLimit?: number;
+  /**
+   * Also include PENDING graph_nodes (proposals the founder hasn't applied yet),
+   * tagged `reviewedState: 'pending'`. Default false — the default read mirrors
+   * how each store is surfaced today (applied-only), so existing callers like
+   * the /knowledge "All" tab keep showing only live knowledge. Pass `true` from
+   * a surface that wants to show proposals (with a "proposed" treatment) — this
+   * NEVER changes any node's state, it only widens what's read.
+   */
+  includePending?: boolean;
 }
 
 export interface ProjectKnowledge {
@@ -244,6 +270,7 @@ interface GraphNodeRow {
   summary: string | null;
   attributes: unknown;
   sources: unknown;
+  reviewed_state: string | null;
   created_at: string;
 }
 interface MemoryFactRow {
@@ -323,6 +350,10 @@ export async function getProjectKnowledge(
   opts: GetProjectKnowledgeOptions = {},
 ): Promise<ProjectKnowledge> {
   const limit = Math.max(1, Math.min(opts.perStoreLimit ?? 500, 2000));
+  // Default applied-only (matches every existing caller). `includePending`
+  // widens the graph_nodes read to proposals — surfaced as reviewedState:
+  // 'pending', never auto-applied.
+  const graphStates = opts.includePending ? ['applied', 'pending'] : ['applied'];
 
   const [
     graphRows,
@@ -334,12 +365,13 @@ export async function getProjectKnowledge(
     proposalExecRows,
   ] = await Promise.all([
     query<GraphNodeRow>(
-      `SELECT id, name, node_type, summary, attributes, sources, created_at
+      `SELECT id, name, node_type, summary, attributes, sources, reviewed_state, created_at
          FROM graph_nodes
-        WHERE project_id = ? AND reviewed_state = 'applied'
+        WHERE project_id = ? AND reviewed_state IN (${graphStates.map(() => '?').join(', ')})
         ORDER BY created_at DESC
         LIMIT ?`,
       projectId,
+      ...graphStates,
       limit,
     ).catch(() => [] as GraphNodeRow[]),
     query<MemoryFactRow>(
@@ -439,6 +471,9 @@ export async function getProjectKnowledge(
       summary: n.summary,
       sourceStore: 'graph_nodes',
       provenanceTier: tier,
+      // The ONLY store with a surfaced pending state. 'pending' rows appear only
+      // when includePending was passed; everything else is applied by definition.
+      reviewedState: n.reviewed_state === 'pending' ? 'pending' : 'applied',
       sourceRef: firstUrlFromSources(n.sources) ?? n.id,
       createdAt: toIso(n.created_at),
       links: { graphNodeId: n.id },
@@ -454,6 +489,7 @@ export async function getProjectKnowledge(
       summary: (f.fact ?? '').length > 120 ? f.fact : null,
       sourceStore: 'memory_facts',
       provenanceTier: tierFromMemoryFact(f.source_type),
+      reviewedState: 'applied',
       sourceRef: f.id,
       createdAt: toIso(f.created_at),
     };
@@ -468,6 +504,7 @@ export async function getProjectKnowledge(
     // A signed external URL raises trust to externally_verified; otherwise the
     // monitor loop produced it → workflow_derived.
     provenanceTier: a.source_url ? 'externally_verified' : 'workflow_derived',
+    reviewedState: 'applied',
     sourceRef: a.source_url ?? a.id,
     createdAt: toIso(a.created_at),
     links: {
@@ -483,6 +520,7 @@ export async function getProjectKnowledge(
     summary: b.narrative,
     sourceStore: 'intelligence_briefs',
     provenanceTier: 'workflow_derived',
+    reviewedState: 'applied',
     sourceRef: b.id,
     createdAt: toIso(b.created_at),
   }));
@@ -494,6 +532,7 @@ export async function getProjectKnowledge(
     summary: c.description,
     sourceStore: 'competitor_profiles',
     provenanceTier: 'workflow_derived',
+    reviewedState: 'applied',
     sourceRef: c.id,
     createdAt: toIso(c.created_at),
   }));
@@ -507,6 +546,7 @@ export async function getProjectKnowledge(
       summary: iv.summary ?? iv.top_pain,
       sourceStore: 'interviews',
       provenanceTier: external ? 'externally_verified' : 'founder_asserted',
+      reviewedState: 'applied',
       sourceRef: firstUrlFromSources(iv.sources) ?? iv.id,
       createdAt: toIso(iv.created_at),
     };
@@ -581,6 +621,10 @@ export async function getProjectKnowledge(
         target.provenanceTier,
         item.provenanceTier,
       );
+      // If any folded duplicate is applied, the merged identity is applied —
+      // an established entity must never read as a mere proposal because a
+      // pending duplicate folded into it.
+      if (item.reviewedState === 'applied') target.reviewedState = 'applied';
       if (!target.summary && item.summary) target.summary = item.summary;
       if (item.links) {
         target.links = { ...(target.links ?? {}), ...item.links };
@@ -619,9 +663,11 @@ function summarize(items: KnowledgeItem[]): KnowledgeSummary {
     workflow_derived: 0,
     externally_verified: 0,
   };
+  let proposed = 0;
   for (const it of items) {
     byKind[it.kind] += 1;
     byProvenanceTier[it.provenanceTier] += 1;
+    if (it.reviewedState === 'pending') proposed += 1;
   }
-  return { total: items.length, byKind, byProvenanceTier };
+  return { total: items.length, byKind, byProvenanceTier, proposed };
 }

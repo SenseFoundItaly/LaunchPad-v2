@@ -36,6 +36,7 @@ import { checkDedup, computeDedupHash } from './monitor-dedup';
 import { recordEvent } from './memory/events';
 import { recordFact } from './memory/facts';
 import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from './credits';
+import { ownerUserId as resolveOwnerUserId } from '@/lib/cost-meter';
 import { seedAssumptionsIfEmpty } from './assumptions';
 import type { Source } from '@/types/artifacts';
 import { outputInstructions, projectContext } from './ecosystem-monitors';
@@ -744,31 +745,45 @@ const configureBudget: ActionHandler = async (action) => {
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   })();
 
+  // Credits are per-USER (2026-06-14): the founder's monthly budget binds on the
+  // OWNER's user_budgets pool — what isProjectCapped() and the credits badge
+  // read. Writing project_budgets here (the old behavior) had no effect on
+  // enforcement, so a founder raising their cap did nothing.
+  const owner = await resolveOwnerUserId(action.project_id);
+  if (!owner) {
+    return { ok: false, error: 'configure_budget: project has no owner to set a budget for' };
+  }
+
   const existing = await query<{ cap_llm_usd: number }>(
-    `SELECT cap_llm_usd FROM project_budgets WHERE project_id = ? AND period_month = ?`,
-    action.project_id,
+    `SELECT cap_llm_usd FROM user_budgets WHERE user_id = ? AND period_month = ?`,
+    owner,
     periodMonth,
   );
   const prevCap = existing[0]?.cap_llm_usd ?? null;
 
-  const budgetId = generateId('bud');
+  // Preserve the 100 credits / $1 invariant (cap_credits = capUsd × 100) so every
+  // ratio-based reader (badge, per-message credit display) stays correct without
+  // change. PostgreSQL UPSERT keyed on (user_id, period_month); current_llm_usd
+  // is untouched on conflict so existing spend tracking survives a cap change.
+  const capCredits = Math.round(proposedCap * 100);
+  const budgetId = generateId('ubud');
   const now = new Date().toISOString();
 
-  // PostgreSQL UPSERT — preserves current_llm_usd on conflict so existing spend
-  // tracking survives a cap change. Updates cap + status + updated_at only.
   await run(
-    `INSERT INTO project_budgets (
-       id, project_id, period_month, cap_llm_usd, created_at, updated_at
+    `INSERT INTO user_budgets (
+       id, user_id, period_month, cap_llm_usd, cap_credits, status, created_at, updated_at
      )
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(project_id, period_month) DO UPDATE SET
+     VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+     ON CONFLICT(user_id, period_month) DO UPDATE SET
        cap_llm_usd = excluded.cap_llm_usd,
+       cap_credits = excluded.cap_credits,
        status = 'active',
        updated_at = excluded.updated_at`,
     budgetId,
-    action.project_id,
+    owner,
     periodMonth,
     proposedCap,
+    capCredits,
     now,
     now,
   );

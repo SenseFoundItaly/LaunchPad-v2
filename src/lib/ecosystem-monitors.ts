@@ -485,6 +485,14 @@ export function getEcosystemTemplate(type: EcosystemMonitorType): EcosystemMonit
   return ECOSYSTEM_MONITOR_TEMPLATES.find(t => t.type === type);
 }
 
+/** Curated default watchers seeded (INACTIVE) at project creation — a small,
+ *  high-signal set the founder switches on, rather than all 8 (overwhelming). */
+export const DEFAULT_SEED_MONITOR_TYPES: EcosystemMonitorType[] = [
+  COMPETITORS_TEMPLATE.type,
+  TRENDS_TEMPLATE.type,
+  CUSTOMER_SENTIMENT_TEMPLATE.type,
+];
+
 // =============================================================================
 // Context loader — pulls project data into the prompt context
 // =============================================================================
@@ -556,8 +564,12 @@ export interface SeedResult {
   skipped: Array<{ type: EcosystemMonitorType; reason: string }>;
 }
 
-export async function seedEcosystemMonitorsForProject(projectId: string): Promise<SeedResult> {
+export async function seedEcosystemMonitorsForProject(
+  projectId: string,
+  types: EcosystemMonitorType[] = DEFAULT_SEED_MONITOR_TYPES,
+): Promise<SeedResult> {
   const result: SeedResult = { created: [], skipped: [] };
+  const seedSet = new Set<EcosystemMonitorType>(types);
 
   const existing = await query<{ type: string }>(
     `SELECT type FROM monitors WHERE project_id = ? AND type LIKE 'ecosystem.%'`,
@@ -568,6 +580,7 @@ export async function seedEcosystemMonitorsForProject(projectId: string): Promis
   const ctx = await loadMonitorContext(projectId);
 
   for (const template of ECOSYSTEM_MONITOR_TEMPLATES) {
+    if (!seedSet.has(template.type)) continue; // only the curated subset
     if (existingTypes.has(template.type)) {
       result.skipped.push({ type: template.type, reason: 'already exists' });
       continue;

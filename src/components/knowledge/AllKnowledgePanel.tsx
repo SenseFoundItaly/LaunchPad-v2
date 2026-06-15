@@ -22,6 +22,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Panel, Pill } from '@/components/design/primitives';
+import { useT } from '@/components/providers/LocaleProvider';
 import type {
   KnowledgeItem,
   KnowledgeKind,
@@ -44,40 +45,40 @@ const EMPTY: UnifiedResponse = {
   },
 };
 
-/** Display order + labels for the kind groups. */
-const KIND_GROUPS: Array<{ kind: KnowledgeKind; label: string }> = [
-  { kind: 'entity', label: 'Entities' },
-  { kind: 'competitor', label: 'Competitors' },
-  { kind: 'fact', label: 'Facts' },
-  { kind: 'signal', label: 'Signals' },
-  { kind: 'brief', label: 'Briefs' },
-  { kind: 'interview', label: 'Interviews' },
+/** Display order + label keys for the kind groups (resolved with `t` at render). */
+const KIND_GROUPS: Array<{ kind: KnowledgeKind; labelKey: string; labelLowerKey: string }> = [
+  { kind: 'entity', labelKey: 'kb.kind-entities', labelLowerKey: 'kb.kind-entities-lower' },
+  { kind: 'competitor', labelKey: 'kb.kind-competitors', labelLowerKey: 'kb.kind-competitors-lower' },
+  { kind: 'fact', labelKey: 'kb.kind-facts', labelLowerKey: 'kb.kind-facts-lower' },
+  { kind: 'signal', labelKey: 'kb.kind-signals', labelLowerKey: 'kb.kind-signals-lower' },
+  { kind: 'brief', labelKey: 'kb.kind-briefs', labelLowerKey: 'kb.kind-briefs-lower' },
+  { kind: 'interview', labelKey: 'kb.kind-interviews', labelLowerKey: 'kb.kind-interviews-lower' },
 ];
 
-const TIER_BADGE: Record<ProvenanceTier, { label: string; kind: 'n' | 'info' | 'ok' }> = {
-  founder_asserted: { label: 'founder-stated', kind: 'n' },
-  workflow_derived: { label: 'derived', kind: 'info' },
-  externally_verified: { label: 'verified', kind: 'ok' },
+const TIER_BADGE: Record<ProvenanceTier, { labelKey: string; kind: 'n' | 'info' | 'ok' }> = {
+  founder_asserted: { labelKey: 'kb.tier-founder-stated', kind: 'n' },
+  workflow_derived: { labelKey: 'kb.tier-derived', kind: 'info' },
+  externally_verified: { labelKey: 'kb.tier-verified', kind: 'ok' },
 };
 
-/** Founder-facing hint for the producing store — detail view only. */
+/** Founder-facing hint key for the producing store — detail view only. */
 const STORE_HINT: Record<KnowledgeSourceStore, string> = {
-  graph_nodes: 'knowledge graph',
-  memory_facts: 'saved fact',
-  ecosystem_alerts: 'watcher signal',
-  intelligence_briefs: 'intel brief',
-  competitor_profiles: 'competitor dossier',
-  interviews: 'interview log',
+  graph_nodes: 'kb.store-knowledge-graph',
+  memory_facts: 'kb.store-saved-fact',
+  ecosystem_alerts: 'kb.store-watcher-signal',
+  intelligence_briefs: 'kb.store-intel-brief',
+  competitor_profiles: 'kb.store-competitor-dossier',
+  interviews: 'kb.store-interview-log',
 };
 
 /** Short founder-facing "when" stamp: today / yesterday / 5d ago / Mar 5. */
-function relTime(iso: string): string {
+function relTime(iso: string, t: ReturnType<typeof useT>): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days}d ago`;
+  if (days <= 0) return t('kb.time-today');
+  if (days === 1) return t('kb.time-yesterday');
+  if (days < 7) return t('kb.time-days-ago', { n: days });
   return d.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -86,6 +87,7 @@ function relTime(iso: string): string {
 }
 
 export default function AllKnowledgePanel({ projectId }: { projectId: string }) {
+  const t = useT();
   // Keyed under ['knowledge', projectId, ...] so the QueryProvider event
   // bridge auto-invalidates it whenever lp-knowledge-changed fires
   // (KnowledgeReviewList dispatches it on every approve/reject).
@@ -109,11 +111,11 @@ export default function AllKnowledgePanel({ projectId }: { projectId: string }) 
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  if (isLoading) return <CenterNote text="Loading project knowledge…" />;
-  if (errorMsg) return <CenterNote text={`Couldn’t load knowledge: ${errorMsg}`} tone="error" />;
+  if (isLoading) return <CenterNote text={t('kb.loading-project-knowledge')} />;
+  if (errorMsg) return <CenterNote text={t('kb.load-knowledge-error', { error: errorMsg })} tone="error" />;
   if (data.summary.total === 0) {
     return (
-      <CenterNote text="Nothing here yet. Chat with the agent, approve proposals under “Needs review”, or let watchers land signals — everything the project learns shows up here." />
+      <CenterNote text={t('kb.all-empty')} />
     );
   }
 
@@ -123,25 +125,29 @@ export default function AllKnowledgePanel({ projectId }: { projectId: string }) 
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {/* Summary chips — counts by kind, then the provenance split. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-        <Pill kind="live" dot>{summary.total} item{summary.total === 1 ? '' : 's'}</Pill>
+        <Pill kind="live" dot>
+          {summary.total === 1
+            ? t('kb.item-count-one', { count: summary.total })
+            : t('kb.item-count-many', { count: summary.total })}
+        </Pill>
         {KIND_GROUPS.filter(g => summary.byKind[g.kind] > 0).map(g => (
-          <Pill key={g.kind} kind="n">{summary.byKind[g.kind]} {g.label.toLowerCase()}</Pill>
+          <Pill key={g.kind} kind="n">{summary.byKind[g.kind]} {t(g.labelLowerKey)}</Pill>
         ))}
         <span style={{ width: 1, height: 14, background: 'var(--line)', margin: '0 4px' }} />
         {(Object.keys(TIER_BADGE) as ProvenanceTier[])
-          .filter(t => summary.byProvenanceTier[t] > 0)
-          .map(t => (
-            <Pill key={t} kind={TIER_BADGE[t].kind} dot>
-              {summary.byProvenanceTier[t]} {TIER_BADGE[t].label}
+          .filter(tier => summary.byProvenanceTier[tier] > 0)
+          .map(tier => (
+            <Pill key={tier} kind={TIER_BADGE[tier].kind} dot>
+              {summary.byProvenanceTier[tier]} {t(TIER_BADGE[tier].labelKey)}
             </Pill>
           ))}
       </div>
 
-      {KIND_GROUPS.map(({ kind, label }) => {
+      {KIND_GROUPS.map(({ kind, labelKey }) => {
         const group = items.filter(it => it.kind === kind);
         if (group.length === 0) return null;
         return (
-          <Panel key={kind} title={label} subtitle={`${group.length}`}>
+          <Panel key={kind} title={t(labelKey)} subtitle={`${group.length}`}>
             <div>
               {group.map((it, i) => (
                 <KnowledgeRow
@@ -185,8 +191,10 @@ function KnowledgeRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const t = useT();
   const badge = TIER_BADGE[item.provenanceTier] ?? TIER_BADGE.founder_asserted;
-  const hint = STORE_HINT[item.sourceStore] ?? item.sourceStore;
+  const hintKey = STORE_HINT[item.sourceStore];
+  const hint = hintKey ? t(hintKey) : item.sourceStore;
   const refIsUrl = !!item.sourceRef && /^https?:\/\//i.test(item.sourceRef);
 
   return (
@@ -223,12 +231,12 @@ function KnowledgeRow({
         >
           {item.title}
         </div>
-        <Pill kind={badge.kind}>{badge.label}</Pill>
+        <Pill kind={badge.kind}>{t(badge.labelKey)}</Pill>
         <span
           className="lp-mono"
           style={{ fontSize: 10, color: 'var(--ink-5)', flexShrink: 0 }}
         >
-          {relTime(item.createdAt)}
+          {relTime(item.createdAt, t)}
         </span>
         <RowChevron open={expanded} />
       </div>
@@ -251,7 +259,7 @@ function KnowledgeRow({
               color: 'var(--ink-5)',
             }}
           >
-            <span>from {hint}</span>
+            <span>{t('kb.from-store', { store: hint })}</span>
             <span>{new Date(item.createdAt).toLocaleString()}</span>
             {refIsUrl && (
               <a
@@ -261,7 +269,7 @@ function KnowledgeRow({
                 onClick={(e) => e.stopPropagation()}
                 style={{ color: 'var(--accent-ink, var(--accent))', textDecoration: 'underline', textUnderlineOffset: 2 }}
               >
-                source ↗
+                {t('kb.source-link')}
               </a>
             )}
           </div>

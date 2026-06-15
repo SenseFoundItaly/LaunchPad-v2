@@ -35,38 +35,42 @@ import Link from 'next/link';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import type { Watcher } from '@/lib/watchers';
 import NewWatcherForm from '@/components/monitors/NewWatcherForm';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
 
-function relAge(iso: string | null): string {
-  if (!iso) return 'never run';
+type TFn = (key: MessageKey, vars?: TranslateVars) => string;
+
+function relAge(iso: string | null, t: TFn): string {
+  if (!iso) return t('monitors.never-run');
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return '';
   const mins = Math.round((Date.now() - then) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return t('monitors.just-now');
+  if (mins < 60) return t('monitors.age-minutes', { n: mins });
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return t('monitors.age-hours', { n: hrs });
   const days = Math.round(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return `${Math.round(days / 7)}w ago`;
+  if (days < 7) return t('monitors.age-days', { n: days });
+  return t('monitors.age-weeks', { n: Math.round(days / 7) });
 }
 
-function relFuture(iso: string | null): string {
+function relFuture(iso: string | null, t: TFn): string {
   if (!iso) return '—';
   const ms = new Date(iso).getTime() - Date.now();
   if (Number.isNaN(ms)) return '—';
-  if (ms < 0) return 'overdue';
+  if (ms < 0) return t('monitors.overdue');
   const m = Math.floor(ms / 60_000);
-  if (m < 60) return `in ${m}m`;
+  if (m < 60) return t('monitors.in-minutes', { n: m });
   const h = Math.floor(m / 60);
-  if (h < 24) return `in ${h}h`;
-  return `in ${Math.floor(h / 24)}d`;
+  if (h < 24) return t('monitors.in-hours', { n: h });
+  return t('monitors.in-days', { n: Math.floor(h / 24) });
 }
 
-function statusPill(status: string) {
-  if (status === 'active') return <Pill kind="ok" dot>active</Pill>;
-  if (status === 'paused') return <Pill kind="n">paused</Pill>;
-  if (status === 'error') return <Pill kind="warn">error</Pill>;
-  if (status === 'archived') return <Pill kind="n">archived</Pill>;
+function statusPill(status: string, t: TFn) {
+  if (status === 'active') return <Pill kind="ok" dot>{t('monitors.status-active')}</Pill>;
+  if (status === 'paused') return <Pill kind="n">{t('monitors.status-paused')}</Pill>;
+  if (status === 'error') return <Pill kind="warn">{t('monitors.status-error')}</Pill>;
+  if (status === 'archived') return <Pill kind="n">{t('monitors.status-archived')}</Pill>;
   return <Pill kind="n">{status}</Pill>;
 }
 
@@ -74,10 +78,10 @@ function statusPill(status: string) {
  *  "Topic" = monitor (LLM scan). Hides the implementation detail behind a
  *  single-word label that explains what's being watched without naming
  *  which table it lives in. */
-function kindPill(kind: string) {
-  if (kind === 'diff') return <Pill kind="n">URL</Pill>;
-  if (kind === 'scan') return <Pill kind="n">Topic</Pill>;
-  if (kind === 'hybrid') return <Pill kind="n">Mixed</Pill>;
+function kindPill(kind: string, t: TFn) {
+  if (kind === 'diff') return <Pill kind="n">{t('monitors.kind-url')}</Pill>;
+  if (kind === 'scan') return <Pill kind="n">{t('monitors.kind-topic')}</Pill>;
+  if (kind === 'hybrid') return <Pill kind="n">{t('monitors.kind-mixed')}</Pill>;
   return null;
 }
 
@@ -134,18 +138,18 @@ interface RunStep {
 }
 
 /** Founder-readable label for an agent tool call. */
-function toolStepLabel(name: string, args: unknown): string {
+function toolStepLabel(name: string, args: unknown, t: TFn): string {
   const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
   if (name === 'web_search') {
     const q = str(a.query) || str(a.q) || str(a.search);
-    return q ? `Searching the web — “${q}”` : 'Searching the web';
+    return q ? t('monitors.step-searching-query', { query: q }) : t('monitors.step-searching');
   }
   if (name === 'read_url' || name === 'fetch_url' || name === 'read_page') {
     const u = str(a.url) || str(a.href);
-    return u ? `Reading ${prettyHost(u)}` : 'Reading a page';
+    return u ? t('monitors.step-reading-host', { host: prettyHost(u) }) : t('monitors.step-reading-page');
   }
-  if (name === 'calculate') return 'Calculating';
+  if (name === 'calculate') return t('monitors.step-calculating');
   return name.replace(/_/g, ' ');
 }
 
@@ -197,6 +201,7 @@ function CompactWatcherRow({ projectId, w }: { projectId: string; w: Watcher }) 
 }
 
 function RowHeader({ w, expanded }: { w: Watcher; expanded?: boolean }) {
+  const t = useT();
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
       {expanded !== undefined && (
@@ -217,15 +222,15 @@ function RowHeader({ w, expanded }: { w: Watcher; expanded?: boolean }) {
           <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {w.name}
           </span>
-          {kindPill(w.kind)}
-          {statusPill(w.status)}
+          {kindPill(w.kind, t)}
+          {statusPill(w.status, t)}
         </div>
         <div
           className="lp-mono"
           style={{ fontSize: 10, color: 'var(--ink-5)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
         >
           <span>{w.cadence}</span>
-          <span>· {relAge(w.last_run_at)}</span>
+          <span>· {relAge(w.last_run_at, t)}</span>
         </div>
       </div>
     </div>
@@ -245,6 +250,7 @@ function ExpandableWatcherRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const t = useT();
   const qc = useQueryClient();
   const isMonitor = w._origin === 'monitor';
 
@@ -303,7 +309,7 @@ function ExpandableWatcherRow({
       const body = await res.json();
       if (!res.ok || !body?.success) throw new Error(body?.error || `HTTP ${res.status}`);
     } catch (e) {
-      setActionErr((e as Error).message || 'Update failed');
+      setActionErr((e as Error).message || t('monitors.update-failed'));
     } finally {
       setBusy(null);
       void invalidate();
@@ -358,8 +364,8 @@ function ExpandableWatcherRow({
         }
       }
     } catch (e) {
-      setRunErr((e as Error).message || 'Run failed');
-      setActionErr((e as Error).message || 'Run failed');
+      setRunErr((e as Error).message || t('monitors.run-failed'));
+      setActionErr((e as Error).message || t('monitors.run-failed'));
     } finally {
       setBusy(null);
       void invalidate();
@@ -377,7 +383,7 @@ function ExpandableWatcherRow({
       const id = ts.id || `${ts.name}-${Date.now()}`;
       setRunSteps((s) => [
         ...s,
-        { id, label: toolStepLabel(ts.name || 'step', ts.args), status: 'running' },
+        { id, label: toolStepLabel(ts.name || 'step', ts.args, t), status: 'running' },
       ]);
       return;
     }
@@ -421,7 +427,7 @@ function ExpandableWatcherRow({
   async function saveEdit() {
     if (busy) return;
     const name = editName.trim();
-    if (!name) { setActionErr('Name is required'); return; }
+    if (!name) { setActionErr(t('monitors.name-required')); return; }
     setBusy('save');
     setActionErr(null);
     try {
@@ -435,7 +441,7 @@ function ExpandableWatcherRow({
       if (!res.ok || !body?.success) throw new Error(body?.error || `HTTP ${res.status}`);
       setEditing(false);
     } catch (e) {
-      setActionErr((e as Error).message || 'Save failed');
+      setActionErr((e as Error).message || t('monitors.save-failed'));
     } finally {
       setBusy(null);
       void invalidate();
@@ -482,9 +488,9 @@ function ExpandableWatcherRow({
         <div style={{ borderTop: '1px solid var(--line)', padding: '12px 14px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {isMonitor ? (
             isLoading && !detail ? (
-              <div className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)' }}>Loading watcher detail…</div>
+              <div className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)' }}>{t('monitors.loading-detail')}</div>
             ) : isError ? (
-              <div style={{ fontSize: 12, color: 'var(--clay)' }}>Could not load watcher detail.</div>
+              <div style={{ fontSize: 12, color: 'var(--clay)' }}>{t('monitors.detail-load-error')}</div>
             ) : detail ? (
               <>
                 {/* Prompt — what the watcher is asked each run. Labeled + editable
@@ -493,7 +499,7 @@ function ExpandableWatcherRow({
                 {editing ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--paper-2)', borderRadius: 6, padding: 10 }}>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <span className="lp-mono" style={editLabelStyle}>Name</span>
+                      <span className="lp-mono" style={editLabelStyle}>{t('monitors.field-name')}</span>
                       <input
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
@@ -502,27 +508,27 @@ function ExpandableWatcherRow({
                       />
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <span className="lp-mono" style={editLabelStyle}>Prompt</span>
+                      <span className="lp-mono" style={editLabelStyle}>{t('monitors.field-prompt')}</span>
                       <textarea
                         value={editPrompt}
                         onChange={(e) => setEditPrompt(e.target.value)}
                         onClick={(e) => e.stopPropagation()}
                         rows={3}
-                        placeholder="What should this watcher look for each run?"
+                        placeholder={t('monitors.prompt-placeholder')}
                         style={{ ...editInputStyle, resize: 'vertical', lineHeight: 1.5 }}
                       />
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 160 }}>
-                      <span className="lp-mono" style={editLabelStyle}>Cadence</span>
+                      <span className="lp-mono" style={editLabelStyle}>{t('monitors.field-cadence')}</span>
                       <select
                         value={editCadence}
                         onChange={(e) => setEditCadence(e.target.value)}
                         onClick={(e) => e.stopPropagation()}
                         style={editInputStyle}
                       >
-                        <option value="daily">Daily</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="monthly">Monthly</option>
+                        <option value="daily">{t('monitors.cadence-daily')}</option>
+                        <option value="weekly">{t('monitors.cadence-weekly')}</option>
+                        <option value="monthly">{t('monitors.cadence-monthly')}</option>
                       </select>
                     </label>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -532,7 +538,7 @@ function ExpandableWatcherRow({
                         onClick={(e) => { e.stopPropagation(); void saveEdit(); }}
                         style={{ ...miniBtn, background: 'var(--moss)', color: 'var(--paper)', border: 'none', opacity: busy ? 0.6 : 1 }}
                       >
-                        {busy === 'save' ? 'Saving…' : 'Save'}
+                        {busy === 'save' ? t('monitors.saving') : t('common.save')}
                       </button>
                       <button
                         type="button"
@@ -540,7 +546,7 @@ function ExpandableWatcherRow({
                         onClick={(e) => { e.stopPropagation(); setEditing(false); setActionErr(null); }}
                         style={miniBtn}
                       >
-                        Cancel
+                        {t('common.cancel')}
                       </button>
                       {actionErr && <span style={{ fontSize: 11, color: 'var(--clay)' }}>{actionErr}</span>}
                     </div>
@@ -548,19 +554,19 @@ function ExpandableWatcherRow({
                 ) : (
                   <div>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 3 }}>
-                      <span className="lp-mono" style={editLabelStyle}>Prompt</span>
+                      <span className="lp-mono" style={editLabelStyle}>{t('monitors.field-prompt')}</span>
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); beginEdit(); }}
                         style={{ fontSize: 10.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'var(--f-sans)' }}
                       >
-                        Edit
+                        {t('common.edit')}
                       </button>
                     </div>
                     <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
                       {(detail.monitor.prompt || detail.monitor.objective)?.trim() || (
                         <span style={{ color: 'var(--ink-5)', fontStyle: 'italic' }}>
-                          No prompt set — click Edit to tell this watcher what to look for.
+                          {t('monitors.no-prompt-set')}
                         </span>
                       )}
                     </p>
@@ -568,9 +574,9 @@ function ExpandableWatcherRow({
                 )}
 
                 <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)', display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                  <span>schedule · {detail.monitor.schedule}</span>
-                  <span>last run · {detail.monitor.last_run ? relAge(detail.monitor.last_run) : 'never'}</span>
-                  <span>next run · {relFuture(detail.monitor.next_run)}</span>
+                  <span>{t('monitors.meta-schedule')} · {detail.monitor.schedule}</span>
+                  <span>{t('monitors.meta-last-run')} · {detail.monitor.last_run ? relAge(detail.monitor.last_run, t) : t('monitors.never')}</span>
+                  <span>{t('monitors.meta-next-run')} · {relFuture(detail.monitor.next_run, t)}</span>
                 </div>
 
                 {(busy === 'run' || runSteps.length > 0 || runText || runDone || runErr) && (
@@ -594,7 +600,9 @@ function ExpandableWatcherRow({
                         {detail.last_run.status}
                       </Pill>
                       <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-                        {detail.last_run.alerts_generated} alert{detail.last_run.alerts_generated === 1 ? '' : 's'}
+                        {detail.last_run.alerts_generated === 1
+                          ? t('monitors.alert-count-one', { n: detail.last_run.alerts_generated })
+                          : t('monitors.alert-count-other', { n: detail.last_run.alerts_generated })}
                       </span>
                     </div>
                     {summaryExcerpt && (
@@ -605,7 +613,7 @@ function ExpandableWatcherRow({
                   </div>
                 ) : (
                   <div style={{ fontSize: 11.5, color: 'var(--ink-5)', fontStyle: 'italic' }}>
-                    No runs yet. The watcher fires on its next scheduled tick.
+                    {t('monitors.no-runs-yet-detail')}
                   </div>
                 )}
 
@@ -614,7 +622,7 @@ function ExpandableWatcherRow({
                     row previewing its date+time, status and alert count, and
                     expanding to reveal that run's summary. */}
                 {recentRuns.length === 0 ? (
-                  <div className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)' }}>No runs yet.</div>
+                  <div className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)' }}>{t('monitors.no-runs-yet')}</div>
                 ) : (
                   <div>
                     <button
@@ -642,7 +650,7 @@ function ExpandableWatcherRow({
                         }}
                       />
                       <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                        Logs ({recentRuns.length})
+                        {t('monitors.logs-count', { n: recentRuns.length })}
                       </span>
                     </button>
 
@@ -677,7 +685,9 @@ function ExpandableWatcherRow({
                                   {run.status}
                                 </Pill>
                                 <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-                                  {run.alerts_generated} alert{run.alerts_generated === 1 ? '' : 's'}
+                                  {run.alerts_generated === 1
+                                    ? t('monitors.alert-count-one', { n: run.alerts_generated })
+                                    : t('monitors.alert-count-other', { n: run.alerts_generated })}
                                 </span>
                               </button>
                               {isOpen && runExcerpt && (
@@ -687,7 +697,7 @@ function ExpandableWatcherRow({
                               )}
                               {isOpen && !runExcerpt && (
                                 <p style={{ margin: 0, padding: '0 10px 8px', fontSize: 11.5, color: 'var(--ink-5)', fontStyle: 'italic' }}>
-                                  No summary for this run.
+                                  {t('monitors.no-summary')}
                                 </p>
                               )}
                             </li>
@@ -701,7 +711,7 @@ function ExpandableWatcherRow({
                 {detail.last_run_sources.length > 0 && (
                   <div>
                     <div className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>
-                      Sources of last run
+                      {t('monitors.sources-of-last-run')}
                     </div>
                     <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 3 }}>
                       {detail.last_run_sources.slice(0, 6).map((u) => (
@@ -721,9 +731,9 @@ function ExpandableWatcherRow({
                     disabled={busy !== null || liveStatus === 'paused'}
                     onClick={(e) => { e.stopPropagation(); void runNow(); }}
                     style={{ ...miniBtn, opacity: busy || liveStatus === 'paused' ? 0.55 : 1 }}
-                    title={liveStatus === 'paused' ? 'Resume the watcher to run it' : 'Run this watcher now'}
+                    title={liveStatus === 'paused' ? t('monitors.run-resume-hint') : t('monitors.run-now-hint')}
                   >
-                    {busy === 'run' ? 'Running…' : 'Run now'}
+                    {busy === 'run' ? t('monitors.running') : t('monitors.run-now')}
                   </button>
                   <button
                     type="button"
@@ -731,7 +741,7 @@ function ExpandableWatcherRow({
                     onClick={(e) => { e.stopPropagation(); void setStatus(liveStatus === 'paused' ? 'active' : 'paused'); }}
                     style={{ ...miniBtn, opacity: busy ? 0.55 : 1 }}
                   >
-                    {busy === 'status' ? 'Saving…' : liveStatus === 'paused' ? 'Resume' : 'Pause'}
+                    {busy === 'status' ? t('monitors.saving') : liveStatus === 'paused' ? t('monitors.resume') : t('monitors.pause')}
                   </button>
                   {actionErr && <span style={{ fontSize: 11, color: 'var(--clay)' }}>{actionErr}</span>}
                 </div>
@@ -742,9 +752,9 @@ function ExpandableWatcherRow({
             // unified Watcher row already carries.
             <>
               <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)', display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                <span>schedule · {w.cadence}</span>
-                <span>last run · {relAge(w.last_run_at)}</span>
-                <span>next run · {relFuture(w.next_run_at)}</span>
+                <span>{t('monitors.meta-schedule')} · {w.cadence}</span>
+                <span>{t('monitors.meta-last-run')} · {relAge(w.last_run_at, t)}</span>
+                <span>{t('monitors.meta-next-run')} · {relFuture(w.next_run_at, t)}</span>
               </div>
               {(w.inputs.urls ?? []).length > 0 && (
                 <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -758,7 +768,7 @@ function ExpandableWatcherRow({
                 </ul>
               )}
               <div style={{ fontSize: 11, color: 'var(--ink-5)', fontStyle: 'italic' }}>
-                URL watcher — diff-based. Findings land in your Inbox.
+                {t('monitors.url-watcher-note')}
               </div>
             </>
           )}
@@ -826,6 +836,7 @@ function LiveRunPanel({
   error: string | null;
   projectId: string;
 }) {
+  const t = useT();
   const proseRef = useRef<HTMLDivElement | null>(null);
   const clean = stripArtifactsLive(text);
   // Keep the streaming prose pinned to the latest token.
@@ -838,14 +849,14 @@ function LiveRunPanel({
     <div style={{ border: '1px solid var(--line)', borderRadius: 6, background: 'var(--paper-2)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, flex: 1 }}>
-          Run activity
+          {t('monitors.run-activity')}
         </span>
         {running ? (
-          <Pill kind="live" dot>running</Pill>
+          <Pill kind="live" dot>{t('monitors.run-running')}</Pill>
         ) : error ? (
-          <Pill kind="warn">failed</Pill>
+          <Pill kind="warn">{t('monitors.run-failed-pill')}</Pill>
         ) : done ? (
-          <Pill kind="ok" dot>done</Pill>
+          <Pill kind="ok" dot>{t('monitors.run-done')}</Pill>
         ) : null}
       </div>
 
@@ -872,18 +883,20 @@ function LiveRunPanel({
 
       {running && steps.length === 0 && !clean && (
         <div className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)' }}>
-          Starting the watcher…
+          {t('monitors.starting-watcher')}
         </div>
       )}
 
-      {error && <div style={{ fontSize: 11.5, color: 'var(--clay)' }}>Run failed: {error}</div>}
+      {error && <div style={{ fontSize: 11.5, color: 'var(--clay)' }}>{t('monitors.run-failed-label', { error })}</div>}
 
       {done && !running && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--ink-3)' }}>
           <span>
             {done.alerts > 0
-              ? `Found ${done.alerts} signal${done.alerts === 1 ? '' : 's'}.`
-              : 'No new signals this run.'}
+              ? done.alerts === 1
+                ? t('monitors.found-signals-one', { n: done.alerts })
+                : t('monitors.found-signals-other', { n: done.alerts })
+              : t('monitors.no-new-signals')}
           </span>
           {done.alerts > 0 && (
             <Link
@@ -891,7 +904,7 @@ function LiveRunPanel({
               onClick={(e) => e.stopPropagation()}
               style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 11.5 }}
             >
-              View in Inbox →
+              {t('monitors.view-in-inbox')}
             </Link>
           )}
         </div>
@@ -908,7 +921,7 @@ export default function MonitorListPanel({
   projectId,
   compact = false,
   limit,
-  title = 'Watchers',
+  title,
   initialExpandedWatcherId,
 }: {
   projectId: string;
@@ -919,6 +932,10 @@ export default function MonitorListPanel({
    *  (?watcher=<id> on /actions). Expanded once the list loads. */
   initialExpandedWatcherId?: string;
 }) {
+  const t = useT();
+  // Default heading is the localized "Watchers"; callers can override (or pass
+  // "" to hide it — preserved as a falsy value below).
+  const heading = title === undefined ? t('monitors.title') : title;
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery<Watcher[]>({
     queryKey: ['watchers', projectId],
@@ -975,9 +992,9 @@ export default function MonitorListPanel({
 
   // ---- compact: bare rows, no chrome (parent Panel owns the heading) -------
   if (compact) {
-    if (isLoading) return <div style={{ fontSize: 12, color: 'var(--ink-5)', padding: '8px 12px' }}>Loading watchers…</div>;
+    if (isLoading) return <div style={{ fontSize: 12, color: 'var(--ink-5)', padding: '8px 12px' }}>{t('monitors.loading')}</div>;
     if (rows.length === 0) {
-      return <div style={{ fontSize: 12, color: 'var(--ink-5)', padding: '8px 12px' }}>No active watchers yet.</div>;
+      return <div style={{ fontSize: 12, color: 'var(--ink-5)', padding: '8px 12px' }}>{t('monitors.no-active-watchers')}</div>;
     }
     return <div>{rows.map((w) => <CompactWatcherRow key={w.id} projectId={projectId} w={w} />)}</div>;
   }
@@ -987,31 +1004,29 @@ export default function MonitorListPanel({
     <div style={{ padding: '16px 20px', maxWidth: 880 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}>
         <Icon d={I.signal} size={16} style={{ marginTop: 2 }} />
-        {title && (
+        {heading && (
           <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>
-            {title}
+            {heading}
             {all.length > 0 && (
               <span style={{ fontWeight: 400, color: 'var(--ink-5)', marginLeft: 8 }}>{all.length}</span>
             )}
           </h2>
         )}
-        {!title && <div style={{ flex: 1 }} />}
+        {!heading && <div style={{ flex: 1 }} />}
         <NewWatcherForm projectId={projectId} />
       </div>
 
       {isLoading ? (
         <div style={{ fontSize: 13, color: 'var(--ink-5)', padding: '24px 12px', textAlign: 'center' }}>
-          Loading watchers…
+          {t('monitors.loading')}
         </div>
       ) : isError ? (
         <div style={{ fontSize: 13, color: 'var(--clay)', padding: '24px 12px', textAlign: 'center' }}>
-          Could not load watchers. Refresh to retry.
+          {t('monitors.load-error')}
         </div>
       ) : rows.length === 0 ? (
         <div style={{ fontSize: 13, color: 'var(--ink-4)', padding: '28px 16px', textAlign: 'center', lineHeight: 1.5 }}>
-          No watchers yet. Ask the co-pilot to watch a competitor, market, or risk —
-          it proposes a weekly watcher you approve, then it runs on schedule and
-          drops signals into your Inbox.
+          {t('monitors.empty-state')}
         </div>
       ) : (
         <div>

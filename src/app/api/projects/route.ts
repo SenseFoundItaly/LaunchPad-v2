@@ -4,6 +4,7 @@ import { query, run } from '@/lib/db';
 import { json, error, mapProject } from '@/lib/api-helpers';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { ensureStartupRootNode } from '@/lib/knowledge/root-node';
+import { seedEcosystemMonitorsForProject } from '@/lib/ecosystem-monitors';
 import { isLocale } from '@/lib/i18n/locales';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 
@@ -80,11 +81,18 @@ export async function POST(request: NextRequest) {
   // break project creation.
   await ensureStartupRootNode(id);
 
-  // No auto-seeded monitors. Ecosystem monitors and the weekly health check are
-  // now created on demand from chat — the founder approves a propose_monitor
-  // tool call. seedEcosystemMonitorsForProject() and the health-check template
-  // are no longer wired here; if we ever expose a manual "seed defaults"
-  // recovery action, add a new route and call back into the lib.
+  // Seed a small curated set of INACTIVE preset watchers (Competitors, Trends,
+  // Customer Sentiment) so a new project isn't a dead end — the founder switches
+  // them on when ready (inactive = cron skips them, zero cost until activated).
+  // The co-pilot also proactively proposes watchers at Stage 2 (chat/route.ts);
+  // this gives founders something ready-made too. Non-fatal + idempotent, mirrors
+  // ensureStartupRootNode so a seed failure can't break project creation.
+  try {
+    await seedEcosystemMonitorsForProject(id);
+  } catch (err) {
+    console.warn('[projects] preset watcher seed failed (non-fatal):', (err as Error).message);
+  }
+
   const row = await query('SELECT * FROM projects WHERE id = ?', id);
   return json(mapProject(row[0]), 201);
 }

@@ -324,7 +324,7 @@ When founder expresses concern about a specific external force:
 3. Existing watcher covers it? → reference it, don't duplicate
 4. Cap reached? → surface pause candidates
 Pass the one-sentence test: "This watcher fires when <linked_risk_id> is materializing, because it detects <alert_threshold>."
-A good watcher derisks ONE thing. Prefer ZERO watchers over a vague one.
+A good watcher derisks ONE thing. Prefer ZERO watchers over a vague one — BUT Stage 2 (Market Validation) requires at least one. If the [WATCHER GAP] signal is present (the project has no active watcher) and you have a concrete competitor or named risk to point it at, proactively propose ONE precise watcher this turn rather than waiting for the founder to ask.
 
 BUDGET CAP CHANGES:
 Call propose_budget_change when the founder explicitly asks to raise/lower cap, or when credits-empty and they want to continue. Cite the founder quote or error in sources. Never bump silently.
@@ -463,6 +463,47 @@ export async function POST(request: NextRequest) {
     allStagesDone = evals.every((e) => e.status === 'done');
   }
 
+  // Inject the LIVE idea-canvas state every turn so the agent never forgets what
+  // the founder already defined — even when a long refine conversation pushes it
+  // out of the message-history window. (Confirmed failure: the agent re-asked
+  // "weren't we talking about unfair advantage?" and the founder had to paste the
+  // value proposition back in.)
+  let canvasContext = '';
+  if (snapshot?.idea_canvas) {
+    const c = snapshot.idea_canvas as Record<string, unknown>;
+    const fields: Array<[string, unknown]> = [
+      ['Problem', c.problem],
+      ['Solution', c.solution],
+      ['Target market', c.target_market],
+      ['Value proposition', c.value_proposition],
+      ['Competitive advantage', c.competitive_advantage],
+    ];
+    const filled = fields.filter(([, v]) => typeof v === 'string' && v.trim().length > 0);
+    if (filled.length > 0) {
+      canvasContext = [
+        '[CURRENT IDEA CANVAS — already defined by the founder; reference these, never re-ask for them]',
+        ...filled.map(([k, v]) => `- ${k}: ${String(v).trim()}`),
+        'When the founder challenges or refines one of these fields, iterate on the TEXT directly in your reply and, once they settle on the wording, commit it via update_idea_canvas / propose_validation. Do NOT re-ask for information shown here, and do NOT propose a skill to do what is a simple text refinement.',
+        '',
+      ].join('\n');
+    }
+  }
+
+  // Watcher gap: Stage 2 needs ≥1 active watcher and this project has none.
+  // Surface it so the agent proactively proposes one (and enable the write tool
+  // below). Confirmed gap: agents almost never call propose_monitor unprompted.
+  const activeWatchers =
+    (snapshot?.monitors ?? []).filter((m) => m.status === 'active').length +
+    (snapshot?.watch_sources ?? []).filter((w) => w.status === 'active').length;
+  const needsWatcher = !!snapshot && activeStageNumber >= 2 && !allStagesDone && activeWatchers === 0;
+  const watcherContext = needsWatcher
+    ? [
+        '[WATCHER GAP] Stage 2 (Market Validation) needs at least ONE active watcher and this project has none.',
+        'When it is natural this turn — e.g. right after mapping a competitor or naming a concrete external risk — proactively PROPOSE one precise watcher via propose_monitor / propose_watch_source tied to that competitor or risk. Offer, do not force; one good watcher, never a vague one.',
+        '',
+      ].join('\n')
+    : '';
+
   // WS-A — inject the direction engine's computed next-best-action so the model
   // LEADS with the deterministic next move instead of re-deriving it (or
   // forgetting to call get_project_summary). Tolerant: any failure degrades to
@@ -493,7 +534,7 @@ export async function POST(request: NextRequest) {
     locale,
     context: 'chat',
     tail: ARTIFACT_INSTRUCTIONS,
-    projectContext: `${directionContext}${stageContext}${projectContext}${memoryContext}\n${skillContext}`,
+    projectContext: `${directionContext}${stageContext}${canvasContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}`,
   });
   const encoder = new TextEncoder();
 
@@ -510,7 +551,10 @@ export async function POST(request: NextRequest) {
     // and queue its own drafts into the approval inbox. The factory closes
     // over project_id so the agent cannot accidentally read or write another
     // project's rows.
-    const includeWriteTools = messages.length <= 1 || hasWriteIntent(lastMessage);
+    // Write tools attach on turn 1, on explicit write intent, OR when there's an
+    // open watcher gap — otherwise the agent literally can't call propose_monitor
+    // on the advisory turn where it should proactively offer a watcher.
+    const includeWriteTools = messages.length <= 1 || hasWriteIntent(lastMessage) || needsWatcher;
     const projectTools = makeProjectTools(project_id, { includeWriteTools, userId });
 
     // Route simple follow-ups to Haiku (~80% cheaper) — "yes", "go ahead",
@@ -597,6 +641,12 @@ export async function POST(request: NextRequest) {
       // this deadline regardless of whether agent.abort() propagates.
       timeout: 180000,
       task: chatTask,
+      // Slightly wider than the 12-message default: a deep single-field refine
+      // (e.g. iterating on the value proposition) otherwise pushes the agreed
+      // wording out of context and the agent re-asks. The [CURRENT IDEA CANVAS]
+      // block carries the durable state; this just keeps the conversational
+      // thread coherent, at a small token cost.
+      maxHistoryMessages: 16,
     });
 
     // Accumulate response text so we can: (1) extract agent-emitted facts via

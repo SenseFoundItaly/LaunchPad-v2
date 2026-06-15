@@ -1,6 +1,7 @@
 import { get, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
-import { upsertMonthlyBudget } from '@/lib/cost-meter';
+import { upsertMonthlyBudget, upsertUserMonthlyBudget, ownerUserId } from '@/lib/cost-meter';
+import { USER_MONTHLY_CREDITS, USER_MONTHLY_LLM_USD } from '@/lib/credit-costs';
 
 // Cost constants live in a client-safe module (no db imports) so client
 // components can read them too; re-exported here so server callers keep
@@ -8,31 +9,30 @@ import { upsertMonthlyBudget } from '@/lib/cost-meter';
 export { KNOWLEDGE_APPLY_CREDITS, DOCUMENT_AUDIT_CREDITS } from '@/lib/credit-costs';
 
 /**
- * Credits — a UX abstraction over project_budgets.
+ * Credits — a UX abstraction over the per-USER monthly pool (user_budgets).
  *
- * Real LLM cost continues to be tracked dollar-precise in llm_usage_logs and
- * project_budgets.current_llm_usd. Credits are a friendlier number for the
- * founder to look at: "you have 72/100 credits this month" beats "$0.43 of $0.60".
+ * Founder decision 2026-06-14: credits are PER USER, shared across all their
+ * projects — not per project. Every project resolves its owner_user_id and
+ * reads/writes that user's pool. Real LLM cost is still tracked dollar-precise
+ * per project in llm_usage_logs + project_budgets (the usage page); credits are
+ * the friendlier number ("72/100 credits this month").
  *
- * Economics are now DB-driven:
- *   - cap_credits lives on the project_budgets row (default 100)
- *   - creditsPerDollar = cap_credits / cap_llm_usd
+ * Economics (DB-driven, on the user_budgets row):
+ *   - cap_credits default 100 over cap_llm_usd default 1.00
+ *   - creditsPerDollar = cap_credits / cap_llm_usd  (→ 100, 1 credit ≈ $0.01)
  *   - credits_used = round(current_llm_usd * creditsPerDollar)
  *   - remaining = max(0, cap_credits - credits_used)
  *
- * The badge in TopBar also shows "today X/3" — a soft daily cap surfaced
- * for psychological-anchoring purposes (display only; not enforced — the
- * monthly cap_llm_usd is the only hard limit).
+ * The badge also shows "today X/3" — a soft daily anchor (display only). The
+ * hard limit is the user's monthly cap_llm_usd.
  */
 
 export const FREE_DAILY_TASKS = 3;
 
-/** Default credits-per-dollar when no budget row exists yet.
- * Schema is the source of truth: db/schema.sql sets cap_credits=500 over
- * cap_llm_usd=5.00 → 100 credits per $1 → 1 credit = $0.01 of LLM spend.
- */
+/** Fallbacks when no user_budgets row exists yet (credits shown from day 1).
+ * 100 credits over $1.00 → 100 credits per $1 → 1 credit ≈ $0.01 of LLM spend. */
 const DEFAULT_CREDITS_PER_DOLLAR = 100;
-const DEFAULT_CAP_CREDITS = 500;
+const DEFAULT_CAP_CREDITS = USER_MONTHLY_CREDITS;
 
 interface BudgetRow {
   cap_llm_usd: number;
@@ -45,12 +45,13 @@ function currentPeriodMonth(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-async function getCurrentBudget(projectId: string): Promise<BudgetRow | undefined> {
+/** Read a USER's current-month pool row (the authoritative credit source). */
+async function getUserBudget(userId: string): Promise<BudgetRow | undefined> {
   return get<BudgetRow>(
     `SELECT cap_llm_usd, current_llm_usd, cap_credits
-     FROM project_budgets
-     WHERE project_id = ? AND period_month = ?`,
-    projectId,
+     FROM user_budgets
+     WHERE user_id = ? AND period_month = ?`,
+    userId,
     currentPeriodMonth(),
   );
 }
@@ -76,9 +77,16 @@ export interface CreditsSnapshot {
   period_month: string;
 }
 
+/**
+ * Snapshot of the credit pool for whoever OWNS this project. Resolves
+ * owner_user_id and reads user_budgets, so any of the owner's projects returns
+ * the same shared pool. Falls back to the per-user defaults (100 credits, $0
+ * spent) when no row exists yet — the badge shows 100/100 from day one.
+ */
 export async function getCreditsSnapshot(projectId: string): Promise<CreditsSnapshot> {
   const periodMonth = currentPeriodMonth();
-  const budget = await getCurrentBudget(projectId);
+  const owner = await ownerUserId(projectId);
+  const budget = owner ? await getUserBudget(owner) : undefined;
   const capUsd = budget?.cap_llm_usd ?? 0;
   const usedUsd = budget?.current_llm_usd ?? 0;
   const capCredits = budget?.cap_credits ?? DEFAULT_CAP_CREDITS;
@@ -87,13 +95,17 @@ export async function getCreditsSnapshot(projectId: string): Promise<CreditsSnap
   const creditsUsed = Math.round(usedUsd * creditsPerDollar);
   const remaining = Math.max(0, capCredits - creditsUsed);
 
-  const todayRow = await get<{ n: number }>(
-    `SELECT COUNT(*) as n FROM pending_actions
-     WHERE project_id = ?
-       AND action_type = 'task'
-       AND created_at >= CURRENT_DATE`,
-    projectId,
-  );
+  // Soft "today" anchor — count task actions across ALL the owner's projects
+  // (the pool is shared), not just this one.
+  const todayRow = owner
+    ? await get<{ n: number }>(
+        `SELECT COUNT(*) as n FROM pending_actions
+         WHERE project_id IN (SELECT id FROM projects WHERE owner_user_id = ?)
+           AND action_type = 'task'
+           AND created_at >= CURRENT_DATE`,
+        owner,
+      )
+    : undefined;
   const usedToday = todayRow?.n ?? 0;
 
   return {
@@ -112,27 +124,56 @@ export async function getCreditsRemaining(projectId: string): Promise<number> {
   return (await getCreditsSnapshot(projectId)).remaining;
 }
 
+/** Snapshot keyed directly by user (no project context). Same pool as
+ *  getCreditsSnapshot, used by user-level endpoints like /api/user/credits. */
+export async function getUserCreditsSnapshot(userId: string): Promise<CreditsSnapshot> {
+  const periodMonth = currentPeriodMonth();
+  const budget = await getUserBudget(userId);
+  const capUsd = budget?.cap_llm_usd ?? 0;
+  const usedUsd = budget?.current_llm_usd ?? 0;
+  const capCredits = budget?.cap_credits ?? DEFAULT_CAP_CREDITS;
+  const creditsPerDollar = capUsd > 0 ? capCredits / capUsd : DEFAULT_CREDITS_PER_DOLLAR;
+  const creditsUsed = Math.round(usedUsd * creditsPerDollar);
+  const remaining = Math.max(0, capCredits - creditsUsed);
+
+  const todayRow = await get<{ n: number }>(
+    `SELECT COUNT(*) as n FROM pending_actions
+     WHERE project_id IN (SELECT id FROM projects WHERE owner_user_id = ?)
+       AND action_type = 'task'
+       AND created_at >= CURRENT_DATE`,
+    userId,
+  );
+
+  return {
+    remaining,
+    total: capCredits,
+    credits_used: creditsUsed,
+    used_today: todayRow?.n ?? 0,
+    daily_cap: FREE_DAILY_TASKS,
+    cap_usd: capUsd,
+    used_usd: usedUsd,
+    period_month: periodMonth,
+  };
+}
+
 /**
- * Debit a flat number of CREDITS from a project's monthly budget.
+ * Debit a flat number of CREDITS for a project action, from the project
+ * OWNER's per-user pool (credits are per-user as of 2026-06-14).
  *
- * Credits are a UX skin over `project_budgets.current_llm_usd` (remaining =
- * cap_credits - round(current_llm_usd * creditsPerDollar)). There is no
- * separate credit ledger column, so a debit is implemented as an increment of
- * current_llm_usd by the USD-equivalent of `credits` at the project's own
- * cap ratio. We reuse upsertMonthlyBudget (the same accumulator the LLM
- * cost-meter uses), keeping one accounting path.
+ * The USD-equivalent (`credits / creditsPerDollar`, at the user pool's ratio)
+ * is accumulated onto BOTH ledgers:
+ *   - user_budgets  — the authoritative pool the badge/cap read (per user);
+ *   - project_budgets + an llm_usage_logs mirror row — so the per-project usage
+ *     page still itemizes the charge and the reconciliation invariant
+ *     (SUM(project logs) == project_budgets.current_llm_usd) keeps holding.
  *
- * Used by the knowledge-apply path (server-side, on pending→applied) so the
- * debit can't be skipped by a client that never fires it. Idempotency (don't
- * debit on re-apply) is the CALLER's responsibility — only call this when the
- * row actually transitions into 'applied'.
+ * Unlike the old per-project behavior, this charges from day one (the upsert
+ * seeds the pool row) rather than waiting for a first LLM call. Idempotency
+ * (don't debit on re-apply) is the CALLER's responsibility.
  *
  * `step` is the audit label this charge appears under on the usage page (e.g.
- * 'knowledge_apply', 'document_audit'). Pass a meaningful one so credit spend
- * is itemized rather than bucketed under a generic default.
- *
- * Best-effort: returns the USD amount debited (0 when no budget row / cap is
- * configured yet — credits are unbounded then, so there's nothing to charge).
+ * 'knowledge_apply', 'document_audit'). Best-effort: returns the USD debited
+ * (0 when the project has no resolvable owner — unmetered).
  */
 export async function debitCredits(
   projectId: string,
@@ -140,26 +181,29 @@ export async function debitCredits(
   step = 'credit_debit',
 ): Promise<number> {
   if (credits <= 0) return 0;
-  const budget = await getCurrentBudget(projectId);
-  // No budget row or zero cap → credits aren't being metered for this project
-  // yet; nothing to debit against. (A row is created lazily on first LLM call.)
-  if (!budget || budget.cap_llm_usd <= 0) return 0;
-  const capCredits = budget.cap_credits ?? DEFAULT_CAP_CREDITS;
-  const creditsPerDollar = capCredits / budget.cap_llm_usd;
+  const owner = await ownerUserId(projectId);
+  if (!owner) return 0; // orphan project — no pool to charge
+
+  // Ratio from the USER pool (or per-user defaults). 100 credits / $1 → $0.01.
+  const budget = await getUserBudget(owner);
+  const capCredits = budget?.cap_credits ?? DEFAULT_CAP_CREDITS;
+  const capUsd = budget?.cap_llm_usd ?? USER_MONTHLY_LLM_USD;
+  const creditsPerDollar = capUsd > 0 ? capCredits / capUsd : DEFAULT_CREDITS_PER_DOLLAR;
   if (creditsPerDollar <= 0) return 0;
   const usdDelta = credits / creditsPerDollar;
+
+  // Authoritative per-user pool (what the badge + cap read).
+  await upsertUserMonthlyBudget(owner, currentPeriodMonth(), usdDelta);
+  // Per-project $ accumulator — keeps the usage page total and the
+  // SUM(logs)==current reconciliation invariant correct alongside the mirror.
   await upsertMonthlyBudget(projectId, currentPeriodMonth(), usdDelta);
 
   // Mirror the debit into llm_usage_logs so the usage/audit page itemizes
   // credit spend (knowledge applies, document audits) alongside LLM token
-  // spend. Both move the same project_budgets accumulator, but only this row
-  // makes the WHAT visible — the usage route reads llm_usage_logs exclusively,
-  // so without it credit charges showed in the balance with no line item.
-  // provider='internal' / model='credit' marks it as a flat charge, not a
-  // token-metered model call. Deliberately a direct INSERT, not recordUsage():
-  // recordUsage would re-accumulate the budget (double-charge) and emit a bogus
-  // Langfuse generation for an event with no model or tokens. Best-effort — the
-  // debit already landed; a failed log row must never unwind it or throw.
+  // spend. provider='internal' / model='credit' marks it as a flat charge, not
+  // a token-metered model call. Deliberately a direct INSERT, not recordUsage()
+  // (which would re-accumulate the budgets and emit a bogus Langfuse row).
+  // Best-effort — the debit already landed; a failed log row must never throw.
   try {
     await run(
       `INSERT INTO llm_usage_logs

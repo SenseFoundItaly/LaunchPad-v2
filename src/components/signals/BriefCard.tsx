@@ -1,6 +1,8 @@
 'use client';
 
 import { Pill, Icon, I } from '@/components/design/primitives';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
 import { DepthChip } from './DepthChip';
 import { EvidenceMeter } from './EvidenceMeter';
 
@@ -38,6 +40,7 @@ interface BriefCardProps {
  * surface — full prose, prediction called out, evidence meter footer.
  */
 export function BriefCard({ brief }: BriefCardProps) {
+  const t = useT();
   const {
     title,
     narrative,
@@ -83,10 +86,10 @@ export function BriefCard({ brief }: BriefCardProps) {
             {entity_name}
           </Pill>
         )}
-        {isFresh && <Pill kind="live" dot>fresh</Pill>}
+        {isFresh && <Pill kind="live" dot>{t('signals.fresh')}</Pill>}
         <div style={{ flex: 1 }} />
         <span className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>
-          {humanAge(created_at)}
+          {humanAge(created_at, t)}
         </span>
       </div>
 
@@ -128,7 +131,7 @@ export function BriefCard({ brief }: BriefCardProps) {
           <Icon d={I.sparkles} size={12} stroke={1.4} style={{ color: 'var(--accent)', marginTop: 1, flexShrink: 0 }} />
           <span>
             <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 6 }}>
-              Prediction
+              {t('signals.prediction')}
             </span>
             {temporal_prediction}
           </span>
@@ -153,7 +156,7 @@ export function BriefCard({ brief }: BriefCardProps) {
           <Icon d={I.arrow} size={12} stroke={1.4} style={{ color: 'var(--moss)', marginTop: 1, flexShrink: 0 }} />
           <span>
             <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 6 }}>
-              Do next
+              {t('signals.do-next')}
             </span>
             <strong style={{ fontWeight: 600 }}>{actionTitle}</strong>
             {actionDescription && (
@@ -175,11 +178,11 @@ export function BriefCard({ brief }: BriefCardProps) {
   );
 }
 
-function humanAge(iso: string): string {
+function humanAge(iso: string, t: (key: MessageKey, vars?: TranslateVars) => string): string {
   const ms = Date.now() - new Date(iso).getTime();
   const m = Math.floor(ms / 60_000);
-  if (m < 60) return `${m}m ago`;
+  if (m < 60) return t('signals.age-minutes', { count: m });
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
+  if (h < 24) return t('signals.age-hours', { count: h });
+  return t('signals.age-days', { count: Math.floor(h / 24) });
 }

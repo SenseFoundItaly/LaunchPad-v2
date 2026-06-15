@@ -15,6 +15,8 @@
  */
 import { query, get } from '@/lib/db';
 import { STAGES, SKILL_KICKOFFS, type SkillDef } from '@/lib/stages';
+import { buildProjectSnapshot } from '@/lib/journey/snapshot';
+import { evaluateAllStages } from '@/lib/journey';
 import { countAssumptions, type AssumptionCounts } from '@/lib/assumptions';
 import { scoreOverall, scoreStage, type StageScore } from '@/lib/scoring';
 import { isClarificationOnly } from '@/lib/skill-output';
@@ -153,11 +155,17 @@ function verdictFromScore(score: number): StageReadiness['verdict'] {
  * via get_project_summary.
  */
 export async function getStageReadiness(projectId: string): Promise<ProjectReadiness> {
-  const [{ skillMap, sectionContext }, assumptions] = await Promise.all([
+  const [{ skillMap, sectionContext }, assumptions, journeyDone] = await Promise.all([
     buildSkillMap(projectId),
     countAssumptions(projectId).catch(() => ({
       total: 0, open_high: 0, open_total: 0, validated: 0, invalidated: 0,
     } as AssumptionCounts)),
+    // Which stages the SPINE (journey) already considers done. Readiness is
+    // skill-score based, but the spine greens on evidence without requiring
+    // skills — so a journey-done stage must not keep recommending its skill.
+    buildProjectSnapshot(projectId)
+      .then((snap) => new Set(evaluateAllStages(snap).filter((e) => e.status === 'done').map((e) => e.stage.number)))
+      .catch(() => new Set<number>()),
   ]);
   const overall = scoreOverall(skillMap);
 
@@ -198,6 +206,11 @@ export async function getStageReadiness(projectId: string): Promise<ProjectReadi
   // the agent should switch to operating concerns.
   let next: ProjectReadiness['next_recommended_skill'] = null;
   for (const stage of stages) {
+    // The spine (journey) greens on evidence (e.g. canvas text) without requiring
+    // skills. If the founder already cleared this stage on the spine, do NOT push
+    // its skill — recommending idea-shaping on a green Stage 1 is the "copilot got
+    // lost" contradiction. Respect the journey verdict.
+    if (journeyDone.has(stage.number)) continue;
     if (stage.score >= 6) continue; // already GO+
     const candidate = stage.missing_skills[0];
     if (!candidate) continue;

@@ -39,66 +39,6 @@ export interface TokenUsage {
 }
 
 // ---------------------------------------------------------------------------
-// traceLLMCall — wraps an async fn with Langfuse trace + local logging
-// ---------------------------------------------------------------------------
-export async function traceLLMCall<T>(
-  ctx: TelemetryContext,
-  fn: () => Promise<{ result: T; usage?: TokenUsage }>,
-): Promise<T> {
-  const start = Date.now();
-  const lf = getLangfuse();
-
-  const trace = lf?.trace({
-    name: ctx.step || 'llm-call',
-    userId: ctx.projectId,
-    sessionId: ctx.skillId || ctx.step || 'default',
-    metadata: {
-      projectId: ctx.projectId,
-      skillId: ctx.skillId,
-      provider: ctx.provider,
-      model: ctx.model,
-    },
-  });
-
-  try {
-    const { result, usage } = await fn();
-    const latencyMs = Date.now() - start;
-    const cost = usage ? estimateCost(ctx.provider, ctx.model || '', usage) : 0;
-
-    if (trace && usage) {
-      trace.update({
-        output: typeof result === 'string' ? result.slice(0, 500) : undefined,
-        metadata: {
-          usage,
-          cost,
-          latencyMs,
-        },
-      });
-    }
-
-    await logUsageToDb(
-      ctx.projectId,
-      ctx.skillId || null,
-      ctx.step || null,
-      ctx.provider,
-      ctx.model || null,
-      usage || {},
-      cost,
-      latencyMs,
-    );
-
-    return result;
-  } catch (err) {
-    if (trace) {
-      trace.update({
-        metadata: { error: err instanceof Error ? err.message : String(err) },
-      });
-    }
-    throw err;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // estimateCost — USD from token counts and known pricing
 // ---------------------------------------------------------------------------
 
@@ -278,11 +218,15 @@ export async function logUsageToDb(
     console.error('Failed to log LLM usage:', err);
   }
 
-  // Accumulate into the monthly budget so the credits badge / cap-enforcement
-  // path see chat spend. Before this fix, the chat route went through
-  // logUsageToDb() and never touched project_budgets — so the budget
-  // undercounted real spend by ~4x. Skills + cron always used
-  // cost-meter.recordUsage() which already accumulates.
+  // Accumulate into BOTH budget ledgers so the credits badge / cap-enforcement
+  // path see chat spend. Chat is the dominant cost driver; it flows through
+  // logUsageToDb (not recordUsage), so this is the only place chat spend gets
+  // metered. History:
+  //   - pre-2026-06-04 it touched neither ledger (undercounted ~4x);
+  //   - then project_budgets only;
+  //   - now ALSO user_budgets — the per-user pool became the authoritative
+  //     credit/cap source (2026-06-14), and recordUsage already writes both, so
+  //     without this chat spend silently escaped the pool the cap reads.
   //
   // Dynamic import to avoid a circular dep (cost-meter ← db ← telemetry).
   // Wrapped in try/catch independently because budget accumulation must NEVER
@@ -290,8 +234,12 @@ export async function logUsageToDb(
   try {
     if (cost > 0) {
       const periodMonth = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
-      const { upsertMonthlyBudget } = await import('@/lib/cost-meter');
+      const { upsertMonthlyBudget, upsertUserMonthlyBudget, ownerUserId } = await import('@/lib/cost-meter');
+      // Per-project $ accumulator (usage page + per-project reconciliation).
       await upsertMonthlyBudget(projectId, periodMonth, cost);
+      // Authoritative per-USER pool (the badge + cap read this).
+      const owner = await ownerUserId(projectId);
+      if (owner) await upsertUserMonthlyBudget(owner, periodMonth, cost);
     }
   } catch (err) {
     console.error('Failed to accumulate budget from logUsageToDb:', err);

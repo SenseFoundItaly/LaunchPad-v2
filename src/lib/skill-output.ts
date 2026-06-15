@@ -16,8 +16,10 @@
  * on READERS for legacy rows already saved as 'completed'.
  *
  * Heuristic is deliberately CONSERVATIVE — real deliverables carry structure, so
- * we only flag output that has NO structure (no JSON, headers, or lists) AND
- * reads like a clarification request AND has ≥2 question marks up front. Empty /
+ * we only flag output that lacks STRONG structure (no JSON, headers, or tables —
+ * a bare numbered/bulleted list does NOT count, since LLMs format clarifying
+ * questions as lists) AND reads like a clarification request AND has ≥2 question
+ * marks up front. Empty /
  * whitespace output counts as incomplete (nothing was produced). This biases
  * toward false negatives (let some junk through) over false positives (never
  * discard a real deliverable).
@@ -27,15 +29,23 @@
 const CLARIFICATION_RE =
   /\b(i need|i'd love|i would love|could you (?:share|tell|provide|give|describe)|can you (?:share|tell|provide)|what(?:'s| is| are) your|tell me (?:more|about)|to (?:get|run) started|before i (?:can|begin|start)|please (?:share|provide|describe|tell|let me know))\b/i;
 
-// Structure markers a real deliverable carries: JSON braces/brackets, markdown
-// headers, or bullet/numbered list items.
-const STRUCTURE_RE = /[{}[\]]|(?:^|\n)\s*#{1,6}\s|(?:^|\n)\s*[-*]\s|(?:^|\n)\s*\d+[.)]\s/;
+// STRONG structure markers a real deliverable carries: JSON braces/brackets,
+// markdown headers, or markdown tables. Plain numbered/bulleted lists are
+// deliberately EXCLUDED: an LLM formats a list of clarifying questions ("1. What
+// does your product do? 2. Who is the customer?") as a numbered list, so a list
+// alone must not exempt output from the gate. (Confirmed: a market-research run
+// asked 5 numbered questions and was wrongly persisted as 'completed' because the
+// old regex treated the numbered list as deliverable structure.)
+const STRONG_STRUCTURE_RE = /[{}[\]]|(?:^|\n)\s*#{1,6}\s|(?:^|\n)\s*\|.*\|/;
 
 export function isClarificationOnly(summary: string | null | undefined): boolean {
   const text = (summary ?? '').trim();
   if (text.length === 0) return true; // nothing produced → not a deliverable
-  if (STRUCTURE_RE.test(text)) return false; // real deliverables carry structure
   const head = text.slice(0, 400);
   const questionMarks = (head.match(/\?/g) ?? []).length;
-  return CLARIFICATION_RE.test(head) && questionMarks >= 2;
+  const looksLikeClarification = CLARIFICATION_RE.test(head) && questionMarks >= 2;
+  if (!looksLikeClarification) return false; // not asking for input → it's a deliverable
+  // Reads like a clarification request. Spare it ONLY if it ALSO carries strong
+  // deliverable structure (JSON / headers / table) — a question list is not one.
+  return !STRONG_STRUCTURE_RE.test(text);
 }

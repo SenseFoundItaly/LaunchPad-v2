@@ -1,14 +1,16 @@
 import { NextRequest } from 'next/server';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { get, run } from '@/lib/db';
-import { getCreditsSnapshot } from '@/lib/credits';
+import { getCreditsSnapshot, getUserCreditsSnapshot } from '@/lib/credits';
+import { ownerUserId } from '@/lib/cost-meter';
+import { USER_MONTHLY_CREDITS, USER_MONTHLY_LLM_USD } from '@/lib/credit-costs';
 
 /**
  * GET /api/projects/{projectId}/credits
  *
- * Cheap snapshot endpoint for the TopBar credits badge. Safe to poll on a
- * 30s interval. Returns the same shape as `getCreditsSnapshot()` so the
- * client can show "remaining" + the soft "used_today / daily_cap" anchor.
+ * Cheap snapshot endpoint for the TopBar credits badge. Credits are per-USER
+ * (2026-06-14): getCreditsSnapshot resolves the project's owner and returns
+ * their shared pool, so opening ANY of a user's projects shows the same number.
  */
 export async function GET(
   _request: NextRequest,
@@ -23,17 +25,18 @@ export async function GET(
 /**
  * PATCH /api/projects/{projectId}/credits
  *
- * Bump free credits. Accepts { action: "bump", amount?: number }.
- * Default bump: +100 credits. Computes proportional USD increase using
- * the existing creditsPerDollar ratio and UPSERTs project_budgets.
+ * Bump free credits on the project OWNER's monthly pool. Accepts
+ * { action: "bump", amount?: number }. Dev/E2E affordance only (the badge gates
+ * the button behind NODE_ENV !== 'production'). Computes the proportional USD
+ * increase from the pool's creditsPerDollar ratio and UPSERTs user_budgets.
  */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
-  const project = await get<{ id: string }>('SELECT id FROM projects WHERE id = ?', projectId);
-  if (!project) return error('Project not found', 404);
+  const owner = await ownerUserId(projectId);
+  if (!owner) return error('Project has no owner to credit', 404);
 
   let body;
   try {
@@ -47,42 +50,41 @@ export async function PATCH(
     ? Math.min(body.amount, 1000)
     : 100;
 
-  // Fetch current budget row (if any) to compute proportional USD bump
   const periodMonth = currentPeriodMonth();
   const existing = await get<{
     cap_llm_usd: number;
     cap_credits: number;
   }>(
-    `SELECT cap_llm_usd, cap_credits FROM project_budgets
-     WHERE project_id = ? AND period_month = ?`,
-    projectId,
+    `SELECT cap_llm_usd, cap_credits FROM user_budgets
+     WHERE user_id = ? AND period_month = ?`,
+    owner,
     periodMonth,
   );
 
-  const currentCapCredits = existing?.cap_credits ?? 500;
-  const currentCapUsd = existing?.cap_llm_usd ?? 5.00;
+  const currentCapCredits = existing?.cap_credits ?? USER_MONTHLY_CREDITS;
+  const currentCapUsd = existing?.cap_llm_usd ?? USER_MONTHLY_LLM_USD;
   const creditsPerDollar = currentCapCredits > 0
     ? currentCapCredits / currentCapUsd
-    : 100; // fallback — matches schema default (500/$5)
+    : 100; // fallback — matches the per-user default (100 / $1)
 
   const newCapCredits = currentCapCredits + bumpCredits;
   const newCapUsd = newCapCredits / creditsPerDollar;
 
-  const budgetId = generateId('bud');
+  const budgetId = generateId('ubud');
   const now = new Date().toISOString();
 
   await run(
-    `INSERT INTO project_budgets (
-       id, project_id, period_month, cap_llm_usd, cap_credits, status, created_at, updated_at
+    `INSERT INTO user_budgets (
+       id, user_id, period_month, cap_llm_usd, cap_credits, status, created_at, updated_at
      )
      VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
-     ON CONFLICT(project_id, period_month) DO UPDATE SET
+     ON CONFLICT(user_id, period_month) DO UPDATE SET
        cap_llm_usd = ?,
        cap_credits = ?,
        status = 'active',
        updated_at = ?`,
     budgetId,
-    projectId,
+    owner,
     periodMonth,
     newCapUsd,
     newCapCredits,
@@ -94,7 +96,7 @@ export async function PATCH(
     now,
   );
 
-  return json(await getCreditsSnapshot(projectId));
+  return json(await getUserCreditsSnapshot(owner));
 }
 
 function currentPeriodMonth(): string {

@@ -610,6 +610,35 @@ CREATE TABLE IF NOT EXISTS project_budgets (
 CREATE INDEX IF NOT EXISTS idx_project_budgets_project_period
   ON project_budgets(project_id, period_month);
 
+-- ---------------------------------------------------------------------------
+-- User Budgets — the AUTHORITATIVE credit pool (per USER, per month).
+--
+-- Credits moved from per-project to per-user (2026-06-14). A user's monthly
+-- pool is shared across ALL their projects: every LLM call and every credit
+-- debit (knowledge apply, document audit) resolves the project's
+-- owner_user_id and accumulates here. project_budgets above is retained for
+-- per-project DOLLAR observability (the usage page) but no longer gates.
+--
+-- Default 100 credits over $1.00 LLM spend → 100 credits per $1 (1 credit ≈
+-- $0.01), matching the credits.ts ratio. The hard cap is cap_llm_usd.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_budgets (
+  id VARCHAR PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  period_month VARCHAR NOT NULL,
+  cap_llm_usd DOUBLE PRECISION DEFAULT 1.00,
+  warn_llm_usd DOUBLE PRECISION DEFAULT 0.80,
+  current_llm_usd DOUBLE PRECISION DEFAULT 0,
+  cap_credits INTEGER DEFAULT 100,
+  status VARCHAR DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, period_month)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_budgets_user_period
+  ON user_budgets(user_id, period_month);
+
 -- =============================================================================
 -- Memory layer
 -- =============================================================================

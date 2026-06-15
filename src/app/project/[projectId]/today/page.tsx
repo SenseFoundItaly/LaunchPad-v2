@@ -21,6 +21,7 @@ import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { StageCard } from '@/components/stages/StageCard';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { laneFor } from '@/lib/action-lanes';
+import { checkActionPrompt } from '@/lib/journey-prompts';
 import type { PendingActionType } from '@/types';
 
 interface PendingAction {
@@ -349,7 +350,20 @@ function NextToValidate({ projectId }: { projectId: string }) {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 23 }}>
                   {b.rows.map((r, i) => (
-                    <div key={r.check.id || i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5, lineHeight: 1.4 }}>
+                    // Each open substep links to the Co-pilot pre-filled with the
+                    // prompt for THAT substep (?prefill — chat loads it on mount).
+                    <Link
+                      key={r.check.id || i}
+                      href={`/project/${projectId}/chat?prefill=${encodeURIComponent(checkActionPrompt(r.check.label))}`}
+                      title={checkActionPrompt(r.check.label)}
+                      style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5, lineHeight: 1.4,
+                        textDecoration: 'none', color: 'inherit', borderRadius: 6, padding: '2px 4px', margin: '-2px -4px',
+                        transition: 'background .1s',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--paper-2)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    >
                       <span
                         aria-hidden
                         style={{
@@ -358,11 +372,12 @@ function NextToValidate({ projectId }: { projectId: string }) {
                           border: '1.5px solid var(--line-2)',
                         }}
                       />
-                      <span style={{ color: 'var(--ink-3)' }}>
+                      <span style={{ color: 'var(--ink-3)', flex: 1, minWidth: 0 }}>
                         {r.check.label}
                         {r.result.gap && <span style={{ color: 'var(--ink-5)' }}> — {r.result.gap}</span>}
                       </span>
-                    </div>
+                      <Icon d={I.arrow} size={10} stroke={1.4} style={{ color: 'var(--ink-5)', flexShrink: 0, marginTop: 3 }} />
+                    </Link>
                   ))}
                   {b.hiddenOpen > 0 && (
                     <div className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', paddingLeft: 23 }}>

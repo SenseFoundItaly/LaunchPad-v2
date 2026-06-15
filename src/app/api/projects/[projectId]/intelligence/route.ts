@@ -50,6 +50,9 @@ interface NodeRow {
   name: string;
   node_type: string;
   summary: string | null;
+  /** 'applied' = founder-approved (green); 'pending' = a proposal the founder
+   *  hasn't applied yet (rendered as "proposed", never as established fact). */
+  reviewed_state: 'applied' | 'pending';
   created_at: string;
 }
 
@@ -194,19 +197,33 @@ export async function GET(
     null as ScoreRow | null,
   );
 
+  // Include PENDING proposals alongside applied knowledge so the Canvas's
+  // Knowledge row reflects captures the founder hasn't applied yet (audit M1:
+  // a populated graph read as empty because pending was filtered out here).
+  // READ-ONLY: no node's reviewed_state is changed — `reviewed_state` is
+  // returned on each row so the UI can render pending nodes as "proposed" and
+  // applied nodes exactly as before. Applied first so the founder's approved
+  // knowledge leads the (LIMIT 8) list.
   const nodes = await guard(
     'nodes',
     () =>
       query<NodeRow>(
-        `SELECT id, name, node_type, summary, created_at
+        `SELECT id, name, node_type, summary, reviewed_state, created_at
          FROM graph_nodes
-         WHERE project_id = ? AND reviewed_state = 'applied'
-         ORDER BY created_at DESC
-         LIMIT 5`,
+         WHERE project_id = ? AND reviewed_state IN ('applied','pending')
+         ORDER BY (reviewed_state = 'applied') DESC, created_at DESC
+         LIMIT 8`,
         projectId,
       ),
     [] as NodeRow[],
   );
+
+  // Split counts so the founder surface can say "N applied · M proposed"
+  // without re-deriving from the (capped) node list. Facts here are always
+  // applied (listFacts returns applied-only), so the facts side has no pending
+  // split — only graph_nodes carry a proposed state on this surface.
+  const appliedNodeCount = nodes.filter((n) => n.reviewed_state === 'applied').length;
+  const proposedNodeCount = nodes.filter((n) => n.reviewed_state === 'pending').length;
 
   const completions = await guard(
     'completions',
@@ -285,7 +302,14 @@ export async function GET(
     facts,
     alerts,
     score: score ?? null,
+    // Each node carries `reviewed_state` ('applied' | 'pending'). Pending nodes
+    // are PROPOSALS (born pending, stay pending until the founder applies them
+    // on /knowledge) — surfaced here purely for visibility, never auto-applied.
     nodes,
+    // Convenience counts so the Canvas can label "N applied · M proposed"
+    // without filtering the capped list itself.
+    appliedNodeCount,
+    proposedNodeCount,
     stages,
     // audit M2 — true only when a guarded facet query actually threw. Lets the
     // Canvas distinguish a genuine empty-but-successful project (partial:false)

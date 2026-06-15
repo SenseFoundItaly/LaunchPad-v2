@@ -25,6 +25,7 @@
 
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { Icon, I } from '@/components/design/primitives';
+import { useT } from '@/components/providers/LocaleProvider';
 import { NODE_COLORS } from '@/types/graph';
 import { DOCUMENT_AUDIT_CREDITS } from '@/lib/credit-costs';
 import { initialSelection } from './apply-selection';
@@ -58,6 +59,7 @@ function fmtBytes(n: number): string {
 }
 
 export default function AddDocumentsDialog({ projectId, onClose, onApplied }: AddDocumentsDialogProps) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -109,7 +111,7 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
       });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.success) {
-        setError(body?.error ?? `Audit failed (HTTP ${res.status}).`);
+        setError(body?.error ?? t('kb.audit-failed-http', { status: res.status }));
         setPhase('ready');
         return;
       }
@@ -123,10 +125,10 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
       if (credits > 0) window.dispatchEvent(new CustomEvent('lp-credits-changed'));
       setPhase('review');
     } catch (e) {
-      setError((e as Error).message || 'Audit failed.');
+      setError((e as Error).message || t('kb.audit-failed'));
       setPhase('ready');
     }
-  }, [projectId, files]);
+  }, [projectId, files, t]);
 
   const apply = useCallback(async () => {
     const ids = Array.from(selected);
@@ -148,7 +150,7 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
       });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.success) {
-        setError(body?.error ?? `Apply failed (HTTP ${res.status}).`);
+        setError(body?.error ?? t('kb.apply-failed-http', { status: res.status }));
         setPhase('review');
         return;
       }
@@ -157,10 +159,10 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
       onApplied(applied, auditCredits);
       setPhase('done');
     } catch (e) {
-      setError((e as Error).message || 'Apply failed.');
+      setError((e as Error).message || t('kb.apply-failed'));
       setPhase('review');
     }
-  }, [projectId, selected, auditCredits, onApplied]);
+  }, [projectId, selected, auditCredits, onApplied, t]);
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -195,7 +197,7 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Add documents to knowledge"
+      aria-label={t('kb.add-docs-title')}
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(20,18,16,0.42)',
@@ -213,9 +215,9 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
         {/* Header */}
         <header style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '13px 16px', borderBottom: '1px solid var(--line)' }}>
           <Icon d={I.file} size={14} stroke={1.5} style={{ color: 'var(--ink-3)' }} />
-          <h2 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Add documents to knowledge</h2>
+          <h2 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{t('kb.add-docs-title')}</h2>
           <div style={{ flex: 1 }} />
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--ink-5)', lineHeight: 0 }}>
+          <button onClick={onClose} aria-label={t('common.close')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--ink-5)', lineHeight: 0 }}>
             <Icon d={I.x} size={15} stroke={1.6} />
           </button>
         </header>
@@ -247,10 +249,10 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
             >
               <Icon d={I.download} size={20} stroke={1.4} style={{ color: 'var(--ink-3)', transform: 'rotate(180deg)' }} />
               <div style={{ fontSize: 13.5, color: 'var(--ink-2)' }}>
-                <strong style={{ color: 'var(--ink)' }}>Drop documents here</strong> or click to browse
+                <strong style={{ color: 'var(--ink)' }}>{t('kb.drop-documents-here')}</strong> {t('kb.or-click-to-browse')}
               </div>
               <div style={{ fontSize: 11, color: 'var(--ink-5)', fontFamily: 'var(--f-mono)' }}>
-                PDF, Word (.docx), Markdown, text · {DOCUMENT_AUDIT_CREDITS} credits each · 10 MiB max
+                {t('kb.dropzone-formats-docs', { credits: DOCUMENT_AUDIT_CREDITS })}
               </div>
             </div>
           )}
@@ -259,8 +261,8 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <p style={{ fontSize: 12.5, color: 'var(--ink-3)', margin: 0, lineHeight: 1.5 }}>
                 {phase === 'uploading'
-                  ? 'Reading documents & extracting entities…'
-                  : <>Auditing a document ingests it and pulls out entities for your graph. It costs a flat <strong style={{ color: 'var(--ink)' }}>{DOCUMENT_AUDIT_CREDITS} credits per document</strong>. Applying what it finds is included.</>}
+                  ? t('kb.reading-documents')
+                  : <>{t('kb.audit-explainer-lead')} <strong style={{ color: 'var(--ink)' }}>{t('kb.audit-explainer-rate', { credits: DOCUMENT_AUDIT_CREDITS })}</strong>. {t('kb.audit-explainer-tail')}</>}
               </p>
               <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
                 {files.map((f, i) => (
@@ -268,7 +270,7 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
                     <Icon d={I.file} size={13} stroke={1.4} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
                     <span style={{ fontSize: 12.5, fontFamily: 'var(--f-mono)', color: 'var(--ink-2)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
                     <span style={{ fontSize: 11, color: 'var(--ink-5)' }}>{fmtBytes(f.size)}</span>
-                    <span className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', background: 'var(--paper-2)', border: '1px solid var(--line)', borderRadius: 4, padding: '1px 6px' }}>{DOCUMENT_AUDIT_CREDITS} cr</span>
+                    <span className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', background: 'var(--paper-2)', border: '1px solid var(--line)', borderRadius: 4, padding: '1px 6px' }}>{t('kb.credits-abbrev', { credits: DOCUMENT_AUDIT_CREDITS })}</span>
                   </li>
                 ))}
               </ul>
@@ -295,12 +297,16 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
               </div>
               <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>
                 {appliedCount > 0
-                  ? `Added ${appliedCount} ${appliedCount === 1 ? 'entity' : 'entities'} to your knowledge`
-                  : 'Documents audited — nothing applied to the graph'}
+                  ? (appliedCount === 1
+                      ? t('kb.done-added-one', { count: appliedCount })
+                      : t('kb.done-added-many', { count: appliedCount }))
+                  : t('kb.done-nothing-applied')}
               </div>
               <div style={{ fontSize: 12, color: 'var(--ink-5)', marginTop: 5 }}>
-                {ingested} document{ingested === 1 ? '' : 's'} audited · charged {auditCredits} credit{auditCredits === 1 ? '' : 's'}.
-                {appliedCount > 0 ? ' Applying was included.' : ''}
+                {ingested === 1 ? t('kb.docs-audited-one', { count: ingested }) : t('kb.docs-audited-many', { count: ingested })}
+                {' · '}
+                {auditCredits === 1 ? t('kb.charged-credits-one', { count: auditCredits }) : t('kb.charged-credits-many', { count: auditCredits })}
+                {appliedCount > 0 ? ` ${t('kb.done-applying-included')}` : ''}
               </div>
             </div>
           )}
@@ -310,37 +316,39 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
         <footer style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 16px', borderTop: '1px solid var(--line)', background: 'var(--paper-2)' }}>
           {phase === 'ready' && (
             <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)' }}>
-              {files.length} document{files.length === 1 ? '' : 's'} · ~{estimatedCost} credits
+              {files.length === 1
+                ? t('kb.footer-docs-cost-one', { count: files.length, credits: estimatedCost })
+                : t('kb.footer-docs-cost-many', { count: files.length, credits: estimatedCost })}
             </span>
           )}
           {phase === 'review' && (
             <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)' }}>
-              {selected.size} of {applicable.length} selected · included
+              {t('kb.footer-selected-included', { selected: selected.size, total: applicable.length })}
             </span>
           )}
           <div style={{ flex: 1 }} />
 
           {phase === 'done' ? (
             <>
-              <button onClick={reset} style={btnGhost}>Add more</button>
-              <button onClick={onClose} style={btnPrimary}>Done</button>
+              <button onClick={reset} style={btnGhost}>{t('kb.add-more')}</button>
+              <button onClick={onClose} style={btnPrimary}>{t('common.done')}</button>
             </>
           ) : (
             <>
-              <button onClick={onClose} disabled={busy} style={{ ...btnGhost, opacity: busy ? 0.5 : 1 }}>Cancel</button>
+              <button onClick={onClose} disabled={busy} style={{ ...btnGhost, opacity: busy ? 0.5 : 1 }}>{t('common.cancel')}</button>
               {phase === 'ready' && (
                 <>
-                  <button onClick={() => { setFiles([]); setPhase('pick'); }} style={btnGhost}>Choose other files</button>
-                  <button onClick={runAudit} style={btnPrimary}>Run audit · ~{estimatedCost} credits</button>
+                  <button onClick={() => { setFiles([]); setPhase('pick'); }} style={btnGhost}>{t('kb.choose-other-files')}</button>
+                  <button onClick={runAudit} style={btnPrimary}>{t('kb.run-audit-cost', { credits: estimatedCost })}</button>
                 </>
               )}
-              {phase === 'uploading' && <button disabled style={{ ...btnPrimary, opacity: 0.6 }}>Auditing…</button>}
+              {phase === 'uploading' && <button disabled style={{ ...btnPrimary, opacity: 0.6 }}>{t('kb.auditing')}</button>}
               {phase === 'review' && (
                 <button onClick={apply} style={btnPrimary}>
-                  {selected.size === 0 ? 'Skip — apply none' : `Add ${selected.size} to knowledge`}
+                  {selected.size === 0 ? t('kb.skip-apply-none') : t('kb.add-n-to-knowledge', { count: selected.size })}
                 </button>
               )}
-              {phase === 'applying' && <button disabled style={{ ...btnPrimary, opacity: 0.6 }}>Applying…</button>}
+              {phase === 'applying' && <button disabled style={{ ...btnPrimary, opacity: 0.6 }}>{t('kb.applying')}</button>}
             </>
           )}
 
@@ -370,12 +378,13 @@ function ReviewList({
   onSelectAll: () => void;
   onSelectNone: () => void;
 }) {
+  const t = useT();
   if (entities.length === 0) {
     return (
       <p style={{ fontSize: 12.5, color: 'var(--ink-5)', lineHeight: 1.5, margin: 0 }}>
-        Audited {ingested} document{ingested === 1 ? '' : 's'} (charged {auditCredits} credit{auditCredits === 1 ? '' : 's'})
-        and ingested the text into your context, but found no distinct entities to add to the graph. The text is still
-        searchable in chat.
+        {ingested === 1
+          ? t('kb.review-empty-one', { credits: auditCredits })
+          : t('kb.review-empty-many', { ingested, credits: auditCredits })}
       </p>
     );
   }
@@ -383,12 +392,13 @@ function ReviewList({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <p style={{ fontSize: 12.5, color: 'var(--ink-3)', margin: 0, flex: 1, lineHeight: 1.45 }}>
-          We pulled <strong style={{ color: 'var(--ink)' }}>{applicable.length}</strong> {applicable.length === 1 ? 'entity' : 'entities'} from
-          your documents. Choose what to add — applying is included in the {auditCredits}-credit audit.
+          {applicable.length === 1
+            ? <>{t('kb.review-pulled-lead')} <strong style={{ color: 'var(--ink)' }}>{applicable.length}</strong> {t('kb.review-pulled-entity-one')} {t('kb.review-pulled-tail', { credits: auditCredits })}</>
+            : <>{t('kb.review-pulled-lead')} <strong style={{ color: 'var(--ink)' }}>{applicable.length}</strong> {t('kb.review-pulled-entity-many')} {t('kb.review-pulled-tail', { credits: auditCredits })}</>}
         </p>
-        <button onClick={onSelectAll} style={linkBtn}>All</button>
+        <button onClick={onSelectAll} style={linkBtn}>{t('common.all')}</button>
         <span style={{ color: 'var(--ink-5)' }}>·</span>
-        <button onClick={onSelectNone} style={linkBtn}>None</button>
+        <button onClick={onSelectNone} style={linkBtn}>{t('kb.select-none')}</button>
       </div>
 
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -422,12 +432,12 @@ function ReviewList({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{e.name}</span>
                   <TypeBadge type={e.node_type} />
-                  {deduped && <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-5)' }}>already in graph</span>}
+                  {deduped && <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-5)' }}>{t('kb.already-in-graph')}</span>}
                 </div>
                 {e.summary && <div style={{ fontSize: 11.5, color: 'var(--ink-5)', marginTop: 2, lineHeight: 1.4 }}>{e.summary}</div>}
                 {e.validates && (
                   <div style={{ fontSize: 10.5, color: 'var(--moss, var(--accent))', marginTop: 3, fontFamily: 'var(--f-mono)' }}>
-                    ✓ validates {e.validates}
+                    {t('kb.validates', { substep: e.validates })}
                   </div>
                 )}
               </div>

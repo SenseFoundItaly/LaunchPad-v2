@@ -65,12 +65,24 @@ export async function POST(
         timeoutMs: 170_000,
         allowAnySkill: true,
       });
+      // Quality gate: runSkill persists clarification-only / empty output as
+      // 'incomplete' (see skill-executor isClarificationOnly), but its
+      // RunSkillResult doesn't echo the persisted status. Recompute it here so
+      // the caller can distinguish a real deliverable from a no-op — the chat
+      // page needs this to surface the honest-failure path instead of injecting
+      // a clarification dump as if it were a result.
+      const runStatus = isClarificationOnly(result.summary) ? 'incomplete' : 'completed';
       return json(
         {
           skill_id: result.skill_id,
-          status: 'completed',
+          status: runStatus,
           latency_ms: result.latency_ms,
           artifacts_persisted: result.artifacts_persisted,
+          // Full skill output so the chat page can inject it as an assistant
+          // message (and Canvas can pick up any :::artifact blocks it emitted).
+          summary: result.summary,
+          // Kept for back-compat with non-chat callers that read a short preview
+          // (activity timeline / cron narration shape). No current chat consumer.
           summary_preview: result.summary.slice(0, 300),
         },
         201,

@@ -1,6 +1,7 @@
 'use client';
 
 import { Icon, I } from '@/components/design/primitives';
+import { useT } from '@/components/providers/LocaleProvider';
 import type { WatcherDepth } from '@/lib/watchers';
 
 /**
@@ -12,6 +13,7 @@ import type { WatcherDepth } from '@/lib/watchers';
  * timeline and immediately know which items have evidence behind them.
  */
 export function DepthChip({ depth, size = 'sm' }: { depth: WatcherDepth; size?: 'sm' | 'xs' }) {
+  const t = useT();
   const isDeep = depth === 'deep';
   const px = size === 'xs' ? 4 : 6;
   const py = size === 'xs' ? 1 : 2;
@@ -19,7 +21,7 @@ export function DepthChip({ depth, size = 'sm' }: { depth: WatcherDepth; size?: 
 
   return (
     <span
-      title={isDeep ? 'Deep — LLM synthesis with cited sources' : 'Pulse — cheap diff/headline scan'}
+      title={isDeep ? t('signals.depth-deep-tooltip') : t('signals.depth-pulse-tooltip')}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -37,7 +39,7 @@ export function DepthChip({ depth, size = 'sm' }: { depth: WatcherDepth; size?: 
       }}
     >
       <Icon d={isDeep ? I.sparkles : I.bolt} size={fs - 1} stroke={1.5} />
-      {depth}
+      {isDeep ? t('signals.depth-deep') : t('signals.depth-pulse')}
     </span>
   );
 }

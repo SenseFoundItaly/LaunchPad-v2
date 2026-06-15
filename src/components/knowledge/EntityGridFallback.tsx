@@ -13,8 +13,10 @@
 
 import type { GraphNode } from '@/types/graph';
 import { NODE_COLORS } from '@/types/graph';
+import { useT } from '@/components/providers/LocaleProvider';
 
 export default function EntityGridFallback({ nodes }: { nodes: GraphNode[] }) {
+  const t = useT();
   return (
     <div style={{ position: 'absolute', inset: 0, overflow: 'auto', padding: '20px 24px' }}>
       <div style={{ maxWidth: 920, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -30,7 +32,9 @@ export default function EntityGridFallback({ nodes }: { nodes: GraphNode[] }) {
             borderRadius: 'var(--r-m)',
           }}
         >
-          No relationships mapped yet — the graph view activates when entities get linked.
+          {nodes.length === 1
+            ? '1 entity captured — relationships appear as entities connect.'
+            : `${nodes.length} entities captured — relationships appear as entities connect.`}
         </p>
 
         <div

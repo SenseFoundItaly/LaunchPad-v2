@@ -3,7 +3,14 @@ import { query, run } from '@/lib/db';
 import { json, generateId, error } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 import { runAgent } from '@/lib/pi-agent';
-import { recordUsage, isProjectCapped } from '@/lib/cost-meter';
+import {
+  recordUsage,
+  isProjectCapped,
+  reconcileProjectBudget,
+  reconcileUserBudget,
+  type BudgetReconciliation,
+  type UserBudgetReconciliation,
+} from '@/lib/cost-meter';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
@@ -534,6 +541,59 @@ export async function GET(request: NextRequest) {
 
     const heartbeatResults = isPulse ? await processHeartbeats() : [];
 
+    // Phase F: budget reconciliation sanity-check. The per-call audit trail
+    // (llm_usage_logs) and the running accumulator (project_budgets) are written
+    // by separate, best-effort statements — a dropped write drifts them apart
+    // silently. Weekly (pulse-gated) we sum both per active project and warn on
+    // any drift beyond rounding tolerance. Pure reads; never throws into cron.
+    const budgetDrifts: BudgetReconciliation[] = [];
+    const userBudgetDrifts: UserBudgetReconciliation[] = [];
+    if (isPulse) {
+      try {
+        const activeProjects = await query<{ id: string; owner_user_id: string | null }>(
+          `SELECT id, owner_user_id FROM projects WHERE owner_user_id IS NOT NULL AND status != 'archived'`,
+        );
+        // Per-project ledger: SUM(project logs) vs project_budgets.current_llm_usd.
+        for (const proj of activeProjects) {
+          try {
+            const rec = await reconcileProjectBudget(proj.id);
+            if (!rec.reconciled) {
+              budgetDrifts.push(rec);
+              console.warn(
+                `[cron] budget drift ${proj.id} ${rec.period_month}: ` +
+                `budget $${rec.budget_usd.toFixed(4)} vs logs $${rec.logged_usd.toFixed(4)} ` +
+                `(Δ $${rec.drift_usd.toFixed(4)})`,
+              );
+            }
+          } catch (err) {
+            console.warn(`[cron] reconcile failed for ${proj.id}:`, (err as Error).message);
+          }
+        }
+        // Per-USER pool (authoritative credit/cap source): user_budgets vs
+        // SUM(logs across all the owner's projects). Reconcile each owner once.
+        const owners = [...new Set(
+          activeProjects.map(p => p.owner_user_id).filter((o): o is string => !!o),
+        )];
+        for (const owner of owners) {
+          try {
+            const rec = await reconcileUserBudget(owner);
+            if (!rec.reconciled) {
+              userBudgetDrifts.push(rec);
+              console.warn(
+                `[cron] user budget drift ${owner} ${rec.period_month}: ` +
+                `pool $${rec.pool_usd.toFixed(4)} vs logs $${rec.logged_usd.toFixed(4)} ` +
+                `(Δ $${rec.drift_usd.toFixed(4)})`,
+              );
+            }
+          } catch (err) {
+            console.warn(`[cron] user reconcile failed for ${owner}:`, (err as Error).message);
+          }
+        }
+      } catch (err) {
+        console.warn('[cron] reconciliation phase failed:', (err as Error).message);
+      }
+    }
+
     // Phase 1 (4-bucket reorg) — auto-dismiss notification-lane rows older than
     // 7 days so the Notifications tab doesn't accumulate forever. Cheap bulk
     // UPDATE; runs every 15 min but only flips rows that crossed the threshold
@@ -565,6 +625,10 @@ export async function GET(request: NextRequest) {
       briefs_expired: briefsExpired,
       heartbeats_ran: heartbeatResults.length,
       heartbeat_results: heartbeatResults,
+      budget_drifts: budgetDrifts.length,
+      budget_drift_details: budgetDrifts,
+      user_budget_drifts: userBudgetDrifts.length,
+      user_budget_drift_details: userBudgetDrifts,
       notifications_dismissed: dismissedNotifications,
     });
   } catch (err) {

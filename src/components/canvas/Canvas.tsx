@@ -31,6 +31,7 @@ import { Icon, I, Pill } from '@/components/design/primitives';
 import SolveProgressCard from '@/components/chat/artifacts/SolveProgressCard';
 import { BriefCard } from '@/components/signals/BriefCard';
 import { useIntelligenceBriefs, matchBriefs } from '@/hooks/useIntelligenceBriefs';
+import { useT } from '@/components/providers/LocaleProvider';
 import { IdeaCanvasHeader } from './IdeaCanvasHeader';
 import { SpineSection } from './SpineSection';
 import { DepartmentSection } from './DepartmentSection';
@@ -70,12 +71,15 @@ interface KnowledgeFact {
 
 /** Lightweight shape of the graph_nodes the intelligence endpoint already
  *  returns. Surfaced as counts (+ names) on the Canvas so the richest layer of
- *  knowledge isn't invisible (audit M1). */
+ *  knowledge isn't invisible (audit M1). `reviewed_state` distinguishes
+ *  founder-applied knowledge from pending PROPOSALS (born pending; rendered as
+ *  "proposed" until the founder applies them on /knowledge — never auto-applied). */
 interface KnowledgeNode {
   id: string;
   name: string;
   node_type: string;
   summary: string | null;
+  reviewed_state?: 'applied' | 'pending';
   created_at: string;
 }
 
@@ -91,6 +95,7 @@ export function Canvas({
   onSkillClick,
   onPickPrompt,
 }: CanvasProps) {
+  const t = useT();
   // Group entries by department. Facts are handled via the merged Knowledge
   // section below — `memory` department entries (rare; `fact` artifacts don't
   // render anyway) are silently ignored here.
@@ -125,6 +130,10 @@ export function Canvas({
   const [facts, setFacts] = useState<KnowledgeFact[]>([]);
   const [nodes, setNodes] = useState<KnowledgeNode[]>([]);
   const [alertCount, setAlertCount] = useState(0);
+  // Pending graph_nodes = PROPOSALS the founder hasn't applied yet. Surfaced as
+  // "proposed" so a populated-but-unapplied graph is visible (audit M1) — the
+  // count is NEVER folded into knowledgeCount-as-applied; it's labelled apart.
+  const [proposedNodeCount, setProposedNodeCount] = useState(0);
   // `degraded` is true when the intelligence endpoint reports `partial` (a
   // facet query hiccuped) OR the fetch itself failed. Either way we must NOT
   // render a confident empty state — a transient miss shouldn't read to the
@@ -146,6 +155,14 @@ export function Canvas({
         setFacts(Array.isArray(inner?.facts) ? inner.facts : []);
         setNodes(Array.isArray(inner?.nodes) ? inner.nodes : []);
         setAlertCount(Array.isArray(inner?.alerts) ? inner.alerts.length : 0);
+        setProposedNodeCount(
+          typeof inner?.proposedNodeCount === 'number'
+            ? inner.proposedNodeCount
+            // Fallback for older payloads: derive from the node list.
+            : (Array.isArray(inner?.nodes)
+                ? inner.nodes.filter((n: KnowledgeNode) => n.reviewed_state === 'pending').length
+                : 0),
+        );
         setDegraded(inner?.partial === true);
       } catch {
         if (!cancelled) setDegraded(true);
@@ -164,7 +181,12 @@ export function Canvas({
   const totalArtifacts = canvasEntries.filter((e) => e.artifact.type !== 'solve-progress').length;
   const visibleDepartments = DEPT_ORDER.filter((d) => grouped[d].length > 0);
   const isEmpty = !hasSolveProgress && totalArtifacts === 0 && matchedBriefs.length === 0;
-  const knowledgeCount = nodes.length + facts.length;
+  // `nodes` now includes pending PROPOSALS as well as applied entities, so the
+  // applied side is facts (always applied) + applied nodes only. Proposed nodes
+  // are counted separately and labelled "proposed" — never as applied knowledge.
+  const appliedNodeCount = nodes.filter((n) => n.reviewed_state !== 'pending').length;
+  const knowledgeCount = appliedNodeCount + facts.length;
+  const hasKnowledgeRow = knowledgeCount > 0 || proposedNodeCount > 0 || alertCount > 0;
 
   // Skim-first collapse: artifacts from the latest chat turn render open,
   // older ones default-collapsed (ArtifactRenderer threads `defaultCollapsed`
@@ -201,7 +223,7 @@ export function Canvas({
               marginBottom: 6,
             }}
           >
-            {locale === 'it' ? 'Intelligence correlata' : 'Related intelligence'}
+            {t('canvas.related-intelligence')}
           </div>
           {matchedBriefs.map((b) => (
             <BriefCard key={b.id} brief={b} />
@@ -226,9 +248,7 @@ export function Canvas({
           >
             <Icon d={I.history} size={14} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
             <span style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.4, flex: 1 }}>
-              {locale === 'it'
-                ? 'Non siamo riusciti a caricare tutta la tua conoscenza.'
-                : "Couldn't fully load your knowledge."}
+              {t('canvas.knowledge-load-partial')}
             </span>
             <button
               type="button"
@@ -249,7 +269,7 @@ export function Canvas({
               }}
             >
               <Icon d={I.history} size={12} />
-              {locale === 'it' ? 'Riprova' : 'Retry'}
+              {t('common.retry')}
             </button>
           </div>
         </section>
@@ -258,8 +278,16 @@ export function Canvas({
       {/* Knowledge — ONE compact summary row. The node cards, facts list and
           Facts subheading moved to /knowledge (the browsing home); the Canvas
           only shows counts from the /intelligence fetch above. The word
-          "memory" must not appear on this surface. */}
-      {(knowledgeCount > 0 || alertCount > 0) && (
+          "memory" must not appear on this surface.
+
+          Applied vs proposed: `knowledgeCount` is APPLIED only (founder-
+          approved facts + applied nodes). `proposedNodeCount` is pending
+          graph_nodes — captures the founder hasn't applied yet (audit M1: a
+          populated graph used to read as empty here). Proposed is shown in a
+          muted clay tone with a "review" link to /knowledge, where the existing
+          Apply affordance turns them green. We NEVER fold proposed into the
+          applied count or auto-apply anything. */}
+      {hasKnowledgeRow && (
         <section data-canvas-section="knowledge" style={{ marginBottom: 18 }}>
           <div
             className="lp-card"
@@ -270,7 +298,7 @@ export function Canvas({
               className="lp-serif"
               style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500, flexShrink: 0 }}
             >
-              {locale === 'it' ? 'Conoscenza' : 'Knowledge'}
+              {t('canvas.knowledge')}
             </span>
             <span
               className="lp-mono"
@@ -284,10 +312,29 @@ export function Canvas({
               }}
             >
               {'— '}
-              {knowledgeCount}{' '}
-              {locale === 'it'
-                ? (knowledgeCount === 1 ? 'elemento' : 'elementi')
-                : (knowledgeCount === 1 ? 'item' : 'items')}
+              {/* Applied count. When 0 applied but proposals exist, "0 items"
+                  is misleading — say "nothing applied yet" so the proposed
+                  segment carries the signal instead. Reuses the existing
+                  canvas.knowledge-items-* keys for the non-zero case. */}
+              {knowledgeCount === 0
+                ? t('canvas.knowledge-none-applied')
+                : knowledgeCount === 1
+                  ? t('canvas.knowledge-items-one', { count: knowledgeCount })
+                  : t('canvas.knowledge-items-other', { count: knowledgeCount })}
+              {proposedNodeCount > 0 && (
+                <>
+                  {' · '}
+                  <Link
+                    href={`/project/${projectId}/knowledge`}
+                    title={t('canvas.knowledge-review-proposed')}
+                    style={{ color: 'var(--clay)', textDecoration: 'none', fontStyle: 'italic' }}
+                  >
+                    {proposedNodeCount === 1
+                      ? t('canvas.knowledge-proposed-one', { count: proposedNodeCount })
+                      : t('canvas.knowledge-proposed-other', { count: proposedNodeCount })}
+                  </Link>
+                </>
+              )}
               {alertCount > 0 && (
                 <>
                   {' · '}
@@ -295,10 +342,9 @@ export function Canvas({
                     href={`/project/${projectId}/actions?lane=signal`}
                     style={{ color: 'var(--clay)', textDecoration: 'none' }}
                   >
-                    {alertCount}{' '}
-                    {locale === 'it'
-                      ? (alertCount === 1 ? 'segnale in attesa' : 'segnali in attesa')
-                      : (alertCount === 1 ? 'signal pending' : 'signals pending')}
+                    {alertCount === 1
+                      ? t('canvas.signals-pending-one', { count: alertCount })
+                      : t('canvas.signals-pending-other', { count: alertCount })}
                   </Link>
                 </>
               )}
@@ -314,7 +360,7 @@ export function Canvas({
                 flexShrink: 0,
               }}
             >
-              {locale === 'it' ? 'Apri' : 'Open'} →
+              {proposedNodeCount > 0 ? t('canvas.knowledge-review') : t('canvas.open')} →
             </Link>
           </div>
         </section>
@@ -348,9 +394,7 @@ export function Canvas({
         >
           <Icon d={I.layers} size={28} style={{ opacity: 0.4 }} />
           <p style={{ margin: 0, maxWidth: 400, lineHeight: 1.5 }}>
-            {locale === 'it'
-              ? 'Gli artefatti del co-pilot appariranno qui, raggruppati per dipartimento.'
-              : 'Co-pilot artifacts will appear here, grouped by department.'}
+            {t('canvas.empty-state')}
           </p>
         </div>
       )}
@@ -362,11 +406,11 @@ export function Canvas({
 // right-pane surface in one file.
 function InlineSolveProgress({
   messages,
-  locale,
 }: {
   messages: Array<{ role: string; content: string }>;
   locale: 'en' | 'it';
 }) {
+  const t = useT();
   const latestSolve = useMemo<SolveProgressArtifact | null>(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
@@ -393,7 +437,7 @@ function InlineSolveProgress({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <Icon d={I.bolt} size={14} style={{ color: allDone ? 'var(--moss)' : 'var(--accent)' }} />
         <span className="lp-serif" style={{ fontSize: 14, color: 'var(--ink-1)' }}>
-          {locale === 'it' ? 'Flusso Solve' : 'Solve Flow'}
+          {t('canvas.solve-flow')}
         </span>
         <Pill kind={allDone ? 'ok' : 'live'}>
           {completed}/{total}

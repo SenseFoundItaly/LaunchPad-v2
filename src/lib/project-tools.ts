@@ -28,6 +28,8 @@ import { recordFact } from '@/lib/memory/facts';
 import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
 import { getCreditsRemaining, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
+import { ownerUserId } from '@/lib/cost-meter';
+import { USER_MONTHLY_LLM_USD } from '@/lib/credit-costs';
 import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readiness';
 import { getActiveStage } from '@/lib/journey';
 import {
@@ -796,12 +798,12 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
 // When the founder asks to raise/lower their monthly LLM budget, OR when a
 // credits-empty error has just surfaced and they want to keep working, this
 // tool creates a pending_actions row + emits an inline BudgetProposalCard.
-// The executor (configureBudget) UPSERTs project_budgets.cap_llm_usd for the
-// current period_month on apply. Caps are NEVER raised silently — every
-// change requires explicit founder review through the inline card.
+// The executor (configureBudget) UPSERTs the OWNER's user_budgets cap (credits
+// are per-user as of 2026-06-14) for the current period_month on apply. Caps are
+// NEVER raised silently — every change requires explicit founder review through
+// the inline card.
 // =============================================================================
 
-const BUDGET_DEFAULT_CAP_USD = 5.00;
 const BUDGET_MIN_CAP_USD = 0.10;
 const BUDGET_MAX_PROPOSAL_USD = 100;
 
@@ -860,12 +862,18 @@ const proposeBudgetChangeTool = (ctx: ToolContext): AgentTool => ({
       return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
     })();
 
-    const currentRow = await get<{ cap_llm_usd: number }>(
-      `SELECT cap_llm_usd FROM project_budgets WHERE project_id = ? AND period_month = ?`,
-      ctx.projectId,
-      periodMonth,
-    );
-    const currentCapUsd = currentRow?.cap_llm_usd ?? BUDGET_DEFAULT_CAP_USD;
+    // Credits are per-USER — read the OWNER's pool cap (what configure_budget
+    // writes and isProjectCapped reads), not the stale per-project row. Falls
+    // back to the per-user default when no pool row exists yet.
+    const owner = await ownerUserId(ctx.projectId);
+    const currentRow = owner
+      ? await get<{ cap_llm_usd: number }>(
+          `SELECT cap_llm_usd FROM user_budgets WHERE user_id = ? AND period_month = ?`,
+          owner,
+          periodMonth,
+        )
+      : undefined;
+    const currentCapUsd = currentRow?.cap_llm_usd ?? USER_MONTHLY_LLM_USD;
 
     if (Math.abs(currentCapUsd - p.proposed_cap_usd) < 0.001) {
       return {

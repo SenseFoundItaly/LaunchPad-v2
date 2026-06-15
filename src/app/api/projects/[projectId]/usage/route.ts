@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
+import { reconcileProjectBudget } from '@/lib/cost-meter';
 
 interface UsageRow {
   id: string;
@@ -84,6 +85,11 @@ export async function GET(
     call_count: 0,
   };
 
+  // Integrity check: does the per-call audit trail (llm_usage_logs) agree with
+  // the running budget accumulator (project_budgets.current_llm_usd) for this
+  // month? Drift means a best-effort write was silently dropped. Pure read.
+  const reconciliation = await reconcileProjectBudget(projectId);
+
   return json({
     summary: {
       total_cost_usd: summary.total_cost,
@@ -95,6 +101,7 @@ export async function GET(
       call_count: summary.call_count,
     },
     by_skill: bySkill,
+    reconciliation,
     logs,
   });
 }

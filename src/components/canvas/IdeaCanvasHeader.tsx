@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import { Icon, I } from '@/components/design/primitives';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface IdeaCanvasRow {
   problem?: string | null;
@@ -29,28 +30,8 @@ interface IdeaCanvasHeaderProps {
   factCount?: number;
 }
 
-const LABELS = {
-  en: {
-    problem: 'Problem',
-    solution: 'Solution',
-    target: 'Target',
-    value: 'Value',
-    model: 'Business model',
-    empty: 'Idea Canvas not started — chat with the agent to begin.',
-    title: 'Idea Canvas',
-  },
-  it: {
-    problem: 'Problema',
-    solution: 'Soluzione',
-    target: 'Target',
-    value: 'Valore',
-    model: 'Business model',
-    empty: 'Idea Canvas non avviato — chatta con l’agente per iniziare.',
-    title: 'Idea Canvas',
-  },
-};
-
-export function IdeaCanvasHeader({ projectId, locale, factCount = 0 }: IdeaCanvasHeaderProps) {
+export function IdeaCanvasHeader({ projectId, factCount = 0 }: IdeaCanvasHeaderProps) {
+  const t = useT();
   const [data, setData] = useState<IdeaCanvasRow | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -82,7 +63,6 @@ export function IdeaCanvasHeader({ projectId, locale, factCount = 0 }: IdeaCanva
     };
   }, [projectId]);
 
-  const L = LABELS[locale];
   const isEmpty =
     loaded &&
     !data?.problem &&
@@ -110,7 +90,7 @@ export function IdeaCanvasHeader({ projectId, locale, factCount = 0 }: IdeaCanva
       >
         <Icon d={I.layers} size={13} style={{ color: 'var(--accent)' }} />
         <span className="lp-serif" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
-          {L.title}
+          {t('canvas.idea-canvas-title')}
         </span>
         {factCount > 0 && (
           <button
@@ -124,9 +104,7 @@ export function IdeaCanvasHeader({ projectId, locale, factCount = 0 }: IdeaCanva
               }
             }}
             className="lp-mono"
-            title={locale === 'it'
-              ? 'Vai alla Memoria — i fatti raccolti durante la chat sostengono questo canvas.'
-              : 'Jump to Memory — facts gathered during chat back this canvas.'}
+            title={t('canvas.jump-to-memory-tooltip')}
             style={{
               marginLeft: 'auto',
               fontSize: 10,
@@ -139,16 +117,14 @@ export function IdeaCanvasHeader({ projectId, locale, factCount = 0 }: IdeaCanva
               fontFamily: 'inherit',
             }}
           >
-            {locale === 'it'
-              ? `basato su ${factCount} fatti →`
-              : `backed by ${factCount} facts →`}
+            {t('canvas.backed-by-facts', { count: factCount })} →
           </button>
         )}
       </div>
       {!loaded ? (
         <div style={{ fontSize: 11, color: 'var(--ink-5)' }}>…</div>
       ) : isEmpty ? (
-        <div style={{ fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' }}>{L.empty}</div>
+        <div style={{ fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' }}>{t('canvas.idea-canvas-empty')}</div>
       ) : (
         <div
           style={{
@@ -159,11 +135,11 @@ export function IdeaCanvasHeader({ projectId, locale, factCount = 0 }: IdeaCanva
             lineHeight: 1.45,
           }}
         >
-          <Field label={L.problem} value={data?.problem} anchorId="canvasfield-problem" />
-          <Field label={L.solution} value={data?.solution} anchorId="canvasfield-solution" />
-          <Field label={L.target} value={data?.target_market} anchorId="canvasfield-target_market" />
-          <Field label={L.value} value={data?.value_proposition} anchorId="canvasfield-value_proposition" />
-          <Field label={L.model} value={data?.business_model} anchorId="canvasfield-business_model" full />
+          <Field label={t('canvas.field-problem')} value={data?.problem} anchorId="canvasfield-problem" />
+          <Field label={t('canvas.field-solution')} value={data?.solution} anchorId="canvasfield-solution" />
+          <Field label={t('canvas.field-target')} value={data?.target_market} anchorId="canvasfield-target_market" />
+          <Field label={t('canvas.field-value')} value={data?.value_proposition} anchorId="canvasfield-value_proposition" />
+          <Field label={t('canvas.field-business-model')} value={data?.business_model} anchorId="canvasfield-business_model" full />
         </div>
       )}
     </div>

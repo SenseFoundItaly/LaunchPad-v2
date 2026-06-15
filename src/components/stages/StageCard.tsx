@@ -11,6 +11,7 @@
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Panel, Pill, Icon, I } from '@/components/design/primitives';
+import { checkActionPrompt } from '@/lib/journey-prompts';
 
 interface CheckResult {
   passed: boolean;
@@ -92,7 +93,7 @@ export function StageCard({ projectId }: { projectId: string }) {
       >
         <div style={{ padding: '4px 0' }}>
           {headline.results.map(({ check, result }) => (
-            <CheckRowView key={check.id} check={check} result={result} />
+            <CheckRowView key={check.id} projectId={projectId} check={check} result={result} />
           ))}
         </div>
         {active && active.passed < active.total && (
@@ -126,7 +127,11 @@ export function StageCard({ projectId }: { projectId: string }) {
   );
 }
 
-function CheckRowView({ check, result }: { check: CheckRow['check']; result: CheckResult }) {
+function CheckRowView({ projectId, check, result }: { projectId: string; check: CheckRow['check']; result: CheckResult }) {
+  // Unmet checks get an actionable CTA that pre-fills the Co-pilot composer with
+  // the prompt for THIS substep (cross-page via ?prefill — the chat page loads
+  // it on mount). Passed checks keep their source tag (the proof's home key).
+  const prefillHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(checkActionPrompt(check.label))}`;
   return (
     <div style={{
       padding: '10px 14px',
@@ -165,14 +170,20 @@ function CheckRowView({ check, result }: { check: CheckRow['check']; result: Che
           </div>
         )}
       </div>
-      <span className="lp-mono" style={{
-        fontSize: 9.5,
-        color: 'var(--ink-5)',
-        letterSpacing: 0.3,
-        flexShrink: 0,
-      }}>
-        {check.source}
-      </span>
+      {result.passed ? (
+        <span className="lp-mono" style={{
+          fontSize: 9.5,
+          color: 'var(--ink-5)',
+          letterSpacing: 0.3,
+          flexShrink: 0,
+        }}>
+          {check.source}
+        </span>
+      ) : (
+        <Link href={prefillHref} title={`${check.source} · ask the Co-pilot to validate this`} style={askCtaStyle}>
+          Ask Co-pilot →
+        </Link>
+      )}
     </div>
   );
 }
@@ -226,4 +237,19 @@ const ctaStyle: React.CSSProperties = {
   textDecoration: 'none',
   fontSize: 11.5,
   fontWeight: 500,
+};
+
+// Per-check CTA — accent-washed pill so an unmet row reads as "actionable,
+// pending" (the accent hue = the active/pending state used across the journey).
+const askCtaStyle: React.CSSProperties = {
+  flexShrink: 0,
+  whiteSpace: 'nowrap',
+  fontSize: 10.5,
+  fontWeight: 600,
+  color: 'var(--accent-ink)',
+  background: 'var(--accent-wash)',
+  border: '1px solid var(--accent)',
+  borderRadius: 999,
+  padding: '3px 9px',
+  textDecoration: 'none',
 };

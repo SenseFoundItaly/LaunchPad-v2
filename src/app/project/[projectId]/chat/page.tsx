@@ -289,6 +289,31 @@ export default function CopilotChatPage({
   const step = 'chat';
   const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages, messageCosts } = useChat(projectId, step);
   const [input, setInput] = useState('');
+
+  // Cross-page pre-fill: CTAs on the Today page (StageCard checks + the
+  // Next-to-validate list) link here as /chat?prefill=<prompt> to start the
+  // founder on a specific validation substep. Load it into the composer ONCE on
+  // mount — no auto-send (same review/edit/send contract as the in-canvas
+  // substep click) — then strip the param so a refresh doesn't re-fill. Reading
+  // window.location.search (not useSearchParams) keeps this client-only and
+  // avoids a Suspense boundary; the Today→chat hop always remounts this page.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const prefill = params.get('prefill');
+    if (!prefill) return;
+    setInput(prefill);
+    // Defer focus until the composer textarea has mounted this frame.
+    requestAnimationFrame(() => {
+      const tas = Array.from(document.querySelectorAll('textarea')) as HTMLTextAreaElement[];
+      const composer = tas.find((ta) => /co-pilot/i.test(ta.placeholder)) ?? tas[0];
+      composer?.focus();
+      composer?.scrollIntoView({ block: 'nearest' });
+    });
+    params.delete('prefill');
+    const qs = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
+  }, []);
   // Init true when the store already holds this thread (tab-return) so we don't
   // flash "Loading history…" or re-fetch. Fresh mount / full refresh → false.
   const [historyLoaded, setHistoryLoaded] = useState(() => chatStoreHydrated(projectId, step));
@@ -821,6 +846,43 @@ export default function CopilotChatPage({
           const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
           throw new Error(err.error || `Skill run failed with status ${res.status}`);
         }
+        // Inject the skill output back into the conversation. The skill ran in a
+        // SEPARATE request (runSkill) that touched the DB but NOT the `messages`
+        // array — so without this the founder saw the button flip to "done" and
+        // nothing else, and the chat Canvas (derived from `messages`) stayed
+        // empty even when the skill emitted :::artifact blocks. Appending an
+        // assistant message both (a) shows the result in the thread and (b) lets
+        // canvasArtifacts pick up the artifacts the skill produced.
+        const runBody = await res.json().catch(() => null);
+        const runData = (runBody?.data ?? runBody) as
+          | { status?: string; summary?: string }
+          | null;
+        const runStatus = runData?.status;
+        const runSummary = typeof runData?.summary === 'string' ? runData.summary : '';
+        if (runStatus === 'incomplete' || !runSummary.trim()) {
+          // Honest-failure path: the skill produced only clarifying questions /
+          // no usable deliverable (server quality gate). Don't dress it up as a
+          // result — tell the founder it needs more context and to retry.
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `msg_${Date.now()}`,
+              role: 'assistant',
+              content: t('chat.skill-incomplete-note'),
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `msg_${Date.now()}`,
+              role: 'assistant',
+              content: runSummary,
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+        }
         if (typeof window !== 'undefined') {
           // Skill writes skill_completions + section_scores → spine, readiness,
           // and skill surfaces should refetch.
@@ -838,7 +900,7 @@ export default function CopilotChatPage({
         sendMessage(`${payload.title}${desc ? ': ' + desc : ''}. Give me a detailed step-by-step plan.`);
       }
     },
-    [projectId, sendMessage],
+    [projectId, sendMessage, setMessages, t],
   );
 
   function handleKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -1012,7 +1074,6 @@ export default function CopilotChatPage({
             onSend={handleSend}
             onKeyDown={handleKey}
             disabled={isStreaming}
-            locale={locale}
             onInsertTemplate={(text) => setInput((prev) => prev ? `${prev}\n${text}` : text)}
             onAttachText={(name, body) =>
               setInput((prev) => {
@@ -2545,7 +2606,6 @@ function ChatComposer({
   onSend,
   onKeyDown,
   disabled,
-  locale,
   onInsertTemplate,
   onAttachText,
   onAuditDocs,
@@ -2555,7 +2615,6 @@ function ChatComposer({
   onSend: () => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   disabled: boolean;
-  locale: 'en' | 'it';
   onInsertTemplate?: (text: string) => void;
   onAttachText?: (name: string, body: string) => void;
   /** Opens the priced "audit document → knowledge" popup (distinct from the
@@ -2625,12 +2684,11 @@ function ChatComposer({
             <IconBtn
               d={I.plus}
               size={24}
-              title={locale === 'it' ? 'azioni' : 'actions'}
+              title={t('chat.composer-actions')}
               onClick={() => setMenuOpen((v) => !v)}
             />
             {menuOpen && (
               <ComposerMenu
-                locale={locale}
                 templates={templates}
                 onClose={() => setMenuOpen(false)}
                 onInsertTemplate={onInsertTemplate}
@@ -2649,7 +2707,7 @@ function ChatComposer({
           <IconBtn
             d={I.sparkles}
             size={24}
-            title={locale === 'it' ? 'inserisci template' : 'insert template'}
+            title={t('chat.composer-insert-template')}
             onClick={() => onInsertTemplate?.(templates[0].text)}
           />
           <span style={{ flex: 1 }} />
@@ -2672,7 +2730,7 @@ function ChatComposer({
               opacity: disabled || !value.trim() ? 0.5 : 1,
             }}
           >
-            <Icon d={I.send} size={12} /> {disabled ? '…' : 'send'}
+            <Icon d={I.send} size={12} /> {disabled ? '…' : t('chat.composer-send')}
             <span
               className="lp-kbd"
               style={{
@@ -2700,20 +2758,19 @@ function ChatComposer({
  * Closes on outside click and Escape.
  */
 function ComposerMenu({
-  locale,
   templates,
   onClose,
   onInsertTemplate,
   onAttach,
   onAuditDocs,
 }: {
-  locale: 'en' | 'it';
   templates: { label: string; text: string }[];
   onClose: () => void;
   onInsertTemplate?: (text: string) => void;
   onAttach: () => void;
   onAuditDocs?: () => void;
 }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -2773,7 +2830,7 @@ function ComposerMenu({
           fontFamily: 'var(--f-mono)',
         }}
       >
-        {locale === 'it' ? 'Template' : 'Templates'}
+        {t('chat.menu-templates')}
       </div>
       {templates.map((t) => (
         <button
@@ -2797,9 +2854,9 @@ function ComposerMenu({
           onClose();
         }}
       >
-        {locale === 'it' ? 'Allega file…' : 'Attach file…'}
+        {t('chat.menu-attach-file')}
         <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--ink-5)' }}>
-          {locale === 'it' ? 'testo nel messaggio' : 'text into message'}
+          {t('chat.menu-attach-hint')}
         </span>
       </button>
       {onAuditDocs && (
@@ -2811,9 +2868,9 @@ function ComposerMenu({
             onClose();
           }}
         >
-          {locale === 'it' ? 'Analizza documento → knowledge…' : 'Audit document → knowledge…'}
+          {t('chat.menu-audit-docs')}
           <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--ink-5)' }}>
-            {locale === 'it' ? 'PDF · estrae entità' : 'PDF · extracts entities'}
+            {t('chat.menu-audit-docs-hint')}
           </span>
         </button>
       )}

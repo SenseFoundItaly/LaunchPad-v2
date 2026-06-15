@@ -13,10 +13,15 @@
  */
 
 import type { Usage } from '@mariozechner/pi-ai';
-import { query, run } from '@/lib/db';
+import { query, run, get } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { logToLangfuse, estimateCost, type TelemetryContext } from '@/lib/telemetry';
 import { pickModel, type TaskLabel } from '@/lib/llm/router';
+import {
+  USER_MONTHLY_CREDITS,
+  USER_MONTHLY_LLM_USD,
+  USER_MONTHLY_WARN_LLM_USD,
+} from '@/lib/credit-costs';
 
 export interface RecordUsageInput {
   project_id: string;
@@ -29,6 +34,10 @@ export interface RecordUsageInput {
   usage: Usage | undefined;
   /** Wall-clock ms from request start to response end. Optional. */
   latency_ms?: number;
+  /** When true, still log the call (llm_usage_logs + Langfuse) but do NOT debit
+   *  the per-user credit pool. Used for runs that produced no usable deliverable
+   *  (clarification-only skill output) so a founder is never charged for nothing. */
+  skip_credit_debit?: boolean;
 }
 
 export interface RecordUsageResult {
@@ -83,11 +92,22 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
   );
 
   const periodMonth = currentPeriodMonth();
-  const budget = await upsertMonthlyBudget(input.project_id, periodMonth, costUsd);
+  // Per-project dollar tracking (kept for the usage page); NOT the credit/cap
+  // source anymore — credits moved to the per-user pool below.
+  await upsertMonthlyBudget(input.project_id, periodMonth, costUsd);
 
-  const crossedWarn = didCrossWarn(input.project_id, periodMonth, budget, costUsd);
-  if (crossedWarn) {
-    await maybeEmitBudgetWarning(input.project_id, periodMonth, budget);
+  // Authoritative per-USER pool: resolve the project's owner and accumulate
+  // their shared monthly spend. All of a user's projects draw from one pool.
+  // Skipped entirely when skip_credit_debit is set — the call is still logged
+  // above (and to Langfuse below) for observability, but no credits are charged.
+  const owner = input.skip_credit_debit ? null : await ownerUserId(input.project_id);
+  const userBudget = owner
+    ? await upsertUserMonthlyBudget(owner, periodMonth, costUsd)
+    : null;
+
+  const crossedWarn = !!userBudget && didCrossWarn(userBudget, costUsd);
+  if (crossedWarn && userBudget) {
+    await maybeEmitBudgetWarning(input.project_id, periodMonth, userBudget);
   }
 
   // Mirror the call into Langfuse so cron/manual monitor runs appear in the
@@ -119,13 +139,15 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
     console.warn('cost-meter → Langfuse failed (non-fatal):', (err as Error).message);
   }
 
-  // Schema truth: db/schema.sql defaults cap_credits=500, cap_llm_usd=5.00 →
-  // 100 credits per $1 → 1 credit = $0.01 LLM spend. Keep fallbacks in lockstep
-  // with that ratio so projects without a budget row report consistent numbers.
-  const capCredits = budget.cap_credits ?? 500;
-  const creditsPerDollar = budget.cap_llm_usd > 0 ? capCredits / budget.cap_llm_usd : 100;
+  // Credits + cap come from the USER pool. Fallback to the per-user defaults
+  // (100 credits / $1 → 100 credits per $1, 1 credit = $0.01) when there's no
+  // row or no resolvable owner — credits are unbounded then.
+  const capCredits = userBudget?.cap_credits ?? USER_MONTHLY_CREDITS;
+  const capUsd = userBudget?.cap_llm_usd ?? USER_MONTHLY_LLM_USD;
+  const currentUserUsd = userBudget?.current_llm_usd ?? costUsd;
+  const creditsPerDollar = capUsd > 0 ? capCredits / capUsd : 100;
   const creditsUsedThisCall = Math.round(costUsd * creditsPerDollar);
-  const totalCreditsUsed = Math.round(budget.current_llm_usd * creditsPerDollar);
+  const totalCreditsUsed = Math.round(currentUserUsd * creditsPerDollar);
   const creditsRemaining = Math.max(0, capCredits - totalCreditsUsed);
 
   return {
@@ -133,8 +155,8 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
     cost_usd: costUsd,
     total_tokens: inputTokens + outputTokens,
     crossed_warn: crossedWarn,
-    current_llm_usd: budget.current_llm_usd,
-    cap_llm_usd: budget.cap_llm_usd,
+    current_llm_usd: currentUserUsd,
+    cap_llm_usd: capUsd,
     credits_used: creditsUsedThisCall,
     credits_remaining: creditsRemaining,
     credits_total: capCredits,
@@ -205,13 +227,13 @@ function currentPeriodMonth(): string {
 }
 
 /**
- * Is this project over its monthly LLM cap, or manually set to 'capped' status?
+ * Is the OWNER of this project over their monthly LLM cap (or manually
+ * 'capped')? Credits are per-user now, so the cap binds on the project owner's
+ * shared user pool — not the project. Name kept for the unchanged callers
+ * (chat, cron, watch, correlator) which only hold a projectId.
  *
- * Returns an object with the cap state so callers can log an info message.
- * Returns {capped: false} if no budget row exists yet (first-ever call
- * for this project this month — cap not binding).
- *
- * Observe-only — callers log and continue; no hard blocking.
+ * Returns {capped: false} when there's no owner or no pool row yet this month
+ * (cap not binding). Observe-only — callers log and continue; no hard blocking.
  */
 export async function isProjectCapped(projectId: string): Promise<{
   capped: boolean;
@@ -220,20 +242,23 @@ export async function isProjectCapped(projectId: string): Promise<{
   periodMonth: string;
 }> {
   const periodMonth = currentPeriodMonth();
+  const owner = await ownerUserId(projectId);
+  if (!owner) return { capped: false, currentUsd: 0, capUsd: 0, periodMonth };
+
   const row = (await query<{
     current_llm_usd: number;
     cap_llm_usd: number;
     status: string;
   }>(
     `SELECT current_llm_usd, cap_llm_usd, status
-     FROM project_budgets
-     WHERE project_id = ? AND period_month = ?`,
-    projectId,
+     FROM user_budgets
+     WHERE user_id = ? AND period_month = ?`,
+    owner,
     periodMonth,
   ))[0];
 
   if (!row) {
-    // No budget row yet this month — not capped.
+    // No pool row yet this month — not capped.
     return { capped: false, currentUsd: 0, capUsd: 0, periodMonth };
   }
 
@@ -244,6 +269,19 @@ export async function isProjectCapped(projectId: string): Promise<{
     capUsd: row.cap_llm_usd,
     periodMonth,
   };
+}
+
+/**
+ * Resolve a project's owner (the user whose credit pool it draws from).
+ * Returns null for legacy/orphan projects with no owner_user_id — callers
+ * then treat the pool as unmetered (no cap, no credits charged).
+ */
+export async function ownerUserId(projectId: string): Promise<string | null> {
+  const row = await get<{ owner_user_id: string | null }>(
+    'SELECT owner_user_id FROM projects WHERE id = ?',
+    projectId,
+  );
+  return row?.owner_user_id ?? null;
 }
 
 interface BudgetSnapshot {
@@ -294,12 +332,175 @@ export async function upsertMonthlyBudget(
   return rows[0];
 }
 
-function didCrossWarn(
-  _projectId: string,
-  _periodMonth: string,
-  budget: BudgetSnapshot,
+/**
+ * Increment a USER's monthly pool by `costDelta` USD — the AUTHORITATIVE credit
+ * accumulator. Every LLM call (recordUsage) and every credit debit (credits.ts
+ * → here) lands on this row, so a user's remaining credits reflect spend across
+ * ALL their projects. Idempotent INSERT on UNIQUE(user_id, period_month);
+ * accumulates on conflict. Seeds the per-user defaults (100 credits / $1) on the
+ * first write of the month.
+ */
+export async function upsertUserMonthlyBudget(
+  userId: string,
+  periodMonth: string,
   costDelta: number,
-): boolean {
+): Promise<BudgetSnapshot> {
+  const budgetId = generateId('ubud');
+  await run(
+    `INSERT INTO user_budgets
+       (id, user_id, period_month, current_llm_usd, cap_llm_usd, warn_llm_usd, cap_credits, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
+     ON CONFLICT(user_id, period_month) DO UPDATE SET
+       current_llm_usd = user_budgets.current_llm_usd + excluded.current_llm_usd,
+       updated_at = CURRENT_TIMESTAMP`,
+    budgetId,
+    userId,
+    periodMonth,
+    costDelta,
+    USER_MONTHLY_LLM_USD,
+    USER_MONTHLY_WARN_LLM_USD,
+    USER_MONTHLY_CREDITS,
+  );
+
+  const rows = await query<BudgetSnapshot>(
+    `SELECT id, current_llm_usd, warn_llm_usd, cap_llm_usd, cap_credits, status
+     FROM user_budgets
+     WHERE user_id = ? AND period_month = ?`,
+    userId, periodMonth,
+  );
+  return rows[0];
+}
+
+export interface BudgetReconciliation {
+  project_id: string;
+  period_month: string;
+  /** SUM(total_cost_usd) of llm_usage_logs rows created this month. */
+  logged_usd: number;
+  /** project_budgets.current_llm_usd — the running monthly accumulator. */
+  budget_usd: number;
+  /** budget_usd − logged_usd. Nonzero ⇒ a paired write was dropped. */
+  drift_usd: number;
+  /** True when |drift| is within rounding tolerance. */
+  reconciled: boolean;
+}
+
+/**
+ * Cross-check the two ledgers: the per-call audit trail (llm_usage_logs) vs the
+ * running monthly accumulator (project_budgets.current_llm_usd).
+ *
+ * Every write path bumps the budget AND writes a log row — recordUsage(),
+ * logUsageToDb(), and (since the 2026-06-14 audit) debitCredits(). So in steady
+ * state SUM(logs this month) == current_llm_usd within float rounding. A
+ * nonzero drift means one of those paired writes failed silently: all of them
+ * are best-effort / fire-and-forget, so without this check a dropped write would
+ * never surface. Catches both directions (orphan log row, or budget bumped with
+ * no log).
+ *
+ * Pure read — no writes, no alerts, no side effects. Safe to call from a GET
+ * endpoint (usage page) or the cron sweep.
+ */
+export async function reconcileProjectBudget(
+  projectId: string,
+  periodMonth: string = currentPeriodMonth(),
+): Promise<BudgetReconciliation> {
+  const [y, m] = periodMonth.split('-').map(Number);
+  const start = new Date(Date.UTC(y, m - 1, 1)).toISOString();
+  const end = new Date(Date.UTC(y, m, 1)).toISOString(); // first instant of next month
+
+  const loggedRow = (await query<{ s: number }>(
+    `SELECT COALESCE(SUM(total_cost_usd), 0) AS s
+     FROM llm_usage_logs
+     WHERE project_id = ? AND created_at >= ? AND created_at < ?`,
+    projectId, start, end,
+  ))[0];
+  const loggedUsd = Number(loggedRow?.s ?? 0);
+
+  const budgetRow = (await query<{ current_llm_usd: number }>(
+    `SELECT current_llm_usd FROM project_budgets
+     WHERE project_id = ? AND period_month = ?`,
+    projectId, periodMonth,
+  ))[0];
+  const budgetUsd = Number(budgetRow?.current_llm_usd ?? 0);
+
+  const driftUsd = budgetUsd - loggedUsd;
+  // Tolerance: a sub-cent floor OR 2% relative, whichever is larger — absorbs
+  // float rounding across many small upserts without flagging healthy projects.
+  const tolerance = Math.max(0.01, budgetUsd * 0.02);
+  const reconciled = Math.abs(driftUsd) <= tolerance;
+
+  return {
+    project_id: projectId,
+    period_month: periodMonth,
+    logged_usd: loggedUsd,
+    budget_usd: budgetUsd,
+    drift_usd: driftUsd,
+    reconciled,
+  };
+}
+
+export interface UserBudgetReconciliation {
+  user_id: string;
+  period_month: string;
+  /** SUM(total_cost_usd) of llm_usage_logs across ALL the user's projects this month. */
+  logged_usd: number;
+  /** user_budgets.current_llm_usd — the authoritative per-user accumulator. */
+  pool_usd: number;
+  /** pool_usd − logged_usd. Nonzero ⇒ a paired user-pool write was dropped. */
+  drift_usd: number;
+  /** True when |drift| is within rounding tolerance. */
+  reconciled: boolean;
+}
+
+/**
+ * User-pool counterpart of reconcileProjectBudget. Credits are per-user
+ * (2026-06-14): the authoritative accumulator is user_budgets.current_llm_usd,
+ * which every spend path bumps — recordUsage(), logUsageToDb() (chat), and
+ * debitCredits() — alongside a per-project llm_usage_logs row. So in steady
+ * state user_budgets.current_llm_usd == SUM(logs across ALL the owner's
+ * projects) for the month. Drift ⇒ a user-pool write was dropped (these are all
+ * best-effort), which would otherwise silently mis-state the badge and cap.
+ *
+ * Pure read — no writes, no side effects.
+ */
+export async function reconcileUserBudget(
+  userId: string,
+  periodMonth: string = currentPeriodMonth(),
+): Promise<UserBudgetReconciliation> {
+  const [y, m] = periodMonth.split('-').map(Number);
+  const start = new Date(Date.UTC(y, m - 1, 1)).toISOString();
+  const end = new Date(Date.UTC(y, m, 1)).toISOString(); // first instant of next month
+
+  const loggedRow = (await query<{ s: number }>(
+    `SELECT COALESCE(SUM(total_cost_usd), 0) AS s
+     FROM llm_usage_logs
+     WHERE created_at >= ? AND created_at < ?
+       AND project_id IN (SELECT id FROM projects WHERE owner_user_id = ?)`,
+    start, end, userId,
+  ))[0];
+  const loggedUsd = Number(loggedRow?.s ?? 0);
+
+  const poolRow = (await query<{ current_llm_usd: number }>(
+    `SELECT current_llm_usd FROM user_budgets
+     WHERE user_id = ? AND period_month = ?`,
+    userId, periodMonth,
+  ))[0];
+  const poolUsd = Number(poolRow?.current_llm_usd ?? 0);
+
+  const driftUsd = poolUsd - loggedUsd;
+  const tolerance = Math.max(0.01, poolUsd * 0.02);
+  const reconciled = Math.abs(driftUsd) <= tolerance;
+
+  return {
+    user_id: userId,
+    period_month: periodMonth,
+    logged_usd: loggedUsd,
+    pool_usd: poolUsd,
+    drift_usd: driftUsd,
+    reconciled,
+  };
+}
+
+function didCrossWarn(budget: BudgetSnapshot, costDelta: number): boolean {
   // "Crossed" means: we were below warn before this call, now at/above it.
   // costDelta may be small; compare before/after to avoid false positives.
   const before = budget.current_llm_usd - costDelta;

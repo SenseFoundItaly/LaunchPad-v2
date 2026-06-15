@@ -17,6 +17,8 @@ import type { Artifact, Department } from '@/types/artifacts';
 import ArtifactRenderer from '@/components/chat/artifacts/ArtifactRenderer';
 import { spanForArtifact } from '@/lib/artifact-layout';
 import { Icon, I } from '@/components/design/primitives';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 
 interface DepartmentEntry {
   artifact: Artifact;
@@ -37,26 +39,28 @@ interface DepartmentSectionProps {
   latestTurnIndex: number;
 }
 
-const DEPT_LABELS: Record<Department, { en: string; it: string }> = {
-  market: { en: 'Market', it: 'Mercato' },
-  product: { en: 'Product', it: 'Prodotto' },
-  pricing: { en: 'Pricing', it: 'Pricing' },
-  finance: { en: 'Finance', it: 'Finanze' },
-  growth: { en: 'Growth', it: 'Crescita' },
-  memory: { en: 'Memory', it: 'Memoria' },
+// Department display labels are static UI copy keyed off the (logic) department
+// id — resolved via useT() at render (mirrors NavRail's labelKey pattern).
+const DEPT_LABEL_KEYS: Record<Department, MessageKey> = {
+  market: 'canvas.dept-market',
+  product: 'canvas.dept-product',
+  pricing: 'canvas.dept-pricing',
+  finance: 'canvas.dept-finance',
+  growth: 'canvas.dept-growth',
+  memory: 'canvas.dept-memory',
 };
 
 export function DepartmentSection({
   department,
-  locale,
   entries,
   handleArtifactAction,
   focusedMessageId,
   defaultCollapsed = false,
   latestTurnIndex,
 }: DepartmentSectionProps) {
+  const t = useT();
   const [open, setOpen] = useState(!defaultCollapsed);
-  const label = DEPT_LABELS[department][locale];
+  const label = t(DEPT_LABEL_KEYS[department]);
 
   return (
     <section style={{ marginBottom: 18 }}>
@@ -129,6 +133,7 @@ function ArtifactSlot({
   handleArtifactAction: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
   latestTurnIndex: number;
 }) {
+  const t = useT();
   const isFocused = focusedMessageId !== null && entry.sourceMessageId === focusedMessageId;
   const isDimmed = focusedMessageId !== null && !isFocused;
   const span = spanForArtifact(entry.artifact);
@@ -188,7 +193,7 @@ function ArtifactSlot({
         <button
           type="button"
           onClick={handleBackLink}
-          title="Scroll to source message"
+          title={t('canvas.scroll-to-source')}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
