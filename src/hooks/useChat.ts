@@ -161,6 +161,74 @@ export function useChat(projectId: string, step: string = 'chat') {
         // SSE line buffer: accumulates partial lines across chunk boundaries.
         let lineBuffer = '';
 
+        // Process one complete SSE line. Extracted so the post-`done` flush
+        // (below) reuses the EXACT same path — otherwise a final `data:` line
+        // not terminated by a newline stays stuck in lineBuffer and is dropped,
+        // truncating the tail of the response.
+        const handleSseLine = (line: string) => {
+          if (!line.startsWith('data: ')) return;
+          try {
+            const parsed = JSON.parse(line.slice(6));
+
+            if (parsed.content) {
+              fullContent += parsed.content;
+              setLast((m) => ({
+                ...m,
+                content: fullContent,
+                tools: toolsList.length > 0 ? [...toolsList] : undefined,
+              }));
+            }
+
+            if (parsed.tool_start) {
+              toolsList = [
+                ...toolsList.map((t) => (t.status === 'running' ? { ...t, status: 'done' as const } : t)),
+                {
+                  id: parsed.tool_start.id,
+                  name: parsed.tool_start.name,
+                  args: parsed.tool_start.args,
+                  status: 'running',
+                },
+              ];
+              setLast((m) => ({ ...m, content: fullContent, tools: [...toolsList] }));
+            }
+
+            if (parsed.tool_end) {
+              toolsList = toolsList.map((t) =>
+                t.id === parsed.tool_end.id
+                  ? { ...t, status: parsed.tool_end.error ? 'error' as const : 'done' as const }
+                  : t,
+              );
+              setLast((m) => ({ ...m, content: fullContent, tools: [...toolsList] }));
+            }
+
+            if (parsed.done && parsed.usage?.cost) {
+              const msgId = store.state.messages[store.state.messages.length - 1]?.id;
+              if (msgId) {
+                patch(store, {
+                  messageCosts: {
+                    ...store.state.messageCosts,
+                    [msgId]: { cost_usd: parsed.usage.cost, credits: parsed.usage.credits ?? 0 },
+                  },
+                });
+              }
+            }
+
+            // Broadcast persisted artifact IDs so cards can wire apply/reject.
+            if (parsed.done && parsed.persisted_artifacts && typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent('lp-persisted-artifacts', { detail: parsed.persisted_artifacts }),
+              );
+            }
+
+            if (parsed.error) {
+              console.error('Stream error:', parsed.error);
+              setLast((m) => ({ ...m, content: fullContent + `\n\n[Error: ${parsed.error}]` }));
+            }
+          } catch (parseErr) {
+            console.warn('[useChat] malformed SSE line:', line.slice(0, 200), parseErr);
+          }
+        };
+
         if (reader) {
           while (true) {
             const { done, value } = await reader.read();
@@ -171,70 +239,12 @@ export function useChat(projectId: string, step: string = 'chat') {
             const lines = lineBuffer.split('\n');
             lineBuffer = lines.pop() ?? '';
 
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue;
-              try {
-                const parsed = JSON.parse(line.slice(6));
-
-                if (parsed.content) {
-                  fullContent += parsed.content;
-                  setLast((m) => ({
-                    ...m,
-                    content: fullContent,
-                    tools: toolsList.length > 0 ? [...toolsList] : undefined,
-                  }));
-                }
-
-                if (parsed.tool_start) {
-                  toolsList = [
-                    ...toolsList.map((t) => (t.status === 'running' ? { ...t, status: 'done' as const } : t)),
-                    {
-                      id: parsed.tool_start.id,
-                      name: parsed.tool_start.name,
-                      args: parsed.tool_start.args,
-                      status: 'running',
-                    },
-                  ];
-                  setLast((m) => ({ ...m, content: fullContent, tools: [...toolsList] }));
-                }
-
-                if (parsed.tool_end) {
-                  toolsList = toolsList.map((t) =>
-                    t.id === parsed.tool_end.id
-                      ? { ...t, status: parsed.tool_end.error ? 'error' as const : 'done' as const }
-                      : t,
-                  );
-                  setLast((m) => ({ ...m, content: fullContent, tools: [...toolsList] }));
-                }
-
-                if (parsed.done && parsed.usage?.cost) {
-                  const msgId = store.state.messages[store.state.messages.length - 1]?.id;
-                  if (msgId) {
-                    patch(store, {
-                      messageCosts: {
-                        ...store.state.messageCosts,
-                        [msgId]: { cost_usd: parsed.usage.cost, credits: parsed.usage.credits ?? 0 },
-                      },
-                    });
-                  }
-                }
-
-                // Broadcast persisted artifact IDs so cards can wire apply/reject.
-                if (parsed.done && parsed.persisted_artifacts && typeof window !== 'undefined') {
-                  window.dispatchEvent(
-                    new CustomEvent('lp-persisted-artifacts', { detail: parsed.persisted_artifacts }),
-                  );
-                }
-
-                if (parsed.error) {
-                  console.error('Stream error:', parsed.error);
-                  setLast((m) => ({ ...m, content: fullContent + `\n\n[Error: ${parsed.error}]` }));
-                }
-              } catch (parseErr) {
-                console.warn('[useChat] malformed SSE line:', line.slice(0, 200), parseErr);
-              }
-            }
+            for (const line of lines) handleSseLine(line);
           }
+          // Stream ended: flush any pending decoder bytes + process whatever
+          // remains in lineBuffer (a last line with no trailing newline).
+          lineBuffer += decoder.decode();
+          if (lineBuffer) for (const line of lineBuffer.split('\n')) handleSseLine(line);
         }
       } catch (err) {
         if (err instanceof Error && err.name !== 'AbortError') {
