@@ -17,6 +17,8 @@
 import { useState, useMemo, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Icon, I, IconBtn, Pill } from '@/components/design/primitives';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 import { openPrintPreview } from '@/lib/print-utils';
 
 interface ExtractionCounts {
@@ -55,6 +57,7 @@ interface DataRoomDetail {
 interface DataRoomListResponse { items: DataRoomItem[] }
 
 export default function DataRoomPanel({ projectId }: { projectId: string }) {
+  const t = useT();
   const qc = useQueryClient();
   // Only the user's explicit click is state. The auto-fallback to "first item"
   // is a derivation (effectiveId below) so the list re-rendering can never
@@ -99,10 +102,10 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
       >
         <div style={{ padding: '0 16px 10px', display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', letterSpacing: 0.5 }}>
-            DATA ROOM
+            {t('kb.data-room')}
           </span>
           {presented.length > 0 && (
-            <span style={{ fontSize: 11, color: 'var(--ink-5)' }}>· {presented.length} items</span>
+            <span style={{ fontSize: 11, color: 'var(--ink-5)' }}>· {t('kb.items-count', { count: presented.length })}</span>
           )}
         </div>
 
@@ -116,9 +119,9 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
         <ExtractionHelp />
 
         {isLoading ? (
-          <EmptyHint message="Loading…" />
+          <EmptyHint message={t('common.loading')} />
         ) : presented.length === 0 ? (
-          <EmptyHint message="Nothing here yet. Drop a file above, or generate a pitch deck / one-pager / landing page from chat." />
+          <EmptyHint message={t('kb.data-room-empty')} />
         ) : (
           <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
             {presented.map((item) => (
@@ -146,11 +149,11 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: 'var(--ink-5)', flexWrap: 'wrap' }}>
                     <Pill kind={item.source === 'generated' ? 'info' : 'n'}>
-                      {item.sourceBadge}
+                      {item.source === 'generated' ? t('kb.source-generated') : t('kb.source-uploaded')}
                     </Pill>
                     {item.indexBadge && (
                       <Pill kind={item.indexBadge.kind} dot={item.indexBadge.kind === 'ok'}>
-                        {item.indexBadge.label}
+                        {t(item.indexBadge.labelKey, item.indexBadge.count !== undefined ? { count: item.indexBadge.count } : undefined)}
                       </Pill>
                     )}
                     {item.typeBadge && (
@@ -179,7 +182,7 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
             }}
           />
         ) : (
-          <EmptyHint message="Select an item on the left to view it." />
+          <EmptyHint message={t('kb.select-item')} />
         )}
       </div>
     </div>
@@ -195,6 +198,7 @@ function DataRoomDetailView({
   itemId: string;
   onDeleted: () => void;
 }) {
+  const t = useT();
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
@@ -239,8 +243,8 @@ function DataRoomDetailView({
     onSuccess: onDeleted,
   });
 
-  if (isError) return <EmptyHint message="This document is no longer available." />;
-  if (isLoading || !detail) return <EmptyHint message="Loading…" />;
+  if (isError) return <EmptyHint message={t('kb.document-unavailable')} />;
+  if (isLoading || !detail) return <EmptyHint message={t('common.loading')} />;
 
   const content = draft ?? detail.content;
 
@@ -260,13 +264,13 @@ function DataRoomDetailView({
             {detail.title}
           </div>
           <div className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', marginTop: 2 }}>
-            {detail.source === 'generated' ? (detail.doc_type ?? detail.kind) : 'uploaded file'}
+            {detail.source === 'generated' ? (detail.doc_type ?? detail.kind) : t('kb.uploaded-file')}
             {' · '}
             {new Date(detail.created_at).toLocaleString()}
           </div>
         </div>
         {detail.editable && !editing && (
-          <IconBtn d={I.edit} title="Edit" onClick={() => { setDraft(detail.content); setEditing(true); }} />
+          <IconBtn d={I.edit} title={t('common.edit')} onClick={() => { setDraft(detail.content); setEditing(true); }} />
         )}
         {detail.editable && editing && (
           <button
@@ -282,7 +286,7 @@ function DataRoomDetailView({
               cursor: 'pointer',
             }}
           >
-            {saveMutation.isPending ? 'Saving…' : 'Save'}
+            {saveMutation.isPending ? t('kb.saving') : t('common.save')}
           </button>
         )}
         {editing && (
@@ -290,19 +294,19 @@ function DataRoomDetailView({
             onClick={() => { setEditing(false); setDraft(null); }}
             style={{ fontSize: 11, padding: '4px 10px', border: '1px solid var(--line)', background: 'transparent', borderRadius: 4, cursor: 'pointer' }}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         )}
         <IconBtn
           d={I.printer}
-          title="Print / PDF"
+          title={t('kb.print-pdf')}
           onClick={() => openPrintPreview(detail.title, content)}
         />
         <IconBtn
           d={I.trash}
-          title="Delete"
+          title={t('common.delete')}
           onClick={() => {
-            if (confirm(`Delete "${detail.title}"? This cannot be undone.`)) deleteMutation.mutate();
+            if (confirm(t('kb.delete-confirm', { title: detail.title }))) deleteMutation.mutate();
           }}
         />
       </div>
@@ -395,7 +399,10 @@ function EmptyHint({ message }: { message: string }) {
 // Keep it ~30 lines. The return type is below — just fill in `presentItems`.
 
 interface IndexBadge {
-  label: string;
+  /** i18n key for the badge label, resolved with `t` at render. */
+  labelKey: MessageKey;
+  /** Count interpolated into the label ({count}), when the key needs one. */
+  count?: number;
   /** Pill `kind`: 'ok' = green (indexed), 'warn' = amber (pending),
    *  'n' = neutral (not indexed / N/A). */
   kind: 'ok' | 'warn' | 'n';
@@ -468,10 +475,10 @@ function presentItems(items: DataRoomItem[]): PresentedItem[] {
 function indexBadgeFor(item: DataRoomItem): IndexBadge | null {
   if (item.extraction === null) return null;
   const { applied, pending, rejected } = item.extraction;
-  if (pending > 0) return { label: `Review ${pending}`, kind: 'warn' };
-  if (applied > 0) return { label: `Indexed · ${applied}`, kind: 'ok' };
+  if (pending > 0) return { labelKey: 'kb.badge-review', count: pending, kind: 'warn' };
+  if (applied > 0) return { labelKey: 'kb.badge-indexed', count: applied, kind: 'ok' };
   if (rejected > 0) return null;
-  return { label: 'Not indexed', kind: 'n' };
+  return { labelKey: 'kb.badge-not-indexed', kind: 'n' };
 }
 
 // ─── inline upload (compact dropzone scoped to this panel) ───────────────────
@@ -488,6 +495,7 @@ function InlineUpload({
   projectId: string;
   onUploaded: () => void;
 }) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -506,14 +514,14 @@ function InlineUpload({
       });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.success) {
-        alert(body?.error ?? `Upload failed (HTTP ${res.status}).`);
+        alert(body?.error ?? t('kb.upload-failed-http', { status: res.status }));
         return;
       }
       onUploaded();
     } finally {
       setBusy(false);
     }
-  }, [projectId, onUploaded]);
+  }, [projectId, onUploaded, t]);
 
   return (
     <div
@@ -545,10 +553,10 @@ function InlineUpload({
     >
       <Icon d={I.download} size={14} stroke={1.4} style={{ color: 'var(--ink-3)', transform: 'rotate(180deg)' }} />
       <div style={{ fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.3 }}>
-        {busy ? 'Uploading…' : (
+        {busy ? t('kb.uploading') : (
           <>
-            <strong style={{ color: 'var(--ink)' }}>Drop files</strong>
-            {' '}or click to browse
+            <strong style={{ color: 'var(--ink)' }}>{t('kb.drop-files')}</strong>
+            {' '}{t('kb.or-click-to-browse')}
           </>
         )}
       </div>
@@ -574,6 +582,7 @@ function InlineUpload({
 // need to be told twice; new users tap once to see what happens on upload.
 
 function ExtractionHelp() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <div style={{ margin: '0 16px 12px', fontSize: 11, color: 'var(--ink-5)' }}>
@@ -590,16 +599,13 @@ function ExtractionHelp() {
           textUnderlineOffset: 2,
         }}
       >
-        {open ? 'Hide' : 'What is indexing?'}
+        {open ? t('common.hide') : t('kb.what-is-indexing')}
       </button>
       {open && (
         <p style={{ margin: '6px 0 0', lineHeight: 1.5 }}>
-          Uploaded files are decoded as text and stored as project knowledge so
-          chat can quote them. We also ask a small model to surface up to 8
-          entities per file (companies, personas, regulations…) as{' '}
-          <em>pending</em> proposals. Approve them under{' '}
-          <strong>Needs review</strong> on the Knowledge page to wire them into
-          the graph.
+          {t('kb.indexing-help-lead')}{' '}
+          <em>{t('kb.indexing-help-pending')}</em> {t('kb.indexing-help-mid')}{' '}
+          <strong>{t('kb.indexing-help-needs-review')}</strong> {t('kb.indexing-help-tail')}
         </p>
       )}
     </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface MessageActionsProps {
   /** The raw message content to copy (for user messages) or the visible text (for assistant). */
@@ -20,6 +21,7 @@ interface MessageActionsProps {
  * Visually subdued until hover. Copy shows a brief "Copied" confirmation.
  */
 export default function MessageActions({ content, onRetry, align }: MessageActionsProps) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -41,18 +43,18 @@ export default function MessageActions({ content, onRetry, align }: MessageActio
       <button
         type="button"
         onClick={handleCopy}
-        title={copied ? 'Copied!' : 'Copy message'}
+        title={copied ? t('chatui.actions.copied') : t('chatui.actions.copy-message')}
         className="flex items-center gap-1 text-[11px] text-ink-5 hover:text-ink-2 px-1.5 py-0.5 rounded hover:bg-paper-3/40 transition-colors"
       >
         {copied ? (
           <>
             <CheckIcon />
-            <span>Copied</span>
+            <span>{t('chatui.actions.copied')}</span>
           </>
         ) : (
           <>
             <CopyIcon />
-            <span>Copy</span>
+            <span>{t('common.copy')}</span>
           </>
         )}
       </button>
@@ -60,11 +62,11 @@ export default function MessageActions({ content, onRetry, align }: MessageActio
         <button
           type="button"
           onClick={onRetry}
-          title="Resend this message"
+          title={t('chatui.actions.resend')}
           className="flex items-center gap-1 text-[11px] text-ink-5 hover:text-ink-2 px-1.5 py-0.5 rounded hover:bg-paper-3/40 transition-colors"
         >
           <RetryIcon />
-          <span>Retry</span>
+          <span>{t('common.retry')}</span>
         </button>
       )}
     </div>

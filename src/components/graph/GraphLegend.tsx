@@ -1,6 +1,7 @@
 'use client';
 
 import { NODE_COLORS, type GraphNodeType } from '@/types/graph';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface GraphLegendProps {
   activeTypes?: GraphNodeType[];
@@ -17,6 +18,7 @@ const ALL_TYPES: GraphNodeType[] = [
 ];
 
 export default function GraphLegend({ activeTypes, hiddenTypes, onToggleType, nodeCount, edgeCount }: GraphLegendProps) {
+  const t = useT();
   const types = activeTypes && activeTypes.length > 0
     ? [...new Set(activeTypes)].filter(t => ALL_TYPES.includes(t))
     : ALL_TYPES;
@@ -32,7 +34,9 @@ export default function GraphLegend({ activeTypes, hiddenTypes, onToggleType, no
               key={type}
               onClick={() => onToggleType(type)}
               className={`flex items-center gap-1.5 transition-opacity ${hidden ? 'opacity-30' : 'opacity-100'}`}
-              title={`${hidden ? 'Show' : 'Hide'} ${type.replace(/_/g, ' ')}`}
+              title={hidden
+                ? t('viz.legend.show-type', { type: type.replace(/_/g, ' ') })
+                : t('viz.legend.hide-type', { type: type.replace(/_/g, ' ') })}
             >
               <span
                 className="inline-block w-2 h-2 rounded-full flex-shrink-0"
@@ -48,7 +52,7 @@ export default function GraphLegend({ activeTypes, hiddenTypes, onToggleType, no
 
       {/* Stats */}
       <div className="px-2 py-1 bg-paper/80 backdrop-blur-sm border border-line rounded-lg ml-2 shrink-0">
-        <span className="text-[10px] text-ink-5">{nodeCount} nodes | {edgeCount} edges</span>
+        <span className="text-[10px] text-ink-5">{t('viz.legend.stats', { nodes: nodeCount, edges: edgeCount })}</span>
       </div>
     </div>
   );

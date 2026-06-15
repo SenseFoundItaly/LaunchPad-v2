@@ -1,6 +1,7 @@
 'use client';
 
 import type { ActionSuggestion } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 
 interface ActionSuggestionCardProps {
@@ -12,9 +13,10 @@ export default function ActionSuggestionCard({
   artifact,
   onAction,
 }: ActionSuggestionCardProps) {
+  const t = useT();
   return (
     <ArtifactCardShell
-      typeLabel="Action"
+      typeLabel={t('art.action.type-label')}
       title={artifact.title}
       sources={artifact.sources}
     >

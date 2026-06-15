@@ -10,6 +10,10 @@
  */
 
 import { FieldLabel, RawPayloadToggle } from './fields';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
+
+type TFn = (key: MessageKey, vars?: TranslateVars) => string;
 
 // Internals the founder never needs to read — they stay in "view raw".
 const NOISY_KEY = /^(id|owner_user_id|user_id|project_id|pending_action_id|artifact_id|session_id)$|_ids?$/;
@@ -36,12 +40,12 @@ function isHttpUrl(s: string): boolean {
   return /^https?:\/\/\S+$/i.test(s);
 }
 
-function displayValue(v: unknown): string | null {
+function displayValue(v: unknown, tr: TFn): string | null {
   if (v === null || v === undefined) return null;
   if (typeof v === 'string') {
-    const t = v.trim();
-    if (!t) return null;
-    return t.length > MAX_STRING ? `${t.slice(0, MAX_STRING)}…` : t;
+    const s = v.trim();
+    if (!s) return null;
+    return s.length > MAX_STRING ? `${s.slice(0, MAX_STRING)}…` : s;
   }
   if (typeof v === 'number' || typeof v === 'boolean') return String(v);
   if (Array.isArray(v)) {
@@ -49,7 +53,9 @@ function displayValue(v: unknown): string | null {
     if (v.every((x) => typeof x === 'string' || typeof x === 'number')) {
       return v.join(', ');
     }
-    return `${v.length} item${v.length === 1 ? '' : 's'} — see raw`;
+    return v.length === 1
+      ? tr('skillui.items-see-raw-one', { count: v.length })
+      : tr('skillui.items-see-raw-other', { count: v.length });
   }
   if (typeof v === 'object') {
     const json = JSON.stringify(v);
@@ -59,6 +65,7 @@ function displayValue(v: unknown): string | null {
 }
 
 export function PayloadSummary({ payload }: { payload: unknown }) {
+  const t = useT();
   const obj =
     typeof payload === 'object' && payload !== null && !Array.isArray(payload)
       ? (payload as Record<string, unknown>)
@@ -68,7 +75,7 @@ export function PayloadSummary({ payload }: { payload: unknown }) {
     ? Object.entries(obj)
         .filter(([k]) => !NOISY_KEY.test(k))
         .map(([k, v]) => {
-          let d = displayValue(v);
+          let d = displayValue(v, t);
           if (d && ENUM_VALUE_KEY.test(k) && SLUG_VALUE.test(d)) d = prettifySlug(d);
           return [k, d] as const;
         })
@@ -79,7 +86,7 @@ export function PayloadSummary({ payload }: { payload: unknown }) {
     <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
       {rows.length === 0 ? (
         <div style={{ fontSize: 11.5, color: 'var(--ink-5)' }}>
-          Nothing to preview — &quot;view raw&quot; has the full payload.
+          {t('skillui.nothing-to-preview')}
         </div>
       ) : (
         rows.map(([k, v]) => (

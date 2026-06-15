@@ -1,11 +1,13 @@
 'use client';
 
 import type { ToolActivity } from '@/types';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 
-const TOOL_LABELS: Record<string, string> = {
-  web_search: 'Searching',
-  read_url: 'Reading',
-  calculate: 'Calculating',
+const TOOL_LABEL_KEYS: Record<string, MessageKey> = {
+  web_search: 'chatui.tool.searching',
+  read_url: 'chatui.tool.reading',
+  calculate: 'chatui.tool.calculating',
 };
 
 const TOOL_ICONS: Record<string, string> = {
@@ -53,12 +55,14 @@ function formatArgs(name: string, args?: Record<string, unknown>): string {
 }
 
 export default function ToolActivityBar({ tools }: { tools: ToolActivity[] }) {
+  const t = useT();
   if (!tools || tools.length === 0) return null;
 
   return (
     <div className="flex flex-wrap gap-1.5 mb-2">
       {tools.map((tool) => {
-        const label = TOOL_LABELS[tool.name] || tool.name;
+        const labelKey = TOOL_LABEL_KEYS[tool.name];
+        const label = labelKey ? t(labelKey) : tool.name;
         const detail = formatArgs(tool.name, tool.args);
         const isRunning = tool.status === 'running';
         const isError = tool.status === 'error';

@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useT } from '@/components/providers/LocaleProvider';
 
 // The "+ 100 free credits" self-serve mint is a dev/E2E affordance, not a
 // founder feature — gate it so it never renders in production. Next.js inlines
@@ -52,6 +53,7 @@ interface ApiResponse {
 }
 
 export function CreditsBadge({ projectId }: { projectId: string }) {
+  const t = useT();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [bumping, setBumping] = useState(false);
@@ -146,7 +148,7 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
         style={{ background: 'var(--paper-2)', color: 'var(--ink-5)' }}
       >
         <span className="lp-dot" style={{ background: 'var(--ink-6)' }} />
-        — credits
+        {t('cards.credits-loading')}
       </span>
     );
   }
@@ -184,7 +186,7 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
       const [y, m] = snap.period_month.split('-').map(Number);
       const next = new Date(y, m, 1); // month is 0-indexed so m (1-indexed) = next month
       return next.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
-    } catch { return 'next month'; }
+    } catch { return t('cards.reset-next-month'); }
   })();
 
   return (
@@ -216,10 +218,10 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
         style={{ background: bg, color: fg, position: 'relative', overflow: 'hidden', cursor: 'pointer' }}
       >
         <span className="lp-dot" style={{ background: dot }} />
-        {snap.remaining}/{snap.total} credits
+        {t('cards.credits-remaining', { remaining: snap.remaining, total: snap.total })}
         <span style={{ opacity: 0.7 }}>·</span>
         <span style={{ opacity: 0.7 }}>
-          {snap.used_today} today
+          {t('cards.credits-used-today', { count: snap.used_today })}
         </span>
         {/* Micro progress bar */}
         <span
@@ -253,24 +255,24 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
             color: 'var(--ink-2)',
           }}
         >
-          <div style={{ marginBottom: 8, fontWeight: 600 }}>Credits</div>
+          <div style={{ marginBottom: 8, fontWeight: 600 }}>{t('cards.credits-title')}</div>
           {/* Credits are the only founder-facing money unit. The old
               "Budget: $X / $Y USD" line leaked the internal metering currency;
               the budget now reads in credits (same fields the pill uses) and
               absorbs the former "Monthly:" line, which showed the identical
               numbers. */}
           <div style={{ marginBottom: 4 }}>
-            Budget: {snap.credits_used}/{snap.total} credits used
+            {t('cards.budget-credits-used', { used: snap.credits_used, total: snap.total })}
           </div>
           <div style={{ marginBottom: showUsdDetail ? 4 : 10 }}>
-            Resets: {resetLabel}
+            {t('cards.resets', { date: resetLabel })}
           </div>
           {/* USD kept ONLY as a muted internal detail — the snapshot already
               carries it (no extra fetch); hidden when no budget row exists
               yet (cap_usd 0 would render a meaningless $0.00 / $0.00). */}
           {showUsdDetail && (
             <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--ink-5)' }}>
-              ${snap.used_usd.toFixed(2)} / ${snap.cap_usd.toFixed(2)} USD — internal metering
+              {t('cards.usd-internal-metering', { used: snap.used_usd.toFixed(2), cap: snap.cap_usd.toFixed(2) })}
             </div>
           )}
           {/* Deep-link to the full per-project usage & spend breakdown.
@@ -288,7 +290,7 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
               textDecoration: 'none',
             }}
           >
-            View usage &amp; spend →
+            {t('cards.view-usage-spend')}
           </Link>
           {/* Dev/E2E-only: self-serve credit mint must never reach founders. */}
           {SHOW_DEV_CREDIT_BUMP && (
@@ -309,7 +311,7 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
                 transition: 'opacity 0.15s',
               }}
             >
-              {bumping ? 'Adding...' : '+ 100 free credits'}
+              {bumping ? t('cards.adding') : t('cards.bump-free-credits')}
             </button>
           )}
         </div>

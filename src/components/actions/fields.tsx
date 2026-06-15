@@ -10,6 +10,7 @@
  */
 
 import { useState } from 'react';
+import { useT } from '@/components/providers/LocaleProvider';
 
 export function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -50,6 +51,7 @@ export function Field({ label, value, multiline, mono }: { label: string; value:
 }
 
 export function RawPayloadToggle({ payload }: { payload: unknown }) {
+  const t = useT();
   const [show, setShow] = useState(false);
   return (
     <div>
@@ -66,7 +68,7 @@ export function RawPayloadToggle({ payload }: { payload: unknown }) {
           textDecoration: 'underline dotted',
         }}
       >
-        {show ? 'hide raw' : 'view raw'}
+        {show ? t('skillui.hide-raw') : t('skillui.view-raw')}
       </button>
       {show && (
         <pre

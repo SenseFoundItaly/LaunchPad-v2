@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface ProjectCardProps {
   projectId: string;
@@ -16,9 +17,10 @@ export default function ProjectCard({
   projectId, name, description, skillsCompleted, totalSkills, weeklyAlerts, createdAt,
 }: ProjectCardProps) {
   const router = useRouter();
+  const t = useT();
   const pct = totalSkills > 0 ? Math.round((skillsCompleted / totalSkills) * 100) : 0;
   const score = (skillsCompleted / totalSkills) * 10;
-  const verdict = score >= 8 ? 'STRONG GO' : score >= 6 ? 'GO' : score >= 4 ? 'CAUTION' : 'NOT READY';
+  const verdictKey = score >= 8 ? 'cards.verdict-strong-go' : score >= 6 ? 'cards.verdict-go' : score >= 4 ? 'cards.verdict-caution' : 'cards.verdict-not-ready';
   const verdictColor = score >= 8 ? 'bg-moss-wash text-moss'
     : score >= 6 ? 'bg-moss/20 text-moss'
     : score >= 4 ? 'bg-accent-wash text-accent'
@@ -34,7 +36,7 @@ export default function ProjectCard({
           {name}
         </h3>
         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ml-2 shrink-0 ${verdictColor}`}>
-          {verdict}
+          {t(verdictKey)}
         </span>
       </div>
 
@@ -45,7 +47,7 @@ export default function ProjectCard({
       {/* Progress bar */}
       <div className="mb-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-[10px] text-ink-6">{skillsCompleted}/{totalSkills} skills</span>
+          <span className="text-[10px] text-ink-6">{t('cards.skills-count', { completed: skillsCompleted, total: totalSkills })}</span>
           <span className="text-[10px] text-ink-6">{pct}%</span>
         </div>
         <div className="w-full h-1.5 bg-paper-2 rounded-full overflow-hidden">
@@ -61,7 +63,7 @@ export default function ProjectCard({
 
       {/* Bottom stats */}
       <div className="flex items-center justify-between text-[10px] text-ink-6">
-        <span>{weeklyAlerts > 0 ? `${weeklyAlerts} alert${weeklyAlerts > 1 ? 's' : ''} this week` : 'No alerts'}</span>
+        <span>{weeklyAlerts > 0 ? (weeklyAlerts === 1 ? t('cards.alerts-this-week-one', { count: weeklyAlerts }) : t('cards.alerts-this-week-other', { count: weeklyAlerts })) : t('cards.no-alerts')}</span>
         <span>{new Date(createdAt).toLocaleDateString()}</span>
       </div>
     </div>

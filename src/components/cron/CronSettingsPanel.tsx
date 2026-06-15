@@ -5,6 +5,8 @@ import api from '@/api';
 import { Pill, Panel, IconBtn, Icon, I } from '@/components/design/primitives';
 import type { HeartbeatKind } from '@/components/design/primitives';
 import type { ApiResponse } from '@/types';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 
 // =============================================================================
 // Types
@@ -54,6 +56,14 @@ interface WatchSourceRow {
 
 const SCHEDULES = ['daily', 'weekly', 'monthly', 'manual'] as const;
 
+// Visible label per schedule enum (the enum value itself stays the API/<option> value).
+const SCHEDULE_LABEL_KEY: Record<typeof SCHEDULES[number], MessageKey> = {
+  daily: 'skillui.schedule.daily',
+  weekly: 'skillui.schedule.weekly',
+  monthly: 'skillui.schedule.monthly',
+  manual: 'skillui.schedule.manual',
+};
+
 export default function CronSettingsPanel({
   projectId,
   open,
@@ -63,6 +73,7 @@ export default function CronSettingsPanel({
   open: boolean;
   onClose: () => void;
 }) {
+  const t = useT();
   const [cronbeat, setCronbeat] = useState<CronbeatPayload | null>(null);
   const [monitors, setMonitors] = useState<MonitorRow[]>([]);
   const [watchSources, setWatchSources] = useState<WatchSourceRow[]>([]);
@@ -168,50 +179,50 @@ export default function CronSettingsPanel({
           }}
         >
           <Icon d={I.sliders} size={14} />
-          <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>Cron Settings</span>
-          <IconBtn d={I.x} size={24} title="Close" onClick={onClose} />
+          <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{t('skillui.cron-settings')}</span>
+          <IconBtn d={I.x} size={24} title={t('common.close')} onClick={onClose} />
         </div>
 
         {/* Scrollable content */}
         <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
           {loading ? (
             <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-5)' }}>
-              Loading cron data…
+              {t('skillui.loading-cron-data')}
             </div>
           ) : (
             <>
               {/* Cronbeat card */}
-              <Panel title="Cronbeat" right={
+              <Panel title={t('skillui.cronbeat')} right={
                 cronbeat ? <Pill kind={healthPill[cronbeat.health]} dot>{cronbeat.health}</Pill> : null
               }>
                 {cronbeat?.last_run ? (
                   <div style={{ padding: '10px 14px', fontSize: 12 }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      <Stat label="Last run" value={formatRelative(cronbeat.last_run.started_at)} />
-                      <Stat label="Duration" value={cronbeat.last_run.duration_ms != null ? `${(cronbeat.last_run.duration_ms / 1000).toFixed(1)}s` : '—'} />
-                      <Stat label="Monitors ran" value={String(cronbeat.last_run.monitors_ran)} />
-                      <Stat label="Watch sources" value={String(cronbeat.last_run.watch_sources_processed)} />
-                      <Stat label="Heartbeats" value={String(cronbeat.last_run.heartbeats_ran)} />
-                      <Stat label="Status" value={cronbeat.last_run.status} />
+                      <Stat label={t('skillui.last-run')} value={formatRelative(cronbeat.last_run.started_at)} />
+                      <Stat label={t('skillui.duration')} value={cronbeat.last_run.duration_ms != null ? `${(cronbeat.last_run.duration_ms / 1000).toFixed(1)}s` : '—'} />
+                      <Stat label={t('skillui.monitors-ran')} value={String(cronbeat.last_run.monitors_ran)} />
+                      <Stat label={t('skillui.watch-sources')} value={String(cronbeat.last_run.watch_sources_processed)} />
+                      <Stat label={t('skillui.heartbeats')} value={String(cronbeat.last_run.heartbeats_ran)} />
+                      <Stat label={t('skillui.status')} value={cronbeat.last_run.status} />
                     </div>
                     {cronbeat.hours_since_last != null && (
                       <div className="lp-mono" style={{ marginTop: 8, fontSize: 10, color: 'var(--ink-5)' }}>
-                        {cronbeat.hours_since_last}h since last successful run
+                        {t('skillui.hours-since-last-run', { hours: cronbeat.hours_since_last })}
                       </div>
                     )}
                   </div>
                 ) : (
                   <div style={{ padding: '16px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
-                    No cron runs recorded yet.
+                    {t('skillui.no-cron-runs')}
                   </div>
                 )}
               </Panel>
 
               {/* Monitors table */}
-              <Panel title="Monitors" subtitle={`${monitors.length} total`}>
+              <Panel title={t('skillui.monitors')} subtitle={t('skillui.count-total', { count: monitors.length })}>
                 {monitors.length === 0 ? (
                   <div style={{ padding: '16px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
-                    No monitors configured.
+                    {t('skillui.no-monitors')}
                   </div>
                 ) : (
                   <div>
@@ -243,7 +254,7 @@ export default function CronSettingsPanel({
                               cursor: 'pointer',
                             }}
                           >
-                            {m.status === 'active' ? 'active' : 'paused'}
+                            {m.status === 'active' ? t('skillui.status.active') : t('skillui.status.paused')}
                           </button>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -261,15 +272,15 @@ export default function CronSettingsPanel({
                             }}
                           >
                             {SCHEDULES.map(s => (
-                              <option key={s} value={s}>{s}</option>
+                              <option key={s} value={s}>{t(SCHEDULE_LABEL_KEY[s])}</option>
                             ))}
                           </select>
                           <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', flex: 1 }}>
-                            {m.last_run ? `ran ${formatRelative(m.last_run)}` : 'never ran'}
+                            {m.last_run ? t('skillui.ran-relative', { time: formatRelative(m.last_run) }) : t('skillui.never-ran')}
                           </span>
                           {m.next_run && (
                             <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-                              next {formatRelative(m.next_run)}
+                              {t('skillui.next-relative', { time: formatRelative(m.next_run) })}
                             </span>
                           )}
                         </div>
@@ -280,10 +291,10 @@ export default function CronSettingsPanel({
               </Panel>
 
               {/* Watch sources list (read-only) */}
-              <Panel title="Watch Sources" subtitle={`${watchSources.length} sources`}>
+              <Panel title={t('skillui.watch-sources-title')} subtitle={t('skillui.count-sources', { count: watchSources.length })}>
                 {watchSources.length === 0 ? (
                   <div style={{ padding: '16px 14px', fontSize: 12, color: 'var(--ink-5)', textAlign: 'center' }}>
-                    No watch sources configured.
+                    {t('skillui.no-watch-sources')}
                   </div>
                 ) : (
                   <div>

@@ -11,6 +11,7 @@
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Panel, Pill, Icon, I } from '@/components/design/primitives';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface CheckResult {
   passed: boolean;
@@ -40,6 +41,7 @@ interface StagesPayload {
 }
 
 export function StageCard({ projectId }: { projectId: string }) {
+  const t = useT();
   const { data, isLoading } = useQuery<StagesPayload>({
     queryKey: ['stages', projectId],
     enabled: !!projectId,
@@ -78,7 +80,7 @@ export function StageCard({ projectId }: { projectId: string }) {
         title={
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', letterSpacing: 0.5 }}>
-              STAGE {headline.stage.number}
+              {t('cards.stage-number', { number: headline.stage.number })}
             </span>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{headline.stage.label}</span>
           </span>
@@ -86,7 +88,7 @@ export function StageCard({ projectId }: { projectId: string }) {
         subtitle={headline.stage.tagline}
         right={
           <Pill kind={headline.status === 'done' ? 'ok' : 'live'} dot={headline.status === 'active'}>
-            Evidence: {headline.passed} of {headline.total} checks
+            {t('cards.evidence-checks', { passed: headline.passed, total: headline.total })}
           </Pill>
         }
       >
@@ -105,10 +107,10 @@ export function StageCard({ projectId }: { projectId: string }) {
             gap: 10,
           }}>
             <span style={{ fontSize: 12, color: 'var(--ink-3)', flex: 1 }}>
-              Next: address the gaps above with the Co-pilot.
+              {t('cards.next-address-gaps')}
             </span>
             <Link href={`/project/${projectId}/chat`} style={ctaStyle}>
-              Open Co-pilot →
+              {t('cards.open-copilot')}
             </Link>
           </div>
         )}

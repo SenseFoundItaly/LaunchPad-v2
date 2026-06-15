@@ -1,6 +1,7 @@
 'use client';
 
 import { Icon, I } from '@/components/design/primitives';
+import { useT } from '@/components/providers/LocaleProvider';
 
 /**
  * Three-axis "depth meter" — replaces the opaque single-float `relevance_score`
@@ -22,6 +23,7 @@ export function EvidenceMeter({
   signals: number;
   confidence?: number | null;
 }) {
+  const t = useT();
   return (
     <div
       style={{
@@ -34,18 +36,18 @@ export function EvidenceMeter({
       }}
     >
       {typeof sources === 'number' && sources > 0 && (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }} title={`${sources} distinct source URL${sources === 1 ? '' : 's'} consulted`}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }} title={sources === 1 ? t('signals.sources-tooltip-one', { count: sources }) : t('signals.sources-tooltip-other', { count: sources })}>
           <Icon d={I.link} size={10} stroke={1.3} />
           {sources}
         </span>
       )}
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }} title={`${signals} raw signal${signals === 1 ? '' : 's'} cited`}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }} title={signals === 1 ? t('signals.signals-tooltip-one', { count: signals }) : t('signals.signals-tooltip-other', { count: signals })}>
         <Icon d={I.signal} size={10} stroke={1.3} />
         {signals}
       </span>
       {typeof confidence === 'number' && (
         <span
-          title={`Model self-rated confidence ${(confidence * 100).toFixed(0)}%`}
+          title={t('signals.confidence-tooltip', { percent: (confidence * 100).toFixed(0) })}
           style={{
             display: 'inline-flex',
             alignItems: 'center',

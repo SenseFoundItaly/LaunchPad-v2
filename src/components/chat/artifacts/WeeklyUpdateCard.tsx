@@ -1,6 +1,7 @@
 'use client';
 
 import type { WeeklyUpdateArtifact } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 
 interface WeeklyUpdateCardProps {
@@ -40,14 +41,15 @@ function Section({
 }
 
 export default function WeeklyUpdateCard({ artifact }: WeeklyUpdateCardProps) {
+  const t = useT();
   return (
     <ArtifactCardShell
-      typeLabel="Update"
+      typeLabel={t('art.weekly-update.title')}
       title={`${artifact.title} · ${artifact.period}`}
       sources={artifact.sources}
     >
       {artifact.morale !== undefined && (
-        <div className="text-[10px] text-ink-5 mb-1.5">Morale {artifact.morale}/10</div>
+        <div className="text-[10px] text-ink-5 mb-1.5">{t('art.weekly-update.morale', { value: artifact.morale })}</div>
       )}
       {artifact.generated_summary && (
         <p className="text-sm text-ink-3 italic mb-3 pb-2 border-b border-line-2">
@@ -88,9 +90,9 @@ export default function WeeklyUpdateCard({ artifact }: WeeklyUpdateCardProps) {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 min-w-0">
-        <Section label="Highlights" items={artifact.highlights} accent="moss" />
-        <Section label="Challenges" items={artifact.challenges} accent="cat-rose" />
-        <Section label="Asks" items={artifact.asks} accent="accent" />
+        <Section label={t('art.weekly-update.highlights')} items={artifact.highlights} accent="moss" />
+        <Section label={t('art.weekly-update.challenges')} items={artifact.challenges} accent="cat-rose" />
+        <Section label={t('art.weekly-update.asks')} items={artifact.asks} accent="accent" />
       </div>
     </ArtifactCardShell>
   );

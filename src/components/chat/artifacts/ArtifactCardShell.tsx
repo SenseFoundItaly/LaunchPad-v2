@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Source } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
 import SourcesFooter from './SourcesFooter';
 
 interface ArtifactCardShellProps {
@@ -66,6 +67,7 @@ export default function ArtifactCardShell({
   provenance,
   inspectable = true,
 }: ArtifactCardShellProps) {
+  const t = useT();
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [inspectorOpen, setInspectorOpen] = useState(false);
 
@@ -113,8 +115,8 @@ export default function ArtifactCardShell({
             type="button"
             onClick={() => setInspectorOpen(true)}
             className="text-ink-5 hover:text-ink-3 transition-colors p-0.5 shrink-0"
-            aria-label="Open inspector"
-            title="Open inspector"
+            aria-label={t('art.shell.open-inspector')}
+            title={t('art.shell.open-inspector')}
           >
             <svg
               width="14"
@@ -138,7 +140,7 @@ export default function ArtifactCardShell({
             type="button"
             onClick={() => setCollapsed((c) => !c)}
             className="text-ink-5 hover:text-ink-3 transition-colors p-0.5 shrink-0"
-            aria-label={collapsed ? 'Expand card' : 'Collapse card'}
+            aria-label={collapsed ? t('art.shell.expand-card') : t('art.shell.collapse-card')}
           >
             <svg
               width="14"
@@ -180,7 +182,7 @@ export default function ArtifactCardShell({
           style={{ background: 'rgba(20, 18, 16, 0.55)' }}
           role="dialog"
           aria-modal="true"
-          aria-label={`${typeLabel} inspector`}
+          aria-label={t('art.shell.inspector-label', { label: typeLabel })}
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -199,8 +201,8 @@ export default function ArtifactCardShell({
                 type="button"
                 onClick={() => setInspectorOpen(false)}
                 className="text-ink-5 hover:text-ink-3 transition-colors p-1"
-                aria-label="Close inspector"
-                title="Close (Esc)"
+                aria-label={t('art.shell.close-inspector')}
+                title={t('art.shell.close-esc')}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" />

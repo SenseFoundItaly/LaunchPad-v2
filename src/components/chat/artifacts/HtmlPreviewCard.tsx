@@ -3,15 +3,18 @@
 import { useState, useRef } from 'react';
 import type { HtmlPreviewArtifact } from '@/types/artifacts';
 import { IconBtn, I, Pill } from '@/components/design/primitives';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 import ArtifactCardShell from './ArtifactCardShell';
 
-const VIEWPORTS: { id: 'desktop' | 'tablet' | 'mobile'; label: string; width: number }[] = [
-  { id: 'desktop', label: 'Desktop', width: 1280 },
-  { id: 'tablet', label: 'Tablet', width: 768 },
-  { id: 'mobile', label: 'Mobile', width: 375 },
+const VIEWPORTS: { id: 'desktop' | 'tablet' | 'mobile'; labelKey: MessageKey; width: number }[] = [
+  { id: 'desktop', labelKey: 'art.html.desktop', width: 1280 },
+  { id: 'tablet', labelKey: 'art.html.tablet', width: 768 },
+  { id: 'mobile', labelKey: 'art.html.mobile', width: 375 },
 ];
 
 export default function HtmlPreviewCard({ artifact }: { artifact: HtmlPreviewArtifact }) {
+  const t = useT();
   const [viewport, setViewport] = useState<'desktop' | 'tablet' | 'mobile'>(artifact.viewport ?? 'desktop');
   const [copied, setCopied] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -43,7 +46,7 @@ export default function HtmlPreviewCard({ artifact }: { artifact: HtmlPreviewArt
 
   return (
     <ArtifactCardShell
-      typeLabel="Preview"
+      typeLabel={t('art.html.type-label')}
       title={artifact.title}
       sources={artifact.sources}
       style={{ gridColumn: 'span 6' }}
@@ -65,13 +68,13 @@ export default function HtmlPreviewCard({ artifact }: { artifact: HtmlPreviewArt
               fontFamily: 'var(--f-mono)',
             }}
           >
-            {vp.label} ({vp.width})
+            {t(vp.labelKey)} ({vp.width})
           </button>
         ))}
         <span style={{ width: 1, height: 16, background: 'var(--line-2)' }} />
-        <IconBtn d={I.copy} title={copied ? 'Copied!' : 'Copy HTML'} onClick={copyHtml} />
-        <IconBtn d={I.download} title="Download .html" onClick={downloadHtml} />
-        <IconBtn d={I.external} title="Open in new tab" onClick={openInNewTab} />
+        <IconBtn d={I.copy} title={copied ? t('art.html.copied') : t('art.html.copy-html')} onClick={copyHtml} />
+        <IconBtn d={I.download} title={t('art.html.download-html')} onClick={downloadHtml} />
+        <IconBtn d={I.external} title={t('art.html.open-new-tab')} onClick={openInNewTab} />
       </>}
     >
       {/* Preview iframe */}

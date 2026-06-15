@@ -19,6 +19,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { checkActionPrompt } from '@/lib/journey-prompts';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 
 interface CheckRow {
   check: { id: string; label: string; source?: string };
@@ -70,13 +72,16 @@ function viewCanvasField(field: string) {
   setTimeout(() => el.classList.remove('lp-flash'), 1300);
 }
 
-const STATE: Record<StageEval['status'], { color: string; en: string; it: string }> = {
-  done: { color: 'var(--moss)', en: 'Validated', it: 'Validato' },
-  active: { color: 'var(--accent)', en: 'In progress', it: 'In corso' },
-  pending: { color: 'var(--ink-5)', en: 'Not started', it: 'Da iniziare' },
+// State color + the i18n key for its label (label resolved via useT() at the
+// render site; color is pure styling).
+const STATE: Record<StageEval['status'], { color: string; labelKey: MessageKey }> = {
+  done: { color: 'var(--moss)', labelKey: 'canvas.state-validated' },
+  active: { color: 'var(--accent)', labelKey: 'canvas.state-in-progress' },
+  pending: { color: 'var(--ink-5)', labelKey: 'canvas.state-not-started' },
 };
 
-export function SpineSection({ projectId, locale, onPickPrompt }: SpineSectionProps) {
+export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
+  const t = useT();
   const router = useRouter();
   const [evals, setEvals] = useState<StageEval[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -123,7 +128,7 @@ export function SpineSection({ projectId, locale, onPickPrompt }: SpineSectionPr
   if (!loaded) {
     return (
       <div style={{ fontSize: 11, color: 'var(--ink-5)', padding: '4px 0 14px' }}>
-        {locale === 'it' ? 'Caricamento pipeline…' : 'Loading pipeline…'}
+        {t('canvas.loading-pipeline')}
       </div>
     );
   }
@@ -136,12 +141,10 @@ export function SpineSection({ projectId, locale, onPickPrompt }: SpineSectionPr
         className="lp-mono"
         style={{ fontSize: 9.5, color: 'var(--ink-5)', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 }}
       >
-        {locale === 'it' ? 'Pipeline di validazione' : 'Validation pipeline'}
+        {t('canvas.validation-pipeline')}
       </div>
       <div style={{ fontSize: 10, color: 'var(--ink-5)', marginBottom: 6, lineHeight: 1.4 }}>
-        {locale === 'it'
-          ? 'Un passo è validato quando tutti i suoi sotto-passi lo sono.'
-          : 'A step is validated when all its substeps are.'}
+        {t('canvas.validation-pipeline-hint')}
       </div>
 
       {/* Horizontal 7-step strip — number · name · state. No counts. */}
@@ -176,7 +179,7 @@ export function SpineSection({ projectId, locale, onPickPrompt }: SpineSectionPr
                 </span>
                 <span
                   style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0, background: e.status === 'done' ? st.color : 'transparent', border: e.status === 'done' ? 'none' : `1.5px solid ${st.color}` }}
-                  title={st[locale]}
+                  title={t(st.labelKey)}
                 />
               </div>
               <div
@@ -196,14 +199,14 @@ export function SpineSection({ projectId, locale, onPickPrompt }: SpineSectionPr
                 {e.stage.label}
               </div>
               <span className="lp-mono" style={{ fontSize: 9, color: st.color, letterSpacing: 0.3 }}>
-                {st[locale]}
+                {t(st.labelKey)}
               </span>
             </button>
           );
         })}
         {evals.length === 0 && (
           <div style={{ gridColumn: '1 / -1', fontSize: 11.5, color: 'var(--ink-5)', fontStyle: 'italic', padding: '6px 0' }}>
-            {locale === 'it' ? 'Nessuno passo ancora avviato.' : 'No steps started yet.'}
+            {t('canvas.no-steps-yet')}
           </div>
         )}
       </div>
@@ -214,7 +217,7 @@ export function SpineSection({ projectId, locale, onPickPrompt }: SpineSectionPr
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
             <span className="lp-serif" style={{ fontSize: 13, color: 'var(--ink)' }}>{openEval.stage.label}</span>
             <span className="lp-mono" style={{ fontSize: 10, color: STATE[openEval.status].color, letterSpacing: 0.3 }}>
-              {STATE[openEval.status][locale]}
+              {t(STATE[openEval.status].labelKey)}
             </span>
           </div>
           {openEval.stage.tagline && (
@@ -245,7 +248,7 @@ export function SpineSection({ projectId, locale, onPickPrompt }: SpineSectionPr
                   <div
                     onClick={onRowClick}
                     role={clickable ? 'button' : undefined}
-                    title={canPrefill ? (locale === 'it' ? 'Chiedi al co-pilot di lavorarci' : 'Ask the co-pilot to work on this') : undefined}
+                    title={canPrefill ? t('canvas.ask-copilot-tooltip') : undefined}
                     style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5, lineHeight: 1.4, cursor: clickable ? 'pointer' : 'default' }}
                   >
                     <span
@@ -269,12 +272,12 @@ export function SpineSection({ projectId, locale, onPickPrompt }: SpineSectionPr
                     </span>
                     {hasProof && (
                       <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--accent)', flexShrink: 0, marginTop: 2 }}>
-                        {proofOpen ? (locale === 'it' ? 'nascondi' : 'hide') : (locale === 'it' ? 'prova' : 'proof')}
+                        {proofOpen ? t('canvas.proof-hide') : t('canvas.proof-show')}
                       </span>
                     )}
                     {canPrefill && (
                       <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--accent)', flexShrink: 0, marginTop: 2, whiteSpace: 'nowrap' }}>
-                        {locale === 'it' ? '→ chiedi' : '→ ask co-pilot'}
+                        {t('canvas.ask-copilot-cta')}
                       </span>
                     )}
                   </div>
@@ -286,7 +289,7 @@ export function SpineSection({ projectId, locale, onPickPrompt }: SpineSectionPr
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 5, flexWrap: 'wrap' }}>
                         {r.check.source && (
                           <span className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-6)' }}>
-                            {locale === 'it' ? 'da' : 'from'} {r.check.source}
+                            {t('canvas.proof-from', { source: r.check.source })}
                           </span>
                         )}
                         {jt && (
@@ -300,8 +303,8 @@ export function SpineSection({ projectId, locale, onPickPrompt }: SpineSectionPr
                             style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--f-mono)', fontSize: 9.5, color: 'var(--accent)' }}
                           >
                             {jt.kind === 'canvas'
-                              ? (locale === 'it' ? '→ vedi nel canvas' : '→ view in canvas')
-                              : (locale === 'it' ? '→ vedi in Know' : '→ view in Know')}
+                              ? t('canvas.view-in-canvas')
+                              : t('canvas.view-in-know')}
                           </button>
                         )}
                       </div>
@@ -312,7 +315,7 @@ export function SpineSection({ projectId, locale, onPickPrompt }: SpineSectionPr
             })}
             {openEval.results.length === 0 && (
               <div style={{ fontSize: 11.5, color: 'var(--ink-5)', fontStyle: 'italic' }}>
-                {locale === 'it' ? 'Nessun sotto-passo definito.' : 'No substeps defined.'}
+                {t('canvas.no-substeps')}
               </div>
             )}
           </div>

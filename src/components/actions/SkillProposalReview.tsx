@@ -17,17 +17,20 @@
 
 import type { PendingAction } from '@/types';
 import { Field, FieldLabel, RawPayloadToggle } from './fields';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 
 // One-line "what you'll get" per known skill_id (launchpad-skills/<id>/).
+// Values are translation keys resolved at render (hooks can't run here).
 // Unknown skills fall back to payload.context, then a generic line.
-const SKILL_OUTCOME: Record<string, string> = {
-  'idea-shaping':    'Structures your idea into a scored canvas',
-  'startup-scoring': 'Rates the idea across 6 dimensions',
-  'market-research': 'Maps competitors + market size with sources',
-  'simulation':      'Stress-tests reception across personas & risk scenarios',
-  'prototype-spec':  'A build blueprint scoped to your constraints',
-  'business-model':  'Pricing tiers + unit economics',
-  'financial-model': '3-year projection',
+const SKILL_OUTCOME_KEY: Record<string, MessageKey> = {
+  'idea-shaping':    'skillui.outcome.idea-shaping',
+  'startup-scoring': 'skillui.outcome.startup-scoring',
+  'market-research': 'skillui.outcome.market-research',
+  'simulation':      'skillui.outcome.simulation',
+  'prototype-spec':  'skillui.outcome.prototype-spec',
+  'business-model':  'skillui.outcome.business-model',
+  'financial-model': 'skillui.outcome.financial-model',
 };
 
 // Mirrors the balanced-tier estimate in skill-tools.ts (premium 10 / cheap 1).
@@ -56,35 +59,37 @@ function prettifySkillId(id: string): string {
 }
 
 export function SkillProposalReview({ action }: { action: PendingAction }) {
+  const t = useT();
   const raw = action.edited_payload || action.payload || {};
   const p = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
 
   const skillId = typeof p.skill_id === 'string' ? p.skill_id : '';
   const skillLabel =
     (typeof p.skill_label === 'string' && p.skill_label.trim()) ||
-    (skillId ? prettifySkillId(skillId) : 'Skill');
+    (skillId ? prettifySkillId(skillId) : t('skillui.skill'));
   const context = typeof p.context === 'string' ? p.context.trim() : '';
+  const outcomeKey = SKILL_OUTCOME_KEY[skillId];
   const outcome =
-    SKILL_OUTCOME[skillId] ||
+    (outcomeKey ? t(outcomeKey) : '') ||
     context ||
-    'Runs the skill against your project and posts the results to your workspace';
+    t('skillui.outcome.generic');
   const credits = skillCreditsFromAction(action);
 
   return (
     <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14, fontSize: 12.5, lineHeight: 1.5 }}>
-      <Field label="Skill" value={skillLabel} />
-      <Field label="What you'll get" value={outcome} multiline />
+      <Field label={t('skillui.skill')} value={skillLabel} />
+      <Field label={t('skillui.what-youll-get')} value={outcome} multiline />
       <div style={{ display: 'flex', gap: 28 }}>
         <div>
-          <FieldLabel>Cost</FieldLabel>
+          <FieldLabel>{t('skillui.cost')}</FieldLabel>
           <div style={{ color: 'var(--ink)', fontSize: 13, fontWeight: 600 }}>
-            ≈{credits} credit{credits === 1 ? '' : 's'}
+            {credits === 1 ? t('skillui.credits-one', { credits }) : t('skillui.credits-other', { credits })}
           </div>
         </div>
         <div>
-          <FieldLabel>Duration</FieldLabel>
+          <FieldLabel>{t('skillui.duration')}</FieldLabel>
           <div style={{ color: 'var(--ink-2)', fontSize: 12.5 }}>
-            runs ~1–2 min after approval
+            {t('skillui.duration-estimate')}
           </div>
         </div>
       </div>

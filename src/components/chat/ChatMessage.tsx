@@ -7,6 +7,7 @@ import ArtifactRenderer from './artifacts/ArtifactRenderer';
 import SourcesFooter from './artifacts/SourcesFooter';
 import ToolActivityBar from './ToolActivityBar';
 import MessageActions from './MessageActions';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -191,24 +192,24 @@ function splitCitations(text: string, keyPrefix: string): React.ReactNode[] {
  * silently missing. This replaces the silent-drop behavior of the old parser.
  */
 function ArtifactErrorCard({ reason, artifact_type }: { reason: string; artifact_type?: string }) {
+  const t = useT();
   const isDev = process.env.NODE_ENV !== 'production';
   if (isDev) {
     return (
       <div className="my-3 bg-clay/10 border border-clay/40 rounded-lg p-3 text-xs">
         <div className="font-semibold text-clay mb-1">
-          Artifact rejected{artifact_type ? ` (${artifact_type})` : ''}
+          {t('chatui.artifact-error.rejected')}{artifact_type ? ` (${artifact_type})` : ''}
         </div>
         <div className="text-clay/80">{reason}</div>
         <div className="text-clay/60 mt-1 text-[10px]">
-          The agent produced a card without citing sources. It was discarded to prevent unsourced
-          claims from entering your project data. Re-run if you need this analysis.
+          {t('chatui.artifact-error.explanation')}
         </div>
       </div>
     );
   }
   return (
     <div className="my-2 text-xs text-clay/70 italic">
-      (One unsourced {artifact_type ?? 'artifact'} discarded.)
+      {t('chatui.artifact-error.discarded', { type: artifact_type ?? t('chatui.artifact-error.generic-type') })}
     </div>
   );
 }
@@ -222,6 +223,7 @@ export default function ChatMessage({
   onWorkflowDiscovered,
   onRetry,
 }: ChatMessageProps) {
+  const t = useT();
   const isUser = message.role === 'user';
   const segments = isUser ? null : parseMessageContent(message.content);
 
@@ -283,7 +285,7 @@ export default function ChatMessage({
                   <SourcesFooter
                     key={`citations-${idx}`}
                     sources={segment.sources}
-                    label="Sources"
+                    label={t('chatui.sources')}
                   />
                 );
               default:

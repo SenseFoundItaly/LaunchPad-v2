@@ -2,13 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 
-const STEPS = [
-  { num: 1, name: 'Chat', path: 'chat' },
-  { num: 2, name: 'Scoring', path: 'scoring' },
-  { num: 3, name: 'Research', path: 'research' },
-  { num: 4, name: 'Simulation', path: 'simulation' },
-  { num: 5, name: 'Workflow', path: 'workflow' },
+const STEPS: { num: number; labelKey: MessageKey; path: string }[] = [
+  { num: 1, labelKey: 'layout.step.chat', path: 'chat' },
+  { num: 2, labelKey: 'layout.step.scoring', path: 'scoring' },
+  { num: 3, labelKey: 'layout.step.research', path: 'research' },
+  { num: 4, labelKey: 'layout.step.simulation', path: 'simulation' },
+  { num: 5, labelKey: 'layout.step.workflow', path: 'workflow' },
 ];
 
 interface StepNavProps {
@@ -18,6 +20,7 @@ interface StepNavProps {
 
 export default function StepNav({ projectId, currentStep }: StepNavProps) {
   const pathname = usePathname();
+  const t = useT();
 
   return (
     <nav className="flex items-center gap-1 px-6 py-3 bg-paper border-b border-line overflow-x-auto">
@@ -55,7 +58,7 @@ export default function StepNav({ projectId, currentStep }: StepNavProps) {
               >
                 {isCompleted ? '+' : step.num}
               </span>
-              <span className="whitespace-nowrap">{step.name}</span>
+              <span className="whitespace-nowrap">{t(step.labelKey)}</span>
             </Link>
           </div>
         );

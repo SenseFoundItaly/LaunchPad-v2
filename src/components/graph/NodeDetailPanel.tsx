@@ -17,6 +17,10 @@
 import type { GraphNode } from '@/types/graph';
 import type { Source } from '@/types/artifacts';
 import { NODE_COLORS } from '@/types/graph';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
+
+type TFn = (key: MessageKey, vars?: TranslateVars) => string;
 
 /** A node reachable from the selected node in one hop, plus how they relate. */
 export interface NodeNeighbor {
@@ -74,20 +78,20 @@ function formatAttrValue(value: unknown): string {
 }
 
 /** Build a human label + optional href for one provenance source. */
-function describeSource(src: Source): { label: string; href?: string; quote?: string } {
+function describeSource(src: Source, t: TFn): { label: string; href?: string; quote?: string } {
   switch (src.type) {
     case 'web':
       return { label: src.title || hostOf(src.url), href: src.url, quote: src.quote };
     case 'skill':
-      return { label: src.title || `Skill: ${src.skill_id}`, quote: src.quote };
+      return { label: src.title || t('viz.detail.source-skill', { id: src.skill_id }), quote: src.quote };
     case 'internal':
-      return { label: src.title || `${humanize(src.ref)} reference`, quote: src.quote };
+      return { label: src.title || t('viz.detail.source-internal', { ref: humanize(src.ref) }), quote: src.quote };
     case 'user':
-      return { label: src.title || 'Founder', quote: src.quote };
+      return { label: src.title || t('viz.detail.source-founder'), quote: src.quote };
     case 'inference':
-      return { label: src.title || 'Inferred', quote: src.reasoning };
+      return { label: src.title || t('viz.detail.source-inferred'), quote: src.reasoning };
     default:
-      return { label: 'Source' };
+      return { label: t('viz.detail.source-default') };
   }
 }
 
@@ -118,6 +122,7 @@ export default function NodeDetailPanel({
   onApply,
   onDismiss,
 }: NodeDetailPanelProps) {
+  const t = useT();
   if (!node) return null;
 
   const typeColor = NODE_COLORS[node.node_type] || 'var(--ink-5)';
@@ -137,7 +142,7 @@ export default function NodeDetailPanel({
   return (
     <aside
       role="complementary"
-      aria-label={`Details for ${node.name}`}
+      aria-label={t('viz.detail.aria-label', { name: node.name })}
       onClick={(e) => e.stopPropagation()}
       style={{
         position: 'absolute',
@@ -184,7 +189,7 @@ export default function NodeDetailPanel({
           </h3>
           <button
             onClick={onClose}
-            aria-label="Close details"
+            aria-label={t('viz.detail.close')}
             style={{
               flexShrink: 0,
               background: 'none',
@@ -224,7 +229,7 @@ export default function NodeDetailPanel({
                 padding: '1px 7px',
               }}
             >
-              Pending review
+              {t('viz.detail.pending-review')}
             </span>
           )}
         </div>
@@ -235,7 +240,7 @@ export default function NodeDetailPanel({
         {/* Summary */}
         {node.summary && (
           <section>
-            <SectionLabel>Summary</SectionLabel>
+            <SectionLabel>{t('viz.detail.summary')}</SectionLabel>
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--ink-3)' }}>
               {node.summary}
             </p>
@@ -245,10 +250,10 @@ export default function NodeDetailPanel({
         {/* Provenance links / sources */}
         {sources.length > 0 && (
           <section>
-            <SectionLabel>Sources &amp; links ({sources.length})</SectionLabel>
+            <SectionLabel>{t('viz.detail.sources-links', { count: sources.length })}</SectionLabel>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {sources.map((src, i) => {
-                const { label, href, quote } = describeSource(src);
+                const { label, href, quote } = describeSource(src, t);
                 return (
                   <div key={i} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
                     {href ? (
@@ -291,7 +296,7 @@ export default function NodeDetailPanel({
         {/* Attributes */}
         {attrEntries.length > 0 && (
           <section>
-            <SectionLabel>Attributes</SectionLabel>
+            <SectionLabel>{t('viz.detail.attributes')}</SectionLabel>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {attrEntries.map(([key, value]) => (
                 <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -308,7 +313,7 @@ export default function NodeDetailPanel({
         {/* Connected nodes */}
         {neighbors.length > 0 && (
           <section>
-            <SectionLabel>Connections ({neighbors.length})</SectionLabel>
+            <SectionLabel>{t('viz.detail.connections', { count: neighbors.length })}</SectionLabel>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {neighbors.map((nb, i) => (
                 <button
@@ -356,14 +361,13 @@ export default function NodeDetailPanel({
         {/* Empty-state hint when there is nothing but a name */}
         {!node.summary && sources.length === 0 && attrEntries.length === 0 && neighbors.length === 0 && (
           <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-5)', lineHeight: 1.5 }}>
-            No further detail captured for this node yet. As the Co-pilot researches,
-            attributes and sources will appear here.
+            {t('viz.detail.empty')}
           </p>
         )}
 
         {createdAt && (
           <div style={{ fontSize: 11, color: 'var(--ink-6)', marginTop: 'auto' }}>
-            Captured {createdAt}
+            {t('viz.detail.captured', { date: createdAt })}
           </div>
         )}
       </div>
@@ -386,7 +390,7 @@ export default function NodeDetailPanel({
                 cursor: 'pointer',
               }}
             >
-              Apply · 2 credits
+              {t('viz.detail.apply', { credits: 2 })}
             </button>
           )}
           {onDismiss && (
@@ -403,7 +407,7 @@ export default function NodeDetailPanel({
                 cursor: 'pointer',
               }}
             >
-              Dismiss
+              {t('viz.detail.dismiss')}
             </button>
           )}
         </div>

@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import type { SensitivitySlider } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 
 interface SensitivitySliderCardProps {
@@ -17,6 +18,7 @@ function formatNum(n: number): string {
 }
 
 export default function SensitivitySliderCard({ artifact, onAction }: SensitivitySliderCardProps) {
+  const t = useT();
   const [values, setValues] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {};
     for (const v of artifact.variables) {
@@ -49,7 +51,7 @@ export default function SensitivitySliderCard({ artifact, onAction }: Sensitivit
 
   return (
     <ArtifactCardShell
-      typeLabel="Sensitivity"
+      typeLabel={t('art.sensitivity.title')}
       title={artifact.title || ''}
       sources={artifact.sources}
     >

@@ -25,10 +25,12 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { watcherWeeklyLabel, watcherRunsPerWeek } from '@/lib/watcher-cost';
+import { useT } from '@/components/providers/LocaleProvider';
 
 type Cadence = 'daily' | 'weekly';
 
 export default function NewWatcherForm({ projectId }: { projectId: string }) {
+  const t = useT();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -51,7 +53,7 @@ export default function NewWatcherForm({ projectId }: { projectId: string }) {
   async function submit() {
     if (busy) return;
     const trimmedName = name.trim();
-    if (!trimmedName) { setErr('Name is required'); return; }
+    if (!trimmedName) { setErr(t('monitors.name-required')); return; }
     setBusy(true);
     setErr(null);
     try {
@@ -87,7 +89,7 @@ export default function NewWatcherForm({ projectId }: { projectId: string }) {
       reset();
       setOpen(false);
     } catch (e) {
-      setErr((e as Error).message || 'Could not create watcher');
+      setErr((e as Error).message || t('monitors.create-failed'));
     } finally {
       setBusy(false);
     }
@@ -113,7 +115,7 @@ export default function NewWatcherForm({ projectId }: { projectId: string }) {
           fontFamily: 'var(--f-sans)',
         }}
       >
-        <Icon d={I.plus} size={13} /> New watcher
+        <Icon d={I.plus} size={13} /> {t('monitors.new-watcher')}
       </button>
     );
   }
@@ -133,47 +135,47 @@ export default function NewWatcherForm({ projectId }: { projectId: string }) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>New watcher</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>{t('monitors.new-watcher')}</span>
         <button
           type="button"
           onClick={() => { setOpen(false); reset(); }}
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ink-5)', fontSize: 12 }}
         >
-          Cancel
+          {t('common.cancel')}
         </button>
       </div>
 
-      <Field label="Name">
+      <Field label={t('monitors.field-name')}>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Competitor pricing changes"
+          placeholder={t('monitors.name-placeholder')}
           style={inputStyle}
         />
       </Field>
 
-      <Field label="Prompt">
+      <Field label={t('monitors.field-prompt')}>
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="What should this watcher look for each run?"
+          placeholder={t('monitors.prompt-placeholder')}
           rows={3}
           style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }}
         />
       </Field>
 
       <div style={{ display: 'flex', gap: 10 }}>
-        <Field label="Cadence">
+        <Field label={t('monitors.field-cadence')}>
           <select
             value={cadence}
             onChange={(e) => setCadence(e.target.value as Cadence)}
             style={inputStyle}
           >
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
+            <option value="daily">{t('monitors.cadence-daily')}</option>
+            <option value="weekly">{t('monitors.cadence-weekly')}</option>
           </select>
         </Field>
-        <Field label="Time of day">
+        <Field label={t('monitors.field-time-of-day')}>
           <input
             type="time"
             value={timeOfDay}
@@ -187,11 +189,13 @@ export default function NewWatcherForm({ projectId }: { projectId: string }) {
           sees the cost before creating the watcher. */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 11 }}>
         <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-          Est. usage
+          {t('monitors.est-usage')}
         </span>
         <span style={{ color: 'var(--ink-3)', fontWeight: 500 }}>{watcherWeeklyLabel(cadence)}</span>
         <span style={{ color: 'var(--ink-5)' }}>
-          · {watcherRunsPerWeek(cadence) === 1 ? '1 run' : `${watcherRunsPerWeek(cadence)} runs`}/week
+          · {watcherRunsPerWeek(cadence) === 1
+            ? t('monitors.runs-per-week-one', { n: 1 })
+            : t('monitors.runs-per-week-other', { n: watcherRunsPerWeek(cadence) })}
         </span>
       </div>
 
@@ -201,7 +205,7 @@ export default function NewWatcherForm({ projectId }: { projectId: string }) {
           checked={enabled}
           onChange={(e) => setEnabled(e.target.checked)}
         />
-        Enabled (runs on schedule)
+        {t('monitors.enabled-label')}
       </label>
 
       {err && <div style={{ fontSize: 11.5, color: 'var(--clay)' }}>{err}</div>}
@@ -223,7 +227,7 @@ export default function NewWatcherForm({ projectId }: { projectId: string }) {
             fontFamily: 'var(--f-sans)',
           }}
         >
-          {busy ? 'Creating…' : 'Create watcher'}
+          {busy ? t('monitors.creating') : t('monitors.create-watcher')}
         </button>
       </div>
     </div>

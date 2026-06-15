@@ -15,6 +15,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { IconBtn, Pill } from '@/components/design/primitives';
 import { Icon, I } from '@/components/design/icons';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface OwnerInfo {
   user_id: string;
@@ -41,6 +42,7 @@ export function ShareDialog({
   projectId: string;
   onClose: () => void;
 }) {
+  const t = useT();
   const [data, setData] = useState<MembersResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +91,7 @@ export function ShareDialog({
     e.preventDefault();
     const value = email.trim().toLowerCase();
     if (!value || !value.includes('@')) {
-      setAddError('Enter a valid email.');
+      setAddError(t('layout.share.invalid-email'));
       return;
     }
     setSubmitting(true);
@@ -116,7 +118,7 @@ export function ShareDialog({
   }
 
   async function handleRevoke(memberId: string) {
-    if (!confirm('Remove this person from the project?')) return;
+    if (!confirm(t('layout.share.remove-confirm'))) return;
     try {
       const res = await fetch(
         `/api/projects/${projectId}/members/${memberId}`,
@@ -128,7 +130,7 @@ export function ShareDialog({
       }
       await refresh();
     } catch (e) {
-      alert(`Could not remove member: ${(e as Error).message}`);
+      alert(t('layout.share.remove-error', { error: (e as Error).message }));
     }
   }
 
@@ -170,18 +172,15 @@ export function ShareDialog({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Icon d={I.users} size={14} style={{ color: 'var(--ink-3)' }} />
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Share project</span>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{t('layout.share.project')}</span>
           </div>
-          <IconBtn d={I.x} title="Close" size={24} onClick={onClose} />
+          <IconBtn d={I.x} title={t('common.close')} size={24} onClick={onClose} />
         </div>
 
         {/* Body */}
         <div style={{ padding: '14px 18px 18px' }}>
           <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-            Add anyone with a SenseFound account by email. They&rsquo;ll get
-            full read-write access to this project only &mdash; not the rest
-            of your workspace. Owner-only actions (delete project, manage
-            sharing) stay yours.
+            {t('layout.share.blurb')}
           </p>
 
           {/* Add form */}
@@ -196,7 +195,7 @@ export function ShareDialog({
                 setEmail(e.target.value);
                 if (addError) setAddError(null);
               }}
-              placeholder="teammate@example.com"
+              placeholder={t('layout.share.email-placeholder')}
               disabled={submitting}
               style={{
                 flex: 1,
@@ -226,7 +225,7 @@ export function ShareDialog({
                 fontFamily: 'inherit',
               }}
             >
-              {submitting ? 'Sharing…' : 'Share'}
+              {submitting ? t('layout.share.sharing') : t('layout.share.action')}
             </button>
           </form>
 
@@ -258,17 +257,17 @@ export function ShareDialog({
                 borderRadius: 'var(--r-m)',
               }}
             >
-              ✓ Shared with {addedJustNow}
+              ✓ {t('layout.share.shared-with', { email: addedJustNow })}
             </div>
           )}
 
           {/* Member list */}
           <div style={{ fontSize: 11, color: 'var(--ink-5)', marginBottom: 6, fontFamily: 'var(--f-mono)', letterSpacing: 0.5 }}>
-            WHO HAS ACCESS
+            {t('layout.share.who-has-access')}
           </div>
           {loading ? (
             <div style={{ fontSize: 12, color: 'var(--ink-5)', padding: '10px 0' }}>
-              Loading…
+              {t('common.loading')}
             </div>
           ) : error ? (
             <div style={{ fontSize: 12, color: 'var(--clay)', padding: '10px 0' }}>
@@ -278,21 +277,22 @@ export function ShareDialog({
             <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
               {data?.owner && (
                 <MemberRow
-                  email={data.owner.email || '(unknown)'}
-                  badge={<Pill kind="ok" dot>Owner</Pill>}
+                  email={data.owner.email || t('layout.share.unknown-email')}
+                  badge={<Pill kind="ok" dot>{t('layout.share.role-owner')}</Pill>}
                 />
               )}
               {data?.members.map((m) => (
                 <MemberRow
                   key={m.id}
                   email={m.email}
-                  badge={<Pill kind="info">Member</Pill>}
+                  badge={<Pill kind="info">{t('layout.share.role-member')}</Pill>}
                   onRemove={() => handleRevoke(m.id)}
+                  removeLabel={t('layout.share.remove-access')}
                 />
               ))}
               {data?.members.length === 0 && (
                 <li style={{ fontSize: 12, color: 'var(--ink-5)', padding: '8px 0' }}>
-                  No one else has access yet.
+                  {t('layout.share.no-access')}
                 </li>
               )}
             </ul>
@@ -307,10 +307,12 @@ function MemberRow({
   email,
   badge,
   onRemove,
+  removeLabel,
 }: {
   email: string;
   badge: React.ReactNode;
   onRemove?: () => void;
+  removeLabel?: string;
 }) {
   return (
     <li
@@ -329,7 +331,7 @@ function MemberRow({
       </div>
       {badge}
       {onRemove && (
-        <IconBtn d={I.x} title="Remove access" size={24} onClick={onRemove} />
+        <IconBtn d={I.x} title={removeLabel} size={24} onClick={onRemove} />
       )}
     </li>
   );

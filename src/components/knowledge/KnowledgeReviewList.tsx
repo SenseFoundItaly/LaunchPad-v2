@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import type { ReviewedState } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 
 // =============================================================================
 // Types
@@ -49,10 +51,11 @@ export interface KnowledgeReviewListProps {
 // Constants
 // =============================================================================
 
-const TYPE_LABELS: Record<string, string> = {
-  fact: 'Fact',
-  graph_node: 'Entity',
-  tabular_review: 'Review',
+/** i18n label keys for the item-type chip, resolved with `t` at render. */
+const TYPE_LABEL_KEYS: Record<string, MessageKey> = {
+  fact: 'kb.type-fact',
+  graph_node: 'kb.type-entity',
+  tabular_review: 'kb.type-review',
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -61,42 +64,14 @@ const TYPE_COLORS: Record<string, string> = {
   tabular_review: 'bg-plum/20 text-plum',
 };
 
-const STRINGS: Record<string, { en: string; it: string }> = {
-  tabProposals:       { en: 'Proposals',  it: 'Proposte' },
-  tabInContext:       { en: 'In Context', it: 'In contesto' },
-  tabRejected:        { en: 'Rejected',   it: 'Rifiutati' },
-  approve:            { en: 'Approve',    it: 'Approva' },
-  reject:             { en: 'Reject',     it: 'Rifiuta' },
-  remove:             { en: 'Remove',     it: 'Rimuovi' },
-  restore:            { en: 'Restore',    it: 'Ripristina' },
-  applyAll:           { en: 'Apply All',  it: 'Applica tutto' },
-  undo:               { en: 'Undo',       it: 'Annulla' },
-  emptyPending:       { en: 'No pending proposals',    it: 'Nessuna proposta in attesa' },
-  emptyApplied:       { en: 'No items in context yet', it: 'Nessun elemento nel contesto' },
-  emptyRejected:      { en: 'No rejected items',       it: 'Nessun elemento rifiutato' },
-  applied:            { en: 'Applied',    it: 'Applicato' },
-  rejected:           { en: 'Rejected',   it: 'Rifiutato' },
-  loading:            { en: 'Loading\u2026', it: 'Caricamento\u2026' },
-  warningBanner:      {
-    en: 'This will be added to your project\u2019s intelligence and inform future AI responses.',
-    it: 'Questo verr\u00e0 aggiunto all\u2019intelligence del progetto e influenzer\u00e0 le risposte future dell\u2019AI.',
-  },
-  viewIntelligence:   { en: 'View Intelligence \u2192', it: 'Vedi Intelligence \u2192' },
-  knowledgeProposals: { en: 'AI Knowledge Proposals',   it: 'Proposte di conoscenza AI' },
-};
-
-function t(key: string, locale: 'en' | 'it'): string {
-  return STRINGS[key]?.[locale] ?? STRINGS[key]?.en ?? key;
-}
-
 /** Short founder-facing "when" stamp: today / yesterday / 5d ago / Mar 5. */
-function relTime(iso: string): string {
+function relTime(iso: string, t: ReturnType<typeof useT>): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days}d ago`;
+  if (days <= 0) return t('kb.time-today');
+  if (days === 1) return t('kb.time-yesterday');
+  if (days < 7) return t('kb.time-days-ago', { n: days });
   return d.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -161,6 +136,7 @@ function KnowledgeItemCard({
   onToggle: () => void;
   actions: React.ReactNode;
 }) {
+  const t = useT();
   return (
     <div className="lp-card" style={{ padding: 0, overflow: 'hidden' }}>
       {/* Collapsed header — always visible */}
@@ -178,7 +154,7 @@ function KnowledgeItemCard({
         onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
       >
         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${TYPE_COLORS[item.type] ?? 'bg-ink-5/20 text-ink-4'}`}>
-          {TYPE_LABELS[item.type] ?? item.type}
+          {TYPE_LABEL_KEYS[item.type] ? t(TYPE_LABEL_KEYS[item.type]) : item.type}
         </span>
         <span
           style={{
@@ -197,7 +173,7 @@ function KnowledgeItemCard({
           className="lp-mono"
           style={{ fontSize: 10, color: 'var(--ink-5)', flexShrink: 0 }}
         >
-          {relTime(item.created_at)}
+          {relTime(item.created_at, t)}
         </span>
         <ChevronIcon open={isExpanded} />
       </div>
@@ -231,13 +207,14 @@ function KnowledgeItemCard({
 // Warning banner
 // =============================================================================
 
-function IntelligenceWarning({ locale }: { locale: 'en' | 'it' }) {
+function IntelligenceWarning() {
+  const t = useT();
   return (
     <div className="text-[11px] text-ink-4 bg-accent/5 border border-accent/20 rounded-lg px-3 py-2"
       style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}
     >
       <InfoIcon />
-      <span>{t('warningBanner', locale)}</span>
+      <span>{t('kb.warning-banner')}</span>
     </div>
   );
 }
@@ -246,7 +223,8 @@ function IntelligenceWarning({ locale }: { locale: 'en' | 'it' }) {
 // Main component
 // =============================================================================
 
-export default function KnowledgeReviewList({ projectId, locale, compact, refreshNonce, state }: KnowledgeReviewListProps) {
+export default function KnowledgeReviewList({ projectId, compact, refreshNonce, state }: KnowledgeReviewListProps) {
+  const t = useT();
   const [activeTab, setActiveTab] = useState<KnowledgeTab>('pending');
   const [pendingItems, setPendingItems] = useState<KnowledgeItem[]>([]);
   const [appliedItems, setAppliedItems] = useState<KnowledgeItem[]>([]);
@@ -486,7 +464,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
       }
     }
     if (failCount > 0) {
-      setPartialError(`${failCount} of ${ids.length} items failed to apply`);
+      setPartialError(t('kb.apply-all-partial-error', { failed: failCount, total: ids.length }));
       void fetchItemsForTab('pending');
       if (loadedTabs.current.has('applied')) void fetchItemsForTab('applied');
     } else {
@@ -505,9 +483,9 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
   // ---------------------------------------------------------------------------
 
   const tabs: { key: KnowledgeTab; label: string; count: number }[] = [
-    { key: 'pending',  label: t('tabProposals', locale), count: pendingItems.length },
-    { key: 'applied',  label: t('tabInContext', locale),  count: appliedItems.length },
-    { key: 'rejected', label: t('tabRejected', locale),   count: rejectedItems.length },
+    { key: 'pending',  label: t('kb.tab-proposals'),  count: pendingItems.length },
+    { key: 'applied',  label: t('kb.tab-in-context'), count: appliedItems.length },
+    { key: 'rejected', label: t('kb.tab-rejected'),   count: rejectedItems.length },
   ];
 
   // ---------------------------------------------------------------------------
@@ -525,10 +503,10 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
       : rejectedItems;
 
   const emptyKey = currentTab === 'pending'
-    ? 'emptyPending'
+    ? 'kb.empty-pending'
     : currentTab === 'applied'
-      ? 'emptyApplied'
-      : 'emptyRejected';
+      ? 'kb.empty-applied'
+      : 'kb.empty-rejected';
 
   const showApplyAll = currentTab === 'pending' && pendingItems.length > 1;
   const showUndoQueue = (currentTab === 'pending' || compact) && undoQueue.length > 0;
@@ -538,7 +516,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
   // ---------------------------------------------------------------------------
 
   if (loading) {
-    return <div className="text-xs text-ink-5 py-2">{t('loading', locale)}</div>;
+    return <div className="text-xs text-ink-5 py-2">{t('common.loading')}</div>;
   }
 
   // Compact: skip rendering entirely if no pending items and no undo queue
@@ -554,13 +532,13 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
             onClick={(e) => { e.stopPropagation(); void handleApprove(item.id); }}
             className="text-xs px-3 py-1.5 rounded-md inline-flex items-center gap-1.5 bg-moss-wash text-moss hover:bg-moss/30 transition-colors"
           >
-            <CheckIcon /> {t('approve', locale)}
+            <CheckIcon /> {t('kb.approve')}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); void handleReject(item.id); }}
             className="text-xs px-3 py-1.5 rounded-md inline-flex items-center gap-1.5 bg-paper-3/50 text-ink-5 hover:text-clay hover:bg-clay/20 transition-colors"
           >
-            <XIcon /> {t('reject', locale)}
+            <XIcon /> {t('kb.reject')}
           </button>
         </>
       );
@@ -571,7 +549,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
           onClick={(e) => { e.stopPropagation(); void handleRemove(item.id); }}
           className="text-xs px-3 py-1.5 rounded-md inline-flex items-center gap-1.5 bg-clay/10 text-clay hover:bg-clay/20 transition-colors"
         >
-          <XIcon /> {t('remove', locale)}
+          <XIcon /> {t('kb.remove')}
         </button>
       );
     }
@@ -581,7 +559,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
         onClick={(e) => { e.stopPropagation(); void handleRestore(item.id); }}
         className="text-xs px-3 py-1.5 rounded-md inline-flex items-center gap-1.5 bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
       >
-        <RestoreIcon /> {t('restore', locale)}
+        <RestoreIcon /> {t('kb.restore')}
       </button>
     );
   }
@@ -616,7 +594,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
 
       {/* Intelligence warning banner (pending tab / compact) */}
       {currentTab === 'pending' && currentItems.length > 0 && (
-        <IntelligenceWarning locale={locale} />
+        <IntelligenceWarning />
       )}
 
       {/* Apply All button */}
@@ -626,14 +604,14 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
             onClick={() => void handleApplyAll()}
             className="text-xs px-3 py-1 rounded bg-moss-wash text-moss hover:bg-moss/30 transition-colors font-medium"
           >
-            {t('applyAll', locale)}
+            {t('kb.apply-all')}
           </button>
         </div>
       )}
 
       {/* Item cards */}
       {currentItems.length === 0 ? (
-        <div className="text-xs text-ink-5 py-2">{t(emptyKey, locale)}</div>
+        <div className="text-xs text-ink-5 py-2">{t(emptyKey)}</div>
       ) : (
         currentItems.map((item) => (
           <KnowledgeItemCard
@@ -655,13 +633,13 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
               className="flex items-center justify-between bg-paper-3/40 border border-line-2 rounded px-2.5 py-1.5"
             >
               <span className="text-[10px] text-ink-4 truncate flex-1 mr-2">
-                {t(entry.state, locale)}: {entry.item.title}
+                {entry.state === 'applied' ? t('kb.applied') : t('kb.rejected')}: {entry.item.title}
               </span>
               <button
                 onClick={() => void handleUndo(entry.item.id)}
                 className="text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors font-medium flex-shrink-0"
               >
-                {t('undo', locale)}
+                {t('common.undo')}
               </button>
             </div>
           ))}
@@ -676,7 +654,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
           className="text-xs text-accent-ink font-medium"
           style={{ textDecoration: 'none' }}
         >
-          {t('viewIntelligence', locale)}
+          {t('kb.view-intelligence')}
         </Link>
       </div>
     </div>

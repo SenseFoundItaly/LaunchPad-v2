@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, KeyboardEvent } from 'react';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -8,7 +9,8 @@ interface ChatInputProps {
   placeholder?: string;
 }
 
-export default function ChatInput({ onSend, disabled, placeholder = 'Type your message...' }: ChatInputProps) {
+export default function ChatInput({ onSend, disabled, placeholder }: ChatInputProps) {
+  const t = useT();
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -46,7 +48,7 @@ export default function ChatInput({ onSend, disabled, placeholder = 'Type your m
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           onInput={handleInput}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t('chatui.input.placeholder')}
           disabled={disabled}
           rows={1}
           className="flex-1 bg-paper text-ink-2 rounded-xl px-4 py-3 text-sm resize-none border border-line-2 focus:border-moss focus:outline-none placeholder:text-ink-5 disabled:opacity-50"
@@ -56,7 +58,7 @@ export default function ChatInput({ onSend, disabled, placeholder = 'Type your m
           disabled={disabled || !input.trim()}
           className="h-10 px-4 bg-moss hover:bg-moss/80 disabled:bg-paper-3 disabled:text-ink-5 text-paper rounded-xl text-sm font-medium transition-colors"
         >
-          Send
+          {t('common.send')}
         </button>
       </div>
     </div>

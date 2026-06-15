@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import type { RiskMatrixArtifact, RiskScenarioEntry } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 import ArtifactCardShell from './ArtifactCardShell';
 import MonitorChip from './MonitorChip';
 
@@ -59,16 +61,17 @@ function riskZone(probability: number, impact: number): Zone {
   return 'low';
 }
 
-const DIMENSION_LABEL: Record<RiskScenarioEntry['dimension'], string> = {
-  market:      'Market',
-  technical:   'Technical',
-  regulatory:  'Regulatory',
-  team:        'Team',
-  financial:   'Financial',
-  dependency:  'Dependency',
+const DIMENSION_LABEL_KEY: Record<RiskScenarioEntry['dimension'], MessageKey> = {
+  market:      'art.risk-matrix.dimension.market',
+  technical:   'art.risk-matrix.dimension.technical',
+  regulatory:  'art.risk-matrix.dimension.regulatory',
+  team:        'art.risk-matrix.dimension.team',
+  financial:   'art.risk-matrix.dimension.financial',
+  dependency:  'art.risk-matrix.dimension.dependency',
 };
 
 export default function RiskMatrixCard({ artifact }: RiskMatrixCardProps) {
+  const t = useT();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const risksByCell = new Map<string, RiskScenarioEntry[]>();
@@ -81,7 +84,7 @@ export default function RiskMatrixCard({ artifact }: RiskMatrixCardProps) {
 
   return (
     <ArtifactCardShell
-      typeLabel="Risk Matrix"
+      typeLabel={t('art.risk-matrix.title')}
       title={artifact.title}
       sources={artifact.sources}
       provenance={artifact.provenance}
@@ -96,7 +99,7 @@ export default function RiskMatrixCard({ artifact }: RiskMatrixCardProps) {
         {/* Y-axis label */}
         <div className="flex flex-col items-center justify-center pr-1">
           <span className="text-[10px] uppercase tracking-wider text-ink-5 font-mono [writing-mode:vertical-rl] rotate-180">
-            Impact →
+            {t('art.risk-matrix.axis-impact')}
           </span>
         </div>
 
@@ -124,7 +127,7 @@ export default function RiskMatrixCard({ artifact }: RiskMatrixCardProps) {
                           top: cellRisks.length > 1 ? `${20 + i * 14}%` : undefined,
                           left: cellRisks.length > 1 ? `${20 + i * 14}%` : undefined,
                         }}
-                        aria-label={`${r.risk} — probability ${r.probability}, impact ${r.impact}`}
+                        aria-label={t('art.risk-matrix.dot-aria', { risk: r.risk, probability: r.probability, impact: r.impact })}
                       >
                         {artifact.risks.indexOf(r) + 1}
                       </button>
@@ -136,7 +139,7 @@ export default function RiskMatrixCard({ artifact }: RiskMatrixCardProps) {
           </div>
           {/* X-axis label */}
           <div className="text-center text-[10px] uppercase tracking-wider text-ink-5 font-mono mt-1">
-            Probability →
+            {t('art.risk-matrix.axis-probability')}
           </div>
         </div>
       </div>
@@ -160,7 +163,7 @@ export default function RiskMatrixCard({ artifact }: RiskMatrixCardProps) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-[10px] uppercase tracking-wider text-ink-5 font-mono">
-                      {DIMENSION_LABEL[r.dimension]}
+                      {t(DIMENSION_LABEL_KEY[r.dimension])}
                     </span>
                     <span className="text-[10px] text-ink-5 font-mono">
                       p{r.probability}·i{r.impact}
@@ -174,10 +177,10 @@ export default function RiskMatrixCard({ artifact }: RiskMatrixCardProps) {
                   {r.narrative && <p className="text-xs text-ink-4 mb-1">{r.narrative}</p>}
                   {r.mitigation && (
                     <p className="text-xs text-ink-3">
-                      <span className="text-ink-5 font-mono uppercase tracking-wider text-[10px] mr-1">Mitigation:</span>
+                      <span className="text-ink-5 font-mono uppercase tracking-wider text-[10px] mr-1">{t('art.risk-matrix.mitigation')}</span>
                       {r.mitigation}
                       {r.mitigation_owner && <span className="text-ink-5"> · {r.mitigation_owner}</span>}
-                      {r.mitigation_due && <span className="text-ink-5"> · due {r.mitigation_due}</span>}
+                      {r.mitigation_due && <span className="text-ink-5"> · {t('art.risk-matrix.due')} {r.mitigation_due}</span>}
                     </p>
                   )}
                 </div>

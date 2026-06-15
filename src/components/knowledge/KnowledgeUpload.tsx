@@ -12,6 +12,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { Icon, I } from '@/components/design/primitives';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface ResultRow {
   filename: string;
@@ -31,6 +32,7 @@ export interface KnowledgeUploadProps {
 }
 
 export default function KnowledgeUpload({ projectId, onUploaded }: KnowledgeUploadProps) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   // Counter pattern: dragenter/dragleave can fire for child elements as the
   // pointer crosses internal boundaries, so we count instead of toggling.
@@ -57,7 +59,7 @@ export default function KnowledgeUpload({ projectId, onUploaded }: KnowledgeUplo
       });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.success) {
-        setError(body?.error ?? `Upload failed (HTTP ${res.status}).`);
+        setError(body?.error ?? t('kb.upload-failed-http', { status: res.status }));
         return;
       }
       const ingested = body.data?.ingested ?? 0;
@@ -66,11 +68,11 @@ export default function KnowledgeUpload({ projectId, onUploaded }: KnowledgeUplo
       setLastResults(results);
       if (ingested > 0) onUploaded(ingested, entitiesProposed);
     } catch (e) {
-      setError((e as Error).message || 'Upload failed.');
+      setError((e as Error).message || t('kb.upload-failed'));
     } finally {
       setUploading(false);
     }
-  }, [projectId, onUploaded]);
+  }, [projectId, onUploaded, t]);
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
@@ -124,11 +126,11 @@ export default function KnowledgeUpload({ projectId, onUploaded }: KnowledgeUplo
             color: 'var(--ink-3)',
           }}
         >
-          Upload files
+          {t('kb.upload-files')}
         </h2>
         <div style={{ flex: 1 }} />
         <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-          text-only · 1 MiB max
+          {t('kb.text-only-limit')}
         </span>
       </header>
 
@@ -168,15 +170,15 @@ export default function KnowledgeUpload({ projectId, onUploaded }: KnowledgeUplo
           style={{ color: 'var(--ink-3)', transform: 'rotate(180deg)' }}
         />
         <div style={{ fontSize: 13, color: 'var(--ink-2)' }}>
-          {uploading ? 'Uploading…' : (
+          {uploading ? t('kb.uploading') : (
             <>
-              <strong style={{ color: 'var(--ink)' }}>Drop files here</strong>
-              {' '}or click to browse
+              <strong style={{ color: 'var(--ink)' }}>{t('kb.drop-files-here')}</strong>
+              {' '}{t('kb.or-click-to-browse')}
             </>
           )}
         </div>
         <div style={{ fontSize: 11, color: 'var(--ink-5)', fontFamily: 'var(--f-mono)' }}>
-          .md, .txt, .csv, .json, .yaml, .xml, .html, source files
+          {t('kb.upload-formats')}
         </div>
         <input
           ref={inputRef}
@@ -246,9 +248,11 @@ export default function KnowledgeUpload({ projectId, onUploaded }: KnowledgeUplo
                     borderRadius: 4,
                     fontSize: 10,
                   }}
-                  title="Pending entity proposals — review them in the knowledge list to add to the graph"
+                  title={t('kb.entities-proposed-tooltip')}
                 >
-                  +{r.entities_proposed} entit{r.entities_proposed === 1 ? 'y' : 'ies'}
+                  {r.entities_proposed === 1
+                    ? t('kb.entities-proposed-one', { count: r.entities_proposed })
+                    : t('kb.entities-proposed-many', { count: r.entities_proposed })}
                 </span>
               )}
             </li>

@@ -1,6 +1,7 @@
 'use client';
 
 import type { SolveProgressArtifact, SolveStageStatus } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
 
 const STATUS_COLORS: Record<SolveStageStatus, { circle: string; line: string; text: string }> = {
   completed: { circle: 'var(--moss)', line: 'var(--moss)', text: 'var(--ink-2)' },
@@ -10,6 +11,7 @@ const STATUS_COLORS: Record<SolveStageStatus, { circle: string; line: string; te
 };
 
 export default function SolveProgressCard({ artifact }: { artifact: SolveProgressArtifact }) {
+  const t = useT();
   const { stages } = artifact;
 
   return (
@@ -24,10 +26,10 @@ export default function SolveProgressCard({ artifact }: { artifact: SolveProgres
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-1)' }}>
-          Solve Flow
+          {t('art.solve-progress.title')}
         </span>
         <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-          {stages.filter(s => s.status === 'completed').length}/{stages.length} complete
+          {stages.filter(s => s.status === 'completed').length}/{stages.length} {t('art.solve-progress.complete')}
         </span>
       </div>
 
@@ -95,17 +97,17 @@ export default function SolveProgressCard({ artifact }: { artifact: SolveProgres
                   </span>
                   {stage.status === 'completed' && (
                     <span className="lp-mono" style={{ fontSize: 10, color: 'var(--moss)' }}>
-                      done
+                      {t('art.solve-progress.done')}
                     </span>
                   )}
                   {stage.status === 'active' && (
                     <span className="lp-mono" style={{ fontSize: 10, color: 'var(--accent)' }}>
-                      in progress
+                      {t('art.solve-progress.in-progress')}
                     </span>
                   )}
                   {stage.status === 'skipped' && (
                     <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-                      skipped
+                      {t('art.solve-progress.skipped')}
                     </span>
                   )}
                 </div>
@@ -116,7 +118,7 @@ export default function SolveProgressCard({ artifact }: { artifact: SolveProgres
                 )}
                 {stage.skill_id && stage.status === 'completed' && (
                   <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', marginTop: 2, display: 'block' }}>
-                    via {stage.skill_id}
+                    {t('art.solve-progress.via', { skill: stage.skill_id })}
                   </span>
                 )}
               </div>

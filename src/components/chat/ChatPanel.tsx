@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
+import { useT } from '@/components/providers/LocaleProvider';
 import type { ChatMessage as ChatMessageType } from '@/types';
 import type { EntityCard, WorkflowCard } from '@/types/artifacts';
 
@@ -22,11 +23,12 @@ export default function ChatPanel({
   onSend,
   isStreaming,
   placeholder,
-  emptyMessage = 'Start a conversation to shape your idea',
+  emptyMessage,
   onArtifactAction,
   onEntityDiscovered,
   onWorkflowDiscovered,
 }: ChatPanelProps) {
+  const t = useT();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export default function ChatPanel({
       <div className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-ink-5 text-sm">
-            {emptyMessage}
+            {emptyMessage ?? t('chatui.panel.empty')}
           </div>
         ) : (
           messages.map((msg) => (

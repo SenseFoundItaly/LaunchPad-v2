@@ -31,6 +31,7 @@ import { Icon, I, Pill } from '@/components/design/primitives';
 import SolveProgressCard from '@/components/chat/artifacts/SolveProgressCard';
 import { BriefCard } from '@/components/signals/BriefCard';
 import { useIntelligenceBriefs, matchBriefs } from '@/hooks/useIntelligenceBriefs';
+import { useT } from '@/components/providers/LocaleProvider';
 import { IdeaCanvasHeader } from './IdeaCanvasHeader';
 import { SpineSection } from './SpineSection';
 import { DepartmentSection } from './DepartmentSection';
@@ -91,6 +92,7 @@ export function Canvas({
   onSkillClick,
   onPickPrompt,
 }: CanvasProps) {
+  const t = useT();
   // Group entries by department. Facts are handled via the merged Knowledge
   // section below — `memory` department entries (rare; `fact` artifacts don't
   // render anyway) are silently ignored here.
@@ -201,7 +203,7 @@ export function Canvas({
               marginBottom: 6,
             }}
           >
-            {locale === 'it' ? 'Intelligence correlata' : 'Related intelligence'}
+            {t('canvas.related-intelligence')}
           </div>
           {matchedBriefs.map((b) => (
             <BriefCard key={b.id} brief={b} />
@@ -226,9 +228,7 @@ export function Canvas({
           >
             <Icon d={I.history} size={14} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
             <span style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.4, flex: 1 }}>
-              {locale === 'it'
-                ? 'Non siamo riusciti a caricare tutta la tua conoscenza.'
-                : "Couldn't fully load your knowledge."}
+              {t('canvas.knowledge-load-partial')}
             </span>
             <button
               type="button"
@@ -249,7 +249,7 @@ export function Canvas({
               }}
             >
               <Icon d={I.history} size={12} />
-              {locale === 'it' ? 'Riprova' : 'Retry'}
+              {t('common.retry')}
             </button>
           </div>
         </section>
@@ -270,7 +270,7 @@ export function Canvas({
               className="lp-serif"
               style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500, flexShrink: 0 }}
             >
-              {locale === 'it' ? 'Conoscenza' : 'Knowledge'}
+              {t('canvas.knowledge')}
             </span>
             <span
               className="lp-mono"
@@ -284,10 +284,9 @@ export function Canvas({
               }}
             >
               {'— '}
-              {knowledgeCount}{' '}
-              {locale === 'it'
-                ? (knowledgeCount === 1 ? 'elemento' : 'elementi')
-                : (knowledgeCount === 1 ? 'item' : 'items')}
+              {knowledgeCount === 1
+                ? t('canvas.knowledge-items-one', { count: knowledgeCount })
+                : t('canvas.knowledge-items-other', { count: knowledgeCount })}
               {alertCount > 0 && (
                 <>
                   {' · '}
@@ -295,10 +294,9 @@ export function Canvas({
                     href={`/project/${projectId}/actions?lane=signal`}
                     style={{ color: 'var(--clay)', textDecoration: 'none' }}
                   >
-                    {alertCount}{' '}
-                    {locale === 'it'
-                      ? (alertCount === 1 ? 'segnale in attesa' : 'segnali in attesa')
-                      : (alertCount === 1 ? 'signal pending' : 'signals pending')}
+                    {alertCount === 1
+                      ? t('canvas.signals-pending-one', { count: alertCount })
+                      : t('canvas.signals-pending-other', { count: alertCount })}
                   </Link>
                 </>
               )}
@@ -314,7 +312,7 @@ export function Canvas({
                 flexShrink: 0,
               }}
             >
-              {locale === 'it' ? 'Apri' : 'Open'} →
+              {t('canvas.open')} →
             </Link>
           </div>
         </section>
@@ -348,9 +346,7 @@ export function Canvas({
         >
           <Icon d={I.layers} size={28} style={{ opacity: 0.4 }} />
           <p style={{ margin: 0, maxWidth: 400, lineHeight: 1.5 }}>
-            {locale === 'it'
-              ? 'Gli artefatti del co-pilot appariranno qui, raggruppati per dipartimento.'
-              : 'Co-pilot artifacts will appear here, grouped by department.'}
+            {t('canvas.empty-state')}
           </p>
         </div>
       )}
@@ -362,11 +358,11 @@ export function Canvas({
 // right-pane surface in one file.
 function InlineSolveProgress({
   messages,
-  locale,
 }: {
   messages: Array<{ role: string; content: string }>;
   locale: 'en' | 'it';
 }) {
+  const t = useT();
   const latestSolve = useMemo<SolveProgressArtifact | null>(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
@@ -393,7 +389,7 @@ function InlineSolveProgress({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <Icon d={I.bolt} size={14} style={{ color: allDone ? 'var(--moss)' : 'var(--accent)' }} />
         <span className="lp-serif" style={{ fontSize: 14, color: 'var(--ink-1)' }}>
-          {locale === 'it' ? 'Flusso Solve' : 'Solve Flow'}
+          {t('canvas.solve-flow')}
         </span>
         <Pill kind={allDone ? 'ok' : 'live'}>
           {completed}/{total}

@@ -2,6 +2,7 @@
 
 import { SKILL_SOURCES, STAGES } from '@/lib/stages';
 import type { SkillStatus } from '@/hooks/useSkillStatus';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface SourceBadgesProps {
   skillId: string;
@@ -18,12 +19,13 @@ function getSkillLabel(id: string): string {
 }
 
 export default function SourceBadges({ skillId, skillStatus }: SourceBadgesProps) {
+  const t = useT();
   const sources = SKILL_SOURCES[skillId];
   if (!sources || sources.length === 0) return null;
 
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-[10px] text-ink-6">Sources:</span>
+      <span className="text-[10px] text-ink-6">{t('skillui.sources')}</span>
       {sources.map((srcId) => {
         const completed = skillStatus[srcId] === 'completed';
         return (

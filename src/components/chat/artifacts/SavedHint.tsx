@@ -29,6 +29,7 @@
 
 import { useState } from 'react';
 import type { ReviewedState } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
 import { usePersistedArtifact } from '@/hooks/usePersistedArtifact';
 
 const APPLY_CREDITS = 2;
@@ -52,6 +53,7 @@ export default function KnowledgeApplyControls({
   type: KnowledgeType;
   onAction?: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }) {
+  const t = useT();
   // Merge the artifact's own values with the live done-event broadcast.
   const persisted = usePersistedArtifact(artifactId ?? '', {
     persisted_id: persistedId,
@@ -78,17 +80,17 @@ export default function KnowledgeApplyControls({
       await onAction?.('knowledge:apply', { item_id: itemId, type, state: next });
     } catch (e) {
       setLocalState(prev); // revert
-      setErr(e instanceof Error ? e.message : 'Action failed');
+      setErr(e instanceof Error ? e.message : t('art.saved-hint.action-failed'));
     } finally {
       setBusy(false);
     }
   }
 
   if (effective === 'applied') {
-    return <div className="mt-2 text-[10px] text-ink-5">Applied ✓</div>;
+    return <div className="mt-2 text-[10px] text-ink-5">{t('art.saved-hint.applied')} ✓</div>;
   }
   if (effective === 'rejected') {
-    return <div className="mt-2 text-[10px] text-ink-5">Dismissed</div>;
+    return <div className="mt-2 text-[10px] text-ink-5">{t('common.dismissed')}</div>;
   }
 
   // pending / undefined → action pair.
@@ -112,7 +114,7 @@ export default function KnowledgeApplyControls({
           whiteSpace: 'nowrap',
         }}
       >
-        {busy ? 'Applying…' : `Apply · ${APPLY_CREDITS} credits`}
+        {busy ? t('art.saved-hint.applying') : t('art.saved-hint.apply-credits', { credits: APPLY_CREDITS })}
       </button>
       <button
         type="button"
@@ -131,10 +133,10 @@ export default function KnowledgeApplyControls({
           whiteSpace: 'nowrap',
         }}
       >
-        Dismiss
+        {t('common.dismiss')}
       </button>
       {!itemId && (
-        <span style={{ fontSize: 10, color: 'var(--ink-5)' }}>Saving proposal…</span>
+        <span style={{ fontSize: 10, color: 'var(--ink-5)' }}>{t('art.saved-hint.saving-proposal')}</span>
       )}
       {err && <span style={{ fontSize: 10, color: 'var(--clay)' }}>{err}</span>}
     </div>

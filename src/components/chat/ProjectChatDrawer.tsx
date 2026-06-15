@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { useChat } from '@/hooks/useChat';
+import { useT } from '@/components/providers/LocaleProvider';
 
 /**
  * Floating chat drawer — "Ask your co-founder" slide-out accessible from
@@ -33,18 +34,20 @@ export interface ChatDrawerHandle {
   openAndSend: (message: string) => void;
 }
 
-const DEFAULT_SUGGESTED_PROMPTS = [
-  'Cosa si è mosso nel mio ecosistema questa settimana?',
-  'Riassumi i miei numeri e la mia runway',
-  'Cosa ho nell\'inbox da approvare?',
-  'Quali competitor ho tracciato finora?',
-];
-
 const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(function ProjectChatDrawer({
   projectId,
-  suggestedPrompts = DEFAULT_SUGGESTED_PROMPTS,
-  triggerLabel = 'Chiedi al tuo co-founder',
+  suggestedPrompts,
+  triggerLabel,
 }, ref) {
+  const t = useT();
+  const defaultSuggestedPrompts = [
+    t('chatui.drawer.prompt.ecosystem'),
+    t('chatui.drawer.prompt.numbers'),
+    t('chatui.drawer.prompt.inbox'),
+    t('chatui.drawer.prompt.competitors'),
+  ];
+  const prompts = suggestedPrompts ?? defaultSuggestedPrompts;
+  const label = triggerLabel ?? t('chatui.drawer.trigger');
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const { messages, isStreaming, sendMessage } = useChat(projectId, 'chat');
@@ -106,10 +109,10 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
           onClick={() => setOpen(true)}
           className="fixed bottom-6 right-6 z-40 px-4 py-3 rounded-full bg-moss hover:bg-moss/80 text-paper text-sm font-medium flex items-center gap-2 transition-transform hover:scale-105"
           style={{ boxShadow: 'var(--shadow-card)' }}
-          aria-label="Apri chat con il co-founder"
+          aria-label={t('chatui.drawer.open-aria')}
         >
           <span className="w-2 h-2 rounded-full bg-moss animate-pulse" />
-          {triggerLabel}
+          {label}
         </button>
       )}
 
@@ -127,16 +130,16 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
             <header className="shrink-0 px-5 py-4 border-b border-line flex items-center justify-between">
               <div>
                 <div className="text-[10px] uppercase tracking-widest text-ink-5">
-                  Co-founder
+                  {t('chatui.drawer.eyebrow')}
                 </div>
                 <h2 className="text-sm font-semibold text-ink">
-                  Parla con il tuo progetto
+                  {t('chatui.drawer.title')}
                 </h2>
               </div>
               <button
                 onClick={() => setOpen(false)}
                 className="text-ink-5 hover:text-ink-3 text-xl leading-none"
-                aria-label="Chiudi chat"
+                aria-label={t('chatui.drawer.close-aria')}
               >
                 &times;
               </button>
@@ -146,7 +149,7 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
             <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
               {messages.length === 0 ? (
                 <EmptyState
-                  suggestedPrompts={suggestedPrompts}
+                  suggestedPrompts={prompts}
                   onPick={p => { setInput(p); }}
                 />
               ) : (
@@ -155,7 +158,7 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
                 ))
               )}
               {isStreaming && messages[messages.length - 1]?.role === 'assistant' && messages[messages.length - 1]?.content === '' && (
-                <div className="text-xs text-ink-5 italic">Sto pensando…</div>
+                <div className="text-xs text-ink-5 italic">{t('chatui.drawer.thinking')}</div>
               )}
             </div>
 
@@ -166,7 +169,7 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={handleKey}
-                  placeholder="Chiedi qualcosa sul tuo progetto…"
+                  placeholder={t('chatui.drawer.input-placeholder')}
                   rows={2}
                   disabled={isStreaming}
                   className="flex-1 resize-none px-3 py-2 text-sm bg-paper border border-line rounded-lg text-ink placeholder-ink-6 outline-none focus:border-ink-6"
@@ -175,13 +178,13 @@ const ProjectChatDrawer = forwardRef<ChatDrawerHandle, ProjectChatDrawerProps>(f
                   onClick={handleSend}
                   disabled={isStreaming || !input.trim()}
                   className="shrink-0 px-4 py-2 text-sm rounded-lg bg-moss hover:bg-moss/80 disabled:bg-paper-2 disabled:text-ink-6 text-paper"
-                  aria-label="Invia messaggio"
+                  aria-label={t('chatui.drawer.send-aria')}
                 >
-                  {isStreaming ? '…' : 'Invia'}
+                  {isStreaming ? '…' : t('common.send')}
                 </button>
               </div>
               <div className="text-[10px] text-ink-6 mt-2">
-                Invio = invia · Shift+Invio = nuova riga · ESC = chiudi
+                {t('chatui.drawer.keyboard-hint')}
               </div>
             </div>
           </aside>
@@ -248,10 +251,11 @@ function EmptyState({
   suggestedPrompts: string[];
   onPick: (p: string) => void;
 }) {
+  const t = useT();
   return (
     <div className="py-6">
       <p className="text-sm text-ink-4 mb-3">
-        Parla con il tuo progetto. Ho accesso a metriche, ecosystem alert, inbox e knowledge graph — chiedimi qualsiasi cosa.
+        {t('chatui.drawer.empty-intro')}
       </p>
       <div className="space-y-1.5">
         {suggestedPrompts.map(p => (

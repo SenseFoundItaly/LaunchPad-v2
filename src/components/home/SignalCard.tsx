@@ -1,20 +1,12 @@
 'use client';
 
+import { useT } from '@/components/providers/LocaleProvider';
+
 interface SignalCardProps {
   severity: string;
   projectName: string;
   message: string;
   createdAt: string;
-}
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
 }
 
 const SEVERITY_STYLES: Record<string, string> = {
@@ -25,7 +17,18 @@ const SEVERITY_STYLES: Record<string, string> = {
 };
 
 export default function SignalCard({ severity, projectName, message, createdAt }: SignalCardProps) {
+  const t = useT();
   const style = SEVERITY_STYLES[severity] || SEVERITY_STYLES.info;
+
+  function timeAgo(dateStr: string): string {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return t('cards.time-mins-ago', { count: mins });
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return t('cards.time-hours-ago', { count: hrs });
+    const days = Math.floor(hrs / 24);
+    return t('cards.time-days-ago', { count: days });
+  }
 
   return (
     <div className={`shrink-0 w-64 border rounded-lg p-3 ${style}`}>

@@ -1012,7 +1012,6 @@ export default function CopilotChatPage({
             onSend={handleSend}
             onKeyDown={handleKey}
             disabled={isStreaming}
-            locale={locale}
             onInsertTemplate={(text) => setInput((prev) => prev ? `${prev}\n${text}` : text)}
             onAttachText={(name, body) =>
               setInput((prev) => {
@@ -2545,7 +2544,6 @@ function ChatComposer({
   onSend,
   onKeyDown,
   disabled,
-  locale,
   onInsertTemplate,
   onAttachText,
   onAuditDocs,
@@ -2555,7 +2553,6 @@ function ChatComposer({
   onSend: () => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   disabled: boolean;
-  locale: 'en' | 'it';
   onInsertTemplate?: (text: string) => void;
   onAttachText?: (name: string, body: string) => void;
   /** Opens the priced "audit document → knowledge" popup (distinct from the
@@ -2625,12 +2622,11 @@ function ChatComposer({
             <IconBtn
               d={I.plus}
               size={24}
-              title={locale === 'it' ? 'azioni' : 'actions'}
+              title={t('chat.composer-actions')}
               onClick={() => setMenuOpen((v) => !v)}
             />
             {menuOpen && (
               <ComposerMenu
-                locale={locale}
                 templates={templates}
                 onClose={() => setMenuOpen(false)}
                 onInsertTemplate={onInsertTemplate}
@@ -2649,7 +2645,7 @@ function ChatComposer({
           <IconBtn
             d={I.sparkles}
             size={24}
-            title={locale === 'it' ? 'inserisci template' : 'insert template'}
+            title={t('chat.composer-insert-template')}
             onClick={() => onInsertTemplate?.(templates[0].text)}
           />
           <span style={{ flex: 1 }} />
@@ -2672,7 +2668,7 @@ function ChatComposer({
               opacity: disabled || !value.trim() ? 0.5 : 1,
             }}
           >
-            <Icon d={I.send} size={12} /> {disabled ? '…' : 'send'}
+            <Icon d={I.send} size={12} /> {disabled ? '…' : t('chat.composer-send')}
             <span
               className="lp-kbd"
               style={{
@@ -2700,20 +2696,19 @@ function ChatComposer({
  * Closes on outside click and Escape.
  */
 function ComposerMenu({
-  locale,
   templates,
   onClose,
   onInsertTemplate,
   onAttach,
   onAuditDocs,
 }: {
-  locale: 'en' | 'it';
   templates: { label: string; text: string }[];
   onClose: () => void;
   onInsertTemplate?: (text: string) => void;
   onAttach: () => void;
   onAuditDocs?: () => void;
 }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -2773,7 +2768,7 @@ function ComposerMenu({
           fontFamily: 'var(--f-mono)',
         }}
       >
-        {locale === 'it' ? 'Template' : 'Templates'}
+        {t('chat.menu-templates')}
       </div>
       {templates.map((t) => (
         <button
@@ -2797,9 +2792,9 @@ function ComposerMenu({
           onClose();
         }}
       >
-        {locale === 'it' ? 'Allega file…' : 'Attach file…'}
+        {t('chat.menu-attach-file')}
         <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--ink-5)' }}>
-          {locale === 'it' ? 'testo nel messaggio' : 'text into message'}
+          {t('chat.menu-attach-hint')}
         </span>
       </button>
       {onAuditDocs && (
@@ -2811,9 +2806,9 @@ function ComposerMenu({
             onClose();
           }}
         >
-          {locale === 'it' ? 'Analizza documento → knowledge…' : 'Audit document → knowledge…'}
+          {t('chat.menu-audit-docs')}
           <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--ink-5)' }}>
-            {locale === 'it' ? 'PDF · estrae entità' : 'PDF · extracts entities'}
+            {t('chat.menu-audit-docs-hint')}
           </span>
         </button>
       )}
