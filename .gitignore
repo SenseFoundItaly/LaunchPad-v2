@@ -39,3 +39,6 @@ tsconfig.tsbuildinfo
 /e2e-piano-*.png
 /memory-scroll-jump.png
 /interconnect-verify.png
+
+# Claude Code local agent config / worktree state (not shared)
+.claude/
