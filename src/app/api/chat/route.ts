@@ -765,7 +765,12 @@ export async function POST(request: NextRequest) {
         // for the parser downstream, but the UI's copy/paste + rehydrate
         // works on the visible prose too. Non-fatal on failure.
         try {
+          // Two rows per turn: the assistant MUST sort after its user prompt.
+          // Give them distinct, ordered timestamps (user `now`, assistant +1ms)
+          // so the persisted order is correct on its own — the history GET also
+          // carries a role tiebreaker as a safety net for any residual ties.
           const now = new Date().toISOString();
+          const assistantTs = new Date(new Date(now).getTime() + 1).toISOString();
           await run(
             `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
              VALUES (?, ?, ?, 'user', ?, ?, ?)`,
@@ -797,7 +802,7 @@ export async function POST(request: NextRequest) {
               `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, tools_json, citations, langfuse_trace_id, meta)
                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?)`,
               `msg_${crypto.randomUUID().slice(0, 12)}`,
-              project_id, step, fullResponse, now, userId, toolsJson,
+              project_id, step, fullResponse, assistantTs, userId, toolsJson,
               citationsJson ? JSON.stringify(citationsJson) : null,
               langfuseTraceId,
               metaJson,

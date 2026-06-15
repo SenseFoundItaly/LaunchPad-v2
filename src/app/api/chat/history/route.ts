@@ -12,8 +12,15 @@ export async function GET(request: NextRequest) {
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
 
+  // ORDER BY "timestamp" alone is a PARTIAL order: a turn's user + assistant
+  // rows are persisted with the SAME timestamp (see /api/chat persist block), so
+  // ties resolve in arbitrary heap order and the pair flips across refreshes.
+  // The role tiebreaker (user before assistant) restores a deterministic total
+  // order — and repairs threads already persisted with colliding timestamps,
+  // since turns are seconds apart so the only ties are within a single pair.
   const rows = await query(
-    'SELECT * FROM chat_messages WHERE project_id = ? AND step = ? ORDER BY "timestamp"',
+    `SELECT * FROM chat_messages WHERE project_id = ? AND step = ?
+     ORDER BY "timestamp", CASE role WHEN 'user' THEN 0 WHEN 'assistant' THEN 1 ELSE 2 END`,
     projectId,
     step,
   );
