@@ -502,8 +502,11 @@ export async function rejectPendingAction(id: string, reason?: string): Promise<
   const extras: { key: string; value: unknown }[] = [];
   if (reason) {
     extras.push({
+      // Object, not JSON.stringify — execution_result is JSONB. Stringifying
+      // double-encodes it into a string scalar; readers (actions page narrative,
+      // unified.ts graph-node extraction) expect an object and get undefined.
       key: 'execution_result',
-      value: JSON.stringify({ rejected_reason: reason }),
+      value: { rejected_reason: reason },
     });
   }
   return applyTransition(id, 'rejected', extras);
@@ -518,14 +521,15 @@ export interface ExecutionResult {
 
 export async function markActionSent(id: string, result: ExecutionResult): Promise<PendingAction> {
   return applyTransition(id, 'sent', [
-    { key: 'execution_result', value: JSON.stringify(result) },
+    // Object, not JSON.stringify — execution_result is JSONB (see rejectPendingAction).
+    { key: 'execution_result', value: result },
     { key: 'executed_at', value: new Date().toISOString() },
   ]);
 }
 
 export async function markActionFailed(id: string, error: string): Promise<PendingAction> {
   return applyTransition(id, 'failed', [
-    { key: 'execution_result', value: JSON.stringify({ error }) },
+    { key: 'execution_result', value: { error } },
     { key: 'executed_at', value: new Date().toISOString() },
   ]);
 }
