@@ -151,13 +151,21 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
       });
 
       // Ephemeral inline proposal (founder directive 2026-06-11): chat PROPOSES
-      // the skill as an EPHEMERAL inline suggestion in this chat turn. It does
-      // NOT run the skill inline, and — unlike the legacy flow — it creates NO
-      // pending_action and NO DB row of any kind. If the founder ignores the
-      // suggestion, nothing persists; it lives only in the chat transcript. If
-      // they click Run, the chat page POSTs to /api/projects/{id}/skills?run=1
-      // which runs the skill in real time (skill_completions + section_scores),
-      // still without a pending_action.
+      // the skill in this chat turn. It does NOT run the skill inline, and
+      // creates NO pending_action and NO DB row of any kind. If the founder
+      // ignores the proposal, nothing persists; it lives only in the chat
+      // transcript. If they click the option, the chat page POSTs to
+      // /api/projects/{id}/skills?run=1 which runs the skill in real time
+      // (skill_completions + section_scores), still without a pending_action.
+      //
+      // Surfacing (2026-06-16): the proposal is now ONE OPTION inside the
+      // turn's trailing option-set (an option with `skill_id` runs the skill on
+      // click via the `skill:run` streaming path), NOT a separate
+      // skill-suggestion "Run" card. This kills the old double-affordance (a Run
+      // card layered with a redundant "Run it now" option). We hand the agent a
+      // ready-to-paste option object so it folds the skill straight into its
+      // option-set — tool RESULTS aren't streamed to the client, so the agent
+      // must place the option itself.
       //
       // NOTE: action_type 'run_skill' is now LEGACY. The executor + DB CHECK are
       // kept for back-compat with any pre-existing rows, but this tool no longer
@@ -170,35 +178,34 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
       const rationale = context
         ? context.slice(0, 280)
         : `Kick off ${skill.frontmatter.name} for this project.`;
-      // The agent surfaces the proposal by EMITTING a skill-suggestion artifact
-      // in its visible prose (tool RESULTS are not streamed to the client — only
-      // prose is parsed for artifacts). We hand it the exact block to emit so the
-      // chat page can render the inline Run button + credit label.
       // Escape for embedding inside a single-line JSON string: backslash, quote,
-      // and the control chars that would otherwise break the artifact body JSON.
+      // and the control chars that would otherwise break the option JSON.
       const safe = (s: string) =>
         s.replace(/\\/g, '\\\\')
           .replace(/"/g, '\\"')
           .replace(/\n/g, '\\n')
           .replace(/\r/g, '\\r')
           .replace(/\t/g, '\\t');
-      const artifactId = `skl_${skill.id.replace(/[^a-z0-9]/gi, '_')}`;
-      const artifactBlock =
-        `:::artifact{"type":"skill-suggestion","id":"${artifactId}"}\n` +
-        `{"skill_id":"${safe(skill.id)}","skill_label":"${safe(skill.frontmatter.name)}",` +
-        `"credits":${estCredits},"rationale":"${safe(rationale)}"` +
-        (context ? `,"context":"${safe(context.slice(0, 500))}"` : '') +
-        `}\n:::`;
+      const optionId = `run_${skill.id.replace(/[^a-z0-9]/gi, '_')}`;
+      // The option object the agent drops into its trailing option-set's
+      // options[]. `skill_id` makes the click RUN the skill; `credits` shows the
+      // cost before the click. label is verb-first ≤6 words; description is the
+      // one-line "what this will do".
+      const optionSnippet =
+        `{"id":"${optionId}","label":"Run ${safe(skill.frontmatter.name)}",` +
+        `"description":"${safe(rationale)}","credits":${estCredits},"skill_id":"${safe(skill.id)}"}`;
       return {
         content: [{
           type: 'text',
           text:
-            `Proposing "${skill.frontmatter.name}" (≈${estCredits} credits) as an inline suggestion. ` +
-            `This is EPHEMERAL — no Inbox row, nothing persists unless the founder clicks Run. ` +
-            `In your visible reply, tell the founder in one line what this skill will do, then emit ` +
-            `EXACTLY this artifact block (do not alter it) so they can run it with one click:\n\n` +
-            `${artifactBlock}\n\n` +
-            `Do NOT claim or invent the skill's findings — it has not run yet. Still end your turn with your trailing option-set as usual.`,
+            `Proposing "${skill.frontmatter.name}" (≈${estCredits} credits). This is EPHEMERAL — ` +
+            `no Inbox row, nothing persists unless the founder runs it. Surface it as ONE OPTION in ` +
+            `your turn's trailing option-set (do NOT emit a separate card). Add this option object to ` +
+            `your option-set's options[] array (tweak the label/description wording to fit, but KEEP ` +
+            `"skill_id" and "credits" exactly — "skill_id" is what makes the click run the skill):\n\n` +
+            `${optionSnippet}\n\n` +
+            `Do NOT claim or invent the skill's findings — it has not run yet. One coherent option-set: ` +
+            `the skill is just one of the choices, never a duplicate Run card plus a "run it now" option.`,
         }],
         details: { skill_id: skill.id, proposed: true, ephemeral: true },
       };

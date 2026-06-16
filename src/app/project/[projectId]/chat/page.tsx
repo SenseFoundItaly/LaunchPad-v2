@@ -1773,6 +1773,138 @@ function QuickReplies({
  * through the page-level handleArtifactAction, which currently posts a
  * follow-up user turn back through the chat pipeline.
  */
+/**
+ * One inline option-set button. Two behaviours, one rendering:
+ *   - skill option (`skill_id` set): clicking RUNS the skill in real time via
+ *     the existing `skill:run` streaming path. The button manages its own
+ *     running/done/error state. This folds the skill proposal INTO the
+ *     suggestion option-set — no separate skill-suggestion "Run" card layered
+ *     with a redundant duplicate option.
+ *   - normal option: clicking sends "I choose: <label> — <description>" back to
+ *     the agent (select-option). Forwards the DESCRIPTION (the option's stated
+ *     intent) so the agent executes it rather than re-reasoning a bare label.
+ */
+function InlineOption({
+  option,
+  index,
+  onAction,
+}: {
+  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string };
+  index: number;
+  onAction?: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
+}) {
+  const t = useT();
+  const isSkill = typeof option.skill_id === 'string' && option.skill_id.length > 0;
+  const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+
+  // UI guardrail: the model sometimes emits paragraph-length labels. Split
+  // essays into label (first clause) + description overflow, then CSS-clamp:
+  // label = 1 line, description = 2 lines. The full text stays reachable via
+  // the title attribute. The PAYLOAD carries the FULL original label
+  // (split.full), never the clamped head — a truncated "Yes" can't
+  // disambiguate between similar options. Clamping is render-only.
+  const split = splitOptionLabel(option.label || `Option ${index + 1}`, option.description);
+
+  const baseLabel = split.label || t('chat.option-fallback', { n: index + 1 });
+  const labelText =
+    state === 'running' ? `${baseLabel} · ${t('chat.running')}` :
+    state === 'done' ? `${baseLabel} · ${t('common.done')}` :
+    baseLabel;
+
+  const handleClick = async () => {
+    if (isSkill) {
+      // Skill option: run the skill in real time. Don't re-run once running/done.
+      if (state === 'running' || state === 'done') return;
+      setState('running');
+      try {
+        await onAction?.('skill:run', { skill_id: option.skill_id });
+        setState('done');
+      } catch {
+        setState('error');
+      }
+      return;
+    }
+    onAction?.('select-option', {
+      optionId: option.id ?? String(index),
+      label: split.full || `Option ${index + 1}`,
+      description: option.description ?? '',
+    });
+  };
+
+  return (
+    <button
+      type="button"
+      title={split.full}
+      disabled={isSkill && (state === 'running' || state === 'done')}
+      onClick={handleClick}
+      className="lp-inline-option"
+      style={{
+        textAlign: 'left',
+        padding: '9px 11px',
+        border: '1px solid var(--line-2)',
+        borderRadius: 'var(--r-m)',
+        background: 'var(--paper)',
+        cursor: isSkill && (state === 'running' || state === 'done') ? 'default' : 'pointer',
+        fontFamily: 'inherit',
+        color: 'var(--ink-2)',
+        minWidth: 0,
+        opacity: isSkill && (state === 'running' || state === 'done') ? 0.6 : 1,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span
+          style={{
+            fontSize: 12.5,
+            fontWeight: 500,
+            flex: 1,
+            minWidth: 0,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {labelText}
+        </span>
+        {/* Per-option credit estimate — what this choice spends, shown before the click. */}
+        {typeof option.credits === 'number' && option.credits > 0 && (
+          <span
+            className="lp-mono"
+            style={{
+              flexShrink: 0,
+              fontSize: 10,
+              color: 'var(--ink-5)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ≈{option.credits} {option.credits === 1 ? t('chat.credit') : t('chat.credits')}
+          </span>
+        )}
+      </div>
+      {split.description && (
+        <div
+          style={{
+            fontSize: 11,
+            color: 'var(--ink-4)',
+            marginTop: 2,
+            lineHeight: 1.4,
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+        >
+          {split.description}
+        </div>
+      )}
+      {state === 'error' && (
+        <div style={{ fontSize: 11, color: 'var(--clay, #b4513a)', marginTop: 2 }}>
+          {t('chat.run-failed')}
+        </div>
+      )}
+    </button>
+  );
+}
+
 function InlineArtifact({
   artifact,
   onAction,
@@ -1784,7 +1916,7 @@ function InlineArtifact({
   const a = artifact as unknown as Record<string, unknown>;
 
   if (artifact.type === 'option-set' && Array.isArray(a.options)) {
-    const options = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number }>;
+    const options = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number; skill_id?: string }>;
     const prompt = typeof a.prompt === 'string' ? a.prompt : '';
     return (
       <div
@@ -1801,89 +1933,9 @@ function InlineArtifact({
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {options.map((o, i) => {
-            // UI guardrail: the model sometimes emits paragraph-length labels.
-            // Split essays into label (first clause) + description overflow,
-            // then CSS-clamp: label = 1 line, description = 2 lines. The full
-            // text stays reachable via the title attribute.
-            //
-            // The PAYLOAD carries the FULL original label (split.full), never
-            // the clamped head: handleArtifactAction sends "I choose: <label>"
-            // back to the agent, and a truncated "Yes" can't disambiguate
-            // between similar options. Clamping is render-only.
-            const split = splitOptionLabel(o.label || `Option ${i + 1}`, o.description);
-            return (
-              <button
-                key={o.id || i}
-                type="button"
-                title={split.full}
-                onClick={() =>
-                  onAction?.('select-option', {
-                    optionId: o.id ?? String(i),
-                    label: split.full || `Option ${i + 1}`,
-                  })
-                }
-                className="lp-inline-option"
-                style={{
-                  textAlign: 'left',
-                  padding: '9px 11px',
-                  border: '1px solid var(--line-2)',
-                  borderRadius: 'var(--r-m)',
-                  background: 'var(--paper)',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  color: 'var(--ink-2)',
-                  minWidth: 0,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                  <span
-                    style={{
-                      fontSize: 12.5,
-                      fontWeight: 500,
-                      flex: 1,
-                      minWidth: 0,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {split.label || t('chat.option-fallback', { n: i + 1 })}
-                  </span>
-                  {/* Per-option credit estimate — what this choice spends. */}
-                  {typeof o.credits === 'number' && o.credits > 0 && (
-                    <span
-                      className="lp-mono"
-                      style={{
-                        flexShrink: 0,
-                        fontSize: 10,
-                        color: 'var(--ink-5)',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      ≈{o.credits} {o.credits === 1 ? t('chat.credit') : t('chat.credits')}
-                    </span>
-                  )}
-                </div>
-                {split.description && (
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--ink-4)',
-                      marginTop: 2,
-                      lineHeight: 1.4,
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {split.description}
-                  </div>
-                )}
-              </button>
-            );
-          })}
+          {options.map((o, i) => (
+            <InlineOption key={o.id || i} option={o} index={i} onAction={onAction} />
+          ))}
         </div>
       </div>
     );

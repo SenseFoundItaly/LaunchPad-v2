@@ -102,7 +102,15 @@ export interface OptionSet extends ArtifactBase {
   // this option (a chat-only reply ≈1, a balanced skill ≈4, a premium skill
   // ≈10, advancing a stage = the sum of the skills it runs). Optional: pure
   // navigation options (skip / stop / go back) carry no compute, so no chip.
-  options: { id: string; label: string; description: string; credits?: number }[];
+  //
+  // `skill_id` — when set, picking this option RUNS that chat skill in real
+  // time (the existing `skill:run` streaming path: POST /skills?run=1 →
+  // skill_completions + section_scores) INSTEAD of sending "I choose: …" back
+  // to the agent. This folds the skill proposal INTO the suggestion option-set
+  // — one coherent set of choices — rather than a separate skill-suggestion
+  // "Run" card layered with a redundant option. Pair with `credits` so the
+  // spend is visible before the click.
+  options: { id: string; label: string; description: string; credits?: number; skill_id?: string }[];
   // Optional — option-sets are UI interaction, not factual claims.
   sources?: Source[];
 }
