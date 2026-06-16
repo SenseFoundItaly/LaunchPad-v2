@@ -54,42 +54,63 @@ export async function POST(
     );
     const ownerUserId = auth.session.userId || owner?.owner_user_id || '';
     if (!ownerUserId) return error('no owner for project', 400);
-    try {
-      // Mirror the (now-legacy) Inbox run_skill executor exactly: no prompt
-      // override, so runSkill uses the skill's canonical SKILL_KICKOFFS prompt
-      // (the proven path). Founder context from the inline card flavored the
-      // PROPOSAL rationale, not the run prompt — the kickoff already pulls the
-      // project's idea_canvas / memory.
-      const result = await runSkill(projectId, body.skill_id, {
-        ownerUserId,
-        timeoutMs: 170_000,
-        allowAnySkill: true,
-      });
-      // Quality gate: runSkill persists clarification-only / empty output as
-      // 'incomplete' (see skill-executor isClarificationOnly), but its
-      // RunSkillResult doesn't echo the persisted status. Recompute it here so
-      // the caller can distinguish a real deliverable from a no-op — the chat
-      // page needs this to surface the honest-failure path instead of injecting
-      // a clarification dump as if it were a result.
-      const runStatus = isClarificationOnly(result.summary) ? 'incomplete' : 'completed';
-      return json(
-        {
-          skill_id: result.skill_id,
-          status: runStatus,
-          latency_ms: result.latency_ms,
-          artifacts_persisted: result.artifacts_persisted,
-          // Full skill output so the chat page can inject it as an assistant
-          // message (and Canvas can pick up any :::artifact blocks it emitted).
-          summary: result.summary,
-          // Kept for back-compat with non-chat callers that read a short preview
-          // (activity timeline / cron narration shape). No current chat consumer.
-          summary_preview: result.summary.slice(0, 300),
-        },
-        201,
-      );
-    } catch (err) {
-      return error(`skill run failed: ${(err as Error).message}`, 500);
-    }
+    // A buffered `await runSkill(...)` (up to its 170s budget) blows past the
+    // serverless gateway's ~10-26s timeout → 504 for long skills (idea-shaping).
+    // Stream a keepalive heartbeat while runSkill executes, then emit the result
+    // as a single final SSE event — the same connection-alive mechanism chat
+    // uses to outlive the gateway. runSkill + all its persistence are UNCHANGED;
+    // only the transport differs. The client (chat skill:run) consumes the SSE.
+    const skillId = body.skill_id as string;
+    const enc = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const safeEnqueue = (chunk: string) => {
+          try { controller.enqueue(enc.encode(chunk)); } catch { /* controller closed */ }
+        };
+        // Heartbeat as an SSE comment (ignored by the client parser) every 5s so
+        // bytes keep flowing and the gateway never idles us out.
+        const heartbeat = setInterval(() => safeEnqueue(': keepalive\n\n'), 5000);
+        try {
+          // Mirror the (now-legacy) Inbox run_skill executor exactly: no prompt
+          // override, so runSkill uses the skill's canonical SKILL_KICKOFFS
+          // prompt. The kickoff already pulls the project's idea_canvas / memory.
+          const result = await runSkill(projectId, skillId, {
+            ownerUserId,
+            timeoutMs: 170_000,
+            allowAnySkill: true,
+          });
+          // Quality gate: runSkill persists clarification-only / empty output as
+          // 'incomplete', but RunSkillResult doesn't echo the persisted status —
+          // recompute so the chat page can take the honest-failure path.
+          const runStatus = isClarificationOnly(result.summary) ? 'incomplete' : 'completed';
+          safeEnqueue(`data: ${JSON.stringify({
+            done: true,
+            skill_id: result.skill_id,
+            status: runStatus,
+            latency_ms: result.latency_ms,
+            artifacts_persisted: result.artifacts_persisted,
+            // Full skill output so the chat page can inject it as an assistant
+            // message (Canvas picks up any :::artifact blocks it emitted).
+            summary: result.summary,
+            summary_preview: result.summary.slice(0, 300),
+          })}\n\n`);
+        } catch (err) {
+          safeEnqueue(`data: ${JSON.stringify({ error: `skill run failed: ${(err as Error).message}` })}\n\n`);
+        } finally {
+          clearInterval(heartbeat);
+          try { controller.close(); } catch { /* already closed */ }
+        }
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        // Disable proxy buffering so heartbeats flush immediately.
+        'X-Accel-Buffering': 'no',
+      },
+    });
   }
 
   const id = generateId('skc');

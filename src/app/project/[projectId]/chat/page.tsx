@@ -853,10 +853,29 @@ export default function CopilotChatPage({
         // empty even when the skill emitted :::artifact blocks. Appending an
         // assistant message both (a) shows the result in the thread and (b) lets
         // canvasArtifacts pick up the artifacts the skill produced.
-        const runBody = await res.json().catch(() => null);
-        const runData = (runBody?.data ?? runBody) as
-          | { status?: string; summary?: string }
-          | null;
+        // The skill run STREAMS (keepalive heartbeats while runSkill executes,
+        // then one final result event) so it outlives the serverless gateway
+        // timeout — a buffered response would 504 on long skills (idea-shaping).
+        // Consume the SSE: skip ': keepalive' comment lines, parse the final
+        // `data:` event for {status, summary, error}.
+        let runData: { status?: string; summary?: string; error?: string } | null = null;
+        const reader = res.body?.getReader();
+        if (reader) {
+          const decoder = new TextDecoder();
+          let buf = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split('\n');
+            buf = lines.pop() ?? '';
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              try { runData = JSON.parse(line.slice(6)); } catch { /* ignore partial/non-JSON */ }
+            }
+          }
+        }
+        if (runData?.error) throw new Error(runData.error);
         const runStatus = runData?.status;
         const runSummary = typeof runData?.summary === 'string' ? runData.summary : '';
         if (runStatus === 'incomplete' || !runSummary.trim()) {
