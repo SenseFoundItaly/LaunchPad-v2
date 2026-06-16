@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { ChatMessage, ToolActivity } from '@/types';
-import { requestRecharge } from '@/components/credits/recharge-events';
+import { requestRecharge, RECHARGED_EVENT } from '@/components/credits/recharge-events';
 
 export interface MessageCostInfo {
   cost_usd: number;
@@ -43,6 +43,12 @@ interface ChatStore {
 
 const EMPTY_STATE: ChatStoreState = { messages: [], isStreaming: false, messageCosts: {} };
 const stores = new Map<string, ChatStore>();
+
+// Messages dropped on a 402 (out of credits), keyed by store key. Stashed so a
+// successful recharge can re-send them automatically — the founder shouldn't
+// lose what they typed to the modal. Cleared on resend or when superseded by a
+// new manual send.
+const pendingResends = new Map<string, string>();
 
 function keyFor(projectId: string, step: string): string {
   return `${projectId}::${step}`;
@@ -107,6 +113,8 @@ export function useChat(projectId: string, step: string = 'chat') {
 
   const sendMessage = useCallback(
     async (content: string) => {
+      // A fresh manual send supersedes any message stashed for auto-resend.
+      pendingResends.delete(keyFor(projectId, step));
       // Read the live store (not a stale closure) so concurrent mounts agree.
       const currentMessages = store.state.messages;
 
@@ -155,9 +163,12 @@ export function useChat(projectId: string, step: string = 'chat') {
           if (response.status === 402) {
             const body = await response.json().catch(() => null);
             if (body?.error === 'out_of_credits') {
+              // Stash what they typed so a successful recharge auto-resends it —
+              // losing the message to the modal is the bug. Then drop the
+              // optimistic user+assistant placeholders (the turn never started)
+              // and open the recharge modal.
+              pendingResends.set(keyFor(projectId, step), content);
               requestRecharge({ remaining: body.credits_remaining ?? 0 });
-              // Drop the empty assistant placeholder + the user message we
-              // optimistically appended — the turn never started.
               patch(store, { messages: currentMessages });
               return;
             }
@@ -272,6 +283,24 @@ export function useChat(projectId: string, step: string = 'chat') {
     },
     [store, projectId, step],
   );
+
+  // Auto-resend after a successful recharge: if a send for THIS thread was
+  // dropped on a 402, re-send the stashed message once credits land. A ref keeps
+  // the listener pointed at the latest sendMessage without re-binding each render.
+  const sendRef = useRef(sendMessage);
+  sendRef.current = sendMessage;
+  useEffect(() => {
+    const key = keyFor(projectId, step);
+    const onRecharged = () => {
+      const pending = pendingResends.get(key);
+      if (pending) {
+        pendingResends.delete(key);
+        void sendRef.current(pending);
+      }
+    };
+    window.addEventListener(RECHARGED_EVENT, onRecharged);
+    return () => window.removeEventListener(RECHARGED_EVENT, onRecharged);
+  }, [projectId, step]);
 
   const stopStreaming = useCallback(() => {
     store.abort?.abort();

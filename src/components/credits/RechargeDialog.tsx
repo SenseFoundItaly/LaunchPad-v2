@@ -21,6 +21,7 @@
 
 import { useEffect, useState } from 'react';
 import { Icon, I } from '@/components/design/primitives';
+import { notifyRecharged } from '@/components/credits/recharge-events';
 
 /** Placeholder credit packs — pricing intentionally TBD until payments land.
  *  `id` is what the recharge route will map to a server-side price; never trust
@@ -95,6 +96,9 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
       if (res.ok && body?.success && typeof body?.data?.remaining === 'number') {
         setAddedCredits(pack.credits);
         onRecharged?.({ remaining: body.data.remaining, total: body.data.total });
+        // Let any flow blocked by a 402 resume (useChat re-sends the dropped
+        // message; skill-run cards become runnable again).
+        notifyRecharged({ remaining: body.data.remaining });
         setPhase('success');
         return;
       }

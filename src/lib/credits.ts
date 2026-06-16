@@ -315,11 +315,23 @@ export async function bumpUserCredits(userId: string, credits: number): Promise<
     const existing = await getUserBudget(userId);
     const currentCapCredits = existing?.cap_credits ?? DEFAULT_CAP_CREDITS;
     const currentCapUsd = existing?.cap_llm_usd ?? USER_MONTHLY_LLM_USD;
+    const usedUsd = existing?.current_llm_usd ?? 0;
     const creditsPerDollar =
       currentCapCredits > 0 && currentCapUsd > 0
         ? currentCapCredits / currentCapUsd
         : DEFAULT_CREDITS_PER_DOLLAR;
-    const newCapCredits = currentCapCredits + add;
+    // Pin the OUTCOME: remaining must increase by exactly `add`, even when the
+    // user is over cap (current_llm_usd already exceeds cap — they overspent in
+    // observe mode, so a plain cap bump would leave remaining stuck at 0). With
+    // remaining = cap_credits - credits_used, set the new cap to
+    // credits_used + (old_remaining + add) so the snapshot recomputes
+    // remaining = old_remaining + add. Markup ratio (creditsPerDollar) is
+    // preserved because cap_llm_usd is scaled to match. current_llm_usd (real
+    // spend) is left untouched — recharge grants headroom, it doesn't rewrite
+    // history.
+    const creditsUsed = Math.round(usedUsd * creditsPerDollar);
+    const oldRemaining = Math.max(0, currentCapCredits - creditsUsed);
+    const newCapCredits = creditsUsed + oldRemaining + add;
     const newCapUsd = newCapCredits / creditsPerDollar;
     const now = new Date().toISOString();
 
