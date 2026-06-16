@@ -59,6 +59,41 @@ interface ToolContext {
    *  pre-date the user-scoping requirement; defaults to the legacy SYSTEM
    *  user id when not provided. */
   userId?: string;
+  /** Per-request (per-turn) mutable counters. Shared across all tool calls in a
+   *  single chat turn because makeProjectTools builds one ctx per request. Used
+   *  to cap watcher proposals at ONE per turn (anti-fan-out) WITHOUT blocking
+   *  the founder from accumulating several DISTINCT watchers across turns. */
+  turnState?: { monitorsProposed: number };
+}
+
+/**
+ * Every artifact Source needs a non-empty `title` (validateSource in
+ * types/artifacts.ts) — but the agent passes watcher sources as
+ * {type:'user',quote} / {type:'internal',ref,ref_id} WITHOUT one, so the strict
+ * client parser rejects the whole card (silent artifact-error → no card in
+ * chat). Normalize: add a sensible title to any source missing one, preserving
+ * the rest of the entry. Guarantees ≥1 valid source so required-sources cards
+ * (monitor-proposal) pass. Used by propose_monitor, propose_watch_source, and
+ * the chat-route monitor-card backstop so all three emit renderable cards.
+ */
+export function withSourceTitles(sources: unknown): Array<Record<string, unknown>> {
+  const arr = Array.isArray(sources) ? sources : [];
+  const titled = arr
+    .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
+    .map((s) => {
+      if (typeof s.title === 'string' && s.title.length > 0) return s;
+      const t = typeof s.type === 'string' ? s.type : 'source';
+      const title =
+        t === 'user' ? 'Founder request'
+        : t === 'web' ? (typeof s.url === 'string' ? String(s.url) : 'Web source')
+        : t === 'skill' ? `Skill: ${s.skill_id ?? ''}`
+        : t === 'internal' ? String(s.ref ?? 'Reference')
+        : 'Source';
+      return { ...s, title };
+    });
+  return titled.length > 0
+    ? titled
+    : [{ type: 'internal', title: 'Watcher proposal', ref: 'chat', ref_id: 'chat' }];
 }
 
 // =============================================================================
@@ -695,27 +730,23 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
 
     const schedule = p.schedule as 'daily' | 'weekly';
 
-    // ONE-AT-A-TIME guard (founder directive 2026-06-16): watchers are
-    // configured incrementally AS THE CHAT GOES ON, never bulk-scaffolded. If a
-    // watcher proposal is already awaiting review, do NOT stack another — the
-    // dedup pipeline below only catches same-risk / same-URL / semantic twins,
-    // so three distinctly-named competitor watchers (DocuSign / Ironclad /
-    // AI-native) would otherwise all slip through as a fan-out. Surfacing the
-    // pending one also forces the agent to reckon with existing state before
-    // proposing (the get_project_summary snapshot doesn't list pending
-    // proposals, so this is the agent's view into them).
-    const existingPending = await get<{ title: string }>(
-      `SELECT title FROM pending_actions
-       WHERE project_id = ? AND action_type = 'configure_monitor'
-         AND status IN ('pending', 'edited')
-       ORDER BY created_at DESC LIMIT 1`,
-      ctx.projectId,
-    );
-    if (existingPending) {
-      return {
-        content: [{ type: 'text', text: `A watcher proposal is already awaiting the founder's review in the Inbox: "${existingPending.title}". Do NOT propose another — watchers are set up ONE AT A TIME as the conversation goes on, never in bulk and never one-per-competitor. In your reply, surface that pending watcher and ask the founder to review/apply or dismiss it; once they act, you can propose the next. If they wanted to cover several competitors, fold them into that one watcher's URLs rather than creating separate watchers.` }],
-        details: { error: true, reason: 'pending_watcher_exists' },
-      };
+    // ANTI-FAN-OUT guard (founder feedback 2026-06-16): the original bug was the
+    // agent creating one watcher PER competitor from a single request (DocuSign +
+    // Ironclad + AI-native + broad = 4). The fix is "ONE new watcher per TURN",
+    // NOT "one pending watcher ever" — the founder legitimately wants to
+    // accumulate several DISTINCT watchers (competitor + EU AI Act + funding)
+    // across turns, and must NEVER be told to dismiss one just to add another.
+    // turnState is per-request (one ctx per chat turn), so this caps a single
+    // turn's fan-out while letting distinct watchers coexist in the inbox. The
+    // dedup pipeline below still blocks near-duplicates.
+    if (ctx.turnState) {
+      if (ctx.turnState.monitorsProposed >= 1) {
+        return {
+          content: [{ type: 'text', text: `You already proposed one watcher this turn — propose only ONE per turn (fold related targets into its urls_to_track rather than creating separate watchers). If the founder wants another distinct watcher, they can ask in the next message; do NOT dismiss an existing pending watcher just to make room.` }],
+          details: { error: true, reason: 'one_watcher_per_turn' },
+        };
+      }
+      ctx.turnState.monitorsProposed += 1;
     }
 
     // Dedup pipeline — L1 SQL rules + L2 semantic classifier. See
@@ -830,7 +861,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
       estimated_monthly_credits: creditEstimate.monthly_credits,
       estimated_per_run_credits: creditEstimate.per_run_credits,
       pending_action_id: pendingAction.id,
-      sources: p.sources,
+      sources: withSourceTitles(p.sources),
     };
     if (p.query) artifactBody.query = p.query;
     if (p.urls_to_track) artifactBody.urls_to_track = p.urls_to_track;
@@ -1223,7 +1254,7 @@ const proposeWatchSourceTool = (ctx: ToolContext): AgentTool => ({
       schedule: p.schedule,
       rationale: p.rationale,
       pending_action_id: pendingAction.id,
-      sources: p.sources,
+      sources: withSourceTitles(p.sources),
     };
 
     const artifactBlock = [
@@ -2716,7 +2747,8 @@ const logFundraisingTool = (ctx: ToolContext): AgentTool => ({
  */
 export function makeProjectTools(projectId: string, options: MakeProjectToolsOptions = {}): AgentTool[] {
   const { includeWriteTools = true, userId } = options;
-  const ctx: ToolContext = { projectId, userId };
+  // Fresh per request → shared across all tool calls in this chat turn.
+  const ctx: ToolContext = { projectId, userId, turnState: { monitorsProposed: 0 } };
 
   const readTools: AgentTool[] = [
     getProjectSummary(ctx),

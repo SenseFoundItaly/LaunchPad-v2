@@ -7,7 +7,7 @@ import { logUsageToDb, logToLangfuse, estimateCost } from '@/lib/telemetry';
 import { runAgentStream } from '@/lib/pi-agent';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
-import { makeProjectTools } from '@/lib/project-tools';
+import { makeProjectTools, withSourceTitles } from '@/lib/project-tools';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { buildMemoryContext } from '@/lib/memory/context';
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
@@ -526,15 +526,20 @@ export async function POST(request: NextRequest) {
   const activeWatchers =
     (snapshot?.monitors ?? []).filter((m) => m.status === 'active').length +
     (snapshot?.watch_sources ?? []).filter((w) => w.status === 'active').length;
-  const watcherIntent = /\b(watch|watcher|monitor|track|keep an eye|alert me|notify me)\b/i.test(lastMessage);
+  // No trailing \b on the verb stems — \bwatch\b would MISS the plural
+  // "watchers"/"monitors" (the user's actual phrasing). Prefix-match instead so
+  // watch/watcher/watchers/watching, monitor/monitors, track/tracking all hit.
+  const watcherIntent = /(\bwatch|\bmonitor|\btrack|keep an eye|alert me|notify me)/i.test(lastMessage);
+  // watcherIntent always fires the nudge (founder explicitly asked), regardless
+  // of how many watchers already exist — they can run several distinct ones.
   const needsWatcher =
-    !!snapshot && !allStagesDone && activeWatchers === 0 && (activeStageNumber >= 2 || watcherIntent);
+    !!snapshot && !allStagesDone && (watcherIntent || (activeStageNumber >= 2 && activeWatchers === 0));
   const watcherContext = needsWatcher
     ? [
         watcherIntent
-          ? '[WATCHER REQUESTED] The founder just asked to watch/monitor something. Deliver a real monitor card THIS turn via propose_monitor (or propose_watch_source for specific URLs), linked_risk_id="ad_hoc" + linked_quote = the founder\'s own words. Do NOT reply with only generic prompts — the card IS the deliverable. BUT propose exactly ONE watcher: if several competitors are named, fold them into that single watcher\'s urls_to_track / query — never one watcher per competitor. If the tool reports a watcher proposal is already pending review, do NOT create another: surface the existing one and ask the founder to act on it first.'
+          ? '[WATCHER REQUESTED] The founder just asked to watch/monitor something. Deliver a real monitor card THIS turn via propose_monitor (or propose_watch_source for specific URLs), linked_risk_id="ad_hoc" + linked_quote = the founder\'s own words. Do NOT reply with only generic prompts — the card IS the deliverable. Propose exactly ONE watcher for THIS request (if several competitors are named, fold them into that single watcher\'s urls_to_track / query — never one-per-competitor). Multiple DISTINCT watchers may coexist in the inbox — NEVER tell the founder to dismiss or apply an existing pending watcher just to make room; simply propose the new one alongside whatever is already pending.'
           : '[WATCHER GAP] Stage 2 (Market Validation) needs at least ONE active watcher and this project has none.',
-        'Propose ONE precise watcher tied to a named competitor or concrete external risk — never a vague one, never several at once. First reckon with what already exists (get_project_summary monitors). One sentence naming it + why, then the tool card, then your trailing option-set.',
+        'Propose ONE precise watcher for the request — never vague, at most one per turn (distinct watchers from other turns stay as they are). One sentence naming it + why, then the tool card, then your trailing option-set.',
         '',
       ].join('\n')
     : '';
@@ -994,47 +999,91 @@ export async function POST(request: NextRequest) {
           console.warn('[chat] memory write failed (non-fatal):', err);
         }
 
-        // Monitor-card backstop: propose_monitor returns the :::artifact block as
-        // a TOOL RESULT, but the chat parser only renders artifacts from the
-        // ASSISTANT text — and the agent often paraphrases ("here's your watcher")
-        // instead of pasting the block, so the pending_action gets created but no
-        // card renders. If the tool ran this turn and the agent didn't emit the
-        // card, inject it LIVE from the pending_action the tool created. Live-only
-        // (persistence already ran above, so no double-create); the card carries
-        // pending_action_id so Apply/Dismiss work. Defensive — any failure just
-        // skips the card (same as before), never breaks the stream.
+        // Watcher-card backstop: make pending watchers ACTIONABLE in chat
+        // (Apply/Dismiss), because (1) the agent often paraphrases instead of
+        // pasting the :::artifact block, and (2) its sources lack the `title` the
+        // strict parser requires → silent artifact-error → no card. Fire when the
+        // agent used a watcher tool (show the new one) OR the founder asked about
+        // watchers (show what's pending so they can act). Inject a card for each
+        // pending watcher not already rendered in this response — covers BOTH
+        // propose_monitor (configure_monitor → monitor-proposal) and
+        // propose_watch_source (configure_watch_source → watch-source-proposal).
+        // Live-only (persistence already ran → no double-create); each card
+        // carries pending_action_id so Apply/Dismiss round-trip. Fully defensive.
         try {
-          const calledMonitorTool = toolsList.some(
+          const calledWatcherTool = toolsList.some(
             (t) => t.name === 'propose_monitor' || t.name === 'propose_watch_source',
           );
-          if (calledMonitorTool && !fullResponse.includes('"type":"monitor-proposal"')) {
-            const pa = (await query<{ id: string; payload: unknown }>(
-              `SELECT id, payload FROM pending_actions
-               WHERE project_id = ? AND action_type = 'configure_monitor' AND status IN ('pending','edited')
-               ORDER BY created_at DESC LIMIT 1`,
+          // Robust trigger: the user's spelling is unreliable ("wathcers" typo)
+          // and the agent may cache instead of calling list_pending_actions — but
+          // when the turn IS about watchers, the agent's OWN (correctly-spelled)
+          // response mentions them. Trigger off that too. Cards only inject when
+          // pending watchers actually exist, so over-triggering is low-harm and
+          // self-limiting (apply them → none pending → nothing injects).
+          const turnAboutWatchers =
+            calledWatcherTool ||
+            watcherIntent ||
+            /(\bwatch|\bmonitor)/i.test(fullResponse);
+          if (turnAboutWatchers) {
+            const pendingWatchers = await query<{ id: string; action_type: string; payload: unknown }>(
+              `SELECT id, action_type, payload FROM pending_actions
+               WHERE project_id = ? AND action_type IN ('configure_monitor','configure_watch_source')
+                 AND status IN ('pending','edited')
+               ORDER BY created_at DESC LIMIT 5`,
               project_id,
-            ))[0];
-            const pl = pa && (typeof pa.payload === 'string' ? JSON.parse(pa.payload) : pa.payload) as Record<string, unknown> | null;
-            if (pa && pl) {
-              const body: Record<string, unknown> = {
-                action: 'create',
-                name: pl.name, objective: pl.objective, kind: pl.kind, schedule: pl.schedule,
-                alert_threshold: pl.alert_threshold, linked_risk_id: pl.linked_risk_id,
-                estimated_monthly_cost_eur: pl.estimated_monthly_cost_eur,
-                estimated_daily_credits: pl.estimated_daily_credits,
-                estimated_monthly_credits: pl.estimated_monthly_credits,
-                estimated_per_run_credits: pl.estimated_per_run_credits,
-                pending_action_id: pa.id, sources: pl.sources ?? [],
-              };
-              if (pl.query) body.query = pl.query;
-              if (Array.isArray(pl.urls_to_track) && pl.urls_to_track.length) body.urls_to_track = pl.urls_to_track;
-              if (pl.linked_quote) body.linked_quote = pl.linked_quote;
-              const card = `\n\n:::artifact{"type":"monitor-proposal","id":"mon_prop_${pa.id.slice(-12)}"}\n${JSON.stringify(body)}\n:::`;
+            );
+            let injected = 0;
+            for (const pa of pendingWatchers) {
+              // Skip any the agent already rendered (its card carries this id).
+              if (fullResponse.includes(pa.id)) continue;
+              const pl = (typeof pa.payload === 'string' ? JSON.parse(pa.payload) : pa.payload) as Record<string, unknown> | null;
+              if (!pl) continue;
+              let card: string;
+              if (pa.action_type === 'configure_watch_source') {
+                // Render URL watchers as a monitor-proposal card too — it's the
+                // only watcher card type with an inline renderer, and Apply works
+                // via pending_action_id regardless (the executor dispatches by the
+                // action's real action_type). Map the watch-source fields in.
+                const body: Record<string, unknown> = {
+                  action: 'create',
+                  name: pl.label ?? 'URL watcher',
+                  objective: pl.rationale ?? `Watch ${pl.url ?? 'a page'} for changes`,
+                  kind: 'url_diff',
+                  schedule: pl.schedule,
+                  alert_threshold: 'page content changes',
+                  linked_risk_id: 'ad_hoc',
+                  urls_to_track: pl.url ? [pl.url] : [],
+                  pending_action_id: pa.id,
+                  sources: withSourceTitles(pl.sources),
+                };
+                card = `\n\n:::artifact{"type":"monitor-proposal","id":"mon_prop_${pa.id.slice(-12)}"}\n${JSON.stringify(body)}\n:::`;
+              } else {
+                const rawSources = Array.isArray(pl.sources) && pl.sources.length
+                  ? pl.sources
+                  : (pl.linked_quote ? [{ type: 'user', quote: String(pl.linked_quote) }] : []);
+                const body: Record<string, unknown> = {
+                  action: 'create',
+                  name: pl.name, objective: pl.objective, kind: pl.kind, schedule: pl.schedule,
+                  alert_threshold: pl.alert_threshold, linked_risk_id: pl.linked_risk_id,
+                  estimated_monthly_cost_eur: pl.estimated_monthly_cost_eur,
+                  estimated_daily_credits: pl.estimated_daily_credits,
+                  estimated_monthly_credits: pl.estimated_monthly_credits,
+                  estimated_per_run_credits: pl.estimated_per_run_credits,
+                  pending_action_id: pa.id,
+                  sources: withSourceTitles(rawSources),
+                };
+                if (pl.query) body.query = pl.query;
+                if (Array.isArray(pl.urls_to_track) && pl.urls_to_track.length) body.urls_to_track = pl.urls_to_track;
+                if (pl.linked_quote) body.linked_quote = pl.linked_quote;
+                card = `\n\n:::artifact{"type":"monitor-proposal","id":"mon_prop_${pa.id.slice(-12)}"}\n${JSON.stringify(body)}\n:::`;
+              }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: card })}\n\n`));
+              injected += 1;
             }
+            console.info('[chat] watcher-card backstop', { pending: pendingWatchers.length, injected });
           }
         } catch (err) {
-          console.warn('[chat] monitor-card backstop failed (non-fatal):', (err as Error).message);
+          console.warn('[chat] watcher-card backstop failed (non-fatal):', (err as Error).message);
         }
 
         // Emit done event with cost + credits so the client can show per-message credits

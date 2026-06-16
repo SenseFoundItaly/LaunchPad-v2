@@ -26,6 +26,7 @@ import { splitOptionLabel } from '@/components/chat/option-label';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import type { Artifact, ArtifactType, ValidationProposalArtifact } from '@/types/artifacts';
 import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
+import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard';
 import { Canvas } from '@/components/canvas/Canvas';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import { TopBar, NavRail } from '@/components/design/chrome';
@@ -2101,6 +2102,15 @@ function InlineArtifact({
         onAction={onAction ?? (() => {})}
       />
     );
+  }
+
+  // Watcher proposal — render the Apply/Dismiss card inline so the founder can
+  // act on it directly in chat. monitor-proposal is in INLINE_ARTIFACT_TYPES but
+  // this if-chain previously had no branch for it, so it silently rendered
+  // nothing (every "I don't see the watcher card" traced back here). The
+  // watcher-card backstop emits monitor-proposal for BOTH topic and URL watchers.
+  if (artifact.type === 'monitor-proposal') {
+    return <MonitorProposalCard artifact={artifact} onAction={onAction ?? (() => {})} />;
   }
 
   return null;
