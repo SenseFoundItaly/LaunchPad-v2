@@ -649,6 +649,29 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
 
     const schedule = p.schedule as 'daily' | 'weekly';
 
+    // ONE-AT-A-TIME guard (founder directive 2026-06-16): watchers are
+    // configured incrementally AS THE CHAT GOES ON, never bulk-scaffolded. If a
+    // watcher proposal is already awaiting review, do NOT stack another — the
+    // dedup pipeline below only catches same-risk / same-URL / semantic twins,
+    // so three distinctly-named competitor watchers (DocuSign / Ironclad /
+    // AI-native) would otherwise all slip through as a fan-out. Surfacing the
+    // pending one also forces the agent to reckon with existing state before
+    // proposing (the get_project_summary snapshot doesn't list pending
+    // proposals, so this is the agent's view into them).
+    const existingPending = await get<{ title: string }>(
+      `SELECT title FROM pending_actions
+       WHERE project_id = ? AND action_type = 'configure_monitor'
+         AND status IN ('pending', 'edited')
+       ORDER BY created_at DESC LIMIT 1`,
+      ctx.projectId,
+    );
+    if (existingPending) {
+      return {
+        content: [{ type: 'text', text: `A watcher proposal is already awaiting the founder's review in the Inbox: "${existingPending.title}". Do NOT propose another — watchers are set up ONE AT A TIME as the conversation goes on, never in bulk and never one-per-competitor. In your reply, surface that pending watcher and ask the founder to review/apply or dismiss it; once they act, you can propose the next. If they wanted to cover several competitors, fold them into that one watcher's URLs rather than creating separate watchers.` }],
+        details: { error: true, reason: 'pending_watcher_exists' },
+      };
+    }
+
     // Dedup pipeline — L1 SQL rules + L2 semantic classifier. See
     // src/lib/monitor-dedup.ts for the full contract.
     const dedup = await checkDedup(ctx.projectId, {

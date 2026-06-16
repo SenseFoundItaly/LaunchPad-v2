@@ -529,9 +529,9 @@ export async function POST(request: NextRequest) {
   const watcherContext = needsWatcher
     ? [
         watcherIntent
-          ? '[WATCHER REQUESTED] The founder just asked to watch/monitor something. You MUST deliver a real monitor card THIS turn — call propose_monitor (or propose_watch_source for specific URLs) with linked_risk_id="ad_hoc" and linked_quote set to the founder\'s own words. Do NOT reply with only an option-set or generic prompts; the structured card IS the deliverable.'
+          ? '[WATCHER REQUESTED] The founder just asked to watch/monitor something. Deliver a real monitor card THIS turn via propose_monitor (or propose_watch_source for specific URLs), linked_risk_id="ad_hoc" + linked_quote = the founder\'s own words. Do NOT reply with only generic prompts — the card IS the deliverable. BUT propose exactly ONE watcher: if several competitors are named, fold them into that single watcher\'s urls_to_track / query — never one watcher per competitor. If the tool reports a watcher proposal is already pending review, do NOT create another: surface the existing one and ask the founder to act on it first.'
           : '[WATCHER GAP] Stage 2 (Market Validation) needs at least ONE active watcher and this project has none.',
-        'Propose ONE precise watcher tied to a named competitor or concrete external risk — never a vague one. One sentence naming it + why, then the tool card, then your trailing option-set.',
+        'Propose ONE precise watcher tied to a named competitor or concrete external risk — never a vague one, never several at once. First reckon with what already exists (get_project_summary monitors). One sentence naming it + why, then the tool card, then your trailing option-set.',
         '',
       ].join('\n')
     : '';
