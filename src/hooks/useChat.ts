@@ -245,6 +245,15 @@ export function useChat(projectId: string, step: string = 'chat') {
               );
             }
 
+            // The agent mutated the inbox this turn (dismissed/proposed a watcher,
+            // created a task, …). Refresh the Inbox badge + Watchers/Actions panels
+            // so they don't show stale rows. Per-project detail scopes the bridge.
+            if (parsed.done && parsed.inbox_changed && typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent('lp-actions-changed', { detail: { projectId } }),
+              );
+            }
+
             if (parsed.error) {
               console.error('Stream error:', parsed.error);
               setLast((m) => ({ ...m, content: fullContent + `\n\n[Error: ${parsed.error}]` }));

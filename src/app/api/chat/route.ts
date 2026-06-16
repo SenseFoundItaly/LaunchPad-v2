@@ -994,9 +994,66 @@ export async function POST(request: NextRequest) {
           console.warn('[chat] memory write failed (non-fatal):', err);
         }
 
+        // Monitor-card backstop: propose_monitor returns the :::artifact block as
+        // a TOOL RESULT, but the chat parser only renders artifacts from the
+        // ASSISTANT text — and the agent often paraphrases ("here's your watcher")
+        // instead of pasting the block, so the pending_action gets created but no
+        // card renders. If the tool ran this turn and the agent didn't emit the
+        // card, inject it LIVE from the pending_action the tool created. Live-only
+        // (persistence already ran above, so no double-create); the card carries
+        // pending_action_id so Apply/Dismiss work. Defensive — any failure just
+        // skips the card (same as before), never breaks the stream.
+        try {
+          const calledMonitorTool = toolsList.some(
+            (t) => t.name === 'propose_monitor' || t.name === 'propose_watch_source',
+          );
+          if (calledMonitorTool && !fullResponse.includes('"type":"monitor-proposal"')) {
+            const pa = (await query<{ id: string; payload: unknown }>(
+              `SELECT id, payload FROM pending_actions
+               WHERE project_id = ? AND action_type = 'configure_monitor' AND status IN ('pending','edited')
+               ORDER BY created_at DESC LIMIT 1`,
+              project_id,
+            ))[0];
+            const pl = pa && (typeof pa.payload === 'string' ? JSON.parse(pa.payload) : pa.payload) as Record<string, unknown> | null;
+            if (pa && pl) {
+              const body: Record<string, unknown> = {
+                action: 'create',
+                name: pl.name, objective: pl.objective, kind: pl.kind, schedule: pl.schedule,
+                alert_threshold: pl.alert_threshold, linked_risk_id: pl.linked_risk_id,
+                estimated_monthly_cost_eur: pl.estimated_monthly_cost_eur,
+                estimated_daily_credits: pl.estimated_daily_credits,
+                estimated_monthly_credits: pl.estimated_monthly_credits,
+                estimated_per_run_credits: pl.estimated_per_run_credits,
+                pending_action_id: pa.id, sources: pl.sources ?? [],
+              };
+              if (pl.query) body.query = pl.query;
+              if (Array.isArray(pl.urls_to_track) && pl.urls_to_track.length) body.urls_to_track = pl.urls_to_track;
+              if (pl.linked_quote) body.linked_quote = pl.linked_quote;
+              const card = `\n\n:::artifact{"type":"monitor-proposal","id":"mon_prop_${pa.id.slice(-12)}"}\n${JSON.stringify(body)}\n:::`;
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: card })}\n\n`));
+            }
+          }
+        } catch (err) {
+          console.warn('[chat] monitor-card backstop failed (non-fatal):', (err as Error).message);
+        }
+
         // Emit done event with cost + credits so the client can show per-message credits
         try {
           const donePayload: Record<string, unknown> = { done: true };
+          // Inbox-mutating turn → tell the client to refresh the inbox / monitors
+          // / tasks panels. The agent's tool calls (dismiss, propose_monitor,
+          // create_task, …) change pending_actions server-side, but the chat turn
+          // only ever fired lp-persisted-artifacts — so the Inbox badge + Watchers
+          // panel showed stale data until a manual refresh. Fire when any
+          // non-read-only tool ran this turn.
+          const READ_ONLY_TOOLS = new Set([
+            'get_project_summary', 'get_project_metrics', 'list_ecosystem_alerts',
+            'list_pending_actions', 'list_graph_nodes', 'list_intelligence_briefs',
+            'get_risk_audit', 'read_tabular_review', 'list_open_assumptions', 'web_search',
+          ]);
+          if (toolsList.some((t) => !READ_ONLY_TOOLS.has(t.name))) {
+            donePayload.inbox_changed = true;
+          }
           // Include persisted artifact IDs so the client can wire apply/reject
           if (Object.keys(persistedMap).length > 0) {
             donePayload.persisted_artifacts = persistedMap;
