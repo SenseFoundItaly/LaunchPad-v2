@@ -516,14 +516,22 @@ export async function POST(request: NextRequest) {
   // Watcher gap: Stage 2 needs ≥1 active watcher and this project has none.
   // Surface it so the agent proactively proposes one (and enable the write tool
   // below). Confirmed gap: agents almost never call propose_monitor unprompted.
+  // ALSO fire when the founder EXPLICITLY asks to watch/monitor something this
+  // turn, regardless of stage — otherwise picking "Watch competitor moves" at
+  // Stage 1 left the agent un-nudged and it replied with only generic options
+  // instead of the monitor card.
   const activeWatchers =
     (snapshot?.monitors ?? []).filter((m) => m.status === 'active').length +
     (snapshot?.watch_sources ?? []).filter((w) => w.status === 'active').length;
-  const needsWatcher = !!snapshot && activeStageNumber >= 2 && !allStagesDone && activeWatchers === 0;
+  const watcherIntent = /\b(watch|watcher|monitor|track|keep an eye|alert me|notify me)\b/i.test(lastMessage);
+  const needsWatcher =
+    !!snapshot && !allStagesDone && activeWatchers === 0 && (activeStageNumber >= 2 || watcherIntent);
   const watcherContext = needsWatcher
     ? [
-        '[WATCHER GAP] Stage 2 (Market Validation) needs at least ONE active watcher and this project has none.',
-        'When it is natural this turn — e.g. right after mapping a competitor or naming a concrete external risk — proactively PROPOSE one precise watcher via propose_monitor / propose_watch_source tied to that competitor or risk. Offer, do not force; one good watcher, never a vague one.',
+        watcherIntent
+          ? '[WATCHER REQUESTED] The founder just asked to watch/monitor something. You MUST deliver a real monitor card THIS turn — call propose_monitor (or propose_watch_source for specific URLs) with linked_risk_id="ad_hoc" and linked_quote set to the founder\'s own words. Do NOT reply with only an option-set or generic prompts; the structured card IS the deliverable.'
+          : '[WATCHER GAP] Stage 2 (Market Validation) needs at least ONE active watcher and this project has none.',
+        'Propose ONE precise watcher tied to a named competitor or concrete external risk — never a vague one. One sentence naming it + why, then the tool card, then your trailing option-set.',
         '',
       ].join('\n')
     : '';

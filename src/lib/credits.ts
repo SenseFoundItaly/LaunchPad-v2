@@ -295,19 +295,27 @@ export async function debitCredits(
 
 /**
  * Free self-serve top-up (INTERIM — no payments integrated yet; founder
- * decision 2026-06-16). Adds `credits` to a USER's current-month pool by
- * raising cap_credits, and bumps cap_llm_usd proportionally so creditsPerDollar
- * (the 3× markup ratio) stays constant — the same additive math as the dev
- * `bump` PATCH on /api/projects/[projectId]/credits, but keyed directly by user.
+ * decision 2026-06-16). Grants a CLEAN prepaid balance: the founder ends with
+ * `old_remaining + credits` usable, shown as a tidy `N/N`.
  *
- * This is what RechargeDialog calls today so the recharge modal isn't a dead
- * end: remaining hits 0 → hard-stop blocks the run → the modal opens → this
- * grows the cap → the user keeps going. When Stripe lands, the recharge route
- * gates this behind a VERIFIED payment instead of granting it for free (see the
- * intended-live-flow comment in src/app/api/credits/recharge/route.ts).
+ * Why it forgives this period's POOL usage (sets current_llm_usd = 0):
+ *   remaining = cap_credits − round(current_llm_usd × creditsPerDollar).
+ *   Accounts that overspent in observe-mode (before enforcement existed) carry a
+ *   large current_llm_usd — e.g. $53 → 16k "used" credits. A plain cap bump
+ *   either left remaining stuck at 0 (under-grant) or, if we raised the cap to
+ *   chase the overspend, showed an alarming total like "472/16599". Neither is
+ *   what "recharge 500" should mean. So recharge zeroes the per-user POOL meter
+ *   and sets cap = old_remaining + credits → snapshot shows remaining = total =
+ *   old_remaining + credits. Markup ratio (creditsPerDollar) is preserved.
+ *
+ * Cost history is NOT lost: real spend stays in project_budgets + llm_usage_logs
+ * (the usage page). Only the per-user CREDIT pool resets. This intentionally
+ * creates a user_budgets-vs-logs drift that cron reconcile WARNS about (it never
+ * auto-corrects) — acceptable while recharge is free. When Stripe lands, recharge
+ * should instead ADD to the cap behind a verified payment WITHOUT zeroing usage.
  *
  * Returns the refreshed snapshot. Clamped to a sane per-call ceiling so a
- * tampered client body can't mint an absurd cap.
+ * tampered client body can't mint an absurd balance.
  */
 export async function bumpUserCredits(userId: string, credits: number): Promise<CreditsSnapshot> {
   const add = Math.max(0, Math.min(Math.round(credits), 5000));
@@ -320,27 +328,21 @@ export async function bumpUserCredits(userId: string, credits: number): Promise<
       currentCapCredits > 0 && currentCapUsd > 0
         ? currentCapCredits / currentCapUsd
         : DEFAULT_CREDITS_PER_DOLLAR;
-    // Pin the OUTCOME: remaining must increase by exactly `add`, even when the
-    // user is over cap (current_llm_usd already exceeds cap — they overspent in
-    // observe mode, so a plain cap bump would leave remaining stuck at 0). With
-    // remaining = cap_credits - credits_used, set the new cap to
-    // credits_used + (old_remaining + add) so the snapshot recomputes
-    // remaining = old_remaining + add. Markup ratio (creditsPerDollar) is
-    // preserved because cap_llm_usd is scaled to match. current_llm_usd (real
-    // spend) is left untouched — recharge grants headroom, it doesn't rewrite
-    // history.
     const creditsUsed = Math.round(usedUsd * creditsPerDollar);
     const oldRemaining = Math.max(0, currentCapCredits - creditsUsed);
-    const newCapCredits = creditsUsed + oldRemaining + add;
+    // Clean balance: forgive pool usage (current_llm_usd → 0) and set the cap to
+    // exactly what should be spendable, so remaining = total = oldRemaining + add.
+    const newCapCredits = oldRemaining + add;
     const newCapUsd = newCapCredits / creditsPerDollar;
     const now = new Date().toISOString();
 
     await run(
       `INSERT INTO user_budgets (
-         id, user_id, period_month, cap_llm_usd, cap_credits, status, created_at, updated_at
+         id, user_id, period_month, current_llm_usd, cap_llm_usd, cap_credits, status, created_at, updated_at
        )
-       VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+       VALUES (?, ?, ?, 0, ?, ?, 'active', ?, ?)
        ON CONFLICT(user_id, period_month) DO UPDATE SET
+         current_llm_usd = 0,
          cap_llm_usd = ?,
          cap_credits = ?,
          status = 'active',
