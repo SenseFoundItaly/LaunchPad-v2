@@ -306,6 +306,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'chat.skill-running-note': 'In esecuzione in tempo reale — al termine registra le prove di validazione.',
   'chat.skill-done-note': 'Skill eseguita — preparazione e spine aggiornate.',
   'chat.skill-incomplete-note': 'Questa skill non ha prodotto un risultato utilizzabile — servono più dettagli sul tuo progetto. Aggiungi qualche informazione e riprova.',
+  'chat.skill-locked-hint': 'Definisci prima la soluzione e la value proposition per sbloccare questa skill.',
   // Canvas pannello destro (riga riepilogo conoscenza / intelligence + stati).
   // Il rework di visibilità del grafo mostra qui le acquisizioni come "proposte".
   'canvas.related-intelligence': 'Intelligence correlata',

@@ -7,16 +7,31 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { runSkill } from '@/lib/skill-executor';
 import { isClarificationOnly } from '@/lib/skill-output';
 import { assertCreditsAvailable } from '@/lib/credits';
-import { missingCanvasPrereqs } from '@/lib/skill-prereqs';
+import { missingCanvasPrereqs, canvasLacksCorePrereqs, CANVAS_DEPENDENT_SKILLS } from '@/lib/skill-prereqs';
 
-/** GET: list all skill completions for a project */
+/**
+ * GET: list skill completions for a project.
+ *
+ * `?availability=1` instead returns `{ gated: string[] }` — the canvas-dependent
+ * skills that CANNOT be run right now (idea canvas missing solution/value_prop),
+ * so the chat UI can render those skill options as locked rather than as live
+ * "Run" buttons. Empty array ⇒ everything runnable. This is the client-facing
+ * twin of the proposal-time tool-strip + run-time 422 (one shared skill list in
+ * @/lib/skill-prereqs), so a stale or hallucinated skill card can never offer a
+ * run the founder can't actually do.
+ */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
+
+  if (new URL(request.url).searchParams.get('availability') === '1') {
+    const incomplete = await canvasLacksCorePrereqs(projectId);
+    return json({ gated: incomplete ? [...CANVAS_DEPENDENT_SKILLS] : [] });
+  }
 
   const rows = await query(
     'SELECT * FROM skill_completions WHERE project_id = ? ORDER BY completed_at DESC',

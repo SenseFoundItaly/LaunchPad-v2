@@ -313,6 +313,7 @@ export const en = {
   'chat.skill-running-note': 'Running in real time — this writes validation evidence when it finishes.',
   'chat.skill-done-note': 'Skill ran — readiness and the spine have been updated.',
   'chat.skill-incomplete-note': "That skill didn't produce a usable result — it needs more context about your project. Add a bit more detail and run it again.",
+  'chat.skill-locked-hint': 'Sketch your solution and value proposition first to unlock this skill.',
   // Canvas right-pane (knowledge / intelligence summary row + states). The
   // graph-visibility rework surfaces pending captures here as "proposed".
   'canvas.related-intelligence': 'Related intelligence',

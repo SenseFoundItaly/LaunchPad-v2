@@ -15,7 +15,7 @@
  * without changing this component.
  */
 
-import { use, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { use, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, createContext, useContext } from 'react';
 import api from '@/api';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -89,6 +89,44 @@ const NEAR_BOTTOM_PX = 150;
 // idea-canvas the agent emits renders an extra (often stale) duplicate card
 // next to the live pinned snapshot.
 const PINNED_ARTIFACT_TYPES = new Set<ArtifactType>(['idea-canvas']);
+
+/**
+ * Skills the project can't run YET (idea canvas missing solution/value_prop),
+ * shared with every InlineOption so a skill option — whether freshly proposed,
+ * left over in old history, or hallucinated by the model — renders as LOCKED
+ * instead of a live "Run" button. The server gate (proposal-time tool-strip +
+ * run-time 422) is the authority; this is the visible client mirror of it.
+ * Empty set = everything runnable (the safe default if the fetch fails).
+ */
+const GatedSkillsContext = createContext<Set<string>>(new Set());
+
+/** Fetch the project's currently-un-runnable skills and keep them fresh —
+ *  refetch when the canvas changes (lp-actions-changed fires on validation
+ *  applies), so skills UNLOCK the moment a solution + value prop land. */
+function useGatedSkills(projectId: string): Set<string> {
+  const [gated, setGated] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/skills?availability=1`, { cache: 'no-store' });
+        const body = await res.json();
+        const list: string[] = Array.isArray(body?.data?.gated) ? body.data.gated : [];
+        if (!cancelled) setGated(new Set(list));
+      } catch {
+        /* leave the current set; fail-open to runnable (server 422 still backstops) */
+      }
+    }
+    load();
+    const handler = () => { if (!cancelled) load(); };
+    window.addEventListener('lp-actions-changed', handler);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('lp-actions-changed', handler);
+    };
+  }, [projectId]);
+  return gated;
+}
 
 function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artifact[] } {
   const segments = parseMessageContent(content);
@@ -285,6 +323,9 @@ export default function CopilotChatPage({
   const { projectId } = use(params);
   const t = useT();
   const { project } = useProject(projectId);
+  // Skills the project can't run yet — provided to every InlineOption so locked
+  // skills never render as live Run buttons (mirrors the server prereq gate).
+  const gatedSkills = useGatedSkills(projectId);
   // One project = one chat. The chat_messages.step column is fixed to 'chat'
   // (multi-thread routing was removed — see commit history).
   const step = 'chat';
@@ -1009,7 +1050,7 @@ export default function CopilotChatPage({
   );
 
   return (
-    <>
+    <GatedSkillsContext.Provider value={gatedSkills}>
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Chat column */}
         <div
@@ -1194,7 +1235,7 @@ export default function CopilotChatPage({
         />
       )}
 
-    </>
+    </GatedSkillsContext.Provider>
   );
 }
 
@@ -1825,6 +1866,12 @@ function InlineOption({
 }) {
   const t = useT();
   const isSkill = typeof option.skill_id === 'string' && option.skill_id.length > 0;
+  // Locked = a skill option whose prerequisites aren't met (idea canvas missing
+  // solution/value_prop). Covers freshly-proposed, stale-history, AND
+  // model-hallucinated skill_ids — they all render non-runnable here, so the
+  // founder is never offered a "Run" they can't actually do.
+  const gatedSkills = useContext(GatedSkillsContext);
+  const locked = isSkill && !!option.skill_id && gatedSkills.has(option.skill_id);
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
 
   // UI guardrail: the model sometimes emits paragraph-length labels. Split
@@ -1837,11 +1884,17 @@ function InlineOption({
 
   const baseLabel = split.label || t('chat.option-fallback', { n: index + 1 });
   const labelText =
+    locked ? `🔒 ${baseLabel}` :
     state === 'running' ? `${baseLabel} · ${t('chat.running')}` :
     state === 'done' ? `${baseLabel} · ${t('common.done')}` :
     baseLabel;
+  // Disabled covers: locked skills (prereqs unmet) + a skill mid/post-run.
+  const isDisabled = locked || (isSkill && (state === 'running' || state === 'done'));
 
   const handleClick = async () => {
+    // Locked skill: prerequisites unmet — don't run, don't charge. The label
+    // already tells the founder to sketch their solution first.
+    if (locked) return;
     if (isSkill) {
       // Skill option: run the skill in real time. Don't re-run once running/done.
       if (state === 'running' || state === 'done') return;
@@ -1864,8 +1917,8 @@ function InlineOption({
   return (
     <button
       type="button"
-      title={split.full}
-      disabled={isSkill && (state === 'running' || state === 'done')}
+      title={locked ? t('chat.skill-locked-hint') : split.full}
+      disabled={isDisabled}
       onClick={handleClick}
       className="lp-inline-option"
       style={{
@@ -1874,11 +1927,11 @@ function InlineOption({
         border: '1px solid var(--line-2)',
         borderRadius: 'var(--r-m)',
         background: 'var(--paper)',
-        cursor: isSkill && (state === 'running' || state === 'done') ? 'default' : 'pointer',
+        cursor: isDisabled ? 'default' : 'pointer',
         fontFamily: 'inherit',
         color: 'var(--ink-2)',
         minWidth: 0,
-        opacity: isSkill && (state === 'running' || state === 'done') ? 0.6 : 1,
+        opacity: isDisabled ? 0.6 : 1,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -1895,8 +1948,9 @@ function InlineOption({
         >
           {labelText}
         </span>
-        {/* Per-option credit estimate — what this choice spends, shown before the click. */}
-        {typeof option.credits === 'number' && option.credits > 0 && (
+        {/* Per-option credit estimate — what this choice spends, shown before the
+            click. Suppressed when locked: a skill that can't run spends nothing. */}
+        {!locked && typeof option.credits === 'number' && option.credits > 0 && (
           <span
             className="lp-mono"
             style={{
@@ -1929,6 +1983,11 @@ function InlineOption({
       {state === 'error' && (
         <div style={{ fontSize: 11, color: 'var(--clay, #b4513a)', marginTop: 2 }}>
           {t('chat.run-failed')}
+        </div>
+      )}
+      {locked && (
+        <div style={{ fontSize: 11, color: 'var(--ink-5)', marginTop: 2, lineHeight: 1.4 }}>
+          {t('chat.skill-locked-hint')}
         </div>
       )}
     </button>
