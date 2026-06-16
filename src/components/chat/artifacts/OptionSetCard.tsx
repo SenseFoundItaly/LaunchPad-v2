@@ -29,7 +29,11 @@ export default function OptionSetCard({ artifact, onAction }: OptionSetCardProps
               type="button"
               title={split.full}
               onClick={() =>
-                onAction('select-option', { optionId: option.id, label: split.full })
+                // Pass the option's DESCRIPTION too, not just the label. The page
+                // handler forwards it to the agent so it executes the option's
+                // stated intent instead of re-reasoning a bare label (which made
+                // "Use Example A — Legal radar" get misread as a competitor watcher).
+                onAction('select-option', { optionId: option.id, label: split.full, description: option.description })
               }
               className="text-left min-w-0 bg-paper-2/50 border border-line-2 rounded-lg p-3 transition-all duration-200 hover:border-moss hover:bg-paper-2 focus:outline-none focus:ring-2 focus:ring-moss/40"
             >

@@ -913,7 +913,12 @@ export default function CopilotChatPage({
       // Fallback for other artifact actions — re-send as chat so the agent
       // can react. Matches legacy OptionSetCard / ActionSuggestionCard usage.
       if (action === 'select-option' && typeof payload.label === 'string') {
-        sendMessage(`I choose: ${payload.label}`);
+        // Forward the option's DESCRIPTION (its stated intent/action) alongside
+        // the label so the agent EXECUTES that option rather than re-reasoning a
+        // bare label. Without it, "Use Example A — Legal radar" lost its
+        // "commit this as your solution" intent and got misread as a watcher.
+        const optDesc = typeof payload.description === 'string' ? payload.description.trim() : '';
+        sendMessage(`I choose: ${payload.label}${optDesc ? ` — ${optDesc}` : ''}`);
       } else if (action === 'trigger-action' && typeof payload.title === 'string') {
         const desc = typeof payload.description === 'string' ? payload.description : '';
         sendMessage(`${payload.title}${desc ? ': ' + desc : ''}. Give me a detailed step-by-step plan.`);
