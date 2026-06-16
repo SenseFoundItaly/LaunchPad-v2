@@ -24,10 +24,17 @@ export const DOCUMENT_AUDIT_CREDITS = 3;
 
 /**
  * Default monthly credit pool per USER (founder decision 2026-06-14: credits
- * are per-user, shared across all their projects). Paired with a $1.00 LLM-cost
- * ceiling → 100 credits per $1 (1 credit ≈ $0.01 of LLM spend). These are the
- * fallbacks when no user_budgets row exists yet; the row's own columns win.
+ * are per-user, shared across all their projects).
+ *
+ * PRICING (founder decision 2026-06-16): 3× markup over raw LLM cost. The debit
+ * is credits = cost_usd × (cap_credits / cap_llm_usd), so pairing 100 credits
+ * with a $0.333 cost ceiling makes creditsPerDollar = 300 → 1 credit ≈ $0.0033
+ * of LLM spend, i.e. the founder's 100-credit pool covers ~$0.33 of real cost
+ * and the rest is gross margin (~67%). Was $1.00 (pass-through, 0 margin).
+ *
+ * These are the FALLBACKS for users with no user_budgets row; EXISTING rows
+ * keep their stored cap_llm_usd until migrated (see the companion DB update).
  */
 export const USER_MONTHLY_CREDITS = 100;
-export const USER_MONTHLY_LLM_USD = 1.0;
-export const USER_MONTHLY_WARN_LLM_USD = 0.8;
+export const USER_MONTHLY_LLM_USD = 0.333;
+export const USER_MONTHLY_WARN_LLM_USD = 0.267;
