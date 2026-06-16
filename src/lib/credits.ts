@@ -124,6 +124,76 @@ export async function getCreditsRemaining(projectId: string): Promise<number> {
   return (await getCreditsSnapshot(projectId)).remaining;
 }
 
+// =============================================================================
+// Hard-stop enforcement (Phase 1)
+// =============================================================================
+//
+// `recordUsage()` logs credits_remaining AFTER a run — it observes, never
+// blocks. This helper is the BEFORE-the-run gate: callers (chat route, skill
+// run:true branch) ask "may this user spend?" and get a yes/no.
+//
+// Gated behind CREDITS_HARD_STOP (OFF unless the env var is exactly "1" /
+// "true"). Merging or deploying this code with the flag unset is a NO-OP — the
+// lockout stays dormant. Flip it on only after payments + an exempt allowlist
+// are in place (see the recharge route + CREDITS_EXEMPT_USER_IDS below).
+//
+// EXEMPTION: CREDITS_EXEMPT_USER_IDS is a comma-separated allowlist of user ids
+// (e.g. the founder + admins) that are NEVER locked out, regardless of balance.
+// No ids are hardcoded — an empty/unset var means "nobody is exempt".
+
+/** True when the hard-stop lockout is enabled. Off by default — only "1" or
+ *  "true" (case-insensitive) turns it on. */
+export function isHardStopEnabled(): boolean {
+  const v = (process.env.CREDITS_HARD_STOP ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true';
+}
+
+/** Is this user on the never-lock-out allowlist? Parsed from
+ *  CREDITS_EXEMPT_USER_IDS (comma-separated). Empty/unset ⇒ nobody exempt. */
+export function isCreditsExempt(userId: string): boolean {
+  if (!userId) return false;
+  const raw = process.env.CREDITS_EXEMPT_USER_IDS ?? '';
+  if (!raw.trim()) return false;
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .includes(userId);
+}
+
+export interface CreditsGate {
+  /** May this user start a metered run right now? */
+  allowed: boolean;
+  /** Remaining credits in the user's monthly pool (0 when out). */
+  remaining: number;
+  /** Why it was allowed/denied — for logging/telemetry. */
+  reason: 'flag_off' | 'exempt' | 'has_credits' | 'out_of_credits';
+}
+
+/**
+ * The BEFORE-the-run credit gate, keyed by user. Returns {allowed:false} ONLY
+ * when ALL of these hold: the hard-stop flag is on, the user is NOT exempt, and
+ * the user's pool is empty (remaining <= 0, i.e. current_llm_usd >= cap_llm_usd
+ * — the same boundary recordUsage uses for credits_remaining).
+ *
+ * Fail-OPEN by design: with the flag off, or for an exempt user, or when no
+ * userId is supplied, we allow. A billing gate must never wedge a legitimate
+ * user out because of an env typo — the founder grace path
+ * (CREDITS_EXEMPT_USER_IDS) is the explicit safety valve.
+ */
+export async function assertCreditsAvailable(userId: string): Promise<CreditsGate> {
+  if (!isHardStopEnabled()) return { allowed: true, remaining: Infinity, reason: 'flag_off' };
+  if (!userId || isCreditsExempt(userId)) {
+    return { allowed: true, remaining: Infinity, reason: 'exempt' };
+  }
+
+  const snap = await getUserCreditsSnapshot(userId);
+  if (snap.remaining > 0) {
+    return { allowed: true, remaining: snap.remaining, reason: 'has_credits' };
+  }
+  return { allowed: false, remaining: 0, reason: 'out_of_credits' };
+}
+
 /** Snapshot keyed directly by user (no project context). Same pool as
  *  getCreditsSnapshot, used by user-level endpoints like /api/user/credits. */
 export async function getUserCreditsSnapshot(userId: string): Promise<CreditsSnapshot> {

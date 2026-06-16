@@ -6,6 +6,7 @@ import { computeSectionScoresFromSummary } from '@/lib/section-scoring';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { runSkill } from '@/lib/skill-executor';
 import { isClarificationOnly } from '@/lib/skill-output';
+import { assertCreditsAvailable } from '@/lib/credits';
 
 /** GET: list all skill completions for a project */
 export async function GET(
@@ -54,6 +55,23 @@ export async function POST(
     );
     const ownerUserId = auth.session.userId || owner?.owner_user_id || '';
     if (!ownerUserId) return error('no owner for project', 400);
+
+    // HARD-STOP gate (Phase 1) — block a skill run BEFORE opening the keepalive
+    // SSE stream (return a clean JSON 402, not a half-opened event-stream).
+    // Keyed on the pool that runSkill will actually debit: the project OWNER's
+    // per-user pool (recordUsage resolves owner_user_id), falling back to the
+    // requester when the project has no owner. No-op unless CREDITS_HARD_STOP is
+    // on AND that pool is empty AND the user isn't on CREDITS_EXEMPT_USER_IDS.
+    const chargedUserId = owner?.owner_user_id || ownerUserId;
+    const gate = await assertCreditsAvailable(chargedUserId);
+    if (!gate.allowed) {
+      console.info(`[skills] user ${chargedUserId} out of credits — blocking skill run (hard-stop on)`);
+      return new Response(
+        JSON.stringify({ success: false, error: 'out_of_credits', credits_remaining: gate.remaining }),
+        { status: 402, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
     // A buffered `await runSkill(...)` (up to its 170s budget) blows past the
     // serverless gateway's ~10-26s timeout → 504 for long skills (idea-shaping).
     // Stream a keepalive heartbeat while runSkill executes, then emit the result

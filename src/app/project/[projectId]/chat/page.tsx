@@ -20,6 +20,7 @@ import api from '@/api';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
 import { useChat, chatStoreHydrated, markChatHydrated } from '@/hooks/useChat';
+import { requestRecharge } from '@/components/credits/recharge-events';
 import { useProject } from '@/hooks/useProject';
 import { splitOptionLabel } from '@/components/chat/option-label';
 import { parseMessageContent } from '@/lib/artifact-parser';
@@ -843,6 +844,16 @@ export default function CopilotChatPage({
           body: JSON.stringify(reqBody),
         });
         if (!res.ok) {
+          // Hard-stop: out of credits → open the recharge modal and stop
+          // gracefully (the 402 is a clean JSON body returned before the
+          // keepalive stream opens). Don't throw — that would error the card.
+          if (res.status === 402) {
+            const body = await res.json().catch(() => null);
+            if (body?.error === 'out_of_credits') {
+              requestRecharge({ remaining: body.credits_remaining ?? 0 });
+              return;
+            }
+          }
           const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
           throw new Error(err.error || `Skill run failed with status ${res.status}`);
         }
