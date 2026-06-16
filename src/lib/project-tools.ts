@@ -23,7 +23,8 @@
 import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import { query, get, run } from '@/lib/db';
-import { createPendingAction } from '@/lib/pending-actions';
+import { createPendingAction, getPendingAction, rejectPendingAction } from '@/lib/pending-actions';
+import { dismissAlertSource } from '@/lib/action-executors';
 import { recordFact } from '@/lib/memory/facts';
 import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
@@ -142,6 +143,51 @@ const listPendingActions = (ctx: ToolContext): AgentTool => ({
     return {
       content: [{ type: 'text', text }],
       details: { count: rows.length, statuses },
+    };
+  },
+});
+
+// dismiss_pending_actions — let the agent clear inbox proposals the founder no
+// longer wants (e.g. duplicate watchers). Write tool. ALWAYS confirm first.
+const dismissPendingActions = (ctx: ToolContext): AgentTool => ({
+  name: 'dismiss_pending_actions',
+  label: 'Dismiss Inbox Items',
+  description:
+    'Dismiss (reject) one or more pending inbox proposals by id — watcher/monitor proposals, queued drafts, etc. CONFIRM WITH THE FOUNDER FIRST: before calling this, show exactly what will be dismissed and offer a confirm/cancel option-set; only call it after they confirm. Dismissal is not undoable from chat. Only removes items still awaiting a decision (status pending/edited); it never touches applied/sent ones. Get ids from list_pending_actions.',
+  parameters: Type.Object({
+    action_ids: Type.Array(Type.String(), { description: 'pending_action ids to dismiss (from list_pending_actions). 1–20.' }),
+    reason: Type.Optional(Type.String({ description: 'Short reason for the audit trail + preference learning, e.g. "founder cleared duplicate watchers".' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { action_ids: string[]; reason?: string };
+    const ids = Array.isArray(p.action_ids) ? p.action_ids.slice(0, 20) : [];
+    if (ids.length === 0) {
+      return { content: [{ type: 'text', text: 'No action_ids provided. Pass ids from list_pending_actions.' }], details: { error: true } };
+    }
+    const dismissed: string[] = [];
+    const skipped: string[] = [];
+    for (const id of ids) {
+      const action = await getPendingAction(id);
+      // Ownership + state guards: never touch another project's rows, and only
+      // dismiss items still awaiting a decision (don't reverse applied actions).
+      if (!action || action.project_id !== ctx.projectId) { skipped.push(`${id} (not found in this project)`); continue; }
+      if (action.status !== 'pending' && action.status !== 'edited') { skipped.push(`${id} (already ${action.status})`); continue; }
+      try {
+        await rejectPendingAction(id, p.reason);
+        // Propagate to any source row (alert/brief/assumption). No-op for monitor
+        // proposals, which have no external source until applied.
+        await dismissAlertSource(action);
+        dismissed.push(`${action.title} (${id})`);
+      } catch (err) {
+        skipped.push(`${id} (error: ${(err as Error).message})`);
+      }
+    }
+    const parts: string[] = [];
+    if (dismissed.length) parts.push(`Dismissed ${dismissed.length}:\n${dismissed.map((d) => `  ✓ ${d}`).join('\n')}`);
+    if (skipped.length) parts.push(`Skipped ${skipped.length}:\n${skipped.map((s) => `  – ${s}`).join('\n')}`);
+    return {
+      content: [{ type: 'text', text: parts.join('\n\n') || 'Nothing dismissed.' }],
+      details: { dismissed: dismissed.length, skipped: skipped.length },
     };
   },
 });
@@ -2689,6 +2735,7 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
   return [
     ...readTools,
     createPendingActionTool(ctx),
+    dismissPendingActions(ctx),
     proposeMonitorTool(ctx),
     proposeBudgetChangeTool(ctx),
     createTaskTool(ctx),

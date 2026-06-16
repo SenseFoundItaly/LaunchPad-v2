@@ -54,7 +54,7 @@ function isSimpleFollowUp(message: string, messages: unknown[]): boolean {
  * per LLM roundtrip. The agent can still suggest write actions in prose —
  * the next turn (with write intent) would include the tools.
  */
-const WRITE_INTENT_PATTERN = /\b(create|draft|propose|queue|track|watch|remind|task|budget|monitor|signal|raise|lower|bump|cap|email|linkedin|post|schedule|add a|set up|configure)\b/i;
+const WRITE_INTENT_PATTERN = /\b(create|draft|propose|queue|track|watch|remind|task|budget|monitor|signal|raise|lower|bump|cap|email|linkedin|post|schedule|add a|set up|configure|dismiss|remove|delete|clear|reject|cancel)\b/i;
 
 function hasWriteIntent(message: string): boolean {
   return WRITE_INTENT_PATTERN.test(message);
@@ -339,6 +339,9 @@ A good watcher derisks ONE thing. Prefer ZERO watchers over a vague one — BUT 
 
 BUDGET CAP CHANGES:
 Call propose_budget_change when the founder explicitly asks to raise/lower cap, or when credits-empty and they want to continue. Cite the founder quote or error in sources. Never bump silently.
+
+DISMISSING INBOX ITEMS:
+When the founder wants to remove/clear/replace queued proposals (e.g. duplicate watcher cards), handle it IN CHAT — do NOT tell them to "go to your inbox and dismiss it." You have dismiss_pending_actions for this. Flow: (1) call list_pending_actions to get the exact ids + titles, (2) in your reply show precisely what will be dismissed and end with a confirm/cancel option-set ("Yes, dismiss these N" / "Keep them"), (3) ONLY after the founder picks confirm, call dismiss_pending_actions with those ids. Never dismiss without that explicit confirm step; dismissal isn't undoable from chat. After a successful dismiss, if they wanted a replacement watcher, propose the ONE clean watcher right away via its monitor card.
 
 SKILL TOOL GUARD:
 Skill tools produce DURABLE validation evidence (skill_completions row, section_scores update, idea_canvas/risk_audit/etc. updates). Web_search produces ephemeral prose. When the founder's question maps to a registered skill per TIER 0.5 content-mapping (topical match — no explicit trigger phrase required), FIRE the skill — do not "offer" via option-set. Option-sets exist for choices BETWEEN skills when multiple match, not to ask permission to fire one.
