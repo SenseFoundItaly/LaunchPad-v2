@@ -7,53 +7,7 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { runSkill } from '@/lib/skill-executor';
 import { isClarificationOnly } from '@/lib/skill-output';
 import { assertCreditsAvailable } from '@/lib/credits';
-
-/**
- * Skills that CANNOT produce a usable result on an empty idea — they score,
- * model, or build off a solution + value proposition that must already exist.
- * Running one on a bare canvas burns the founder's credits on a clarification-
- * only output (the exact "that skill didn't produce a usable result" loop the
- * chat prompt is supposed to prevent but the model sometimes ignores). This is
- * the deterministic server-side backstop for that prompt rule.
- *
- * NOT gated (these HELP fill the canvas, so they must run early): idea-shaping,
- * market-research, startup-advisor.
- */
-const CANVAS_DEPENDENT_SKILLS = new Set<string>([
-  'startup-scoring',
-  'risk-scoring',
-  'business-model',
-  'financial-model',
-  'simulation',
-  'investment-readiness',
-  'investor-relations',
-  'gtm-strategy',
-  'growth-optimization',
-  'build-pitch-deck',
-  'pitch-coaching',
-  'build-landing-page',
-  'build-one-pager',
-  'prototype-spec',
-  'scientific-validation',
-  'weekly-metrics',
-]);
-
-/**
- * Returns the list of REQUIRED idea-canvas fields a canvas-dependent skill is
- * missing (empty array ⇒ prerequisites met, or the skill isn't gated). A skill
- * needs both a solution and a value proposition before it can score/model/build.
- */
-async function missingCanvasPrereqs(projectId: string, skillId: string): Promise<string[]> {
-  if (!CANVAS_DEPENDENT_SKILLS.has(skillId)) return [];
-  const canvas = await get<{ solution: string | null; value_proposition: string | null }>(
-    'SELECT solution, value_proposition FROM idea_canvas WHERE project_id = ?',
-    projectId,
-  );
-  const missing: string[] = [];
-  if (!canvas?.solution?.trim()) missing.push('solution');
-  if (!canvas?.value_proposition?.trim()) missing.push('value proposition');
-  return missing;
-}
+import { missingCanvasPrereqs } from '@/lib/skill-prereqs';
 
 /** GET: list all skill completions for a project */
 export async function GET(

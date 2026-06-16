@@ -20,6 +20,7 @@ import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
 import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
 import { isProjectCapped } from '@/lib/cost-meter';
 import { assertCreditsAvailable } from '@/lib/credits';
+import { canvasLacksCorePrereqs, isCanvasDependentSkill } from '@/lib/skill-prereqs';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
@@ -622,6 +623,25 @@ export async function POST(request: NextRequest) {
         const id = t.name.replace(/^skill_/, '').replace(/_/g, '-');
         return relevantIds.has(id);
       });
+    }
+
+    // PREREQUISITE gate (proposal-time) — the deterministic twin of the run-time
+    // 422 in /skills. When the idea canvas has no solution/value_proposition,
+    // REMOVE every canvas-dependent scoring/modeling/build skill tool so the
+    // agent can't even PROPOSE one it couldn't run (the prompt rule alone gets
+    // ignored — the agent kept offering startup-scoring on a bare canvas). A
+    // matching system-prompt note steers it to sketch the solution instead of
+    // silently dropping the option. idea-shaping/market-research/startup-advisor
+    // survive — they're how the founder FILLS the canvas.
+    if (skillTools.length > 0 && (await canvasLacksCorePrereqs(project_id))) {
+      const before = skillTools.length;
+      skillTools = skillTools.filter((t) => {
+        const id = t.name.replace(/^skill_/, '').replace(/_/g, '-');
+        return !isCanvasDependentSkill(id);
+      });
+      if (skillTools.length < before) {
+        systemPrompt = `${systemPrompt}\n\n[PREREQUISITE GATE] This project's idea canvas has no solution and/or value proposition yet, so scoring/modeling/build skills (startup-scoring, business-model, simulation, pitch, landing-page, etc.) are UNAVAILABLE this turn and you cannot run them. Do NOT propose them or put their skill_id in any option — they would be rejected. Instead, steer the founder to sketch the solution + value proposition first (offer a canvas-commit option, or idea-shaping), then those skills unlock.`;
+      }
     }
 
     // Iteration-3 WS-A — inject TIER 0.5 nudges based on PRIOR turn violations.
