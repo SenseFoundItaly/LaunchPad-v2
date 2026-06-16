@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { chatWithUsage, type UserKeyOverride } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
 import { logUsageToDb, logToLangfuse, estimateCost } from '@/lib/telemetry';
-import { runAgentStream } from '@/lib/pi-agent';
+import { runAgentStream, seedSessionIfEmpty } from '@/lib/pi-agent';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { makeProjectTools } from '@/lib/project-tools';
@@ -548,6 +548,13 @@ export async function POST(request: NextRequest) {
   // within a single project — if the user asked about competitor X under
   // research, the agent remembers that when they switch to chat.
   const sessionId = `user-${userId}-project-${project_id}`;
+  // The session JSONL lives on the serverless filesystem (ephemeral on Netlify):
+  // a deploy / cold start / new instance wipes it, so the agent would lose the
+  // whole conversation mid-thread (founder answers a question → agent restarts
+  // with a context-free opener). The UI sends the full durable thread in
+  // `messages`; reseed the session from it (minus the current turn, which
+  // runAgentStream appends) whenever the local session is empty. No-op otherwise.
+  seedSessionIfEmpty(sessionId, messages.slice(0, -1));
   const piStart = Date.now();
 
   try {
