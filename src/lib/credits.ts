@@ -292,3 +292,59 @@ export async function debitCredits(
 
   return usdDelta;
 }
+
+/**
+ * Free self-serve top-up (INTERIM — no payments integrated yet; founder
+ * decision 2026-06-16). Adds `credits` to a USER's current-month pool by
+ * raising cap_credits, and bumps cap_llm_usd proportionally so creditsPerDollar
+ * (the 3× markup ratio) stays constant — the same additive math as the dev
+ * `bump` PATCH on /api/projects/[projectId]/credits, but keyed directly by user.
+ *
+ * This is what RechargeDialog calls today so the recharge modal isn't a dead
+ * end: remaining hits 0 → hard-stop blocks the run → the modal opens → this
+ * grows the cap → the user keeps going. When Stripe lands, the recharge route
+ * gates this behind a VERIFIED payment instead of granting it for free (see the
+ * intended-live-flow comment in src/app/api/credits/recharge/route.ts).
+ *
+ * Returns the refreshed snapshot. Clamped to a sane per-call ceiling so a
+ * tampered client body can't mint an absurd cap.
+ */
+export async function bumpUserCredits(userId: string, credits: number): Promise<CreditsSnapshot> {
+  const add = Math.max(0, Math.min(Math.round(credits), 5000));
+  if (userId && add > 0) {
+    const existing = await getUserBudget(userId);
+    const currentCapCredits = existing?.cap_credits ?? DEFAULT_CAP_CREDITS;
+    const currentCapUsd = existing?.cap_llm_usd ?? USER_MONTHLY_LLM_USD;
+    const creditsPerDollar =
+      currentCapCredits > 0 && currentCapUsd > 0
+        ? currentCapCredits / currentCapUsd
+        : DEFAULT_CREDITS_PER_DOLLAR;
+    const newCapCredits = currentCapCredits + add;
+    const newCapUsd = newCapCredits / creditsPerDollar;
+    const now = new Date().toISOString();
+
+    await run(
+      `INSERT INTO user_budgets (
+         id, user_id, period_month, cap_llm_usd, cap_credits, status, created_at, updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+       ON CONFLICT(user_id, period_month) DO UPDATE SET
+         cap_llm_usd = ?,
+         cap_credits = ?,
+         status = 'active',
+         updated_at = ?`,
+      generateId('ubud'),
+      userId,
+      currentPeriodMonth(),
+      newCapUsd,
+      newCapCredits,
+      now,
+      now,
+      // ON CONFLICT values
+      newCapUsd,
+      newCapCredits,
+      now,
+    );
+  }
+  return getUserCreditsSnapshot(userId);
+}

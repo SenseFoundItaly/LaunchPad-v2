@@ -854,6 +854,25 @@ export default function CopilotChatPage({
               return;
             }
           }
+          // Prerequisite gate: the idea canvas is too empty for this skill to
+          // produce anything usable. The server blocked it BEFORE spending, so
+          // surface its guidance as an assistant message (no charge, no error
+          // card) rather than letting the founder watch it fail.
+          if (res.status === 422) {
+            const body = await res.json().catch(() => null);
+            if (body?.error === 'missing_prerequisites' && body?.message) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: `msg_${Date.now()}`,
+                  role: 'assistant',
+                  content: body.message as string,
+                  timestamp: new Date().toISOString(),
+                },
+              ]);
+              return;
+            }
+          }
           const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
           throw new Error(err.error || `Skill run failed with status ${res.status}`);
         }

@@ -4,16 +4,17 @@
  * RechargeDialog — modal shown when a founder runs out of credits.
  *
  * Opens when a metered action gets a 402 `out_of_credits` (chat send, skill
- * run) or when the founder clicks the empty CreditsBadge. Presents a few
- * PLACEHOLDER credit packs and a Recharge button that POSTs to
- * /api/credits/recharge.
+ * run) or when the founder clicks the empty CreditsBadge. Presents a few credit
+ * packs and a Recharge button that POSTs to /api/credits/recharge.
  *
- * PAYMENTS ARE NOT INTEGRATED YET (founder decision 2026-06-16 — feature is
- * scaffolded). The recharge route is a 501 stub; this dialog surfaces that
- * honestly as a "coming soon" state rather than faking a top-up. Pricing is
- * TBD — the packs show "Pricing TBD" instead of dollar amounts so nothing
- * misleading ships. Follow-ups before this goes live: wire Stripe in the
- * recharge route + webhook, set real pack pricing, then enable CREDITS_HARD_STOP.
+ * PAYMENTS NOT INTEGRATED YET (founder decision 2026-06-16). Until Stripe lands
+ * the recharge route grants the chosen pack for FREE — so the modal is a real,
+ * working exit from the hard-stop (remaining 0 → recharge → cap grows → keep
+ * going), not a dead end. The pack rows show "Free during beta" instead of
+ * dollar amounts so nothing misleading ships. On success the dialog reports the
+ * new balance and hands the fresh snapshot back via `onRecharged` so the badge
+ * updates without a refetch. The legacy `checkout_url` / `payments_not_integrated`
+ * branches are kept so flipping on Stripe later needs no client change.
  *
  * Styling follows the inline CSS-var design system (see AddDocumentsDialog).
  */
@@ -43,14 +44,18 @@ export interface RechargeDialogProps {
   remaining?: number;
   /** Override the packs (defaults to the 100 / 500 / 1000 placeholders). */
   packs?: CreditPack[];
+  /** Called with the fresh credit snapshot after a successful top-up, so the
+   *  badge can update its cache without an extra fetch. */
+  onRecharged?: (snapshot: { remaining: number; total: number }) => void;
 }
 
-type Phase = 'choose' | 'submitting' | 'unavailable' | 'error';
+type Phase = 'choose' | 'submitting' | 'success' | 'unavailable' | 'error';
 
-export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT_PACKS }: RechargeDialogProps) {
+export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT_PACKS, onRecharged }: RechargeDialogProps) {
   const [phase, setPhase] = useState<Phase>('choose');
   const [selected, setSelected] = useState<string>(packs[1]?.id ?? packs[0]?.id ?? '');
   const [message, setMessage] = useState<string>('');
+  const [addedCredits, setAddedCredits] = useState<number>(0);
 
   // Esc closes (except mid-submit, to avoid orphaning a future real payment).
   useEffect(() => {
@@ -73,17 +78,24 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
         body: JSON.stringify({ pack_id: pack.id, credits: pack.credits }),
       });
       const body = await res.json().catch(() => null);
-      // Payments stub: the route returns 501 { error:'payments_not_integrated' }
-      // until Stripe is wired. Surface that as a calm "coming soon" state.
+      // Legacy payments stub: 501 { error:'payments_not_integrated' }. Kept so
+      // the dialog still behaves if the route is ever reverted to the stub.
       if (body?.error === 'payments_not_integrated') {
         setMessage(body?.message ?? 'Recharge is not available yet — payments are coming soon.');
         setPhase('unavailable');
         return;
       }
-      // Once payments land the route returns { success:true, data:{ checkout_url } }
-      // — redirect the founder to Stripe Checkout.
+      // Future Stripe path: { success:true, data:{ checkout_url } } → redirect.
       if (res.ok && body?.success && body?.data?.checkout_url) {
         window.location.href = body.data.checkout_url as string;
+        return;
+      }
+      // Free top-up (current): { success:true, data: <CreditsSnapshot> }. Hand
+      // the fresh snapshot to the badge and show a success state.
+      if (res.ok && body?.success && typeof body?.data?.remaining === 'number') {
+        setAddedCredits(pack.credits);
+        onRecharged?.({ remaining: body.data.remaining, total: body.data.total });
+        setPhase('success');
         return;
       }
       setMessage(body?.error ?? `Recharge failed (HTTP ${res.status}).`);
@@ -186,9 +198,10 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
                             </span>
                           )}
                         </span>
-                        {/* Pricing intentionally TBD until payments land. */}
+                        {/* Free while payments aren't wired (founder decision
+                            2026-06-16) — real pricing lands with Stripe. */}
                         <span className="lp-mono" style={{ display: 'block', fontSize: 10.5, color: 'var(--ink-5)', marginTop: 2 }}>
-                          Pricing TBD
+                          Free during beta
                         </span>
                       </span>
                     </button>
@@ -202,6 +215,20 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
                 </div>
               )}
             </>
+          )}
+
+          {phase === 'success' && (
+            <div style={{ textAlign: 'center', padding: '20px 8px' }}>
+              <div style={{ width: 38, height: 38, borderRadius: '50%', margin: '0 auto 12px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--accent)', color: '#fff' }}>
+                <Icon d={I.check} size={18} stroke={2.2} />
+              </div>
+              <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>
+                {addedCredits.toLocaleString()} credits added
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--ink-5)', marginTop: 5, lineHeight: 1.5 }}>
+                Free during beta — you can pick up right where you left off.
+              </div>
+            </div>
           )}
 
           {phase === 'unavailable' && (
@@ -220,7 +247,9 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
         {/* Footer */}
         <footer style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 16px', borderTop: '1px solid var(--line)', background: 'var(--paper-2)' }}>
           <div style={{ flex: 1 }} />
-          {phase === 'unavailable' ? (
+          {phase === 'success' ? (
+            <button onClick={onClose} style={btnPrimary}>Done</button>
+          ) : phase === 'unavailable' ? (
             <button onClick={onClose} style={btnPrimary}>Got it</button>
           ) : (
             <>

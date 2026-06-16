@@ -8,6 +8,53 @@ import { runSkill } from '@/lib/skill-executor';
 import { isClarificationOnly } from '@/lib/skill-output';
 import { assertCreditsAvailable } from '@/lib/credits';
 
+/**
+ * Skills that CANNOT produce a usable result on an empty idea — they score,
+ * model, or build off a solution + value proposition that must already exist.
+ * Running one on a bare canvas burns the founder's credits on a clarification-
+ * only output (the exact "that skill didn't produce a usable result" loop the
+ * chat prompt is supposed to prevent but the model sometimes ignores). This is
+ * the deterministic server-side backstop for that prompt rule.
+ *
+ * NOT gated (these HELP fill the canvas, so they must run early): idea-shaping,
+ * market-research, startup-advisor.
+ */
+const CANVAS_DEPENDENT_SKILLS = new Set<string>([
+  'startup-scoring',
+  'risk-scoring',
+  'business-model',
+  'financial-model',
+  'simulation',
+  'investment-readiness',
+  'investor-relations',
+  'gtm-strategy',
+  'growth-optimization',
+  'build-pitch-deck',
+  'pitch-coaching',
+  'build-landing-page',
+  'build-one-pager',
+  'prototype-spec',
+  'scientific-validation',
+  'weekly-metrics',
+]);
+
+/**
+ * Returns the list of REQUIRED idea-canvas fields a canvas-dependent skill is
+ * missing (empty array ⇒ prerequisites met, or the skill isn't gated). A skill
+ * needs both a solution and a value proposition before it can score/model/build.
+ */
+async function missingCanvasPrereqs(projectId: string, skillId: string): Promise<string[]> {
+  if (!CANVAS_DEPENDENT_SKILLS.has(skillId)) return [];
+  const canvas = await get<{ solution: string | null; value_proposition: string | null }>(
+    'SELECT solution, value_proposition FROM idea_canvas WHERE project_id = ?',
+    projectId,
+  );
+  const missing: string[] = [];
+  if (!canvas?.solution?.trim()) missing.push('solution');
+  if (!canvas?.value_proposition?.trim()) missing.push('value proposition');
+  return missing;
+}
+
 /** GET: list all skill completions for a project */
 export async function GET(
   _request: NextRequest,
@@ -69,6 +116,24 @@ export async function POST(
       return new Response(
         JSON.stringify({ success: false, error: 'out_of_credits', credits_remaining: gate.remaining }),
         { status: 402, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // PREREQUISITE gate — refuse scoring/modeling/build skills on an empty idea
+    // canvas BEFORE spending anything. Returns a clean JSON 422 (not a half-open
+    // SSE stream) so the chat page can surface "sketch your solution first"
+    // instead of running, failing the quality gate, and charging for nothing.
+    const missing = await missingCanvasPrereqs(projectId, body.skill_id as string);
+    if (missing.length > 0) {
+      console.info(`[skills] ${body.skill_id} blocked — idea canvas missing: ${missing.join(', ')}`);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'missing_prerequisites',
+          missing,
+          message: `Sketch your ${missing.join(' and ')} first — this skill needs your idea defined before it can run. Tell me what you're building and I'll write it to your canvas, then we can run this.`,
+        }),
+        { status: 422, headers: { 'Content-Type': 'application/json' } },
       );
     }
 

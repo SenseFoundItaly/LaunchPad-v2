@@ -158,6 +158,23 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
     }
   }
 
+  // A successful recharge (free top-up) hands back the fresh balance — write it
+  // straight into the cache so the badge updates instantly, then fire the
+  // per-project bridge to reconcile in the background (same pattern as bump).
+  function handleRecharged(snapshot: { remaining: number; total: number }) {
+    qc.setQueryData<CreditsSnapshot>(['credits', projectId], (prev) =>
+      prev
+        ? {
+            ...prev,
+            remaining: snapshot.remaining,
+            total: snapshot.total,
+            credits_used: Math.max(0, snapshot.total - snapshot.remaining),
+          }
+        : prev,
+    );
+    window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
+  }
+
   if (!snap) {
     // Still render the dialog so an lp-out-of-credits event (fired before the
     // snapshot resolves) can open it.
@@ -171,7 +188,7 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
           — credits
         </span>
         {rechargeOpen && (
-          <RechargeDialog remaining={rechargeRemaining} onClose={() => setRechargeOpen(false)} />
+          <RechargeDialog remaining={rechargeRemaining} onRecharged={handleRecharged} onClose={() => setRechargeOpen(false)} />
         )}
       </>
     );
@@ -363,7 +380,7 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
       )}
     </div>
     {rechargeOpen && (
-      <RechargeDialog remaining={rechargeRemaining} onClose={() => setRechargeOpen(false)} />
+      <RechargeDialog remaining={rechargeRemaining} onRecharged={handleRecharged} onClose={() => setRechargeOpen(false)} />
     )}
     </>
   );
