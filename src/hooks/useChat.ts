@@ -2,6 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from 'react';
 import type { ChatMessage, ToolActivity } from '@/types';
+import { requestRecharge } from '@/components/credits/recharge-events';
 
 export interface MessageCostInfo {
   cost_usd: number;
@@ -148,6 +149,19 @@ export function useChat(projectId: string, step: string = 'chat') {
         });
 
         if (!response.ok) {
+          // Hard-stop: out of credits → open the recharge modal instead of
+          // showing a raw error. The server returns a clean JSON 402 BEFORE the
+          // stream opens, so there's no partial assistant content to keep.
+          if (response.status === 402) {
+            const body = await response.json().catch(() => null);
+            if (body?.error === 'out_of_credits') {
+              requestRecharge({ remaining: body.credits_remaining ?? 0 });
+              // Drop the empty assistant placeholder + the user message we
+              // optimistically appended — the turn never started.
+              patch(store, { messages: currentMessages });
+              return;
+            }
+          }
           const errorText = await response.text();
           console.error('Chat API error:', response.status, errorText);
           setLast((m) => ({ ...m, content: `Error: ${response.status} - ${errorText}` }));

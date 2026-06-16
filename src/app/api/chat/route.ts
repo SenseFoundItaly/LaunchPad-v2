@@ -19,6 +19,7 @@ import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
 import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
 import { isProjectCapped } from '@/lib/cost-meter';
+import { assertCreditsAvailable } from '@/lib/credits';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
@@ -432,6 +433,19 @@ export async function POST(request: NextRequest) {
   const capStatus = await isProjectCapped(project_id);
   if (capStatus.capped) {
     console.info(`[chat] project ${project_id} over budget — proceeding (observe mode)`);
+  }
+
+  // HARD-STOP gate (Phase 1) — runs BEFORE the SSE stream opens so the client
+  // gets a clean JSON 402 (not a half-opened event-stream). No-op unless
+  // CREDITS_HARD_STOP is on AND the user is out of credits AND not exempt
+  // (CREDITS_EXEMPT_USER_IDS). The recharge dialog opens off this body.
+  const gate = await assertCreditsAvailable(userId);
+  if (!gate.allowed) {
+    console.info(`[chat] user ${userId} out of credits — blocking (hard-stop on)`);
+    return new Response(
+      JSON.stringify({ success: false, error: 'out_of_credits', credits_remaining: gate.remaining }),
+      { status: 402, headers: { 'Content-Type': 'application/json' } },
+    );
   }
 
   const lastMessage = messages[messages.length - 1]?.content || '';

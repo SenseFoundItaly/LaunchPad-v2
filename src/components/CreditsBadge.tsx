@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import RechargeDialog from '@/components/credits/RechargeDialog';
+import { OUT_OF_CREDITS_EVENT, type OutOfCreditsDetail } from '@/components/credits/recharge-events';
 
 // The "+ 100 free credits" self-serve mint is a dev/E2E affordance, not a
 // founder feature — gate it so it never renders in production. Next.js inlines
@@ -55,6 +57,11 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [bumping, setBumping] = useState(false);
+  // Recharge modal: opened by clicking the empty badge OR by the global
+  // lp-out-of-credits event a 402 fires (chat send, skill run). The badge is
+  // mounted in TopBar on every page, so it's the natural home for the dialog.
+  const [rechargeOpen, setRechargeOpen] = useState(false);
+  const [rechargeRemaining, setRechargeRemaining] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const { data: snap } = useQuery<CreditsSnapshot | null>({
@@ -110,6 +117,18 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [open]);
 
+  // Open the recharge modal when a metered action 402s (chat send / skill run).
+  useEffect(() => {
+    function onOutOfCredits(e: Event) {
+      const detail = (e as CustomEvent<OutOfCreditsDetail>).detail ?? {};
+      setRechargeRemaining(typeof detail.remaining === 'number' ? detail.remaining : 0);
+      setOpen(false); // close the dropdown if it was open
+      setRechargeOpen(true);
+    }
+    window.addEventListener(OUT_OF_CREDITS_EVENT, onOutOfCredits);
+    return () => window.removeEventListener(OUT_OF_CREDITS_EVENT, onOutOfCredits);
+  }, []);
+
   async function handleBump() {
     setBumping(true);
     try {
@@ -140,14 +159,21 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
   }
 
   if (!snap) {
+    // Still render the dialog so an lp-out-of-credits event (fired before the
+    // snapshot resolves) can open it.
     return (
-      <span
-        className="lp-chip"
-        style={{ background: 'var(--paper-2)', color: 'var(--ink-5)' }}
-      >
-        <span className="lp-dot" style={{ background: 'var(--ink-6)' }} />
-        — credits
-      </span>
+      <>
+        <span
+          className="lp-chip"
+          style={{ background: 'var(--paper-2)', color: 'var(--ink-5)' }}
+        >
+          <span className="lp-dot" style={{ background: 'var(--ink-6)' }} />
+          — credits
+        </span>
+        {rechargeOpen && (
+          <RechargeDialog remaining={rechargeRemaining} onClose={() => setRechargeOpen(false)} />
+        )}
+      </>
     );
   }
 
@@ -188,6 +214,7 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
   })();
 
   return (
+    <>
     <div ref={dropdownRef} style={{ position: 'relative', display: 'inline-block' }}>
       {/* Floating "−N" deduction, fades up above the chip on each charge. */}
       {delta != null && (
@@ -290,6 +317,26 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
           >
             View usage &amp; spend →
           </Link>
+          {/* Recharge — founder-facing. Opens the (payments-stubbed) recharge
+              modal. Emphasized when the pool is empty. */}
+          <button
+            onClick={() => { setOpen(false); setRechargeRemaining(snap.remaining); setRechargeOpen(true); }}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              marginBottom: SHOW_DEV_CREDIT_BUMP ? 8 : 0,
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 13,
+              background: empty ? 'var(--clay)' : 'var(--surface)',
+              color: empty ? 'white' : 'var(--accent-ink)',
+              border: empty ? 'none' : '1px solid var(--line)',
+              transition: 'opacity 0.15s',
+            }}
+          >
+            {empty ? 'Recharge credits' : 'Add credits'}
+          </button>
           {/* Dev/E2E-only: self-serve credit mint must never reach founders. */}
           {SHOW_DEV_CREDIT_BUMP && (
             <button
@@ -315,5 +362,9 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
         </div>
       )}
     </div>
+    {rechargeOpen && (
+      <RechargeDialog remaining={rechargeRemaining} onClose={() => setRechargeOpen(false)} />
+    )}
+    </>
   );
 }
