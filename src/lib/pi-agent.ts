@@ -163,36 +163,6 @@ function appendToSession(sessionId: string, message: AgentMessage) {
   appendFileSync(path, JSON.stringify(message) + '\n');
 }
 
-/**
- * Reseed a session's history from a durable source (the chat_messages thread,
- * passed in by the caller) when the local session file is empty or missing.
- *
- * WHY: the session JSONL lives on the serverless filesystem, which is EPHEMERAL
- * on Netlify — a deploy, cold start, or new instance wipes it. Without this the
- * agent loses ALL conversational memory mid-thread (observed in prod: the
- * founder answered a question and the agent "restarted" with a generic opener,
- * because loadSession returned []). chat_messages survives in the DB, so rebuild
- * the working session from it on a cache miss. No-op when the session already
- * has content, so it never clobbers a live conversation.
- */
-export function seedSessionIfEmpty(
-  sessionId: string,
-  priorTurns: Array<{ role: string; content: string }>,
-): void {
-  if (!priorTurns?.length) return;
-  const path = sessionPath(sessionId);
-  try {
-    if (existsSync(path) && readFileSync(path, 'utf-8').trim().length > 0) return;
-  } catch {
-    // Unreadable session file → fall through and (re)seed from the durable thread.
-  }
-  for (const t of priorTurns) {
-    if ((t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string' && t.content.trim()) {
-      appendToSession(sessionId, { role: t.role, content: t.content, timestamp: Date.now() } as unknown as AgentMessage);
-    }
-  }
-}
-
 export interface RunAgentOptions {
   sessionId?: string;
   systemPrompt?: string;
