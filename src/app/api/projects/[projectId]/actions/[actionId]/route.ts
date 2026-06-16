@@ -60,6 +60,17 @@ export async function POST(
     let updated;
     switch (transition) {
       case 'apply': {
+        // Idempotent guard: an inline card re-rendered after a refresh starts
+        // in its 'active' (clickable) state with no knowledge that the proposal
+        // already ran. Re-firing Apply on a resolved proposal would hit
+        // editPendingAction/applyPendingAction, and the state machine has no
+        // path out of sent/rejected (or applied→edited) — so it threw
+        // "Invalid transition: sent -> edited" at the founder. Treat an
+        // already-resolved proposal as a no-op success instead.
+        if (existing.status === 'sent' || existing.status === 'applied' || existing.status === 'rejected') {
+          return json({ ...existing, deliverable: null, already_resolved: true });
+        }
+
         // If the founder edited fields on the inline review card before
         // hitting Apply (monitor schedule, budget cap, etc.), persist the
         // edits FIRST so effectivePayload() in the executor sees them.
