@@ -69,10 +69,12 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
             protective bracket + validation arrow is the brand's identity). The
             logomark links home; the wordmark is hidden on narrow widths. */}
         <a href="/" aria-label="SenseFound — home" style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none', flexShrink: 0 }}>
-          <Logomark size={20} />
+          {/* 22px = the brand's documented minimum logo size (guidelines p.12). */}
+          <Logomark size={22} />
+          {/* Wordmark in the display/sans face (Safiro stand-in), NOT mono —
+              the brand wordmark is a grotesque semibold, uppercase, tight. */}
           <span
-            className="lp-mono"
-            style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.08em', color: 'var(--ink-2)' }}
+            style={{ fontFamily: 'var(--f-display)', fontSize: 13, fontWeight: 700, letterSpacing: '.02em', color: 'var(--ink)' }}
           >
             SENSEFOUND
           </span>

@@ -54,6 +54,23 @@
      This is the primary button-contrast fix (founder feedback). */
   --on-accent: #2C2C2C;
 
+  /* ── Type scale (SenseFound V1.1, web-mapped) ──────────────────────────
+     Brand HIERARCHY + weights/line-heights/tracking, anchored to a dense-
+     dashboard base (Body 15px). The brand's print scale (H1 96pt) is scaled
+     for on-screen legibility; proportions + role weights are preserved.
+     Use the semantic .lp-h1…/.lp-label/.lp-body classes (below) so the scale
+     stays in ONE place — they replace ad-hoc inline `fontSize`. Raw `--fs-*`
+     tokens are exposed for the rare component that needs the value directly. */
+  --fs-h1: 34px;     --lh-h1: 1.05; --ls-h1: -0.03em;  --fw-h1: 700;
+  --fs-h2: 28px;     --lh-h2: 1.1;  --ls-h2: -0.02em;  --fw-h2: 700;
+  --fs-h3: 22px;     --lh-h3: 1.15; --ls-h3: -0.015em; --fw-h3: 700;
+  --fs-h4: 18px;     --lh-h4: 1.25; --ls-h4: -0.01em;  --fw-h4: 600;
+  --fs-h5: 16px;     --lh-h5: 1.3;  --ls-h5: 0;        --fw-h5: 500;
+  --fs-body-lg: 17px; --lh-body-lg: 1.55;
+  --fs-body: 15px;    --lh-body: 1.5;
+  --fs-body-sm: 13px; --lh-body-sm: 1.5;
+  --fs-label: 13px;   --lh-label: 1.2; --ls-label: 0.04em; --fw-label: 500;
+
   /* brief section accents */
   --brief-blue: oklch(0.65 0.18 240);
   --brief-violet: oklch(0.65 0.18 300);
@@ -166,7 +183,11 @@
 .lp-md em { font-style: italic; }
 .lp-md ul, .lp-md ol { margin: 4px 0 8px; padding-left: 18px; }
 .lp-md li { margin: 2px 0; }
-.lp-md h1, .lp-md h2, .lp-md h3 { font-weight: 600; color: var(--ink); margin: 10px 0 3px; font-size: 14px; }
+/* In-bubble markdown headings follow the lower end of the type scale (h4/h5)
+   so chat prose stays hierarchical without dwarfing the bubble. */
+.lp-md h1 { font-size: var(--fs-h4); line-height: var(--lh-h4); letter-spacing: var(--ls-h4); font-weight: var(--fw-h4); color: var(--ink); margin: 12px 0 4px; }
+.lp-md h2 { font-size: var(--fs-h5); line-height: var(--lh-h5); font-weight: 600; color: var(--ink); margin: 10px 0 3px; }
+.lp-md h3 { font-size: var(--fs-body); line-height: var(--lh-body); font-weight: 600; color: var(--ink); margin: 10px 0 3px; }
 .lp-md hr { border: none; border-top: 1px solid var(--line-2); margin: 10px 0; }
 .lp-md code { font-family: var(--f-mono); font-size: 0.85em; background: var(--paper-2); padding: 1px 4px; border-radius: 3px; }
 .lp-md pre { background: var(--paper-2); padding: 10px; border-radius: var(--r-m); overflow: auto; }
@@ -181,8 +202,24 @@
 .lp-ic-lg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 
 /* keep artboard contents from feeling cramped inside DCArtboard */
-.lp-frame { width: 100%; height: 100%; background: var(--paper); color: var(--ink); font-family: var(--f-sans); font-size: 14px; line-height: 1.5; display: flex; flex-direction: column; overflow: hidden; }
+.lp-frame { width: 100%; height: 100%; background: var(--paper); color: var(--ink); font-family: var(--f-sans); font-size: var(--fs-body); line-height: var(--lh-body); display: flex; flex-direction: column; overflow: hidden; }
 .lp-frame * { box-sizing: border-box; }
+
+/* ── Type-scale roles (SenseFound V1.1, web-mapped) ──────────────────────
+   Semantic classes that bind size + weight + line-height + tracking together
+   per role, so headings/labels/body stay on-brand from one place. Adopt these
+   in place of inline `fontSize` as components are touched. Colors are NOT set
+   on body roles (inherit --ink), but headings default to --ink and labels to
+   the muted ramp since that's their near-universal usage. */
+.lp-h1 { font-family: var(--f-display); font-size: var(--fs-h1); line-height: var(--lh-h1); letter-spacing: var(--ls-h1); font-weight: var(--fw-h1); color: var(--ink); }
+.lp-h2 { font-family: var(--f-display); font-size: var(--fs-h2); line-height: var(--lh-h2); letter-spacing: var(--ls-h2); font-weight: var(--fw-h2); color: var(--ink); }
+.lp-h3 { font-family: var(--f-display); font-size: var(--fs-h3); line-height: var(--lh-h3); letter-spacing: var(--ls-h3); font-weight: var(--fw-h3); color: var(--ink); }
+.lp-h4 { font-size: var(--fs-h4); line-height: var(--lh-h4); letter-spacing: var(--ls-h4); font-weight: var(--fw-h4); color: var(--ink); }
+.lp-h5 { font-size: var(--fs-h5); line-height: var(--lh-h5); letter-spacing: var(--ls-h5); font-weight: var(--fw-h5); color: var(--ink); }
+.lp-label { font-size: var(--fs-label); line-height: var(--lh-label); letter-spacing: var(--ls-label); font-weight: var(--fw-label); text-transform: uppercase; color: var(--ink-4); }
+.lp-body-lg { font-size: var(--fs-body-lg); line-height: var(--lh-body-lg); }
+.lp-body { font-size: var(--fs-body); line-height: var(--lh-body); }
+.lp-body-sm { font-size: var(--fs-body-sm); line-height: var(--lh-body-sm); }
 .lp-rail-item:hover { background: var(--surface); color: var(--ink); }
 .lp-inline-option:hover { border-color: var(--ink-4) !important; background: var(--paper-2) !important; }
 
