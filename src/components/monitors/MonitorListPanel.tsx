@@ -294,6 +294,13 @@ function ExpandableWatcherRow({
       qc.invalidateQueries({ queryKey: ['watchers', projectId] }),
       qc.invalidateQueries({ queryKey: ['watcher-detail', projectId, w._origin_id] }),
     ]);
+    // A run emits ecosystem_alerts → Inbox signals + pending_actions. Those live
+    // in different queries (actions/timeline) and the global Inbox count — fire
+    // the per-project bridge so they refresh too, instead of going stale until a
+    // manual reload (founder feedback: count not updating, "Inbox zero").
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+    }
   }
 
   // Pause / resume — same PATCH CronSettingsPanel issues.

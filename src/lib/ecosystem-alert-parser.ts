@@ -215,7 +215,22 @@ export async function persistEcosystemAlerts(
   };
 
   const persistedAlerts: Array<{ alert: ParsedEcosystemAlert; alertId: string | null }> = [];
-  for (const alert of alerts) {
+
+  // In-run dedup: a single scan often emits the SAME finding twice (the
+  // "emit as you go" discipline + a final-summary re-emit), with a slightly
+  // different source_url or alert_type — so the DB dedupe_hash (type+url+
+  // headline) doesn't collapse them and the founder sees duplicate Inbox
+  // signals. Collapse by normalized headline here (keep the highest-relevance
+  // copy) BEFORE any insert. Cross-run dedup still relies on dedupe_hash.
+  const byHeadline = new Map<string, ParsedEcosystemAlert>();
+  for (const a of alerts) {
+    const key = (a.headline ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const existing = byHeadline.get(key);
+    if (!existing || a.relevance_score > existing.relevance_score) byHeadline.set(key, a);
+  }
+  const dedupedAlerts = [...byHeadline.values()];
+
+  for (const alert of dedupedAlerts) {
     const dedupeHash = computeDedupeHash(alert.alert_type, alert.source_url, alert.headline);
     const newId = generateId('ealr');
     const now = new Date().toISOString();
