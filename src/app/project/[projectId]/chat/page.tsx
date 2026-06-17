@@ -1629,13 +1629,24 @@ function Msg({
         <MdProse text={String(children ?? '')} />
         {streaming && <span className="lp-caret" aria-hidden="true">▋</span>}
       </div>
-      {inlineArtifacts && inlineArtifacts.length > 0 && (
-        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {inlineArtifacts.map((a, i) => (
-            <div key={i} className="lp-rise"><InlineArtifact artifact={a} onAction={onArtifactAction} /></div>
-          ))}
-        </div>
-      )}
+      {inlineArtifacts && inlineArtifacts.length > 0 && (() => {
+        // When actionable watcher cards are present, suppress the generic
+        // suggestions option-set — the cards ARE the next action, so the extra
+        // "what's next?" list below them just reads as clutter (founder feedback).
+        // The backstop renders BOTH topic and URL watchers as monitor-proposal
+        // cards, so that single type covers every watcher card.
+        const hasWatcherCard = inlineArtifacts.some((a) => a.type === 'monitor-proposal');
+        const shown = hasWatcherCard
+          ? inlineArtifacts.filter((a) => a.type !== 'option-set')
+          : inlineArtifacts;
+        return (
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {shown.map((a, i) => (
+              <div key={i} className="lp-rise"><InlineArtifact artifact={a} onAction={onArtifactAction} /></div>
+            ))}
+          </div>
+        );
+      })()}
       {/* Fallback quick-reply chips when the model omitted an option-set */}
       {!streaming && who === 'ai' && (!inlineArtifacts || inlineArtifacts.length === 0) && (
         <QuickReplies rawContent={rawContent} onReply={onQuickReply} />
