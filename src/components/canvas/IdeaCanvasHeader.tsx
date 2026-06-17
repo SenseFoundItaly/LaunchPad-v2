@@ -14,12 +14,17 @@ import { useEffect, useState } from 'react';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 
+type CanvasFieldName = 'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model';
+
 interface IdeaCanvasRow {
   problem?: string | null;
   solution?: string | null;
   target_market?: string | null;
   value_proposition?: string | null;
   business_model?: string | null;
+  /** Staged-but-unapproved field values (open validation_proposals) — painted
+   *  progressively as the agent proposes them, before the founder approves. */
+  pending?: Partial<Record<CanvasFieldName, string>>;
 }
 
 interface IdeaCanvasHeaderProps {
@@ -80,13 +85,15 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
     };
   }, [projectId]);
 
+  const pending = data?.pending ?? {};
   const isEmpty =
     loaded &&
     !data?.problem &&
     !data?.solution &&
     !data?.target_market &&
     !data?.value_proposition &&
-    !data?.business_model;
+    !data?.business_model &&
+    Object.keys(pending).length === 0;
 
   return (
     <div
@@ -180,11 +187,11 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
             lineHeight: 1.45,
           }}
         >
-          <Field label={t('canvas.field-problem')} value={data?.problem} anchorId="canvasfield-problem" />
-          <Field label={t('canvas.field-solution')} value={data?.solution} anchorId="canvasfield-solution" />
-          <Field label={t('canvas.field-target')} value={data?.target_market} anchorId="canvasfield-target_market" />
-          <Field label={t('canvas.field-value')} value={data?.value_proposition} anchorId="canvasfield-value_proposition" />
-          <Field label={t('canvas.field-business-model')} value={data?.business_model} anchorId="canvasfield-business_model" full />
+          <Field label={t('canvas.field-problem')} value={data?.problem} pendingValue={pending.problem} pendingLabel={t('canvas.field-pending')} anchorId="canvasfield-problem" />
+          <Field label={t('canvas.field-solution')} value={data?.solution} pendingValue={pending.solution} pendingLabel={t('canvas.field-pending')} anchorId="canvasfield-solution" />
+          <Field label={t('canvas.field-target')} value={data?.target_market} pendingValue={pending.target_market} pendingLabel={t('canvas.field-pending')} anchorId="canvasfield-target_market" />
+          <Field label={t('canvas.field-value')} value={data?.value_proposition} pendingValue={pending.value_proposition} pendingLabel={t('canvas.field-pending')} anchorId="canvasfield-value_proposition" />
+          <Field label={t('canvas.field-business-model')} value={data?.business_model} pendingValue={pending.business_model} pendingLabel={t('canvas.field-pending')} anchorId="canvasfield-business_model" full />
         </div>
       )}
     </div>
@@ -194,15 +201,22 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
 function Field({
   label,
   value,
+  pendingValue,
+  pendingLabel,
   full,
   anchorId,
 }: {
   label: string;
   value?: string | null;
+  /** Staged-but-unapproved value, shown dimmed with a "pending" tag when there
+   *  is no applied value yet — the progressive "fills as you go" behaviour. */
+  pendingValue?: string;
+  pendingLabel?: string;
   full?: boolean;
   /** Scroll/flash target for the Spine "view in canvas" jump. */
   anchorId?: string;
 }) {
+  const showPending = !value && !!pendingValue;
   return (
     <div id={anchorId} style={{ gridColumn: full ? '1 / -1' : undefined, minWidth: 0, borderRadius: 4 }}>
       <div
@@ -213,17 +227,26 @@ function Field({
           textTransform: 'uppercase',
           letterSpacing: 0.5,
           marginBottom: 2,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
         }}
       >
         {label}
+        {showPending && pendingLabel && (
+          <span style={{ color: 'var(--accent-ink, var(--accent))', fontStyle: 'italic', textTransform: 'none', letterSpacing: 0 }}>
+            · {pendingLabel}
+          </span>
+        )}
       </div>
       <div
         style={{
-          color: value ? 'var(--ink-2)' : 'var(--ink-5)',
+          color: value ? 'var(--ink-2)' : showPending ? 'var(--ink-3)' : 'var(--ink-5)',
           fontStyle: value ? 'normal' : 'italic',
+          opacity: showPending ? 0.85 : 1,
         }}
       >
-        {value || '—'}
+        {value || pendingValue || '—'}
       </div>
     </div>
   );

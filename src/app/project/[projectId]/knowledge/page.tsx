@@ -186,7 +186,10 @@ export default function KnowledgePage({
         ) : graphError ? (
           <GraphEmpty message={t('knowledge.load-error', { error: graphError })} tone="error" />
         ) : nodeCount === 0 ? (
-          <GraphEmpty message={t('knowledge.empty')} />
+          <GraphEmpty
+            message={t('knowledge.empty')}
+            action={{ label: t('knowledge.add-documents'), onClick: () => setShowAddDocs(true) }}
+          />
         ) : edgeCount === 0 ? (
           // Nodes but zero relationships: the force viz would render
           // disconnected floating dots. Show a labeled grid instead.
@@ -227,9 +230,12 @@ export default function KnowledgePage({
 function GraphEmpty({
   message,
   tone = 'info',
+  action,
 }: {
   message: string;
   tone?: 'info' | 'error';
+  /** Optional CTA shown under the message — e.g. "Add documents" on an empty graph. */
+  action?: { label: string; onClick: () => void };
 }) {
   return (
     <div
@@ -237,8 +243,10 @@ function GraphEmpty({
         position: 'absolute',
         inset: 0,
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
+        gap: 14,
         padding: 24,
       }}
     >
@@ -254,6 +262,27 @@ function GraphEmpty({
       >
         {message}
       </p>
+      {action && (
+        <button
+          onClick={action.onClick}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 12.5,
+            fontWeight: 600,
+            color: 'var(--on-accent)',
+            background: 'var(--accent)',
+            border: 'none',
+            borderRadius: 'var(--r-m)',
+            padding: '8px 14px',
+            cursor: 'pointer',
+          }}
+        >
+          <Icon d={I.plus} size={14} stroke={1.8} />
+          {action.label}
+        </button>
+      )}
     </div>
   );
 }

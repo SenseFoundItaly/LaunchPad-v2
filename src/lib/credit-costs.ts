@@ -7,10 +7,16 @@
 /**
  * Flat credit cost to APPLY a knowledge proposal (insight / entity /
  * comparison / metric / fact) into project intelligence. Charged once, on the
- * pending→applied transition — never on re-apply or on dismiss. Founder
- * directive 2026-06-11: surfacing knowledge is free; APPLYING it costs 2.
+ * pending→applied transition — never on re-apply or on dismiss.
+ *
+ * Founder directive 2026-06-17 (item 14.2): the analysis that PRODUCED the
+ * proposal already paid its LLM cost, so the approval itself is just a gating
+ * click and must stay cheap — "approval shouldn't exceed 0.25–0.5 credits" — or
+ * a graph with many insights becomes unsustainable. Was 2 (which double-charged
+ * on top of the generation cost). Fractional debits are supported (debitCredits
+ * converts credits→USD with no integer rounding).
  */
-export const KNOWLEDGE_APPLY_CREDITS = 2;
+export const KNOWLEDGE_APPLY_CREDITS = 0.5;
 
 /**
  * Flat credit cost to AUDIT one uploaded document — run the extraction passes

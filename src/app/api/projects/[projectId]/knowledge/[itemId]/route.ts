@@ -30,6 +30,16 @@ const UPDATE_QUERIES: Record<string, string> = {
   ecosystem_alerts: 'UPDATE ecosystem_alerts SET reviewed_state = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?',
 };
 
+// Knowledge pending→applied as an ATOMIC conditional flip (only matches a row
+// that ISN'T already applied). Two concurrent double-fires can't both match, so
+// exactly one debits — closing the read-prevState-then-update race that could
+// double-charge on a rapid double-click (item 8 "credits scaled at random").
+const APPLY_UPDATE_QUERIES: Record<string, string> = {
+  memory_facts: "UPDATE memory_facts SET reviewed_state = 'applied', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND reviewed_state != 'applied'",
+  graph_nodes: "UPDATE graph_nodes SET reviewed_state = 'applied' WHERE id = ? AND reviewed_state != 'applied'",
+  tabular_reviews: "UPDATE tabular_reviews SET reviewed_state = 'applied', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND reviewed_state != 'applied'",
+};
+
 /**
  * PATCH /api/projects/{projectId}/knowledge/{itemId}
  *
@@ -107,7 +117,6 @@ export async function PATCH(
   for (const { table, type, isAlert, check } of tables) {
     const row = await check();
     if (!row) continue;
-    const prevState = row.reviewed_state;
 
     // Verify the item belongs to this project
     if (row.project_id !== projectId) {
@@ -128,23 +137,27 @@ export async function PATCH(
       }
     }
 
-    // Perform the state transition (per-table query handles correct timestamp columns)
-    await run(UPDATE_QUERIES[table], state, itemId);
-
-    // Credit debit — applying a knowledge proposal costs KNOWLEDGE_APPLY_CREDITS.
-    // Charged ONLY on a genuine pending→applied transition (prevState guards
-    // against re-applying an already-applied row, and reject/revert never
-    // charge). Server-side so the debit can't be skipped by the client. Debit
-    // applies to knowledge items only, never ecosystem_alerts (which have their
-    // own apply path via the inbox executor). Non-fatal — never block the apply.
+    // Perform the state transition. For a knowledge pending→applied we use the
+    // ATOMIC conditional flip and debit ONLY if it actually changed a row — so a
+    // concurrent double-fire (count 0 on the loser) and a re-apply (already
+    // applied) both charge nothing. All other transitions (reject / revert /
+    // alert states) use the plain per-table update.
     let creditsDebited = 0;
-    if (!isAlert && state === 'applied' && prevState !== 'applied') {
-      try {
-        await debitCredits(projectId, KNOWLEDGE_APPLY_CREDITS, 'knowledge_apply');
-        creditsDebited = KNOWLEDGE_APPLY_CREDITS;
-      } catch (err) {
-        console.warn('[knowledge PATCH] credit debit failed (non-fatal):', (err as Error).message);
+    if (!isAlert && state === 'applied') {
+      const res = await run(APPLY_UPDATE_QUERIES[table], itemId);
+      const flipped = (res.count ?? 0) > 0;
+      if (flipped) {
+        // Server-side so the debit can't be skipped by the client. Non-fatal —
+        // a failed debit must never block the apply that already landed.
+        try {
+          await debitCredits(projectId, KNOWLEDGE_APPLY_CREDITS, 'knowledge_apply');
+          creditsDebited = KNOWLEDGE_APPLY_CREDITS;
+        } catch (err) {
+          console.warn('[knowledge PATCH] credit debit failed (non-fatal):', (err as Error).message);
+        }
       }
+    } else {
+      await run(UPDATE_QUERIES[table], state, itemId);
     }
 
     // Record audit event

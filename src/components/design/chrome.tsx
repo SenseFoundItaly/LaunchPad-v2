@@ -234,12 +234,16 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
           streaming={it.id === 'chat' ? chatStreaming : undefined}
         />
       ))}
-      <div style={{ flex: 1 }} />
-      {/* User chip — links to /settings for BYOK + model preferences */}
+      {/* flexShrink:0 so a short viewport collapses THIS spacer (not the chip). */}
+      <div style={{ flex: 1, minHeight: 6 }} />
+      {/* User chip — links to /settings for BYOK + model preferences.
+          flexShrink:0 keeps the 28px chip from being squeezed to nothing on a
+          short rail (item 3: the account/settings icon "sometimes disappears"). */}
       <Link
         href="/settings"
         title={t('nav.settings')}
         style={{
+          flexShrink: 0,
           width: 28,
           height: 28,
           borderRadius: 14,

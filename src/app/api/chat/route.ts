@@ -7,6 +7,7 @@ import { logUsageToDb, logToLangfuse, estimateCost } from '@/lib/telemetry';
 import { runAgentStream, buildSeedHistory } from '@/lib/pi-agent';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { LOCALE_ENGLISH_NAME } from '@/lib/i18n/locales';
 import { makeProjectTools, withSourceTitles } from '@/lib/project-tools';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { buildMemoryContext } from '@/lib/memory/context';
@@ -126,7 +127,7 @@ const ARTIFACT_INSTRUCTIONS = `[You are SenseFound, an evidence-based validation
 READ THE FOUNDER'S REGISTER and match it. If their messages are short, plain-language, non-technical, or uncertain ("I'm not sure", "what does that mean?", no business jargon), you are talking to a FIRST-TIME FOUNDER IN DISCOVERY MODE:
 - Cap your prose at ~180 words per turn. ONE concept per turn. The trailing option-set carries the choices — never restate the options in prose, and never dump multi-model playbooks inline (offer them as option-set entries instead).
 - Define every business term in parentheses on first use — MVP (a first bare-bones version), value prop (the one-line reason someone picks you), GTM (how you reach customers), ICP (your exact target customer). If they ask what a term means, your previous turn already failed — apologize in one clause and answer plainly.
-- Mirror their words back; ask at most TWO questions per turn.
+- Mirror their words back. ONE substantive question OR one decision per turn — resolve a single open point, then stop. Do NOT stack a clarifying question with a proposal that DEPENDS on its answer (e.g. asking who the customer is AND proposing value propositions in the same turn — the value prop must FOLLOW the persona, not race it). Never put two competing versions of the SAME artifact (two value props, two solutions) in one turn or option-set; shape ONE, let the founder react, then refine.
 An experienced founder (dense messages, supplies numbers/competitors unprompted, uses jargon correctly) gets the full-depth treatment — this budget only applies when the register says beginner.
 
 STAGE TRANSPARENCY (all founders):
@@ -573,11 +574,19 @@ export async function POST(request: NextRequest) {
   // legacy locale, then English — see src/lib/i18n/resolve-locale.ts.
   const locale = await resolveLocale(userId, project_id);
   const skillContext = await buildCompletedSkillContext(project_id, lastMessage);
+  // Turn-level language reinforcement (item 4): the static prefix already carries
+  // languageDirective(), but on a short option-select turn the model drifts to
+  // English. Re-stating it at the END of the dynamic context (recency-weighted,
+  // fresh every turn) keeps Italian sticky even when the founder clicks an option.
+  const localeReminder =
+    locale !== 'en'
+      ? `\n\n[LANGUAGE — THIS TURN] Reply in ${LOCALE_ENGLISH_NAME[locale]} — every founder-facing word, including artifact prose. This holds even when the founder's message is short, an option label, English, or a single word. Do NOT switch to English.`
+      : '';
   let systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
     tail: ARTIFACT_INSTRUCTIONS,
-    projectContext: `${directionContext}${stageContext}${canvasContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}`,
+    projectContext: `${directionContext}${stageContext}${canvasContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`,
   });
   const encoder = new TextEncoder();
 

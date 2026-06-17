@@ -19,6 +19,8 @@ import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { StageCard } from '@/components/stages/StageCard';
+import { OnboardingCard } from '@/components/onboarding/OnboardingCard';
+import { NotesCard } from '@/components/onboarding/NotesCard';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { laneFor } from '@/lib/action-lanes';
 import { checkActionPrompt } from '@/lib/journey-prompts';
@@ -135,6 +137,7 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
             <SkeletonRow />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 880 }}>
+              <OnboardingCard projectId={projectId} />
               <StageCard projectId={projectId} />
               <NextToValidate projectId={projectId} />
               <Panel
@@ -163,6 +166,7 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
                 )}
               </Panel>
               <InboxPanel projectId={projectId} actions={actions} totalCount={inboxBadge} />
+              <NotesCard projectId={projectId} />
             </div>
           )}
     </div>

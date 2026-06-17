@@ -256,6 +256,21 @@ function ContextExportBtn({
     openPrintPreview(`${project?.name || t('chat.context-export-title')}`, md);
   }
 
+  // GO/NO-GO report (item 11): the lean decision doc — scoring, per-stage
+  // results, signals, risks, open tasks. No chat history / raw dumps.
+  async function handleDownloadGoNoGo() {
+    setOpen(false);
+    const data = await gatherData();
+    const md = buildContextMarkdown(data, { goNoGo: true });
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(project?.name || 'export').replace(/\s+/g, '-').toLowerCase()}-go-no-go-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <IconBtn
@@ -302,6 +317,29 @@ function ContextExportBtn({
           >
             <Icon d={I.download} size={14} stroke={1.4} />
             {t('chat.download-md')}
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadGoNoGo}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              padding: '8px 12px',
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--ink-2)',
+              fontFamily: 'var(--f-sans)',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => { (e.currentTarget.style.background = 'var(--paper-2)'); }}
+            onMouseLeave={(e) => { (e.currentTarget.style.background = 'transparent'); }}
+          >
+            <Icon d={I.check} size={14} stroke={1.4} />
+            {t('chat.download-gonogo')}
           </button>
           <button
             type="button"
