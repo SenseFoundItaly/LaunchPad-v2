@@ -30,7 +30,7 @@ import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
 import { getCreditsRemaining, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import { ownerUserId } from '@/lib/cost-meter';
-import { USER_MONTHLY_LLM_USD } from '@/lib/credit-costs';
+import { USER_MONTHLY_LLM_USD, USER_MONTHLY_CREDITS } from '@/lib/credit-costs';
 import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readiness';
 import { getActiveStage } from '@/lib/journey';
 import {
@@ -614,26 +614,15 @@ async function estimateMonitorCredits(
   const monthlyCost = estimateMonthlyCostEur(schedule);
   const monthlyRuns = SCHEDULE_TO_MONTHLY_RUNS[schedule];
 
-  // Look up the project's credits/EUR ratio. Default to 200 if no budget
-  // row exists yet (matches cost-meter.ts:122 fallback).
-  let creditsPerEur = 200;
-  try {
-    const period = new Date().toISOString().slice(0, 7);
-    const row = await get<{ cap_llm_usd: number | string; cap_credits: number | string }>(
-      `SELECT cap_llm_usd, cap_credits FROM project_budgets
-       WHERE project_id = ? AND period_month = ? LIMIT 1`,
-      projectId, period,
-    );
-    if (row) {
-      const capUsd = Number(row.cap_llm_usd);
-      const capCredits = Number(row.cap_credits);
-      if (capUsd > 0 && capCredits > 0) creditsPerEur = capCredits / capUsd;
-    }
-  } catch {
-    /* fall through to default */
-  }
-
-  const perRunCredits = +(BALANCED_COST_PER_RUN_EUR * creditsPerEur).toFixed(2);
+  // Credit conversion uses the CANONICAL post-markup ratio (3× markup, founder
+  // decision 2026-06-16): USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD =
+  // 100 / 0.333 = 300 credits per $. The old per-project lookup defaulted to 200
+  // and read project_budgets (never migrated to the markup) — so watcher
+  // estimates came out ~3× too low and the markup pass missed them entirely.
+  // Credits are per-USER now, so the per-user ratio is the source of truth.
+  const creditsPerDollar =
+    USER_MONTHLY_LLM_USD > 0 ? USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD : 300;
+  const perRunCredits = +(BALANCED_COST_PER_RUN_EUR * creditsPerDollar).toFixed(2);
   const dailyCredits = Math.max(0, Math.round(perRunCredits * (monthlyRuns / 30)));
   const monthlyCredits = Math.max(0, Math.round(perRunCredits * monthlyRuns));
 

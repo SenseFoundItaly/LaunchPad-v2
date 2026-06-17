@@ -8,6 +8,8 @@
  * number before a watcher is ever created.
  */
 
+import { USER_MONTHLY_CREDITS, USER_MONTHLY_LLM_USD } from '@/lib/credit-costs';
+
 const RUNS_PER_WEEK: Record<string, number> = {
   hourly: 168,
   daily: 7,
@@ -19,11 +21,17 @@ export function watcherRunsPerWeek(cadence: string): number {
   return RUNS_PER_WEEK[cadence] ?? 1;
 }
 
-// Default per-run credit cost when the per-project estimate isn't known
-// (e.g. the manual form). ≈ BALANCED_COST_PER_RUN_EUR (0.0055) × the default
-// ~100 credits/EUR. The MonitorProposalCard passes the artifact's real
-// estimated_per_run_credits instead when present.
-export const DEFAULT_WATCHER_PER_RUN_CREDITS = 0.55;
+// Default per-run credit cost when the per-project estimate isn't known (e.g.
+// the manual form). Empirical monitor-agent base cost (~$0.0055/run: system
+// prompt + web_search + alert parsing) × the CANONICAL post-markup ratio
+// (3× markup, 2026-06-16: 100 credits / $0.333 = 300 credits per $). Was 0.55,
+// derived from a stale ~100 credits/$ that predated the markup — so watcher
+// estimates read ~3× too low. The MonitorProposalCard passes the artifact's
+// real estimated_per_run_credits when present.
+const BALANCED_COST_PER_RUN_USD = 0.0055;
+const CREDITS_PER_DOLLAR =
+  USER_MONTHLY_LLM_USD > 0 ? USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD : 300;
+export const DEFAULT_WATCHER_PER_RUN_CREDITS = +(BALANCED_COST_PER_RUN_USD * CREDITS_PER_DOLLAR).toFixed(2);
 
 export function watcherWeeklyCredits(cadence: string, perRunCredits?: number): number {
   const perRun =
