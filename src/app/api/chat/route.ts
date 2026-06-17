@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { chatWithUsage, type UserKeyOverride } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
 import { logUsageToDb, logToLangfuse, estimateCost } from '@/lib/telemetry';
-import { runAgentStream } from '@/lib/pi-agent';
+import { runAgentStream, buildSeedHistory } from '@/lib/pi-agent';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { makeProjectTools, withSourceTitles } from '@/lib/project-tools';
@@ -214,6 +214,8 @@ Walk the founder through validating the 7 stages (1 Idea Validation → 2 Market
 
 Until ALL stages reach verdict GO (>=6.0), every trailing option-set MUST include AT LEAST ONE option that advances stage validation — specifically, the \`next_recommended_skill\` from the readiness block.
 
+EXCEPTION — idea-shaping is NEVER an option-set entry. It was removed from chat options because it re-ran the whole guided flow from scratch and the rule above kept re-injecting it every turn (an infinite "Avvia Idea Shaping" loop). The founder relaunches the guided flow from the "Re-run Idea Shaping" button in the Canvas — never from chat. While the idea canvas is still being shaped (Stage 1, [CURRENT IDEA CANVAS] missing solution / value_proposition / target_market), the advancing option is the canvas-COMMIT (update_idea_canvas / propose_validation), NOT a skill kickoff. The founder also has three fixed default replies below the composer (give input / get options / go back) — do NOT restate those as option-set entries; offer only the content-specific choices (e.g. concrete A/B/C options for the field in play) plus the commit.
+
 HOW to source the recommendation:
 - The \`get_project_summary\` response contains a \`## Stage readiness\` block with scores, verdicts, missing skills, and a "Next recommended:" + "Kickoff:" pair.
 - Give the option a short verb-first label (≤ 6 words) naming the skill action (e.g. "Run market research"), and include the \`Kickoff:\` line VERBATIM in the option's \`description\` so the founder sees exactly what will run.
@@ -230,6 +232,7 @@ OPTION-SET DISCIPLINE — STAY ON THE FOUNDER'S WORK:
 - "Your background / experience / role / story / X" ALWAYS means the FOUNDER's, NEVER yours. Never describe yourself, your capabilities, or "what LaunchPad is" unless the founder EXPLICITLY asks who or what you are. An option about the founder's background MUST ask a question that ties it to an open gap (e.g. their years in the sector → unfair_advantage), never pivot to talking about yourself.
 - When the founder selects an option, DO the on-task work it implies on the very next turn (write the field, ask the one gap-closing question, or fire the mapped skill). Never answer a selection with a self-monologue or a topic switch. If you notice you have drifted off the founder's current task, snap back to the most recent open gap immediately — do not wait for the founder to redirect you.
 - COMMIT, DON'T RE-PROPOSE. When the option's intent is to COMMIT a canvas field — solution, value_proposition, target_market, competitive_advantage, or business_model (e.g. "Use Example A — Legal radar … commit as solution + value prop") — you MUST WRITE that field this turn via update_idea_canvas / propose_validation. Do NOT re-propose it, re-offer alternatives, pivot to a different field, reinterpret it as something else (a watcher, a competitor, a skill), or ask the founder to re-confirm wording they already chose. The commit IS the action; staging it for approval (the gate) is how it lands. Re-proposing a field the founder already picked is the over-proposing failure mode — don't do it.
+- DON'T NARRATE A WRITE YOU DON'T PERFORM. Saying "ora registro nel canvas" / "now I'll write this to the canvas" / "chiudo i check" and then NOT calling update_idea_canvas (or propose_validation) the SAME turn is BROKEN — it leaves the idea_canvas row EMPTY and Stage 1 never scores, no matter how thorough the chat felt. Worse, if the conversation later resets you fall back to that empty row and restart from scratch. RULE: the moment you have a confident value for ANY canvas field, CALL the tool that turn — do not defer it to "next turn". When the founder picks a confirm/commit option (e.g. "Conferma tutto, carica il canvas"), that is an explicit WRITE instruction: call update_idea_canvas with every field you assembled, immediately, as your first action that turn — before any prose or option-set.
 - When the founder explicitly asks to run a skill: call the skill_* tool and place the option object it returns into your trailing option-set (one click runs it). Do not emit a separate skill-suggestion card.
 
 === TIER 4 — ARTIFACT FORMATS (reference) ===
@@ -690,9 +693,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Durable history seed (cold-start fix). The client re-sends the full
+    // thread every turn; mirror all-but-the-current-message into the agent so
+    // a wiped ephemeral session.jsonl (cold start / deploy) no longer makes the
+    // agent "restart from scratch" mid-conversation. Excludes the last entry —
+    // that's `lastMessage`, which the SDK appends as the new user turn.
+    const seedHistory = buildSeedHistory(messages.slice(0, -1));
+
     const { stream: piStream } = runAgentStream(lastMessage, {
       sessionId,
       systemPrompt,
+      seedHistory,
       extraTools: [...projectTools, ...skillTools],
       // 180s — generous for research-heavy turns but cuts off the
       // agent-stuck-in-loop case (observed turns hanging to 10+ min with

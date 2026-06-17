@@ -23,6 +23,7 @@ import { useChat, chatStoreHydrated, markChatHydrated } from '@/hooks/useChat';
 import { requestRecharge } from '@/components/credits/recharge-events';
 import { useProject } from '@/hooks/useProject';
 import { splitOptionLabel } from '@/components/chat/option-label';
+import { IdeaShapingQuickReplies } from '@/components/chat/IdeaShapingQuickReplies';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import type { Artifact, ArtifactType, ValidationProposalArtifact } from '@/types/artifacts';
 import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
@@ -1179,6 +1180,14 @@ export default function CopilotChatPage({
             )}
           </div>
 
+          {/* Stable default replies during idea shaping — keep the founder
+              moving without the restart-prone "Avvia Idea Shaping" kickoff
+              (now a Canvas button). Self-hides once the canvas is filled. */}
+          <IdeaShapingQuickReplies
+            projectId={projectId}
+            onReply={!isStreaming ? sendMessage : undefined}
+          />
+
           <ChatComposer
             value={input}
             onChange={setInput}
@@ -2032,8 +2041,15 @@ function InlineArtifact({
   const a = artifact as unknown as Record<string, unknown>;
 
   if (artifact.type === 'option-set' && Array.isArray(a.options)) {
-    const options = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number; skill_id?: string }>;
+    const allOptions = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number; skill_id?: string }>;
+    // Strip the idea-shaping kickoff: it re-runs from scratch and the prompt's
+    // "always offer next_recommended_skill" rule made it reappear every turn
+    // (the loop Luca hit). Relaunch now lives only on the Canvas button; the
+    // stable conversational alternatives are the quick-reply strip above the
+    // composer. Deterministic strip → no prompt drift can resurface it.
+    const options = allOptions.filter((o) => o.skill_id !== 'idea-shaping');
     const prompt = typeof a.prompt === 'string' ? a.prompt : '';
+    if (options.length === 0) return null;
     return (
       <div
         style={{
