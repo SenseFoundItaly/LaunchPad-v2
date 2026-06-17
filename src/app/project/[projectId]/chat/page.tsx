@@ -91,6 +91,18 @@ const NEAR_BOTTOM_PX = 150;
 // next to the live pinned snapshot.
 const PINNED_ARTIFACT_TYPES = new Set<ArtifactType>(['idea-canvas']);
 
+// Artifact types that must NEVER render as Canvas department cards even though
+// they aren't in INLINE/PINNED above. The Canvas split is a blocklist (anything
+// not inline/pinned → Canvas), so an artifact type the frontend doesn't know how
+// to render (e.g. the agent sometimes emits `watch-source-proposal`, which isn't
+// even in the ArtifactType union) would otherwise fall through, get the default
+// 'market' department, and render as an EMPTY card ("Mercato · 2" with blank
+// boxes — founder report). These are handled elsewhere (watcher proposals live
+// in the Watchers tab + the monitor-proposal inline backstop), so drop them from
+// the Canvas entirely. Typed as string because some values aren't valid
+// ArtifactTypes by design. */
+const NON_CANVAS_TYPES = new Set<string>(['watch-source-proposal']);
+
 /**
  * Skills the project can't run YET (idea canvas missing solution/value_prop),
  * shared with every InlineOption so a skill option — whether freshly proposed,
@@ -137,7 +149,10 @@ function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artif
   return {
     inline: all.filter((a) => INLINE_ARTIFACT_TYPES.has(a.type)),
     canvas: all.filter(
-      (a) => !INLINE_ARTIFACT_TYPES.has(a.type) && !PINNED_ARTIFACT_TYPES.has(a.type),
+      (a) =>
+        !INLINE_ARTIFACT_TYPES.has(a.type) &&
+        !PINNED_ARTIFACT_TYPES.has(a.type) &&
+        !NON_CANVAS_TYPES.has(a.type as string),
     ),
   };
 }
