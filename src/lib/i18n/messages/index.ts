@@ -6,10 +6,10 @@
  * than rendering blanks, and a typo'd key shows the key (a visible signal in
  * dev) instead of crashing.
  *
- * UI catalogs currently exist for en + it. Other supported locales fall back to
- * English text in the chrome — but the *agent's* responses are still localized
- * for them via the prompt directive (see agent-prompt.ts). Add a language to
- * the UI by dropping in `messages/<locale>.ts` and registering it here.
+ * UI catalogs exist for en + it — the only locales in SUPPORTED_LOCALES (the
+ * picker is restricted to fully-translated languages). Add a language by
+ * dropping in `messages/<locale>.ts`, registering it here, AND adding it to
+ * SUPPORTED_LOCALES. The English fallback below still protects any partial key.
  */
 
 import type { Locale } from '@/lib/i18n/locales';
@@ -19,10 +19,6 @@ import { it } from './it';
 const CATALOGS: Record<Locale, Partial<Messages>> = {
   en,
   it,
-  fr: {},
-  es: {},
-  de: {},
-  pt: {},
 };
 
 export type TranslateVars = Record<string, string | number>;

@@ -13,7 +13,12 @@
  *     the directive "respond in Italian" is unambiguous to the model.
  */
 
-export const SUPPORTED_LOCALES = ['en', 'it', 'fr', 'es', 'de', 'pt'] as const;
+// Only locales with a COMPLETE message catalog (src/lib/i18n/messages/) ship in
+// the picker. en + it are fully translated; fr/es/de/pt were listed but never
+// translated, so they're removed (founder 2026-06-17) — re-add a locale here the
+// moment its catalog lands. isLocale() rejecting the others means any stale
+// cookie/DB value for them safely falls back to English (asLocale → DEFAULT).
+export const SUPPORTED_LOCALES = ['en', 'it'] as const;
 
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
@@ -23,20 +28,12 @@ export const DEFAULT_LOCALE: Locale = 'en';
 export const LOCALE_NATIVE_NAME: Record<Locale, string> = {
   en: 'English',
   it: 'Italiano',
-  fr: 'Français',
-  es: 'Español',
-  de: 'Deutsch',
-  pt: 'Português',
 };
 
 /** English exonym — injected into the agent prompt's "respond in X" directive. */
 export const LOCALE_ENGLISH_NAME: Record<Locale, string> = {
   en: 'English',
   it: 'Italian',
-  fr: 'French',
-  es: 'Spanish',
-  de: 'German',
-  pt: 'Portuguese',
 };
 
 /** Narrow an untrusted string (cookie, request body, DB cell) to a Locale. */
