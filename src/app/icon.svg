@@ -1,0 +1,18 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- SenseFound app icon (V1.1): Authority charcoal rounded square + white
+       protective brackets + Foundation-peach validation arrow. Reproduced from
+       the spec geometry; swap for the official asset when available. -->
+  <rect width="32" height="32" rx="7" fill="#2C2C2C"/>
+  <g transform="translate(4 4)">
+    <g stroke="#FDFAF6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 8 V4 H8"/>
+      <path d="M16 4 H20 V8"/>
+      <path d="M20 16 V20 H16"/>
+      <path d="M8 20 H4 V16"/>
+    </g>
+    <g stroke="#FDA46E" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8.5 15.5 L15 9"/>
+      <path d="M10.5 9 H15 V13.5"/>
+    </g>
+  </g>
+</svg>

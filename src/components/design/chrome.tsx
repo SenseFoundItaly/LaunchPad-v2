@@ -29,6 +29,7 @@ import { Icon, I, type IconKey } from './icons';
 import { ShareButton } from '@/components/project/ShareButton';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { LanguageSwitch } from '@/components/design/LanguageSwitch';
+import { Logomark } from '@/components/design/Logomark';
 import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -64,9 +65,21 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-        {/* Brand mark removed — the domain (launchpad.sensefound.io) is the
-            branding; repeating "SenseFound / sensefound" here was visual
-            noise stacked on top of the (now-removed) AppHeader. */}
+        {/* Brand mark — SenseFound logomark + wordmark (V1.1 guidelines: the
+            protective bracket + validation arrow is the brand's identity). The
+            logomark links home; the wordmark is hidden on narrow widths. */}
+        <a href="/" aria-label="SenseFound — home" style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none', flexShrink: 0 }}>
+          <Logomark size={20} />
+          <span
+            className="lp-mono"
+            style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.08em', color: 'var(--ink-2)' }}
+          >
+            SENSEFOUND
+          </span>
+        </a>
+        {breadcrumb && breadcrumb.length > 0 && (
+          <span style={{ color: 'var(--ink-6)', margin: '0 2px' }}>·</span>
+        )}
         {breadcrumb && breadcrumb.length > 0 && (
           <span
             style={{
