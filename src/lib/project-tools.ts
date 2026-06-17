@@ -169,11 +169,36 @@ const listPendingActions = (ctx: ToolContext): AgentTool => ({
       ctx.projectId, ...statuses,
     );
 
-    const text = rows.length === 0
-      ? `No actions matching status ${statuses.join(', ')}.`
-      : rows.map((r, i) =>
-          `${i + 1}. [${r.status} · ${r.estimated_impact || 'no-impact'} · ${r.action_type}] ${r.title}${r.rationale ? `\n   Rationale: ${r.rationale}` : ''}\n   Action id: ${r.id}`,
-        ).join('\n\n');
+    // Plain-language labels so the agent describes each row accurately.
+    // A configure_* row in pending/edited is a PROPOSAL — NOT a configured /
+    // active watcher. Calling it "configured" is wrong (founder confusion):
+    // the live, already-running watchers live in the Watchers tab, not here.
+    const TYPE_LABEL: Record<string, string> = {
+      configure_monitor: 'proposed watcher (awaiting approval)',
+      configure_watch_source: 'proposed watcher (awaiting approval)',
+      signal_alert: 'signal finding (from a watcher run)',
+      validation_proposal: 'validation evidence (awaiting approval)',
+      proposed_graph_update: 'knowledge update (awaiting approval)',
+    };
+
+    let text: string;
+    if (rows.length === 0) {
+      text = `No actions matching status ${statuses.join(', ')}.`;
+    } else {
+      // Count by type so the agent reports exact numbers (no eyeballed miscount).
+      const byType: Record<string, number> = {};
+      for (const r of rows) byType[String(r.action_type)] = (byType[String(r.action_type)] || 0) + 1;
+      const summary = Object.entries(byType)
+        .map(([type, n]) => `${n} ${TYPE_LABEL[type] || type}`)
+        .join(', ');
+      const body = rows.map((r, i) =>
+        `${i + 1}. [${r.status} · ${r.estimated_impact || 'no-impact'} · ${TYPE_LABEL[String(r.action_type)] || r.action_type}] ${r.title}${r.rationale ? `\n   Rationale: ${r.rationale}` : ''}\n   Action id: ${r.id}`,
+      ).join('\n\n');
+      text =
+        `${rows.length} item(s) awaiting decision: ${summary}.\n` +
+        `NOTE: "proposed watcher" rows are NOT yet active — they are suggestions the founder must Apply. Already-active watchers are NOT in this list; they live in the Watchers tab. Do not call a proposed item "configured".\n\n` +
+        body;
+    }
 
     return {
       content: [{ type: 'text', text }],

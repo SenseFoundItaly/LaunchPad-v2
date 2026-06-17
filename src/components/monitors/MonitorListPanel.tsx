@@ -72,6 +72,9 @@ function statusPill(status: string, t: TFn) {
   if (status === 'paused') return <Pill kind="n">{t('monitors.status-paused')}</Pill>;
   if (status === 'error') return <Pill kind="warn">{t('monitors.status-error')}</Pill>;
   if (status === 'archived') return <Pill kind="n">{t('monitors.status-archived')}</Pill>;
+  // 'proposed' = agent suggestion awaiting Apply. 'live' (peach dot + charcoal
+  // label after the contrast fix) reads as "pending your decision".
+  if (status === 'proposed') return <Pill kind="live" dot>{t('monitors.status-proposed')}</Pill>;
   return <Pill kind="n">{status}</Pill>;
 }
 
@@ -233,6 +236,125 @@ function RowHeader({ w, expanded }: { w: Watcher; expanded?: boolean }) {
           <span>{w.cadence}</span>
           <span>· {relAge(w.last_run_at, t)}</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** A pending watcher proposal (configure_monitor / configure_watch_source still
+ *  in pending_actions). Renders the same header as a real watcher, plus the
+ *  rationale + inputs and inline Apply / Dismiss. Applying materializes the
+ *  monitor/watch_source row (the proposal then graduates to a live watcher on
+ *  the next list refresh); dismissing rejects the pending_action. Both go
+ *  through the canonical actions transition endpoint, so executors + preference
+ *  learning fire exactly as they do from the inbox. */
+function ProposedWatcherRow({ projectId, w }: { projectId: string; w: Watcher }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState<'apply' | 'dismiss' | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const paId = w._pending_action_id ?? w._origin_id;
+
+  async function refresh() {
+    await qc.invalidateQueries({ queryKey: ['watchers', projectId] });
+    if (typeof window !== 'undefined') {
+      // The proposal left the inbox queue too — refresh inbox count/lists.
+      window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+    }
+  }
+
+  async function transition(verb: 'apply' | 'reject') {
+    if (busy) return;
+    setBusy(verb === 'apply' ? 'apply' : 'dismiss');
+    setErr(null);
+    try {
+      // Content-Type required — CSRF middleware 415s mutating /api calls without it.
+      const res = await fetch(`/api/projects/${projectId}/actions/${paId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transition: verb }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.success === false) {
+        throw new Error(body?.error || `HTTP ${res.status}`);
+      }
+      await refresh();
+    } catch (e) {
+      setErr((e as Error).message || t('monitors.apply-failed'));
+      setBusy(null);
+    }
+    // On success the row vanishes when the list refetches — no need to clear busy.
+  }
+
+  const urls = w.inputs.urls ?? [];
+
+  return (
+    <div
+      id={`watcher-${w._origin_id}`}
+      style={{
+        border: '1px solid var(--accent)',
+        borderRadius: 6,
+        background: 'var(--accent-wash)',
+        marginBottom: 6,
+      }}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setExpanded((e) => !e)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded((v) => !v); } }}
+        style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderRadius: 6, cursor: 'pointer' }}
+      >
+        <RowHeader w={w} expanded={expanded} />
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void transition('apply')}
+            style={{ ...miniBtn, background: 'var(--accent)', color: 'var(--on-accent)', border: 'none', fontWeight: 600, opacity: busy ? 0.6 : 1 }}
+          >
+            {busy === 'apply' ? t('monitors.applying') : t('actions.apply')}
+          </button>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void transition('reject')}
+            style={{ ...miniBtn, opacity: busy ? 0.6 : 1 }}
+          >
+            {busy === 'dismiss' ? t('monitors.dismissing') : t('actions.dismiss')}
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div style={{ borderTop: '1px solid var(--line)', padding: '10px 14px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {w.proposal_rationale && (
+            <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+              {w.proposal_rationale}
+            </p>
+          )}
+          <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)', display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            <span>{w.cadence}</span>
+            {kindPill(w.kind, t)}
+          </div>
+          {urls.length > 0 && (
+            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {urls.map((u) => (
+                <li key={u} style={{ fontSize: 11.5, wordBreak: 'break-all' }}>
+                  <a href={u} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-ink)', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
+                    {u}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div style={{ padding: expanded ? '0 14px 10px' : '0 12px 8px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 11, color: 'var(--ink-4)', flex: 1 }}>{t('monitors.proposed-hint')}</span>
+        {err && <span style={{ fontSize: 11, color: 'var(--clay)' }}>{err}</span>}
       </div>
     </div>
   );
@@ -1051,15 +1173,19 @@ export default function MonitorListPanel({
         </div>
       ) : (
         <div>
-          {rows.map((w) => (
-            <ExpandableWatcherRow
-              key={w.id}
-              projectId={projectId}
-              w={w}
-              expanded={expandedId === w.id}
-              onToggle={() => setExpandedId((cur) => (cur === w.id ? null : w.id))}
-            />
-          ))}
+          {rows.map((w) =>
+            w.status === 'proposed' ? (
+              <ProposedWatcherRow key={w.id} projectId={projectId} w={w} />
+            ) : (
+              <ExpandableWatcherRow
+                key={w.id}
+                projectId={projectId}
+                w={w}
+                expanded={expandedId === w.id}
+                onToggle={() => setExpandedId((cur) => (cur === w.id ? null : w.id))}
+              />
+            ),
+          )}
         </div>
       )}
     </div>

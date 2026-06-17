@@ -15,7 +15,12 @@ import { query } from '@/lib/db';
 export type WatcherKind = 'scan' | 'diff' | 'hybrid';
 export type WatcherDepth = 'pulse' | 'deep';
 export type WatcherCadence = 'hourly' | 'daily' | 'weekly' | 'monthly' | 'manual';
-export type WatcherStatus = 'active' | 'paused' | 'error' | 'archived';
+// 'proposed' = an agent-suggested watcher still sitting in pending_actions
+// (configure_monitor / configure_watch_source), awaiting the founder's Apply.
+// It has no monitors/watch_sources row yet — applying the proposal materializes
+// one. Surfacing it here (not only in chat) is what lets the founder act on it
+// from the Watchers tab instead of it being invisible outside the chat thread.
+export type WatcherStatus = 'active' | 'paused' | 'error' | 'archived' | 'proposed';
 
 /**
  * Founder-facing topics. Maps both:
@@ -63,10 +68,16 @@ export interface Watcher {
   /** Findings in the last 7 days. Drives "X new" badge. */
   recent_finding_count: number;
   created_at: string;
-  /** Internal — which table this came from. UI should ignore. */
-  _origin: 'monitor' | 'watch_source';
-  /** Internal — original row id, for write-path routing. */
+  /** Internal — which table this came from. UI should ignore. 'proposal' =
+   *  not yet materialized; lives in pending_actions. */
+  _origin: 'monitor' | 'watch_source' | 'proposal';
+  /** Internal — original row id, for write-path routing. For proposals this is
+   *  the pending_action id. */
   _origin_id: string;
+  /** Proposals only — the pending_action id to Apply/Reject. */
+  _pending_action_id?: string;
+  /** Proposals only — why the agent suggested it (shown on the proposed row). */
+  proposal_rationale?: string;
 }
 
 // =============================================================================
@@ -98,12 +109,35 @@ const WATCH_SOURCE_CATEGORY_TO_TOPIC: Record<string, WatcherTopic> = {
   custom: 'custom',
 };
 
+// Proposal payloads (configure_monitor) carry a free-form `kind` (e.g.
+// 'regulation', 'competitor') rather than the 'ecosystem.*' type a live monitor
+// row has. Map the common ones; everything else falls back to 'custom'.
+const MONITOR_KIND_TO_TOPIC: Record<string, WatcherTopic> = {
+  regulation: 'regulatory',
+  regulatory: 'regulatory',
+  competitor: 'competitors',
+  competitors: 'competitors',
+  ip: 'ip',
+  patent: 'ip',
+  trends: 'trends',
+  market: 'trends',
+  partnerships: 'partnerships',
+  hiring: 'hiring',
+  sentiment: 'sentiment',
+  funding: 'funding',
+  pricing: 'pricing',
+};
+
 function topicFromMonitorType(type: string): WatcherTopic {
   return MONITOR_TYPE_TO_TOPIC[type] || 'custom';
 }
 
 function topicFromWatchSourceCategory(category: string): WatcherTopic {
   return WATCH_SOURCE_CATEGORY_TO_TOPIC[category] || 'custom';
+}
+
+function topicFromMonitorKind(kind: string): WatcherTopic {
+  return MONITOR_KIND_TO_TOPIC[(kind || '').toLowerCase()] || 'custom';
 }
 
 // =============================================================================
@@ -140,6 +174,20 @@ interface WatchSourceRowRaw {
   recent_finding_count: string | number;
 }
 
+// A pending watcher proposal from pending_actions (configure_monitor or
+// configure_watch_source, status pending/edited). `payload` is the proposal
+// body — for monitors: { name, kind, schedule, urls_to_track, ... }; for watch
+// sources: { label, url, category, schedule, rationale, ... }.
+interface ProposalRowRaw {
+  id: string;
+  project_id: string;
+  action_type: 'configure_monitor' | 'configure_watch_source';
+  title: string;
+  rationale: string | null;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+}
+
 // =============================================================================
 // Public API
 // =============================================================================
@@ -154,7 +202,7 @@ interface WatchSourceRowRaw {
  *   - Archived rows.
  */
 export async function listWatchers(projectId: string): Promise<Watcher[]> {
-  const [monitors, watchSources] = await Promise.all([
+  const [monitors, watchSources, proposals] = await Promise.all([
     query<MonitorRowRaw>(
       `SELECT m.id, m.project_id, m.type, m.name, m.schedule, m.status,
               m.last_run, m.next_run, m.urls_to_track, m.config, m.created_at,
@@ -184,6 +232,19 @@ export async function listWatchers(projectId: string): Promise<Watcher[]> {
           AND ws.status != 'archived'
           AND ws.monitor_id IS NULL
         ORDER BY ws.created_at DESC`,
+      projectId,
+    ),
+    // Pending watcher proposals — agent suggestions awaiting Apply. Only
+    // 'pending'/'edited' (still actionable); 'sent'/'applied' already
+    // materialized into a monitor/watch_source row (picked up by the queries
+    // above), and 'rejected' is gone.
+    query<ProposalRowRaw>(
+      `SELECT id, project_id, action_type, title, rationale, payload, created_at
+         FROM pending_actions
+        WHERE project_id = ?
+          AND action_type IN ('configure_monitor', 'configure_watch_source')
+          AND status IN ('pending', 'edited')
+        ORDER BY created_at DESC`,
       projectId,
     ),
   ]);
@@ -238,9 +299,67 @@ export async function listWatchers(projectId: string): Promise<Watcher[]> {
     _origin_id: ws.id,
   }));
 
-  // Merge + sort by recent activity, then by recency. Active first.
-  const all = [...monitorsAsWatchers, ...watchSourcesAsWatchers];
+  const proposalsAsWatchers: Watcher[] = proposals.map((p) => {
+    // postgres.js returns JSONB as an object, but guard against the
+    // double-encoded-string footgun (see edited_payload history) just in case.
+    const payload: Record<string, unknown> =
+      typeof p.payload === 'string'
+        ? safeParse(p.payload)
+        : (p.payload || {});
+    const isMonitor = p.action_type === 'configure_monitor';
+    const urls = Array.isArray(payload.urls_to_track)
+      ? (payload.urls_to_track as string[])
+      : typeof payload.url === 'string'
+        ? [payload.url as string]
+        : [];
+    const keywords = Array.isArray(payload.keywords) ? (payload.keywords as string[]) : [];
+    const name =
+      (typeof payload.name === 'string' && payload.name) ||
+      (typeof payload.label === 'string' && payload.label) ||
+      // Fall back to the action title, stripping the "Track URL: " /
+      // "Configure monitor: " prefix the proposer prepends.
+      p.title.replace(/^(track url:|configure monitor:)\s*/i, '') ||
+      'Proposed watcher';
+    const topic = isMonitor
+      ? topicFromMonitorKind(typeof payload.kind === 'string' ? payload.kind : '')
+      : topicFromWatchSourceCategory(typeof payload.category === 'string' ? payload.category : '');
+    return {
+      id: `w_p_${p.id}`,
+      project_id: p.project_id,
+      name,
+      topic,
+      kind: isMonitor ? (urls.length > 0 ? 'hybrid' : 'scan') : 'diff',
+      depth: isMonitor ? 'deep' : 'pulse',
+      cadence: normalizeCadence(typeof payload.schedule === 'string' ? payload.schedule : ''),
+      status: 'proposed',
+      inputs: {
+        urls: urls.length > 0 ? urls : undefined,
+        keywords: keywords.length > 0 ? keywords : undefined,
+      },
+      last_run_at: null,
+      next_run_at: null,
+      recent_finding_count: 0,
+      created_at: p.created_at,
+      _origin: 'proposal',
+      _origin_id: p.id,
+      _pending_action_id: p.id,
+      proposal_rationale:
+        (typeof payload.rationale === 'string' && payload.rationale) ||
+        (typeof payload.objective === 'string' && payload.objective) ||
+        p.rationale ||
+        undefined,
+    };
+  });
+
+  // Merge + sort. Proposals first (they need a decision), then by recent
+  // activity, then recency. Active before paused.
+  const all = [...proposalsAsWatchers, ...monitorsAsWatchers, ...watchSourcesAsWatchers];
   all.sort((a, b) => {
+    // Proposals always float to the top — the founder has an action to take.
+    if (a.status !== b.status) {
+      if (a.status === 'proposed') return -1;
+      if (b.status === 'proposed') return 1;
+    }
     if (a.status !== b.status) {
       if (a.status === 'active') return -1;
       if (b.status === 'active') return 1;
@@ -272,6 +391,15 @@ export async function watcherTopicCounts(projectId: string): Promise<Record<Watc
 // =============================================================================
 // Helpers
 // =============================================================================
+
+function safeParse(s: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(s);
+    return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
 
 function normalizeCadence(raw: string): WatcherCadence {
   const v = (raw || '').toLowerCase();
