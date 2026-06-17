@@ -4,25 +4,29 @@
 */
 
 :root {
-  /* base — warm paper (SenseFound V1.1 cream) */
-  --paper: #FAF5EE;
-  --paper-2: #F0EBE0;
-  --paper-3: #E5DFCF;
-  --ink: #16140F;
-  --ink-2: #2A2620;
-  --ink-3: #4A453C;
-  --ink-4: #6B6558;
-  --ink-5: #8F897A;
-  --ink-6: #B4AE9F;
-  --line: rgba(22, 20, 15, 0.09);
-  --line-2: rgba(22, 20, 15, 0.15);
+  /* base — SenseFound V1.1: Space cream #FDFAF6, Authority charcoal #2C2C2C.
+     ink ramp darkened at the muted end so small secondary text passes AA on
+     cream (was too light — the "testi piccoli non si leggono" feedback). */
+  --paper: #FDFAF6;                    /* brand SPACE */
+  --paper-2: #F3EEE4;
+  --paper-3: #E7E0D2;
+  --ink: #2C2C2C;                      /* brand AUTHORITY */
+  --ink-2: #3A3833;
+  --ink-3: #514C43;
+  --ink-4: #5F5A4F;                    /* was #6B6558 — darker */
+  --ink-5: #6E6A5C;                    /* was #8F897A — darker, now AA for small text */
+  --ink-6: #908A7B;                    /* was #B4AE9F — darker */
+  --line: rgba(44, 44, 44, 0.10);
+  --line-2: rgba(44, 44, 44, 0.17);
   --surface: #FFFFFF;
-  --surface-sunk: #EEE9DD;
+  --surface-sunk: #EFE9DD;
 
-  /* accents (shared chroma, vary hue) */
-  --moss: oklch(0.58 0.06 155);       /* ok / running — sage-teal per brand */
-  --moss-wash: oklch(0.94 0.02 155);
-  --clay: oklch(0.58 0.12 28);        /* warn */
+  /* accents — brand palette. CLARITY teal #BFD3C3 (kept as the light/wash;
+     a deeper sage drives text/indicators so it reads). PROTECTION terracotta
+     darkened for text legibility (the "rosso non si legge" fix). */
+  --moss: oklch(0.55 0.06 158);       /* readable sage for ok/running text + dots */
+  --moss-wash: #DDE8DF;               /* brand CLARITY-adjacent light */
+  --clay: oklch(0.50 0.13 35);        /* warn/err — deeper terracotta, AA on cream */
   --sky: oklch(0.60 0.09 235);        /* info */
   --sky-wash: oklch(0.94 0.02 235);
   --plum: oklch(0.52 0.11 325);       /* graph node */
@@ -31,10 +35,10 @@
   --f-sans: var(--font-inter), -apple-system, system-ui, sans-serif;
   --f-display: var(--font-inter), -apple-system, system-ui, sans-serif; /* all-sans */
   --f-mono: var(--font-jetbrains-mono), 'SF Mono', ui-monospace, monospace;
-  --accent-h: 30; /* hue knob — peach/coral per brand */
-  --accent: oklch(0.72 0.14 var(--accent-h));
-  --accent-ink: oklch(0.36 0.12 var(--accent-h));
-  --accent-wash: oklch(0.94 0.05 var(--accent-h));
+  --accent-h: 35; /* hue knob */
+  --accent: #FDA46E;                                  /* brand FOUNDATION peach (CTA fill) */
+  --accent-ink: oklch(0.40 0.13 var(--accent-h));     /* dark peach — for accent TEXT/links on light bg */
+  --accent-wash: oklch(0.95 0.045 var(--accent-h));
 
   /* categorical palette — brand-safe alternatives to raw Tailwind colors */
   --cat-teal: oklch(0.58 0.08 185);
@@ -45,7 +49,10 @@
   --cat-rose-wash: oklch(0.94 0.02 5);
   --clay-wash: oklch(0.94 0.04 28);
   --plum-wash: oklch(0.94 0.03 325);
-  --on-accent: #FAF5EE;
+  /* Text/icon color that sits ON the peach accent. Charcoal (not white) —
+     white-on-peach was ~2:1 and unreadable; charcoal-on-peach is ~7:1.
+     This is the primary button-contrast fix (founder feedback). */
+  --on-accent: #2C2C2C;
 
   /* brief section accents */
   --brief-blue: oklch(0.65 0.18 240);
@@ -96,8 +103,8 @@
 .lp-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: var(--shadow-card); }
 .lp-mono { font-family: var(--f-mono); font-feature-settings: 'ss01','cv01','cv02'; }
 .lp-serif { font-family: var(--f-display); letter-spacing: -0.02em; font-weight: 600; }
-.lp-kbd { font-family: var(--f-mono); font-size: 11px; padding: 2px 5px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; color: var(--ink-3); background: var(--paper-2); }
-.lp-chip { display:inline-flex; align-items:center; gap:6px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-family: var(--f-mono); letter-spacing: .02em; }
+.lp-kbd { font-family: var(--f-mono); font-size: 12px; padding: 2px 5px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; color: var(--ink-3); background: var(--paper-2); }
+.lp-chip { display:inline-flex; align-items:center; gap:6px; padding: 4px 9px; border-radius: 999px; font-size: 12px; font-family: var(--f-mono); letter-spacing: .02em; }
 .lp-dot { width: 6px; height: 6px; border-radius: 50%; display:inline-block; }
 .lp-pulse { animation: lp-pulse 1.8s ease-in-out infinite; }
 @keyframes lp-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
@@ -159,22 +166,22 @@
 .lp-md em { font-style: italic; }
 .lp-md ul, .lp-md ol { margin: 4px 0 8px; padding-left: 18px; }
 .lp-md li { margin: 2px 0; }
-.lp-md h1, .lp-md h2, .lp-md h3 { font-weight: 600; color: var(--ink); margin: 10px 0 3px; font-size: 13px; }
+.lp-md h1, .lp-md h2, .lp-md h3 { font-weight: 600; color: var(--ink); margin: 10px 0 3px; font-size: 14px; }
 .lp-md hr { border: none; border-top: 1px solid var(--line-2); margin: 10px 0; }
 .lp-md code { font-family: var(--f-mono); font-size: 0.85em; background: var(--paper-2); padding: 1px 4px; border-radius: 3px; }
 .lp-md pre { background: var(--paper-2); padding: 10px; border-radius: var(--r-m); overflow: auto; }
 .lp-md pre code { background: none; padding: 0; }
-.lp-md table { border-collapse: collapse; margin: 6px 0 10px; width: 100%; font-size: 12px; }
+.lp-md table { border-collapse: collapse; margin: 6px 0 10px; width: 100%; font-size: 13px; }
 .lp-md th, .lp-md td { border: 1px solid var(--line-2); padding: 4px 8px; text-align: left; vertical-align: top; }
 .lp-md th { background: var(--paper-2); font-weight: 600; color: var(--ink); white-space: nowrap; }
 .lp-md a { color: var(--accent-ink); text-decoration: underline; }
 
-/* tiny icons */
-.lp-ic { width: 14px; height: 14px; stroke: currentColor; stroke-width: 1.25; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
-.lp-ic-lg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.25; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+/* icons — bumped for legibility (founder feedback: icone più grandi) */
+.lp-ic { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.lp-ic-lg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 
 /* keep artboard contents from feeling cramped inside DCArtboard */
-.lp-frame { width: 100%; height: 100%; background: var(--paper); color: var(--ink); font-family: var(--f-sans); font-size: 13px; line-height: 1.45; display: flex; flex-direction: column; overflow: hidden; }
+.lp-frame { width: 100%; height: 100%; background: var(--paper); color: var(--ink); font-family: var(--f-sans); font-size: 14px; line-height: 1.5; display: flex; flex-direction: column; overflow: hidden; }
 .lp-frame * { box-sizing: border-box; }
 .lp-rail-item:hover { background: var(--surface); color: var(--ink); }
 .lp-inline-option:hover { border-color: var(--ink-4) !important; background: var(--paper-2) !important; }
@@ -196,7 +203,7 @@
 .lp-brackets::after { bottom: 0; right: 0; border-bottom-width: 2px; border-right-width: 2px; }
 
 /* Prose — lightweight markdown formatting for signal / heartbeat expanded bodies */
-.lp-prose { font-size: 12px; line-height: 1.55; color: var(--ink-3); }
+.lp-prose { font-size: 13px; line-height: 1.6; color: var(--ink-3); }
 .lp-prose p { margin: 0 0 8px; }
 .lp-prose p:last-child { margin-bottom: 0; }
 .lp-prose strong, .lp-prose b { color: var(--ink-2); font-weight: 600; }
@@ -204,7 +211,7 @@
 .lp-prose a:hover { text-decoration: underline; }
 .lp-prose ul, .lp-prose ol { margin: 4px 0 8px; padding-left: 18px; }
 .lp-prose li { margin-bottom: 2px; }
-.lp-prose h1, .lp-prose h2, .lp-prose h3, .lp-prose h4 { font-size: 12px; font-weight: 600; color: var(--ink-2); margin: 10px 0 4px; }
-.lp-prose code { font-family: var(--f-mono); font-size: 11px; background: var(--paper-3); padding: 1px 4px; border-radius: 3px; }
-.lp-prose pre { font-family: var(--f-mono); font-size: 11px; background: var(--paper-3); padding: 8px 10px; border-radius: var(--r-m); overflow-x: auto; margin: 6px 0; }
+.lp-prose h1, .lp-prose h2, .lp-prose h3, .lp-prose h4 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 10px 0 4px; }
+.lp-prose code { font-family: var(--f-mono); font-size: 12px; background: var(--paper-3); padding: 1px 4px; border-radius: 3px; }
+.lp-prose pre { font-family: var(--f-mono); font-size: 12px; background: var(--paper-3); padding: 8px 10px; border-radius: var(--r-m); overflow-x: auto; margin: 6px 0; }
 .lp-prose blockquote { border-left: 2px solid var(--line-2); margin: 6px 0; padding-left: 10px; color: var(--ink-4); }

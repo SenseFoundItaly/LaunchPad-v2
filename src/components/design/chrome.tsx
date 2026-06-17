@@ -28,6 +28,7 @@ import { usePathname } from 'next/navigation';
 import { Icon, I, type IconKey } from './icons';
 import { ShareButton } from '@/components/project/ShareButton';
 import { CreditsBadge } from '@/components/CreditsBadge';
+import { LanguageSwitch } from '@/components/design/LanguageSwitch';
 import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -90,6 +91,7 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)' }}>
         {projectId && <ShareButton projectId={projectId} />}
         {right}
+        <LanguageSwitch />
         {/* CreditsBadge sits *after* page-supplied `right` content so the
             credits chip is always pinned to the far right — making the
             credit balance the founder's most-visible header signal. The

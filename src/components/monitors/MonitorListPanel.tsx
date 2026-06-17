@@ -34,6 +34,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import type { Watcher } from '@/lib/watchers';
+import { watcherRunLabel } from '@/lib/watcher-cost';
 import NewWatcherForm from '@/components/monitors/NewWatcherForm';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
@@ -733,7 +734,20 @@ function ExpandableWatcherRow({
                     style={{ ...miniBtn, opacity: busy || liveStatus === 'paused' ? 0.55 : 1 }}
                     title={liveStatus === 'paused' ? t('monitors.run-resume-hint') : t('monitors.run-now-hint')}
                   >
-                    {busy === 'run' ? t('monitors.running') : t('monitors.run-now')}
+                    {busy === 'run'
+                      ? t('monitors.running')
+                      : liveStatus === 'paused'
+                        ? t('monitors.run-now')
+                        : (
+                          <>
+                            {t('monitors.run-now')}
+                            {/* One manual run = one scan = a real credit charge.
+                                Surface it so the spend is consented before click. */}
+                            <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--ink-5)' }}>
+                              {watcherRunLabel()}
+                            </span>
+                          </>
+                        )}
                   </button>
                   <button
                     type="button"

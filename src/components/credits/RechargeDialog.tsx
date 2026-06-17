@@ -223,7 +223,7 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
 
           {phase === 'success' && (
             <div style={{ textAlign: 'center', padding: '20px 8px' }}>
-              <div style={{ width: 38, height: 38, borderRadius: '50%', margin: '0 auto 12px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--accent)', color: '#fff' }}>
+              <div style={{ width: 38, height: 38, borderRadius: '50%', margin: '0 auto 12px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--accent)', color: 'var(--on-accent)' }}>
                 <Icon d={I.check} size={18} stroke={2.2} />
               </div>
               <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>
@@ -271,5 +271,5 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
   );
 }
 
-const btnPrimary: React.CSSProperties = { fontSize: 12.5, fontWeight: 600, color: '#fff', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 'var(--r-m)', padding: '7px 13px', cursor: 'pointer' };
+const btnPrimary: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: 'var(--on-accent)', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 'var(--r-m)', padding: '7px 13px', cursor: 'pointer' };
 const btnGhost: React.CSSProperties = { fontSize: 12.5, color: 'var(--ink-2)', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-m)', padding: '7px 13px', cursor: 'pointer' };

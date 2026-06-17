@@ -33,6 +33,20 @@ const CREDITS_PER_DOLLAR =
   USER_MONTHLY_LLM_USD > 0 ? USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD : 300;
 export const DEFAULT_WATCHER_PER_RUN_CREDITS = +(BALANCED_COST_PER_RUN_USD * CREDITS_PER_DOLLAR).toFixed(2);
 
+/**
+ * Founder-facing cost of ONE manual run ("Run now"): a single scan = one
+ * per-run charge, independent of cadence. Floor of 1 credit when there's any
+ * cost. Shown on the Run-now button so the spend is consented before the click.
+ */
+export function watcherRunLabel(perRunCredits?: number): string {
+  const perRun =
+    typeof perRunCredits === 'number' && perRunCredits > 0
+      ? perRunCredits
+      : DEFAULT_WATCHER_PER_RUN_CREDITS;
+  const n = Math.max(1, Math.round(perRun));
+  return `≈ ${n} credit${n === 1 ? '' : 's'}`;
+}
+
 export function watcherWeeklyCredits(cadence: string, perRunCredits?: number): number {
   const perRun =
     typeof perRunCredits === 'number' && perRunCredits > 0

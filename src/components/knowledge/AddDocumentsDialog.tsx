@@ -459,6 +459,6 @@ function TypeBadge({ type }: { type: string }) {
   );
 }
 
-const btnPrimary: React.CSSProperties = { fontSize: 12.5, fontWeight: 600, color: '#fff', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 'var(--r-m)', padding: '7px 13px', cursor: 'pointer' };
+const btnPrimary: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: 'var(--on-accent)', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 'var(--r-m)', padding: '7px 13px', cursor: 'pointer' };
 const btnGhost: React.CSSProperties = { fontSize: 12.5, color: 'var(--ink-2)', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-m)', padding: '7px 13px', cursor: 'pointer' };
 const linkBtn: React.CSSProperties = { fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 };

@@ -368,7 +368,9 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
                 fontWeight: 600,
                 fontSize: 13,
                 background: empty ? 'var(--clay)' : 'var(--accent)',
-                color: 'white',
+                // charcoal on the peach accent (readable); white on the dark
+                // terracotta out-of-credits state.
+                color: empty ? '#fff' : 'var(--on-accent)',
                 opacity: bumping ? 0.6 : 1,
                 transition: 'opacity 0.15s',
               }}
