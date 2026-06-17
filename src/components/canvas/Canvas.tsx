@@ -201,7 +201,12 @@ export function Canvas({
       className="lp-scroll"
       style={{ flex: 1, overflow: 'auto', padding: 20 }}
     >
-      <IdeaCanvasHeader projectId={projectId} locale={locale} factCount={facts.length} />
+      <IdeaCanvasHeader
+        projectId={projectId}
+        locale={locale}
+        factCount={facts.length}
+        onRelaunchIdeaShaping={() => handleArtifactAction('skill:run', { skill_id: 'idea-shaping' })}
+      />
 
       <SpineSection projectId={projectId} locale={locale} onSkillClick={onSkillClick} onPickPrompt={onPickPrompt} />
 

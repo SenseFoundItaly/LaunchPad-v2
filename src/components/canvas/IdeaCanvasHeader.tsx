@@ -28,12 +28,29 @@ interface IdeaCanvasHeaderProps {
   /** Optional fact count (passed down from Canvas) for the "backed by N
    *  memory items" subtitle. Clicking it scrolls to the Memory section. */
   factCount?: number;
+  /** Re-run the guided Idea Shaping skill. This is the ONLY entry point for the
+   *  heavy kickoff now (it was removed from chat option-sets because it kept
+   *  reappearing and re-running from scratch). Runs immediately on click —
+   *  cost is shown on the button label. */
+  onRelaunchIdeaShaping?: () => void | Promise<void>;
 }
 
-export function IdeaCanvasHeader({ projectId, factCount = 0 }: IdeaCanvasHeaderProps) {
+export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShaping }: IdeaCanvasHeaderProps) {
   const t = useT();
   const [data, setData] = useState<IdeaCanvasRow | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [relaunchState, setRelaunchState] = useState<'idle' | 'running' | 'error'>('idle');
+
+  const handleRelaunch = async () => {
+    if (!onRelaunchIdeaShaping || relaunchState === 'running') return;
+    setRelaunchState('running');
+    try {
+      await onRelaunchIdeaShaping();
+      setRelaunchState('idle');
+    } catch {
+      setRelaunchState('error');
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -92,34 +109,62 @@ export function IdeaCanvasHeader({ projectId, factCount = 0 }: IdeaCanvasHeaderP
         <span className="lp-serif" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
           {t('canvas.idea-canvas-title')}
         </span>
-        {factCount > 0 && (
-          <button
-            type="button"
-            onClick={() => {
-              const el = document.querySelector('[data-canvas-section="memory"]') as HTMLElement | null;
-              if (el) {
-                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                el.classList.add('lp-flash');
-                setTimeout(() => el.classList.remove('lp-flash'), 1200);
-              }
-            }}
-            className="lp-mono"
-            title={t('canvas.jump-to-memory-tooltip')}
-            style={{
-              marginLeft: 'auto',
-              fontSize: 10,
-              color: 'var(--accent-ink)',
-              background: 'var(--accent-wash)',
-              border: 'none',
-              padding: '2px 8px',
-              borderRadius: 999,
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-            }}
-          >
-            {t('canvas.backed-by-facts', { count: factCount })} →
-          </button>
-        )}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {factCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                const el = document.querySelector('[data-canvas-section="memory"]') as HTMLElement | null;
+                if (el) {
+                  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  el.classList.add('lp-flash');
+                  setTimeout(() => el.classList.remove('lp-flash'), 1200);
+                }
+              }}
+              className="lp-mono"
+              title={t('canvas.jump-to-memory-tooltip')}
+              style={{
+                fontSize: 10,
+                color: 'var(--accent-ink)',
+                background: 'var(--accent-wash)',
+                border: 'none',
+                padding: '2px 8px',
+                borderRadius: 999,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              {t('canvas.backed-by-facts', { count: factCount })} →
+            </button>
+          )}
+          {onRelaunchIdeaShaping && (
+            <button
+              type="button"
+              onClick={handleRelaunch}
+              disabled={relaunchState === 'running'}
+              className="lp-mono"
+              title={t('canvas.relaunch-idea-shaping-tooltip')}
+              style={{
+                fontSize: 10,
+                color: 'var(--ink-3)',
+                background: 'var(--surface)',
+                border: '1px solid var(--line-2)',
+                padding: '2px 8px',
+                borderRadius: 999,
+                cursor: relaunchState === 'running' ? 'default' : 'pointer',
+                opacity: relaunchState === 'running' ? 0.6 : 1,
+                fontFamily: 'inherit',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {relaunchState === 'running'
+                ? t('canvas.relaunch-idea-shaping-running')
+                : relaunchState === 'error'
+                  ? t('canvas.relaunch-idea-shaping-error')
+                  : t('canvas.relaunch-idea-shaping')}
+            </button>
+          )}
+        </div>
       </div>
       {!loaded ? (
         <div style={{ fontSize: 11, color: 'var(--ink-5)' }}>…</div>
