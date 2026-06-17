@@ -113,6 +113,13 @@ interface MonitorDetailLite {
     status: string;
     last_run: string | null;
     next_run: string | null;
+    // Structured targeting — used to render the human-readable summary instead
+    // of dumping the raw machine scan prompt. The GET endpoint returns these
+    // (it spreads the full monitor row + a parsed urls_to_track). Legacy rows
+    // stored urls as {url,label} objects rather than plain strings, so allow
+    // both shapes and normalize in WatcherSummary.
+    urls_to_track?: Array<string | { url?: string; label?: string }>;
+    config?: { alert_threshold?: string; query?: string } | null;
   };
   last_run: MonitorRunLite | null;
   last_run_sources: string[];
@@ -360,6 +367,127 @@ function ProposedWatcherRow({ projectId, w }: { projectId: string; w: Watcher })
   );
 }
 
+const summaryLabelStyle: React.CSSProperties = {
+  fontSize: 10.5,
+  color: 'var(--ink-5)',
+  textTransform: 'uppercase',
+  letterSpacing: 0.4,
+  flexShrink: 0,
+  minWidth: 92,
+  paddingTop: 1,
+};
+
+/** One "Label: value" line in the readable watcher summary. */
+function SummaryLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, fontSize: 12.5, lineHeight: 1.5 }}>
+      <span className="lp-mono" style={summaryLabelStyle}>{label}</span>
+      <span style={{ color: 'var(--ink-3)', flex: 1, minWidth: 0 }}>{value}</span>
+    </div>
+  );
+}
+
+/**
+ * Human-readable watcher summary. Renders the founder-facing fields
+ * (what it watches / which sources / what triggers an alert) built from the
+ * watcher's STRUCTURED data — never the raw machine scan prompt, which is a
+ * wall of JSON output-contract instructions written for the LLM. The raw
+ * prompt stays reachable behind a collapsed "advanced" disclosure for the
+ * curious; it's no longer the default view.
+ */
+function WatcherSummary({
+  monitor,
+  onEdit,
+}: {
+  monitor: MonitorDetailLite['monitor'];
+  onEdit: (e: React.MouseEvent) => void;
+}) {
+  const t = useT();
+  const watchesFor = (monitor.objective || '').trim();
+  // Normalize URLs to plain strings — legacy rows store {url,label} objects,
+  // which would otherwise reach prettyHost/React as objects and crash the render.
+  const sources = (Array.isArray(monitor.urls_to_track) ? monitor.urls_to_track : [])
+    .map((u) => (typeof u === 'string' ? u : u && typeof u === 'object' ? (u.url ?? '') : ''))
+    .filter((u): u is string => typeof u === 'string' && u.length > 0);
+  const alertWhen = (monitor.config?.alert_threshold || '').trim();
+  const rawPrompt = (monitor.prompt || '').trim();
+  const hasSummary = !!watchesFor || sources.length > 0 || !!alertWhen;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+        <span className="lp-mono" style={editLabelStyle}>{t('monitors.summary-heading')}</span>
+        <button
+          type="button"
+          onClick={onEdit}
+          style={{ fontSize: 10.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'var(--f-sans)' }}
+        >
+          {t('common.edit')}
+        </button>
+      </div>
+
+      {hasSummary ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {watchesFor && <SummaryLine label={t('monitors.watches-for')} value={watchesFor} />}
+          {sources.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, fontSize: 12.5, lineHeight: 1.5 }}>
+              <span className="lp-mono" style={summaryLabelStyle}>{t('monitors.sources')}</span>
+              <span style={{ color: 'var(--ink-3)', flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
+                {sources.map((u, i) => (
+                  <span key={u}>
+                    {i > 0 && ', '}
+                    <a
+                      href={u}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ color: 'var(--accent)', textDecoration: 'none' }}
+                    >
+                      {prettyHost(u)}
+                    </a>
+                  </span>
+                ))}
+              </span>
+            </div>
+          )}
+          {alertWhen && <SummaryLine label={t('monitors.alerts-when')} value={alertWhen} />}
+        </div>
+      ) : rawPrompt ? (
+        // Legacy watcher with no structured fields — show the text rather than nothing.
+        <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>{rawPrompt}</p>
+      ) : (
+        <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-5)', fontStyle: 'italic' }}>
+          {t('monitors.no-prompt-set')}
+        </p>
+      )}
+
+      {rawPrompt && hasSummary && (
+        <details style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
+          <summary className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)', cursor: 'pointer' }}>
+            {t('monitors.advanced-instructions')}
+          </summary>
+          <pre
+            style={{
+              margin: '6px 0 0',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontSize: 11,
+              lineHeight: 1.5,
+              color: 'var(--ink-4)',
+              background: 'var(--paper-2)',
+              borderRadius: 6,
+              padding: 8,
+              fontFamily: 'var(--f-mono)',
+            }}
+          >
+            {rawPrompt}
+          </pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
 /** Full mode: click toggles an in-place detail body (the merged-in monitor
  *  detail page). Detail is lazy-fetched only on first expand. */
 function ExpandableWatcherRow({
@@ -400,10 +528,12 @@ function ExpandableWatcherRow({
   const [runDone, setRunDone] = useState<{ alerts: number } | null>(null);
   const [runErr, setRunErr] = useState<string | null>(null);
 
-  // Inline edit state for name / prompt / cadence.
+  // Inline edit state for name / objective / cadence. The founder edits the
+  // human OBJECTIVE ("what to watch") — never the raw machine scan prompt; the
+  // PATCH route rebuilds the prompt from it so the OUTPUT CONTRACT is preserved.
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
-  const [editPrompt, setEditPrompt] = useState('');
+  const [editObjective, setEditObjective] = useState('');
   const [editCadence, setEditCadence] = useState('weekly');
 
   // "Logs" subsection: the run-history list. Collapsed by default; `openRunId`
@@ -545,15 +675,17 @@ function ExpandableWatcherRow({
 
   function beginEdit() {
     setEditName(detail?.monitor.name ?? w.name);
-    setEditPrompt(detail?.monitor.prompt ?? detail?.monitor.objective ?? '');
+    setEditObjective(detail?.monitor.objective ?? '');
     setEditCadence(detail?.monitor.schedule ?? w.cadence ?? 'weekly');
     setActionErr(null);
     setEditing(true);
   }
 
-  // Save name / prompt / cadence. The prompt is written to `prompt` (what the
-  // agent runs) AND `objective` (what the detail renders) so an edit visibly
-  // sticks — see the PATCH route.
+  // Save name / objective / cadence. We send the human OBJECTIVE — NOT a raw
+  // prompt. The PATCH route rebuilds the machine scan prompt from it (keeping
+  // the ecosystem_alert OUTPUT CONTRACT intact); previously this saved plain
+  // text straight into `prompt`, which the cron ran verbatim and which silently
+  // deleted the contract → unparseable output.
   async function saveEdit() {
     if (busy) return;
     const name = editName.trim();
@@ -561,11 +693,11 @@ function ExpandableWatcherRow({
     setBusy('save');
     setActionErr(null);
     try {
-      const prompt = editPrompt.trim();
+      const objective = editObjective.trim();
       const res = await fetch(`/api/projects/${projectId}/monitors/${w._origin_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, prompt, objective: prompt, schedule: editCadence }),
+        body: JSON.stringify({ name, objective, schedule: editCadence }),
       });
       const body = await res.json();
       if (!res.ok || !body?.success) throw new Error(body?.error || `HTTP ${res.status}`);
@@ -638,13 +770,13 @@ function ExpandableWatcherRow({
                       />
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <span className="lp-mono" style={editLabelStyle}>{t('monitors.field-prompt')}</span>
+                      <span className="lp-mono" style={editLabelStyle}>{t('monitors.field-objective')}</span>
                       <textarea
-                        value={editPrompt}
-                        onChange={(e) => setEditPrompt(e.target.value)}
+                        value={editObjective}
+                        onChange={(e) => setEditObjective(e.target.value)}
                         onClick={(e) => e.stopPropagation()}
                         rows={3}
-                        placeholder={t('monitors.prompt-placeholder')}
+                        placeholder={t('monitors.objective-placeholder')}
                         style={{ ...editInputStyle, resize: 'vertical', lineHeight: 1.5 }}
                       />
                     </label>
@@ -682,25 +814,10 @@ function ExpandableWatcherRow({
                     </div>
                   </div>
                 ) : (
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 3 }}>
-                      <span className="lp-mono" style={editLabelStyle}>{t('monitors.field-prompt')}</span>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); beginEdit(); }}
-                        style={{ fontSize: 10.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'var(--f-sans)' }}
-                      >
-                        {t('common.edit')}
-                      </button>
-                    </div>
-                    <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-                      {(detail.monitor.prompt || detail.monitor.objective)?.trim() || (
-                        <span style={{ color: 'var(--ink-5)', fontStyle: 'italic' }}>
-                          {t('monitors.no-prompt-set')}
-                        </span>
-                      )}
-                    </p>
-                  </div>
+                  <WatcherSummary
+                    monitor={detail.monitor}
+                    onEdit={(e) => { e.stopPropagation(); beginEdit(); }}
+                  />
                 )}
 
                 <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)', display: 'flex', gap: 14, flexWrap: 'wrap' }}>

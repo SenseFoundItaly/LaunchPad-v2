@@ -513,7 +513,7 @@ const MONITOR_KIND_HEADERS: Record<string, { en: string; it: string }> = {
  *   parser extracts) — so chat-monitor output parses identically to template
  *   output.
  */
-async function buildMonitorScanPrompt(
+export async function buildMonitorScanPrompt(
   projectId: string,
   spec: {
     kind: string;
