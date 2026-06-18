@@ -15,7 +15,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
-import { CATEGORY_LABEL_KEY, type CompetitorWithCategories } from '@/lib/competitor-categories';
+import { CATEGORY_LABEL_KEY, type CompetitorWithCategories } from '@/lib/competitor-categories.shared';
 import type { MessageKey } from '@/lib/i18n/messages';
 
 export function CompetitorMatryoshka({ projectId }: { projectId: string }) {
