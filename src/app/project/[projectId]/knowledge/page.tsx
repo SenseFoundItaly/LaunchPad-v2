@@ -19,6 +19,7 @@ import { Pill, Icon, I } from '@/components/design/primitives';
 import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
 import EntityGridFallback from '@/components/knowledge/EntityGridFallback';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
+import { CompetitorMatryoshka } from '@/components/knowledge/CompetitorMatryoshka';
 import type { GraphNode, GraphEdge } from '@/types/graph';
 
 interface GraphResponse {
@@ -180,6 +181,9 @@ export default function KnowledgePage({
 
   return (
     <div className="lp-rise" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* Textual competitor matryoshka (item 14): startup → competitor → category
+          → detail. Renders nothing when there are no competitors. */}
+      <CompetitorMatryoshka projectId={projectId} />
       <div style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
         {graphLoading ? (
           <GraphEmpty message={t('knowledge.loading-graph')} />

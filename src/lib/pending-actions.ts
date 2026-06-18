@@ -384,6 +384,10 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
         WHERE gn.project_id = ?
           AND gn.reviewed_state = 'pending'
           AND gn.sources::text NOT LIKE '%Extracted from %'
+          -- Competitors (item 14): reviewed in the Knowledge graph + the textual
+          -- Competitors matryoshka, NOT the Inbox — which stays for watcher
+          -- findings + to-dos. (competitor_set is the summary node; same rule.)
+          AND gn.node_type NOT IN ('competitor', 'competitor_set')
           AND NOT EXISTS (
             SELECT 1 FROM pending_actions pa
              WHERE pa.project_id = gn.project_id

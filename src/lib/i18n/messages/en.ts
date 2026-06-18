@@ -41,6 +41,48 @@ export const en = {
   'notes.saved': 'Saved to Knowledge ✓',
   'notes.error': 'Couldn’t save — try again',
 
+  // ── Home: Score + IRL (src/components/home/ScorePanel.tsx) ─────────────────
+  'score.title': 'Score',
+  'score.run': 'Run scoring',
+  'score.project-score': 'Project score',
+  'score.not-scored': 'Not scored yet.',
+  'score.band-strong': 'strong',
+  'score.band-promising': 'promising',
+  'score.band-caution': 'caution',
+  'score.band-weak': 'weak',
+  'score.irl-title': 'Investment readiness (IRL)',
+  'score.irl-stages': 'stages validated',
+  'score.irl-current': 'Currently in {stage}.',
+  'score.irl-explainer': 'IRL tracks journey progress toward investor-readiness — distinct from the project score, which rates the idea itself.',
+
+  // ── Home: Ecosystem (src/components/home/EcosystemPanel.tsx) ───────────────
+  'eco.title': 'Ecosystem',
+  'eco.view-graph': 'View graph',
+  'eco.empty': 'No entities yet — the Co-pilot and watchers map competitors, personas, partners and more as you go.',
+  'eco.competitors': 'Competitors',
+  'eco.markets': 'Markets',
+  'eco.personas': 'Personas',
+  'eco.partners': 'Partners',
+  'eco.investors': 'Investors',
+  'eco.tech': 'Technologies',
+  'eco.risks': 'Risks',
+  'eco.features': 'Features',
+  'eco.metrics': 'Metrics',
+  'eco.other': 'Other',
+
+  // ── Competitor matryoshka (src/components/knowledge/CompetitorMatryoshka.tsx) ─
+  'competitors.title': 'Competitors',
+  'competitors.pending': 'pending',
+  'competitors.no-categories': 'No category breakdown yet.',
+  'competitors.category-count': '{count} categories',
+  'competitors.cat-general': 'General',
+  'competitors.cat-product': 'Product',
+  'competitors.cat-pricing': 'Pricing',
+  'competitors.cat-distribution': 'Distribution',
+  'competitors.cat-marketing': 'Marketing',
+  'competitors.cat-advantage': 'Competitive advantage',
+  'competitors.cat-criticality': 'Criticality',
+
   // ── Settings ────────────────────────────────────────────────────────────
   'settings.language.title': 'Language',
   'settings.language.desc': 'Your default language — for the app outside a project, and for new projects you create. Existing projects keep the language they were created in.',

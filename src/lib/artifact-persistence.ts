@@ -46,6 +46,7 @@ import { recordFact } from './memory/facts';
 import { createPendingAction } from './pending-actions';
 import { getCreditsRemaining } from './credits';
 import { autoStageValidationFromArtifact } from './auto-stage-validation';
+import { persistCompetitorCategories } from './competitor-categories';
 import type { PendingActionType } from '@/types';
 
 /**
@@ -660,7 +661,13 @@ async function extractCompetitorRows(
       // so an agent-emitted table can't silently turn the spine green.
       reviewedState: 'pending',
     });
-    if (id) extracted++;
+    if (id) {
+      extracted++;
+      // Matryoshka breakdown (item 14): decompose the row's columns into
+      // categories hung off this competitor node. Best-effort — never breaks
+      // the competitor persist if the categories write fails.
+      await persistCompetitorCategories(ctx.projectId, id, attributes, a.sources);
+    }
   }
   return extracted;
 }

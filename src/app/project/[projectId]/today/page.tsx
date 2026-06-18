@@ -21,6 +21,8 @@ import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { StageCard } from '@/components/stages/StageCard';
 import { OnboardingCard } from '@/components/onboarding/OnboardingCard';
 import { NotesCard } from '@/components/onboarding/NotesCard';
+import { ScorePanel } from '@/components/home/ScorePanel';
+import { EcosystemPanel } from '@/components/home/EcosystemPanel';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { laneFor } from '@/lib/action-lanes';
 import { checkActionPrompt } from '@/lib/journey-prompts';
@@ -138,7 +140,9 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 880 }}>
               <OnboardingCard projectId={projectId} />
+              <ScorePanel projectId={projectId} />
               <StageCard projectId={projectId} />
+              <EcosystemPanel projectId={projectId} />
               <NextToValidate projectId={projectId} />
               <Panel
                 label={t('today.watchers')}
