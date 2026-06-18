@@ -73,6 +73,8 @@ export const en = {
   // ── Competitor matryoshka (src/components/knowledge/CompetitorMatryoshka.tsx) ─
   'competitors.title': 'Competitors',
   'competitors.pending': 'pending',
+  'competitors.apply': 'Apply',
+  'competitors.dismiss': 'Dismiss',
   'competitors.no-categories': 'No category breakdown yet.',
   'competitors.category-count': '{count} categories',
   'competitors.cat-general': 'General',
@@ -329,6 +331,7 @@ export const en = {
   'chat.export-context': 'Export context',
   'chat.download-md': 'Download .md',
   'chat.download-gonogo': 'Go / No-Go report',
+  'chat.download-financial': 'Financial model (.csv)',
   'chat.print-pdf': 'Print / PDF',
   'chat.breadcrumb-copilot': 'Co-pilot',
   'chat.shared-by': 'Shared by {email}',

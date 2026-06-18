@@ -12,7 +12,7 @@
  */
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import { CATEGORY_LABEL_KEY, type CompetitorWithCategories } from '@/lib/competitor-categories';
@@ -20,7 +20,9 @@ import type { MessageKey } from '@/lib/i18n/messages';
 
 export function CompetitorMatryoshka({ projectId }: { projectId: string }) {
   const t = useT();
+  const qc = useQueryClient();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState<string | null>(null);
 
   const { data } = useQuery<{ competitors: CompetitorWithCategories[] }>({
     queryKey: ['knowledge', projectId, 'competitors-breakdown'],
@@ -31,6 +33,28 @@ export function CompetitorMatryoshka({ projectId }: { projectId: string }) {
       return (body?.data ?? body) as { competitors: CompetitorWithCategories[] };
     },
   });
+
+  // Apply (0.5cr) / Dismiss a pending competitor right here — same PATCH the D3
+  // graph uses — so the founder isn't forced into the graph to approve it.
+  async function review(nodeId: string, state: 'applied' | 'rejected') {
+    if (busy) return;
+    setBusy(nodeId);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/knowledge/${nodeId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state }),
+      });
+      if (!res.ok) return;
+      if (typeof window !== 'undefined') {
+        if (state === 'applied') window.dispatchEvent(new CustomEvent('lp-credits-changed'));
+        window.dispatchEvent(new CustomEvent('lp-knowledge-changed'));
+      }
+      void qc.invalidateQueries({ queryKey: ['knowledge', projectId] });
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const competitors = data?.competitors ?? [];
   if (competitors.length === 0) return null; // nothing to show — stay out of the way
@@ -58,31 +82,50 @@ export function CompetitorMatryoshka({ projectId }: { projectId: string }) {
           const isPending = c.reviewed_state === 'pending';
           return (
             <div key={c.id} style={{ borderRadius: 6, overflow: 'hidden' }}>
-              <button
-                onClick={() => toggle(c.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                  padding: '8px 10px', border: 'none', background: 'transparent',
-                  cursor: 'pointer', textAlign: 'left', color: 'var(--ink)',
-                }}
+              {/* Toggle + actions are SIBLINGS (no nested buttons). */}
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6 }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--paper-2)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
-                <Icon d={isOpen ? I.chevd : I.chevr} size={12} stroke={1.5} style={{ color: 'var(--ink-5)', flexShrink: 0 }} />
-                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {c.name}
-                </span>
-                {c.categories.length > 0 && (
-                  <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', flexShrink: 0 }}>
-                    {t('competitors.category-count', { count: c.categories.length })}
+                <button
+                  onClick={() => toggle(c.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0,
+                    border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', color: 'var(--ink)', padding: 0,
+                  }}
+                >
+                  <Icon d={isOpen ? I.chevd : I.chevr} size={12} stroke={1.5} style={{ color: 'var(--ink-5)', flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {c.name}
                   </span>
-                )}
+                  {c.categories.length > 0 && (
+                    <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', flexShrink: 0 }}>
+                      {t('competitors.category-count', { count: c.categories.length })}
+                    </span>
+                  )}
+                </button>
                 {isPending && (
-                  <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--clay)', border: '1px solid var(--line)', borderRadius: 999, padding: '1px 6px', flexShrink: 0 }}>
-                    {t('competitors.pending')}
+                  <span style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <button
+                      onClick={() => review(c.id, 'applied')}
+                      disabled={busy === c.id}
+                      className="lp-mono"
+                      style={{ fontSize: 10, color: 'var(--on-accent)', background: 'var(--accent)', border: 'none', borderRadius: 999, padding: '2px 8px', cursor: busy === c.id ? 'default' : 'pointer', opacity: busy === c.id ? 0.6 : 1 }}
+                    >
+                      {t('competitors.apply')}
+                    </button>
+                    <button
+                      onClick={() => review(c.id, 'rejected')}
+                      disabled={busy === c.id}
+                      className="lp-mono"
+                      style={{ fontSize: 10, color: 'var(--ink-4)', background: 'transparent', border: '1px solid var(--line)', borderRadius: 999, padding: '2px 8px', cursor: busy === c.id ? 'default' : 'pointer' }}
+                    >
+                      {t('competitors.dismiss')}
+                    </button>
                   </span>
                 )}
-              </button>
+              </div>
               {isOpen && (
                 <div style={{ padding: '0 10px 8px 30px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {c.categories.length === 0 ? (

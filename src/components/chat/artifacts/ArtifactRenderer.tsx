@@ -73,31 +73,31 @@ export default function ArtifactRenderer({
       );
     case 'radar-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <RadarChart data={artifact.data} />
         </ArtifactCardShell>
       );
     case 'bar-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <BarChart data={artifact.data} />
         </ArtifactCardShell>
       );
     case 'pie-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <PieChart data={artifact.data} />
         </ArtifactCardShell>
       );
     case 'gauge-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <GaugeChart score={artifact.score} maxScore={artifact.maxScore} verdict={artifact.verdict} />
         </ArtifactCardShell>
       );
     case 'score-card':
       return (
-        <ArtifactCardShell typeLabel="Score" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
+        <ArtifactCardShell typeLabel="Score" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <ScoreCard title="" score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />
         </ArtifactCardShell>
       );

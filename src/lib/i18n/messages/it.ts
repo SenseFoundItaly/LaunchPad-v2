@@ -68,6 +68,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   // ── Competitor matryoshka (src/components/knowledge/CompetitorMatryoshka.tsx) ─
   'competitors.title': 'Concorrenti',
   'competitors.pending': 'in attesa',
+  'competitors.apply': 'Applica',
+  'competitors.dismiss': 'Ignora',
   'competitors.no-categories': 'Ancora nessuna scomposizione in categorie.',
   'competitors.category-count': '{count} categorie',
   'competitors.cat-general': 'Generale',
@@ -322,6 +324,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'chat.export-context': 'Esporta contesto',
   'chat.download-md': 'Scarica .md',
   'chat.download-gonogo': 'Report Go / No-Go',
+  'chat.download-financial': 'Modello finanziario (.csv)',
   'chat.print-pdf': 'Stampa / PDF',
   'chat.breadcrumb-copilot': 'Co-pilot',
   'chat.shared-by': 'Condiviso da {email}',

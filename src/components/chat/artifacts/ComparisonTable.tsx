@@ -95,6 +95,7 @@ export default function ComparisonTable({ artifact, onAction, defaultCollapsed }
       title={artifact.title || 'Comparison'}
       sources={artifact.sources}
       provenance={artifact.provenance}
+      exportArtifact={artifact}
       dimmed={rejected}
       defaultCollapsed={defaultCollapsed}
       className="overflow-x-auto"

@@ -25,6 +25,7 @@ import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import { query, get, run } from '@/lib/db';
 import { createPendingAction, getPendingAction, rejectPendingAction } from '@/lib/pending-actions';
 import { dismissAlertSource } from '@/lib/action-executors';
+import { persistCompetitorAnalysis, COMPETITOR_CATEGORIES } from '@/lib/competitor-categories';
 import { recordFact } from '@/lib/memory/facts';
 import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
@@ -2143,6 +2144,52 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// propose_competitor_analysis — competitor + category "matryoshka" (item 14)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const proposeCompetitorAnalysisTool = (ctx: ToolContext): AgentTool => ({
+  name: 'propose_competitor_analysis',
+  label: 'Analyze competitor',
+  description:
+    `Add ONE competitor to the ecosystem graph, broken down into CATEGORIES so the founder can open the competitor and see each dimension (startup → competitor → category → detail). Use this whenever you analyze a competitor — it is the structured alternative to a comparison-table and is what populates the competitor breakdown the founder reviews on the Knowledge page. It persists the competitor as a PENDING graph node + its categories; the founder approves the competitor in the graph (cheap). Provide a category row for every dimension you have evidence for. Valid categories: ${[...COMPETITOR_CATEGORIES].join(', ')}. ALWAYS attach sources to each finding (per the citation rules).`,
+  parameters: Type.Object({
+    name: Type.String({ description: 'Competitor name (company or product), e.g. "HelloFresh".' }),
+    summary: Type.Optional(Type.String({ description: 'One line: what they are / what they do.' })),
+    categories: Type.Array(
+      Type.Object({
+        category: Type.String({ description: `One of: ${[...COMPETITOR_CATEGORIES].join(', ')}.` }),
+        detail: Type.String({ description: 'Concrete, specific finding for this category (numbers/specifics, not generic).' }),
+      }),
+      { description: 'The per-category breakdown — only categories you have evidence for.' },
+    ),
+    sources: Type.Optional(Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] provenance (web/skill/user/inference) backing the analysis.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { name?: string; summary?: string; categories?: Array<{ category: string; detail: string }>; sources?: Source[] };
+    if (!p.name?.trim()) {
+      return { content: [{ type: 'text', text: 'propose_competitor_analysis requires a competitor name.' }], details: { error: true } };
+    }
+    const categories = Array.isArray(p.categories) ? p.categories.filter((c) => c && c.detail) : [];
+    const res = await persistCompetitorAnalysis(ctx.projectId, {
+      name: p.name,
+      summary: p.summary,
+      categories,
+      sources: Array.isArray(p.sources) ? p.sources : null,
+    });
+    if (!res.nodeId) {
+      return { content: [{ type: 'text', text: 'Could not persist the competitor (empty name?).' }], details: { error: true } };
+    }
+    return {
+      content: [{
+        type: 'text',
+        text: `Competitor "${p.name.trim()}" added to the ecosystem graph as a PENDING node with ${res.categories} category breakdown(s). The founder reviews it on the Knowledge page (competitor breakdown) or approves the dashed node in the graph — do NOT also emit a competitor comparison-table for the same competitor.`,
+      }],
+      details: { node_id: res.nodeId, categories: res.categories },
+    };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // update_pricing — direct write path for the Pricing facet (Stage 6)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2793,6 +2840,7 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     huntBlackSwansTool(ctx),
     proposeValidationTool(ctx),
     updateIdeaCanvasTool(ctx),
+    proposeCompetitorAnalysisTool(ctx),
     updatePricingTool(ctx),
     saveMemoryFactTool(ctx),
     logInterviewTool(ctx),

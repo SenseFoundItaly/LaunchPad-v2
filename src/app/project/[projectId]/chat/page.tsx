@@ -38,6 +38,7 @@ import { useSetChrome } from '@/components/design/chrome-context';
 import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
 import { checkActionPrompt } from '@/lib/journey-prompts';
 import { buildContextMarkdown } from '@/lib/context-export';
+import { buildFinancialExport } from '@/lib/financial-export';
 import type { ContextExportData } from '@/lib/context-export';
 import { openPrintPreview } from '@/lib/print-utils';
 import {
@@ -256,6 +257,28 @@ function ContextExportBtn({
     openPrintPreview(`${project?.name || t('chat.context-export-title')}`, md);
   }
 
+  // Financial model (item 13): export the detailed projections as editable CSV
+  // (or JSON fallback). No-op if the financial-model skill hasn't run yet.
+  async function handleDownloadFinancial() {
+    setOpen(false);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/financial-model`);
+      const body = await res.json().catch(() => null);
+      const model = body?.data?.financial_model ?? body?.financial_model ?? null;
+      const payload = buildFinancialExport(model);
+      if (!payload) return; // nothing to export yet
+      const blob = new Blob([payload.text], { type: payload.mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(project?.name || 'export').replace(/\s+/g, '-').toLowerCase()}-${payload.filename}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* non-fatal — surfaced as no download */
+    }
+  }
+
   // GO/NO-GO report (item 11): the lean decision doc — scoring, per-stage
   // results, signals, risks, open tasks. No chat history / raw dumps.
   async function handleDownloadGoNoGo() {
@@ -340,6 +363,29 @@ function ContextExportBtn({
           >
             <Icon d={I.check} size={14} stroke={1.4} />
             {t('chat.download-gonogo')}
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadFinancial}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              padding: '8px 12px',
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--ink-2)',
+              fontFamily: 'var(--f-sans)',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => { (e.currentTarget.style.background = 'var(--paper-2)'); }}
+            onMouseLeave={(e) => { (e.currentTarget.style.background = 'transparent'); }}
+          >
+            <Icon d={I.dollar} size={14} stroke={1.4} />
+            {t('chat.download-financial')}
           </button>
           <button
             type="button"

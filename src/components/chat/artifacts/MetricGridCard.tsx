@@ -45,6 +45,7 @@ export default function MetricGridCard({ artifact, onAction, defaultCollapsed }:
       title={artifact.title || ''}
       sources={artifact.sources}
       provenance={artifact.provenance}
+      exportArtifact={artifact}
       dimmed={rejected}
       defaultCollapsed={defaultCollapsed}
       footer={
