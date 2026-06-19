@@ -222,13 +222,22 @@ export async function persistResearchFromSkillOutput(
   // research row (upsert — one per project).
   try {
     await run(
+      // Never let an empty/failed re-parse wipe existing research. The
+      // market-research parser is non-deterministic (a re-run can legitimately
+      // complete yet yield 0 competitors); keep the prior value per-column
+      // whenever the incoming field is json-null or an empty array/object.
+      // jsonb_typeof — not IS NULL — because jb(null) serializes to JSON null.
       `INSERT INTO research (project_id, market_size, competitors, trends, sources, researched_at)
        VALUES (?, ?, ?, ?, ?, now())
        ON CONFLICT (project_id) DO UPDATE SET
-         market_size = EXCLUDED.market_size,
-         competitors = EXCLUDED.competitors,
-         trends = EXCLUDED.trends,
-         sources = EXCLUDED.sources,
+         market_size = CASE WHEN jsonb_typeof(EXCLUDED.market_size) = 'object' AND EXCLUDED.market_size <> '{}'::jsonb
+                            THEN EXCLUDED.market_size ELSE COALESCE(research.market_size, EXCLUDED.market_size) END,
+         competitors = CASE WHEN jsonb_typeof(EXCLUDED.competitors) = 'array' AND jsonb_array_length(EXCLUDED.competitors) > 0
+                            THEN EXCLUDED.competitors ELSE COALESCE(research.competitors, EXCLUDED.competitors) END,
+         trends = CASE WHEN jsonb_typeof(EXCLUDED.trends) = 'array' AND jsonb_array_length(EXCLUDED.trends) > 0
+                       THEN EXCLUDED.trends ELSE COALESCE(research.trends, EXCLUDED.trends) END,
+         sources = CASE WHEN jsonb_typeof(EXCLUDED.sources) = 'array' AND jsonb_array_length(EXCLUDED.sources) > 0
+                        THEN EXCLUDED.sources ELSE COALESCE(research.sources, EXCLUDED.sources) END,
          researched_at = now()`,
       projectId,
       jb(marketSizing),
