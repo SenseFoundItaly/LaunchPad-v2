@@ -452,16 +452,18 @@ function WatcherSummary({
           )}
           {alertWhen && <SummaryLine label={t('monitors.alerts-when')} value={alertWhen} />}
         </div>
-      ) : rawPrompt ? (
-        // Legacy watcher with no structured fields — show the text rather than nothing.
-        <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>{rawPrompt}</p>
       ) : (
+        // No structured summary. A legacy/objective-less watcher still has a raw
+        // scan prompt, but that wall of OUTPUT-CONTRACT JSON is written for the
+        // LLM, not the founder — so prompt them to add a plain-language
+        // description (the raw prompt stays reachable under "advanced" below)
+        // instead of dumping it as the default view.
         <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-5)', fontStyle: 'italic' }}>
-          {t('monitors.no-prompt-set')}
+          {t(rawPrompt ? 'monitors.no-summary-edit-hint' : 'monitors.no-prompt-set')}
         </p>
       )}
 
-      {rawPrompt && hasSummary && (
+      {rawPrompt && (
         <details style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
           <summary className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)', cursor: 'pointer' }}>
             {t('monitors.advanced-instructions')}

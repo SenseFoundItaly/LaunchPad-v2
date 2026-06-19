@@ -624,6 +624,7 @@ export const en = {
   'monitors.cadence-monthly': 'Monthly',
   'monitors.saving': 'Saving…',
   'monitors.no-prompt-set': 'No prompt set — click Edit to tell this watcher what to look for.',
+  'monitors.no-summary-edit-hint': 'No plain-language description yet — click Edit to say what this watcher should track. (The raw AI scan instructions are under “advanced” below.)',
   'monitors.meta-schedule': 'schedule',
   'monitors.meta-last-run': 'last run',
   'monitors.meta-next-run': 'next run',

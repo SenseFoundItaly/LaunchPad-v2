@@ -302,6 +302,40 @@ const listGraphNodes = (ctx: ToolContext): AgentTool => ({
   },
 });
 
+const listWatchers = (ctx: ToolContext): AgentTool => ({
+  name: 'list_watchers',
+  label: 'List Watchers',
+  description:
+    'List the project\'s REAL ecosystem watchers (monitors) — for each: name, what it watches (objective), cadence, status (active/paused/inactive), when it last ran, and its id. Use this whenever the founder asks "what watchers do I have", "explain my watchers", or before proposing a change to a specific watcher (you need its id). NOTE: proposed-but-unapproved watchers are NOT here — those live in list_pending_actions. Never tell the founder you cannot see their active watchers; call this tool.',
+  parameters: Type.Object({}),
+  async execute(_id): Promise<AgentToolResult<unknown>> {
+    const rows = await query<Record<string, unknown>>(
+      `SELECT id, name, type, schedule, status, objective, last_run
+       FROM monitors WHERE project_id = ?
+       ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END, created_at ASC`,
+      ctx.projectId,
+    );
+    if (rows.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'No watchers yet. The founder can create one from the Watchers tab, or you can propose one with propose_monitor.' }],
+        details: { count: 0, active: 0 },
+      };
+    }
+    const text = rows
+      .map((r, i) => {
+        const objective = r.objective ? String(r.objective).slice(0, 180) : '(no plain-language description set — add one via Edit in the Watchers tab)';
+        const last = r.last_run ? `last ran ${String(r.last_run).slice(0, 10)}` : 'never run';
+        return `${i + 1}. ${r.name} [${r.status}] — watches: ${objective} · ${r.schedule} · ${last} · id=${r.id}`;
+      })
+      .join('\n');
+    const active = rows.filter((r) => r.status === 'active').length;
+    return {
+      content: [{ type: 'text', text: `${active} active watcher(s) of ${rows.length} total:\n${text}` }],
+      details: { count: rows.length, active },
+    };
+  },
+});
+
 const getProjectMetrics = (ctx: ToolContext): AgentTool => ({
   name: 'get_project_metrics',
   label: 'Project Metrics',
@@ -2827,6 +2861,7 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     listEcosystemAlerts(ctx),
     listPendingActions(ctx),
     listGraphNodes(ctx),
+    listWatchers(ctx),
     listIntelligenceBriefs(ctx),
     getRiskAudit(ctx),
     readTabularReviewTool(ctx),

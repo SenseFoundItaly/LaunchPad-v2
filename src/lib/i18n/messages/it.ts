@@ -614,6 +614,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'monitors.cadence-monthly': 'Mensile',
   'monitors.saving': 'Salvataggio…',
   'monitors.no-prompt-set': 'Nessun prompt impostato — clicca Modifica per indicare a questo osservatore cosa cercare.',
+  'monitors.no-summary-edit-hint': 'Nessuna descrizione in linguaggio naturale — clicca Modifica per indicare cosa deve monitorare questo osservatore. (Le istruzioni grezze di scansione per l’AI sono sotto “avanzate”.)',
   'monitors.meta-schedule': 'pianificazione',
   'monitors.meta-last-run': 'ultima esecuzione',
   'monitors.meta-next-run': 'prossima esecuzione',
