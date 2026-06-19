@@ -7,12 +7,13 @@
  * Founder directive (2026-06-11): knowledge no longer auto-saves. When the
  * agent surfaces a fact/insight/entity/comparison/metric it persists as a
  * PROPOSAL (reviewed_state='pending'). The founder APPLIES it here — applying
- * costs 2 credits and writes it into project intelligence — or dismisses it.
+ * costs KNOWLEDGE_APPLY_CREDITS and writes it into project intelligence — or
+ * dismisses it.
  *
  * This replaces the old passive "Saved ✓" SavedHint (kept under the same file
  * to avoid churn on the four importers; the export name changed).
  *
- *   pending / undefined → primary "Apply · 2 credits" (moss) + "Dismiss"
+ *   pending / undefined → primary "Apply · {KNOWLEDGE_APPLY_CREDITS} credits" (moss) + "Dismiss"
  *   applied             → muted "Applied ✓"
  *   rejected            → muted "Dismissed"
  *
@@ -23,15 +24,18 @@
  *
  * Apply → onAction('knowledge:apply', { item_id, type, state: 'applied' }).
  * Dismiss → same verb with state: 'rejected'. The page-level handler PATCHes
- * /api/projects/{id}/knowledge/{itemId} (which debits the 2 credits server-side
- * on pending→applied) and broadcasts the refetch events.
+ * /api/projects/{id}/knowledge/{itemId} (which debits KNOWLEDGE_APPLY_CREDITS
+ * server-side on pending→applied) and broadcasts the refetch events.
  */
 
 import { useState } from 'react';
 import type { ReviewedState } from '@/types/artifacts';
 import { usePersistedArtifact } from '@/hooks/usePersistedArtifact';
+import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
 
-const APPLY_CREDITS = 2;
+// Sourced from the constant (credit-costs.ts is client-safe) so the button label
+// can never drift from the amount the server actually debits on apply.
+const APPLY_CREDITS = KNOWLEDGE_APPLY_CREDITS;
 
 type KnowledgeType = 'fact' | 'graph_node' | 'tabular_review';
 

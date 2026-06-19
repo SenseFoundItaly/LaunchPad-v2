@@ -7,7 +7,7 @@
  * Shows applied entities AND pending proposals together: pending nodes render
  * dashed and hang off the `your_startup` root (the /api/graph route synthesizes
  * a virtual link so nothing floats), so the founder sees what's proposed and
- * can apply it (2 credits, debited server-side) by clicking it. The Co-pilot
+ * can apply it (0.5 credits, debited server-side) by clicking it. The Co-pilot
  * proposes new knowledge in chat; un-applied items also wait in the Inbox.
  */
 

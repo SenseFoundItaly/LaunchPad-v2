@@ -3,6 +3,7 @@ import { get, run } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { readStagedCanvasFieldValues } from '@/lib/skill-prereqs';
+import { seedAssumptionsIfEmpty } from '@/lib/assumptions';
 
 const CANVAS_FIELDS = [
   'problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage',
@@ -108,6 +109,16 @@ export async function POST(
     fields.problem, fields.solution, fields.target_market,
     fields.value_proposition, fields.business_model, fields.competitive_advantage,
   );
+
+  // Seed the assumptions/premortem registry off the freshly-committed canvas —
+  // mirrors applyValidationProposal so a deterministic commit (commit option or
+  // create-from-documents) gets the SAME seeding as the card-approval path.
+  // Best-effort + no-op once assumptions exist; never blocks the write.
+  const seedContext = CANVAS_FIELDS
+    .filter((k) => fields[k].length > 0)
+    .map((k) => `${k}: ${fields[k]}`)
+    .join('\n\n');
+  if (seedContext) void seedAssumptionsIfEmpty(projectId, seedContext);
 
   return json({ applied: CANVAS_FIELDS.filter((k) => fields[k].length > 0) }, 201);
 }

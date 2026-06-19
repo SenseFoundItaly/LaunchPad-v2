@@ -30,8 +30,12 @@ export { KNOWLEDGE_APPLY_CREDITS, DOCUMENT_AUDIT_CREDITS } from '@/lib/credit-co
 export const FREE_DAILY_TASKS = 3;
 
 /** Fallbacks when no user_budgets row exists yet (credits shown from day 1).
- * 100 credits over $1.00 → 100 credits per $1 → 1 credit ≈ $0.01 of LLM spend. */
-const DEFAULT_CREDITS_PER_DOLLAR = 100;
+ * Derived from the canonical pool so the no-row fallback matches what a freshly
+ * created default budget row computes (cap_credits / cap_llm_usd): 100 credits
+ * over a $0.333 LLM ceiling → ~300 credits per $1 (the 3× markup, founder
+ * decision 2026-06-16). Was a hardcoded 100 (pre-markup pass-through), which
+ * under-charged no-row users 3×. */
+const DEFAULT_CREDITS_PER_DOLLAR = USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD;
 const DEFAULT_CAP_CREDITS = USER_MONTHLY_CREDITS;
 
 interface BudgetRow {

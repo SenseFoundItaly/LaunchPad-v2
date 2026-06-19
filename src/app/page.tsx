@@ -9,6 +9,7 @@ import { TopBar } from '@/components/design/chrome';
 import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
 import { NODE_COLORS } from '@/types/graph';
 import { watcherWeeklyLabel } from '@/lib/watcher-cost';
+import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
 
@@ -1151,10 +1152,10 @@ function ExtractedKnowledgeView({
     : [];
 
   // Three separate cost models — never blended into one number:
-  //   canvas = free · entities = flat 2 each (charged now) · watchers = weekly.
-  const APPLY_COST = 2; // mirrors KNOWLEDGE_APPLY_CREDITS (kept inline so the
-  // client bundle doesn't import @/lib/credits → postgres.js). Server debit is
-  // authoritative; this is display-only.
+  //   canvas = free · entities = flat KNOWLEDGE_APPLY_CREDITS each · watchers = weekly.
+  // Sourced from the constant (credit-costs.ts is client-safe — no postgres),
+  // so this displayed estimate can never drift from the server's debit.
+  const APPLY_COST = KNOWLEDGE_APPLY_CREDITS;
   const applicableIds = entities.map((e) => e.node_id).filter((x): x is string => !!x);
   const applyCredits = applicableIds.length * APPLY_COST;
   const checkedCount = checkedWatchers.size;

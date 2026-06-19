@@ -82,7 +82,7 @@ function formatCell(value: string | number, colType: ColumnType | undefined): Re
 /**
  * Comparison table — title + table + collapsed sources + Apply/Dismiss footer.
  * Founder directive (2026-06-11): the comparison persists as a PROPOSAL
- * (graph_nodes, reviewed_state='pending'); applying it (2 credits) folds it
+ * (graph_nodes, reviewed_state='pending'); applying it (0.5 credits) folds it
  * into project intelligence.
  */
 export default function ComparisonTable({ artifact, onAction, defaultCollapsed }: ComparisonTableProps) {

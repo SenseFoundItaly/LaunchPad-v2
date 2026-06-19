@@ -360,7 +360,7 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
   // Founder directive 2026-06-11: chat-surfaced knowledge (insight/entity/
   // comparison/metric) no longer auto-applies — it persists 'pending' in
   // graph_nodes / memory_facts and must ALSO appear in the Inbox so the founder
-  // can apply (2 credits) or dismiss it from there, not just on the chat card.
+  // can apply (0.5 credits) or dismiss it from there, not just on the chat card.
   //
   // We materialize each pending knowledge row as a synthetic
   // 'proposed_graph_update' (the Inbox allow-list shows this type). The payload

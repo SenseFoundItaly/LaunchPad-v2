@@ -138,6 +138,10 @@ export async function POST(
             ownerUserId,
             timeoutMs: 170_000,
             allowAnySkill: true,
+            // Stream the skill's output to the client live (founder sees it being
+            // written, not a frozen "Running…"). Each delta is an SSE data event;
+            // the buffered run + persistence below are unchanged.
+            onDelta: (delta) => safeEnqueue(`data: ${JSON.stringify({ delta })}\n\n`),
           });
           // Quality gate: runSkill persists clarification-only / empty output as
           // 'incomplete', but RunSkillResult doesn't echo the persisted status —

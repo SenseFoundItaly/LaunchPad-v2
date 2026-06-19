@@ -17,6 +17,7 @@
 import type { GraphNode } from '@/types/graph';
 import type { Source } from '@/types/artifacts';
 import { NODE_COLORS } from '@/types/graph';
+import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
 
 /** A node reachable from the selected node in one hop, plus how they relate. */
 export interface NodeNeighbor {
@@ -33,7 +34,7 @@ interface NodeDetailPanelProps {
   onClose: () => void;
   /** Click a connected node to swap the panel to it (in-graph navigation). */
   onSelectNeighbor: (node: GraphNode) => void;
-  /** Pending-only: apply the proposal into intelligence (debits 2 credits). */
+  /** Pending-only: apply the proposal into intelligence (debits 0.5 credits). */
   onApply?: (node: GraphNode) => void;
   /** Pending-only: reject the proposal (free). */
   onDismiss?: (node: GraphNode) => void;
@@ -386,7 +387,7 @@ export default function NodeDetailPanel({
                 cursor: 'pointer',
               }}
             >
-              Apply · 2 credits
+              Apply · {KNOWLEDGE_APPLY_CREDITS} credits
             </button>
           )}
           {onDismiss && (

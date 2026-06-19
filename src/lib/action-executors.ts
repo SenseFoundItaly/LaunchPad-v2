@@ -291,7 +291,7 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
 
   // Chat-knowledge proposal (materialized by materializeProposalsFromSources):
   // the graph_node / memory_fact ALREADY exists as 'pending'. Applying just
-  // flips that row to 'applied' and debits the 2-credit apply cost — we must
+  // flips that row to 'applied' and debits the 0.5-credit apply cost — we must
   // NOT mint a second node here. Idempotent: only debit when the row actually
   // transitions out of 'pending'.
   const ks = (payload.knowledge_source ?? null) as { table?: string; id?: string } | null;
@@ -1327,6 +1327,7 @@ const applyValidationProposal: ActionHandler = async (action) => {
   const applied: string[] = [];
   const canvasFields: Record<string, string> = {};
   let creditsToDebit = 0;
+  let skippedNoOwner = false; // a market_size_fact couldn't persist (project has no owner)
 
   for (const raw of items) {
     const it = raw as {
@@ -1368,6 +1369,9 @@ const applyValidationProposal: ActionHandler = async (action) => {
       });
       applied.push('Market size');
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+    } else if (it.kind === 'market_size_fact') {
+      // market_size_fact present but no project owner to scope the fact to.
+      skippedNoOwner = true;
     }
   }
 
@@ -1398,7 +1402,12 @@ const applyValidationProposal: ActionHandler = async (action) => {
   }
 
   if (applied.length === 0) {
-    return { ok: false, error: 'No valid validation items to apply.' };
+    return {
+      ok: false,
+      error: skippedNoOwner
+        ? 'Cannot persist the market-size fact: this project has no owner to scope it to.'
+        : 'No valid validation items to apply.',
+    };
   }
 
   let creditsNote = '';

@@ -19,6 +19,7 @@
  */
 
 import { run, get } from '@/lib/db';
+import { persistCompetitorCategories } from '@/lib/competitor-categories';
 
 const jb = (v: unknown): string => JSON.stringify(v ?? null);
 const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
@@ -96,7 +97,12 @@ export function extractResearchFields(text: string): ResearchFields | null {
   return null;
 }
 
-/** Insert a graph_node as PENDING, deduped by LOWER(name) (mirrors artifact-persistence). */
+/** Insert a graph_node as PENDING, deduped by LOWER(name) (mirrors artifact-persistence).
+ *  Returns the node id + whether it was newly created, so the caller can attach
+ *  competitor categories (the matryoshka) to it. Returns null on empty/error.
+ *  An ALREADY-captured node returns its existing id (created:false) so categories
+ *  can still be back-filled onto it — categories are additive and never downgrade
+ *  the node's reviewed_state. */
 async function upsertPendingNode(
   projectId: string,
   name: string,
@@ -104,16 +110,16 @@ async function upsertPendingNode(
   summary: string,
   attributes: unknown,
   sources: unknown,
-): Promise<boolean> {
+): Promise<{ id: string; created: boolean } | null> {
   const trimmed = name.trim();
-  if (!trimmed) return false;
+  if (!trimmed) return null;
   try {
     const existing = await get<{ id: string }>(
       'SELECT id FROM graph_nodes WHERE project_id = ? AND LOWER(name) = LOWER(?)',
       projectId,
       trimmed,
     );
-    if (existing?.id) return false; // already captured — never downgrade an applied node
+    if (existing?.id) return { id: existing.id, created: false }; // captured — keep it, allow category back-fill
     const id = `node_${(globalThis.crypto?.randomUUID?.() ?? `${Date.now()}${Math.round(performance.now())}`).replace(/-/g, '').slice(0, 12)}`;
     await run(
       `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
@@ -126,10 +132,10 @@ async function upsertPendingNode(
       jb(attributes),
       jb(sources),
     );
-    return true;
+    return { id, created: true };
   } catch (err) {
     console.warn('[skill-research-persist] node upsert failed (non-fatal):', (err as Error).message);
-    return false;
+    return null;
   }
 }
 
@@ -137,6 +143,63 @@ export interface ResearchPersistResult {
   ok: boolean;
   competitors: number;
   marketSizeNode: boolean;
+  /** Clean founder-readable markdown report, built from the parsed fields, to
+   *  show in chat INSTEAD of the raw ```json dump (the json is machine-only —
+   *  it exists to be parsed here, not read by the founder). */
+  markdown?: string;
+}
+
+/**
+ * Build a founder-readable markdown report from parsed research fields. Replaces
+ * the raw ```json block in the chat message — TAM/SAM/SOM + competitors (with
+ * threat level + pricing) + key trends, as headings/bullets the chat renderer
+ * handles. The competitors also land in the knowledge graph (pending), so the
+ * report points the founder there.
+ */
+export function renderResearchSummary(fields: ResearchFields): string {
+  const { marketSizing, competitors, trends } = fields;
+  const out: string[] = ['## Market research', ''];
+
+  const ms = marketSizing && typeof marketSizing === 'object' ? (marketSizing as ResearchObj) : null;
+  if (ms) {
+    const tier = (k: string): string => {
+      const t = ms[k] as ResearchObj | undefined;
+      if (!t) return '';
+      const est = str((t as ResearchObj)?.estimate ?? (t as ResearchObj)?.value ?? t);
+      const conf = str((t as ResearchObj)?.confidence);
+      return est ? `- **${k.toUpperCase()}:** ${est}${conf ? ` _(${conf} confidence)_` : ''}` : '';
+    };
+    const tiers = ['tam', 'sam', 'som'].map(tier).filter(Boolean);
+    if (tiers.length) out.push('**Market size**', ...tiers, '');
+  }
+
+  if (competitors.length) {
+    out.push(`**Competitors (${competitors.length})** — added to your graph as pending; approve them to build your ecosystem map`, '');
+    for (const c of competitors) {
+      const name = str(c?.name ?? c?.competitor ?? c?.company);
+      if (!name) continue;
+      const threat = str(c?.threat_level ?? c?.threat);
+      const pricing = str(c?.pricing);
+      const pos = str(c?.positioning ?? c?.description ?? c?.summary).slice(0, 160);
+      const bits = [threat ? `threat: ${threat}` : '', pricing].filter(Boolean).join(' · ');
+      out.push(`- **${name}**${bits ? ` — ${bits}` : ''}${pos ? `\n  ${pos}` : ''}`);
+    }
+    out.push('');
+  }
+
+  if (Array.isArray(trends) && trends.length) {
+    out.push('**Key trends**', '');
+    for (const t of trends as ResearchObj[]) {
+      const name = str(t?.name);
+      if (!name) continue;
+      const dir = str(t?.direction);
+      const impl = str(t?.implication).slice(0, 180);
+      out.push(`- **${name}**${dir ? ` (${dir})` : ''}${impl ? ` — ${impl}` : ''}`);
+    }
+    out.push('');
+  }
+
+  return out.join('\n').trim();
 }
 
 /**
@@ -177,12 +240,25 @@ export async function persistResearchFromSkillOutput(
     console.warn('[skill-research-persist] research upsert failed (non-fatal):', (err as Error).message);
   }
 
-  // pending competitor nodes
+  // pending competitor nodes + their matryoshka categories (item 14)
   let n = 0;
   for (const c of competitors) {
     const name = str(c?.name ?? c?.competitor ?? c?.company);
     const summary = str(c?.positioning ?? c?.description ?? c?.summary);
-    if (await upsertPendingNode(projectId, name, 'competitor', summary, c, c?.sources ?? sources)) n++;
+    const node = await upsertPendingNode(projectId, name, 'competitor', summary, c, c?.sources ?? sources);
+    if (!node) continue;
+    if (node.created) n++;
+    // Decompose the competitor's attributes into canonical categories so the
+    // graph shows the matryoshka (startup → competitor → category → detail),
+    // not a flat node. Strip identity/source keys; the rest (positioning,
+    // pricing, strengths, distribution, …) map to categories via categoryForColumn.
+    // Best-effort + idempotent (ON CONFLICT upsert) — never breaks persistence.
+    const { name: _n, competitor: _comp, company: _co, sources: _s, ...catAttrs } = c as Record<string, unknown>;
+    if (Object.keys(catAttrs).length > 0) {
+      await persistCompetitorCategories(projectId, node.id, catAttrs).catch((err) =>
+        console.warn('[skill-research-persist] category persist failed (non-fatal):', (err as Error).message),
+      );
+    }
   }
 
   // pending market-sizing node (graph richness)
@@ -190,15 +266,15 @@ export async function persistResearchFromSkillOutput(
   if (marketSizing && typeof marketSizing === 'object') {
     const ms = marketSizing as ResearchObj;
     const tam = str((ms.tam as ResearchObj)?.estimate ?? ms.tam);
-    marketSizeNode = await upsertPendingNode(
+    marketSizeNode = !!(await upsertPendingNode(
       projectId,
       'Market sizing (TAM/SAM/SOM)',
       'market',
       tam,
       marketSizing,
       sources,
-    );
+    ));
   }
 
-  return { ok: true, competitors: n, marketSizeNode };
+  return { ok: true, competitors: n, marketSizeNode, markdown: renderResearchSummary(fields) };
 }

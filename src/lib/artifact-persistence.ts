@@ -88,7 +88,7 @@ async function upsertGraphNodeFromArtifact(
     srcJson: string | null;
     /** Review state for NEW nodes only — the UPDATE path always preserves the
      *  existing reviewed_state. Defaults to 'pending': chat-surfaced
-     *  intelligence is a PROPOSAL the founder applies (2 credits) before it
+     *  intelligence is a PROPOSAL the founder applies (0.5 credits) before it
      *  enters project knowledge. Callers with their own evidence (web-sourced
      *  competitor rows the founder watched get researched) pass 'applied'. */
     reviewedState?: 'pending' | 'applied';
@@ -236,7 +236,7 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
   // Knowledge-as-proposal (2026-06-11 founder directive): chat-surfaced
   // entities are NOT auto-applied. Every new entity-card node persists as
   // 'pending' — a proposal the founder applies (on the card or in the Inbox,
-  // costing 2 credits) before it enters project knowledge / closes an evidence
+  // costing 0.5 credits) before it enters project knowledge / closes an evidence
   // gate. The per-row competitor extraction below (web-sourced research the
   // founder watched happen) is the one evidence path that still writes
   // 'applied' — it passes reviewedState explicitly.
@@ -320,7 +320,7 @@ async function persistInsightCard(ctx: PersistContext, a: InsightCard): Promise<
     // fact text.
     sources: a.sources,
     // CHAT-ARTIFACT knowledge is a PROPOSAL — it stays 'pending' until the
-    // founder applies it (on the card or in the Inbox, costing 2 credits).
+    // founder applies it (on the card or in the Inbox, costing 0.5 credits).
     // Reverses the prior auto-apply ("Saved ✓") behaviour.
     reviewedState: 'pending',
   });

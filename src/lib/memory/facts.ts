@@ -41,7 +41,7 @@ export interface RecordFactInput {
    * existing fact's state). Defaults to 'applied' so every existing caller
    * (monitor/skill/approval-inbox/manual extraction) keeps today's behaviour.
    * The chat artifact-persistence path passes 'pending' so chat-surfaced
-   * knowledge becomes a PROPOSAL the founder applies (costs 2 credits) — it
+   * knowledge becomes a PROPOSAL the founder applies (costs 0.5 credits) — it
    * does NOT silently enter agent context until approved.
    */
   reviewedState?: ReviewedState;
@@ -55,7 +55,7 @@ export interface RecordFactInput {
  * Facts default to reviewed_state='applied' for backend callers (monitor,
  * skill, approval-inbox, manual). The chat artifact-persistence path passes
  * reviewedState='pending' so chat-surfaced knowledge is a PROPOSAL the founder
- * applies (2 credits) rather than auto-entering agent context. Founders curate
+ * applies (0.5 credits) rather than auto-entering agent context. Founders curate
  * applied facts on the Knowledge page.
  *
  * @returns UUID on success, '' on failure.

@@ -233,6 +233,14 @@ export interface RunAgentOptions {
    * these with buildSeedHistory(), which enforces the shape.
    */
   seedHistory?: AgentMessage[];
+  /**
+   * Streaming mirror — fired with each assistant text delta as it arrives.
+   * runAgent stays BUFFERED (same {text,usage} return + identical persistence
+   * and usage accounting); this just echoes the deltas out so a caller can
+   * stream the output live (e.g. the /skills SSE route streaming skill output
+   * into chat instead of dumping it all at the end). Optional + side-effect-free.
+   */
+  onDelta?: (delta: string) => void;
 }
 
 /**
@@ -369,6 +377,7 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
       const evt = event.assistantMessageEvent;
       if (evt.type === 'text_delta') {
         fullText += evt.delta;
+        options.onDelta?.(evt.delta); // mirror the delta out (buffered return unchanged)
       }
     }
     // message_end fires for user, toolResult, and assistant messages in order.
