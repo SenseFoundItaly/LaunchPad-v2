@@ -265,7 +265,13 @@ const listGraphNodes = (ctx: ToolContext): AgentTool => ({
     const p = params as { node_type?: string; limit?: number };
     const limit = Math.max(1, Math.min(100, p.limit ?? 30));
 
-    const conditions = ['project_id = ?', "reviewed_state = 'applied'"];
+    // Include PENDING nodes, not just applied. Research/competitor skills persist
+    // competitors as 'pending' (awaiting founder approval), so an applied-only
+    // read made the agent report "0 competitors" while the founder saw them in the
+    // graph UI (a real chat↔graph disconnect). Surface both, state-labeled, so the
+    // agent can reference them AND steer the founder to approve. rejected/dismissed
+    // stay hidden; applied sorts first (canonical knowledge leads).
+    const conditions = ['project_id = ?', "reviewed_state IN ('applied','pending')"];
     const args: unknown[] = [ctx.projectId];
     if (p.node_type) {
       conditions.push('node_type = ?');
@@ -273,21 +279,25 @@ const listGraphNodes = (ctx: ToolContext): AgentTool => ({
     }
 
     const rows = await query<Record<string, unknown>>(
-      `SELECT id, name, node_type, summary, created_at
+      `SELECT id, name, node_type, summary, reviewed_state, created_at
        FROM graph_nodes
        WHERE ${conditions.join(' AND ')}
-       ORDER BY created_at DESC
+       ORDER BY CASE reviewed_state WHEN 'applied' THEN 0 ELSE 1 END, created_at DESC
        LIMIT ${limit}`,
       ...args,
     );
 
+    const pendingCount = rows.filter((r) => r.reviewed_state === 'pending').length;
     const text = rows.length === 0
       ? `No graph nodes${p.node_type ? ` of type ${p.node_type}` : ''}.`
-      : rows.map((r, i) => `${i + 1}. [${r.node_type}] ${r.name}${r.summary ? ` — ${String(r.summary).slice(0, 150)}` : ''}`).join('\n');
+      : [
+          rows.map((r, i) => `${i + 1}. [${r.node_type}] ${r.name}${r.reviewed_state === 'pending' ? ' · PENDING (awaiting founder approval)' : ''}${r.summary ? ` — ${String(r.summary).slice(0, 150)}` : ''}`).join('\n'),
+          pendingCount > 0 ? `\n${pendingCount} node(s) are PENDING — they ARE in the graph but await the founder's approval (~0.5 cr each) to become applied. Reference them and offer to approve; never say the graph is empty when pending nodes exist.` : '',
+        ].filter(Boolean).join('\n');
 
     return {
       content: [{ type: 'text', text }],
-      details: { count: rows.length, node_type: p.node_type || 'all' },
+      details: { count: rows.length, pending: pendingCount, node_type: p.node_type || 'all' },
     };
   },
 });
