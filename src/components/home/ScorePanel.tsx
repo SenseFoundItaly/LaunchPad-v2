@@ -23,9 +23,37 @@ import type { MessageKey } from '@/lib/i18n/messages';
 interface ScoreDimensionLite { name: string; score: number }
 interface ScoreResp {
   overall_score: number | null;
-  dimensions: ScoreDimensionLite[] | null;
+  // Stored as a JSONB OBJECT MAP (name -> numeric score); older/corrupted rows
+  // may be a JSON string or an array of {name,score}. Kept `unknown` and
+  // normalized at read time — see normalizeDimensions.
+  dimensions: unknown;
   recommendation: string | null;
   scored_at: string | null;
+}
+
+// scores.dimensions is persisted as a JSONB object map (e.g. {"Problem": 7.2}),
+// NOT an array. The panel previously did Array.isArray(...) and silently rendered
+// an EMPTY breakdown for every project. Normalize the object map (and the
+// defensive array / double-encoded-string shapes) into [{name, score}].
+function normalizeDimensions(raw: unknown): ScoreDimensionLite[] {
+  let d = raw;
+  if (typeof d === 'string') {
+    try { d = JSON.parse(d); } catch { return []; }
+  }
+  if (Array.isArray(d)) {
+    return d.filter(
+      (x): x is ScoreDimensionLite =>
+        !!x && typeof x === 'object' &&
+        typeof (x as ScoreDimensionLite).name === 'string' &&
+        typeof (x as ScoreDimensionLite).score === 'number',
+    );
+  }
+  if (d && typeof d === 'object') {
+    return Object.entries(d as Record<string, unknown>)
+      .filter(([, v]) => typeof v === 'number' && Number.isFinite(v))
+      .map(([name, v]) => ({ name, score: v as number }));
+  }
+  return [];
 }
 interface StagesResp {
   evaluations: Array<{ stage: { number: number; label: string }; status: 'done' | 'active' | 'pending' }>;
@@ -66,7 +94,7 @@ export function ScorePanel({ projectId }: { projectId: string }) {
   });
 
   const overall = typeof score?.overall_score === 'number' ? Math.round(score.overall_score) : null;
-  const dims = Array.isArray(score?.dimensions) ? score!.dimensions!.filter((d) => d && typeof d.score === 'number') : [];
+  const dims = normalizeDimensions(score?.dimensions);
   const evals = stages?.evaluations ?? [];
   const total = evals.length || 7;
   const done = evals.filter((e) => e.status === 'done').length;

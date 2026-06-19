@@ -127,11 +127,13 @@ const GatedSkillsContext = createContext<Set<string>>(new Set());
 interface OptionSelectionState {
   selectedBySet: Record<string, string>; // unique setId -> chosen option id
   markSelected: (setId: string, optionId: string) => void;
+  unmarkSelected: (setId: string) => void; // revert an optimistic lock when its commit failed
   streaming: boolean;
 }
 const OptionSelectionContext = createContext<OptionSelectionState>({
   selectedBySet: {},
   markSelected: () => {},
+  unmarkSelected: () => {},
   streaming: false,
 });
 
@@ -460,9 +462,20 @@ export default function CopilotChatPage({
     if (!setId) return;
     setSelectedBySet((prev) => (prev[setId] !== undefined ? prev : { ...prev, [setId]: optionId }));
   }, []);
+  // Revert an optimistic lock: a commit option locks the set on click, but if the
+  // write fails we must un-lock so the founder can retry (and never leave a false ✓).
+  const unmarkOptionSelected = useCallback((setId: string) => {
+    if (!setId) return;
+    setSelectedBySet((prev) => {
+      if (prev[setId] === undefined) return prev;
+      const next = { ...prev };
+      delete next[setId];
+      return next;
+    });
+  }, []);
   const optionSelection = useMemo<OptionSelectionState>(
-    () => ({ selectedBySet, markSelected: markOptionSelected, streaming: isStreaming }),
-    [selectedBySet, markOptionSelected, isStreaming],
+    () => ({ selectedBySet, markSelected: markOptionSelected, unmarkSelected: unmarkOptionSelected, streaming: isStreaming }),
+    [selectedBySet, markOptionSelected, unmarkOptionSelected, isStreaming],
   );
 
   // Cross-page pre-fill: CTAs on the Today page (StageCard checks + the
@@ -2089,6 +2102,7 @@ function InlineOption({
   chosen = false,
   dimmed = false,
   onChoose,
+  onUnchoose,
   onAction,
 }: {
   option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; commit?: { canvas?: Record<string, string>; items?: Array<Record<string, unknown>> } };
@@ -2101,6 +2115,8 @@ function InlineOption({
   dimmed?: boolean;
   /** Record this option as the set's selection (called on click, before dispatch). */
   onChoose?: () => void;
+  /** Revert the selection lock — called when a commit option's write fails. */
+  onUnchoose?: () => void;
   onAction?: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
 }) {
   const t = useT();
@@ -2126,6 +2142,7 @@ function InlineOption({
     locked ? `🔒 ${baseLabel}` :
     state === 'running' ? `${baseLabel} · ${t('chat.running')}` :
     state === 'done' ? `${baseLabel} · ${t('common.done')}` :
+    state === 'error' ? `${baseLabel} · ${t('chat.commit-failed')}` :
     chosen ? `${baseLabel} · ✓` :
     baseLabel;
   // Disabled covers: locked skills (prereqs unmet), a skill mid/post-run, AND a
@@ -2153,7 +2170,6 @@ function InlineOption({
       }
       return;
     }
-    onChoose?.(); // lock the set immediately (optimistic), before the response starts
     // Structured commit: this option carries the evidence (canvas fields and/or
     // paid items), so the click PERSISTS it deterministically (the click IS the
     // founder's approval) rather than round-tripping text the model could
@@ -2162,14 +2178,28 @@ function InlineOption({
     const hasCanvas = !!commit?.canvas && Object.keys(commit.canvas).length > 0;
     const hasItems = Array.isArray(commit?.items) && commit.items.length > 0;
     if (commit && (hasCanvas || hasItems)) {
-      onAction?.('commit:apply', {
-        canvas: commit.canvas ?? {},
-        items: commit.items ?? [],
-        label: split.full || `Option ${index + 1}`,
-        description: option.description ?? '',
-      });
+      onChoose?.(); // optimistic lock: blocks siblings + a re-click while the commit is in flight
+      setState('running');
+      try {
+        // AWAIT the write. The handler throws on a non-ok /idea-canvas or
+        // /validation/commit response; if we fire-and-forget, a failed write
+        // would leave a false ✓ with nothing persisted (the exact narrate-but-
+        // no-persist trap the deterministic commit exists to prevent).
+        await onAction?.('commit:apply', {
+          canvas: commit.canvas ?? {},
+          items: commit.items ?? [],
+          label: split.full || `Option ${index + 1}`,
+          description: option.description ?? '',
+        });
+        setState('done');
+      } catch {
+        // Write failed → revert the lock so the founder can retry, and surface it.
+        onUnchoose?.();
+        setState('error');
+      }
       return;
     }
+    onChoose?.(); // non-commit select: lock optimistically (a text round-trip, nothing to persist-fail)
     onAction?.('select-option', {
       optionId: option.id ?? String(index),
       label: split.full || `Option ${index + 1}`,
@@ -2318,6 +2348,7 @@ function InlineArtifact({
                 chosen={consumed && chosenOptionId === optId}
                 dimmed={consumed && chosenOptionId !== optId}
                 onChoose={() => uid && sel.markSelected(uid, optId)}
+                onUnchoose={() => uid && sel.unmarkSelected(uid)}
                 onAction={onAction}
               />
             );

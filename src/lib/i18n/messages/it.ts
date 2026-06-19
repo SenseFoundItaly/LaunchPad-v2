@@ -375,6 +375,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'chat.skill-fallback': 'Skill',
   'chat.run-failed': 'Esecuzione fallita',
   'chat.running': 'In esecuzione…',
+  'chat.commit-failed': 'salvataggio non riuscito — tocca per riprovare',
   'chat.run-with-credits': 'Esegui (≈{credits} crediti)',
   'chat.skill-running-note': 'In esecuzione in tempo reale — al termine registra le prove di validazione.',
   'chat.skill-done-note': 'Skill eseguita — preparazione e spine aggiornate.',

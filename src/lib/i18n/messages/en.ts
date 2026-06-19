@@ -382,6 +382,7 @@ export const en = {
   'chat.skill-fallback': 'Skill',
   'chat.run-failed': 'Run failed',
   'chat.running': 'Running…',
+  'chat.commit-failed': "couldn't save — tap to retry",
   'chat.run-with-credits': 'Run (≈{credits} credits)',
   'chat.skill-running-note': 'Running in real time — this writes validation evidence when it finishes.',
   'chat.skill-done-note': 'Skill ran — readiness and the spine have been updated.',

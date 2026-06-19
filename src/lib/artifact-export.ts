@@ -14,9 +14,19 @@ export interface ArtifactExport {
   text: string;
 }
 
-/** RFC-4180-ish CSV cell: quote when it contains a comma, quote, or newline. */
+/**
+ * CSV cell. Two concerns:
+ *  - Formula injection (CWE-1236): a leading =,+,-,@,TAB,CR makes Excel/Sheets
+ *    EXECUTE the cell. These artifacts carry agent/web-sourced text (competitor
+ *    names, research snippets) which is untrusted, so prefix such free-text
+ *    cells with an apostrophe. Genuine numbers (incl. negatives/decimals) are
+ *    left intact so they stay numeric.
+ *  - RFC-4180 quoting: wrap when the value contains a comma, quote, or newline.
+ */
 function csvCell(value: unknown): string {
-  const s = value == null ? '' : String(value);
+  let s = value == null ? '' : String(value);
+  const isNumeric = /^-?\d+(\.\d+)?$/.test(s.trim());
+  if (!isNumeric && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

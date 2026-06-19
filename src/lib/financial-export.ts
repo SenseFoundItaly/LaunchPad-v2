@@ -12,8 +12,14 @@ export interface FinancialExport {
   text: string;
 }
 
+// CSV cell. Neutralize spreadsheet formula injection (CWE-1236): a leading
+// =,+,-,@,TAB,CR makes Excel/Sheets execute the cell, and financial models can
+// carry agent-sourced label text. Genuine numbers (incl. negative figures) are
+// left intact. Then RFC-4180-quote on comma/quote/newline.
 function csvCell(value: unknown): string {
-  const s = value == null ? '' : String(value);
+  let s = value == null ? '' : String(value);
+  const isNumeric = /^-?\d+(\.\d+)?$/.test(s.trim());
+  if (!isNumeric && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 function toCsv(rows: unknown[][]): string {
