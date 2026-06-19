@@ -214,6 +214,8 @@ export const en = {
   'actions.type-graph-update': 'Graph update',
   'actions.type-workflow-step': 'Workflow step',
   'actions.type-new-watcher': 'New watcher',
+  'actions.type-edit-watcher': 'Edit watcher',
+  'actions.type-delete-watcher': 'Remove watcher',
   'actions.type-budget-change': 'Budget change',
   'actions.type-skill-kickoff': 'Skill kickoff',
   'actions.type-validation': 'Validation',

@@ -743,6 +743,137 @@ const configureMonitor: ActionHandler = async (action) => {
  * we just overwrite the cap; current_llm_usd is preserved (we never reset
  * it on a cap change — that would erase the actual spend record).
  */
+/**
+ * `edit_monitor` executor — applies a founder-confirmed edit to an EXISTING
+ * watcher (cadence / objective / status). Staged by the chat `edit_watcher`
+ * tool; the founder's Apply in the Approvals lane is the confirmation. When the
+ * objective changes we rebuild the scan prompt so the next run reflects it.
+ */
+const editMonitor: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const monitorId = String(payload.monitor_id ?? '');
+  const changes = (payload.changes && typeof payload.changes === 'object')
+    ? (payload.changes as Record<string, unknown>)
+    : {};
+  if (!monitorId) return { ok: false, error: 'edit_monitor: missing monitor_id' };
+
+  const rows = await query<{ id: string; name: string; type: string; config: unknown }>(
+    'SELECT id, name, type, config FROM monitors WHERE id = ? AND project_id = ?',
+    monitorId, action.project_id,
+  );
+  const monitor = rows[0];
+  if (!monitor) return { ok: false, error: `edit_monitor: watcher ${monitorId} not found in this project` };
+
+  const sets: string[] = [];
+  const args: unknown[] = [];
+  const VALID_CADENCE = new Set(['daily', 'weekly', 'monthly']);
+  const VALID_STATUS = new Set(['active', 'paused']);
+
+  const cadence = typeof changes.cadence === 'string' ? changes.cadence : '';
+  if (cadence && VALID_CADENCE.has(cadence)) { sets.push('schedule = ?'); args.push(cadence); }
+  const status = typeof changes.status === 'string' ? changes.status : '';
+  if (status && VALID_STATUS.has(status)) { sets.push('status = ?'); args.push(status); }
+  const objective = typeof changes.objective === 'string' ? changes.objective.trim() : '';
+  if (objective) {
+    sets.push('objective = ?'); args.push(objective);
+    // Rebuild the scan prompt from the new objective so the NEXT run reflects it
+    // (the raw prompt is what the cron agent executes).
+    const config = (monitor.config && typeof monitor.config === 'object')
+      ? (monitor.config as Record<string, unknown>) : {};
+    const urls = Array.isArray(config.urls_to_track)
+      ? config.urls_to_track.filter((u): u is string => typeof u === 'string') : [];
+    const prompt = await buildMonitorScanPrompt(action.project_id, {
+      kind: monitor.type,
+      name: monitor.name,
+      objective,
+      query: typeof config.query === 'string' ? config.query : undefined,
+      urls,
+      alertThreshold: typeof config.alert_threshold === 'string' ? config.alert_threshold : '',
+    });
+    sets.push('prompt = ?'); args.push(prompt);
+  }
+
+  if (sets.length === 0) return { ok: false, error: 'edit_monitor: no valid changes to apply' };
+
+  args.push(monitorId, action.project_id);
+  await run(`UPDATE monitors SET ${sets.join(', ')} WHERE id = ? AND project_id = ?`, ...args);
+
+  const locale = await localeFor(action);
+  const what = [cadence && `cadence → ${cadence}`, status && `status → ${status}`, objective && 'objective updated']
+    .filter(Boolean).join(', ');
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct',
+      created_row_id: monitorId,
+      narrative: locale === 'it'
+        ? `Osservatore "${monitor.name}" aggiornato (${what}).`
+        : `Watcher "${monitor.name}" updated (${what}).`,
+    },
+  };
+};
+
+/**
+ * `delete_monitor` executor — pauses (reversible) or hard-deletes a watcher
+ * after the founder confirms in the Approvals lane. Staged by `delete_watcher`.
+ * A hard delete falls back to deactivation if linked run/alert history blocks it.
+ */
+const deleteMonitor: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const monitorId = String(payload.monitor_id ?? '');
+  const mode = payload.mode === 'delete' ? 'delete' : 'pause';
+  if (!monitorId) return { ok: false, error: 'delete_monitor: missing monitor_id' };
+
+  const rows = await query<{ id: string; name: string }>(
+    'SELECT id, name FROM monitors WHERE id = ? AND project_id = ?',
+    monitorId, action.project_id,
+  );
+  const monitor = rows[0];
+  if (!monitor) return { ok: false, error: `delete_monitor: watcher ${monitorId} not found in this project` };
+
+  const locale = await localeFor(action);
+  if (mode === 'delete') {
+    try {
+      await run('DELETE FROM monitor_runs WHERE monitor_id = ?', monitorId);
+      await run('DELETE FROM monitors WHERE id = ? AND project_id = ?', monitorId, action.project_id);
+      return {
+        ok: true,
+        deliverable: {
+          mode: 'direct',
+          narrative: locale === 'it'
+            ? `Osservatore "${monitor.name}" eliminato definitivamente.`
+            : `Watcher "${monitor.name}" permanently deleted.`,
+        },
+      };
+    } catch {
+      // Linked history (alerts referencing runs) blocks a hard delete —
+      // deactivate instead so it stops running and leaves the active list.
+      await run("UPDATE monitors SET status = 'inactive' WHERE id = ? AND project_id = ?", monitorId, action.project_id);
+      return {
+        ok: true,
+        deliverable: {
+          mode: 'direct',
+          created_row_id: monitorId,
+          narrative: locale === 'it'
+            ? `Osservatore "${monitor.name}" disattivato (la cronologia collegata ne impedisce l'eliminazione definitiva).`
+            : `Watcher "${monitor.name}" deactivated (linked history prevents a hard delete).`,
+        },
+      };
+    }
+  }
+  await run("UPDATE monitors SET status = 'paused' WHERE id = ? AND project_id = ?", monitorId, action.project_id);
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct',
+      created_row_id: monitorId,
+      narrative: locale === 'it'
+        ? `Osservatore "${monitor.name}" messo in pausa (riattivabile in qualsiasi momento).`
+        : `Watcher "${monitor.name}" paused (you can re-activate it any time).`,
+    },
+  };
+};
+
 const configureBudget: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
 
@@ -1444,6 +1575,8 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   proposed_interview_question: proposedInterviewQuestion,
   proposed_landing_copy: proposedLandingCopy,
   configure_monitor: configureMonitor,
+  edit_monitor: editMonitor,
+  delete_monitor: deleteMonitor,
   configure_budget: configureBudget,
   configure_watch_source: configureWatchSource,
   run_skill: runSkillExecutor,

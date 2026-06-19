@@ -966,6 +966,95 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
 const BUDGET_MIN_CAP_USD = 0.10;
 const BUDGET_MAX_PROPOSAL_USD = 100;
 
+const editWatcherTool = (ctx: ToolContext): AgentTool => ({
+  name: 'edit_watcher',
+  label: 'Edit Watcher',
+  description:
+    'Propose an edit to an EXISTING watcher — change its cadence (how often it checks), its plain-language objective (what it watches), or its status. This does NOT change anything immediately: it stages the edit as a pending action the founder confirms in the Approvals lane (the founder\'s Apply IS the confirmation — never tell them it is already done). Get the watcher id from list_watchers first. To "make it check more frequently", set cadence to daily.',
+  parameters: Type.Object({
+    monitor_id: Type.String({ description: 'The watcher id from list_watchers (e.g. mon_...).' }),
+    cadence: Type.Optional(Type.Union(
+      [Type.Literal('daily'), Type.Literal('weekly'), Type.Literal('monthly')],
+      { description: 'New check frequency.' },
+    )),
+    objective: Type.Optional(Type.String({ description: 'New plain-language description of what this watcher should track. Rebuilds the scan instructions.' })),
+    status: Type.Optional(Type.Union(
+      [Type.Literal('active'), Type.Literal('paused')],
+      { description: 'Activate or pause the watcher.' },
+    )),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { monitor_id: string; cadence?: string; objective?: string; status?: string };
+    const monitor = await get<{ id: string; name: string }>(
+      'SELECT id, name FROM monitors WHERE id = ? AND project_id = ?',
+      p.monitor_id, ctx.projectId,
+    );
+    if (!monitor) {
+      return { content: [{ type: 'text', text: `No watcher with id ${p.monitor_id} in this project. Call list_watchers to get a valid id.` }], details: { error: true } };
+    }
+    const changes: Record<string, string> = {};
+    if (p.cadence) changes.cadence = p.cadence;
+    if (typeof p.objective === 'string' && p.objective.trim()) changes.objective = p.objective.trim();
+    if (p.status) changes.status = p.status;
+    if (Object.keys(changes).length === 0) {
+      return { content: [{ type: 'text', text: 'No changes specified. Provide at least one of: cadence, objective, status.' }], details: { error: true } };
+    }
+    const summary = Object.entries(changes)
+      .map(([k, v]) => (k === 'objective' ? `objective → "${String(v).slice(0, 60)}…"` : `${k} → ${v}`))
+      .join(', ');
+    const action = await createPendingAction({
+      project_id: ctx.projectId,
+      action_type: 'edit_monitor',
+      title: `Edit watcher "${monitor.name}"`,
+      rationale: `Proposed change: ${summary}. Approve to apply.`,
+      payload: { monitor_id: monitor.id, monitor_name: monitor.name, changes },
+    });
+    return {
+      content: [{ type: 'text', text: `Staged an edit to "${monitor.name}" (${summary}) for your approval. Confirm it in the Approvals lane to apply — nothing has changed yet.` }],
+      details: { pending_action_id: action.id, monitor_id: monitor.id, changes },
+    };
+  },
+});
+
+const deleteWatcherTool = (ctx: ToolContext): AgentTool => ({
+  name: 'delete_watcher',
+  label: 'Pause / Delete Watcher',
+  description:
+    'Propose pausing or deleting an EXISTING watcher. This does NOT remove anything immediately — it stages the action as a pending approval the founder confirms (their Apply IS the confirmation). Prefer mode="pause" (reversible) unless the founder explicitly wants it permanently gone. Get the watcher id from list_watchers first.',
+  parameters: Type.Object({
+    monitor_id: Type.String({ description: 'The watcher id from list_watchers.' }),
+    mode: Type.Optional(Type.Union(
+      [Type.Literal('pause'), Type.Literal('delete')],
+      { description: 'pause (reversible, default) or delete (permanent).' },
+    )),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { monitor_id: string; mode?: string };
+    const mode = p.mode === 'delete' ? 'delete' : 'pause';
+    const monitor = await get<{ id: string; name: string }>(
+      'SELECT id, name FROM monitors WHERE id = ? AND project_id = ?',
+      p.monitor_id, ctx.projectId,
+    );
+    if (!monitor) {
+      return { content: [{ type: 'text', text: `No watcher with id ${p.monitor_id} in this project. Call list_watchers to get a valid id.` }], details: { error: true } };
+    }
+    const verb = mode === 'delete' ? 'Delete' : 'Pause';
+    const action = await createPendingAction({
+      project_id: ctx.projectId,
+      action_type: 'delete_monitor',
+      title: `${verb} watcher "${monitor.name}"`,
+      rationale: mode === 'delete'
+        ? 'Permanently remove this watcher and its run history. Approve to apply.'
+        : 'Stop this watcher from running (reversible — you can re-activate it later). Approve to apply.',
+      payload: { monitor_id: monitor.id, monitor_name: monitor.name, mode },
+    });
+    return {
+      content: [{ type: 'text', text: `Staged "${verb.toLowerCase()} ${monitor.name}" for your approval — nothing has changed yet. Confirm it in the Approvals lane to apply.` }],
+      details: { pending_action_id: action.id, monitor_id: monitor.id, mode },
+    };
+  },
+});
+
 const proposeBudgetChangeTool = (ctx: ToolContext): AgentTool => ({
   name: 'propose_budget_change',
   label: 'Propose Budget Change',
@@ -2875,6 +2964,8 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     createPendingActionTool(ctx),
     dismissPendingActions(ctx),
     proposeMonitorTool(ctx),
+    editWatcherTool(ctx),
+    deleteWatcherTool(ctx),
     proposeBudgetChangeTool(ctx),
     createTaskTool(ctx),
     proposeWatchSourceTool(ctx),

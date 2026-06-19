@@ -207,6 +207,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   'actions.type-graph-update': 'Aggiornamento grafo',
   'actions.type-workflow-step': 'Passo del workflow',
   'actions.type-new-watcher': 'Nuovo osservatore',
+  'actions.type-edit-watcher': 'Modifica osservatore',
+  'actions.type-delete-watcher': 'Rimuovi osservatore',
   'actions.type-budget-change': 'Modifica budget',
   'actions.type-skill-kickoff': 'Avvio competenza',
   'actions.type-validation': 'Validazione',
