@@ -1,6 +1,7 @@
 import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import type { Source } from '@/types/artifacts';
+import { wrapUntrusted } from '@/lib/untrusted-content';
 
 /**
  * Web search + URL read tools.
@@ -41,6 +42,10 @@ function jinaHeaders(): Record<string, string> {
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + `\n\n[…truncated, ${s.length - max} chars omitted]` : s;
 }
+
+// A4 (copilot-sota): fetched web/page bodies are wrapped via wrapUntrusted (see
+// import at top) so the model treats them as DATA, never instructions
+// (prompt-injection defense). Our framing (query/SOURCES/titles) stays OUTSIDE.
 
 /**
  * Build a Source[] from a list of search hits. Kept separate so both the
@@ -118,7 +123,7 @@ async function jinaSearch(query: string): Promise<
       content: [
         {
           type: 'text',
-          text: `Search results for "${query}" (via Jina, ${resultCount} results):\n\n${truncate(text, MAX_TOTAL_CHARS)}\n\nSOURCES (cite verbatim when using these results in artifacts):\n${hits.map((h, i) => `[${i + 1}] ${h.title ?? h.url} — ${h.url}`).join('\n')}`,
+          text: `Search results for "${query}" (via Jina, ${resultCount} results):\n\n${wrapUntrusted(truncate(text, MAX_TOTAL_CHARS))}\n\nSOURCES (cite verbatim when using these results in artifacts):\n${hits.map((h, i) => `[${i + 1}] ${h.title ?? h.url} — ${h.url}`).join('\n')}`,
         },
       ],
       details: {
@@ -156,7 +161,7 @@ async function ddgSearchFallback(query: string, reason: string): Promise<AgentTo
       content: [
         {
           type: 'text',
-          text: `Search results for "${query}" (fallback, Jina unavailable: ${reason}):\n\n${text}\n\nSOURCES (cite verbatim when using these results in artifacts):\n${results.map((r, i) => `[${i + 1}] ${r.title} — ${r.url}`).join('\n')}`,
+          text: `Search results for "${query}" (fallback, Jina unavailable: ${reason}):\n\n${wrapUntrusted(text)}\n\nSOURCES (cite verbatim when using these results in artifacts):\n${results.map((r, i) => `[${i + 1}] ${r.title} — ${r.url}`).join('\n')}`,
         },
       ],
       details: {
@@ -234,7 +239,7 @@ async function jinaRead(target: string): Promise<
       content: [
         {
           type: 'text',
-          text: `${title}\n${target}\n\n${truncated}\n\nSOURCE (cite verbatim when quoting this page):\n[1] ${title?.trim() || target} — ${target}`,
+          text: `${title}\n${target}\n\n${wrapUntrusted(truncated)}\n\nSOURCE (cite verbatim when quoting this page):\n[1] ${title?.trim() || target} — ${target}`,
         },
       ],
       details: {
@@ -290,7 +295,7 @@ async function rawFetchFallback(target: string, reason: string): Promise<AgentTo
       content: [
         {
           type: 'text',
-          text: `Content from ${target} (fallback, Jina unavailable: ${reason}):\n\n${trimmed}\n\nSOURCE (cite verbatim when quoting this page):\n[1] ${target} — ${target}`,
+          text: `Content from ${target} (fallback, Jina unavailable: ${reason}):\n\n${wrapUntrusted(trimmed)}\n\nSOURCE (cite verbatim when quoting this page):\n[1] ${target} — ${target}`,
         },
       ],
       details: {
