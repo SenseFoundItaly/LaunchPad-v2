@@ -46,6 +46,29 @@ export const USER_MONTHLY_LLM_USD = 0.333;
 export const USER_MONTHLY_WARN_LLM_USD = 0.267;
 
 /**
+ * Credits per USD of LLM cost — the conversion the debit math uses (cap_credits
+ * / cap_llm_usd). The DEFAULT ratio (100 / 0.333 ≈ 300) is used for ESTIMATES;
+ * the actual per-user debit (and A2a's displayed actual) uses the user's own
+ * stored ratio. ~300 → 1 credit ≈ $0.0033 of LLM spend (3× markup).
+ */
+export const CREDITS_PER_DOLLAR = USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD;
+
+/** Convert an LLM cost in USD to a founder-facing credit estimate (rounded). */
+export function creditsFromUsd(usd: number): number {
+  if (typeof usd !== 'number' || !Number.isFinite(usd) || usd <= 0) return 0;
+  const c = usd * CREDITS_PER_DOLLAR;
+  return c >= 1 ? Math.round(c) : Math.round(c * 10) / 10;
+}
+
+/** Median of a numeric list (ignores non-finite). null when empty. */
+export function median(nums: number[]): number | null {
+  const xs = nums.filter((n) => typeof n === 'number' && Number.isFinite(n)).sort((a, b) => a - b);
+  if (xs.length === 0) return null;
+  const mid = Math.floor(xs.length / 2);
+  return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
+}
+
+/**
  * A2a (copilot-sota): format the ACTUAL metered credit cost of one chat message
  * for display under the message. The real per-message cost is computed in
  * useChat (from the `done` SSE usage event) and was previously dropped on the
