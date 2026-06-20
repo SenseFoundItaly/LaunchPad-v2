@@ -23,9 +23,9 @@ _Prepared 2026-06-19. Status of every item Luca raised in the 17/06 testing pass
 | 11 | Per-artifact export + cleaned go/no-go report | ✅ | `ArtifactExportButton` (CSV/JSON per artifact) + `context-export` go/no-go mode (per-stage assets, signals, risks, scoring, tasks; chat history stripped). |
 | 12 | Home "Notes" → knowledge | ✅ | `NotesCard` on Home → `/notes` → applied `memory_fact` (surfaces in Knowledge). |
 | 13 | Financial projections detailed + editable | 🟨 partial | Built + **downloadable** (CSV/JSON). **Missing:** edit-and-persist (route is GET-only) and a Canvas renderer. |
-| 14 | **Graph = ecosystem + competitor matryoshka** | 🟩 fixed (this session) | See §3 — was fully non-functional on prod; now wired + the data chain validated. |
+| 14 | **Graph = ecosystem + competitor matryoshka** | ✅ fixed + live-validated | See §3 — was fully non-functional on prod; now wired + the matryoshka renders **8 competitors × 4 categories** live, and chat lists the pending competitors. |
 | 14.2 | Approval cost ≤0.25–0.5cr | ✅ | `KNOWLEDGE_APPLY_CREDITS = 0.5`; canvas commits are free. |
-| (bottom 2) | Scoring detail + Home placement + Score≠IRL | 🟨 partial | Per-dimension scorecard + qualitative verdict **live-validated** (see §4). Home placement of the score + a distinct branded IRL number still to wire. |
+| (bottom 2) | Scoring detail + Home placement + Score≠IRL | ✅ | ScorePanel on Home: PROJECT SCORE + a distinct IRL "stages validated" readout — live-validated render (see §4). Also fixed: the per-dimension breakdown rendered empty because the code assumed an array but `scores.dimensions` is a JSONB object map (now normalized). |
 | SOUL.md | Stricter, less sycophantic | ✅ | Anti-sycophancy protocol shipped (EN+IT). **Live-proven:** scoring returned **"NOT READY" first**, refused a soft GO on unproven WTP, and surfaced a real funded competitor (Sibill) via web research. |
 
 ### Also fixed this session (beyond the 17/06 list)
@@ -66,30 +66,42 @@ The 17/06 centerpiece (graph populates with competitors decomposed into matryosh
 2. **The skill path didn't persist categories** — `market-research` wrote bare competitor `graph_nodes` and never decomposed them; only the rare chat `propose_competitor_analysis` tool did. → **Fixed: `skill-research-persist.ts` now decomposes each competitor's attributes into `competitor_categories`** via the existing `persistCompetitorCategories` (node-id wired through).
    - _Residual (deferred):_ `startup-scoring`/`advisor` still don't persist competitors at all (they're scoring skills, not competitor-analysis); the canonical route is `market-research`, which is now covered.
 
-**Validated:** the matryoshka chain (insert → join read: startup → competitor → category → detail) works post-migration. A live market-research run will now populate it.
+**Validated LIVE this session:** the `/competitors/breakdown` endpoint returns **8 competitors × 4 categories each** (general / pricing / competitive_advantage / criticality) and the Knowledge UI renders the nested startup → competitor → category → detail with Apply/Dismiss. Categories were populated by a faithful backfill of the existing nodes' stored attributes — because the market-research **re-run parsed 0 competitors** (a parser-variance bug). That bug is now **guarded**: the research upsert keeps prior competitors/market-size/trends when a re-parse comes back empty (`skill-research-persist.ts`, JSONB CASE guard), so a 0-competitor run can no longer wipe the graph.
 
 ---
 
-## 4. What was live-validated vs. code-only
+## 4. What was live-validated vs. code-only (updated 2026-06-19)
 
-- **Live-validated in the running app this session:** items 2, 5, 6, SOUL anti-sycophancy + scoring rigor (NOT-READY-first, Sibill found), the commit loop (DB-confirmed writes), skill-output streaming (3→20,160 chars), the matryoshka data chain (post-migration), item 1.5 (verbatim canvas recall), item 1.6 (scoring no longer false-blocked).
-- **Code-only (tsc-clean, not yet live-run):** the market-research formatter + the skill-path category persistence (table now exists; next run populates it).
-
----
-
-## 5. Deployment status — IMPORTANT
-
-**Nothing in this session's code is committed or deployed.** It all lives in the `mogadishu` worktree working tree (tsc-clean throughout). **Two changes WERE made to the prod database:** (1) migration 022 (`competitor_categories` table created); (2) a stale validation-proposal (`pa_qiy93cca6abn`) flipped to rejected. The local dev server runs against prod data with an auth bypass for testing only.
-
-**To ship:** review + commit the working tree, then deploy via the normal `npm run deploy` flow. The two prod-DB changes are already in place and are safe/additive.
+- **Live-validated in the running app this session** (Playwright + a second gstack QA pass agree, 0 functional bugs): items 2, 5, 6; SOUL anti-sycophancy + scoring rigor (NOT-READY-first, Sibill found; held its ground under direct push-back); the commit loop (DB-confirmed writes); skill-output streaming (3→20,160 chars); **the matryoshka end-to-end (8 competitors × 4 categories render in Knowledge + breakdown endpoint)**; **chat↔graph — the agent now lists all 8 pending competitors via a live graph query** (was "0 competitors"); **the Home redesign — Score + IRL (1/7, Market Validation) + Ecosystem + Onboarding + Notes all render, 0 console errors**; **Notes → applied memory_fact** (round-trip + cleanup); **watcher edit/delete** (Sibill weekly→daily; Market Trends pause — both via Apply → executor → DB, then reverted); item 1.5 (verbatim canvas recall); item 1.6 (scoring no longer false-blocked).
+- **Code-only (tsc-clean, not yet live-run):** the watcher **hard-delete** branch (only `pause` was exercised; delete falls back to deactivate on FK conflict); the `commit:apply` **failure-path** UI (revert + error label — can't force a server rejection in-browser); financial-model export **with real data** (no project has a financial model yet; the builder is unit-proven with synthetic data).
 
 ---
 
-## 6. Still open (ranked)
+## 5. Deployment status — IMPORTANT (updated 2026-06-19)
 
-1. 🟥 **Item 8 credits** — the highest-impact remaining work: stable-tool-prefix caching (cost), re-base the pool, honest labels, dedup budget rows. (Assessment in §2.)
+**Everything is now COMMITTED + PUSHED to PR #75, NOT merged, NOT deployed.** Branch `feat/changelog-1706-remediation` (HEAD `fd01ad1`); `npm run deploy` has NOT run, so none of this is on the live site yet. The local dev server runs this worktree against prod data with the localhost-only E2E auth bypass.
+
+**PROD-DB changes applied this session (all additive / safe):** (1) migration **022** (`competitor_categories` table); (2) migration **023** (widened `pending_actions.action_type` CHECK with `edit_monitor` + `delete_monitor`); (3) a stale validation-proposal (`pa_qiy93cca6abn`) flipped to rejected.
+
+**To ship:** review + merge PR #75, then `npm run deploy`. The migrations are already in prod, so shipping is code-only at deploy time.
+
+---
+
+## 6. Still open (ranked, updated 2026-06-19)
+
+1. 🟥 **Item 8 credits** — the highest-impact remaining work and the loudest founder complaint: stable-tool-prefix caching (cost), re-base the pool, honest "≈N credit" labels, dedup budget rows. (Assessment in §2.) Not started.
 2. 🟥 **Item 9** — progressive canvas paint (additive rebuild: parser + SSE + Canvas render-state).
-3. 🟨 **Item 13** — financial-model edit-and-persist (POST/PUT + edit UI + Canvas renderer).
-4. 🟨 **Item 1 / onboarding** — expand to the full 5 steps + post-canvas watcher nudge.
-5. 🟨 **Scoring on Home + branded IRL** — surface the score on Home; introduce IRL as a distinct number from project score.
-6. 🟩 **Richer market-research Canvas cards** — the report is now readable markdown + competitors land in the graph; optional follow-up is emitting `tam-sam-som` / `comparison-table` artifacts so they also render as Canvas cards.
+3. 🟨 **Item 13** — financial-model edit-and-persist (POST/PUT + edit UI + Canvas renderer); export side is done.
+4. 🟨 **Item 1 / onboarding** — `OnboardingCard` ships + renders; expand to the full 5 steps + post-canvas watcher nudge.
+5. 🟩 **Scoring on Home + branded IRL — DONE + live-validated** (ScorePanel: PROJECT SCORE + a distinct IRL/“stages validated” readout on Home). Moved out of "open".
+6. minor live-test gaps: watcher hard-delete branch, commit:apply failure UI, financial export with real data (see §4).
+
+---
+
+## 7. Also shipped this session (beyond the 17/06 list)
+
+- **Chat ↔ knowledge-graph fix** — `list_graph_nodes` surfaced `applied`-only, so the agent reported "0 competitors" while the founder saw them. Now surfaces applied+pending, state-labeled. Live-proven.
+- **Research-upsert guard** — a market-research re-run that parses 0 competitors no longer wipes the existing `research` row (JSONB CASE guard, self-heals on the next clean run).
+- **3 defects from an adversarial audit** (16-agent review, 0 false-positives after verify… except one): `commit:apply` silent-failure (await+catch+revert), ScorePanel object-map dimensions (per-dimension breakdown never rendered), CSV formula-injection in exports. The audit's one HIGH was a **false positive** from `db/schema.sql` having drifted from prod (`chat_messages.created_at` exists live) — caught by checking the live DB.
+- **Agent watcher accessibility (CRUD)** — `list_watchers` (read active/paused/inactive + objective/cadence/status), `edit_watcher` and `delete_watcher` (propose → founder Apply confirms → `editMonitor`/`deleteMonitor` executors). Migration 023. Live-validated end-to-end. This is the template for giving the agent safe edit/delete over other entities (competitors, tasks, facts).
+- **Watcher-detail fallback** — objective-less watchers no longer dump the raw OUTPUT-CONTRACT scan prompt; they show a "no description — Edit" hint, raw prompt under "advanced".

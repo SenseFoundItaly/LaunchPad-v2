@@ -66,30 +66,42 @@ Il fulcro del 17/06 (il graph si popola di competitor scomposti in categorie mat
 2. **Il percorso skill non persisteva le categorie** — `market-research` scriveva nodi competitor "nudi" e non li scomponeva mai; solo il raro tool chat `propose_competitor_analysis` lo faceva. → **Risolto: `skill-research-persist.ts` ora scompone gli attributi di ciascun competitor in `competitor_categories`** tramite l'esistente `persistCompetitorCategories` (con il node-id propagato).
    - _Residuo (rimandato):_ gli skill `startup-scoring`/`advisor` ancora non persistono competitor (sono skill di scoring, non di analisi competitor); il percorso canonico è `market-research`, ora coperto.
 
-**Validato:** la catena matryoshka (insert → lettura join: startup → competitor → categoria → dettaglio) funziona dopo la migration. Una run market-research dal vivo ora la popolerà.
+**Validato DAL VIVO questa sessione:** l'endpoint `/competitors/breakdown` restituisce **8 competitor × 4 categorie ciascuno** (general / pricing / competitive_advantage / criticality) e la UI Knowledge renderizza il nidificato startup → competitor → categoria → dettaglio con Applica/Ignora. Le categorie sono state popolate con un backfill fedele degli attributi già salvati sui nodi — perché la **ri-esecuzione di market-research ha parsato 0 competitor** (bug di varianza del parser). Quel bug ora è **protetto**: l'upsert della research mantiene competitor/market-size/trend precedenti quando un re-parse torna vuoto (`skill-research-persist.ts`, guardia JSONB CASE), così una run a 0 competitor non può più cancellare il graph.
 
 ---
 
-## 4. Cosa è stato validato dal vivo vs solo-codice
+## 4. Cosa è stato validato dal vivo vs solo-codice (aggiornato 2026-06-19)
 
-- **Validato dal vivo nell'app questa sessione:** punti 2, 5, 6, anti-piaggeria SOUL + rigore scoring (NOT-READY-first, Sibill trovato), il loop di commit (scritture confermate in DB), lo streaming dell'output skill (3→20.160 caratteri), la catena dati matryoshka (post-migration), punto 1.5 (richiamo verbatim del canvas), punto 1.6 (scoring non più bloccato erroneamente).
-- **Solo codice (tsc-clean, non ancora eseguito dal vivo):** il formatter di market-research + la persistenza categorie dal percorso skill (la tabella ora esiste; la prossima run la popola).
-
----
-
-## 5. Stato del deployment — IMPORTANTE
-
-**Niente del codice di questa sessione è committato o deployato.** Vive tutto nel working tree del worktree `mogadishu` (tsc-clean ovunque). **Due modifiche SONO state fatte al database di prod:** (1) migration 022 (tabella `competitor_categories` creata); (2) una validation-proposal stale (`pa_qiy93cca6abn`) portata a rejected. Il dev server locale gira sui dati di prod con un bypass di login solo per il test.
-
-**Per rilasciare:** revisionare + committare il working tree, poi deployare col normale flusso `npm run deploy`. Le due modifiche al DB di prod sono già in atto e sono sicure/additive.
+- **Validato dal vivo nell'app questa sessione** (Playwright + un secondo giro di QA con gstack concordano, 0 bug funzionali): punti 2, 5, 6; anti-piaggeria SOUL + rigore scoring (NOT-READY-first, Sibill trovato; ha tenuto la posizione sotto contestazione diretta); il loop di commit (scritture confermate in DB); lo streaming output skill (3→20.160 caratteri); **la matryoshka end-to-end (8 competitor × 4 categorie nel Knowledge + endpoint breakdown)**; **chat↔graph — l'agente ora elenca tutti gli 8 competitor pending via query live sul graph** (prima diceva "0 competitor"); **la Home ridisegnata — Score + IRL (1/7, Market Validation) + Ecosistema + Onboarding + Note renderizzano, 0 errori in console**; **Note → memory_fact applicato** (round-trip + pulizia); **modifica/eliminazione watcher** (Sibill settimanale→giornaliero; Market Trends in pausa — entrambi via Applica → executor → DB, poi ripristinati); punto 1.5 (richiamo verbatim del canvas); punto 1.6 (scoring non più bloccato erroneamente).
+- **Solo codice (tsc-clean, non ancora eseguito dal vivo):** il ramo **hard-delete** del watcher (testato solo `pause`; il delete ripiega su disattivazione in caso di conflitto FK); la UI del **percorso di fallimento** di `commit:apply` (revert + label d'errore — non forzabile da browser); l'export del financial-model **con dati reali** (nessun progetto ha ancora un modello; il builder è provato con dati sintetici).
 
 ---
 
-## 6. Ancora aperto (in ordine di priorità)
+## 5. Stato del deployment — IMPORTANTE (aggiornato 2026-06-19)
 
-1. 🟥 **Punto 8 crediti** — il lavoro a impatto più alto rimasto: caching con prefisso-tool stabile (costo), ri-tarare il pool, label oneste, deduplicare le righe budget. (Valutazione in §2.)
+**Ora è tutto COMMITTATO + PUSHATO sulla PR #75, NON mergiato, NON deployato.** Branch `feat/changelog-1706-remediation` (HEAD `fd01ad1`); `npm run deploy` NON è stato eseguito, quindi nulla è ancora sul sito live. Il dev server locale gira su questo worktree contro i dati di prod con il bypass E2E solo-localhost.
+
+**Modifiche al DB di prod fatte questa sessione (tutte additive / sicure):** (1) migration **022** (tabella `competitor_categories`); (2) migration **023** (allargato il CHECK su `pending_actions.action_type` con `edit_monitor` + `delete_monitor`); (3) una validation-proposal stale (`pa_qiy93cca6abn`) portata a rejected.
+
+**Per rilasciare:** revisionare + mergiare la PR #75, poi `npm run deploy`. Le migration sono già in prod, quindi al deploy è solo codice.
+
+---
+
+## 6. Ancora aperto (in ordine di priorità, aggiornato 2026-06-19)
+
+1. 🟥 **Punto 8 crediti** — il lavoro a impatto più alto rimasto e il reclamo più forte del founder: caching con prefisso-tool stabile (costo), ri-tarare il pool, label "≈N crediti" oneste, deduplicare le righe budget. (Valutazione in §2.) Non iniziato.
 2. 🟥 **Punto 9** — popolamento progressivo del Canvas (ricostruzione additiva: parser + SSE + stato di render del Canvas).
-3. 🟨 **Punto 13** — modifica-e-salva del financial-model (POST/PUT + UI di edit + renderer Canvas).
-4. 🟨 **Punto 1 / onboarding** — espandere ai 5 step completi + reminder watcher post-canvas.
-5. 🟨 **Scoring in Home + IRL brandizzato** — mostrare lo score in Home; introdurre l'IRL come numero distinto dallo score di progetto.
-6. 🟩 **Card Canvas più ricche per market-research** — il report ora è markdown leggibile + i competitor finiscono nel graph; follow-up opzionale: emettere artefatti `tam-sam-som` / `comparison-table` così da renderizzarli anche come card nel Canvas.
+3. 🟨 **Punto 13** — modifica-e-salva del financial-model (POST/PUT + UI di edit + renderer Canvas); l'export è fatto.
+4. 🟨 **Punto 1 / onboarding** — `OnboardingCard` presente e renderizza; espandere ai 5 step completi + reminder watcher post-canvas.
+5. 🟩 **Scoring in Home + IRL brandizzato — FATTO + validato dal vivo** (ScorePanel: PROJECT SCORE + un readout IRL "stage validati" distinto in Home). Tolto dagli "aperti".
+6. gap minori di test dal vivo: ramo hard-delete watcher, UI di fallimento commit:apply, export financial con dati reali (vedi §4).
+
+---
+
+## 7. Risolto anche questa sessione (oltre la lista 17/06)
+
+- **Fix chat ↔ knowledge-graph** — `list_graph_nodes` mostrava solo gli `applied`, quindi l'agente diceva "0 competitor" mentre il founder li vedeva. Ora mostra applied+pending, etichettati per stato. Provato dal vivo.
+- **Guardia upsert research** — una ri-esecuzione di market-research che parsa 0 competitor non cancella più la riga `research` esistente (guardia JSONB CASE, si auto-ripara alla prossima run pulita).
+- **3 difetti da un audit avversariale** (review a 16 agenti): silent-failure di `commit:apply` (await+catch+revert), dimensioni a object-map in ScorePanel (il breakdown per-dimensione non renderizzava mai), CSV formula-injection negli export. L'unico HIGH dell'audit era un **falso positivo** dovuto a `db/schema.sql` derivato da prod (`chat_messages.created_at` esiste live) — colto verificando il DB live.
+- **Accessibilità watcher per l'agente (CRUD)** — `list_watchers` (legge attivi/pausa/inattivi + obiettivo/cadenza/stato), `edit_watcher` e `delete_watcher` (proponi → l'Applica del founder conferma → executor `editMonitor`/`deleteMonitor`). Migration 023. Validato end-to-end dal vivo. È il template per dare all'agente edit/delete sicuri su altre entità (competitor, task, fatti).
+- **Fallback dettaglio watcher** — i watcher senza obiettivo non mostrano più il prompt grezzo OUTPUT-CONTRACT; mostrano un hint "nessuna descrizione — Modifica", con il prompt grezzo sotto "avanzate".
