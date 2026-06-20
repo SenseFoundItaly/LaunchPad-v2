@@ -1,0 +1,27 @@
+name: CI
+
+# B3a (copilot-sota): the deterministic regression gate the repo never had.
+# tsc + the web-closure vitest suite (B0/B2) on every PR. NO live LLM calls and
+# NO secrets — the founder-sim (scripts/e2e-agent-flow.mjs, paid + nondeterministic)
+# is intentionally NOT here; it belongs in a separate nightly, budget-capped job (B3b).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+jobs:
+  typecheck-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck (tsc --noEmit)
+        run: npm run typecheck
+      - name: Unit tests (web closure)
+        run: npm test
