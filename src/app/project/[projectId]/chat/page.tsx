@@ -25,7 +25,7 @@ import { useProject } from '@/hooks/useProject';
 import { splitOptionLabel } from '@/components/chat/option-label';
 import { IdeaShapingQuickReplies } from '@/components/chat/IdeaShapingQuickReplies';
 import { parseMessageContent } from '@/lib/artifact-parser';
-import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
+import { KNOWLEDGE_APPLY_CREDITS, formatMessageCredits } from '@/lib/credit-costs';
 import type { Artifact, ArtifactType, ValidationProposalArtifact } from '@/types/artifacts';
 import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
 import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard';
@@ -1331,6 +1331,7 @@ export default function CopilotChatPage({
                       who={m.role === 'user' ? 'user' : 'ai'}
                       agent="Chief"
                       streaming={m.role === 'assistant' && isStreaming && m === messages[messages.length - 1]}
+                      cost={m.role !== 'user' ? formatMessageCredits(messageCosts[m.id]) : null}
                       tools={m.tools}
                       rawContent={m.content}
                       inlineArtifacts={inlineArtifactsByMsgId.get(m.id)}
@@ -1691,6 +1692,7 @@ function Msg({
   who,
   agent,
   streaming,
+  cost,
   tools,
   children,
   rawContent,
@@ -1705,6 +1707,9 @@ function Msg({
   who: 'user' | 'ai';
   agent: string;
   streaming?: boolean;
+  /** A2a: the message's ACTUAL metered credit cost, pre-formatted (e.g. "53 cr"),
+   *  or null to render nothing (in-flight / historical / free messages). */
+  cost?: string | null;
   tools?: Array<{ id: string; name: string; status: string }>;
   children: React.ReactNode;
   /** Raw text for clipboard + retry. User sees `children` (stripped);
@@ -1878,6 +1883,17 @@ function Msg({
       {/* Fallback quick-reply chips when the model omitted an option-set */}
       {!streaming && who === 'ai' && (!inlineArtifacts || inlineArtifacts.length === 0) && (
         <QuickReplies rawContent={rawContent} onReply={onQuickReply} />
+      )}
+      {!streaming && who === 'ai' && cost && (
+        // A2a: the ACTUAL metered cost of this turn — the honest number, shown
+        // after the fact (vs the fictional pre-quote). title spells out "this turn".
+        <div
+          className="lp-mono"
+          title={t('chat.actual-cost-title')}
+          style={{ fontSize: 10, color: 'var(--ink-5)', marginTop: 3, letterSpacing: 0.2 }}
+        >
+          {cost}
+        </div>
       )}
       {!streaming && <MsgActions content={rawContent} align="left" />}
     </div>

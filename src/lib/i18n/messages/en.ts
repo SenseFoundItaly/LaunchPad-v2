@@ -385,6 +385,7 @@ export const en = {
   'chat.run-failed': 'Run failed',
   'chat.running': 'Running…',
   'chat.commit-failed': "couldn't save — tap to retry",
+  'chat.actual-cost-title': 'Actual credits this turn cost (metered from real token usage)',
   'chat.run-with-credits': 'Run (≈{credits} credits)',
   'chat.skill-running-note': 'Running in real time — this writes validation evidence when it finishes.',
   'chat.skill-done-note': 'Skill ran — readiness and the spine have been updated.',
@@ -394,6 +395,8 @@ export const en = {
   // graph-visibility rework surfaces pending captures here as "proposed".
   'canvas.related-intelligence': 'Related intelligence',
   'canvas.knowledge-load-partial': "Some knowledge couldn't load.",
+  'artifact.unsupported-title': 'Unsupported card',
+  'artifact.unsupported-body': "The co-pilot produced an artifact this app can't render yet (type: {type}). It was kept, not dropped — please report it.",
   'canvas.knowledge': 'Knowledge',
   'canvas.knowledge-none-applied': 'nothing applied yet',
   'canvas.knowledge-items-one': '{count} item',

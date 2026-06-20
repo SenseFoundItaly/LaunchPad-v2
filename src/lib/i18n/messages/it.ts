@@ -378,6 +378,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'chat.run-failed': 'Esecuzione fallita',
   'chat.running': 'In esecuzione…',
   'chat.commit-failed': 'salvataggio non riuscito — tocca per riprovare',
+  'chat.actual-cost-title': 'Crediti effettivi spesi in questo turno (misurati sul consumo reale di token)',
   'chat.run-with-credits': 'Esegui (≈{credits} crediti)',
   'chat.skill-running-note': 'In esecuzione in tempo reale — al termine registra le prove di validazione.',
   'chat.skill-done-note': 'Skill eseguita — preparazione e spine aggiornate.',
@@ -387,6 +388,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   // Il rework di visibilità del grafo mostra qui le acquisizioni come "proposte".
   'canvas.related-intelligence': 'Intelligence correlata',
   'canvas.knowledge-load-partial': 'Parte della conoscenza non si è caricata.',
+  'artifact.unsupported-title': 'Scheda non supportata',
+  'artifact.unsupported-body': "Il co-pilot ha prodotto un artefatto che l'app non sa ancora mostrare (tipo: {type}). È stato conservato, non perso — segnalalo.",
   'canvas.knowledge': 'Knowledge',
   'canvas.knowledge-none-applied': 'nulla ancora applicato',
   'canvas.knowledge-items-one': '{count} elemento',

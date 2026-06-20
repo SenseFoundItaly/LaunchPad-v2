@@ -44,3 +44,23 @@ export const DOCUMENT_AUDIT_CREDITS = 3;
 export const USER_MONTHLY_CREDITS = 100;
 export const USER_MONTHLY_LLM_USD = 0.333;
 export const USER_MONTHLY_WARN_LLM_USD = 0.267;
+
+/**
+ * A2a (copilot-sota): format the ACTUAL metered credit cost of one chat message
+ * for display under the message. The real per-message cost is computed in
+ * useChat (from the `done` SSE usage event) and was previously dropped on the
+ * floor — showing it is the founder's loudest-pain ("credits feel random") fix:
+ * the true number, after the fact, beats a fictional pre-quote.
+ *
+ * Returns null (render nothing) for: missing cost (historical / in-flight
+ * messages), non-finite, or non-positive — never "undefined cr" / "NaN cr" / "0 cr".
+ * >=1 credit rounds to an integer; sub-1 shows one decimal (e.g. "0.5 cr").
+ */
+export function formatMessageCredits(
+  info: { credits?: number } | null | undefined,
+): string | null {
+  const c = info?.credits;
+  if (typeof c !== 'number' || !Number.isFinite(c) || c <= 0) return null;
+  const n = c >= 1 ? Math.round(c) : Math.round(c * 10) / 10;
+  return `${n} cr`;
+}
