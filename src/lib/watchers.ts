@@ -412,5 +412,10 @@ function normalizeCadence(raw: string): WatcherCadence {
 function normalizeStatus(raw: string): WatcherStatus {
   const v = (raw || '').toLowerCase();
   if (v === 'active' || v === 'paused' || v === 'error' || v === 'archived') return v;
-  return 'active';
+  // 'inactive' (seeded-but-never-activated presets) + any unrecognized status
+  // must NOT render as a green 'active' pill: cron only runs raw status='active',
+  // so an unknown status is a watcher that NEVER fires. Show 'paused' instead —
+  // truthful (it isn't running) and reactivatable via the UI toggle. Previously
+  // defaulted to 'active', painting 158 dead prod monitors green ("green-zombie").
+  return 'paused';
 }
