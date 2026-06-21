@@ -1,5 +1,7 @@
+import { createHash } from 'crypto';
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
+import { query } from '@/lib/db';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import {
   createPendingAction,
@@ -10,6 +12,16 @@ import {
 import { executeAppliedAction } from '@/lib/action-executors';
 
 const VALID_KINDS = new Set(['canvas_field', 'competitor', 'market_size_fact']);
+
+// Stable, order-independent fingerprint of a commit batch. Two POSTs with the
+// same items (a double-click, a retry, a React-strict-mode double render, an SSE
+// replay) hash identically so the second can be deduped instead of debiting again.
+function commitFingerprint(items: Array<Record<string, unknown>>): string {
+  const norm = items
+    .map((it) => ({ k: it.kind, f: it.field ?? null, n: it.name ?? null, v: String(it.value).trim() }))
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return createHash('sha256').update(JSON.stringify(norm)).digest('hex').slice(0, 32);
+}
 
 /**
  * POST /api/projects/{projectId}/validation/commit
@@ -67,6 +79,29 @@ export async function POST(
     return error('A canvas_field item must include a valid "field" (problem|solution|target_market|value_proposition|business_model|competitive_advantage) — or commit canvas text via commit.canvas instead', 400);
   }
 
+  // Idempotency guard: this endpoint createPendingAction → apply → DEBITS on
+  // EVERY POST. The graph writes are idempotent (ON CONFLICT) but the credit
+  // debit is NOT, so a double-click / retry / SSE-replay would charge twice.
+  // If an identical item set for this project was already committed (applied or
+  // sent) in the last 2 minutes, return that as a no-op WITHOUT a second debit.
+  // Window-based de-dup (per the eng review) covers the realistic sequential
+  // cases; a true-concurrent race is the separate inherited applyTransition TOCTOU.
+  const fingerprint = commitFingerprint(items);
+  const dup = await query<{ id: string }>(
+    `SELECT id FROM pending_actions
+      WHERE project_id = ?
+        AND action_type = 'validation_proposal'
+        AND payload->>'idempotency_key' = ?
+        AND status IN ('applied', 'sent')
+        AND created_at > now() - interval '120 seconds'
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    projectId, fingerprint,
+  );
+  if (dup.length > 0) {
+    return json({ committed: items.length, deduped: true, action_id: dup[0].id }, 200);
+  }
+
   // Create the proposal, then apply it — mirrors the actions/[actionId] apply
   // transition (applyPendingAction → executeAppliedAction → markActionSent) so
   // the write, credit debit, and audit row are identical to the card path.
@@ -75,7 +110,7 @@ export async function POST(
     action_type: 'validation_proposal',
     title: 'Committed from chat',
     rationale: 'Founder confirmed via a one-click commit option.',
-    payload: { items },
+    payload: { items, idempotency_key: fingerprint },
   });
 
   try {
