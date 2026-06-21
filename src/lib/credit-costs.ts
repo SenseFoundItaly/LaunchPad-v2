@@ -41,9 +41,18 @@ export const DOCUMENT_AUDIT_CREDITS = 3;
  * These are the FALLBACKS for users with no user_budgets row; EXISTING rows
  * keep their stored cap_llm_usd until migrated (see the companion DB update).
  */
-export const USER_MONTHLY_CREDITS = 100;
-export const USER_MONTHLY_LLM_USD = 0.333;
-export const USER_MONTHLY_WARN_LLM_USD = 0.267;
+// CREDIT UNIT REDENOMINATION (see CREDIT-PRICING-SPEC.md). Default OFF = legacy
+// unit (100 cr over a $0.333 ceiling = 300 cr/$, markup baked into the unit).
+// When CREDIT_UNIT_MESSAGE=1 the unit becomes "1 credit ≈ 1 chat message"
+// (~7.1 cr/$, cost-true: 1 credit ≈ $0.14 real) so a message debits ~1 cr and a
+// skill ~3–6 cr; the 3× markup moves to the SALE price (~€0.40/credit), not the
+// unit. DARK: flipping this rescales every credit number ~42×, so it MUST ship
+// with the user_budgets balance migration (scripts/migrate-credit-unit.mjs).
+export const CREDIT_UNIT_MESSAGE = process.env.CREDIT_UNIT_MESSAGE === '1';
+
+export const USER_MONTHLY_CREDITS = CREDIT_UNIT_MESSAGE ? 10 : 100;
+export const USER_MONTHLY_LLM_USD = CREDIT_UNIT_MESSAGE ? 1.40 : 0.333;
+export const USER_MONTHLY_WARN_LLM_USD = CREDIT_UNIT_MESSAGE ? 1.12 : 0.267;
 
 /**
  * Credits per USD of LLM cost — the conversion the debit math uses (cap_credits

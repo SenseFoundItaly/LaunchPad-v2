@@ -56,6 +56,11 @@ _Preparato il 2026-06-19. Stato di ogni punto sollevato da Luca nel test del 17/
 
 **Ordine raccomandato:** (a) ridurre/stabilizzare il prompt + la lista tool così che la cache legga davvero (taglio chat ~10×) → (b) ri-tarare il pool e i prezzi per-azione sul costo *nuovo, più basso* → (c) sostituire le label "≈N crediti" con stime reali + sistemare il badge/deduplicare le righe budget. Tarare il tier gratuito sul costo *attuale* gonfiato (senza la (a)) significa o un tier gratuito minuscolo o margini sottili/negativi.
 
+**AGGIORNAMENTO 2026-06-21 — la decisione + cosa è fatto.** Il reclamo era in realtà un problema di *leggibilità*, non di pricing: il rapporto (3×/67% margine) andava bene; preventivare "4" e addebitare ~150 ha rotto la fiducia. Soluzione:
+- **Risolto & live:** stime **metered** oneste (costo reale per-run, non forfettario 1/4/10); **niente più doppi addebiti** (guard di idempotenza su `/validation/commit` + guard TOCTOU su `applyTransition`); **approvazione economica** (0.5 cr, commit del canvas gratuiti — come da 14.2); label "median" falsa corretta nella media reale.
+- **Nuova unità leggibile (specificata, flag-gated DARK):** ridenominare così che **1 credito ≈ 1 messaggio** → messaggio **1 cr**, skill run **~3–6 cr**, approvazione/inserimento **~gratis**, **€5 ≈ 12 crediti**, prezzo ~€0.40/credito (~67% margine). Numeri piccoli e intuitivi che corrispondono al costo reale — "scalati a caso" sparisce. Modello completo in `CREDIT-PRICING-SPEC.md`. Codice: flag `CREDIT_UNIT_MESSAGE` in `credit-costs.ts` (default OFF) + `scripts/migrate-credit-unit.mjs` (ri-scala `user_budgets` cap_credits, budget reali invariati). NON ancora attivo in prod — il passaggio richiede l'esecuzione della migration + la riconciliazione del drift per-utente.
+- **Ancora in sospeso:** attivare l'unità (flag + migration), e il taglio costi (cache-split #78 + cap output, ~3×) così che le operazioni pesanti diventino davvero più economiche — dopodiché €5 compra ~36 messaggi invece di ~12.
+
 ---
 
 ## 3. Approfondimento punto 14 (il fiore all'occhiello) — ora risolto
