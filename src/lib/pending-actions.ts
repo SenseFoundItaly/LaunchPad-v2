@@ -479,8 +479,18 @@ async function applyTransition(
   }
   const now = new Date().toISOString();
   const sets = ['status = ?', 'updated_at = ?', ...extraUpdates.map(u => `${u.key} = ?`)];
-  const params: unknown[] = [to, now, ...extraUpdates.map(u => u.value), id];
-  await run(`UPDATE pending_actions SET ${sets.join(', ')} WHERE id = ?`, ...params);
+  // Concurrency guard: the read above (getPendingAction) and this write are not
+  // atomic, so two parallel transitions (double-click, retry, inline-card +
+  // Approvals-lane on the same row) could both pass canTransition and both run
+  // the executor → DOUBLE DEBIT. Pin the UPDATE to the from-status we validated;
+  // if 0 rows match, another request already moved it → abort instead of
+  // re-executing. (The credit debit lives downstream of a successful transition.)
+  const params: unknown[] = [to, now, ...extraUpdates.map(u => u.value), id, action.status];
+  const res = await run(`UPDATE pending_actions SET ${sets.join(', ')} WHERE id = ? AND status = ?`, ...params);
+  if ((res.count ?? 0) === 0) {
+    const current = await getPendingAction(id);
+    throw new InvalidTransitionError(current?.status ?? action.status, to);
+  }
   const result = await getPendingAction(id);
   if (!result) throw new Error(`Failed to read back pending action ${id} after write`);
   return result;
