@@ -24,6 +24,7 @@ import { isProjectCapped } from '@/lib/cost-meter';
 import { assertCreditsAvailable } from '@/lib/credits';
 import { canvasLacksCorePrereqs, isCanvasDependentSkill } from '@/lib/skill-prereqs';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { CACHE_PREFIX_SPLIT, buildSplitUserTurn } from '@/lib/chat-cache-split';
 import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
 import { pickModel, type TaskLabel } from '@/lib/llm/router';
@@ -638,12 +639,22 @@ export async function POST(request: NextRequest) {
     locale !== 'en'
       ? `\n\n[LANGUAGE — THIS TURN] Reply in ${LOCALE_ENGLISH_NAME[locale]} — every founder-facing word, including artifact prose. This holds even when the founder's message is short, an option label, English, or a single word. Do NOT switch to English.`
       : '';
+  // Lever 1 (CACHE_PREFIX_SPLIT): keep the system prompt's static prefix
+  // byte-stable so Anthropic caches it as a READ instead of re-writing ~17k tok
+  // every turn. The dynamic per-turn context is assembled here but, when the flag
+  // is ON, is NOT baked into the system string — it rides the user turn instead
+  // (buildSplitUserTurn, below), recency-preserving. Flag OFF = byte-identical to before.
+  const dynamicContext = `${directionContext}${stageContext}${canvasContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
   let systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
     tail: ARTIFACT_INSTRUCTIONS,
-    projectContext: `${directionContext}${stageContext}${canvasContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`,
+    projectContext: CACHE_PREFIX_SPLIT ? '' : dynamicContext,
   });
+  // Per-turn steering (prereq gate + prior-turn nudge) accumulates here. Legacy
+  // folds it into systemPrompt (byte-identical to before); split rides it on the
+  // user turn AFTER the context (so the nudges keep their read-recency).
+  let trailingSteer = '';
   const encoder = new TextEncoder();
 
   // Session key: per (user, project) rather than per (project, step).
@@ -724,7 +735,7 @@ export async function POST(request: NextRequest) {
         return !isCanvasDependentSkill(id);
       });
       if (skillTools.length < before) {
-        systemPrompt = `${systemPrompt}\n\n[PREREQUISITE GATE] This project's idea canvas has no solution and/or value proposition yet, so scoring/modeling/build skills (startup-scoring, business-model, simulation, pitch, landing-page, etc.) are UNAVAILABLE this turn and you cannot run them. Do NOT propose them or put their skill_id in any option — they would be rejected. Instead, steer the founder to sketch the solution + value proposition first (offer a canvas-commit option, or idea-shaping), then those skills unlock.`;
+        trailingSteer += `\n\n[PREREQUISITE GATE] This project's idea canvas has no solution and/or value proposition yet, so scoring/modeling/build skills (startup-scoring, business-model, simulation, pitch, landing-page, etc.) are UNAVAILABLE this turn and you cannot run them. Do NOT propose them or put their skill_id in any option — they would be rejected. Instead, steer the founder to sketch the solution + value proposition first (offer a canvas-commit option, or idea-shaping), then those skills unlock.`;
       }
     }
 
@@ -748,7 +759,7 @@ export async function POST(request: NextRequest) {
             prose_fabrication: !!(meta as Record<string, unknown>).prose_fabrication,
           };
           const nudge = renderNudgeForNextTurn(prior);
-          if (nudge) systemPrompt = `${systemPrompt}\n\n${nudge}`;
+          if (nudge) trailingSteer += `\n\n${nudge}`;
         }
       } catch (err) {
         // meta column missing (pre-migration) OR transient DB error.
@@ -765,7 +776,18 @@ export async function POST(request: NextRequest) {
     // that's `lastMessage`, which the SDK appends as the new user turn.
     const seedHistory = buildSeedHistory(messages.slice(0, -1));
 
-    const { stream: piStream } = runAgentStream(lastMessage, {
+    // Lever 1 assembly. Legacy: fold steering into the system string (byte-
+    // identical to before). Split: leave systemPrompt as the static cacheable
+    // prefix and carry dynamic context + steering on the user turn (steering last
+    // → recency preserved). Same total content reaches the model either way.
+    let effectiveLastMessage = lastMessage;
+    if (CACHE_PREFIX_SPLIT) {
+      effectiveLastMessage = buildSplitUserTurn(dynamicContext, trailingSteer, lastMessage);
+    } else {
+      systemPrompt = systemPrompt + trailingSteer;
+    }
+
+    const { stream: piStream } = runAgentStream(effectiveLastMessage, {
       sessionId,
       systemPrompt,
       seedHistory,
