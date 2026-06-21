@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import * as d3 from 'd3';
 import type { GraphNode, GraphEdge } from '@/types/graph';
 import { NODE_COLORS } from '@/types/graph';
@@ -53,6 +53,14 @@ const CLUSTER_ANGLES: Record<string, number> = {
   metric: 210,
 };
 
+/** Normalize an edge endpoint (string id, raw node, or sim node) to its id.
+ * Module-scope + pure so it has a stable identity across renders. */
+const getId = (ref: string | GraphNode | SimNode | undefined): string => {
+  if (!ref) return '';
+  if (typeof ref === 'string') return ref;
+  return (ref as { id: string }).id || '';
+};
+
 export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick, onApplyNode, onDismissNode }: KnowledgeGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -82,18 +90,25 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Filter nodes/edges by hidden types
-  const visibleNodes = nodes.filter(n => !hiddenTypes.has(n.node_type));
-  const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
-  const getId = (ref: string | GraphNode | SimNode | undefined): string => {
-    if (!ref) return '';
-    if (typeof ref === 'string') return ref;
-    return (ref as { id: string }).id || '';
-  };
-  const visibleEdges = edges.filter(e => {
-    const s = getId(e.source), t = getId(e.target);
-    return visibleNodeIds.has(s) && visibleNodeIds.has(t);
-  });
+  // Filter nodes/edges by hidden types. MEMOIZED so a re-render caused ONLY by
+  // selection/detail state (clicking a node sets selectedNodeId + detailNode)
+  // keeps the SAME array references. The heavy D3 effect below lists these in its
+  // deps; without memoization every click produced fresh arrays → the effect
+  // re-ran svg.selectAll('*').remove() and rebuilt the whole force simulation,
+  // flashing the graph and resetting node positions. Recomputes only when the
+  // data (nodes/edges) or the type filter actually changes — so a real refetch
+  // still rebuilds, but a click does not.
+  const visibleNodes = useMemo(
+    () => nodes.filter(n => !hiddenTypes.has(n.node_type)),
+    [nodes, hiddenTypes],
+  );
+  const visibleEdges = useMemo(() => {
+    const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+    return edges.filter(e => {
+      const s = getId(e.source), t = getId(e.target);
+      return visibleNodeIds.has(s) && visibleNodeIds.has(t);
+    });
+  }, [edges, visibleNodes]);
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return;

@@ -7,7 +7,7 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { runSkill } from '@/lib/skill-executor';
 import { isClarificationOnly } from '@/lib/skill-output';
 import { assertCreditsAvailable } from '@/lib/credits';
-import { missingCanvasPrereqs, canvasLacksCorePrereqs, CANVAS_DEPENDENT_SKILLS } from '@/lib/skill-prereqs';
+import { canvasRunPrereqs, canvasLacksCorePrereqs, CANVAS_DEPENDENT_SKILLS } from '@/lib/skill-prereqs';
 
 /**
  * GET: list skill completions for a project.
@@ -90,17 +90,25 @@ export async function POST(
 
     // PREREQUISITE gate — refuse scoring/modeling/build skills on an empty idea
     // canvas BEFORE spending anything. Returns a clean JSON 422 (not a half-open
-    // SSE stream) so the chat page can surface "sketch your solution first"
-    // instead of running, failing the quality gate, and charging for nothing.
-    const missing = await missingCanvasPrereqs(projectId, body.skill_id as string);
-    if (missing.length > 0) {
-      console.info(`[skills] ${body.skill_id} blocked — idea canvas missing: ${missing.join(', ')}`);
+    // SSE stream). A skill reads the APPLIED canvas, so a field that's only STAGED
+    // (defined in a pending validation_proposal) still blocks the run — but it gets
+    // an "approve your pending X" message, not "missing", since the founder DID
+    // define it (item 1.5: stop telling founders a defined value prop is missing).
+    const prereq = await canvasRunPrereqs(projectId, body.skill_id as string);
+    if (prereq.blocking.length > 0) {
+      console.info(
+        `[skills] ${body.skill_id} blocked — canvas missing: [${prereq.missing.join(', ')}] pending: [${prereq.pending.join(', ')}]`,
+      );
+      const message = prereq.missing.length === 0
+        ? `You've defined your ${prereq.pending.join(' and ')} — approve the pending proposal in your Intel (or the canvas card) to apply it, then run this skill again.`
+        : `Sketch your ${prereq.missing.join(' and ')} first — this skill needs your idea defined before it can run. Tell me what you're building and I'll write it to your canvas, then we can run this.`;
       return new Response(
         JSON.stringify({
           success: false,
           error: 'missing_prerequisites',
-          missing,
-          message: `Sketch your ${missing.join(' and ')} first — this skill needs your idea defined before it can run. Tell me what you're building and I'll write it to your canvas, then we can run this.`,
+          missing: prereq.missing,
+          pending: prereq.pending,
+          message,
         }),
         { status: 422, headers: { 'Content-Type': 'application/json' } },
       );
@@ -130,6 +138,10 @@ export async function POST(
             ownerUserId,
             timeoutMs: 170_000,
             allowAnySkill: true,
+            // Stream the skill's output to the client live (founder sees it being
+            // written, not a frozen "Running…"). Each delta is an SSE data event;
+            // the buffered run + persistence below are unchanged.
+            onDelta: (delta) => safeEnqueue(`data: ${JSON.stringify({ delta })}\n\n`),
           });
           // Quality gate: runSkill persists clarification-only / empty output as
           // 'incomplete', but RunSkillResult doesn't echo the persisted status —

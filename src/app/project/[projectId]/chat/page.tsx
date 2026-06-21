@@ -23,7 +23,9 @@ import { useChat, chatStoreHydrated, markChatHydrated } from '@/hooks/useChat';
 import { requestRecharge } from '@/components/credits/recharge-events';
 import { useProject } from '@/hooks/useProject';
 import { splitOptionLabel } from '@/components/chat/option-label';
+import { IdeaShapingQuickReplies } from '@/components/chat/IdeaShapingQuickReplies';
 import { parseMessageContent } from '@/lib/artifact-parser';
+import { KNOWLEDGE_APPLY_CREDITS, formatMessageCredits } from '@/lib/credit-costs';
 import type { Artifact, ArtifactType, ValidationProposalArtifact } from '@/types/artifacts';
 import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
 import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard';
@@ -37,6 +39,7 @@ import { useSetChrome } from '@/components/design/chrome-context';
 import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
 import { checkActionPrompt } from '@/lib/journey-prompts';
 import { buildContextMarkdown } from '@/lib/context-export';
+import { buildFinancialExport } from '@/lib/financial-export';
 import type { ContextExportData } from '@/lib/context-export';
 import { openPrintPreview } from '@/lib/print-utils';
 import {
@@ -91,6 +94,18 @@ const NEAR_BOTTOM_PX = 150;
 // next to the live pinned snapshot.
 const PINNED_ARTIFACT_TYPES = new Set<ArtifactType>(['idea-canvas']);
 
+// Artifact types that must NEVER render as Canvas department cards even though
+// they aren't in INLINE/PINNED above. The Canvas split is a blocklist (anything
+// not inline/pinned → Canvas), so an artifact type the frontend doesn't know how
+// to render (e.g. the agent sometimes emits `watch-source-proposal`, which isn't
+// even in the ArtifactType union) would otherwise fall through, get the default
+// 'market' department, and render as an EMPTY card ("Mercato · 2" with blank
+// boxes — founder report). These are handled elsewhere (watcher proposals live
+// in the Watchers tab + the monitor-proposal inline backstop), so drop them from
+// the Canvas entirely. Typed as string because some values aren't valid
+// ArtifactTypes by design. */
+const NON_CANVAS_TYPES = new Set<string>(['watch-source-proposal']);
+
 /**
  * Skills the project can't run YET (idea canvas missing solution/value_prop),
  * shared with every InlineOption so a skill option — whether freshly proposed,
@@ -100,6 +115,27 @@ const PINNED_ARTIFACT_TYPES = new Set<ArtifactType>(['idea-canvas']);
  * Empty set = everything runnable (the safe default if the fetch fails).
  */
 const GatedSkillsContext = createContext<Set<string>>(new Set());
+
+/**
+ * Option-set selection memory. Once the founder picks an option (which starts a
+ * response), that option-set must LOCK: every option becomes non-clickable but
+ * stays visible ("saved"), with the chosen one marked. Lifted to the page so a
+ * selection survives re-renders; keyed by a per-message-unique set id. The
+ * `streaming` flag locks ALL sets while a response is in flight, so previous
+ * suggestions can't be clicked mid-answer.
+ */
+interface OptionSelectionState {
+  selectedBySet: Record<string, string>; // unique setId -> chosen option id
+  markSelected: (setId: string, optionId: string) => void;
+  unmarkSelected: (setId: string) => void; // revert an optimistic lock when its commit failed
+  streaming: boolean;
+}
+const OptionSelectionContext = createContext<OptionSelectionState>({
+  selectedBySet: {},
+  markSelected: () => {},
+  unmarkSelected: () => {},
+  streaming: false,
+});
 
 /** Fetch the project's currently-un-runnable skills and keep them fresh —
  *  refetch when the canvas changes (lp-actions-changed fires on validation
@@ -137,7 +173,10 @@ function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artif
   return {
     inline: all.filter((a) => INLINE_ARTIFACT_TYPES.has(a.type)),
     canvas: all.filter(
-      (a) => !INLINE_ARTIFACT_TYPES.has(a.type) && !PINNED_ARTIFACT_TYPES.has(a.type),
+      (a) =>
+        !INLINE_ARTIFACT_TYPES.has(a.type) &&
+        !PINNED_ARTIFACT_TYPES.has(a.type) &&
+        !NON_CANVAS_TYPES.has(a.type as string),
     ),
   };
 }
@@ -240,6 +279,43 @@ function ContextExportBtn({
     openPrintPreview(`${project?.name || t('chat.context-export-title')}`, md);
   }
 
+  // Financial model (item 13): export the detailed projections as editable CSV
+  // (or JSON fallback). No-op if the financial-model skill hasn't run yet.
+  async function handleDownloadFinancial() {
+    setOpen(false);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/financial-model`);
+      const body = await res.json().catch(() => null);
+      const model = body?.data?.financial_model ?? body?.financial_model ?? null;
+      const payload = buildFinancialExport(model);
+      if (!payload) return; // nothing to export yet
+      const blob = new Blob([payload.text], { type: payload.mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(project?.name || 'export').replace(/\s+/g, '-').toLowerCase()}-${payload.filename}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* non-fatal — surfaced as no download */
+    }
+  }
+
+  // GO/NO-GO report (item 11): the lean decision doc — scoring, per-stage
+  // results, signals, risks, open tasks. No chat history / raw dumps.
+  async function handleDownloadGoNoGo() {
+    setOpen(false);
+    const data = await gatherData();
+    const md = buildContextMarkdown(data, { goNoGo: true });
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(project?.name || 'export').replace(/\s+/g, '-').toLowerCase()}-go-no-go-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <IconBtn
@@ -289,6 +365,52 @@ function ContextExportBtn({
           </button>
           <button
             type="button"
+            onClick={handleDownloadGoNoGo}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              padding: '8px 12px',
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--ink-2)',
+              fontFamily: 'var(--f-sans)',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => { (e.currentTarget.style.background = 'var(--paper-2)'); }}
+            onMouseLeave={(e) => { (e.currentTarget.style.background = 'transparent'); }}
+          >
+            <Icon d={I.check} size={14} stroke={1.4} />
+            {t('chat.download-gonogo')}
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadFinancial}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              padding: '8px 12px',
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--ink-2)',
+              fontFamily: 'var(--f-sans)',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => { (e.currentTarget.style.background = 'var(--paper-2)'); }}
+            onMouseLeave={(e) => { (e.currentTarget.style.background = 'transparent'); }}
+          >
+            <Icon d={I.dollar} size={14} stroke={1.4} />
+            {t('chat.download-financial')}
+          </button>
+          <button
+            type="button"
             onClick={handlePrint}
             style={{
               display: 'flex',
@@ -332,6 +454,29 @@ export default function CopilotChatPage({
   const step = 'chat';
   const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages, messageCosts } = useChat(projectId, step);
   const [input, setInput] = useState('');
+  // Option-set selection memory (see OptionSelectionContext): which option the
+  // founder picked per set, so a chosen set locks — saved, not clickable. First
+  // pick wins (later clicks on the same set are ignored).
+  const [selectedBySet, setSelectedBySet] = useState<Record<string, string>>({});
+  const markOptionSelected = useCallback((setId: string, optionId: string) => {
+    if (!setId) return;
+    setSelectedBySet((prev) => (prev[setId] !== undefined ? prev : { ...prev, [setId]: optionId }));
+  }, []);
+  // Revert an optimistic lock: a commit option locks the set on click, but if the
+  // write fails we must un-lock so the founder can retry (and never leave a false ✓).
+  const unmarkOptionSelected = useCallback((setId: string) => {
+    if (!setId) return;
+    setSelectedBySet((prev) => {
+      if (prev[setId] === undefined) return prev;
+      const next = { ...prev };
+      delete next[setId];
+      return next;
+    });
+  }, []);
+  const optionSelection = useMemo<OptionSelectionState>(
+    () => ({ selectedBySet, markSelected: markOptionSelected, unmarkSelected: unmarkOptionSelected, streaming: isStreaming }),
+    [selectedBySet, markOptionSelected, unmarkOptionSelected, isStreaming],
+  );
 
   // Cross-page pre-fill: CTAs on the Today page (StageCard checks + the
   // Next-to-validate list) link here as /chat?prefill=<prompt> to start the
@@ -469,22 +614,22 @@ export default function CopilotChatPage({
         setShowAllMessages(false);
         setShowJumpPill(false);
         setMessages(restored);
+        // Mark hydrated ONLY on a SUCCESSFUL load (or when a stream already
+        // populated the thread, handled by the early returns above + the
+        // mount-time guard). A failed/transient load must stay un-hydrated so the
+        // next mount/refresh REBUILDS it — otherwise a one-off failure
+        // (cold-compile 500, timeout, server restart) would leave the thread
+        // permanently empty ("messages lost after refresh") until another refresh.
+        markChatHydrated(projectId, step);
+        setHistoryLoaded(true);
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
-        console.warn('[chat] history fetch failed:', (err as Error).message);
-        forceScrollRef.current = true;
-        setShowAllMessages(false);
-        setShowJumpPill(false);
-        setMessages([]);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          // Remember this thread is loaded so a tab-return doesn't reload (and
-          // clobber) it. Survives until a full page refresh resets the store.
-          markChatHydrated(projectId, step);
-          setHistoryLoaded(true);
-        }
+        console.warn('[chat] history fetch failed (stays reloadable):', (err as Error).message);
+        // Do NOT markChatHydrated and do NOT clobber messages to [] — leaving the
+        // thread un-hydrated lets the next mount/refresh retry the load instead of
+        // presenting a permanently-empty "done" thread. Just clear the spinner.
+        setHistoryLoaded(true);
       });
     return () => {
       controller.abort();
@@ -690,7 +835,7 @@ export default function CopilotChatPage({
       // knowledge:apply — the founder clicked Apply / Dismiss on a knowledge
       // card (insight / entity / comparison / metric) whose proposal is
       // pending. Re-added 2026-06-11: knowledge no longer auto-applies; the
-      // card carries Apply · 2 credits / Dismiss. PATCHes the unified knowledge
+      // card carries Apply · 0.5 credits / Dismiss. PATCHes the unified knowledge
       // endpoint, which flips reviewed_state and (server-side, on
       // pending→applied) debits KNOWLEDGE_APPLY_CREDITS. Apply broadcasts both
       // lp-actions-changed (inbox row may exist) and lp-knowledge-changed +
@@ -724,7 +869,7 @@ export default function CopilotChatPage({
       // knowledge:apply-inline — the founder clicked "Apply to intelligence" on
       // an inline knowledge-suggestion card (a prose-stated fact, no persisted
       // row). POST /knowledge { apply: true } creates the fact as 'applied' and
-      // debits the 2 credits server-side. Broadcasts the same refetch events.
+      // debits the 0.5 credits server-side. Broadcasts the same refetch events.
       if (action === 'knowledge:apply-inline') {
         const fact = String(payload.fact ?? '').trim();
         if (!fact) throw new Error('Missing fact on knowledge:apply-inline');
@@ -931,6 +1076,25 @@ export default function CopilotChatPage({
         // Consume the SSE: skip ': keepalive' comment lines, parse the final
         // `data:` event for {status, summary, error}.
         let runData: { status?: string; summary?: string; error?: string } | null = null;
+        // Live streaming: the skill output now arrives as {delta} events (the
+        // /skills SSE route forwards runAgent's text deltas). Render them into a
+        // single GROWING assistant message so the founder watches the skill being
+        // written — not a frozen "Running…". The final {done,...} event carries
+        // the authoritative full text + status.
+        const liveId = `msg_skill_${Date.now()}`;
+        let streamed = '';
+        let liveStarted = false;
+        let lastFlush = 0;
+        const flushLive = () => {
+          const now = Date.now();
+          if (now - lastFlush < 120) return; // throttle re-renders during a long stream
+          lastFlush = now;
+          setMessages((prev) =>
+            prev.some((m) => m.id === liveId)
+              ? prev.map((m) => (m.id === liveId ? { ...m, content: streamed } : m))
+              : [...prev, { id: liveId, role: 'assistant', content: streamed, timestamp: new Date().toISOString() }],
+          );
+        };
         const reader = res.body?.getReader();
         if (reader) {
           const decoder = new TextDecoder();
@@ -943,35 +1107,34 @@ export default function CopilotChatPage({
             buf = lines.pop() ?? '';
             for (const line of lines) {
               if (!line.startsWith('data: ')) continue;
-              try { runData = JSON.parse(line.slice(6)); } catch { /* ignore partial/non-JSON */ }
+              let obj: { delta?: string; status?: string; summary?: string; error?: string } | null = null;
+              try { obj = JSON.parse(line.slice(6)); } catch { continue; /* partial/non-JSON */ }
+              if (obj && typeof obj.delta === 'string') {
+                streamed += obj.delta;
+                liveStarted = true;
+                flushLive();
+              } else if (obj) {
+                runData = obj; // done / error event
+              }
             }
           }
         }
         if (runData?.error) throw new Error(runData.error);
         const runStatus = runData?.status;
         const runSummary = typeof runData?.summary === 'string' ? runData.summary : '';
-        if (runStatus === 'incomplete' || !runSummary.trim()) {
-          // Honest-failure path: the skill produced only clarifying questions /
-          // no usable deliverable (server quality gate). Don't dress it up as a
-          // result — tell the founder it needs more context and to retry.
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `msg_${Date.now()}`,
-              role: 'assistant',
-              content: t('chat.skill-incomplete-note'),
-              timestamp: new Date().toISOString(),
-            },
-          ]);
+        // Authoritative final content: the incomplete-note on a quality-gate fail,
+        // else the full summary (replaces any partial streamed text — e.g. a
+        // mid-stream artifact block — with the clean, complete final).
+        const finalContent = (runStatus === 'incomplete' || !runSummary.trim())
+          ? t('chat.skill-incomplete-note')
+          : runSummary;
+        if (liveStarted) {
+          setMessages((prev) => prev.map((m) => (m.id === liveId ? { ...m, content: finalContent } : m)));
         } else {
+          // No deltas streamed (instant skill / older transport) — append as before.
           setMessages((prev) => [
             ...prev,
-            {
-              id: `msg_${Date.now()}`,
-              role: 'assistant',
-              content: runSummary,
-              timestamp: new Date().toISOString(),
-            },
+            { id: `msg_${Date.now()}`, role: 'assistant', content: finalContent, timestamp: new Date().toISOString() },
           ]);
         }
         if (typeof window !== 'undefined') {
@@ -984,6 +1147,61 @@ export default function CopilotChatPage({
       }
       // Fallback for other artifact actions — re-send as chat so the agent
       // can react. Matches legacy OptionSetCard / ActionSuggestionCard usage.
+      if (action === 'commit:apply') {
+        // Deterministic commit: a clicked "Confirm — commit" option IS the
+        // founder's approval, so PERSIST the evidence here instead of letting the
+        // model narrate a commit it skips. Two channels, applied in order:
+        //   - canvas text  → POST /idea-canvas (free, idempotent COALESCE upsert)
+        //   - paid/items   → POST /validation/commit (create+apply a
+        //                    validation_proposal → graph_nodes/memory_facts +
+        //                    credit debit, reusing applyValidationProposal)
+        // Then forward a normal turn so the agent continues; the evidence is
+        // already written, so any "committed" it then says is TRUE.
+        const CANVAS_FIELD_KEYS = ['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage'];
+        const raw = (payload.canvas && typeof payload.canvas === 'object') ? payload.canvas as Record<string, unknown> : {};
+        const fields: Record<string, string> = {};
+        for (const k of CANVAS_FIELD_KEYS) {
+          const v = raw[k];
+          if (typeof v === 'string' && v.trim()) fields[k] = v.trim();
+        }
+        if (Object.keys(fields).length > 0) {
+          const res = await fetch(`/api/projects/${projectId}/idea-canvas`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(fields),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+            throw new Error(err.error || `Canvas commit failed with status ${res.status}`);
+          }
+        }
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        if (items.length > 0) {
+          const res = await fetch(`/api/projects/${projectId}/validation/commit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+            throw new Error(err.error || `Commit failed with status ${res.status}`);
+          }
+        }
+        if (typeof window !== 'undefined' && (Object.keys(fields).length > 0 || items.length > 0)) {
+          // Canvas header + spine read idea_canvas/graph and reload on
+          // lp-actions-changed; knowledge count / Stage progress / credits listen
+          // on lp-knowledge-changed / lp-credits-changed. Fire all so the commit
+          // (and any credit debit from paid items) shows immediately.
+          window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+          window.dispatchEvent(new CustomEvent('lp-knowledge-changed', { detail: { projectId } }));
+          if (items.length > 0) window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
+        }
+        // Continue the conversation so the agent moves to the next gap.
+        const cLabel = typeof payload.label === 'string' ? payload.label : 'Confirm';
+        const cDesc = typeof payload.description === 'string' ? payload.description.trim() : '';
+        sendMessage(`I choose: ${cLabel}${cDesc ? ` — ${cDesc}` : ''}`);
+        return;
+      }
       if (action === 'select-option' && typeof payload.label === 'string') {
         // Forward the option's DESCRIPTION (its stated intent/action) alongside
         // the label so the agent EXECUTES that option rather than re-reasoning a
@@ -1052,6 +1270,7 @@ export default function CopilotChatPage({
 
   return (
     <GatedSkillsContext.Provider value={gatedSkills}>
+     <OptionSelectionContext.Provider value={optionSelection}>
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Chat column */}
         <div
@@ -1112,6 +1331,7 @@ export default function CopilotChatPage({
                       who={m.role === 'user' ? 'user' : 'ai'}
                       agent="Chief"
                       streaming={m.role === 'assistant' && isStreaming && m === messages[messages.length - 1]}
+                      cost={m.role !== 'user' ? formatMessageCredits(messageCosts[m.id]) : null}
                       tools={m.tools}
                       rawContent={m.content}
                       inlineArtifacts={inlineArtifactsByMsgId.get(m.id)}
@@ -1163,6 +1383,14 @@ export default function CopilotChatPage({
               </button>
             )}
           </div>
+
+          {/* Stable default replies during idea shaping — keep the founder
+              moving without the restart-prone "Avvia Idea Shaping" kickoff
+              (now a Canvas button). Self-hides once the canvas is filled. */}
+          <IdeaShapingQuickReplies
+            projectId={projectId}
+            onReply={!isStreaming ? sendMessage : undefined}
+          />
 
           <ChatComposer
             value={input}
@@ -1236,6 +1464,7 @@ export default function CopilotChatPage({
         />
       )}
 
+     </OptionSelectionContext.Provider>
     </GatedSkillsContext.Provider>
   );
 }
@@ -1463,6 +1692,7 @@ function Msg({
   who,
   agent,
   streaming,
+  cost,
   tools,
   children,
   rawContent,
@@ -1477,6 +1707,9 @@ function Msg({
   who: 'user' | 'ai';
   agent: string;
   streaming?: boolean;
+  /** A2a: the message's ACTUAL metered credit cost, pre-formatted (e.g. "53 cr"),
+   *  or null to render nothing (in-flight / historical / free messages). */
+  cost?: string | null;
   tools?: Array<{ id: string; name: string; status: string }>;
   children: React.ReactNode;
   /** Raw text for clipboard + retry. User sees `children` (stripped);
@@ -1642,7 +1875,7 @@ function Msg({
         return (
           <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {shown.map((a, i) => (
-              <div key={i} className="lp-rise"><InlineArtifact artifact={a} onAction={onArtifactAction} /></div>
+              <div key={i} className="lp-rise"><InlineArtifact artifact={a} setId={`${messageId}:${i}`} onAction={onArtifactAction} /></div>
             ))}
           </div>
         );
@@ -1650,6 +1883,17 @@ function Msg({
       {/* Fallback quick-reply chips when the model omitted an option-set */}
       {!streaming && who === 'ai' && (!inlineArtifacts || inlineArtifacts.length === 0) && (
         <QuickReplies rawContent={rawContent} onReply={onQuickReply} />
+      )}
+      {!streaming && who === 'ai' && cost && (
+        // A2a: the ACTUAL metered cost of this turn — the honest number, shown
+        // after the fact (vs the fictional pre-quote). title spells out "this turn".
+        <div
+          className="lp-mono"
+          title={t('chat.actual-cost-title')}
+          style={{ fontSize: 10, color: 'var(--ink-5)', marginTop: 3, letterSpacing: 0.2 }}
+        >
+          {cost}
+        </div>
       )}
       {!streaming && <MsgActions content={rawContent} align="left" />}
     </div>
@@ -1870,10 +2114,25 @@ function QuickReplies({
 function InlineOption({
   option,
   index,
+  setLocked = false,
+  chosen = false,
+  dimmed = false,
+  onChoose,
+  onUnchoose,
   onAction,
 }: {
-  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string };
+  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; commit?: { canvas?: Record<string, string>; items?: Array<Record<string, unknown>> } };
   index: number;
+  /** The whole option-set is locked (a choice was made, or a response is streaming). */
+  setLocked?: boolean;
+  /** This is the option the founder picked — keep it highlighted + marked. */
+  chosen?: boolean;
+  /** A sibling was picked — dim this un-chosen option. */
+  dimmed?: boolean;
+  /** Record this option as the set's selection (called on click, before dispatch). */
+  onChoose?: () => void;
+  /** Revert the selection lock — called when a commit option's write fails. */
+  onUnchoose?: () => void;
   onAction?: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
 }) {
   const t = useT();
@@ -1899,17 +2158,25 @@ function InlineOption({
     locked ? `🔒 ${baseLabel}` :
     state === 'running' ? `${baseLabel} · ${t('chat.running')}` :
     state === 'done' ? `${baseLabel} · ${t('common.done')}` :
+    state === 'error' ? `${baseLabel} · ${t('chat.commit-failed')}` :
+    chosen ? `${baseLabel} · ✓` :
     baseLabel;
-  // Disabled covers: locked skills (prereqs unmet) + a skill mid/post-run.
-  const isDisabled = locked || (isSkill && (state === 'running' || state === 'done'));
+  // Disabled covers: locked skills (prereqs unmet), a skill mid/post-run, AND a
+  // set-level lock — once any option here is chosen (or a response is streaming)
+  // the whole set is non-clickable but stays visible ("saved").
+  const isDisabled = locked || setLocked || (isSkill && (state === 'running' || state === 'done'));
 
   const handleClick = async () => {
     // Locked skill: prerequisites unmet — don't run, don't charge. The label
     // already tells the founder to sketch their solution first.
     if (locked) return;
+    // Set already resolved (a choice was made, or a response is in flight): the
+    // options are saved-but-frozen, so a stray click is a no-op.
+    if (setLocked) return;
     if (isSkill) {
       // Skill option: run the skill in real time. Don't re-run once running/done.
       if (state === 'running' || state === 'done') return;
+      onChoose?.(); // lock the set immediately so siblings can't also be clicked
       setState('running');
       try {
         await onAction?.('skill:run', { skill_id: option.skill_id });
@@ -1919,6 +2186,36 @@ function InlineOption({
       }
       return;
     }
+    // Structured commit: this option carries the evidence (canvas fields and/or
+    // paid items), so the click PERSISTS it deterministically (the click IS the
+    // founder's approval) rather than round-tripping text the model could
+    // narrate-but-not-perform.
+    const commit = option.commit;
+    const hasCanvas = !!commit?.canvas && Object.keys(commit.canvas).length > 0;
+    const hasItems = Array.isArray(commit?.items) && commit.items.length > 0;
+    if (commit && (hasCanvas || hasItems)) {
+      onChoose?.(); // optimistic lock: blocks siblings + a re-click while the commit is in flight
+      setState('running');
+      try {
+        // AWAIT the write. The handler throws on a non-ok /idea-canvas or
+        // /validation/commit response; if we fire-and-forget, a failed write
+        // would leave a false ✓ with nothing persisted (the exact narrate-but-
+        // no-persist trap the deterministic commit exists to prevent).
+        await onAction?.('commit:apply', {
+          canvas: commit.canvas ?? {},
+          items: commit.items ?? [],
+          label: split.full || `Option ${index + 1}`,
+          description: option.description ?? '',
+        });
+        setState('done');
+      } catch {
+        // Write failed → revert the lock so the founder can retry, and surface it.
+        onUnchoose?.();
+        setState('error');
+      }
+      return;
+    }
+    onChoose?.(); // non-commit select: lock optimistically (a text round-trip, nothing to persist-fail)
     onAction?.('select-option', {
       optionId: option.id ?? String(index),
       label: split.full || `Option ${index + 1}`,
@@ -1936,14 +2233,18 @@ function InlineOption({
       style={{
         textAlign: 'left',
         padding: '9px 11px',
-        border: '1px solid var(--line-2)',
+        // Chosen option keeps an accent border so the "saved" pick stays obvious
+        // after the set locks; everything else uses the default hairline.
+        border: chosen ? '1px solid var(--accent)' : '1px solid var(--line-2)',
         borderRadius: 'var(--r-m)',
-        background: 'var(--paper)',
+        background: chosen ? 'var(--accent-wash, var(--paper))' : 'var(--paper)',
         cursor: isDisabled ? 'default' : 'pointer',
         fontFamily: 'inherit',
         color: 'var(--ink-2)',
         minWidth: 0,
-        opacity: isDisabled ? 0.6 : 1,
+        // Chosen stays full-strength; un-chosen siblings dim hardest; a plain
+        // streaming lock (no pick yet) uses the existing soft 0.6.
+        opacity: chosen ? 1 : dimmed ? 0.45 : isDisabled ? 0.6 : 1,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -1962,7 +2263,7 @@ function InlineOption({
         </span>
         {/* Per-option credit estimate — what this choice spends, shown before the
             click. Suppressed when locked: a skill that can't run spends nothing. */}
-        {!locked && typeof option.credits === 'number' && option.credits > 0 && (
+        {!locked && !option.commit && typeof option.credits === 'number' && option.credits > 0 && (
           <span
             className="lp-mono"
             style={{
@@ -2008,17 +2309,35 @@ function InlineOption({
 
 function InlineArtifact({
   artifact,
+  setId,
   onAction,
 }: {
   artifact: Artifact;
+  /** Per-message-unique id for the option-set, so its selection can be tracked. */
+  setId?: string;
   onAction?: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
 }) {
   const t = useT();
+  const sel = useContext(OptionSelectionContext);
   const a = artifact as unknown as Record<string, unknown>;
 
   if (artifact.type === 'option-set' && Array.isArray(a.options)) {
-    const options = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number; skill_id?: string }>;
+    const allOptions = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number; skill_id?: string }>;
+    // Strip the idea-shaping kickoff: it re-runs from scratch and the prompt's
+    // "always offer next_recommended_skill" rule made it reappear every turn
+    // (the loop Luca hit). Relaunch now lives only on the Canvas button; the
+    // stable conversational alternatives are the quick-reply strip above the
+    // composer. Deterministic strip → no prompt drift can resurface it.
+    const options = allOptions.filter((o) => o.skill_id !== 'idea-shaping');
     const prompt = typeof a.prompt === 'string' ? a.prompt : '';
+    if (options.length === 0) return null;
+    // A set LOCKS once its option was chosen (chosenOptionId set) OR while any
+    // response is streaming. Locked = every option non-clickable but still shown
+    // ("saved"); the chosen one stays highlighted, the rest dim.
+    const uid = setId || (typeof a.id === 'string' ? a.id : '');
+    const chosenOptionId = uid ? sel.selectedBySet[uid] : undefined;
+    const consumed = chosenOptionId !== undefined;
+    const setLocked = consumed || sel.streaming;
     return (
       <div
         style={{
@@ -2034,9 +2353,22 @@ function InlineArtifact({
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {options.map((o, i) => (
-            <InlineOption key={o.id || i} option={o} index={i} onAction={onAction} />
-          ))}
+          {options.map((o, i) => {
+            const optId = o.id ?? String(i);
+            return (
+              <InlineOption
+                key={o.id || i}
+                option={o}
+                index={i}
+                setLocked={setLocked}
+                chosen={consumed && chosenOptionId === optId}
+                dimmed={consumed && chosenOptionId !== optId}
+                onChoose={() => uid && sel.markSelected(uid, optId)}
+                onUnchoose={() => uid && sel.unmarkSelected(uid)}
+                onAction={onAction}
+              />
+            );
+          })}
         </div>
       </div>
     );
@@ -2231,10 +2563,10 @@ function SkillSuggestionCard({
 //
 // EPHEMERAL inline knowledge proposal. Founder directive (2026-06-11): when the
 // agent states a fact/insight in PROSE (no card), it surfaces this CTA instead
-// of silently writing memory. Clicking "Apply to intelligence · 2 credits"
+// of silently writing memory. Clicking "Apply to intelligence · 0.5 credits"
 // POSTs to /knowledge { apply: true } via handleArtifactAction's
 // 'knowledge:apply-inline' verb — which persists the fact as applied AND debits
-// 2 credits server-side. If ignored, nothing persists (transcript only).
+// 0.5 credits server-side. If ignored, nothing persists (transcript only).
 function KnowledgeSuggestionCard({
   artifact,
   onAction,
@@ -2246,7 +2578,7 @@ function KnowledgeSuggestionCard({
   const a = artifact as unknown as Record<string, unknown>;
   const fact = typeof a.fact === 'string' ? a.fact : '';
   const kind = typeof a.kind === 'string' ? a.kind : 'observation';
-  const credits = typeof a.credits === 'number' ? a.credits : 2;
+  const credits = typeof a.credits === 'number' ? a.credits : KNOWLEDGE_APPLY_CREDITS;
   const sources = Array.isArray(a.sources) ? a.sources : [];
   const [state, setState] = useState<'idle' | 'applying' | 'done' | 'error'>('idle');
   const [errMsg, setErrMsg] = useState('');

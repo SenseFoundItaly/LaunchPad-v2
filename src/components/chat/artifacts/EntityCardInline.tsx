@@ -17,7 +17,7 @@ interface EntityCardInlineProps {
 /**
  * Entity card — name + summary + watch affordance + collapsed sources +
  * Apply/Dismiss footer. Founder directive (2026-06-11): the entity persists as
- * a PROPOSAL (graph_nodes, reviewed_state='pending'); applying it (2 credits)
+ * a PROPOSAL (graph_nodes, reviewed_state='pending'); applying it (0.5 credits)
  * folds it into project intelligence. The MonitorChip stays — it's a
  * functional "watch this entity" affordance, not decoration.
  */

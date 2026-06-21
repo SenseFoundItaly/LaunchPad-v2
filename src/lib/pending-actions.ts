@@ -360,7 +360,7 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
   // Founder directive 2026-06-11: chat-surfaced knowledge (insight/entity/
   // comparison/metric) no longer auto-applies — it persists 'pending' in
   // graph_nodes / memory_facts and must ALSO appear in the Inbox so the founder
-  // can apply (2 credits) or dismiss it from there, not just on the chat card.
+  // can apply (0.5 credits) or dismiss it from there, not just on the chat card.
   //
   // We materialize each pending knowledge row as a synthetic
   // 'proposed_graph_update' (the Inbox allow-list shows this type). The payload
@@ -384,6 +384,10 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
         WHERE gn.project_id = ?
           AND gn.reviewed_state = 'pending'
           AND gn.sources::text NOT LIKE '%Extracted from %'
+          -- Competitors (item 14): reviewed in the Knowledge graph + the textual
+          -- Competitors matryoshka, NOT the Inbox — which stays for watcher
+          -- findings + to-dos. (competitor_set is the summary node; same rule.)
+          AND gn.node_type NOT IN ('competitor', 'competitor_set')
           AND NOT EXISTS (
             SELECT 1 FROM pending_actions pa
              WHERE pa.project_id = gn.project_id
@@ -475,8 +479,18 @@ async function applyTransition(
   }
   const now = new Date().toISOString();
   const sets = ['status = ?', 'updated_at = ?', ...extraUpdates.map(u => `${u.key} = ?`)];
-  const params: unknown[] = [to, now, ...extraUpdates.map(u => u.value), id];
-  await run(`UPDATE pending_actions SET ${sets.join(', ')} WHERE id = ?`, ...params);
+  // Concurrency guard: the read above (getPendingAction) and this write are not
+  // atomic, so two parallel transitions (double-click, retry, inline-card +
+  // Approvals-lane on the same row) could both pass canTransition and both run
+  // the executor → DOUBLE DEBIT. Pin the UPDATE to the from-status we validated;
+  // if 0 rows match, another request already moved it → abort instead of
+  // re-executing. (The credit debit lives downstream of a successful transition.)
+  const params: unknown[] = [to, now, ...extraUpdates.map(u => u.value), id, action.status];
+  const res = await run(`UPDATE pending_actions SET ${sets.join(', ')} WHERE id = ? AND status = ?`, ...params);
+  if ((res.count ?? 0) === 0) {
+    const current = await getPendingAction(id);
+    throw new InvalidTransitionError(current?.status ?? action.status, to);
+  }
   const result = await getPendingAction(id);
   if (!result) throw new Error(`Failed to read back pending action ${id} after write`);
   return result;

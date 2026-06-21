@@ -38,6 +38,8 @@ export const ACTION_LANE: Record<PendingActionType, ActionLane> = {
   task: 'todo',
   skill_rerun_result: 'notification',
   configure_monitor: 'approval',
+  edit_monitor: 'approval',
+  delete_monitor: 'approval',
   configure_budget: 'approval',
   configure_watch_source: 'approval',
   run_skill: 'approval',

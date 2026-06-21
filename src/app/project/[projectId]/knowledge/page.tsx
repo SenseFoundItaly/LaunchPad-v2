@@ -7,7 +7,7 @@
  * Shows applied entities AND pending proposals together: pending nodes render
  * dashed and hang off the `your_startup` root (the /api/graph route synthesizes
  * a virtual link so nothing floats), so the founder sees what's proposed and
- * can apply it (2 credits, debited server-side) by clicking it. The Co-pilot
+ * can apply it (0.5 credits, debited server-side) by clicking it. The Co-pilot
  * proposes new knowledge in chat; un-applied items also wait in the Inbox.
  */
 
@@ -19,6 +19,7 @@ import { Pill, Icon, I } from '@/components/design/primitives';
 import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
 import EntityGridFallback from '@/components/knowledge/EntityGridFallback';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
+import { CompetitorMatryoshka } from '@/components/knowledge/CompetitorMatryoshka';
 import type { GraphNode, GraphEdge } from '@/types/graph';
 
 interface GraphResponse {
@@ -180,13 +181,19 @@ export default function KnowledgePage({
 
   return (
     <div className="lp-rise" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* Textual competitor matryoshka (item 14): startup → competitor → category
+          → detail. Renders nothing when there are no competitors. */}
+      <CompetitorMatryoshka projectId={projectId} />
       <div style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
         {graphLoading ? (
           <GraphEmpty message={t('knowledge.loading-graph')} />
         ) : graphError ? (
           <GraphEmpty message={t('knowledge.load-error', { error: graphError })} tone="error" />
         ) : nodeCount === 0 ? (
-          <GraphEmpty message={t('knowledge.empty')} />
+          <GraphEmpty
+            message={t('knowledge.empty')}
+            action={{ label: t('knowledge.add-documents'), onClick: () => setShowAddDocs(true) }}
+          />
         ) : edgeCount === 0 ? (
           // Nodes but zero relationships: the force viz would render
           // disconnected floating dots. Show a labeled grid instead.
@@ -227,9 +234,12 @@ export default function KnowledgePage({
 function GraphEmpty({
   message,
   tone = 'info',
+  action,
 }: {
   message: string;
   tone?: 'info' | 'error';
+  /** Optional CTA shown under the message — e.g. "Add documents" on an empty graph. */
+  action?: { label: string; onClick: () => void };
 }) {
   return (
     <div
@@ -237,8 +247,10 @@ function GraphEmpty({
         position: 'absolute',
         inset: 0,
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
+        gap: 14,
         padding: 24,
       }}
     >
@@ -254,6 +266,27 @@ function GraphEmpty({
       >
         {message}
       </p>
+      {action && (
+        <button
+          onClick={action.onClick}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 12.5,
+            fontWeight: 600,
+            color: 'var(--on-accent)',
+            background: 'var(--accent)',
+            border: 'none',
+            borderRadius: 'var(--r-m)',
+            padding: '8px 14px',
+            cursor: 'pointer',
+          }}
+        >
+          <Icon d={I.plus} size={14} stroke={1.8} />
+          {action.label}
+        </button>
+      )}
     </div>
   );
 }

@@ -4,15 +4,21 @@ import { use } from 'react';
 import { usePathname } from 'next/navigation';
 import { useProject } from '@/hooks/useProject';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
-import { LocaleProvider } from '@/components/providers/LocaleProvider';
-import { asLocale } from '@/lib/i18n/locales';
 import { ChromeProvider, useChromeState } from '@/components/design/chrome-context';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { StatusBar } from '@/components/design/primitives';
 
 /**
  * Project layout — owns the PERSISTENT chrome (TopBar + NavRail + StatusBar)
- * plus the project-loading gate and the frozen per-project locale.
+ * plus the project-loading gate.
+ *
+ * Locale note: the UI language is ACCOUNT-wide — it's governed by the
+ * cookie-seeded LocaleProvider in the ROOT layout (src/app/layout.tsx), which
+ * the language switch updates. This layout deliberately does NOT mount its own
+ * provider: an inner one seeded from `project.locale` used to shadow the
+ * account locale, so the switch appeared to do nothing on project pages.
+ * `project.locale` is still the AGENT's per-project output language, resolved
+ * server-side (resolveProjectLocale) — independent of the UI.
  *
  * The chrome lives here (not in each page) so it survives tab navigation: only
  * the content slot re-mounts (keyed on pathname) and crossfades via lp-rise,
@@ -54,13 +60,11 @@ export default function ProjectLayout({
   }
 
   return (
-    <LocaleProvider initialLocale={asLocale(project.locale)}>
-      <ChromeProvider>
-        <ProjectChrome projectId={projectId} projectName={project.name}>
-          {children}
-        </ProjectChrome>
-      </ChromeProvider>
-    </LocaleProvider>
+    <ChromeProvider>
+      <ProjectChrome projectId={projectId} projectName={project.name}>
+        {children}
+      </ProjectChrome>
+    </ChromeProvider>
   );
 }
 

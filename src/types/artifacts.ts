@@ -110,7 +110,36 @@ export interface OptionSet extends ArtifactBase {
   // — one coherent set of choices — rather than a separate skill-suggestion
   // "Run" card layered with a redundant option. Pair with `credits` so the
   // spend is visible before the click.
-  options: { id: string; label: string; description: string; credits?: number; skill_id?: string }[];
+  //
+  // `commit` — when set, picking this option DETERMINISTICALLY persists the
+  // given evidence (a clicked "Confirm — commit" IS the founder's approval)
+  // instead of round-tripping "I choose: …" back to the agent — which let the
+  // model NARRATE a commit it never performed, leaving the canvas/graph empty.
+  //   - `canvas` → free, direct idea_canvas write via POST /idea-canvas.
+  //   - `items`  → PAID/structured batch (competitor, market size; canvas_field
+  //     allowed too) applied via POST /validation/commit → applyValidationProposal
+  //     (graph_nodes / memory_facts + credit debit). Use this when the commit
+  //     includes anything that costs credits.
+  options: {
+    id: string;
+    label: string;
+    description: string;
+    credits?: number;
+    skill_id?: string;
+    commit?: {
+      canvas?: Record<string, string>;
+      // PAID knowledge only — canvas text always goes in `canvas` above, never
+      // here (a canvas_field item would be rejected by POST /validation/commit).
+      items?: Array<{
+        kind: 'competitor' | 'market_size_fact';
+        name?: string;
+        label?: string;
+        value: string;
+        credits?: number;
+        sources?: Source[];
+      }>;
+    };
+  }[];
   // Optional — option-sets are UI interaction, not factual claims.
   sources?: Source[];
 }
@@ -465,7 +494,7 @@ export interface SkillSuggestionArtifact extends ArtifactBase {
  *
  * Founder directive (2026-06-11): knowledge no longer auto-saves. When the
  * agent makes a factual claim in prose, it surfaces this inline card instead of
- * silently writing memory. The card renders "Apply to intelligence · 2 credits";
+ * silently writing memory. The card renders "Apply to intelligence · 0.5 credits";
  * clicking persists the fact as reviewed_state='applied' AND debits the 2
  * credits (POST /knowledge { apply: true }). If ignored, nothing persists — the
  * card lives only in the chat transcript, mirroring skill-suggestion.

@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { get, run } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
+import { readStagedCanvasFieldValues } from '@/lib/skill-prereqs';
+import { seedAssumptionsIfEmpty } from '@/lib/assumptions';
 
 const CANVAS_FIELDS = [
   'problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage',
@@ -38,12 +40,26 @@ export async function GET(
     projectId,
   );
 
-  return json(row ?? {
-    problem: null,
-    solution: null,
-    target_market: null,
-    value_proposition: null,
-    business_model: null,
+  // Staged-but-unapproved fields (open validation_proposals). Surfaced as
+  // `pending` so the Canvas can paint them progressively while the founder is
+  // still reviewing (item 9) — distinct from applied, and only for fields the
+  // applied canvas doesn't already have.
+  const staged = await readStagedCanvasFieldValues(projectId);
+  const pending: Record<string, string> = {};
+  for (const [field, value] of Object.entries(staged)) {
+    const appliedVal = (row as Record<string, string | null> | undefined)?.[field];
+    if (!appliedVal || !appliedVal.trim()) pending[field] = value;
+  }
+
+  return json({
+    ...(row ?? {
+      problem: null,
+      solution: null,
+      target_market: null,
+      value_proposition: null,
+      business_model: null,
+    }),
+    pending,
   });
 }
 
@@ -93,6 +109,16 @@ export async function POST(
     fields.problem, fields.solution, fields.target_market,
     fields.value_proposition, fields.business_model, fields.competitive_advantage,
   );
+
+  // Seed the assumptions/premortem registry off the freshly-committed canvas —
+  // mirrors applyValidationProposal so a deterministic commit (commit option or
+  // create-from-documents) gets the SAME seeding as the card-approval path.
+  // Best-effort + no-op once assumptions exist; never blocks the write.
+  const seedContext = CANVAS_FIELDS
+    .filter((k) => fields[k].length > 0)
+    .map((k) => `${k}: ${fields[k]}`)
+    .join('\n\n');
+  if (seedContext) void seedAssumptionsIfEmpty(projectId, seedContext);
 
   return json({ applied: CANVAS_FIELDS.filter((k) => fields[k].length > 0) }, 201);
 }

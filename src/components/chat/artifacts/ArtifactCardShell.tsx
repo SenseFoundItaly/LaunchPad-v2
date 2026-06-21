@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { Source } from '@/types/artifacts';
+import type { Artifact, Source } from '@/types/artifacts';
 import SourcesFooter from './SourcesFooter';
+import ArtifactExportButton from './ArtifactExportButton';
 
 interface ArtifactCardShellProps {
   /** Uppercase type label shown in the header (e.g. "Insight", "Entity") */
@@ -39,6 +40,12 @@ interface ArtifactCardShellProps {
    */
   provenance?: 'fallback';
   /**
+   * When provided, a download button appears in the header that exports THIS
+   * artifact in an editable format (CSV/JSON — see buildArtifactExport). Item 11:
+   * "export each individual output, ideally editable."
+   */
+  exportArtifact?: Artifact;
+  /**
    * Show an "expand to fullscreen" icon. When true, an expand affordance
    * appears in the header; clicking it opens an overlay that renders the
    * same `children` at a comfortable max-width. Default: true — the shell
@@ -64,6 +71,7 @@ export default function ArtifactCardShell({
   // compatibility but no longer rendered (zero-chips rule: everything on
   // the canvas is AI-generated, so the badge carried no information).
   provenance,
+  exportArtifact,
   inspectable = true,
 }: ArtifactCardShellProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
@@ -108,6 +116,7 @@ export default function ArtifactCardShell({
             {headerRight}
           </div>
         )}
+        {exportArtifact && !collapsed && <ArtifactExportButton artifact={exportArtifact} />}
         {inspectable && !collapsed && (
           <button
             type="button"

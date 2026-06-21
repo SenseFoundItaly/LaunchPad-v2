@@ -3,6 +3,25 @@ import { query, get, run } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { calculateNextRun } from '@/lib/monitor-schedule';
+import { buildMonitorScanPrompt } from '@/lib/action-executors';
+import { streamMonitorRun } from '@/lib/monitor-run-stream';
+
+/**
+ * POST /api/projects/{projectId}/monitors/{monitorId} — manual "Run now".
+ * Streams the scan via streamMonitorRun. This used to be a dedicated /run
+ * subroute, but a static leaf under TWO dynamic segments 404'd on the
+ * OpenNext/Netlify adapter, so the action moved onto this (working) route.
+ * (Also adds the project-access check the old /run route never had.)
+ */
+export async function POST(
+  _request: NextRequest,
+  { params }: { params: Promise<{ projectId: string; monitorId: string }> },
+) {
+  const { projectId, monitorId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+  return streamMonitorRun(projectId, monitorId);
+}
 
 interface MonitorRow {
   id: string;
@@ -153,6 +172,25 @@ function safeParseStringArray(raw: string): string[] {
   }
 }
 
+/** Monitor `config` is JSONB ({alert_threshold, urls_to_track, query, ...}).
+ *  postgres.js parses it to an object, but legacy/double-encoded rows may store
+ *  a JSON string — handle both so the prompt rebuild reads real targeting. */
+function parseMonitorConfig(
+  raw: unknown,
+): { alert_threshold?: string; query?: string; urls_to_track?: string[] } {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw as Record<string, never>;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
 /**
  * PATCH /api/projects/[projectId]/monitors/[monitorId]
  * Update schedule, status, name, or prompt.
@@ -210,6 +248,39 @@ export async function PATCH(
     const obj = body.objective.trim() || null;
     sets.push('objective = ?'); values.push(obj);
     sets.push('linked_quote = ?'); values.push(obj);
+
+    // The founder edits the human OBJECTIVE via the readable summary — NOT the
+    // raw machine prompt. Rebuild the scan prompt from the new objective + the
+    // monitor's existing targeting so the edit (a) actually changes what the
+    // watcher scans and (b) keeps the OUTPUT CONTRACT intact. Previously the
+    // edit saved the founder's plain text straight into `prompt`, which the
+    // cron runs verbatim — silently deleting the ecosystem_alert contract and
+    // breaking signal parsing. Skip the rebuild when an explicit `prompt` is
+    // supplied (the advanced raw-prompt editor) — that path is intentional.
+    if (body.prompt === undefined) {
+      const row = existing[0] as MonitorRow & { config?: unknown };
+      const cfg = parseMonitorConfig(row.config);
+      const urls = Array.isArray(row.urls_to_track)
+        ? (row.urls_to_track as string[])
+        : typeof row.urls_to_track === 'string'
+          ? safeParseStringArray(row.urls_to_track)
+          : Array.isArray(cfg.urls_to_track) ? cfg.urls_to_track : [];
+      try {
+        const rebuilt = await buildMonitorScanPrompt(projectId, {
+          kind: row.kind || 'custom',
+          name: body.name || row.name,
+          objective: obj,
+          query: cfg.query,
+          urls,
+          alertThreshold: cfg.alert_threshold || '',
+        });
+        sets.push('prompt = ?'); values.push(rebuilt);
+      } catch (err) {
+        // Rebuild is best-effort — if it fails, still save the objective so the
+        // founder's edit isn't lost; the prompt just keeps its prior text.
+        console.warn('[monitor PATCH] scan-prompt rebuild failed (objective saved anyway):', (err as Error).message);
+      }
+    }
   }
   if (body.schedule) { sets.push('schedule = ?'); values.push(body.schedule); }
   if (body.status) { sets.push('status = ?'); values.push(body.status); }

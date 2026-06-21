@@ -22,8 +22,8 @@ const CATEGORY_LABELS: Record<InsightCardType['category'], string> = {
 /**
  * Insight card — title + body + collapsed sources + Apply/Dismiss footer.
  * Founder directive (2026-06-11): the insight persists as a PROPOSAL
- * (memory_facts, reviewed_state='pending') — applying it (2 credits) writes it
- * into project knowledge. The footer carries Apply · 2 credits / Dismiss while
+ * (memory_facts, reviewed_state='pending') — applying it (0.5 credits) writes it
+ * into project knowledge. The footer carries Apply · 0.5 credits / Dismiss while
  * pending and a muted status once resolved.
  */
 export default function InsightCard({ artifact, onAction, defaultCollapsed }: InsightCardProps) {

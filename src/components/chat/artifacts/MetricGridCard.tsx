@@ -16,7 +16,7 @@ interface MetricGridCardProps {
  * Metric grid — title + editable metric tiles + collapsed sources +
  * Apply/Dismiss footer. Founder directive (2026-06-11): the metric grid
  * persists as a PROPOSAL (graph_nodes, reviewed_state='pending'); applying it
- * (2 credits) folds it into project intelligence. Click-to-edit on values is
+ * (0.5 credits) folds it into project intelligence. Click-to-edit on values is
  * functional and stays.
  */
 export default function MetricGridCard({ artifact, onAction, defaultCollapsed }: MetricGridCardProps) {
@@ -45,6 +45,7 @@ export default function MetricGridCard({ artifact, onAction, defaultCollapsed }:
       title={artifact.title || ''}
       sources={artifact.sources}
       provenance={artifact.provenance}
+      exportArtifact={artifact}
       dimmed={rejected}
       defaultCollapsed={defaultCollapsed}
       footer={

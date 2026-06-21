@@ -359,6 +359,8 @@ export type PendingActionType =
   | 'proposed_graph_update'
   | 'workflow_step'                 // chat-proposed workflow step, one row per step
   | 'configure_monitor'             // chat-proposed ecosystem monitor awaiting founder review
+  | 'edit_monitor'                  // chat-proposed edit to an EXISTING watcher (cadence/objective/status) — founder confirms
+  | 'delete_monitor'                // chat-proposed pause/delete of an EXISTING watcher — founder confirms
   | 'configure_budget'              // chat-proposed monthly LLM budget cap change awaiting founder review
   | 'configure_watch_source'        // chat-proposed watch source awaiting founder review
   | 'run_skill'                     // chat-proposed skill kickoff — founder approves (cost shown), then it runs real-time via runSkill

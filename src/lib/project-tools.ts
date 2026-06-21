@@ -25,6 +25,7 @@ import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import { query, get, run } from '@/lib/db';
 import { createPendingAction, getPendingAction, rejectPendingAction } from '@/lib/pending-actions';
 import { dismissAlertSource } from '@/lib/action-executors';
+import { persistCompetitorAnalysis, COMPETITOR_CATEGORIES } from '@/lib/competitor-categories';
 import { recordFact } from '@/lib/memory/facts';
 import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
@@ -169,11 +170,36 @@ const listPendingActions = (ctx: ToolContext): AgentTool => ({
       ctx.projectId, ...statuses,
     );
 
-    const text = rows.length === 0
-      ? `No actions matching status ${statuses.join(', ')}.`
-      : rows.map((r, i) =>
-          `${i + 1}. [${r.status} · ${r.estimated_impact || 'no-impact'} · ${r.action_type}] ${r.title}${r.rationale ? `\n   Rationale: ${r.rationale}` : ''}\n   Action id: ${r.id}`,
-        ).join('\n\n');
+    // Plain-language labels so the agent describes each row accurately.
+    // A configure_* row in pending/edited is a PROPOSAL — NOT a configured /
+    // active watcher. Calling it "configured" is wrong (founder confusion):
+    // the live, already-running watchers live in the Watchers tab, not here.
+    const TYPE_LABEL: Record<string, string> = {
+      configure_monitor: 'proposed watcher (awaiting approval)',
+      configure_watch_source: 'proposed watcher (awaiting approval)',
+      signal_alert: 'signal finding (from a watcher run)',
+      validation_proposal: 'validation evidence (awaiting approval)',
+      proposed_graph_update: 'knowledge update (awaiting approval)',
+    };
+
+    let text: string;
+    if (rows.length === 0) {
+      text = `No actions matching status ${statuses.join(', ')}.`;
+    } else {
+      // Count by type so the agent reports exact numbers (no eyeballed miscount).
+      const byType: Record<string, number> = {};
+      for (const r of rows) byType[String(r.action_type)] = (byType[String(r.action_type)] || 0) + 1;
+      const summary = Object.entries(byType)
+        .map(([type, n]) => `${n} ${TYPE_LABEL[type] || type}`)
+        .join(', ');
+      const body = rows.map((r, i) =>
+        `${i + 1}. [${r.status} · ${r.estimated_impact || 'no-impact'} · ${TYPE_LABEL[String(r.action_type)] || r.action_type}] ${r.title}${r.rationale ? `\n   Rationale: ${r.rationale}` : ''}\n   Action id: ${r.id}`,
+      ).join('\n\n');
+      text =
+        `${rows.length} item(s) awaiting decision: ${summary}.\n` +
+        `NOTE: "proposed watcher" rows are NOT yet active — they are suggestions the founder must Apply. Already-active watchers are NOT in this list; they live in the Watchers tab. Do not call a proposed item "configured".\n\n` +
+        body;
+    }
 
     return {
       content: [{ type: 'text', text }],
@@ -239,7 +265,13 @@ const listGraphNodes = (ctx: ToolContext): AgentTool => ({
     const p = params as { node_type?: string; limit?: number };
     const limit = Math.max(1, Math.min(100, p.limit ?? 30));
 
-    const conditions = ['project_id = ?', "reviewed_state = 'applied'"];
+    // Include PENDING nodes, not just applied. Research/competitor skills persist
+    // competitors as 'pending' (awaiting founder approval), so an applied-only
+    // read made the agent report "0 competitors" while the founder saw them in the
+    // graph UI (a real chat↔graph disconnect). Surface both, state-labeled, so the
+    // agent can reference them AND steer the founder to approve. rejected/dismissed
+    // stay hidden; applied sorts first (canonical knowledge leads).
+    const conditions = ['project_id = ?', "reviewed_state IN ('applied','pending')"];
     const args: unknown[] = [ctx.projectId];
     if (p.node_type) {
       conditions.push('node_type = ?');
@@ -247,21 +279,59 @@ const listGraphNodes = (ctx: ToolContext): AgentTool => ({
     }
 
     const rows = await query<Record<string, unknown>>(
-      `SELECT id, name, node_type, summary, created_at
+      `SELECT id, name, node_type, summary, reviewed_state, created_at
        FROM graph_nodes
        WHERE ${conditions.join(' AND ')}
-       ORDER BY created_at DESC
+       ORDER BY CASE reviewed_state WHEN 'applied' THEN 0 ELSE 1 END, created_at DESC
        LIMIT ${limit}`,
       ...args,
     );
 
+    const pendingCount = rows.filter((r) => r.reviewed_state === 'pending').length;
     const text = rows.length === 0
       ? `No graph nodes${p.node_type ? ` of type ${p.node_type}` : ''}.`
-      : rows.map((r, i) => `${i + 1}. [${r.node_type}] ${r.name}${r.summary ? ` — ${String(r.summary).slice(0, 150)}` : ''}`).join('\n');
+      : [
+          rows.map((r, i) => `${i + 1}. [${r.node_type}] ${r.name}${r.reviewed_state === 'pending' ? ' · PENDING (awaiting founder approval)' : ''}${r.summary ? ` — ${String(r.summary).slice(0, 150)}` : ''}`).join('\n'),
+          pendingCount > 0 ? `\n${pendingCount} node(s) are PENDING — they ARE in the graph but await the founder's approval (~0.5 cr each) to become applied. Reference them and offer to approve; never say the graph is empty when pending nodes exist.` : '',
+        ].filter(Boolean).join('\n');
 
     return {
       content: [{ type: 'text', text }],
-      details: { count: rows.length, node_type: p.node_type || 'all' },
+      details: { count: rows.length, pending: pendingCount, node_type: p.node_type || 'all' },
+    };
+  },
+});
+
+const listWatchers = (ctx: ToolContext): AgentTool => ({
+  name: 'list_watchers',
+  label: 'List Watchers',
+  description:
+    'List the project\'s REAL ecosystem watchers (monitors) — for each: name, what it watches (objective), cadence, status (active/paused/inactive), when it last ran, and its id. Use this whenever the founder asks "what watchers do I have", "explain my watchers", or before proposing a change to a specific watcher (you need its id). NOTE: proposed-but-unapproved watchers are NOT here — those live in list_pending_actions. Never tell the founder you cannot see their active watchers; call this tool.',
+  parameters: Type.Object({}),
+  async execute(_id): Promise<AgentToolResult<unknown>> {
+    const rows = await query<Record<string, unknown>>(
+      `SELECT id, name, type, schedule, status, objective, last_run
+       FROM monitors WHERE project_id = ?
+       ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END, created_at ASC`,
+      ctx.projectId,
+    );
+    if (rows.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'No watchers yet. The founder can create one from the Watchers tab, or you can propose one with propose_monitor.' }],
+        details: { count: 0, active: 0 },
+      };
+    }
+    const text = rows
+      .map((r, i) => {
+        const objective = r.objective ? String(r.objective).slice(0, 180) : '(no plain-language description set — add one via Edit in the Watchers tab)';
+        const last = r.last_run ? `last ran ${String(r.last_run).slice(0, 10)}` : 'never run';
+        return `${i + 1}. ${r.name} [${r.status}] — watches: ${objective} · ${r.schedule} · ${last} · id=${r.id}`;
+      })
+      .join('\n');
+    const active = rows.filter((r) => r.status === 'active').length;
+    return {
+      content: [{ type: 'text', text: `${active} active watcher(s) of ${rows.length} total:\n${text}` }],
+      details: { count: rows.length, active },
     };
   },
 });
@@ -895,6 +965,95 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
 
 const BUDGET_MIN_CAP_USD = 0.10;
 const BUDGET_MAX_PROPOSAL_USD = 100;
+
+const editWatcherTool = (ctx: ToolContext): AgentTool => ({
+  name: 'edit_watcher',
+  label: 'Edit Watcher',
+  description:
+    'Propose an edit to an EXISTING watcher — change its cadence (how often it checks), its plain-language objective (what it watches), or its status. This does NOT change anything immediately: it stages the edit as a pending action the founder confirms in the Approvals lane (the founder\'s Apply IS the confirmation — never tell them it is already done). Get the watcher id from list_watchers first. To "make it check more frequently", set cadence to daily.',
+  parameters: Type.Object({
+    monitor_id: Type.String({ description: 'The watcher id from list_watchers (e.g. mon_...).' }),
+    cadence: Type.Optional(Type.Union(
+      [Type.Literal('daily'), Type.Literal('weekly'), Type.Literal('monthly')],
+      { description: 'New check frequency.' },
+    )),
+    objective: Type.Optional(Type.String({ description: 'New plain-language description of what this watcher should track. Rebuilds the scan instructions.' })),
+    status: Type.Optional(Type.Union(
+      [Type.Literal('active'), Type.Literal('paused')],
+      { description: 'Activate or pause the watcher.' },
+    )),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { monitor_id: string; cadence?: string; objective?: string; status?: string };
+    const monitor = await get<{ id: string; name: string }>(
+      'SELECT id, name FROM monitors WHERE id = ? AND project_id = ?',
+      p.monitor_id, ctx.projectId,
+    );
+    if (!monitor) {
+      return { content: [{ type: 'text', text: `No watcher with id ${p.monitor_id} in this project. Call list_watchers to get a valid id.` }], details: { error: true } };
+    }
+    const changes: Record<string, string> = {};
+    if (p.cadence) changes.cadence = p.cadence;
+    if (typeof p.objective === 'string' && p.objective.trim()) changes.objective = p.objective.trim();
+    if (p.status) changes.status = p.status;
+    if (Object.keys(changes).length === 0) {
+      return { content: [{ type: 'text', text: 'No changes specified. Provide at least one of: cadence, objective, status.' }], details: { error: true } };
+    }
+    const summary = Object.entries(changes)
+      .map(([k, v]) => (k === 'objective' ? `objective → "${String(v).slice(0, 60)}…"` : `${k} → ${v}`))
+      .join(', ');
+    const action = await createPendingAction({
+      project_id: ctx.projectId,
+      action_type: 'edit_monitor',
+      title: `Edit watcher "${monitor.name}"`,
+      rationale: `Proposed change: ${summary}. Approve to apply.`,
+      payload: { monitor_id: monitor.id, monitor_name: monitor.name, changes },
+    });
+    return {
+      content: [{ type: 'text', text: `Staged an edit to "${monitor.name}" (${summary}) for your approval. Confirm it in the Approvals lane to apply — nothing has changed yet.` }],
+      details: { pending_action_id: action.id, monitor_id: monitor.id, changes },
+    };
+  },
+});
+
+const deleteWatcherTool = (ctx: ToolContext): AgentTool => ({
+  name: 'delete_watcher',
+  label: 'Pause / Delete Watcher',
+  description:
+    'Propose pausing or deleting an EXISTING watcher. This does NOT remove anything immediately — it stages the action as a pending approval the founder confirms (their Apply IS the confirmation). Prefer mode="pause" (reversible) unless the founder explicitly wants it permanently gone. Get the watcher id from list_watchers first.',
+  parameters: Type.Object({
+    monitor_id: Type.String({ description: 'The watcher id from list_watchers.' }),
+    mode: Type.Optional(Type.Union(
+      [Type.Literal('pause'), Type.Literal('delete')],
+      { description: 'pause (reversible, default) or delete (permanent).' },
+    )),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { monitor_id: string; mode?: string };
+    const mode = p.mode === 'delete' ? 'delete' : 'pause';
+    const monitor = await get<{ id: string; name: string }>(
+      'SELECT id, name FROM monitors WHERE id = ? AND project_id = ?',
+      p.monitor_id, ctx.projectId,
+    );
+    if (!monitor) {
+      return { content: [{ type: 'text', text: `No watcher with id ${p.monitor_id} in this project. Call list_watchers to get a valid id.` }], details: { error: true } };
+    }
+    const verb = mode === 'delete' ? 'Delete' : 'Pause';
+    const action = await createPendingAction({
+      project_id: ctx.projectId,
+      action_type: 'delete_monitor',
+      title: `${verb} watcher "${monitor.name}"`,
+      rationale: mode === 'delete'
+        ? 'Permanently remove this watcher and its run history. Approve to apply.'
+        : 'Stop this watcher from running (reversible — you can re-activate it later). Approve to apply.',
+      payload: { monitor_id: monitor.id, monitor_name: monitor.name, mode },
+    });
+    return {
+      content: [{ type: 'text', text: `Staged "${verb.toLowerCase()} ${monitor.name}" for your approval — nothing has changed yet. Confirm it in the Approvals lane to apply.` }],
+      details: { pending_action_id: action.id, monitor_id: monitor.id, mode },
+    };
+  },
+});
 
 const proposeBudgetChangeTool = (ctx: ToolContext): AgentTool => ({
   name: 'propose_budget_change',
@@ -2118,6 +2277,52 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// propose_competitor_analysis — competitor + category "matryoshka" (item 14)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const proposeCompetitorAnalysisTool = (ctx: ToolContext): AgentTool => ({
+  name: 'propose_competitor_analysis',
+  label: 'Analyze competitor',
+  description:
+    `Add ONE competitor to the ecosystem graph, broken down into CATEGORIES so the founder can open the competitor and see each dimension (startup → competitor → category → detail). Use this whenever you analyze a competitor — it is the structured alternative to a comparison-table and is what populates the competitor breakdown the founder reviews on the Knowledge page. It persists the competitor as a PENDING graph node + its categories; the founder approves the competitor in the graph (cheap). Provide a category row for every dimension you have evidence for. Valid categories: ${[...COMPETITOR_CATEGORIES].join(', ')}. ALWAYS attach sources to each finding (per the citation rules).`,
+  parameters: Type.Object({
+    name: Type.String({ description: 'Competitor name (company or product), e.g. "HelloFresh".' }),
+    summary: Type.Optional(Type.String({ description: 'One line: what they are / what they do.' })),
+    categories: Type.Array(
+      Type.Object({
+        category: Type.String({ description: `One of: ${[...COMPETITOR_CATEGORIES].join(', ')}.` }),
+        detail: Type.String({ description: 'Concrete, specific finding for this category (numbers/specifics, not generic).' }),
+      }),
+      { description: 'The per-category breakdown — only categories you have evidence for.' },
+    ),
+    sources: Type.Optional(Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] provenance (web/skill/user/inference) backing the analysis.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { name?: string; summary?: string; categories?: Array<{ category: string; detail: string }>; sources?: Source[] };
+    if (!p.name?.trim()) {
+      return { content: [{ type: 'text', text: 'propose_competitor_analysis requires a competitor name.' }], details: { error: true } };
+    }
+    const categories = Array.isArray(p.categories) ? p.categories.filter((c) => c && c.detail) : [];
+    const res = await persistCompetitorAnalysis(ctx.projectId, {
+      name: p.name,
+      summary: p.summary,
+      categories,
+      sources: Array.isArray(p.sources) ? p.sources : null,
+    });
+    if (!res.nodeId) {
+      return { content: [{ type: 'text', text: 'Could not persist the competitor (empty name?).' }], details: { error: true } };
+    }
+    return {
+      content: [{
+        type: 'text',
+        text: `Competitor "${p.name.trim()}" added to the ecosystem graph as a PENDING node with ${res.categories} category breakdown(s). The founder reviews it on the Knowledge page (competitor breakdown) or approves the dashed node in the graph — do NOT also emit a competitor comparison-table for the same competitor.`,
+      }],
+      details: { node_id: res.nodeId, categories: res.categories },
+    };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // update_pricing — direct write path for the Pricing facet (Stage 6)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2745,6 +2950,7 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     listEcosystemAlerts(ctx),
     listPendingActions(ctx),
     listGraphNodes(ctx),
+    listWatchers(ctx),
     listIntelligenceBriefs(ctx),
     getRiskAudit(ctx),
     readTabularReviewTool(ctx),
@@ -2758,6 +2964,8 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     createPendingActionTool(ctx),
     dismissPendingActions(ctx),
     proposeMonitorTool(ctx),
+    editWatcherTool(ctx),
+    deleteWatcherTool(ctx),
     proposeBudgetChangeTool(ctx),
     createTaskTool(ctx),
     proposeWatchSourceTool(ctx),
@@ -2768,6 +2976,7 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     huntBlackSwansTool(ctx),
     proposeValidationTool(ctx),
     updateIdeaCanvasTool(ctx),
+    proposeCompetitorAnalysisTool(ctx),
     updatePricingTool(ctx),
     saveMemoryFactTool(ctx),
     logInterviewTool(ctx),

@@ -24,6 +24,7 @@ import InvestorPipelineCard from './InvestorPipelineCard';
 import WeeklyUpdateCard from './WeeklyUpdateCard';
 import ArtifactCardShell from './ArtifactCardShell';
 import { RadarChart, BarChart, PieChart, GaugeChart, ScoreCard } from '@/components/charts';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface ArtifactRendererProps {
   artifact: Artifact;
@@ -73,31 +74,31 @@ export default function ArtifactRenderer({
       );
     case 'radar-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <RadarChart data={artifact.data} />
         </ArtifactCardShell>
       );
     case 'bar-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <BarChart data={artifact.data} />
         </ArtifactCardShell>
       );
     case 'pie-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <PieChart data={artifact.data} />
         </ArtifactCardShell>
       );
     case 'gauge-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
+        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <GaugeChart score={artifact.score} maxScore={artifact.maxScore} verdict={artifact.verdict} />
         </ArtifactCardShell>
       );
     case 'score-card':
       return (
-        <ArtifactCardShell typeLabel="Score" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} defaultCollapsed={defaultCollapsed}>
+        <ArtifactCardShell typeLabel="Score" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <ScoreCard title="" score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />
         </ArtifactCardShell>
       );
@@ -133,6 +134,34 @@ export default function ArtifactRenderer({
     case 'fact':  // Server-only — intercepted by chat route, never sent to client
       return null;
     default:
-      return null;
+      // A3 (copilot-sota): a parsed-OK artifact of an UNKNOWN type used to drop
+      // to null here — silent data loss the founder couldn't see or report. Show
+      // a visible "unsupported card" instead. (task/fact above stay null — those
+      // nulls are intentional, not failures.)
+      return <UnsupportedArtifactCard artifactType={(artifact as { type?: string }).type} />;
   }
+}
+
+/** A3: loud-failure fallback for an artifact type the renderer doesn't know. */
+function UnsupportedArtifactCard({ artifactType }: { artifactType?: string }) {
+  const t = useT();
+  return (
+    <div
+      style={{
+        border: '1px solid var(--clay)',
+        borderRadius: 'var(--r-m, 10px)',
+        background: 'var(--surface)',
+        padding: '10px 12px',
+        fontSize: 12,
+        lineHeight: 1.5,
+      }}
+    >
+      <div style={{ fontWeight: 600, color: 'var(--clay)', marginBottom: 2 }}>
+        {t('artifact.unsupported-title')}
+      </div>
+      <div style={{ color: 'var(--ink-4)' }}>
+        {t('artifact.unsupported-body', { type: artifactType || '?' })}
+      </div>
+    </div>
+  );
 }

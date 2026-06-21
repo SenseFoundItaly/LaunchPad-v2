@@ -36,6 +36,40 @@ interface ClassificationResult {
   rationale: string;
   headline: string;
   alert_type: string;
+  /** The company/product this page belongs to (e.g. "PandaDoc"). Persisted on
+   *  the alert so applying it UPDATES that entity's knowledge node instead of
+   *  creating a duplicate named after the event. */
+  entity: string;
+}
+
+/** How many prior CHANGES (not 'same' scrapes) to feed the classifier so it can
+ *  spot recurrence — "third price cut this quarter" — rather than judging each
+ *  change in isolation. Small bound: keeps the cheap Haiku call cheap. */
+const TREND_HISTORY_LIMIT = 6;
+
+/**
+ * Best-effort entity name for a watch source when the classifier doesn't return
+ * one. Prefer the label minus the page-type suffix ("PandaDoc Pricing Page" →
+ * "PandaDoc"); fall back to the URL's second-level domain capitalized
+ * (pandadoc.com → "Pandadoc"). The classifier's own entity always wins.
+ */
+function deriveEntityName(ws: WatchSource): string {
+  const label = (ws.label || '').trim();
+  if (label) {
+    const stripped = label
+      .replace(/\b(pricing|careers?|jobs?|blog|changelog|product|news|press|ads?|reviews?|page|tracker)\b/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    if (stripped) return stripped;
+    return label;
+  }
+  try {
+    const host = new URL(ws.url).hostname.replace(/^www\./, '');
+    const sld = host.split('.')[0] || host;
+    return sld.charAt(0).toUpperCase() + sld.slice(1);
+  } catch {
+    return 'Tracked source';
+  }
 }
 
 const MAX_DIFF_FOR_LLM = 4000;
@@ -169,10 +203,22 @@ export async function processWatchSource(
     return { watch_source_id: ws.id, status: 'unchanged', change_status: 'same' };
   }
 
+  // Pull this source's recent CHANGE history so the classifier can spot
+  // recurrence/trends ("third price cut this quarter") instead of judging this
+  // change in isolation against only the last snapshot.
+  const changeHistory = await query<{ detected_at: string; significance: string; diff_summary: string | null }>(
+    `SELECT detected_at, significance, diff_summary
+       FROM source_changes
+      WHERE watch_source_id = ? AND change_status <> 'same'
+      ORDER BY detected_at DESC
+      LIMIT ?`,
+    ws.id, TREND_HISTORY_LIMIT,
+  ).catch(() => []);
+
   // Change detected — classify significance via LLM
   let classification: ClassificationResult;
   try {
-    classification = await classifyChange(ws, scrapeResult, projectContext);
+    classification = await classifyChange(ws, scrapeResult, projectContext, changeHistory);
   } catch (err) {
     // Classification failed — still record the change, just as 'low'
     console.warn(`[watch-source] classification failed for ${ws.id}:`, (err as Error).message);
@@ -181,6 +227,7 @@ export async function processWatchSource(
       rationale: `Classification failed: ${(err as Error).message}`,
       headline: `Content changed on ${ws.label}`,
       alert_type: 'trend_signal',
+      entity: deriveEntityName(ws),
     };
   }
 
@@ -199,10 +246,10 @@ export async function processWatchSource(
     try {
       await run(
         `INSERT INTO ecosystem_alerts
-           (id, project_id, monitor_id, alert_type, source, source_url,
+           (id, project_id, monitor_id, alert_type, entity, source, source_url,
             headline, body, relevance_score, confidence, dedupe_hash,
             reviewed_state, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
          ON CONFLICT(project_id, dedupe_hash) DO UPDATE SET
            relevance_score = GREATEST(ecosystem_alerts.relevance_score, EXCLUDED.relevance_score),
            monitor_run_id = EXCLUDED.monitor_run_id`,
@@ -210,6 +257,10 @@ export async function processWatchSource(
         ws.project_id,
         ws.monitor_id,
         classification.alert_type,
+        // entity = the tracked company/product. Persisting it makes accepting
+        // this signal UPDATE that entity's knowledge node (e.g. PandaDoc's
+        // pricing) instead of spawning a duplicate named after the event.
+        classification.entity || deriveEntityName(ws),
         `watch:${ws.label}`,
         ws.url,
         classification.headline,
@@ -241,6 +292,7 @@ export async function processWatchSource(
           (classification.rationale ?? '').slice(0, 500),
           {
             alert_type: classification.alert_type,
+            entity: classification.entity || deriveEntityName(ws),
             source: `watch:${ws.label}`,
             source_url: ws.url,
             relevance_score: classification.significance === 'high' ? 0.9 : 0.7,
@@ -335,6 +387,7 @@ async function classifyChange(
   ws: WatchSource,
   scrapeResult: ScrapeResult,
   projectContext?: string,
+  changeHistory: Array<{ detected_at: string; significance: string; diff_summary: string | null }> = [],
 ): Promise<ClassificationResult> {
   // Build a diff context for the LLM
   let diffContext: string;
@@ -359,15 +412,32 @@ async function classifyChange(
   // Category-specific classification hints
   const categoryHints = getCategoryHints(ws.category);
 
+  // Recent-change history — lets the classifier reason about RECURRENCE
+  // (e.g. "third price cut in 6 weeks") rather than judging this change alone.
+  const historyBlock = changeHistory.length > 0
+    ? [
+        'Recent prior changes on THIS page (newest first):',
+        ...changeHistory.map((h) => {
+          const when = (h.detected_at || '').slice(0, 10);
+          const sig = h.significance || 'low';
+          const what = (h.diff_summary || 'change detected').slice(0, 140);
+          return `- ${when} [${sig}] ${what}`;
+        }),
+        'If this change repeats or continues a pattern from the list above, SAY SO in the headline and rationale (e.g. "3rd price cut since March") and weigh the significance accordingly. A repeated move is more significant than a one-off.',
+      ].join('\n')
+    : '';
+
   const systemPrompt = [
     'You classify content changes detected on a tracked web page.',
-    `Respond ONLY with valid JSON: {"significance":"high"|"medium"|"low"|"noise","rationale":"<1-2 sentences>","headline":"<concise headline, max 120 chars>","alert_type":"<one of: competitor_activity, ip_filing, trend_signal, partnership_opportunity, regulatory_change, funding_event, hiring_signal, customer_sentiment, social_signal, ad_activity, pricing_change, product_launch>"}`,
+    `Respond ONLY with valid JSON: {"significance":"high"|"medium"|"low"|"noise","rationale":"<1-2 sentences>","headline":"<concise headline, max 120 chars>","alert_type":"<one of: competitor_activity, ip_filing, trend_signal, partnership_opportunity, regulatory_change, funding_event, hiring_signal, customer_sentiment, social_signal, ad_activity, pricing_change, product_launch>","entity":"<the company/product this page belongs to, e.g. \\"PandaDoc\\" — NAME only, 1-4 words, never the event sentence>"}`,
     '',
     'Significance scale:',
     '- high: pricing change, major product launch, regulatory shift, acquisition',
     '- medium: notable content update, new feature announcement, team change',
     '- low: minor wording tweaks, blog post, routine update',
     '- noise: no meaningful change, formatting only, timestamp updates',
+    '',
+    'The "entity" is the subject the page is about (derive it from the page label/URL); it is used to keep that company/product\'s knowledge record up to date, so name the same entity consistently across runs.',
     '',
     categoryHints ? `Category guidance:\n${categoryHints}\n` : '',
     projectContext ? `Project context:\n${projectContext}\n` : '',
@@ -377,6 +447,7 @@ async function classifyChange(
     `Tracked page: "${ws.label}" (${ws.url})`,
     `Category: ${ws.category}`,
     `Change status: ${scrapeResult.changeStatus}`,
+    historyBlock ? `\n${historyBlock}` : '',
     '',
     diffContext,
   ].join('\n');
@@ -421,6 +492,13 @@ async function classifyChange(
   }
   if (!parsed.alert_type) {
     parsed.alert_type = 'trend_signal';
+  }
+  // Entity drives the knowledge-node upsert on accept — never leave it blank,
+  // or the finding lands as a duplicate node named after the event.
+  if (!parsed.entity || typeof parsed.entity !== 'string' || !parsed.entity.trim()) {
+    parsed.entity = deriveEntityName(ws);
+  } else {
+    parsed.entity = parsed.entity.trim().slice(0, 80);
   }
 
   return parsed;

@@ -13,11 +13,21 @@ interface OptionSetCardProps {
 type OptionSetOption = OptionSet['options'][number];
 
 export default function OptionSetCard({ artifact, onAction }: OptionSetCardProps) {
+  // Idea-shaping is no longer offered as a chat option. The full guided kickoff
+  // re-runs from scratch (problem definition), and the prompt's "always include
+  // next_recommended_skill" rule made it reappear every turn on a Stage-1
+  // project — the loop Luca hit. It now lives ONLY as the explicit "Re-run
+  // guided Idea Shaping" button in the Canvas (IdeaCanvasHeader). Strip it here
+  // deterministically so no prompt drift can resurface it. The stable
+  // alternatives (give input / get options / go back) are the IdeaShaping
+  // quick-reply strip above the composer.
+  const options = artifact.options.filter((o) => o.skill_id !== 'idea-shaping');
+  if (options.length === 0) return null;
   return (
     <div className="my-3">
       <p className="text-sm text-ink-4 mb-2">{artifact.prompt}</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {artifact.options.map((option) => (
+        {options.map((option) => (
           <OptionButton key={option.id} option={option} onAction={onAction} />
         ))}
       </div>

@@ -145,6 +145,10 @@ export interface RunSkillOptions {
   prompt?: string;
   /** Cap on agent wall-clock time. Defaults to 120s. */
   timeoutMs?: number;
+  /** Streaming mirror — forwarded to runAgent so the skill's output streams live
+   *  to the caller (the /skills SSE route) instead of dumping at the end. The
+   *  buffered run + persistence + usage accounting are unchanged. */
+  onDelta?: (delta: string) => void;
   /**
    * Iter-3 QA fix: bypass the SAFE_AUTO_RERUN_SKILL_IDS whitelist. The
    * whitelist exists to protect AUTO-rerun (heartbeat / cron) from re-running
@@ -223,6 +227,7 @@ export async function runSkill(
     systemPrompt,
     timeout: opts.timeoutMs ?? 120_000,
     task: 'skill-invoke',
+    onDelta: opts.onDelta,
   });
   const latencyMs = Date.now() - startedAt;
 
@@ -287,9 +292,16 @@ export async function runSkill(
   // so persist it deterministically into research + PENDING graph_nodes — this is
   // what makes the founder's graph activate from a market-research run. Pending =
   // gate-respecting; the Canvas surfaces them as "proposed" for one-click apply.
+  // Founder-facing summary: research skills emit raw json (for parsing); show the
+  // clean markdown report instead. `text` stays raw for section-scoring + the
+  // assumption linker, which parse the json. Falls back to raw text if unparsed.
+  let displaySummary = text;
   try {
     const r = await persistResearchFromSkillOutput(projectId, skillId, text);
-    if (r.ok) artifactsPersisted += r.competitors + (r.marketSizeNode ? 1 : 0);
+    if (r.ok) {
+      artifactsPersisted += r.competitors + (r.marketSizeNode ? 1 : 0);
+      if (r.markdown && r.markdown.trim()) displaySummary = r.markdown;
+    }
   } catch (err) {
     console.warn(`[skill-executor] research persist failed for ${skillId}:`, (err as Error).message);
   }
@@ -339,7 +351,7 @@ export async function runSkill(
     projectId,
     skillId,
     completionStatus,
-    text,
+    displaySummary,
     sectionScores ? JSON.stringify(sectionScores) : null,
     completedAt,
   );
@@ -380,7 +392,7 @@ export async function runSkill(
 
   return {
     skill_id: skillId,
-    summary: text,
+    summary: displaySummary,
     latency_ms: latencyMs,
     completed_at: completedAt,
     artifacts_persisted: artifactsPersisted,

@@ -160,7 +160,7 @@ export async function POST(
   }
 
   // Inline 'knowledge-suggestion' apply path: persist provenance + debit the
-  // 2-credit apply cost. sources is JSONB (auto-serialized — never stringify).
+  // 0.5-credit apply cost. sources is JSONB (auto-serialized — never stringify).
   const wantsApply = body.apply === true;
   const sources = Array.isArray(body.sources) && body.sources.length > 0 ? body.sources : null;
 

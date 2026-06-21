@@ -5,7 +5,13 @@ import api from '@/api';
 import { BarChart } from '@/components/charts';
 import { useSetChrome } from '@/components/design/chrome-context';
 import { useT } from '@/components/providers/LocaleProvider';
+import { USER_MONTHLY_CREDITS, USER_MONTHLY_LLM_USD } from '@/lib/credit-costs';
 import type { ApiResponse } from '@/types';
+
+// Canonical credits-per-USD ratio (3× markup) used as the fallback when a
+// project has no budget row yet — derived from the pool so it matches the
+// server's own conversion (see src/lib/credit-costs.ts).
+const DEFAULT_CREDITS_PER_USD = USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD;
 
 interface UsageLog {
   id: string;
@@ -109,11 +115,11 @@ export default function UsagePage({
   // Credits are the founder-facing money unit (same number the TopBar badge
   // counts). USD stays visible as small secondary text for admins. The
   // conversion uses the project's own plan ratio (monthly credits ÷ USD cap);
-  // 200 credits/$ is the documented default when no budget row exists yet.
+  // falls back to the canonical ~300 credits/$ when no budget row exists yet.
   const creditsPerUsd =
     credits && credits.cap_usd > 0 && credits.total > 0
       ? credits.total / credits.cap_usd
-      : 200;
+      : DEFAULT_CREDITS_PER_USD;
 
   function toCredits(usd: number): number {
     return usd * creditsPerUsd;

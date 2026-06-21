@@ -1,4 +1,3 @@
-import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
 import { error, generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
@@ -18,19 +17,15 @@ function deriveSeverity(text: string): 'critical' | 'warning' | 'info' {
   return 'info';
 }
 
-type Params = { params: Promise<{ projectId: string; monitorId: string }> };
-
 /**
- * POST /api/projects/{projectId}/monitors/{monitorId}/run
- *
- * Streaming manual "Run now" endpoint. Mirrors the cron route's persistence
- * logic (SOUL/AGENTS system prompt, usage capture, ecosystem artifact
- * parsing) so the founder's dashboard action produces identical DB state as
- * a scheduled run. The UX-only difference is that this endpoint streams
- * progress back to the browser.
+ * Streaming manual "Run now" for a monitor. Extracted from the old
+ * monitors/[monitorId]/run route — that path (a static leaf under TWO dynamic
+ * segments) 404'd on the OpenNext/Netlify adapter, so the run action now lives
+ * as a POST on the [monitorId] route which delegates here. Mirrors the cron
+ * route's persistence (SOUL/AGENTS prompt, usage capture, ecosystem artifact
+ * parsing) so a manual run produces identical DB state as a scheduled one.
  */
-export async function POST(_request: NextRequest, { params }: Params) {
-  const { projectId, monitorId } = await params;
+export async function streamMonitorRun(projectId: string, monitorId: string): Promise<Response> {
 
   const monitors = await query<Record<string, unknown>>(
     'SELECT * FROM monitors WHERE id = ? AND project_id = ?',

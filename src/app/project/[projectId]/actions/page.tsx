@@ -34,6 +34,7 @@ import {
 } from '@/components/design/primitives';
 import type { PendingAction, PendingActionStatus, PendingActionType } from '@/types';
 import type { Watcher } from '@/lib/watchers';
+import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
 import { laneFor } from '@/lib/action-lanes';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { SkillProposalReview, skillCreditsFromAction } from '@/components/actions/SkillProposalReview';
@@ -350,7 +351,7 @@ export default function TicketsPage({
       ) : (
         // Inbox = the ONE apply-to-intelligence queue. No toolbar, no
         // filters: a flat list where each row is title + brief + one
-        // action pair (Apply · 2 credits / Dismiss). Selecting a row opens
+        // action pair (Apply · 0.5 credits / Dismiss). Selecting a row opens
         // the read-only inspector pane on the right.
         <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
           <InboxList
@@ -529,10 +530,11 @@ const STATUS_LABEL_KEY: Record<PendingActionStatus, MessageKey> = {
   failed: 'actions.status-failed',
 };
 
-// The flat credit cost shown on the inbox Apply button. The actual debit is
-// wired by a sibling change; this is the label for now (every apply-to-
-// intelligence item costs the same flat 2 credits to apply).
-const APPLY_CREDITS = 2;
+// The flat credit cost shown on the inbox Apply button — sourced from the same
+// constant the server debits with (credit-costs.ts is client-safe), so the
+// label can never drift from the real charge (every apply-to-intelligence item
+// costs the same flat KNOWLEDGE_APPLY_CREDITS to apply).
+const APPLY_CREDITS = KNOWLEDGE_APPLY_CREDITS;
 
 // Small type chip on each inbox row — a human label for the kind of
 // intelligence item (Signal / Graph update / Assumption / Brief). Pure
@@ -563,7 +565,7 @@ function TypeChip({ title }: { title: string }) {
 }
 
 // The Inbox list — the apply-to-intelligence queue. Each row is title + short
-// brief + ONE action pair (Apply · 2 credits / Dismiss). Nothing else.
+// brief + ONE action pair (Apply · 0.5 credits / Dismiss). Nothing else.
 function InboxList({
   rows,
   selectedId,
@@ -1087,6 +1089,8 @@ function producerFromType(type: PendingActionType, ecosystemAlertId?: string | n
     proposed_graph_update: 'chat',
     workflow_step: 'chat',
     configure_monitor: 'chat',
+    edit_monitor: 'chat',
+    delete_monitor: 'chat',
     configure_budget: 'chat',
     configure_watch_source: 'chat',
     run_skill: 'chat',
@@ -1121,6 +1125,8 @@ const TYPE_LABEL_KEY: Record<PendingActionType, MessageKey> = {
   proposed_graph_update:        'actions.type-graph-update',
   workflow_step:                'actions.type-workflow-step',
   configure_monitor:            'actions.type-new-watcher',
+  edit_monitor:                 'actions.type-edit-watcher',
+  delete_monitor:               'actions.type-delete-watcher',
   configure_budget:             'actions.type-budget-change',
   configure_watch_source:       'actions.type-new-watcher',
   run_skill:                    'actions.type-skill-kickoff',

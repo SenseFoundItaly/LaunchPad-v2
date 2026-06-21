@@ -241,12 +241,14 @@ const ctaStyle: React.CSSProperties = {
 
 // Per-check CTA — accent-washed pill so an unmet row reads as "actionable,
 // pending" (the accent hue = the active/pending state used across the journey).
+// Charcoal label (NOT accent-ink) on the pale-peach wash: dark-peach-on-peach
+// read as "red on red" (founder feedback); the peach border carries the cue.
 const askCtaStyle: React.CSSProperties = {
   flexShrink: 0,
   whiteSpace: 'nowrap',
   fontSize: 10.5,
   fontWeight: 600,
-  color: 'var(--accent-ink)',
+  color: 'var(--ink)',
   background: 'var(--accent-wash)',
   border: '1px solid var(--accent)',
   borderRadius: 999,

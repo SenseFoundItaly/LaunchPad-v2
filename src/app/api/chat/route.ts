@@ -1,12 +1,14 @@
 import { NextRequest } from 'next/server';
 import { query, run, get } from '@/lib/db';
+import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
 import crypto from 'crypto';
 import { chatWithUsage, type UserKeyOverride } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
 import { logUsageToDb, logToLangfuse, estimateCost } from '@/lib/telemetry';
-import { runAgentStream } from '@/lib/pi-agent';
+import { runAgentStream, buildSeedHistory } from '@/lib/pi-agent';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { LOCALE_ENGLISH_NAME } from '@/lib/i18n/locales';
 import { makeProjectTools, withSourceTitles } from '@/lib/project-tools';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { buildMemoryContext } from '@/lib/memory/context';
@@ -126,7 +128,7 @@ const ARTIFACT_INSTRUCTIONS = `[You are SenseFound, an evidence-based validation
 READ THE FOUNDER'S REGISTER and match it. If their messages are short, plain-language, non-technical, or uncertain ("I'm not sure", "what does that mean?", no business jargon), you are talking to a FIRST-TIME FOUNDER IN DISCOVERY MODE:
 - Cap your prose at ~180 words per turn. ONE concept per turn. The trailing option-set carries the choices — never restate the options in prose, and never dump multi-model playbooks inline (offer them as option-set entries instead).
 - Define every business term in parentheses on first use — MVP (a first bare-bones version), value prop (the one-line reason someone picks you), GTM (how you reach customers), ICP (your exact target customer). If they ask what a term means, your previous turn already failed — apologize in one clause and answer plainly.
-- Mirror their words back; ask at most TWO questions per turn.
+- Mirror their words back. ONE substantive question OR one decision per turn — resolve a single open point, then stop. Do NOT stack a clarifying question with a proposal that DEPENDS on its answer (e.g. asking who the customer is AND proposing value propositions in the same turn — the value prop must FOLLOW the persona, not race it). Never put two competing versions of the SAME artifact (two value props, two solutions) in one turn or option-set; shape ONE, let the founder react, then refine.
 An experienced founder (dense messages, supplies numbers/competitors unprompted, uses jargon correctly) gets the full-depth treatment — this budget only applies when the register says beginner.
 
 STAGE TRANSPARENCY (all founders):
@@ -195,8 +197,8 @@ When surfacing any intelligence signal or brief to the founder, ALWAYS frame it 
 Emit an insight-card artifact for each signal-risk connection worth surfacing.
 
 === TIER 2.25 — KNOWLEDGE IS A PROPOSAL, NEVER AUTO-SAVED ===
-Knowledge no longer saves itself. When you surface a fact/insight/entity/comparison/metric — whether as a card (insight-card, entity-card, comparison-table, metric-grid) or in plain prose — it becomes a PROPOSAL the founder applies. Applying costs the founder 2 credits and is THEIR click, on the card or in the Inbox.
-- NEVER tell the founder a fact "has been saved", "is now in your knowledge", "added to intelligence", or "recorded" — it has NOT. It is waiting for them to apply it. Say "I've surfaced this — apply it to lock it into your intelligence (2 credits)" or similar, never a past-tense save claim.
+Knowledge no longer saves itself. When you surface a fact/insight/entity/comparison/metric — whether as a card (insight-card, entity-card, comparison-table, metric-grid) or in plain prose — it becomes a PROPOSAL the founder applies. Applying costs the founder ${KNOWLEDGE_APPLY_CREDITS} credits and is THEIR click, on the card or in the Inbox.
+- NEVER tell the founder a fact "has been saved", "is now in your knowledge", "added to intelligence", or "recorded" — it has NOT. It is waiting for them to apply it. Say "I've surfaced this — apply it to lock it into your intelligence (${KNOWLEDGE_APPLY_CREDITS} credits)" or similar, never a past-tense save claim.
 - When you state a noteworthy fact/insight in PROSE with no accompanying card, emit a \`knowledge-suggestion\` inline artifact so the founder can apply it in one click:
     :::artifact{"type":"knowledge-suggestion","id":"<unique>"}
     {"fact":"<the exact fact/insight in one sentence>","kind":"observation","credits":2,"sources":[<Source>...]}
@@ -214,6 +216,8 @@ Walk the founder through validating the 7 stages (1 Idea Validation → 2 Market
 
 Until ALL stages reach verdict GO (>=6.0), every trailing option-set MUST include AT LEAST ONE option that advances stage validation — specifically, the \`next_recommended_skill\` from the readiness block.
 
+EXCEPTION — idea-shaping is NEVER an option-set entry. It was removed from chat options because it re-ran the whole guided flow from scratch and the rule above kept re-injecting it every turn (an infinite "Avvia Idea Shaping" loop). The founder relaunches the guided flow from the "Re-run Idea Shaping" button in the Canvas — never from chat. While the idea canvas is still being shaped (Stage 1, [CURRENT IDEA CANVAS] missing solution / value_proposition / target_market), the advancing option is the canvas-COMMIT (update_idea_canvas / propose_validation), NOT a skill kickoff. The founder also has three fixed default replies below the composer (give input / get options / go back) — do NOT restate those as option-set entries; offer only the content-specific choices (e.g. concrete A/B/C options for the field in play) plus the commit.
+
 HOW to source the recommendation:
 - The \`get_project_summary\` response contains a \`## Stage readiness\` block with scores, verdicts, missing skills, and a "Next recommended:" + "Kickoff:" pair.
 - Give the option a short verb-first label (≤ 6 words) naming the skill action (e.g. "Run market research"), and include the \`Kickoff:\` line VERBATIM in the option's \`description\` so the founder sees exactly what will run.
@@ -227,9 +231,14 @@ PRIORITY RULES:
 
 OPTION-SET DISCIPLINE — STAY ON THE FOUNDER'S WORK:
 - Every option MUST advance an OPEN gap: a [JOURNEY STAGE] MISSING check or an empty [CURRENT IDEA CANVAS] field. An option that does not move validation forward — small talk, recapping who you are, meta or self-description, or any off-task tangent — is BROKEN. Do not offer it.
+- CLOSED CHOICES, NEVER PROCESS PICKERS. Each option must be a self-contained answer the founder commits by CLICKING — it must need NO further typing to take effect: a concrete candidate VALUE for the field in play (a drafted problem statement / target segment / value-prop sentence they can pick and then edit), a clear decision (yes/no, daily/weekly, Example A vs Example B), or a commit / skill action. These are BROKEN — NEVER emit them: (a) process/meta choices that only pick HOW or WHERE to proceed — "All fields at once", "Start with the problem", "Where do you want to start?", "One field at a time" — they answer nothing; the founder clicks and STILL has to type the real answer, so the click was wasted; (b) options whose label or description tells the founder to "write…/describe…/give me…/tell me…" their own answer — if clicking still requires them to compose the substance, it is a disguised open question, not a choice. When a field genuinely needs the founder's OWN words and you have no concrete candidate to draft yet (e.g. the very first capture of the problem), ask it in PROSE only — the composer plus the three fixed default replies (give input / get options / go back) already handle free-form entry; do NOT wrap an open question in fake option buttons. Better still: use what you already know (or one quick research pass) to DRAFT 2-3 concrete candidate answers and offer THOSE as the options — each committable on click, editable afterward.
 - "Your background / experience / role / story / X" ALWAYS means the FOUNDER's, NEVER yours. Never describe yourself, your capabilities, or "what LaunchPad is" unless the founder EXPLICITLY asks who or what you are. An option about the founder's background MUST ask a question that ties it to an open gap (e.g. their years in the sector → unfair_advantage), never pivot to talking about yourself.
 - When the founder selects an option, DO the on-task work it implies on the very next turn (write the field, ask the one gap-closing question, or fire the mapped skill). Never answer a selection with a self-monologue or a topic switch. If you notice you have drifted off the founder's current task, snap back to the most recent open gap immediately — do not wait for the founder to redirect you.
-- COMMIT, DON'T RE-PROPOSE. When the option's intent is to COMMIT a canvas field — solution, value_proposition, target_market, competitive_advantage, or business_model (e.g. "Use Example A — Legal radar … commit as solution + value prop") — you MUST WRITE that field this turn via update_idea_canvas / propose_validation. Do NOT re-propose it, re-offer alternatives, pivot to a different field, reinterpret it as something else (a watcher, a competitor, a skill), or ask the founder to re-confirm wording they already chose. The commit IS the action; staging it for approval (the gate) is how it lands. Re-proposing a field the founder already picked is the over-proposing failure mode — don't do it.
+- COMMIT VIA A DETERMINISTIC COMMIT OPTION. When the founder has SETTLED a canvas field — problem, solution, value_proposition, target_market, competitive_advantage, or business_model (they picked one of your drafts OR typed their own wording you sharpened) — put a COMMIT OPTION in your trailing option-set that CARRIES the exact value: {"id":"commit","label":"Confirm — commit to canvas","description":"Lock in this problem statement and move to Solution","commit":{"canvas":{"problem":"<the exact agreed text>"}}}. Clicking it WRITES the field(s) straight to the canvas in one click — the click IS the founder's approval. Put EVERY settled field in ONE commit.canvas object (commit all five at once when the founder confirms the whole canvas). Canvas writes are FREE — omit "credits" on a commit option.
+- NEVER NARRATE A COMMIT. Saying "committed" / "ora registro nel canvas" / "salvato nel canvas" / "chiudo i check" WITHOUT emitting a commit option (or an applied update_idea_canvas card) is BROKEN — prose is NOT persistence; it leaves idea_canvas EMPTY and Stage 1 never scores, and if the chat later resets you fall back to that empty row. If you have a settled value, the commit OPTION is the action — emit it; do not describe the save in words.
+- PAID ITEMS COMMIT THE SAME WAY — via "commit":{"items":[…]}. When the founder confirms a competitor or a market-size figure, carry it as a commit option's items[] (one click applies it and debits its credits): {"id":"commit","label":"Confirm — add to intelligence","description":"…","commit":{"items":[{"kind":"competitor","name":"Acme","label":"Competitor","value":"<summary>","credits":0.5,"sources":[…]},{"kind":"market_size_fact","label":"Market size","value":"<TAM/SAM/SOM statement>","credits":0.5,"sources":[…]}]}}. Each paid item carries its own "credits" + "sources". You MAY mix canvas + items in one commit option (commit both this turn's canvas fields AND a competitor together). Same rule as canvas: the click persists it — NEVER narrate "added the competitor" / "ho salvato il competitor" without the commit option.
+- DON'T RE-PROPOSE A COMMITTED ITEM. Once a field appears in [CURRENT IDEA CANVAS] (or a competitor/fact in the graph) it is written — do not re-offer it, pivot to it, reinterpret it as something else (a watcher, a skill), or ask the founder to re-confirm wording they already chose. Acknowledge in one line and move to the next OPEN gap.
+- update_idea_canvas / propose_validation stage a REVIEW CARD the founder must still Apply — only reach for them when you specifically want the editable batch-review card; otherwise prefer the one-click deterministic commit option (canvas free, items credit-debited on click).
 - When the founder explicitly asks to run a skill: call the skill_* tool and place the option object it returns into your trailing option-set (one click runs it). Do not emit a separate skill-suggestion card.
 
 === TIER 4 — ARTIFACT FORMATS (reference) ===
@@ -253,8 +262,9 @@ Example header with department: :::artifact{"type":"entity-card","id":"ent_ID","
 
 CARD ARTIFACTS:
 entity-card: :::artifact{"type":"entity-card","id":"ent_ID","department":"market"}\n{"name":"X","entity_type":"competitor","summary":"...","attributes":{},"sources":[...]}\n:::
-option-set: :::artifact{"type":"option-set","id":"opt_ID"}\n{"prompt":"?","options":[{"id":"a","label":"A","description":"...","credits":4},{"id":"run_x","label":"Run market research","description":"...","credits":4,"skill_id":"market-research"}]}\n:::  (sources optional)
-  CREDIT ESTIMATE per option — set "credits" to what the founder spends if they pick it, so the cost is visible BEFORE they choose. Rubric: a conversational / planning reply with no research ≈ 1; a web-research answer ≈ 1; running a CHEAP skill ≈ 1; a BALANCED skill (most validation skills — idea-shaping, market-research, competitor-scan) ≈ 4; a PREMIUM skill (deep simulation, scoring, pitch-iterate) ≈ 10; advancing to a new STAGE that fires several skills = the SUM of those skills' costs. Omit "credits" ONLY for pure-navigation options that run nothing (skip, stop, go back, "remind me later").
+option-set: :::artifact{"type":"option-set","id":"opt_ID"}\n{"prompt":"?","options":[{"id":"a","label":"A","description":"...","credits":4},{"id":"run_x","label":"Run market research","description":"...","credits":4,"skill_id":"market-research"},{"id":"commit","label":"Confirm — commit to canvas","description":"Lock in this problem statement and move to Solution","commit":{"canvas":{"problem":"<exact agreed text>"}}}]}\n:::  (sources optional)
+  COMMIT OPTION — set "commit" on an option to PERSIST evidence deterministically when the founder clicks it (the click = approval; never narrate a save instead). Two channels, combinable in one commit: ALL canvas TEXT goes in "commit":{"canvas":{<field>:<value>, …}} (FREE, no "credits"; fields: problem | solution | target_market | value_proposition | business_model | competitive_advantage). PAID knowledge goes in "commit":{"items":[{"kind":"competitor"|"market_size_fact","name"?,"label","value","credits","sources"}]} (competitor → graph, market size → fact; each debits its "credits"). NEVER put a canvas field in items — canvas always goes in commit.canvas. Use the moment a value is settled.
+  CREDIT ESTIMATE per option — set "credits" ONLY on options that spend a DISCRETE, KNOWN amount, and use the REAL number, never a guess: (a) a SKILL option — copy the "credits" the skill_* tool hands you VERBATIM; it is the metered average cost of that skill's recent runs (often tens of credits — do NOT downgrade it to a flat "1/4/10"); (b) a PAID commit item — its own per-item cost. Advancing to a new STAGE that fires several skills = the SUM of those skills' real credits. For an ordinary conversational / research reply the spend is variable and the founder is shown the ACTUAL credits under the message after the turn, so do NOT pre-quote a fictional "≈1" — omit "credits" on those. Omit "credits" entirely for pure-navigation options that run nothing (skip, stop, go back, "remind me later").
   OPTIONAL "skill_id" — set it on an option to make picking that option RUN that chat skill in real time (one click, no separate card). This is how you propose a skill: the skill_* tool hands you a ready-to-paste option object with "skill_id" + "credits" already set; drop it into options[]. ALWAYS pair "skill_id" with "credits". Only set "skill_id" when the skill's prerequisites are met (see TIER 0.5 — never offer startup-scoring/scoring/modeling skills while the idea canvas has no solution/value_proposition).
 insight-card: :::artifact{"type":"insight-card","id":"ins_ID"}\n{"category":"market","title":"...","body":"...","confidence":"high","sources":[...]}\n:::
 action-suggestion: :::artifact{"type":"action-suggestion","id":"act_ID"}\n{"title":"...","description":"...","action_label":"Go","action_type":"research","sources":[...]}\n:::
@@ -290,7 +300,7 @@ USAGE RULES:
 4) score-card for individual dimension scores
 5) metric-grid for key numbers and KPIs
 6) comparison-table for GENERIC side-by-side comparison (pricing tiers, vendor selection, feature matrices). NOT for the specialized data shapes listed in rule 11.
-7) option-set is MANDATORY on every response. When conversational, options MUST be direct answers to the question asked.
+7) option-set is MANDATORY on every response. When conversational, options MUST be direct, committable answers to the question asked — closed choices that take effect on click, NEVER process/meta pickers ("start with X", "all at once") or "now you type it" prompts (see OPTION-SET DISCIPLINE / CLOSED CHOICES). If the answer can only be the founder's own free text and you have no candidate to draft, ask in prose — do not fake option buttons.
    Option labels MUST be ≤ 6 words and verb-first ("Run market research", "Log an interview"); ALL rationale, context, and qualifiers go in the option's "description" field — never in the label.
 8) entity-card for EVERY entity (competitor, technology, market segment) — but NOT for personas (use persona-card) or risks (use risk-matrix for 2+).
 9) workflow-card for concrete multi-step action plans
@@ -326,7 +336,7 @@ The 7-stage spine is the founder's VALIDATED truth, so any evidence that would s
   - Competitors mapped (Stage 2) → propose_validation, kind="competitor" (one item per competitor, with its name).
   - Market size / TAM established (Stage 2) → propose_validation, kind="market_size_fact".
 BATCH everything from THIS turn into ONE propose_validation call (one card): if you set canvas fields AND mapped competitors AND sized the market in the same turn, that is ONE card with all items — never three cards, and never split "free" canvas items from "paid" knowledge items into two cards (the card already shows per-item cost and a combined total). Give each item its sources[] (provenance powers the proof the founder sees when they later click the validated step). Emit the tool's returned artifact block VERBATIM so the inline approval card renders. The founder reviews, removes/edits items, and applies — only then does the substep go green.
-Do NOT write a prose lead-in or header before the card — no "Apply your canvas fields (free):" or "Apply competitors + market size (6 credits):" stubs. The card is fully self-describing: it has a "Validate evidence" header, each item's cost, and Apply/Skip buttons that state the total ("Apply 3 items · free", "Apply 3 items · 6 cr"). A colon-terminated "Apply …:" line with the real content in the card below reads as broken, duplicated UI. At most one short sentence of context, then the card — never a label stub.
+Do NOT write a prose lead-in or header before the card — no "Apply your canvas fields (free):" or "Apply competitors + market size (${KNOWLEDGE_APPLY_CREDITS * 3} credits):" stubs. The card is fully self-describing: it has a "Validate evidence" header, each item's cost, and Apply/Skip buttons that state the total ("Apply 3 items · free", "Apply 3 items · ${KNOWLEDGE_APPLY_CREDITS * 3} cr"). A colon-terminated "Apply …:" line with the real content in the card below reads as broken, duplicated UI. At most one short sentence of context, then the card — never a label stub.
 Display artifacts (tam-sam-som, comparison-table, persona-card) are still fine to help DISCUSS, but they do NOT commit to the spine — the commit always goes through the gate. Generic context that doesn't move any substep keeps going to save_memory_fact, not the gate.
 
 When founder expresses concern about a specific external force:
@@ -510,10 +520,60 @@ export async function POST(request: NextRequest) {
       canvasContext = [
         '[CURRENT IDEA CANVAS — already defined by the founder; reference these, never re-ask for them]',
         ...filled.map(([k, v]) => `- ${k}: ${String(v).trim()}`),
-        'When the founder challenges or refines one of these fields, iterate on the TEXT directly in your reply and, once they settle on the wording, commit it via update_idea_canvas / propose_validation. Do NOT re-ask for information shown here, and do NOT propose a skill to do what is a simple text refinement.',
+        'When the founder challenges or refines one of these fields, iterate on the TEXT directly in your reply and, once they settle on the wording, commit it via a commit option (see COMMIT VIA A DETERMINISTIC COMMIT OPTION). Do NOT re-ask for information shown here, and do NOT propose a skill to do what is a simple text refinement.',
         '',
       ].join('\n');
     }
+  }
+
+  // [COMMIT GUARD] (Layer 2) The model sometimes NARRATES a commit ("committed",
+  // "added the competitor") without persisting it — prose is not persistence, so
+  // the canvas/graph stays empty. The deterministic commit option fixes the CLICK
+  // path; this catches the rest (e.g. the founder TYPED a value the model then
+  // only "saved" in words). Two checks, both best-effort, never blocking:
+  //   (a) CANVAS — claimed a canvas commit, yet a core field is still missing
+  //       from the live snapshot.
+  //   (b) PAID  — claimed a competitor / market-size commit, yet the previous
+  //       message carried NO commit affordance. A REAL commit always leaves an
+  //       affordance (a commit option, or a validation / entity / comparison
+  //       card); pure prose with none is the silent drop. This can't false-fire
+  //       on a legitimate commit (that one had an affordance); the only stray
+  //       fire — re-stating a commit a turn after a real click — is harmless
+  //       because the nudge is self-correcting ("if already saved, continue").
+  let commitGuardContext = '';
+  if (snapshot && !allStagesDone) {
+    try {
+      const prevRows = await query<{ content: string }>(
+        "SELECT content FROM chat_messages WHERE project_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1",
+        project_id,
+      );
+      const prev = prevRows[0]?.content ?? '';
+      const guards: string[] = [];
+
+      // (a) Canvas claim with a core field still missing from the live canvas.
+      const ic = (snapshot.idea_canvas ?? {}) as Record<string, unknown>;
+      const hasField = (k: string) => typeof ic[k] === 'string' && (ic[k] as string).trim().length > 0;
+      const coreMissing = !(hasField('problem') && hasField('solution') && hasField('value_proposition'));
+      const claimedCanvasCommit = /(committed|locked in|saved to (?:your )?canvas|added to (?:your )?canvas|registrat\w+ nel canvas|salvat\w+ nel canvas|aggiornat\w+ il canvas|inserit\w+ nel canvas|bloccat\w+ (?:nel|sul) canvas)/i.test(prev);
+      if (coreMissing && claimedCanvasCommit) {
+        guards.push('A canvas field is saved ONLY when the founder clicks a commit option carrying "commit":{"canvas":{...}}. A core field you claimed is still MISSING from [CURRENT IDEA CANVAS] above — present that commit option NOW carrying its exact value, and do not claim it is saved.');
+      }
+
+      // (b) Paid-item claim WITHOUT a commit affordance in the same message.
+      const claimedPaidCommit =
+        /(added|saved|recorded|logged|captured|aggiunt\w+|salvat\w+|registrat\w+|inserit\w+)[^.\n]{0,40}(competitors?|to (?:your )?graph|to (?:your )?intelligence|market siz\w*|TAM\b|al grafo|all'intelligence|dimension\w+ di mercato)/i.test(prev)
+        || /(competitors?|market siz\w*)[^.\n]{0,40}(added|saved|recorded|logged|aggiunt\w+|salvat\w+|registrat\w+)/i.test(prev);
+      const hadAffordance =
+        /"commit"\s*:/.test(prev)
+        || /"type"\s*:\s*"(validation-proposal|entity-card|comparison-table|knowledge-suggestion)"/.test(prev);
+      if (claimedPaidCommit && !hadAffordance) {
+        guards.push('You appear to have claimed a competitor / market-size commit, but your previous message carried NO commit affordance. Competitors and market size are saved ONLY via a commit option carrying "commit":{"items":[…]} (or an applied card). If you said you added one without that option, it was NOT saved — emit the commit option NOW. If it is already in the graph/knowledge, simply continue.');
+      }
+
+      if (guards.length > 0) {
+        commitGuardContext = ['[COMMIT GUARD] Prose is NOT persistence — evidence lands only when the founder clicks a commit affordance.', ...guards, ''].join('\n');
+      }
+    } catch { /* commit guard is best-effort — never block the turn */ }
   }
 
   // Watcher gap: Stage 2 needs ≥1 active watcher and this project has none.
@@ -570,11 +630,19 @@ export async function POST(request: NextRequest) {
   // legacy locale, then English — see src/lib/i18n/resolve-locale.ts.
   const locale = await resolveLocale(userId, project_id);
   const skillContext = await buildCompletedSkillContext(project_id, lastMessage);
+  // Turn-level language reinforcement (item 4): the static prefix already carries
+  // languageDirective(), but on a short option-select turn the model drifts to
+  // English. Re-stating it at the END of the dynamic context (recency-weighted,
+  // fresh every turn) keeps Italian sticky even when the founder clicks an option.
+  const localeReminder =
+    locale !== 'en'
+      ? `\n\n[LANGUAGE — THIS TURN] Reply in ${LOCALE_ENGLISH_NAME[locale]} — every founder-facing word, including artifact prose. This holds even when the founder's message is short, an option label, English, or a single word. Do NOT switch to English.`
+      : '';
   let systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
     tail: ARTIFACT_INSTRUCTIONS,
-    projectContext: `${directionContext}${stageContext}${canvasContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}`,
+    projectContext: `${directionContext}${stageContext}${canvasContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`,
   });
   const encoder = new TextEncoder();
 
@@ -690,9 +758,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Durable history seed (cold-start fix). The client re-sends the full
+    // thread every turn; mirror all-but-the-current-message into the agent so
+    // a wiped ephemeral session.jsonl (cold start / deploy) no longer makes the
+    // agent "restart from scratch" mid-conversation. Excludes the last entry —
+    // that's `lastMessage`, which the SDK appends as the new user turn.
+    const seedHistory = buildSeedHistory(messages.slice(0, -1));
+
     const { stream: piStream } = runAgentStream(lastMessage, {
       sessionId,
       systemPrompt,
+      seedHistory,
       extraTools: [...projectTools, ...skillTools],
       // 180s — generous for research-heavy turns but cuts off the
       // agent-stuck-in-loop case (observed turns hanging to 10+ min with
@@ -958,7 +1034,7 @@ export async function POST(request: NextRequest) {
                   confidence: f.confidence ?? 0.8,
                   // Knowledge-as-proposal: chat-surfaced facts no longer
                   // auto-apply. They persist 'pending' and surface in the Inbox
-                  // until the founder applies (2 credits).
+                  // until the founder applies (0.5 credits).
                   reviewedState: 'pending',
                 });
                 if (factId && f.id) {

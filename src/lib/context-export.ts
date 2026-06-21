@@ -88,11 +88,22 @@ function stripAgentFormatting(text: string): string {
 // Builder
 // ---------------------------------------------------------------------------
 
-export function buildContextMarkdown(data: ContextExportData): string {
+/**
+ * Build the project export as Markdown. `opts.goNoGo` (changelog 17/06 item 11)
+ * emits the lean GO/NO-GO report — ONLY scoring, per-stage results/gaps, accrued
+ * signals, top risks, and open tasks — dropping the chat history, raw facts dump,
+ * graph entities, briefs, and artifacts list (the "too chaotic" parts) so it reads
+ * as a decision report.
+ */
+export function buildContextMarkdown(
+  data: ContextExportData,
+  opts: { goNoGo?: boolean } = {},
+): string {
+  const { goNoGo = false } = opts;
   const lines: string[] = [];
 
   // ── 1. Header ──────────────────────────────────────────────
-  lines.push(`# ${data.project.name} \u2014 Context Export`);
+  lines.push(`# ${data.project.name} \u2014 ${goNoGo ? 'Go / No-Go Report' : 'Context Export'}`);
   lines.push('');
   lines.push(`**Date:** ${data.date}`);
   lines.push(`**Status:** ${data.project.status}`);
@@ -276,5 +287,19 @@ export function buildContextMarkdown(data: ContextExportData): string {
   lines.push('---');
   lines.push('*Exported from SenseFound*');
 
-  return lines.join('\n');
+  const md = lines.join('\n');
+  if (!goNoGo) return md;
+
+  // GO/NO-GO: keep only the decision sections (+ header + footer); drop the
+  // chaotic dumps — Memory Facts, Graph Entities, Intelligence Briefs, the
+  // Artifacts list, and Chat History — leaving a clean decision report.
+  const KEEP = ['Readiness Score', 'Validation Pipeline', 'Audit Gaps', 'Active Alerts', 'Top Risks', 'Open Tasks'];
+  const chunks = md.split('\n---\n');
+  const kept = chunks.filter((chunk, i) => {
+    if (i === 0) return true; // header block (title / date / description)
+    const head = chunk.trimStart();
+    if (head.startsWith('*Exported')) return true; // footer
+    return KEEP.some((k) => head.startsWith(`## ${k}`));
+  });
+  return kept.join('\n---\n');
 }

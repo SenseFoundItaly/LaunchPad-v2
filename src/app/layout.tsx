@@ -23,7 +23,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'SenseFound — Courage Through Clarity',
+  title: 'LaunchPad — Courage Through Clarity',
   description: 'Validate your startup idea with evidence. Find fatal flaws early — when pivoting is still possible, not painful.',
 };
 

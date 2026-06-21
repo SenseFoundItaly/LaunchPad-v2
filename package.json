@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
     "backfill:default-user": "node scripts/backfill-default-user.cjs",
     "db:migrate": "npx tsx db/migrate.ts",
     "e2e:agent-flow": "node scripts/e2e-agent-flow.mjs",
@@ -48,6 +51,7 @@
   "devDependencies": {
     "@netlify/plugin-nextjs": "^5.15.11",
     "eslint": "^9",
-    "eslint-config-next": "16.2.1"
+    "eslint-config-next": "16.2.1",
+    "vitest": "^3.2.6"
   }
 }

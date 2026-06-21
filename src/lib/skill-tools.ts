@@ -4,6 +4,7 @@ import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import { recordEvent } from './memory/events';
 import { run } from './db';
+import { estimateSkillCredits } from '@/lib/credits';
 
 /**
  * Skills-as-tools — converts every launchpad-skills/<skill>/SKILL.md into an
@@ -173,8 +174,11 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
       // skill. See src/lib/action-executors.ts (runSkillExecutor).
       const propTier = skill.frontmatter.model_tier ?? 'balanced';
       // Credits are the ONLY founder-facing money unit (matches the TopBar
-      // badge). EUR/USD stays internal accounting.
-      const estCredits = propTier === 'premium' ? 10 : propTier === 'cheap' ? 1 : 4;
+      // badge). EUR/USD stays internal accounting. A2b: the estimate is now the
+      // REAL median of this skill's recent metered runs (llm_usage_logs), not a
+      // flat 1/4/10 tier guess that under-quoted by 30-66× — falls back to the
+      // tier default only when the skill has no history yet.
+      const estCredits = await estimateSkillCredits(skill.id, propTier);
       const rationale = context
         ? context.slice(0, 280)
         : `Kick off ${skill.frontmatter.name} for this project.`;

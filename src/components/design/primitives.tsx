@@ -69,12 +69,17 @@ export interface PillProps {
 }
 
 export function Pill({ kind = 'n', dot, children }: PillProps) {
+  // Label color is a dark, near-neutral ink on EVERY kind; the hue lives in the
+  // dot, not the text. Same-hue text on a same-hue wash (dark-peach on pale-peach,
+  // terracotta on light-terracotta) read as muddy "red on red" even when the
+  // lightness contrast technically passed — founder feedback. Colored-dot +
+  // charcoal-label is the legible, brand-consistent pattern.
   const map: Record<PillKind, { bg: string; fg: string; dot: string }> = {
-    live: { bg: 'var(--accent-wash)', fg: 'var(--accent-ink)', dot: 'var(--accent)' },
-    ok:   { bg: 'var(--moss-wash)',   fg: 'var(--moss)',       dot: 'var(--moss)' },
-    warn: { bg: 'oklch(0.94 0.05 40)', fg: 'var(--clay)',      dot: 'var(--clay)' },
-    info: { bg: 'var(--sky-wash)',    fg: 'var(--sky)',        dot: 'var(--sky)' },
-    n:    { bg: 'var(--paper-2)',     fg: 'var(--ink-3)',      dot: 'var(--ink-5)' },
+    live: { bg: 'var(--accent-wash)', fg: 'var(--ink)',  dot: 'var(--accent)' },
+    ok:   { bg: 'var(--moss-wash)',   fg: 'var(--ink)',  dot: 'var(--moss)' },
+    warn: { bg: 'var(--clay-wash)',   fg: 'var(--ink)',  dot: 'var(--clay)' },
+    info: { bg: 'var(--sky-wash)',    fg: 'var(--ink)',  dot: 'var(--sky)' },
+    n:    { bg: 'var(--paper-2)',     fg: 'var(--ink-3)', dot: 'var(--ink-5)' },
   };
   const c = map[kind] || map.n;
   return (

@@ -76,9 +76,12 @@ export function SkillProposalReview({ action }: { action: PendingAction }) {
       <Field label="What you'll get" value={outcome} multiline />
       <div style={{ display: 'flex', gap: 28 }}>
         <div>
-          <FieldLabel>Cost</FieldLabel>
+          <FieldLabel>Est. cost</FieldLabel>
           <div style={{ color: 'var(--ink)', fontSize: 13, fontWeight: 600 }}>
             ≈{credits} credit{credits === 1 ? '' : 's'}
+          </div>
+          <div style={{ color: 'var(--ink-5)', fontSize: 11, marginTop: 2 }}>
+            billed on actual usage
           </div>
         </div>
         <div>

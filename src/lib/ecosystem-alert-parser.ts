@@ -64,6 +64,29 @@ export function entityNameFromHeadline(headline: string): string | null {
   return name;
 }
 
+// Descriptive parentheticals that are NOT part of a real name — a trailing
+// "(incumbent non-software competitor)" / "(the dominant SMB player)" should be
+// stripped, but a short parent-brand tag like "(TeamSystem)" / "(Intuit)" kept.
+const DESCRIPTOR_KEYWORD = /\b(?:competitor|incumbent|player|vendor|platform|tool|service|provider|software|company|startup|app|brand|market|leader|the|non[- ])\b/i;
+
+/**
+ * Normalize an entity/competitor name so it doesn't persist as a news-ticker or
+ * a description ("Commercialista (incumbent non-software competitor)" → just
+ * "Commercialista"). Conservative: only strips a TRAILING parenthetical when it
+ * reads as a description (long, or contains a descriptor keyword) — a short
+ * proper-noun parent tag is preserved. Pure + deterministic (unit-testable).
+ */
+export function cleanEntityName(raw: string): string {
+  let n = (raw || '').trim();
+  const m = n.match(/\s*\(([^)]*)\)\s*$/);
+  if (m) {
+    const inner = (m[1] || '').trim();
+    const isDescription = inner.length > 25 || DESCRIPTOR_KEYWORD.test(inner);
+    if (isDescription && typeof m.index === 'number') n = n.slice(0, m.index).trim();
+  }
+  return n.replace(/[\s,:;—–-]+$/g, '').slice(0, 80);
+}
+
 // MUST stay in sync with BOTH the EcosystemAlertType union (src/types) and
 // the alert_type list advertised in outputInstructions (ecosystem-monitors.ts).
 // This set was stale at 9 entries while the prompt contract advertised 12 —

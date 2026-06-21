@@ -10,6 +10,12 @@
  * picker is restricted to fully-translated languages). Add a language by
  * dropping in `messages/<locale>.ts`, registering it here, AND adding it to
  * SUPPORTED_LOCALES. The English fallback below still protects any partial key.
+ *
+ * FROZEN BRAND TERMS — keep these IDENTICAL in every locale catalog (do NOT
+ * translate them): **Intel** (the watcher/signal/proposal queue, nav.inbox) and
+ * **Knowledge** (the graph/facts surface, nav.knowledge). Translating them
+ * (e.g. it: "Posta"/"Sapere") was the source of the 17/06 naming feedback —
+ * "Posta" read as email and buried the watchers. Co-pilot/Canvas are similar.
  */
 
 import type { Locale } from '@/lib/i18n/locales';

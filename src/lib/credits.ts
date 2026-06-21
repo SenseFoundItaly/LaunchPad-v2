@@ -1,12 +1,51 @@
 import { get, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { upsertMonthlyBudget, upsertUserMonthlyBudget, ownerUserId } from '@/lib/cost-meter';
-import { USER_MONTHLY_CREDITS, USER_MONTHLY_LLM_USD } from '@/lib/credit-costs';
+import { USER_MONTHLY_CREDITS, USER_MONTHLY_LLM_USD, creditsFromUsd } from '@/lib/credit-costs';
 
 // Cost constants live in a client-safe module (no db imports) so client
 // components can read them too; re-exported here so server callers keep
 // importing from '@/lib/credits'.
-export { KNOWLEDGE_APPLY_CREDITS, DOCUMENT_AUDIT_CREDITS } from '@/lib/credit-costs';
+export { KNOWLEDGE_APPLY_CREDITS, DOCUMENT_AUDIT_CREDITS, CREDITS_PER_DOLLAR, creditsFromUsd } from '@/lib/credit-costs';
+
+/** Tier fallback when a skill has no run history yet (the old flat estimate). */
+const SKILL_TIER_FALLBACK: Record<'cheap' | 'balanced' | 'premium', number> = {
+  premium: 10, balanced: 4, cheap: 1,
+};
+
+/**
+ * A2b (copilot-sota): estimate a skill's credit cost from REAL history instead
+ * of the flat 1/4/10 tier guess that under-quoted real cost. A skill RUN makes
+ * many LLM calls (each one row in llm_usage_logs), so the per-run cost is the
+ * SUM of its calls — estimated as (recent total cost for this skill) ÷ (recent
+ * run count from skill_completions) × the default credits/$. Falls back to the
+ * tier default when the skill has no history. Used for the pre-click "≈N cr"
+ * label; the ACTUAL debit (and A2a's displayed actual) reflects the founder's
+ * real metered cost.
+ */
+export async function estimateSkillCredits(
+  skillId: string,
+  tier: 'cheap' | 'balanced' | 'premium' = 'balanced',
+): Promise<number> {
+  const fallback = SKILL_TIER_FALLBACK[tier] ?? 4;
+  try {
+    const row = await get<{ total: number | string | null; runs: number | string | null }>(
+      `SELECT
+         (SELECT COALESCE(SUM(total_cost_usd), 0) FROM llm_usage_logs
+            WHERE skill_id = ? AND created_at > now() - interval '90 days') AS total,
+         (SELECT COUNT(*) FROM skill_completions
+            WHERE skill_id = ? AND completed_at > now() - interval '90 days') AS runs`,
+      skillId, skillId,
+    );
+    const total = Number(row?.total ?? 0);
+    const runs = Number(row?.runs ?? 0);
+    if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(runs) || runs <= 0) return fallback;
+    const est = creditsFromUsd(total / runs);
+    return est > 0 ? est : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * Credits — a UX abstraction over the per-USER monthly pool (user_budgets).
@@ -30,8 +69,12 @@ export { KNOWLEDGE_APPLY_CREDITS, DOCUMENT_AUDIT_CREDITS } from '@/lib/credit-co
 export const FREE_DAILY_TASKS = 3;
 
 /** Fallbacks when no user_budgets row exists yet (credits shown from day 1).
- * 100 credits over $1.00 → 100 credits per $1 → 1 credit ≈ $0.01 of LLM spend. */
-const DEFAULT_CREDITS_PER_DOLLAR = 100;
+ * Derived from the canonical pool so the no-row fallback matches what a freshly
+ * created default budget row computes (cap_credits / cap_llm_usd): 100 credits
+ * over a $0.333 LLM ceiling → ~300 credits per $1 (the 3× markup, founder
+ * decision 2026-06-16). Was a hardcoded 100 (pre-markup pass-through), which
+ * under-charged no-row users 3×. */
+const DEFAULT_CREDITS_PER_DOLLAR = USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD;
 const DEFAULT_CAP_CREDITS = USER_MONTHLY_CREDITS;
 
 interface BudgetRow {

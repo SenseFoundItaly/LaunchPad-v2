@@ -68,13 +68,16 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
         {/* Brand mark — SenseFound logomark + wordmark (V1.1 guidelines: the
             protective bracket + validation arrow is the brand's identity). The
             logomark links home; the wordmark is hidden on narrow widths. */}
-        <a href="/" aria-label="SenseFound — home" style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none', flexShrink: 0 }}>
-          <Logomark size={20} />
+        <a href="/" aria-label="LaunchPad — home" style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none', flexShrink: 0 }}>
+          {/* SenseFound logomark (brand symbol) + LaunchPad wordmark (product
+              name). 22px = the brand's documented minimum logo size (p.12). */}
+          <Logomark size={22} />
+          {/* Wordmark in the display/sans face (Safiro stand-in), NOT mono —
+              the brand wordmark is a grotesque semibold, uppercase, tight. */}
           <span
-            className="lp-mono"
-            style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.08em', color: 'var(--ink-2)' }}
+            style={{ fontFamily: 'var(--f-display)', fontSize: 13, fontWeight: 700, letterSpacing: '.02em', color: 'var(--ink)' }}
           >
-            SENSEFOUND
+            LAUNCHPAD
           </span>
         </a>
         {breadcrumb && breadcrumb.length > 0 && (
@@ -231,12 +234,16 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
           streaming={it.id === 'chat' ? chatStreaming : undefined}
         />
       ))}
-      <div style={{ flex: 1 }} />
-      {/* User chip — links to /settings for BYOK + model preferences */}
+      {/* flexShrink:0 so a short viewport collapses THIS spacer (not the chip). */}
+      <div style={{ flex: 1, minHeight: 6 }} />
+      {/* User chip — links to /settings for BYOK + model preferences.
+          flexShrink:0 keeps the 28px chip from being squeezed to nothing on a
+          short rail (item 3: the account/settings icon "sometimes disappears"). */}
       <Link
         href="/settings"
         title={t('nav.settings')}
         style={{
+          flexShrink: 0,
           width: 28,
           height: 28,
           borderRadius: 14,

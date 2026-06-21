@@ -163,6 +163,29 @@ function appendToSession(sessionId: string, message: AgentMessage) {
   appendFileSync(path, JSON.stringify(message) + '\n');
 }
 
+/**
+ * Resolve the conversation history to restore for this turn.
+ *
+ * The ephemeral session file (loadSession) is the PROVEN source on a warm
+ * instance — it holds the full agentic history (including tool plumbing) in the
+ * exact shape the SDK emitted. The durable seedHistory is the cold-start
+ * recovery: it only WINS when it carries MORE of the thread than the file —
+ * i.e. the file was wiped or left partial by a cold start / deploy. On a warm
+ * instance the file is complete (>= the conversational seed, since it also
+ * counts tool messages) and is used unchanged, so the reconstructed seed shape
+ * can only ever feed the model on the cold path — confining any shape risk
+ * (cf. the reverted b11eff4) to exactly the case it's meant to fix. The window
+ * cap bounds token growth on whichever source is used. Callers without a
+ * durable transcript (cron, skills) just get loadSession.
+ */
+function resolveHistory(options: RunAgentOptions): AgentMessage[] {
+  const cap = options.maxHistoryMessages ?? 12;
+  const fromFile = options.sessionId ? loadSession(options.sessionId, cap) : [];
+  const seed = options.seedHistory ?? [];
+  const windowedSeed = cap > 0 && seed.length > cap ? seed.slice(seed.length - cap) : seed;
+  return windowedSeed.length > fromFile.length ? windowedSeed : fromFile;
+}
+
 export interface RunAgentOptions {
   sessionId?: string;
   systemPrompt?: string;
@@ -190,6 +213,64 @@ export interface RunAgentOptions {
    * Default: 12 (~6 user/assistant pairs).
    */
   maxHistoryMessages?: number;
+  /**
+   * Durable conversation history to seed the agent with when present.
+   *
+   * The session file (loadSession) lives on the EPHEMERAL serverless disk and
+   * is wiped by every cold start / new instance / deploy. When that happens
+   * mid-thread the agent "restarts from scratch" (see the MediFlow turn-16
+   * field report: a cold instance → empty session.jsonl → the model never saw
+   * the prior turns → snapped back to Stage-1). Callers that hold the durable
+   * history (the chat route gets it in the request body, mirrored from
+   * chat_messages) pass it here so a cold start is harmless: seedHistory wins
+   * over the session file ONLY when it carries more of the thread than the file
+   * (i.e. the file was wiped/partial). See resolveHistory.
+   *
+   * Shape contract: each entry MUST be a valid AgentMessage — assistant
+   * content MUST be a content-block array (`[{type:'text',text}]`), NOT a plain
+   * string. A plain string is malformed and makes the provider reject the call
+   * with an empty response (the bug that got commit b11eff4 reverted). Build
+   * these with buildSeedHistory(), which enforces the shape.
+   */
+  seedHistory?: AgentMessage[];
+  /**
+   * Streaming mirror — fired with each assistant text delta as it arrives.
+   * runAgent stays BUFFERED (same {text,usage} return + identical persistence
+   * and usage accounting); this just echoes the deltas out so a caller can
+   * stream the output live (e.g. the /skills SSE route streaming skill output
+   * into chat instead of dumping it all at the end). Optional + side-effect-free.
+   */
+  onDelta?: (delta: string) => void;
+}
+
+/**
+ * Convert a durable {role, content} transcript (e.g. chat_messages rows or the
+ * client's message array) into AgentMessage[] safe to seed an agent with.
+ *
+ * - Keeps only user/assistant turns with non-empty text (tool_use/tool_result
+ *   reconstruction is intentionally skipped — historical tool plumbing isn't
+ *   needed for conversational continuity, and unpaired tool_use blocks would be
+ *   rejected by the API anyway).
+ * - Wraps content in a `[{type:'text',text}]` block for BOTH roles. assistant
+ *   content MUST be an array; using the array form for user too keeps it
+ *   uniform and avoids the plain-string footgun (b11eff4).
+ * - The assistant's full text (including any :::artifact option-sets it emitted)
+ *   is preserved, so after a cold start the model can still see what it
+ *   previously offered (fixes the "this option wasn't in the set I proposed"
+ *   regression).
+ */
+export function buildSeedHistory(
+  transcript: Array<{ role?: string; content?: unknown }>,
+): AgentMessage[] {
+  const out: AgentMessage[] = [];
+  for (const m of transcript) {
+    const role = m.role === 'user' || m.role === 'assistant' ? m.role : null;
+    if (!role) continue;
+    const text = typeof m.content === 'string' ? m.content.trim() : '';
+    if (!text) continue;
+    out.push({ role, content: [{ type: 'text', text }] } as unknown as AgentMessage);
+  }
+  return out;
 }
 
 /**
@@ -276,9 +357,10 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
     agent.state.tools = [...baseTools, ...extraTools];
   }
 
-  // Restore conversation history (with optional sliding window)
-  if (options.sessionId) {
-    const prior = loadSession(options.sessionId, options.maxHistoryMessages ?? 12);
+  // Restore conversation history (durable seedHistory wins over the ephemeral
+  // session file; see resolveHistory).
+  {
+    const prior = resolveHistory(options);
     if (prior.length > 0) {
       agent.state.messages = prior;
     }
@@ -295,6 +377,7 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
       const evt = event.assistantMessageEvent;
       if (evt.type === 'text_delta') {
         fullText += evt.delta;
+        options.onDelta?.(evt.delta); // mirror the delta out (buffered return unchanged)
       }
     }
     // message_end fires for user, toolResult, and assistant messages in order.
@@ -361,12 +444,12 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
         agent.state.tools = [...baseToolsS, ...extraToolsS];
       }
 
-      // Restore conversation history (trimmed to last valid complete turn,
-      // capped to maxHistoryMessages to prevent unbounded token growth).
-      // The SDK appends the user message and subsequent assistant turns itself —
+      // Restore conversation history (durable seedHistory wins over the
+      // ephemeral session file — the cold-start fix; see resolveHistory). The
+      // SDK appends the new user message and subsequent assistant turns itself —
       // do NOT call appendToSession here or the user message appears twice.
-      if (options.sessionId) {
-        const prior = loadSession(options.sessionId, options.maxHistoryMessages ?? 12);
+      {
+        const prior = resolveHistory(options);
         if (prior.length > 0) {
           agent.state.messages = prior;
         }
