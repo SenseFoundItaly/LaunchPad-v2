@@ -56,6 +56,11 @@ _Prepared 2026-06-19. Status of every item Luca raised in the 17/06 testing pass
 
 **Recommended order:** (a) shrink/stabilize the prompt + tool list so caching actually reads (≈10× chat cut) → (b) re-base the pool & per-action prices against the *new, lower* cost → (c) replace the "≈N credit" labels with real estimates + fix the badge/dedup budget rows. Pricing the free tier against *today's* bloated cost (without (a)) means either a tiny free tier or thin/negative margins.
 
+**UPDATE 2026-06-21 — the decision + what's done.** The complaint was really a *legibility* bug, not a pricing bug: the ratio (3×/67% margin) was fine; quoting "4" and charging ~150 broke trust. Resolution:
+- **Fixed & live:** honest **metered** estimates (real per-run cost, not flat 1/4/10); **no more double-charges** (idempotency guard on `/validation/commit` + a TOCTOU guard on `applyTransition`); **approval is cheap** (0.5 cr, canvas commits free — per 14.2); false "median" label corrected to the real average.
+- **New, legible unit (spec'd, flag-gated DARK):** redenominate so **1 credit ≈ 1 chat message** → message **1 cr**, skill run **~3–6 cr**, approval/insert **~free**, **€5 ≈ 12 credits**, priced ~€0.40/credit (~67% margin). Small intuitive numbers that match real cost — "scaled randomly" dies. Full model in `CREDIT-PRICING-SPEC.md`. Code: `CREDIT_UNIT_MESSAGE` flag in `credit-costs.ts` (default OFF) + `scripts/migrate-credit-unit.mjs` (rescales `user_budgets` cap_credits, real budgets unchanged). NOT enabled in prod yet — cutover needs the migration run + the per-user-drift reconciliation.
+- **Still pending:** flip the unit (flag + migration), and the cost cut (cache-split #78 + output cap, ~3×) so heavy ops get genuinely cheaper — after which €5 buys ~36 messages instead of ~12.
+
 ---
 
 ## 3. Item 14 deep-dive (the flagship) — now fixed
