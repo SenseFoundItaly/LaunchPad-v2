@@ -593,9 +593,11 @@ function ExpandableWatcherRow({
     setRunDone(null);
     try {
       // Content-Type: application/json is REQUIRED — the CSRF middleware
-      // (src/middleware.ts) rejects mutating /api/* calls without it (415,
-      // and a 404 against an earlier stale build).
-      const res = await fetch(`/api/projects/${projectId}/monitors/${w._origin_id}/run`, {
+      // (src/middleware.ts) rejects mutating /api/* calls without it (415).
+      // POST to the monitor itself (NOT a /run subroute): a static leaf under
+      // two dynamic segments 404'd on the OpenNext/Netlify adapter, so "Run now"
+      // is a POST on /monitors/{id}, which streams the scan via streamMonitorRun.
+      const res = await fetch(`/api/projects/${projectId}/monitors/${w._origin_id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',

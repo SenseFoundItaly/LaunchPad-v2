@@ -4,6 +4,24 @@ import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 import { buildMonitorScanPrompt } from '@/lib/action-executors';
+import { streamMonitorRun } from '@/lib/monitor-run-stream';
+
+/**
+ * POST /api/projects/{projectId}/monitors/{monitorId} — manual "Run now".
+ * Streams the scan via streamMonitorRun. This used to be a dedicated /run
+ * subroute, but a static leaf under TWO dynamic segments 404'd on the
+ * OpenNext/Netlify adapter, so the action moved onto this (working) route.
+ * (Also adds the project-access check the old /run route never had.)
+ */
+export async function POST(
+  _request: NextRequest,
+  { params }: { params: Promise<{ projectId: string; monitorId: string }> },
+) {
+  const { projectId, monitorId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+  return streamMonitorRun(projectId, monitorId);
+}
 
 interface MonitorRow {
   id: string;
