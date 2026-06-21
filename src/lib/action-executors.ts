@@ -28,6 +28,7 @@
  */
 
 import { run, query } from '@/lib/db';
+import { cleanEntityName } from '@/lib/ecosystem-alert-parser';
 import { runSkill } from '@/lib/skill-executor';
 import { generateId } from '@/lib/api-helpers';
 import { resolveProjectLocale } from '@/lib/agent-prompt';
@@ -1474,7 +1475,10 @@ const applyValidationProposal: ActionHandler = async (action) => {
       canvasFields[it.field] = value;
       applied.push(it.label || it.field);
     } else if (it.kind === 'competitor') {
-      const name = (it.name || '').trim() || value.slice(0, 80);
+      // Clean the name so it persists as an entity, not a description — the agent
+      // sometimes proposes "Commercialista (incumbent non-software competitor)";
+      // cleanEntityName strips the trailing descriptor, keeps brand tags.
+      const name = cleanEntityName((it.name || '').trim() || value) || value.slice(0, 80);
       const nodeId = generateId('gnode');
       // Mirrors proposedGraphUpdate's competitor upsert (applied, atomic on
       // (project_id, LOWER(name)) per migration 018). sources passed RAW —

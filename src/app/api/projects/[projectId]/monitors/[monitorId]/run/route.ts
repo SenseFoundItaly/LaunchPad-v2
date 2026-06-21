@@ -11,6 +11,14 @@ import { withEmissionDiscipline } from '@/lib/ecosystem-monitors';
 import { extractAlertsSecondPass } from '@/lib/monitor-extract';
 import { pickModel } from '@/lib/llm/router';
 
+// This streaming POST under two dynamic segments ([projectId]/monitors/[monitorId]/run)
+// 404s at runtime on the OpenNext/Netlify adapter despite building cleanly. These
+// explicit runtime hints force the adapter to register it as an always-dynamic
+// Node function (the cheap fix attempt — validated on a preview deploy; if it
+// still 404s, the run action gets folded into the working [monitorId] route).
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 function deriveSeverity(text: string): 'critical' | 'warning' | 'info' {
   const lower = text.toLowerCase();
   if (lower.includes('critical') || lower.includes('urgent') || lower.includes('severe')) return 'critical';
