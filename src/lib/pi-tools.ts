@@ -6,13 +6,21 @@ import { wrapUntrusted } from '@/lib/untrusted-content';
 /**
  * Web search + URL read tools.
  *
- * Primary: Jina (s.jina.ai / r.jina.ai). Returns clean markdown rather than
- * raw HTML — ~4× fewer tokens per result vs DDG scrape + raw fetch.
- * Fallback: DuckDuckGo HTML + naked fetch. Triggered on any Jina non-2xx
- * or timeout. Same return shape so callers don't care which path served.
+ * Provider chain (each link returns the SAME shape, so callers never care which
+ * served the result):
+ *   1. Exa (api.exa.ai) — PRIMARY when EXA_API_KEY is set. Neural+keyword search
+ *      with index-served contents, so it returns text even for Cloudflare/JS-
+ *      gated sites (Crunchbase/TechCrunch/Product Hunt) that defeat live scraping
+ *      — the exact case that produced ~0 watcher signals when Jina was the only
+ *      provider. Set SEARCH_PROVIDER=jina to pin Jina first without removing the key.
+ *   2. Jina (s.jina.ai / r.jina.ai) — clean markdown, ~4× fewer tokens than a
+ *      raw DDG scrape. Works keyless (per-IP limits) or with JINA_API_KEY.
+ *   3. DuckDuckGo HTML + naked fetch — last-resort, no key.
  *
- * With JINA_API_KEY: higher rate limits + priority. Without: basic per-IP
- * limits, still works for dev.
+ * WHY a chain and not a single vendor: a single paid provider with no balance
+ * monitoring silently 402'd and blinded ~48% of watcher scans for a week. No
+ * one link can take the pipeline down now; failures fall through and are
+ * recorded in details.source / details.providerErrors.
  *
  * SOURCE PROVENANCE (Phase B of mandatory-sources):
  * Every tool result also carries a structured `sources: Source[]` array in
@@ -24,6 +32,11 @@ import { wrapUntrusted } from '@/lib/untrusted-content';
 
 const JINA_API_KEY = process.env.JINA_API_KEY;
 const JINA_TIMEOUT_MS = 20_000;
+const EXA_API_KEY = process.env.EXA_API_KEY;
+const EXA_TIMEOUT_MS = 20_000;
+// Ops kill-switch: SEARCH_PROVIDER=jina pins Jina first even when an Exa key
+// exists (e.g. to dodge an Exa incident without touching env keys).
+const PREFER_EXA = !!EXA_API_KEY && process.env.SEARCH_PROVIDER !== 'jina';
 const MAX_CHARS_PER_RESULT = 8_000;  // ≈ 2K tokens per search-result chunk
 const MAX_TOTAL_CHARS = 16_000;       // ≈ 4K tokens hard cap per tool call
 
@@ -63,6 +76,112 @@ function buildWebSources(
     accessed_at: now,
     ...(h.snippet ? { quote: h.snippet.slice(0, 300) } : {}),
   }));
+}
+
+/**
+ * Exa search (api.exa.ai/search). type:'auto' lets Exa pick neural vs keyword.
+ * `contents.text` returns page text inline, so one call covers BOTH "search"
+ * and "scrape the top hits" — and the text is served from Exa's index, which is
+ * why it succeeds on sites that block live scrapers (Jina's failure mode).
+ */
+async function exaSearch(query: string): Promise<
+  { ok: true; out: AgentToolResult<unknown> } | { ok: false; error: string }
+> {
+  const res = await fetch('https://api.exa.ai/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': EXA_API_KEY as string },
+    body: JSON.stringify({
+      query,
+      numResults: 5,
+      type: 'auto',
+      contents: { text: { maxCharacters: MAX_CHARS_PER_RESULT } },
+    }),
+    signal: AbortSignal.timeout(EXA_TIMEOUT_MS),
+  });
+  if (!res.ok) return { ok: false, error: `Exa search HTTP ${res.status}` };
+
+  const body = (await res.json()) as {
+    results?: Array<{ title?: string; url: string; text?: string; publishedDate?: string }>;
+  };
+  const items = (body.results || []).slice(0, 5);
+  if (items.length === 0) return { ok: false, error: 'Exa search returned 0 results' };
+
+  const hits = items.map((r) => ({ title: r.title, url: r.url, snippet: r.text }));
+  const text = items
+    .map((r, i) => {
+      const header = `${i + 1}. ${r.title || r.url}\n   ${r.url}`;
+      const bodyText = truncate((r.text || '').trim(), MAX_CHARS_PER_RESULT);
+      return bodyText ? `${header}\n\n${bodyText}` : header;
+    })
+    .join('\n\n---\n\n');
+
+  return {
+    ok: true,
+    out: {
+      content: [
+        {
+          type: 'text',
+          text: `Search results for "${query}" (via Exa, ${items.length} results):\n\n${wrapUntrusted(truncate(text, MAX_TOTAL_CHARS))}\n\nSOURCES (cite verbatim when using these results in artifacts):\n${items.map((r, i) => `[${i + 1}] ${r.title || r.url} — ${r.url}`).join('\n')}`,
+        },
+      ],
+      details: { query, resultCount: items.length, source: 'exa', sources: buildWebSources(hits) },
+    },
+  };
+}
+
+/**
+ * Exa contents (api.exa.ai/contents). livecrawl:'preferred' fetches fresh but
+ * falls back to the cached index — fresh enough for watchers (new events), yet
+ * resilient on sites that block a live hit.
+ */
+async function exaRead(target: string): Promise<
+  { ok: true; out: AgentToolResult<unknown> } | { ok: false; error: string }
+> {
+  const res = await fetch('https://api.exa.ai/contents', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': EXA_API_KEY as string },
+    body: JSON.stringify({
+      urls: [target],
+      text: { maxCharacters: MAX_TOTAL_CHARS },
+      livecrawl: 'preferred',
+    }),
+    signal: AbortSignal.timeout(EXA_TIMEOUT_MS),
+  });
+  if (!res.ok) return { ok: false, error: `Exa contents HTTP ${res.status}` };
+
+  const body = (await res.json()) as {
+    results?: Array<{ url: string; title?: string; text?: string }>;
+  };
+  const hit = body.results?.[0];
+  const content = (hit?.text || '').trim();
+  if (!content) return { ok: false, error: 'Exa contents returned empty text' };
+
+  const title = hit?.title?.trim() || target;
+  const source: Source = {
+    type: 'web',
+    title,
+    url: target,
+    accessed_at: new Date().toISOString(),
+    quote: content.slice(0, 300),
+  };
+  return {
+    ok: true,
+    out: {
+      content: [
+        {
+          type: 'text',
+          text: `${title}\n${target}\n\n${wrapUntrusted(truncate(content, MAX_TOTAL_CHARS))}\n\nSOURCE (cite verbatim when quoting this page):\n[1] ${title} — ${target}`,
+        },
+      ],
+      details: {
+        url: target,
+        length: content.length,
+        truncated: content.length > MAX_TOTAL_CHARS,
+        source: 'exa',
+        sources: [source] satisfies Source[],
+      },
+    },
+  };
 }
 
 async function jinaSearch(query: string): Promise<
@@ -190,13 +309,27 @@ const webSearchTool: AgentTool = {
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
     const query = (params as { query: string }).query;
-    try {
-      const result = await jinaSearch(query);
-      if (result.ok) return result.out;
-      return await ddgSearchFallback(query, result.error);
-    } catch (err) {
-      return await ddgSearchFallback(query, err instanceof Error ? err.message : String(err));
+    const providerErrors: string[] = [];
+    // Provider chain. Exa first when keyed (best coverage incl. blocked sites);
+    // Jina second (cheap, keyless-capable); DDG last. A link that throws or
+    // returns !ok falls through with its reason captured for the final fallback.
+    if (PREFER_EXA) {
+      try {
+        const r = await exaSearch(query);
+        if (r.ok) return r.out;
+        providerErrors.push(`Exa: ${r.error}`);
+      } catch (err) {
+        providerErrors.push(`Exa: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
+    try {
+      const r = await jinaSearch(query);
+      if (r.ok) return r.out;
+      providerErrors.push(`Jina: ${r.error}`);
+    } catch (err) {
+      providerErrors.push(`Jina: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return await ddgSearchFallback(query, providerErrors.join(' | ') || 'no primary provider');
   },
 };
 
@@ -326,13 +459,25 @@ const urlFetchTool: AgentTool = {
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
     const target = (params as { url: string }).url;
-    try {
-      const result = await jinaRead(target);
-      if (result.ok) return result.out;
-      return await rawFetchFallback(target, result.error);
-    } catch (err) {
-      return await rawFetchFallback(target, err instanceof Error ? err.message : String(err));
+    const providerErrors: string[] = [];
+    // Same chain as web_search: Exa contents → Jina reader → naked fetch.
+    if (PREFER_EXA) {
+      try {
+        const r = await exaRead(target);
+        if (r.ok) return r.out;
+        providerErrors.push(`Exa: ${r.error}`);
+      } catch (err) {
+        providerErrors.push(`Exa: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
+    try {
+      const r = await jinaRead(target);
+      if (r.ok) return r.out;
+      providerErrors.push(`Jina: ${r.error}`);
+    } catch (err) {
+      providerErrors.push(`Jina: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return await rawFetchFallback(target, providerErrors.join(' | ') || 'no primary provider');
   },
 };
 

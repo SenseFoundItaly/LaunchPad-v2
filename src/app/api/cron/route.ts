@@ -432,10 +432,23 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
       alert_layer: alertLayer,
     };
   } catch (err) {
+    // The run row is inserted as 'completed' BEFORE the ecosystem parse/persist
+    // block (FK ordering: ecosystem_alerts.monitor_run_id → monitor_runs.id).
+    // So if persist throws, this row ALREADY EXISTS — a bare INSERT here collided
+    // on the PK, threw, propagated past the cron-GET finalizer, and left the
+    // run masked as 'completed' + the cron_run orphaned in 'running' (observed:
+    // 43 stuck running, 0 failed). Upsert instead: flip the existing row to
+    // 'failed' and APPEND the error WITHOUT discarding the agent transcript;
+    // insert a fresh failed row only when nothing was written yet (a throw
+    // before the early insert, e.g. the agent call itself).
+    const errMsg = (err as Error).message.slice(0, 2000);
     await run(
       `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, trigger_type, run_at)
-       VALUES (?, ?, ?, 'failed', ?, 0, 'scheduled', ?)`,
-      runId, monitor.id, monitor.project_id, (err as Error).message.slice(0, 2000), runAt,
+       VALUES (?, ?, ?, 'failed', ?, 0, 'scheduled', ?)
+       ON CONFLICT (id) DO UPDATE SET
+         status = 'failed',
+         summary = COALESCE(monitor_runs.summary, '') || E'\n\n[RUN ERROR] ' || excluded.summary`,
+      runId, monitor.id, monitor.project_id, errMsg, runAt,
     );
 
     logSignalActivity({
