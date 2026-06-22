@@ -138,6 +138,15 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
         </span>
       </>}
     >
+      {/* Objective — the human-readable "why this watcher exists". Captured by
+          propose_monitor (objective param) but previously not rendered, so the
+          card showed only a trigger with no stated purpose. */}
+      {(artifact.objective || artifact.linked_quote) && (
+        <p className="text-sm text-ink-2 mb-2 leading-snug">
+          {artifact.objective || artifact.linked_quote}
+        </p>
+      )}
+
       {/* Derisking breadcrumb */}
       <div className="text-[11px] text-ink-4 mb-2">
         <span className="text-ink-5">Derisking: </span>
