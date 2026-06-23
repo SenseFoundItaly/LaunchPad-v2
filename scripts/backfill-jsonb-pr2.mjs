@@ -73,14 +73,21 @@ try {
     totalBefore += before;
     if (before === 0) continue;
     if (APPLY) {
-      // first char of the inner text must be { or [ — guards against mangling a
-      // genuine (non-double-encoded) string scalar into invalid jsonb.
-      const res = await sql.unsafe(
-        `UPDATE ${t} SET ${c} = (${c} #>> '{}')::jsonb
-         WHERE jsonb_typeof(${c}) = 'string' AND left(${c} #>> '{}', 1) IN ('{', '[')`);
+      // Loop-peel: some rows are TRIPLE-encoded (JSON.stringify of an already-
+      // stringified value → a JSON string OF a JSON array, inner char "). Decode
+      // repeatedly until stable. Guard: inner text must start with { [ or " (a
+      // nested JSON string) — never mangles a genuine plain string scalar.
+      let updated = 0;
+      for (let i = 0; i < 4; i++) {
+        const res = await sql.unsafe(
+          `UPDATE ${t} SET ${c} = (${c} #>> '{}')::jsonb
+           WHERE jsonb_typeof(${c}) = 'string' AND left(${c} #>> '{}', 1) IN ('{', '[', '"')`);
+        updated += res.count;
+        if (res.count === 0) break;
+      }
       const after = await strCount(t, c);
-      totalUpdated += res.count;
-      console.log(`  ${`${t}.${c}`.padEnd(40)} ${String(before).padStart(4)} → updated ${String(res.count).padStart(4)} → ${after} string left`);
+      totalUpdated += updated;
+      console.log(`  ${`${t}.${c}`.padEnd(40)} ${String(before).padStart(4)} → updated ${String(updated).padStart(4)} → ${after} string left`);
     } else {
       console.log(`  ${`${t}.${c}`.padEnd(40)} string: ${before}`);
     }
