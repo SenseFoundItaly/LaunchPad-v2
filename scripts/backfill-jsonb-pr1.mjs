@@ -67,11 +67,11 @@ try {
     const b = await sql.unsafe(
       `UPDATE scores
           SET dimensions = COALESCE((
-                SELECT jsonb_object_agg(k, v) FROM jsonb_each(dimensions)
-                 WHERE k !~ '^[0-9]+$'
+                SELECT jsonb_object_agg(e.k, e.v) FROM jsonb_each(dimensions) AS e(k, v)
+                 WHERE e.k !~ '^[0-9]+$'
               ), '{}'::jsonb)
         WHERE jsonb_typeof(dimensions) = 'object'
-          AND (SELECT bool_or(key ~ '^[0-9]+$') FROM jsonb_object_keys(dimensions) AS key)`);
+          AND (SELECT bool_or(ok.key ~ '^[0-9]+$') FROM jsonb_object_keys(dimensions) AS ok(key))`);
     console.log(`  step B (strip char-index keys): ${b.count} rows`);
     console.log(`  after:  ${await typeofCounts('scores', 'dimensions')}`);
   }
