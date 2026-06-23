@@ -91,10 +91,29 @@ function coerceAttributes(raw: unknown): Record<string, unknown> {
 function formatAttrValue(value: unknown): string {
   if (value === null || value === undefined) return '—';
   if (Array.isArray(value)) {
-    return value.map((v) => formatAttrValue(v)).join(', ');
+    // Arrays of scalars → join; arrays of objects (e.g. sources) → a count, not a JSON blob.
+    const allScalar = value.every((v) => v === null || typeof v !== 'object');
+    if (allScalar) return value.map((v) => String(v)).join(', ');
+    return `${value.length} item${value.length === 1 ? '' : 's'}`;
   }
   if (typeof value === 'object') {
-    return JSON.stringify(value);
+    // Rich metric objects (TAM/SAM/SOM, KPIs) carry an `estimate`/`value`/`label`
+    // headline + nested sources/methodology. Surface the headline (+ one helpful
+    // secondary field) instead of dumping raw JSON.
+    const o = value as Record<string, unknown>;
+    const scalar = (k: string) =>
+      typeof o[k] === 'string' || typeof o[k] === 'number' ? String(o[k]) : null;
+    const headline = scalar('estimate') ?? scalar('value') ?? scalar('label');
+    if (headline) {
+      const sub = scalar('methodology') ?? scalar('confidence') ?? scalar('timeframe') ?? scalar('change');
+      return sub ? `${headline} · ${sub}` : headline;
+    }
+    // Generic object → shallow "key: scalar" pairs (skip nested), never raw JSON.
+    const pairs = Object.entries(o)
+      .filter(([, v]) => v !== null && v !== undefined && (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'))
+      .slice(0, 4)
+      .map(([k, v]) => `${k}: ${v}`);
+    return pairs.length > 0 ? pairs.join(' · ') : '(details)';
   }
   return String(value);
 }
