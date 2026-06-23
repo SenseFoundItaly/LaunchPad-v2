@@ -27,7 +27,7 @@ import { recordUsage } from '@/lib/cost-meter';
 import { estimateCost } from '@/lib/telemetry';
 import { pickModel } from '@/lib/llm/router';
 import { recordEvent } from '@/lib/memory/events';
-import { persistArtifact } from '@/lib/artifact-persistence';
+import { persistArtifact, persistScoreFromSummary } from '@/lib/artifact-persistence';
 import { isClarificationOnly } from '@/lib/skill-output';
 import { buildSkillProjectContext } from '@/lib/skill-context';
 import { persistResearchFromSkillOutput } from '@/lib/skill-research-persist';
@@ -307,6 +307,18 @@ export async function runSkill(
   }
 
   // UPSERT skill_completions — same shape as the POST /skills route.
+  // startup-scoring emits its scorecard as prose ("Overall Score: 57/100"), not
+  // always a gauge-chart artifact, so scores.overall_score can stay null even on a
+  // good run (the Home score never appears). Persist it deterministically — fixes
+  // the score landing for auto-scoring, manual runs, and cron alike.
+  if (skillId === 'startup-scoring' && !incomplete) {
+    try {
+      if (await persistScoreFromSummary(projectId, text)) artifactsPersisted++;
+    } catch (err) {
+      console.warn(`[skill-executor] score fallback failed for ${skillId}:`, (err as Error).message);
+    }
+  }
+
   const completedAt = new Date().toISOString();
   // Quality gate (computed up-front above): persist clarification-only output as
   // 'incomplete' with no section_scores so it can't feed the chat agent as

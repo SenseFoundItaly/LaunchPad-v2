@@ -45,7 +45,7 @@ export const en = {
   'score.title': 'Score',
   'score.run': 'Run scoring',
   'score.project-score': 'Project score',
-  'score.not-scored': 'Not scored yet.',
+  'score.not-scored': 'Not scored yet — runs automatically as you complete stages.',
   'score.band-strong': 'strong',
   'score.band-promising': 'promising',
   'score.band-caution': 'caution',
