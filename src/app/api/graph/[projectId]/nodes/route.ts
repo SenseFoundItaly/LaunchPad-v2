@@ -30,7 +30,7 @@ export async function POST(
       `UPDATE graph_nodes SET node_type = $1, summary = $2, attributes = $3 WHERE id = $4`,
       body.node_type,
       body.summary || existing.summary || '',
-      JSON.stringify(body.attributes || {}),
+      body.attributes || {}, // raw object — attributes is JSONB (stringify double-encodes, matches PR #80)
       existing.id,
     );
     const updated = await get('SELECT * FROM graph_nodes WHERE id = $1', existing.id);
@@ -52,7 +52,7 @@ export async function POST(
     body.name,
     body.node_type,
     body.summary || '',
-    JSON.stringify(body.attributes || {}),
+    body.attributes || {}, // raw object — attributes is JSONB (stringify double-encodes, matches PR #80)
     now,
   );
 

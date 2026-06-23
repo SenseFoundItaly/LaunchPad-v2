@@ -16,6 +16,7 @@
 
 import type { GraphNode } from '@/types/graph';
 import type { Source } from '@/types/artifacts';
+import { coerceJson } from '@/lib/jsonb';
 import { NODE_COLORS } from '@/types/graph';
 import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
 
@@ -150,7 +151,10 @@ export default function NodeDetailPanel({
   const attrEntries = Object.entries(coerceAttributes(node.attributes)).filter(
     ([, v]) => v !== null && v !== undefined && v !== '',
   );
-  const sources = Array.isArray(node.sources) ? node.sources : [];
+  // coerceJson: sources may be a legacy double-encoded JSON string (jsonb string
+  // scalar) → Array.isArray would be false and the Sources block render empty.
+  const rawSources = coerceJson(node.sources);
+  const sources = (Array.isArray(rawSources) ? rawSources : []) as Source[];
   const createdAt = node.created_at
     ? new Date(node.created_at).toLocaleDateString(undefined, {
         year: 'numeric',
