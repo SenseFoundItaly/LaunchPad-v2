@@ -13,6 +13,7 @@
 
 import { get, query, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
+import { coerceJson } from '@/lib/jsonb';
 import type { Source } from '@/types/artifacts';
 import {
   COMPETITOR_CATEGORIES,
@@ -51,7 +52,7 @@ export async function persistCompetitorCategories(
     arr.push(`${col}: ${value}`);
     grouped.set(cat, arr);
   }
-  const srcJson = sources && sources.length > 0 ? JSON.stringify(sources) : null;
+  const srcJson = sources && sources.length > 0 ? sources : null;
   let written = 0;
   for (const [cat, details] of grouped) {
     try {
@@ -109,7 +110,10 @@ export async function readCompetitorMatryoshka(projectId: string): Promise<Compe
     arr.push({
       category: c.category as CompetitorCategory,
       detail: c.detail,
-      sources: Array.isArray(c.sources) ? (c.sources as Source[]) : null,
+      sources: (() => {
+        const s = coerceJson(c.sources);
+        return Array.isArray(s) ? (s as Source[]) : null;
+      })(),
     });
     byNode.set(c.competitor_node_id, arr);
   }
@@ -134,7 +138,7 @@ async function upsertCompetitorNode(
   projectId: string,
   name: string,
   summary: string,
-  srcJson: string | null,
+  srcJson: Source[] | null,
 ): Promise<string | undefined> {
   const trimmed = name.trim();
   if (!trimmed) return undefined;
@@ -168,7 +172,7 @@ export async function setCompetitorCategories(
   rows: Array<{ category: string; detail: string }>,
   sources?: Source[] | null,
 ): Promise<number> {
-  const srcJson = sources && sources.length > 0 ? JSON.stringify(sources) : null;
+  const srcJson = sources && sources.length > 0 ? sources : null;
   let written = 0;
   for (const row of rows) {
     const detail = (row.detail || '').trim();
@@ -201,7 +205,7 @@ export async function persistCompetitorAnalysis(
   projectId: string,
   input: { name: string; summary?: string; categories: Array<{ category: string; detail: string }>; sources?: Source[] | null },
 ): Promise<{ nodeId?: string; categories: number }> {
-  const srcJson = input.sources && input.sources.length > 0 ? JSON.stringify(input.sources) : null;
+  const srcJson = input.sources && input.sources.length > 0 ? input.sources : null;
   const nodeId = await upsertCompetitorNode(projectId, input.name, (input.summary || '').slice(0, 500), srcJson);
   if (!nodeId) return { categories: 0 };
   const categories = await setCompetitorCategories(projectId, nodeId, input.categories || [], input.sources);

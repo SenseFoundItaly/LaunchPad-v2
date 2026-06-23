@@ -90,8 +90,9 @@ export async function PUT(
 
 /** JSONB columns must be serialized to strings for the postgres.js driver
  *  when passed through `?` placeholders. Primitives pass through unchanged. */
+// JSONB bind: pass the RAW value. postgres.js single-encodes objects/arrays into
+// JSONB; JSON.stringify here stored a double-encoded string scalar (read back as a
+// string by pricing readers). See pending-actions.ts:505 / src/lib/jsonb.ts.
 function serializeJsonb(v: unknown): unknown {
-  if (v === null || v === undefined) return v;
-  if (typeof v === 'object') return JSON.stringify(v);
-  return v;
+  return v ?? null;
 }

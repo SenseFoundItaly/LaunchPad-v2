@@ -78,7 +78,7 @@ export async function recordFact(input: RecordFactInput): Promise<string> {
     );
 
     const sourcesJson =
-      input.sources && input.sources.length > 0 ? JSON.stringify(input.sources) : null;
+      input.sources && input.sources.length > 0 ? input.sources : null;
 
     let id: string;
     if (existing) {

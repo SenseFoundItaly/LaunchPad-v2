@@ -200,9 +200,9 @@ export async function processCorrelations(
         corr.narrative,
         corr.temporal_prediction,
         corr.confidence,
-        JSON.stringify(corr.signal_ids_used),
+        corr.signal_ids_used,
         corr.signal_ids_used.length,
-        JSON.stringify(corr.recommended_actions),
+        corr.recommended_actions,
         validUntil,
         now,
       );

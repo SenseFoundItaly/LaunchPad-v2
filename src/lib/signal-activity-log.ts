@@ -55,7 +55,7 @@ export async function logSignalActivity(input: LogSignalActivityInput): Promise<
     input.entity_id ?? null,
     input.entity_type ?? null,
     input.headline,
-    JSON.stringify(input.metadata ?? {}),
+    input.metadata ?? {},
   );
   return id;
 }

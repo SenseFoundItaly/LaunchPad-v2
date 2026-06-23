@@ -955,7 +955,7 @@ export async function POST(request: NextRequest) {
                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?)`,
               `msg_${crypto.randomUUID().slice(0, 12)}`,
               project_id, step, fullResponse, assistantTs, userId, toolsJson,
-              citationsJson ? JSON.stringify(citationsJson) : null,
+              citationsJson ?? null,
               langfuseTraceId,
               metaJson,
             );

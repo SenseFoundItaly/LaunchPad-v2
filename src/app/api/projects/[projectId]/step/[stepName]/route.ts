@@ -65,7 +65,7 @@ export async function POST(
     for (const [key, value] of Object.entries(body)) {
       if (key === 'project_id') {continue;}
       fields.push(`${key} = ?`);
-      values.push(stepConfig.jsonColumns.includes(key) ? JSON.stringify(value) : value);
+      values.push(value);
     }
     if (fields.length > 0) {
       values.push(projectId);
@@ -83,7 +83,7 @@ export async function POST(
       if (key === 'project_id') {continue;}
       columns.push(key);
       placeholders.push('?');
-      values.push(stepConfig.jsonColumns.includes(key) ? JSON.stringify(value) : value);
+      values.push(value);
     }
     await run(
       `INSERT INTO ${stepConfig.table} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`,

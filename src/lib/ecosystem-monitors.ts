@@ -11,6 +11,7 @@
 
 import { createHash } from 'crypto';
 import { query, run } from '@/lib/db';
+import { coerceJson } from '@/lib/jsonb';
 import { generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 
@@ -523,14 +524,16 @@ export async function loadMonitorContext(projectId: string): Promise<MonitorProm
     research = {};
     if (researchRow.competitors) {
       try {
-        const parsed = JSON.parse(researchRow.competitors) as Array<{ name: string; description?: string }>;
+        // coerceJson tolerates BOTH the new raw array and legacy double-encoded
+        // string rows (the write is now single-encoded — see jb() / PR2).
+        const parsed = coerceJson<Array<{ name: string; description?: string }>>(researchRow.competitors) ?? [];
         research.competitors = parsed;
         knownCompetitors.push(...parsed.map(c => c.name).filter(Boolean));
       } catch { /* ignore malformed JSON */ }
     }
     if (researchRow.trends) {
       try {
-        research.trends = JSON.parse(researchRow.trends) as Array<{ title: string }>;
+        research.trends = coerceJson<Array<{ title: string }>>(researchRow.trends) ?? [];
       } catch { /* ignore */ }
     }
   }
