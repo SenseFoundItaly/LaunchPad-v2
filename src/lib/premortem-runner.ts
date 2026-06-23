@@ -175,9 +175,9 @@ export async function runPremortemPass<TOutput>(
     brief.confidence ?? 0.7,
     // signal_ids is required NOT NULL — empty array is the right value for
     // premortem briefs since they don't fold individual ecosystem signals.
-    JSON.stringify([]),
+    [],
     brief.item_count,
-    JSON.stringify(brief.recommended_actions),
+    brief.recommended_actions,
     brief.valid_until ?? null,
     now,
   );

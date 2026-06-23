@@ -1741,8 +1741,8 @@ const createTabularReviewTool = (ctx: ToolContext): AgentTool => ({
         `INSERT INTO tabular_reviews (id, project_id, title, columns, column_types, sources, reviewed_state, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
         reviewId, ctx.projectId, p.title.trim(),
-        JSON.stringify(p.columns), JSON.stringify(p.column_types),
-        JSON.stringify(p.sources), now, now,
+        p.columns, p.column_types,
+        p.sources, now, now,
       );
 
       for (let i = 0; i < p.rows.length; i++) {
@@ -1751,7 +1751,7 @@ const createTabularReviewTool = (ctx: ToolContext): AgentTool => ({
           `INSERT INTO tabular_cells (id, review_id, row_index, row_label, values, entity_id, entity_type, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           generateId('tcell'), reviewId, i, row.label.trim(),
-          JSON.stringify(row.values),
+          row.values,
           row.entity_id ?? null, row.entity_type ?? null, now,
         );
       }

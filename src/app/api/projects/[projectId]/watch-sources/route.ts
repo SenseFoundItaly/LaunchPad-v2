@@ -97,7 +97,7 @@ export async function POST(
     body.url,
     body.label,
     body.category || 'custom',
-    JSON.stringify(body.scrape_config || {}),
+    body.scrape_config || {},
     schedule,
     nextScrape,
     `ws_${id}`,

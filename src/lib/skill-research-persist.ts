@@ -21,7 +21,9 @@
 import { run, get } from '@/lib/db';
 import { persistCompetitorCategories } from '@/lib/competitor-categories';
 
-const jb = (v: unknown): string => JSON.stringify(v ?? null);
+// JSONB bind: pass the RAW value (postgres.js single-encodes). JSON.stringify here
+// double-encoded into a string scalar; the ecosystem-monitors readers JSON.parse'd it back.
+const jb = (v: unknown): unknown => v ?? null;
 const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
 

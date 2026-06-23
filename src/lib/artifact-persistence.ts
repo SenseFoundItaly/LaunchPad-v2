@@ -56,8 +56,10 @@ import type { PendingActionType } from '@/types';
  * artifacts by the time they reach here; this helper is defensive for the
  * small number of call sites where sources are optional (synthesis types).
  */
-function sourcesJson(sources: Source[] | undefined): string | null {
-  return Array.isArray(sources) && sources.length > 0 ? JSON.stringify(sources) : null;
+// JSONB bind: return the RAW array (postgres.js single-encodes it). JSON.stringify
+// here stored a double-encoded string scalar → Array.isArray readers silently empty.
+function sourcesJson(sources: Source[] | undefined): Source[] | null {
+  return Array.isArray(sources) && sources.length > 0 ? sources : null;
 }
 
 /**
@@ -86,7 +88,7 @@ async function upsertGraphNodeFromArtifact(
     nodeType: string;
     summary: string;
     attributes: Record<string, unknown>;
-    srcJson: string | null;
+    srcJson: Source[] | null;
     /** Review state for NEW nodes only — the UPDATE path always preserves the
      *  existing reviewed_state. Defaults to 'pending': chat-surfaced
      *  intelligence is a PROPOSAL the founder applies (0.5 credits) before it
@@ -635,7 +637,7 @@ const MAX_COMPETITOR_ROWS_PER_TABLE = 6;
 async function extractCompetitorRows(
   ctx: PersistContext,
   a: ComparisonTable,
-  srcJson: string | null,
+  srcJson: Source[] | null,
 ): Promise<number> {
   const root = await get<{ name: string }>(
     "SELECT name FROM graph_nodes WHERE project_id = ? AND node_type = 'your_startup' LIMIT 1",
@@ -804,8 +806,8 @@ async function persistBuildArtifact(ctx: PersistContext, a: HtmlPreviewArtifact)
     'html-preview',
     a.title || 'Landing Page',
     a.html,
-    JSON.stringify({ viewport: a.viewport ?? 'desktop' }),
-    JSON.stringify(a.sources ?? []),
+    { viewport: a.viewport ?? 'desktop' },
+    a.sources ?? [],
     new Date().toISOString(),
   );
 
@@ -831,8 +833,8 @@ async function persistDocumentArtifact(ctx: PersistContext, a: DocumentArtifact)
     a.title || 'Document',
     a.content,
     a.doc_type,
-    JSON.stringify({ sections_count: a.sections?.length ?? 0 }),
-    JSON.stringify(a.sources ?? []),
+    { sections_count: a.sections?.length ?? 0 },
+    a.sources ?? [],
     new Date().toISOString(),
   );
 

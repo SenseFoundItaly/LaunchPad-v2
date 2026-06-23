@@ -48,7 +48,7 @@ export async function updateCompetitorProfile(
        SET signal_counts = ?, total_signals = ?, last_activity_at = ?,
            trend_direction = ?, updated_at = ?
        WHERE id = ?`,
-      JSON.stringify(counts),
+      counts,
       totalSignals,
       now,
       trendDirection,
@@ -67,7 +67,7 @@ export async function updateCompetitorProfile(
       projectId,
       entityName,
       slug,
-      JSON.stringify(counts),
+      counts,
       now,
       now,
       now,

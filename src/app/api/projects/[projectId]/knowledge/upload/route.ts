@@ -361,9 +361,9 @@ async function persistExtracted(
   filename: string,
 ): Promise<{ inserted: number; ids: Array<{ name: string; id: string }> }> {
   const ids: Array<{ name: string; id: string }> = [];
-  const sources = JSON.stringify([
+  const sources = [
     { type: 'internal', title: `Extracted from ${filename}`, ref: 'memory_fact', ref_id: factId },
-  ]);
+  ];
 
   // Cache the root lookup — one query per upload regardless of entity count.
   const root = await get<{ id: string }>(
@@ -507,12 +507,12 @@ export async function POST(
     // Prepend the filename so the LLM sees provenance inline even without
     // following the `sources` link. Keeps fact self-describing.
     const fact = `Uploaded file: ${file.name}\n\n${text}`;
-    const sources = JSON.stringify([{
+    const sources = [{
       type: 'file',
       filename: file.name,
       size: file.size,
       mime: file.type || null,
-    }]);
+    }];
 
     const id = generateId('fact');
     await run(

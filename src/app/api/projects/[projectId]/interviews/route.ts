@@ -73,8 +73,8 @@ export async function POST(
     body.urgency ? String(body.urgency).slice(0, 20) : null,
     typeof body.wtp_amount === 'number' ? body.wtp_amount : null,
     body.wtp_currency ? String(body.wtp_currency).slice(0, 3).toUpperCase() : 'USD',
-    body.meta ? JSON.stringify(body.meta) : '{}',
-    body.sources ? JSON.stringify(body.sources) : '[]',
+    body.meta ?? {},
+    body.sources ?? [],
     now,
     now,
   );
