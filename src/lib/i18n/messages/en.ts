@@ -20,6 +20,8 @@ export const en = {
   'nav.inbox.tooltip': 'Intel — watcher signals, proposals, tasks, drafts, briefs',
   'nav.knowledge': 'Knowledge',
   'nav.knowledge.tooltip': 'Knowledge — graph, facts, uploads',
+  'nav.financial': 'Financials',
+  'nav.financial.tooltip': 'Financial projections — editable assumptions, live recompute, downloadable',
   'nav.copilot': 'Co-pilot',
   'nav.copilot.tooltip': 'Co-pilot — chat + a single-scroll Canvas of everything it produces',
   'nav.settings': 'Settings',

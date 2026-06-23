@@ -157,6 +157,8 @@ const CHANNEL_ITEMS: NavItem[] = [
     tooltipKey: 'nav.inbox.tooltip' },
   { id: 'knowledge', iconKey: 'book',    labelKey: 'nav.knowledge', route: 'knowledge',
     tooltipKey: 'nav.knowledge.tooltip' },
+  { id: 'financial', iconKey: 'dollar',  labelKey: 'nav.financial', route: 'financial',
+    tooltipKey: 'nav.financial.tooltip' },
   { id: 'chat',      iconKey: 'chat',    labelKey: 'nav.copilot',   route: 'chat',
     tooltipKey: 'nav.copilot.tooltip' },
 ];

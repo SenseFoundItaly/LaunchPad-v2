@@ -15,6 +15,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   'nav.inbox.tooltip': 'Intel — segnali degli osservatori, proposte, attività, bozze, brief',
   'nav.knowledge': 'Knowledge',
   'nav.knowledge.tooltip': 'Knowledge — grafo, fatti, caricamenti',
+  'nav.financial': 'Finanze',
+  'nav.financial.tooltip': 'Proiezioni finanziarie — assunzioni editabili, ricalcolo live, scaricabili',
   'nav.copilot': 'Co-pilot',
   'nav.copilot.tooltip': 'Co-pilot — chat + un Canvas a scorrimento unico di tutto ciò che produce',
   'nav.settings': 'Impostazioni',
