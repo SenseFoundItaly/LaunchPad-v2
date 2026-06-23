@@ -118,7 +118,7 @@ export function buildContextMarkdown(
   lines.push('## Readiness Score');
   lines.push('');
   if (data.score && data.score.overall_score !== null) {
-    lines.push(`**Score:** ${Number(data.score.overall_score).toFixed(1)} / 10`);
+    lines.push(`**Score:** ${Number(data.score.overall_score).toFixed(1)} / 100`);
     if (data.score.benchmark) lines.push(`**Benchmark:** ${data.score.benchmark}`);
     if (data.score.recommendation) lines.push(`**Recommendation:** ${data.score.recommendation}`);
   } else {
