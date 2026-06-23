@@ -1,0 +1,45 @@
+/* Theme driver.js popovers to the LaunchPad design tokens (scoped to .lp-tour). */
+.driver-popover.lp-tour {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--r-l, 12px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  font-family: var(--f-sans, inherit);
+  max-width: 320px;
+}
+.driver-popover.lp-tour .driver-popover-title {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.driver-popover.lp-tour .driver-popover-description {
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.driver-popover.lp-tour .driver-popover-progress-text {
+  color: var(--ink-5);
+  font-size: 10.5px;
+  font-family: var(--f-mono, monospace);
+}
+.driver-popover.lp-tour .driver-popover-next-btn,
+.driver-popover.lp-tour .driver-popover-prev-btn {
+  background: var(--paper-3);
+  color: var(--ink-2);
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 5px 10px;
+  text-shadow: none;
+}
+.driver-popover.lp-tour .driver-popover-next-btn {
+  background: var(--ink);
+  color: var(--paper);
+}
+.driver-popover.lp-tour .driver-popover-close-btn {
+  color: var(--ink-5);
+}
+.driver-popover.lp-tour .driver-popover-arrow {
+  border-color: var(--surface);
+}

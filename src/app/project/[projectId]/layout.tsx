@@ -7,6 +7,7 @@ import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { ChromeProvider, useChromeState } from '@/components/design/chrome-context';
 import { TopBar, NavRail } from '@/components/design/chrome';
 import { StatusBar } from '@/components/design/primitives';
+import ProductTour from '@/components/onboarding/ProductTour';
 
 /**
  * Project layout — owns the PERSISTENT chrome (TopBar + NavRail + StatusBar)
@@ -100,6 +101,8 @@ function ProjectChrome({
         </div>
       </div>
       <StatusBar {...(chrome.status ?? {})} />
+      {/* First-login product tour — self-gates on users.onboarded, renders nothing otherwise. */}
+      <ProductTour projectId={projectId} />
     </div>
   );
 }

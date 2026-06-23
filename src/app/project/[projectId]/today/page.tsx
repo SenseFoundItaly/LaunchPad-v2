@@ -20,6 +20,7 @@ import { Pill, Icon, I } from '@/components/design/primitives';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { StageCard } from '@/components/stages/StageCard';
 import { OnboardingCard } from '@/components/onboarding/OnboardingCard';
+import { CanvasWatcherReminder } from '@/components/onboarding/CanvasWatcherReminder';
 import { NotesCard } from '@/components/onboarding/NotesCard';
 import { ScorePanel } from '@/components/home/ScorePanel';
 import { EcosystemPanel } from '@/components/home/EcosystemPanel';
@@ -140,6 +141,7 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 880 }}>
               <OnboardingCard projectId={projectId} />
+              <CanvasWatcherReminder projectId={projectId} />
               <ScorePanel projectId={projectId} />
               <StageCard projectId={projectId} />
               <EcosystemPanel projectId={projectId} />
