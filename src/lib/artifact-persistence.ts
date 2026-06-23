@@ -26,6 +26,7 @@
 
 import crypto from 'crypto';
 import { get, run } from '@/lib/db';
+import { coerceJson } from '@/lib/jsonb';
 import { generateId } from '@/lib/api-helpers';
 import type {
   Artifact,
@@ -399,11 +400,14 @@ async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Pr
   const srcJson = sourcesJson(a.sources);
 
   if (existing) {
-    const prior = (existing.dimensions as Record<string, unknown> | null) || {};
+    // coerceJson: existing.dimensions may be a legacy double-encoded STRING.
+    // Spreading a string enumerates its characters into char-index keys
+    // (0:'{',1:'"',…) which compounds on every write — parse first.
+    const prior = coerceJson<Record<string, unknown>>(existing.dimensions) || {};
     const merged = { ...prior, ...incoming };
     await run(
       'UPDATE scores SET dimensions = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
-      JSON.stringify(merged),
+      merged,
       srcJson,
       ctx.projectId,
     );
@@ -411,7 +415,7 @@ async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Pr
     await run(
       'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, 0, ?, ?)',
       ctx.projectId,
-      JSON.stringify(incoming),
+      incoming,
       srcJson,
     );
   }
@@ -430,14 +434,15 @@ async function persistScoreCard(ctx: PersistContext, a: ScoreCardArtifact): Prom
     'SELECT dimensions FROM scores WHERE project_id = ?',
     ctx.projectId,
   );
-  const prior = existing ? ((existing.dimensions as Record<string, unknown> | null) || {}) : {};
+  // coerceJson guards against legacy double-encoded dimensions (see persistScoreCard).
+  const prior = existing ? (coerceJson<Record<string, unknown>>(existing.dimensions) || {}) : {};
   const merged = { ...prior, [a.title]: a.score };
   const srcJson = sourcesJson(a.sources);
 
   if (existing) {
     await run(
       'UPDATE scores SET dimensions = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
-      JSON.stringify(merged),
+      merged,
       srcJson,
       ctx.projectId,
     );
@@ -445,7 +450,7 @@ async function persistScoreCard(ctx: PersistContext, a: ScoreCardArtifact): Prom
     await run(
       'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, 0, ?, ?)',
       ctx.projectId,
-      JSON.stringify(merged),
+      merged,
       srcJson,
     );
   }

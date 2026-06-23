@@ -600,7 +600,7 @@ export async function seedEcosystemMonitorsForProject(
       template.type,
       name,
       template.schedule,
-      JSON.stringify(template.defaultConfig),
+      template.defaultConfig, // raw object — config is JSONB (stringify would double-encode → SQL config->>'query' returns null)
       prompt,
       nextRun,
       now,

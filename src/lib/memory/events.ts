@@ -67,7 +67,9 @@ export interface RecordEventInput {
 export async function recordEvent(input: RecordEventInput): Promise<string> {
   try {
     const id = crypto.randomUUID();
-    const payloadJson = input.payload === undefined ? null : JSON.stringify(input.payload);
+    // Bind the raw object — payload is a JSONB column; JSON.stringify would
+    // double-encode it to a string scalar (every payload->>'field' read → null).
+    const payloadJson = input.payload === undefined ? null : input.payload;
     await run(
       `INSERT INTO memory_events (id, user_id, project_id, event_type, payload)
        VALUES (?, ?, ?, ?, ?)`,
