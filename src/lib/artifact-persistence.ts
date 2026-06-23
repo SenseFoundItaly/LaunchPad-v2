@@ -27,6 +27,7 @@
 import crypto from 'crypto';
 import { get, run } from '@/lib/db';
 import { coerceJson } from '@/lib/jsonb';
+import { parseScoreSummary } from '@/lib/score-summary';
 import { generateId } from '@/lib/api-helpers';
 import type {
   Artifact,
@@ -850,42 +851,28 @@ async function persistDocumentArtifact(ctx: PersistContext, a: DocumentArtifact)
  * Deterministic fallback for the project score. The startup-scoring skill often
  * emits its scorecard as PROSE ("Overall Score: 57 / 100") instead of a
  * gauge-chart artifact, so scores.overall_score stays null and the Home score
- * never appears — even on a successful run. Parse the overall (and any
- * "Dimension: N/100" / "N/10" lines) from the summary and persist, ONLY when a
- * real gauge-chart score isn't already there this run. Returns true if it wrote.
+ * never appears — even on a successful run. Parses via parseScoreSummary and
+ * persists, ONLY when a real gauge-chart score isn't already there this run.
+ * Returns true if it wrote.
  */
 export async function persistScoreFromSummary(projectId: string, summary: string): Promise<boolean> {
   const existing = await get<{ overall_score: number | null }>(
     'SELECT overall_score FROM scores WHERE project_id = ?', projectId);
   if (existing && typeof existing.overall_score === 'number' && existing.overall_score > 0) return false;
 
-  const overallMatch =
-    summary.match(/overall\s+score[:*\s]*\**\s*(\d{1,3})\s*\/\s*100/i) ||
-    summary.match(/\b(\d{1,3})\s*\/\s*100\b/);
-  if (!overallMatch) return false;
-  const overall = Math.max(0, Math.min(100, parseInt(overallMatch[1], 10)));
-
-  // Best-effort dimension breakdown: "Name: 72/100" or "**Name** — 7/10".
-  const dims: Record<string, number> = {};
-  const dimRe = /^[\s>#*-]*\*{0,2}([A-Za-z][A-Za-z &/-]{2,40}?)\*{0,2}\s*[:—–-]+\s*\**\s*(\d{1,3})\s*\/\s*(10|100)\b/gim;
-  for (const dm of summary.matchAll(dimRe)) {
-    const name = dm[1].trim();
-    if (/overall/i.test(name)) continue;
-    const raw = parseInt(dm[2], 10);
-    const scaled = dm[3] === '10' ? raw * 10 : raw;
-    dims[name] = Math.max(0, Math.min(100, scaled));
-  }
-  const dimsArg = Object.keys(dims).length > 0 ? dims : null; // JSONB — raw object, never JSON.stringify
+  const parsed = parseScoreSummary(summary);
+  if (!parsed) return false;
+  const { overall, dimensions: dimsArg, recommendation, benchmark } = parsed;
 
   if (existing) {
     await run(
-      'UPDATE scores SET overall_score = ?, dimensions = COALESCE(?, dimensions), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
-      overall, dimsArg, projectId,
+      'UPDATE scores SET overall_score = ?, dimensions = COALESCE(?, dimensions), benchmark = COALESCE(?, benchmark), recommendation = COALESCE(?, recommendation), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+      overall, dimsArg, benchmark, recommendation, projectId,
     );
   } else {
     await run(
-      'INSERT INTO scores (project_id, overall_score, dimensions, scored_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
-      projectId, overall, dimsArg ?? {},
+      'INSERT INTO scores (project_id, overall_score, dimensions, benchmark, recommendation, scored_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
+      projectId, overall, dimsArg ?? {}, benchmark, recommendation,
     );
   }
   return true;
