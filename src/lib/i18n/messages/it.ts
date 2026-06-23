@@ -40,7 +40,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'score.title': 'Score',
   'score.run': 'Esegui scoring',
   'score.project-score': 'Score del progetto',
-  'score.not-scored': 'Non ancora valutato.',
+  'score.not-scored': 'Non ancora valutato — parte in automatico man mano che completi le fasi.',
   'score.band-strong': 'forte',
   'score.band-promising': 'promettente',
   'score.band-caution': 'attenzione',

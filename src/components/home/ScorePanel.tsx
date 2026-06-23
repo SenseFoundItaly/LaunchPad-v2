@@ -15,7 +15,8 @@
  */
 
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -92,6 +93,34 @@ export function ScorePanel({ projectId }: { projectId: string }) {
       return body.data as StagesResp;
     },
   });
+
+  // Auto-score on stage advance (Option A): when the founder lands on Home past
+  // Stage 2 with no score yet, fire the gated POST /score (auto) so the score
+  // appears automatically — no manual click. The server enforces the real gate +
+  // debounce, so this client trigger is best-effort and safe (it no-ops server-side).
+  const queryClient = useQueryClient();
+  const autoScoreFired = useRef(false);
+  const scoreLoaded = score !== undefined;
+  const stagesDone = (stages?.evaluations ?? []).filter((e) => e.status === 'done').length;
+  const needsScore = typeof score?.overall_score !== 'number';
+  useEffect(() => {
+    if (autoScoreFired.current) return;
+    if (!scoreLoaded || !stages) return;        // wait for both queries
+    if (!needsScore || stagesDone < 2) return;  // only when unscored + past Stage 2
+    autoScoreFired.current = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/score`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ auto: true }),
+        });
+        const reader = res.body?.getReader();       // drain the SSE stream to completion
+        if (reader) { for (;;) { const { done } = await reader.read(); if (done) break; } }
+        queryClient.invalidateQueries({ queryKey: ['score', projectId] });
+      } catch { /* best-effort */ }
+    })();
+  }, [scoreLoaded, stages, needsScore, stagesDone, projectId, queryClient]);
 
   const overall = typeof score?.overall_score === 'number' ? Math.round(score.overall_score) : null;
   const dims = normalizeDimensions(score?.dimensions);
