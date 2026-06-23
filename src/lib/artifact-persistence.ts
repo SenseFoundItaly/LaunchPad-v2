@@ -105,7 +105,11 @@ async function upsertGraphNodeFromArtifact(
       await run(
         'UPDATE graph_nodes SET summary = ?, attributes = ?, sources = COALESCE(?, sources) WHERE id = ?',
         input.summary,
-        JSON.stringify(input.attributes),
+        // Pass the OBJECT, not JSON.stringify(...). attributes is a JSONB column;
+      // postgres.js serializes an object correctly, whereas stringifying stores a
+      // double-encoded JSON *string* scalar that reads back as a string (which
+      // Object.entries then renders character-by-character). See pending-actions.ts:505.
+      input.attributes,
         input.srcJson,
         existing.id,
       );
@@ -120,7 +124,11 @@ async function upsertGraphNodeFromArtifact(
       input.name,
       input.nodeType,
       input.summary,
-      JSON.stringify(input.attributes),
+      // Pass the OBJECT, not JSON.stringify(...). attributes is a JSONB column;
+      // postgres.js serializes an object correctly, whereas stringifying stores a
+      // double-encoded JSON *string* scalar that reads back as a string (which
+      // Object.entries then renders character-by-character). See pending-actions.ts:505.
+      input.attributes,
       input.srcJson,
       input.reviewedState ?? 'pending',
     );
@@ -226,7 +234,8 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     await run(
       'UPDATE graph_nodes SET summary = ?, attributes = ?, sources = COALESCE(?, sources) WHERE id = ?',
       a.summary ?? '',
-      JSON.stringify(a.attributes ?? {}),
+      // JSONB column — pass the object, not a stringified scalar (see above / pending-actions.ts:505).
+      a.attributes ?? {},
       srcJson,
       existing.id,
     );
@@ -251,7 +260,8 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     a.name,
     a.entity_type ?? 'entity',
     a.summary ?? '',
-    JSON.stringify(a.attributes ?? {}),
+    // JSONB column — pass the object, not a stringified scalar (see pending-actions.ts:505).
+    a.attributes ?? {},
     srcJson,
     reviewedState,
   );

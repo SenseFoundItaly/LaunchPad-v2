@@ -58,6 +58,30 @@ function hostOf(url: string): string {
 }
 
 /**
+ * `attributes` should be a `Record<string, unknown>`, but legacy rows persisted
+ * it DOUBLE-ENCODED — a `JSON.stringify` into the JSONB column stored a JSON
+ * *string* scalar (jsonb_typeof='string'), so postgres.js reads it back as a
+ * string. `Object.entries("{...}")` then enumerates the string's CHARACTERS
+ * (0:'{', 1:'"', …) → garbage. Parse defensively so both shapes render.
+ */
+function coerceAttributes(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      /* not JSON — fall through to empty */
+    }
+  }
+  return {};
+}
+
+/**
  * Render one free-form attribute VALUE. `attributes` is a `Record<string,
  * unknown>` captured by the agent, so a value can be a string, number, boolean,
  * an array, or a nested object — there is no schema. This baseline humanizes the
@@ -123,7 +147,7 @@ export default function NodeDetailPanel({
 
   const typeColor = NODE_COLORS[node.node_type] || 'var(--ink-5)';
   const isPending = node.reviewed_state === 'pending';
-  const attrEntries = Object.entries(node.attributes || {}).filter(
+  const attrEntries = Object.entries(coerceAttributes(node.attributes)).filter(
     ([, v]) => v !== null && v !== undefined && v !== '',
   );
   const sources = Array.isArray(node.sources) ? node.sources : [];
