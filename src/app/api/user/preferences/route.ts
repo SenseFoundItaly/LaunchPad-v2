@@ -17,13 +17,14 @@ const LOCALE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 export async function GET() {
   try {
     const { userId } = await requireUser();
-    const user = await get<{ preferred_model: string | null; locale: string | null }>(
-      'SELECT preferred_model, locale FROM users WHERE id = ?',
+    const user = await get<{ preferred_model: string | null; locale: string | null; onboarded: boolean | null }>(
+      'SELECT preferred_model, locale, onboarded FROM users WHERE id = ?',
       userId,
     );
     return NextResponse.json({
       preferred_model: user?.preferred_model ?? null,
       locale: isLocale(user?.locale) ? user!.locale : DEFAULT_LOCALE,
+      onboarded: !!user?.onboarded, // first-login product-tour gate
       available_locales: SUPPORTED_LOCALES,
       available_models: Object.entries(MODEL_CONFIG).map(([key, cfg]) => ({
         key,
@@ -47,7 +48,12 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   try {
     const { userId } = await requireUser();
-    const body = (await req.json()) as { preferred_model?: string | null; locale?: string };
+    const body = (await req.json()) as { preferred_model?: string | null; locale?: string; onboarded?: boolean };
+
+    if ('onboarded' in body) {
+      // first-login product tour completed/skipped → don't show it again (cross-device)
+      await run('UPDATE users SET onboarded = ? WHERE id = ?', body.onboarded === true, userId);
+    }
 
     if ('preferred_model' in body) {
       const { preferred_model } = body;

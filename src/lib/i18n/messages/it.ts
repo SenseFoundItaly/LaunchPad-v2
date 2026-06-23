@@ -19,6 +19,28 @@ export const it: Partial<Record<MessageKey, string>> = {
   'nav.financial.tooltip': 'Proiezioni finanziarie — assunzioni editabili, ricalcolo live, scaricabili',
   'nav.copilot': 'Co-pilot',
   'nav.copilot.tooltip': 'Co-pilot — chat + un Canvas a scorrimento unico di tutto ciò che produce',
+
+  // ── Tour primo accesso (ProductTour.tsx) ──────────────
+  'tour.next': 'Avanti',
+  'tour.prev': 'Indietro',
+  'tour.done-btn': 'Fatto',
+  'tour.welcome.title': 'Benvenuto in LaunchPad',
+  'tour.welcome.desc': 'Due motori: gli Osservatori + il grafo Knowledge monitorano e danno forma all’ecosistema della tua startup; il Co-pilot costruisce la tua Idea Canvas e ti guida nel venture-building. Ecco un tour di 30 secondi.',
+  'tour.home.title': 'Home',
+  'tour.home.desc': 'La tua dashboard — fase del progetto, il workflow di venture-building a 7 fasi, il punteggio e i segnali più recenti.',
+  'tour.knowledge.title': 'Knowledge',
+  'tour.knowledge.desc': 'Parti da qui: carica un documento o descrivi la tua idea. Popola il grafo Knowledge — entità, competitor e fatti che danno forma a tutto il resto.',
+  'tour.watchers.title': 'Osservatori e segnali',
+  'tour.watchers.desc': 'Gli Osservatori monitorano competitor, mercato e regolamentazione, facendo emergere segnali e proposte qui. Creali dalla chat o da questa corsia.',
+  'tour.financial.title': 'Finanze',
+  'tour.financial.desc': 'Proiezioni finanziarie editabili — modifica le assunzioni e il modello a 36 mesi su 3 scenari si ricalcola live, poi scaricalo.',
+  'tour.copilot.title': 'Co-pilot',
+  'tour.copilot.desc': 'Avvia la chat — il Co-pilot costruisce la tua Idea Canvas e ti guida fase per fase nella validazione.',
+  'tour.finish.title': 'Tutto pronto',
+  'tour.finish.desc': 'Inizia aggiungendo knowledge o raccontando la tua idea al Co-pilot. Una volta definita l’Idea Canvas, attiva i primi osservatori settimanali per continuare a dare forma al grafo.',
+  'reminder.canvas-watcher.title': 'L’Idea Canvas sta prendendo forma',
+  'reminder.canvas-watcher.body': 'La tua Idea Canvas è definita — ottimo. Attiva il primo osservatore settimanale per monitorare il tuo ecosistema, e continua a ottimizzare il grafo Knowledge per affinare ogni insight.',
+  'reminder.canvas-watcher.cta': 'Crea un osservatore',
   'nav.settings': 'Impostazioni',
 
   // ── Onboarding (src/components/onboarding/OnboardingCard.tsx) ──────────────

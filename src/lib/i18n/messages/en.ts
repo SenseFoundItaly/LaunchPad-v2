@@ -26,6 +26,28 @@ export const en = {
   'nav.copilot.tooltip': 'Co-pilot — chat + a single-scroll Canvas of everything it produces',
   'nav.settings': 'Settings',
 
+  // ── First-login product tour (ProductTour.tsx) ──────────────
+  'tour.next': 'Next',
+  'tour.prev': 'Back',
+  'tour.done-btn': 'Done',
+  'tour.welcome.title': 'Welcome to LaunchPad',
+  'tour.welcome.desc': 'Two engines: Watchers + your Knowledge graph monitor and shape your startup’s ecosystem; the Co-pilot builds your Idea Canvas and guides venture-building. Here’s a 30-second tour.',
+  'tour.home.title': 'Home',
+  'tour.home.desc': 'Your dashboard — project stage, the 7-stage venture-building workflow, your score, and the latest signals.',
+  'tour.knowledge.title': 'Knowledge',
+  'tour.knowledge.desc': 'Start here: upload a document or describe your idea. It seeds your Knowledge graph — the entities, competitors and facts that shape everything else.',
+  'tour.watchers.title': 'Watchers & signals',
+  'tour.watchers.desc': 'Watchers monitor competitors, market and regulation, surfacing signals and proposals here. Create them from chat or this lane.',
+  'tour.financial.title': 'Financials',
+  'tour.financial.desc': 'Editable financial projections — tweak the assumptions and the 36-month, 3-scenario model recomputes live, then download it.',
+  'tour.copilot.title': 'Co-pilot',
+  'tour.copilot.desc': 'Kick off the chat — the Co-pilot builds your Idea Canvas and guides you stage by stage through validation.',
+  'tour.finish.title': 'You’re set',
+  'tour.finish.desc': 'Start by adding knowledge or telling the Co-pilot your idea. Once your Idea Canvas is defined, activate your first weekly watchers to keep shaping the graph.',
+  'reminder.canvas-watcher.title': 'Idea Canvas is taking shape',
+  'reminder.canvas-watcher.body': 'Your Idea Canvas is defined — nice. Activate your first weekly watcher to monitor your ecosystem, and keep optimizing your Knowledge graph to sharpen every insight.',
+  'reminder.canvas-watcher.cta': 'Set up a watcher',
+
   // ── Onboarding (src/components/onboarding/OnboardingCard.tsx) ──────────────
   'onboarding.title': 'Start here',
   'onboarding.dismiss': 'Got it',
