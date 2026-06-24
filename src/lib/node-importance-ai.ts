@@ -14,8 +14,7 @@
  */
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
-
-export const NODE_IMPORTANCE_AI = process.env.NODE_IMPORTANCE_AI === '1';
+import { nodeImportanceEnabled } from '@/lib/node-importance-flag';
 
 const SYSTEM = [
   'You explain why a single knowledge item matters to a founder building a startup.',
@@ -49,7 +48,7 @@ interface ImportanceNode {
  * off, on any failure, or on empty output — the caller falls back to the template.
  */
 export async function generateNodeImportance(projectId: string, node: ImportanceNode): Promise<string | null> {
-  if (!NODE_IMPORTANCE_AI) return null;
+  if (!nodeImportanceEnabled(projectId)) return null;
   try {
     const attrs = node.attributes && typeof node.attributes === 'object'
       ? Object.entries(node.attributes).map(([k, v]) => `${k}: ${String(v).slice(0, 200)}`).join('\n').slice(0, 800)

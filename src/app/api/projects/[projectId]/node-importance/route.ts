@@ -4,6 +4,7 @@ import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { coerceJson } from '@/lib/jsonb';
 import { generateNodeImportance } from '@/lib/node-importance-ai';
+import { nodeImportanceEnabled } from '@/lib/node-importance-flag';
 
 /**
  * POST /api/projects/{projectId}/node-importance  { node_id }
@@ -23,6 +24,10 @@ export async function POST(
   const { projectId } = await params;
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
+
+  // Control variant (AI off for this project) → no generation, no cached value;
+  // the panel renders the deterministic template.
+  if (!nodeImportanceEnabled(projectId)) return json({ importance: null });
 
   let body: { node_id?: string };
   try { body = await request.json(); } catch { return error('invalid JSON body'); }
