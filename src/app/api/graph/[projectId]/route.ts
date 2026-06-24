@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
+import { nodeImportanceEnabled } from '@/lib/node-importance-flag';
 
 export async function GET(
   _request: NextRequest,
@@ -27,10 +28,14 @@ export async function GET(
   );
   const edges = await query('SELECT * FROM graph_edges WHERE project_id = ? ORDER BY created_at', projectId);
 
-  // attributes is JSONB — postgres.js returns it already parsed
+  // attributes is JSONB — postgres.js returns it already parsed.
+  // Variant-aware: only surface the cached AI importance for AI-variant projects,
+  // so a control project always renders the deterministic template.
+  const aiOn = nodeImportanceEnabled(projectId);
   const parsedNodes: Array<Record<string, unknown>> = nodes.map((n: Record<string, unknown>) => ({
     ...n,
     attributes: n.attributes || {},
+    importance: aiOn ? (n.importance ?? null) : null,
   }));
 
   // Real edges: both endpoints must be visible (applied OR pending).
