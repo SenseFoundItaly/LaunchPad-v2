@@ -24,9 +24,10 @@ const CURRENCY: Record<string, string> = { '€': 'EUR', $: 'USD', '£': 'GBP' }
 /**
  * Extract a per-unit price (→ monthly ARPU) + currency from pricing prose.
  * Requires a cadence/per-unit cue near the amount so we don't mistake a
- * market-size figure ("$10M ARR") for a seat price.
+ * market-size figure ("$10M ARR") for a seat price. Exported for reuse by the
+ * watcher→assumption producer (Phase B).
  */
-function parsePricing(text: string): { monthly: number; currency?: string; label: string } | null {
+export function parseMonthlyPrice(text: string): { monthly: number; currency?: string; label: string } | null {
   if (!text) return null;
   const re = /([€$£])\s?(\d[\d,]*(?:\.\d+)?)\s*([a-z/ .-]{0,40})/gi;
   for (const m of text.matchAll(re)) {
@@ -62,7 +63,7 @@ export function deriveAssumptionsFromProject(input: {
     .filter((v): v is string => typeof v === 'string')
     .join('  ·  ');
 
-  const priced = parsePricing(pricingText);
+  const priced = parseMonthlyPrice(pricingText);
   if (priced) {
     assumptions.arpu_monthly = priced.monthly;
     provenance.arpu_monthly = `Idea Canvas — ${priced.label}`;
