@@ -50,18 +50,28 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  // Per-field source labels when assumptions were SEEDED from project evidence
+  // (e.g. ARPU from the Idea Canvas) rather than typed by the founder.
+  const [provenance, setProvenance] = useState<Record<string, string>>({});
 
   // Load the stored model's assumptions (or defaults) on mount.
   useEffect(() => {
     (async () => {
       try {
-        const { data: resp } = await api.get<ApiResponse<{ financial_model: unknown }>>(
-          `/api/projects/${projectId}/financial-model`,
-        );
+        const { data: resp } = await api.get<ApiResponse<{
+          financial_model: unknown;
+          derived?: { assumptions: Partial<FinancialAssumptions>; provenance: Record<string, string> } | null;
+        }>>(`/api/projects/${projectId}/financial-model`);
         const model = resp?.data?.financial_model as { assumptions?: unknown; generated_at?: string } | null;
+        const derived = resp?.data?.derived;
         if (model && model.assumptions) {
           setAssumptions(coerceAssumptions(model.assumptions));
           setSavedAt(model.generated_at ?? null);
+        } else if (derived?.assumptions && Object.keys(derived.assumptions).length > 0) {
+          // No saved model — seed from the project's own evidence (ARPU from the
+          // Idea Canvas pricing, …) instead of bare defaults, and show why.
+          setAssumptions(coerceAssumptions({ ...defaultAssumptions(), ...derived.assumptions }));
+          setProvenance(derived.provenance || {});
         }
       } catch { /* no model yet — defaults */ }
       setLoading(false);
@@ -76,6 +86,11 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
     const v = key === 'currency' ? raw : Number(raw);
     setAssumptions((a) => ({ ...a, [key]: v as never }));
     setDirty(true);
+    // The founder just typed this value — it's no longer "from the canvas".
+    setProvenance((p) => {
+      if (!p[key as string]) return p;
+      const next = { ...p }; delete next[key as string]; return next;
+    });
   }
 
   async function save() {
@@ -113,9 +128,14 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
           <h3 className="text-lg font-semibold text-ink">Financial projections</h3>
           <span className="text-[11px] text-ink-5">36-month · 3-scenario · recomputes live as you edit</span>
         </div>
-        <p className="text-xs text-ink-4 mb-6">
+        <p className="text-xs text-ink-4 mb-2">
           Edit the assumptions — projections update instantly. <b>Save</b> persists them; <b>Download</b> opens in Excel/Sheets.
         </p>
+        {Object.keys(provenance).length > 0 && !savedAt && (
+          <p className="text-[11px] text-accent mb-6">
+            ↳ Seeded from your project (see tagged fields below) — review and Save to lock them in.
+          </p>
+        )}
 
         {/* Editable assumptions */}
         <div className="bg-paper border border-line rounded-xl p-4 mb-6">
@@ -130,6 +150,11 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
                   onChange={(e) => setField(f.key, e.target.value)}
                   className="bg-surface border border-line-2 rounded px-2 py-1.5 text-sm text-ink outline-none focus:border-ink-4"
                 />
+                {provenance[f.key as string] && (
+                  <span className="text-[10px] text-accent truncate" title={provenance[f.key as string]}>
+                    ↳ {provenance[f.key as string]}
+                  </span>
+                )}
               </label>
             ))}
           </div>
