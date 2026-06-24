@@ -19,6 +19,8 @@
  */
 
 import { run, get } from '@/lib/db';
+import { coerceJson } from '@/lib/jsonb';
+import { marketSizeDrift, fmtAmount } from '@/lib/market-size-coherence';
 import { persistCompetitorCategories } from '@/lib/competitor-categories';
 
 // JSONB bind: pass the RAW value (postgres.js single-encodes). JSON.stringify here
@@ -220,6 +222,21 @@ export async function persistResearchFromSkillOutput(
   const fields = extractResearchFields(text);
   if (!fields) return NONE;
   const { marketSizing, competitors, trends, sources } = fields;
+
+  // F6 — market-size drift TELEMETRY (observe-only). A market-research re-run
+  // overwrites the established TAM/SAM/SOM; if the canonical keeps moving, the
+  // agent can't stay consistent across turns (F1 feeds it; F5 tells it to reuse).
+  // We LOG a material drift so we can measure how often this happens before
+  // deciding on enforcement (preserve/reconcile is a deliberate follow-up — a
+  // hard preserve would lock out legitimately-better re-runs). Fully fail-open:
+  // a broken check NEVER blocks the upsert and NEVER alters the incoming value.
+  try {
+    const prior = await get<{ market_size: unknown }>('SELECT market_size FROM research WHERE project_id = ?', projectId);
+    const drift = marketSizeDrift(coerceJson<Record<string, unknown>>(prior?.market_size), marketSizing);
+    if (drift) {
+      console.log(`[coherence] market-size drift on re-run (project=${projectId}): ${drift.metric} ${fmtAmount(drift.oldAmount)} → ${fmtAmount(drift.newAmount)} (Δ${Math.round(drift.deltaPct * 100)}%)`);
+    }
+  } catch { /* telemetry only — never affects persistence */ }
 
   // research row (upsert — one per project).
   try {
