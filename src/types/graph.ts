@@ -18,6 +18,8 @@ export type GraphNodeType =
 
 export interface GraphNode {
   id: string;
+  /** Owning project — returned by /api/graph (SELECT *); used for lazy fetches. */
+  project_id?: string;
   name: string;
   node_type: GraphNodeType;
   summary: string;
@@ -32,6 +34,9 @@ export interface GraphNode {
   created_at?: string;
   /** 'pending' = a proposal the founder hasn't applied yet (renders dashed). */
   reviewed_state?: 'applied' | 'pending' | 'rejected';
+  /** AI-generated "why this matters" sentence, cached on first view (lazy,
+   *  flag-gated). When absent the panel falls back to the per-type template. */
+  importance?: string | null;
   x?: number;
   y?: number;
   fx?: number | null;

@@ -14,6 +14,7 @@
  * container so it overlays the right edge and scrolls independently.
  */
 
+import { useEffect, useState } from 'react';
 import type { GraphNode } from '@/types/graph';
 import type { Source } from '@/types/artifacts';
 import { coerceJson } from '@/lib/jsonb';
@@ -166,6 +167,25 @@ export default function NodeDetailPanel({
   onDismiss,
 }: NodeDetailPanelProps) {
   const t = useT();
+  // Lazy AI "why this matters" — generated once on first view, cached server-side.
+  // Off by default (flag); the route returns null when disabled and we keep the
+  // template. Cached node.importance shows instantly with no fetch.
+  const [aiImportance, setAiImportance] = useState<string | null>(null);
+  useEffect(() => {
+    setAiImportance(null);
+    if (!node || node.importance || !node.project_id) return;
+    let cancelled = false;
+    fetch(`/api/projects/${node.project_id}/node-importance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, // CSRF guard requires this
+      body: JSON.stringify({ node_id: node.id }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (!cancelled && b?.data?.importance) setAiImportance(b.data.importance); })
+      .catch(() => { /* keep template */ });
+    return () => { cancelled = true; };
+  }, [node?.id, node?.importance, node?.project_id]);
+
   if (!node) return null;
 
   const typeColor = NODE_COLORS[node.node_type] || 'var(--ink-5)';
@@ -287,7 +307,7 @@ export default function NodeDetailPanel({
         <section style={{ background: 'var(--paper-2, var(--surface))', border: '1px solid var(--line)', borderLeft: '2px solid var(--accent)', borderRadius: 6, padding: '10px 12px' }}>
           <SectionLabel>{t('knowledge.section-why')}</SectionLabel>
           <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink-3)' }}>
-            {t(nodeImportanceKey(node.node_type))}
+            {node.importance || aiImportance || t(nodeImportanceKey(node.node_type))}
           </p>
         </section>
 
