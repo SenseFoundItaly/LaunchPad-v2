@@ -1104,6 +1104,8 @@ function producerFromType(type: PendingActionType, ecosystemAlertId?: string | n
     // Materialized from ecosystem_alerts — written by the signal subsystem
     // (monitor runs + watch-source processor).
     signal_alert: 'signal',
+    // Produced when a competitor-pricing signal is accepted (acceptAlertIntoKnowledge).
+    propose_assumption_revision: 'signal',
     // Materialized from intelligence_briefs (intelligence-correlator.ts).
     intelligence_brief: 'correlator',
   };
@@ -1137,6 +1139,7 @@ const TYPE_LABEL_KEY: Record<PendingActionType, MessageKey> = {
   signal_alert:                 'actions.type-signal',
   intelligence_brief:           'actions.type-brief',
   assumption_review:            'actions.type-assumption',
+  propose_assumption_revision:  'actions.type-assumption-revision',
 };
 
 // Returns the i18n key for an action_type's chip label, or null when the type

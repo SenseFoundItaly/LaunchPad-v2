@@ -31,6 +31,11 @@ import { run, query } from '@/lib/db';
 import { cleanEntityName } from '@/lib/ecosystem-alert-parser';
 import { runSkill } from '@/lib/skill-executor';
 import { generateId } from '@/lib/api-helpers';
+import { computeFinancialModel, coerceAssumptions, defaultAssumptions } from '@/lib/financial-projection';
+import { applyRevisionToAssumptions, isRevisableField, proposeArpuRevisionFromAlert } from '@/lib/financial-assumption-revision';
+import { deriveAssumptionsFromProject } from '@/lib/financial-provenance';
+import { createPendingAction } from '@/lib/pending-actions';
+import { coerceJson } from '@/lib/jsonb';
 import { resolveProjectLocale } from '@/lib/agent-prompt';
 import type { Locale } from '@/lib/agent-prompt';
 import { checkDedup, computeDedupHash } from './monitor-dedup';
@@ -1245,6 +1250,30 @@ async function acceptAlertIntoKnowledge(
     } catch (err) {
       console.warn('[acceptAlertIntoKnowledge] recordFact failed (non-fatal):', (err as Error).message);
     }
+
+    // Phase B — if this accepted signal is a competitor-pricing finding whose
+    // price materially differs from the project's ARPU assumption, propose a
+    // financial assumption revision. Founder edits/approves from the inbox →
+    // the model recomputes. Best-effort + non-fatal; never blocks the accept.
+    try {
+      const arpu = await effectiveArpu(action.project_id);
+      const proposal = proposeArpuRevisionFromAlert(
+        { kind: alert.alert_type, headline: alert.headline, body: alert.body },
+        arpu,
+      );
+      if (proposal) {
+        await createPendingAction({
+          project_id: action.project_id,
+          action_type: 'propose_assumption_revision',
+          title: `Review ARPU assumption (${arpu} → ${proposal.value}?)`,
+          rationale: proposal.rationale,
+          payload: { field: proposal.field, value: proposal.value, source: { type: 'monitor', id: alert.id } },
+          ecosystem_alert_id: alert.id,
+        });
+      }
+    } catch (err) {
+      console.warn('[acceptAlertIntoKnowledge] assumption-revision proposal failed (non-fatal):', (err as Error).message);
+    }
   }
 
   return graphNodeId;
@@ -1566,6 +1595,63 @@ const applyValidationProposal: ActionHandler = async (action) => {
   };
 };
 
+/**
+ * The project's effective current ARPU: the stored financial model's assumption
+ * if present, else the canvas-derived ARPU (Phase A), else the bare default.
+ * Used to gauge whether a competitor-pricing signal materially differs.
+ */
+async function effectiveArpu(projectId: string): Promise<number> {
+  const wf = (await query<{ financial_model: unknown }>(
+    'SELECT financial_model FROM workflow WHERE project_id = ?', projectId))[0];
+  const model = coerceJson<{ assumptions?: { arpu_monthly?: unknown } }>(wf?.financial_model);
+  const stored = Number(model?.assumptions?.arpu_monthly);
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  const canvas = (await query<Record<string, unknown>>(
+    'SELECT * FROM idea_canvas WHERE project_id = ?', projectId))[0] || null;
+  const derived = deriveAssumptionsFromProject({ canvas });
+  if (typeof derived.assumptions.arpu_monthly === 'number') return derived.assumptions.arpu_monthly;
+  return defaultAssumptions().arpu_monthly;
+}
+
+/**
+ * `propose_assumption_revision` executor (Phase B) — apply a watcher-proposed
+ * (founder-approved/edited) revision to ONE financial assumption, then recompute
+ * + persist the 36-month projection. Payload: { field, value, source? }. Loads
+ * the current assumptions from the stored model (or defaults), applies the
+ * validated/clamped change, recomputes deterministically, and upserts
+ * workflow.financial_model as a RAW object (JSONB single-encode).
+ */
+const proposeAssumptionRevision: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const field = payload.field;
+  if (!isRevisableField(field)) {
+    return { ok: false, error: `propose_assumption_revision: unknown or non-revisable field "${String(field)}"` };
+  }
+  const rows = await query<{ financial_model: unknown }>(
+    'SELECT financial_model FROM workflow WHERE project_id = ?', action.project_id);
+  const model = coerceJson<{ assumptions?: unknown }>(rows[0]?.financial_model);
+  const current = model?.assumptions ? coerceAssumptions(model.assumptions) : defaultAssumptions();
+  const updated = applyRevisionToAssumptions(current, field, payload.value);
+  if (!updated) {
+    return { ok: false, error: `propose_assumption_revision: invalid value for ${field}` };
+  }
+  const recomputed = computeFinancialModel(updated);
+  const now = new Date().toISOString();
+  await run(
+    `INSERT INTO workflow (project_id, financial_model, generated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT (project_id) DO UPDATE SET financial_model = ?, generated_at = ?`,
+    action.project_id, recomputed, now, recomputed, now, // recomputed bound RAW (object)
+  );
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct' as const,
+      narrative: `Updated ${field} to ${updated[field]} and recomputed the 36-month projection.`,
+    },
+  };
+};
+
 const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   draft_email: draftEmail,
   draft_linkedin_post: draftLinkedInPost,
@@ -1585,6 +1671,7 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   configure_watch_source: configureWatchSource,
   run_skill: runSkillExecutor,
   validation_proposal: applyValidationProposal,
+  propose_assumption_revision: proposeAssumptionRevision,
   // Placeholder until the Phase-2 workflows execution layer ships. The
   // workflow-card fan-out into per-step pending_actions was removed (2026-06),
   // so this rarely materializes today; when it does, be honest rather than
