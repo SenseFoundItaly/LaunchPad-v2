@@ -13,6 +13,7 @@ import { makeProjectTools, withSourceTitles } from '@/lib/project-tools';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { buildMemoryContext } from '@/lib/memory/context';
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
+import { buildResearchContext } from '@/lib/research-context';
 import { isClarificationOnly } from '@/lib/skill-output';
 import { formatStageContextForPrompt } from '@/lib/journey/stage-prompt';
 import { computeNextBestAction, renderDirectionForPrompt } from '@/lib/direction';
@@ -644,7 +645,12 @@ export async function POST(request: NextRequest) {
   // every turn. The dynamic per-turn context is assembled here but, when the flag
   // is ON, is NOT baked into the system string — it rides the user turn instead
   // (buildSplitUserTurn, below), recency-preserving. Flag OFF = byte-identical to before.
-  const dynamicContext = `${directionContext}${stageContext}${canvasContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
+  // Committed market sizing (TAM/SAM/SOM) so the agent reuses one figure across
+  // turns instead of re-deriving a different number each time. snapshot.research
+  // is already fetched; '' when no sizing exists (no token cost). Reference-only
+  // framing keeps it out of the validation gate.
+  const researchContext = buildResearchContext((snapshot?.research ?? null) as Record<string, unknown> | null);
+  const dynamicContext = `${directionContext}${stageContext}${canvasContext}${researchContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
   let systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
