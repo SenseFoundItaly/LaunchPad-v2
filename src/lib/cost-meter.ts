@@ -181,6 +181,9 @@ export function recordAgentUsage(opts: {
   task: TaskLabel | string;
   usage: Usage | undefined;
   latency_ms: number;
+  /** "Absorb" the cost — still log it (llm_usage_logs + Langfuse), but don't
+   *  debit the founder's credits. For system-side niceties they didn't trigger. */
+  skip_credit_debit?: boolean;
 }): void {
   if (!opts.usage) return;
   const { provider, model } = pickModel(opts.task);
@@ -212,6 +215,7 @@ export function recordAgentUsage(opts: {
     model,
     usage: usageToLog as Usage,
     latency_ms: opts.latency_ms,
+    skip_credit_debit: opts.skip_credit_debit,
   }).catch(err =>
     console.warn(`[${opts.step}] recordUsage failed:`, (err as Error).message),
   );
