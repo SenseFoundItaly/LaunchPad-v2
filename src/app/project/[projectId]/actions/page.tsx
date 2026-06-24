@@ -39,6 +39,7 @@ import { laneFor } from '@/lib/action-lanes';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { SkillProposalReview, skillCreditsFromAction } from '@/components/actions/SkillProposalReview';
 import { PayloadSummary } from '@/components/actions/PayloadSummary';
+import { nodeImportanceKey } from '@/lib/node-importance';
 
 // Tab strip — Inbox / Watchers (radically simplified, 2026-06-11).
 //
@@ -751,6 +752,21 @@ function TicketDetail({
         </SideSection>
       )}
 
+      {/* What applying this adds to the project — so the founder knows why it's
+          worth merging, not just what it says. Only while it can still be acted on. */}
+      {canAct && (
+        <SideSection title={t('actions.section-what-adds')}>
+          <div style={{ padding: 14, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+            {t(nodeImportanceKey(
+              (action.edited_payload as { node_type?: string; kind?: string } | null)?.node_type
+              ?? (action.payload as { node_type?: string; kind?: string } | null)?.node_type
+              ?? (action.payload as { node_type?: string; kind?: string } | null)?.kind
+              ?? action.action_type,
+            ))}
+          </div>
+        </SideSection>
+      )}
+
       <SideSection title={canAct || awaitingClick ? t('actions.section-human-actions') : t('actions.section-outcome')}>
         <LaneAwareActions action={action} canAct={canAct} awaitingClick={awaitingClick} onTransition={onTransition} />
       </SideSection>
@@ -864,12 +880,17 @@ function LaneAwareActions({
   //     which made Accept unreachable (the B1 blocker). Primary verb names
   //     the outcome; secondary reads "Dismiss" because declining a signal is
   //     triage, not a judgement on a draft.
+  // Items that MERGE into the knowledge graph on apply name that outcome so the
+  // founder knows the click commits it to Knowledge (not a generic "Apply").
+  const KNOWLEDGE_MERGE_TYPES = new Set(['proposed_graph_update', 'assumption_review', 'intelligence_brief']);
   const applyLabel =
     action.action_type === 'run_skill'
       ? t('actions.run-skill-credits', { credits: skillCreditsFromAction(action) })
       : action.action_type === 'signal_alert'
         ? t('actions.accept-into-knowledge')
-        : t('actions.apply');
+        : KNOWLEDGE_MERGE_TYPES.has(action.action_type)
+          ? t('actions.apply-to-knowledge')
+          : t('actions.apply');
   const rejectLabel = action.action_type === 'signal_alert' ? t('actions.dismiss') : t('actions.reject');
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>

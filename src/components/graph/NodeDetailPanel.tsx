@@ -19,6 +19,8 @@ import type { Source } from '@/types/artifacts';
 import { coerceJson } from '@/lib/jsonb';
 import { NODE_COLORS } from '@/types/graph';
 import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
+import { nodeImportanceKey } from '@/lib/node-importance';
+import { useT } from '@/components/providers/LocaleProvider';
 
 /** A node reachable from the selected node in one hop, plus how they relate. */
 export interface NodeNeighbor {
@@ -163,6 +165,7 @@ export default function NodeDetailPanel({
   onApply,
   onDismiss,
 }: NodeDetailPanelProps) {
+  const t = useT();
   if (!node) return null;
 
   const typeColor = NODE_COLORS[node.node_type] || 'var(--ink-5)';
@@ -280,6 +283,14 @@ export default function NodeDetailPanel({
 
       {/* Scrollable body */}
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Why this matters — what merging this node adds to the project. */}
+        <section style={{ background: 'var(--paper-2, var(--surface))', border: '1px solid var(--line)', borderLeft: '2px solid var(--accent)', borderRadius: 6, padding: '10px 12px' }}>
+          <SectionLabel>{t('knowledge.section-why')}</SectionLabel>
+          <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink-3)' }}>
+            {t(nodeImportanceKey(node.node_type))}
+          </p>
+        </section>
+
         {/* Summary */}
         {node.summary && (
           <section>
