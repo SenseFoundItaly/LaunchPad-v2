@@ -19,6 +19,7 @@
 
 import { get } from '@/lib/db';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
+import { marketSizingProse } from '@/lib/research-context';
 
 const FIELD_CAP = 600; // per-field char cap so a verbose canvas can't blow the prompt
 const MAX_FACTS = 8;
@@ -80,10 +81,11 @@ export async function buildSkillProjectContext(projectId: string): Promise<strin
     lines.push('', `Known competitors: ${competitors.slice(0, 12).join(', ')}`);
   }
 
-  if (research) {
-    const marketSize = clip(research.market_size, 300);
-    if (marketSize) lines.push('', `Prior market research: ${marketSize}`);
-  }
+  // Render committed sizing as readable prose (shared with chat context), and
+  // only when it's genuine TAM/SAM/SOM — research.market_size also holds
+  // non-sizing metric-grids, which the old clipped-JSON render leaked verbatim.
+  const sizing = marketSizingProse(research);
+  if (sizing) lines.push('', `Established market sizing: ${sizing}`);
 
   if (facts.length > 0) {
     lines.push('', 'Founder-asserted facts:');
