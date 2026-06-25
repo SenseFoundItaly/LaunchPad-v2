@@ -42,8 +42,10 @@ import type {
   TaskArtifact,
   HtmlPreviewArtifact,
   DocumentArtifact,
+  TamSamSomArtifact,
   Source,
 } from '@/types/artifacts';
+import { marketSizeFromTamSamSom } from './research-context';
 import { recordFact } from './memory/facts';
 import { createPendingAction } from './pending-actions';
 import { getCreditsRemaining } from './credits';
@@ -191,11 +193,47 @@ export async function persistArtifact(ctx: PersistContext, artifact: Artifact): 
       // (deduped, pending) the founder can approve onto the spine — no reliance
       // on the model calling the tool. Gate-respecting: nothing greens without
       // approval. (Competitors are captured separately by persistComparisonTable.)
-      case 'idea-canvas':
-      case 'tam-sam-som': {
+      case 'idea-canvas': {
         const r = await autoStageValidationFromArtifact(ctx.projectId, artifact);
         return r.staged
           ? { type: artifact.type, persisted: true, target: `validation_proposal (auto, ${r.itemCount} item(s))`, persisted_id: r.pendingActionId }
+          : { type: artifact.type, persisted: false, note: 'view-only / already staged — no new proposal' };
+      }
+      case 'tam-sam-som': {
+        // TWO writes, distinct purposes:
+        //  (1) REFERENCE (ungated): the committed TAM/SAM/SOM → research.market_size,
+        //      the column buildResearchContext re-reads so the agent reuses ONE figure
+        //      across turns. Without this the chat-stated sizing never persists and the
+        //      next turn denies/re-derives it (verified live 2026-06-25). Bind the RAW
+        //      object (postgres.js single-encodes JSONB); coerceJson reads it back.
+        //  (2) EVIDENCE (gated): the validation_proposal the founder approves onto the
+        //      spine — unchanged. Reference data does not green any stage check.
+        const sizing = marketSizeFromTamSamSom(artifact as TamSamSomArtifact);
+        let sizingTarget = '';
+        if (sizing) {
+          const srcJson = sourcesJson((artifact as TamSamSomArtifact).sources);
+          const existing = await get<{ project_id: string }>(
+            'SELECT project_id FROM research WHERE project_id = ?',
+            ctx.projectId,
+          );
+          if (existing) {
+            await run(
+              'UPDATE research SET market_size = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+              sizing, srcJson, ctx.projectId,
+            );
+          } else {
+            await run(
+              'INSERT INTO research (project_id, market_size, sources) VALUES (?, ?, ?)',
+              ctx.projectId, sizing, srcJson,
+            );
+          }
+          sizingTarget = 'research.market_size';
+        }
+        const r = await autoStageValidationFromArtifact(ctx.projectId, artifact);
+        const valTarget = r.staged ? `validation_proposal (auto, ${r.itemCount} item(s))` : '';
+        const target = [sizingTarget, valTarget].filter(Boolean).join(' + ');
+        return (sizingTarget || r.staged)
+          ? { type: artifact.type, persisted: true, target: target || artifact.type, persisted_id: r.pendingActionId }
           : { type: artifact.type, persisted: false, note: 'view-only / already staged — no new proposal' };
       }
       // Remaining stage cards are pure VIEWS over canonical tables (persona-card

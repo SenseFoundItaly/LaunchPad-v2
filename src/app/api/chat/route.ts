@@ -311,7 +311,7 @@ USAGE RULES:
 11) SPECIALIZED CARDS — pick these over comparison-table/document/score-badges when the data shape matches:
     - 2+ risks with probability/impact → risk-matrix (NEVER comparison-table, even if the founder uses words like "matrix" or "table")
     - Personas (buyer or simulation) → persona-card (NEVER entity-card with entity_type="persona")
-    - TAM/SAM/SOM or market sizing → tam-sam-som (NEVER three score-badges or a comparison-table)
+    - TAM/SAM/SOM or market sizing → tam-sam-som (NEVER three score-badges or a comparison-table). Whenever you state a sizing figure, carry it IN a tam-sam-som artifact — never prose-only numbers. The artifact is what persists the figure to the project (research.market_size) so it comes back in [RESEARCH CONTEXT] and you quote ONE consistent number next turn; a number mentioned only in prose is forgotten, and you will contradict yourself when asked again.
     - Lean Canvas / Idea Canvas / 9-block business model → idea-canvas (NEVER a document)
     - Fundraising pipeline / investors grouped by stage → investor-pipeline (NEVER comparison-table)
     - Weekly/period founder update with highlights/challenges/asks → weekly-update (ONLY when explicitly asked)

@@ -56,6 +56,45 @@ export function marketSizingProse(research: Record<string, unknown> | null | und
   return [tam && `TAM ${tam}`, sam && `SAM ${sam}`, som && `SOM ${som}`].filter(Boolean).join(' · ');
 }
 
+/** Stored tier inside research.market_size — value + optional confidence, exactly what tierText reads back. */
+interface StoredTier {
+  value: string;
+  confidence?: string;
+}
+
+/**
+ * Map a `tam-sam-som` artifact payload to the research.market_size shape that
+ * marketSizingProse reads. Returns null when no tier carries a usable value, so
+ * the write side never persists an empty/polluting row. Pure + testable; living
+ * in THIS module guarantees the WRITE shape and the READ shape (marketSizingProse)
+ * cannot drift apart. Closes the coherence gap where a chat-stated TAM/SAM/SOM
+ * never reached the column the agent re-reads next turn — the agent then denied
+ * or re-derived the figure (verified live 2026-06-25: T4 said "$8B TAM", T7
+ * "no persisted TAM").
+ */
+export function marketSizeFromTamSamSom(
+  payload: { tam?: unknown; sam?: unknown; som?: unknown } | null | undefined,
+): { tam?: StoredTier; sam?: StoredTier; som?: StoredTier } | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const pick = (raw: unknown): StoredTier | undefined => {
+    if (!raw || typeof raw !== 'object') return undefined;
+    const t = raw as { value?: unknown; estimate?: unknown; confidence?: unknown };
+    const value =
+      (typeof t.value === 'string' && t.value.trim()) ||
+      (typeof t.estimate === 'string' && t.estimate.trim()) ||
+      '';
+    if (!value) return undefined;
+    const tier: StoredTier = { value };
+    if (typeof t.confidence === 'string' && t.confidence.trim()) tier.confidence = t.confidence.trim();
+    return tier;
+  };
+  const tam = pick(payload.tam);
+  const sam = pick(payload.sam);
+  const som = pick(payload.som);
+  if (!tam && !sam && !som) return null;
+  return { ...(tam && { tam }), ...(sam && { sam }), ...(som && { som }) };
+}
+
 /**
  * Per-turn chat context block for the committed market sizing. Framed as
  * REFERENCE (reuse for consistency) — explicitly NOT stage-closure evidence,
