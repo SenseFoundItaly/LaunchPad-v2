@@ -4,6 +4,7 @@ import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { readStagedCanvasFieldValues } from '@/lib/skill-prereqs';
 import { seedAssumptionsIfEmpty } from '@/lib/assumptions';
+import { persistCanvasDetails } from '@/lib/canvas-details';
 
 const CANVAS_FIELDS = [
   'problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage',
@@ -23,6 +24,11 @@ interface IdeaCanvasRow {
   target_market: string | null;
   value_proposition: string | null;
   business_model: string | null;
+  competitive_advantage: string | null;
+  unfair_advantage: string | null;
+  key_metrics: string[] | null;
+  revenue_streams: string[] | null;
+  cost_structure: string[] | null;
 }
 
 export async function GET(
@@ -34,7 +40,8 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   const row = await get<IdeaCanvasRow>(
-    `SELECT problem, solution, target_market, value_proposition, business_model
+    `SELECT problem, solution, target_market, value_proposition, business_model,
+            competitive_advantage, unfair_advantage, key_metrics, revenue_streams, cost_structure
      FROM idea_canvas
      WHERE project_id = ?`,
     projectId,
@@ -58,6 +65,11 @@ export async function GET(
       target_market: null,
       value_proposition: null,
       business_model: null,
+      competitive_advantage: null,
+      unfair_advantage: null,
+      key_metrics: null,
+      revenue_streams: null,
+      cost_structure: null,
     }),
     pending,
   });
@@ -120,5 +132,9 @@ export async function POST(
     .join('\n\n');
   if (seedContext) void seedAssumptionsIfEmpty(projectId, seedContext);
 
-  return json({ applied: CANVAS_FIELDS.filter((k) => fields[k].length > 0) }, 201);
+  // Soft Lean Canvas fields (unfair_advantage + the array fields) persist directly
+  // (ungated) — they carry no stage gate, unlike the 6 core fields above.
+  const extras = await persistCanvasDetails(projectId, body).catch(() => [] as string[]);
+
+  return json({ applied: [...CANVAS_FIELDS.filter((k) => fields[k].length > 0), ...extras] }, 201);
 }

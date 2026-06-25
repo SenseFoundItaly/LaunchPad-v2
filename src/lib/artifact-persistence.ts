@@ -43,9 +43,11 @@ import type {
   HtmlPreviewArtifact,
   DocumentArtifact,
   TamSamSomArtifact,
+  IdeaCanvasArtifact,
   Source,
 } from '@/types/artifacts';
 import { marketSizeFromTamSamSom } from './research-context';
+import { persistCanvasDetails } from './canvas-details';
 import { recordFact } from './memory/facts';
 import { createPendingAction } from './pending-actions';
 import { getCreditsRemaining } from './credits';
@@ -194,10 +196,15 @@ export async function persistArtifact(ctx: PersistContext, artifact: Artifact): 
       // on the model calling the tool. Gate-respecting: nothing greens without
       // approval. (Competitors are captured separately by persistComparisonTable.)
       case 'idea-canvas': {
+        // SOFT fields (unfair_advantage + key_metrics/revenue_streams/cost_structure)
+        // carry no stage gate, so persist them directly (ungated) — otherwise the
+        // agent emits a full Lean Canvas that renders once and is dropped.
+        await persistCanvasDetails(ctx.projectId, artifact as IdeaCanvasArtifact).catch(() => {});
+        // CORE 6 fields gate Stage 1-3 → validation_proposal the founder approves.
         const r = await autoStageValidationFromArtifact(ctx.projectId, artifact);
         return r.staged
-          ? { type: artifact.type, persisted: true, target: `validation_proposal (auto, ${r.itemCount} item(s))`, persisted_id: r.pendingActionId }
-          : { type: artifact.type, persisted: false, note: 'view-only / already staged — no new proposal' };
+          ? { type: artifact.type, persisted: true, target: `validation_proposal (auto, ${r.itemCount} item(s)) + canvas details`, persisted_id: r.pendingActionId }
+          : { type: artifact.type, persisted: false, note: 'canvas details persisted; gate view-only / already staged' };
       }
       case 'tam-sam-som': {
         // TWO writes, distinct purposes:
