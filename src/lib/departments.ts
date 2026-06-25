@@ -149,12 +149,3 @@ export const DEPARTMENTS_BY_ID: Record<DepartmentId, Department> =
     DepartmentId,
     Department
   >;
-
-/** Reverse lookup: which department owns this table? Useful for routing
- *  raw DB events ("a burn_rate row changed") to the right department badge. */
-export function departmentForTable(table: string): DepartmentId | null {
-  for (const d of DEPARTMENTS) {
-    if (d.tables.includes(table)) return d.id;
-  }
-  return null;
-}
