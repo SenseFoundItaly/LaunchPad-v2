@@ -35,4 +35,28 @@ describe('deriveAssumptionsFromProject', () => {
     expect(deriveAssumptionsFromProject({ canvas: { business_model: '£29/mo per user' } }).assumptions).toMatchObject({ arpu_monthly: 29, currency: 'GBP' });
     expect(deriveAssumptionsFromProject({ canvas: { revenue_streams: 'Subscription, $79 per user per month' } }).assumptions.arpu_monthly).toBe(79);
   });
+
+  // pricing_state is the canonical Stage-4 price the founder commits via set_pricing;
+  // the financial model must derive ARPU from it so chat sketch + Financials page agree.
+  it('derives ARPU + currency from pricing_state.anchor_price (PRIMARY source)', () => {
+    const r = deriveAssumptionsFromProject({ pricing: { anchor_price: 29, currency: 'eur' } });
+    expect(r.assumptions.arpu_monthly).toBe(29);
+    expect(r.assumptions.currency).toBe('EUR');
+    expect(r.provenance.arpu_monthly).toBe('Pricing — anchor price');
+  });
+
+  it('pricing_state anchor_price takes PRECEDENCE over canvas prose', () => {
+    const r = deriveAssumptionsFromProject({
+      pricing: { anchor_price: 29 },
+      canvas: { business_model: '€49 per seat per month' }, // stale canvas price
+    });
+    expect(r.assumptions.arpu_monthly).toBe(29); // the committed anchor wins, not the prose
+    expect(r.provenance.arpu_monthly).toBe('Pricing — anchor price');
+  });
+
+  it('accepts a stringy anchor_price and ignores a zero/empty one', () => {
+    expect(deriveAssumptionsFromProject({ pricing: { anchor_price: '49' } }).assumptions.arpu_monthly).toBe(49);
+    // anchor_price 0 / missing → fall through to canvas
+    expect(deriveAssumptionsFromProject({ pricing: { anchor_price: 0 }, canvas: { business_model: '$15/mo per user' } }).assumptions.arpu_monthly).toBe(15);
+  });
 });

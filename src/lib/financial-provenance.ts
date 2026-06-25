@@ -48,28 +48,51 @@ export function parseMonthlyPrice(text: string): { monthly: number; currency?: s
 
 /**
  * Derive what we can from the project. `canvas` = idea_canvas row;
- * `research` = research row (market_size used only for an informational note).
+ * `research` = research row (market_size used only for an informational note);
+ * `pricing` = pricing_state row (the canonical Stage-4 price the founder set via
+ * the set_pricing tool / Pricing surface).
  */
 export function deriveAssumptionsFromProject(input: {
   canvas?: Record<string, unknown> | null;
   research?: Record<string, unknown> | null;
+  pricing?: Record<string, unknown> | null;
 }): DerivedAssumptions {
   const assumptions: Partial<FinancialAssumptions> = {};
   const provenance: Record<string, string> = {};
   const c = input.canvas || {};
+  const p = input.pricing || {};
 
-  const pricingText = ['business_model', 'revenue_streams', 'value_proposition']
-    .map((k) => c[k])
-    .filter((v): v is string => typeof v === 'string')
-    .join('  ·  ');
+  // PRIMARY: pricing_state.anchor_price — the structured monthly price the founder
+  // committed (set_pricing tool, e.g. 29 for €29/mo). The model used to read ONLY
+  // canvas prose, so a price set in chat never reached /financial and the chat
+  // sketch diverged from the Financials page. Read the structured value first.
+  const rawAnchor = p.anchor_price;
+  const anchor =
+    typeof rawAnchor === 'number' && rawAnchor > 0 ? rawAnchor
+    : typeof rawAnchor === 'string' ? parseAmount(rawAnchor) : null;
+  if (anchor != null && anchor > 0) {
+    assumptions.arpu_monthly = Math.round(anchor);
+    provenance.arpu_monthly = 'Pricing — anchor price';
+    const cur = typeof p.currency === 'string' && p.currency.trim() ? p.currency.trim().toUpperCase() : null;
+    if (cur) {
+      assumptions.currency = cur;
+      provenance.currency = 'Pricing — currency';
+    }
+  } else {
+    // FALLBACK: parse a per-unit price from canvas prose.
+    const pricingText = ['business_model', 'revenue_streams', 'value_proposition']
+      .map((k) => c[k])
+      .filter((v): v is string => typeof v === 'string')
+      .join('  ·  ');
 
-  const priced = parseMonthlyPrice(pricingText);
-  if (priced) {
-    assumptions.arpu_monthly = priced.monthly;
-    provenance.arpu_monthly = `Idea Canvas — ${priced.label}`;
-    if (priced.currency) {
-      assumptions.currency = priced.currency;
-      provenance.currency = 'Idea Canvas — pricing';
+    const priced = parseMonthlyPrice(pricingText);
+    if (priced) {
+      assumptions.arpu_monthly = priced.monthly;
+      provenance.arpu_monthly = `Idea Canvas — ${priced.label}`;
+      if (priced.currency) {
+        assumptions.currency = priced.currency;
+        provenance.currency = 'Idea Canvas — pricing';
+      }
     }
   }
 
