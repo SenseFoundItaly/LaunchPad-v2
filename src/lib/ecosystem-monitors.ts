@@ -12,6 +12,7 @@
 import { createHash } from 'crypto';
 import { query, run } from '@/lib/db';
 import { coerceJson } from '@/lib/jsonb';
+import { getCompetitorNames } from './competitors';
 import { generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 
@@ -519,7 +520,10 @@ export async function loadMonitorContext(projectId: string): Promise<MonitorProm
   const researchRow = researchRows[0];
 
   let research: MonitorPromptContext['research'] = null;
-  const knownCompetitors: string[] = [];
+  // Names across ALL competitor stores (research.competitors + applied graph_nodes +
+  // competitor_profiles) so watchers target competitors the founder mapped in chat too —
+  // not just research.competitors, which a non-competitor-themed table never reaches.
+  const knownCompetitors = await getCompetitorNames(projectId);
   if (researchRow) {
     research = {};
     if (researchRow.competitors) {
@@ -528,7 +532,6 @@ export async function loadMonitorContext(projectId: string): Promise<MonitorProm
         // string rows (the write is now single-encoded — see jb() / PR2).
         const parsed = coerceJson<Array<{ name: string; description?: string }>>(researchRow.competitors) ?? [];
         research.competitors = parsed;
-        knownCompetitors.push(...parsed.map(c => c.name).filter(Boolean));
       } catch { /* ignore malformed JSON */ }
     }
     if (researchRow.trends) {

@@ -33,7 +33,7 @@ import { runSkill } from '@/lib/skill-executor';
 import { generateId } from '@/lib/api-helpers';
 import { computeFinancialModel, coerceAssumptions, defaultAssumptions } from '@/lib/financial-projection';
 import { applyRevisionToAssumptions, isRevisableField, proposeArpuRevisionFromAlert } from '@/lib/financial-assumption-revision';
-import { deriveAssumptionsFromProject } from '@/lib/financial-provenance';
+import { deriveAssumptionsForProject } from '@/lib/financial-assumptions';
 import { createPendingAction } from '@/lib/pending-actions';
 import { coerceJson } from '@/lib/jsonb';
 import { resolveProjectLocale } from '@/lib/agent-prompt';
@@ -1606,9 +1606,11 @@ async function effectiveArpu(projectId: string): Promise<number> {
   const model = coerceJson<{ assumptions?: { arpu_monthly?: unknown } }>(wf?.financial_model);
   const stored = Number(model?.assumptions?.arpu_monthly);
   if (Number.isFinite(stored) && stored > 0) return stored;
-  const canvas = (await query<Record<string, unknown>>(
-    'SELECT * FROM idea_canvas WHERE project_id = ?', projectId))[0] || null;
-  const derived = deriveAssumptionsFromProject({ canvas });
+  // Derive via the shared accessor so the founder's committed price
+  // (pricing_state.anchor_price) is the PRIMARY source — matching /financial.
+  // The old inline deriveAssumptionsFromProject({ canvas }) ignored pricing_state,
+  // so a competitor-pricing alert was judged against canvas/default ARPU.
+  const derived = await deriveAssumptionsForProject(projectId);
   if (typeof derived.assumptions.arpu_monthly === 'number') return derived.assumptions.arpu_monthly;
   return defaultAssumptions().arpu_monthly;
 }

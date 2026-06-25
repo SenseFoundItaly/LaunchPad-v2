@@ -3,7 +3,8 @@ import { get, run } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { computeFinancialModel } from '@/lib/financial-projection';
-import { deriveAssumptionsFromProject } from '@/lib/financial-provenance';
+import type { DerivedAssumptions } from '@/lib/financial-provenance';
+import { deriveAssumptionsForProject } from '@/lib/financial-assumptions';
 
 /**
  * GET /api/projects/{projectId}/financial-model
@@ -34,12 +35,9 @@ export async function GET(
   // evidence (e.g. ARPU from the Idea Canvas pricing) instead of bare defaults,
   // so the founder doesn't see €29 when their canvas says €49. Each derived
   // field carries provenance for display. Only read evidence when needed.
-  let derived: ReturnType<typeof deriveAssumptionsFromProject> | null = null;
+  let derived: DerivedAssumptions | null = null;
   if (!model || typeof (model as { assumptions?: unknown }).assumptions === 'undefined') {
-    const canvas = await get<Record<string, unknown>>('SELECT * FROM idea_canvas WHERE project_id = ?', projectId);
-    const research = await get<Record<string, unknown>>('SELECT market_size FROM research WHERE project_id = ?', projectId);
-    const pricing = await get<Record<string, unknown>>('SELECT * FROM pricing_state WHERE project_id = ?', projectId);
-    const d = deriveAssumptionsFromProject({ canvas, research, pricing });
+    const d = await deriveAssumptionsForProject(projectId);
     if (Object.keys(d.assumptions).length > 0) derived = d;
   }
 
