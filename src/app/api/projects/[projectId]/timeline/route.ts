@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { json } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
+import { getCompetitorNames } from '@/lib/competitors';
 import { listWatchers, watcherTopicCounts, type Watcher, type WatcherTopic } from '@/lib/watchers';
 
 /**
@@ -296,15 +297,14 @@ async function checkContextComplete(projectId: string): Promise<{
   has_keywords: boolean;
   complete: boolean;
 }> {
-  const [ideaRows, researchRows, keywordRows] = await Promise.all([
+  const [ideaRows, competitorNames, keywordRows] = await Promise.all([
     query<{ problem: string | null; solution: string | null }>(
       'SELECT problem, solution FROM idea_canvas WHERE project_id = ?',
       projectId,
     ),
-    query<{ competitors: string | null }>(
-      'SELECT competitors FROM research WHERE project_id = ?',
-      projectId,
-    ),
+    // All competitor stores, not just research.competitors — a competitor the founder
+    // mapped in chat lands in graph_nodes and was invisible to this check before.
+    getCompetitorNames(projectId),
     query<{ n: string | number }>(
       `SELECT COUNT(*) AS n FROM graph_nodes
         WHERE project_id = ?
@@ -314,13 +314,7 @@ async function checkContextComplete(projectId: string): Promise<{
   ]);
   const idea = ideaRows[0];
   const has_idea = !!(idea?.problem?.trim() || idea?.solution?.trim());
-  let has_competitors = false;
-  if (researchRows[0]?.competitors) {
-    try {
-      const parsed = JSON.parse(researchRows[0].competitors);
-      has_competitors = Array.isArray(parsed) && parsed.length > 0;
-    } catch { /* malformed JSON — treat as absent */ }
-  }
+  const has_competitors = competitorNames.length > 0;
   const has_keywords = Number(keywordRows[0]?.n ?? 0) > 0;
   return {
     has_idea,
