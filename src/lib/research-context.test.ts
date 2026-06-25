@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { marketSizingProse, buildResearchContext } from './research-context';
+import { marketSizingProse, buildResearchContext, marketSizeFromTamSamSom } from './research-context';
 
 describe('marketSizingProse', () => {
   // Real prod row shape (proj_bacac4a9): nested tiers with estimate + confidence.
@@ -62,5 +62,44 @@ describe('buildResearchContext', () => {
   it('returns empty string when there is no sizing (zero added tokens)', () => {
     expect(buildResearchContext(null)).toBe('');
     expect(buildResearchContext({ market_size: { MRR: { value: '$1k' } } })).toBe('');
+  });
+});
+
+describe('marketSizeFromTamSamSom (write-shape mapper)', () => {
+  // Exact tam-sam-som artifact payload shape (MarketSizeTier: value + confidence + extras).
+  it('extracts value + confidence, dropping bulky artifact-only fields', () => {
+    const artifact = {
+      tam: { value: '$8B', numeric_usd: 8_000_000_000, methodology: 'long text', confidence: 'medium' },
+      sam: { value: '$360M', numeric_usd: 360_000_000 },
+      som: { value: '$9M' },
+    };
+    expect(marketSizeFromTamSamSom(artifact)).toEqual({
+      tam: { value: '$8B', confidence: 'medium' },
+      sam: { value: '$360M' },
+      som: { value: '$9M' },
+    });
+  });
+
+  // THE regression guard for the live T4→T7 coherence bug: a tam-sam-som the agent
+  // emits must round-trip through the column so the SAME prose comes back next turn.
+  it('round-trips: artifact → research.market_size → marketSizingProse', () => {
+    const artifact = { tam: { value: '$8B', confidence: 'medium' }, sam: { value: '$360M' }, som: { value: '$9M' } };
+    const stored = marketSizeFromTamSamSom(artifact);
+    expect(marketSizingProse({ market_size: stored })).toBe('TAM $8B (medium confidence) · SAM $360M · SOM $9M');
+  });
+
+  it('returns null when no tier carries a usable value (never persists an empty/polluting row)', () => {
+    expect(marketSizeFromTamSamSom(null)).toBeNull();
+    expect(marketSizeFromTamSamSom(undefined)).toBeNull();
+    expect(marketSizeFromTamSamSom({})).toBeNull();
+    expect(marketSizeFromTamSamSom({ tam: { confidence: 'high' }, sam: {}, som: null })).toBeNull();
+  });
+
+  it('persists a partial sizing (e.g. SAM only)', () => {
+    expect(marketSizeFromTamSamSom({ sam: { value: '$360M', confidence: 'low' } })).toEqual({ sam: { value: '$360M', confidence: 'low' } });
+  });
+
+  it('accepts the estimate alias (defensive parity with the reader)', () => {
+    expect(marketSizeFromTamSamSom({ tam: { estimate: '€1.0B', confidence: 'medium' } })).toEqual({ tam: { value: '€1.0B', confidence: 'medium' } });
   });
 });
