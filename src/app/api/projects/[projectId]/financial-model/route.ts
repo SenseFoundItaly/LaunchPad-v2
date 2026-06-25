@@ -38,7 +38,8 @@ export async function GET(
   if (!model || typeof (model as { assumptions?: unknown }).assumptions === 'undefined') {
     const canvas = await get<Record<string, unknown>>('SELECT * FROM idea_canvas WHERE project_id = ?', projectId);
     const research = await get<Record<string, unknown>>('SELECT market_size FROM research WHERE project_id = ?', projectId);
-    const d = deriveAssumptionsFromProject({ canvas, research });
+    const pricing = await get<Record<string, unknown>>('SELECT * FROM pricing_state WHERE project_id = ?', projectId);
+    const d = deriveAssumptionsFromProject({ canvas, research, pricing });
     if (Object.keys(d.assumptions).length > 0) derived = d;
   }
 
