@@ -437,8 +437,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const projects = await query<{ id: string; name: string; description: string; current_step: number; settings: { rich_context?: boolean } | null }>(
-    'SELECT id, name, description, current_step, settings FROM projects WHERE id = ?', project_id
+  // current_step (legacy 5-stage int) is intentionally NOT selected — the agent's
+  // stage comes from the live journey evaluator (get_project_summary / getActiveStage),
+  // never this drift-prone column. Selecting it invited relaying the stale number.
+  const projects = await query<{ id: string; name: string; description: string; settings: { rich_context?: boolean } | null }>(
+    'SELECT id, name, description, settings FROM projects WHERE id = ?', project_id
   );
   if (projects.length === 0) {
     return new Response(

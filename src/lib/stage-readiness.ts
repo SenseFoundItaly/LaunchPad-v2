@@ -38,6 +38,10 @@ export interface StageReadiness {
   name: string;
   score: number;                  // 0-10
   verdict: 'STRONG GO' | 'GO' | 'CAUTION' | 'NOT READY';
+  /** The journey SPINE (evidence checks) already considers this stage complete.
+   *  Spine = completion authority; `verdict`/`score` = validation DEPTH within it.
+   *  A spine_done stage must never be shown to the founder as "NOT READY". */
+  spine_done: boolean;
   skills_total: number;
   skills_completed: number;
   skills_stale: number;
@@ -192,6 +196,7 @@ export async function getStageReadiness(projectId: string): Promise<ProjectReadi
       name: stage.name,
       score: ss.score,
       verdict: verdictFromScore(ss.score),
+      spine_done: journeyDone.has(stage.number),
       skills_total: stage.skills.length,
       skills_completed: completed.length,
       skills_stale: stale.length,
@@ -239,6 +244,7 @@ export async function getStageReadiness(projectId: string): Promise<ProjectReadi
 export function formatReadinessForPrompt(r: ProjectReadiness): string {
   const lines: string[] = [];
   lines.push(`## Stage readiness (overall ${r.overall_score.toFixed(1)} / ${r.overall_verdict})`);
+  lines.push('(DONE = spine-complete on the founder\'s evidence; the score/verdict is validation DEPTH, NOT completion — a DONE stage is finished even at low depth. NEVER tell the founder a DONE stage is "not ready"; if you want more rigor, frame it as optional depth, not a blocker.)');
   for (const s of r.stages) {
     const missingLabel = s.missing_skills.length === 0
       ? 'all skills run'
@@ -247,8 +253,17 @@ export function formatReadinessForPrompt(r: ProjectReadiness): string {
     // Pad stage name to 28 chars so verdicts line up readably for the model.
     const namePad = `Stage ${s.number} ${s.name}`.padEnd(34, ' ');
     const scorePad = `${s.score.toFixed(1)}`.padEnd(5, ' ');
-    const verdictPad = s.verdict.padEnd(11, ' ');
-    lines.push(`${namePad}${scorePad}${verdictPad}${missingLabel}${staleNote}`);
+    // The spine (evidence) is authoritative for COMPLETION; the skill score is
+    // DEPTH within it. A spine-done stage shows DONE so this block never
+    // contradicts the green spine ("NOT READY" on a completed stage) — depth +
+    // missing skills become an optional sub-note, not a blocking verdict.
+    if (s.spine_done) {
+      const donePad = 'DONE'.padEnd(11, ' ');
+      lines.push(`${namePad}${scorePad}${donePad}evidence-complete · depth ${s.score.toFixed(1)}/10 (${missingLabel} for investor-grade)${staleNote}`);
+    } else {
+      const verdictPad = s.verdict.padEnd(11, ' ');
+      lines.push(`${namePad}${scorePad}${verdictPad}${missingLabel}${staleNote}`);
+    }
 
     // Compact section scores — pipe-delimited for minimal token cost
     const availSections = s.sections.filter(sec => sec.available);
