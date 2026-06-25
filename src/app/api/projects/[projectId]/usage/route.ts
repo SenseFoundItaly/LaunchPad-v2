@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { reconcileProjectBudget } from '@/lib/cost-meter';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 interface UsageRow {
   id: string;
@@ -32,6 +33,8 @@ export async function GET(
   const { projectId } = await params;
 
   if (!projectId) return error('projectId is required');
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response; // gate access to a project's cost logs
 
   // Recent logs (last 100)
   const logs = await query<UsageRow>(

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { get, query } from '@/lib/db';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 /**
  * GET /api/projects/{projectId}/activity
@@ -74,11 +75,10 @@ export async function GET(
 ) {
   try {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response; // requireUser + project-access (covers not-found)
   const url = new URL(request.url);
   const since = url.searchParams.get('since');
-
-  const project = await get<{ id: string }>('SELECT id FROM projects WHERE id = ?', projectId);
-  if (!project) return error('Project not found', 404);
 
   const sinceClause = since ? 'AND created_at > ?' : '';
   const sinceTsClause = since ? 'AND "timestamp" > ?' : '';
