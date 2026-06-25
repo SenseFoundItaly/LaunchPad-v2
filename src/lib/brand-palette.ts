@@ -106,22 +106,6 @@ export function scoreColor(pct: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Agent colours — CSS variable references for dashboard heartbeat avatars
-// ---------------------------------------------------------------------------
-
-export const AGENT_COLORS: Record<string, string> = {
-  Scout:     'var(--moss)',
-  Chief:     'var(--sky)',
-  Analyst:   'var(--clay)',
-  Outreach:  'var(--plum)',
-  Designer:  'var(--cat-teal)',
-  Recruiter: 'var(--moss)',
-  Listener:  'var(--sky)',
-  Social:    'var(--plum)',
-  Agent:     'var(--ink-3)',
-};
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
