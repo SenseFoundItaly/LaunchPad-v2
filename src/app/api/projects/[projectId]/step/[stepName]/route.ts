@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { json, error } from '@/lib/api-helpers';
 
 // Maps step names to their table and JSON column structures
@@ -31,6 +32,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string; stepName: string }> },
 ) {
   const { projectId, stepName } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const stepConfig = STEP_TABLES[stepName];
   if (!stepConfig) {return error(`Unknown step: ${stepName}`, 400);}
 
@@ -46,6 +49,8 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string; stepName: string }> },
 ) {
   const { projectId, stepName } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const body = await request.json();
   if (!body) {return error('Request body required');}
 

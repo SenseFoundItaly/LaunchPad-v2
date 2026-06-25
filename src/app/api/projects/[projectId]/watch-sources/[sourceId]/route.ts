@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { json, error } from '@/lib/api-helpers';
 import type { WatchSource, SourceChange, WatchSourceCategory } from '@/types';
 import { VALID_CATEGORIES } from '@/types';
@@ -13,6 +14,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string; sourceId: string }> },
 ) {
   const { projectId, sourceId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   const sources = await query<WatchSource>(
     'SELECT * FROM watch_sources WHERE id = ? AND project_id = ?',
@@ -42,6 +45,8 @@ export async function PATCH(
   { params }: { params: Promise<{ projectId: string; sourceId: string }> },
 ) {
   const { projectId, sourceId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   let body: Partial<{
     label: string;
@@ -98,6 +103,8 @@ export async function DELETE(
   { params }: { params: Promise<{ projectId: string; sourceId: string }> },
 ) {
   const { projectId, sourceId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   await run(
     'DELETE FROM watch_sources WHERE id = ? AND project_id = ?',

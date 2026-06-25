@@ -5,6 +5,7 @@ import { calculateNextRun } from '@/lib/monitor-schedule';
 import { logSignalActivity } from '@/lib/signal-activity-log';
 import type { WatchSource, WatchSourceCategory } from '@/types';
 import { VALID_CATEGORIES } from '@/types';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
 /**
  * GET /api/projects/[projectId]/watch-sources
@@ -15,6 +16,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   const sources = await query<WatchSource & { last_change_at: string | null; total_changes: number }>(
     `SELECT ws.*,
@@ -38,6 +41,8 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response; // gate CREATE of a watch source on this project
 
   let body: {
     url?: string;

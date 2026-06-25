@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { json, error } from '@/lib/api-helpers';
 import { processWatchSource } from '@/lib/watch-source-processor';
 import type { WatchSource } from '@/types';
@@ -13,6 +14,8 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string; sourceId: string }> },
 ) {
   const { projectId, sourceId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   const sources = await query<WatchSource>(
     'SELECT * FROM watch_sources WHERE id = ? AND project_id = ?',

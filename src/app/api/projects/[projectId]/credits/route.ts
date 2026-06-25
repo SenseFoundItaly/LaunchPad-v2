@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { get, run } from '@/lib/db';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { getCreditsSnapshot, getUserCreditsSnapshot } from '@/lib/credits';
 import { ownerUserId } from '@/lib/cost-meter';
 import { USER_MONTHLY_CREDITS, USER_MONTHLY_LLM_USD } from '@/lib/credit-costs';
@@ -17,6 +18,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const project = await get<{ id: string }>('SELECT id FROM projects WHERE id = ?', projectId);
   if (!project) return error('Project not found', 404);
   return json(await getCreditsSnapshot(projectId));
@@ -35,6 +38,8 @@ export async function PATCH(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const owner = await ownerUserId(projectId);
   if (!owner) return error('Project has no owner to credit', 404);
 

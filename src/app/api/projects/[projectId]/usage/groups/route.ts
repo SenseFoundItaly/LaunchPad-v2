@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { json } from '@/lib/api-helpers';
 
 /**
@@ -18,6 +19,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
   const periodMonth = new Date().toISOString().slice(0, 7);
 
   const rows = await query<{

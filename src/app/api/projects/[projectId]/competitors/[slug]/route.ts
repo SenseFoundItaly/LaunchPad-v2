@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { json, error } from '@/lib/api-helpers';
 import type { CompetitorProfile, EcosystemAlert, IntelligenceBrief } from '@/types';
 
@@ -13,6 +14,8 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string; slug: string }> },
 ) {
   const { projectId, slug } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   const profiles = await query<CompetitorProfile>(
     `SELECT id, project_id, name, slug, description, signal_counts,
