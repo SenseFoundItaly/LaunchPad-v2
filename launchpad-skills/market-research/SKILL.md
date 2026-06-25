@@ -183,14 +183,6 @@ Based on available information, outline:
         "implication": "What this means for the startup"
       }
     ],
-    "case_studies": [
-      {
-        "company": "Company or situation name",
-        "narrative": "What happened",
-        "lesson": "Key takeaway",
-        "applicability": "How this applies to the founder"
-      }
-    ],
     "customer_insights": {
       "buyer_persona": "Description",
       "user_persona": "Description",
