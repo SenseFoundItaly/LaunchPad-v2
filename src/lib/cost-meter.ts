@@ -96,19 +96,26 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
   // source anymore — credits moved to the per-user pool below.
   await upsertMonthlyBudget(input.project_id, periodMonth, costUsd);
 
-  // Authoritative per-USER pool: resolve the project's owner and accumulate
-  // their shared monthly spend. All of a user's projects draw from one pool.
-  // Skipped entirely when skip_credit_debit is set — the call is still logged
-  // above (and to Langfuse below) for observability, but no credits are charged.
+  // STRICT BILLING (founder decision 2026-06-26): "1 message = 1 credit,
+  // everything else is free." recordUsage is now OBSERVATIONAL for the credit
+  // pool — it logs the real LLM cost (llm_usage_logs + project_budgets +
+  // Langfuse, all above/below) but NEVER debits the per-user credit pool, so
+  // skill runs, watcher scans and background agent work cost the founder
+  // nothing. The ONLY pool debit is the flat per-message charge in the chat
+  // route (debitCredits('chat_message')). We READ (never write) the owner's
+  // budget here purely to return an accurate remaining-credits snapshot.
   const owner = input.skip_credit_debit ? null : await ownerUserId(input.project_id);
   const userBudget = owner
-    ? await upsertUserMonthlyBudget(owner, periodMonth, costUsd)
+    ? await get<{ cap_credits: number; cap_llm_usd: number; current_llm_usd: number; warn_llm_usd: number }>(
+        `SELECT cap_credits, cap_llm_usd, current_llm_usd, warn_llm_usd
+         FROM user_budgets WHERE user_id = ? AND period_month = ?`,
+        owner,
+        periodMonth,
+      )
     : null;
 
-  const crossedWarn = !!userBudget && didCrossWarn(userBudget, costUsd);
-  if (crossedWarn && userBudget) {
-    await maybeEmitBudgetWarning(input.project_id, periodMonth, userBudget);
-  }
+  // Observational only — no new spend was added to the pool, so no warn crossing.
+  const crossedWarn = false;
 
   // Mirror the call into Langfuse so cron/manual monitor runs appear in the
   // same dashboard as chat traces. logToLangfuse lazy-inits the Langfuse
@@ -140,12 +147,13 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
   }
 
   // Credits + cap come from the USER pool. Fallback to the per-user defaults
-  // (100 credits / $1 → 100 credits per $1, 1 credit = $0.01) when there's no
-  // row or no resolvable owner — credits are unbounded then.
+  // (50 credits / $10 = 5 cr/$, 1 credit = $0.20) when there's no row or no
+  // resolvable owner. NOTE: this snapshot is observational (recordUsage no
+  // longer writes the pool); current_llm_usd reflects existing message spend.
   const capCredits = userBudget?.cap_credits ?? USER_MONTHLY_CREDITS;
   const capUsd = userBudget?.cap_llm_usd ?? USER_MONTHLY_LLM_USD;
-  const currentUserUsd = userBudget?.current_llm_usd ?? costUsd;
-  const creditsPerDollar = capUsd > 0 ? capCredits / capUsd : 100;
+  const currentUserUsd = userBudget?.current_llm_usd ?? 0;
+  const creditsPerDollar = capUsd > 0 ? capCredits / capUsd : 5;
   const creditsUsedThisCall = Math.round(costUsd * creditsPerDollar);
   const totalCreditsUsed = Math.round(currentUserUsd * creditsPerDollar);
   const creditsRemaining = Math.max(0, capCredits - totalCreditsUsed);
@@ -504,33 +512,10 @@ export async function reconcileUserBudget(
   };
 }
 
-function didCrossWarn(budget: BudgetSnapshot, costDelta: number): boolean {
-  // "Crossed" means: we were below warn before this call, now at/above it.
-  // costDelta may be small; compare before/after to avoid false positives.
-  const before = budget.current_llm_usd - costDelta;
-  return before < budget.warn_llm_usd && budget.current_llm_usd >= budget.warn_llm_usd;
-}
-
-async function maybeEmitBudgetWarning(projectId: string, periodMonth: string, budget: BudgetSnapshot): Promise<void> {
-  // Only one warning alert per (project, month) — silently no-op if already issued.
-  const existing = await query<{ c: number }>(
-    `SELECT COUNT(*) as c FROM alerts
-     WHERE project_id = ? AND type = 'budget_warning'
-       AND created_at >= ? AND dismissed = false`,
-    projectId,
-    `${periodMonth}-01T00:00:00.000Z`,
-  );
-  if (existing[0]?.c > 0) return;
-
-  const alertId = generateId('alrt');
-  const pct = ((budget.current_llm_usd / budget.cap_llm_usd) * 100).toFixed(0);
-  const msg = `LLM budget for ${periodMonth} at ${pct}% of cap ($${budget.current_llm_usd.toFixed(3)} / $${budget.cap_llm_usd.toFixed(2)}). Observe-only for now — no calls blocked.`;
-  await run(
-    `INSERT INTO alerts (id, project_id, type, severity, message, dismissed, source_url)
-     VALUES (?, ?, 'budget_warning', 'warning', ?, false, ?)`,
-    alertId, projectId, msg, null,
-  );
-}
+// (didCrossWarn / maybeEmitBudgetWarning were removed 2026-06-26: recordUsage no
+// longer accumulates the per-user pool — strict "1 message = 1 credit" billing —
+// so there is no per-call warn crossing to emit. The /usage page + per-project
+// project_budgets accumulator remain for spend analytics.)
 
 // The shape of `Usage` from @mariozechner/pi-ai can vary by provider; the
 // safest path is to read the known keys defensively. This helper lets the
