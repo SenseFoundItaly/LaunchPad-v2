@@ -1,13 +1,15 @@
 'use client';
 
 /**
- * First-run orientation card (changelog 17/06 item 1: "guide the user through
- * the first steps with a quick tutorial — a structured onboarding comes later").
+ * Adaptive first-run guidance card pinned to the top of Home. ONE card serves
+ * both lifecycle moments (it used to be two stacked peach cards):
  *
- * A compact, dismissible card pinned to the top of Home that states the platform's
- * job (Watchers + Graph for monitoring/shaping the ecosystem; Co-pilot for the
- * Idea Canvas + venture building) and gives 3 concrete "start here" steps that
- * deep-link into the real surfaces. Dismissal is per-project in localStorage so it
+ *   - First run → the 3-step "start here" guide (Knowledge / Co-pilot / Watcher)
+ *     stating the platform's job, deep-linking into the real surfaces.
+ *   - Once the Idea Canvas is DEFINED but no watcher is active → the watcher
+ *     nudge ("activate your first weekly watcher"), the old CanvasWatcherReminder.
+ *
+ * At most one variant shows. Dismissal is per-project in localStorage so it
  * doesn't nag once the founder is rolling.
  *
  * Visibility is read via useSyncExternalStore (the same pattern useChat uses) so
@@ -17,12 +19,16 @@
  */
 
 import { useCallback, useSyncExternalStore } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 
 const dismissedKey = (projectId: string) => `lp_onboarding_dismissed_${projectId}`;
 const DISMISS_EVENT = 'lp-onboarding-dismissed';
+
+interface CanvasShape { solution?: string | null; value_proposition?: string | null }
+interface MonitorShape { status?: string }
 
 function subscribe(cb: () => void): () => void {
   window.addEventListener('storage', cb);
@@ -49,6 +55,29 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
     () => true, // SSR + first hydration: treat as dismissed so nothing flashes.
   );
 
+  // Drives the watcher-nudge variant: show it once the canvas is defined
+  // (solution + value_proposition) AND no watcher is active yet.
+  const { data: canvas } = useQuery<CanvasShape>({
+    queryKey: ['idea-canvas', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/idea-canvas`);
+      const body = await res.json();
+      return (body?.data ?? body ?? {}) as CanvasShape;
+    },
+  });
+
+  const { data: monitors } = useQuery<MonitorShape[]>({
+    queryKey: ['monitors', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/monitors`);
+      const body = await res.json();
+      const list = body?.data ?? body ?? [];
+      return (Array.isArray(list) ? list : (list.monitors ?? [])) as MonitorShape[];
+    },
+  });
+
   const dismiss = useCallback(() => {
     try {
       localStorage.setItem(key, '1');
@@ -59,6 +88,13 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
   }, [key]);
 
   if (dismissed) return null;
+
+  const canvasReady = !!(canvas?.solution && canvas?.value_proposition);
+  const activeWatchers = Array.isArray(monitors) ? monitors.filter((m) => m?.status === 'active').length : 0;
+  const watcherNudge = canvasReady && activeWatchers === 0;
+
+  const title = watcherNudge ? t('reminder.canvas-watcher.title') : t('onboarding.title');
+  const headerIcon = watcherNudge ? I.bell : I.check;
 
   const steps = [
     { icon: I.book, label: t('onboarding.step-knowledge'), href: `/project/${projectId}/knowledge` },
@@ -84,7 +120,7 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
           gap: 8,
         }}
       >
-        <Icon d={I.check} size={13} stroke={1.5} style={{ color: 'var(--accent)' }} />
+        <Icon d={headerIcon} size={13} stroke={1.5} style={{ color: 'var(--accent)' }} />
         <h2
           style={{
             margin: 0,
@@ -95,7 +131,7 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
             color: 'var(--ink-2)',
           }}
         >
-          {t('onboarding.title')}
+          {title}
         </h2>
         <div style={{ flex: 1 }} />
         <button
@@ -113,38 +149,54 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
           {t('onboarding.dismiss')}
         </button>
       </header>
-      <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-          {t('onboarding.intro')}
-        </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {steps.map((s, i) => (
-            <Link
-              key={s.href}
-              href={s.href}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '8px 10px',
-                borderRadius: 6,
-                textDecoration: 'none',
-                color: 'inherit',
-                transition: 'background .1s',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--paper-2)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-            >
-              <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', width: 14 }}>
-                {i + 1}
-              </span>
-              <Icon d={s.icon} size={14} stroke={1.4} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
-              <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--ink-2)' }}>{s.label}</span>
-              <Icon d={I.arrow} size={11} stroke={1.4} style={{ color: 'var(--ink-5)', flexShrink: 0 }} />
-            </Link>
-          ))}
+
+      {watcherNudge ? (
+        <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+            {t('reminder.canvas-watcher.body')}
+          </p>
+          <Link
+            href={`/project/${projectId}/actions?lane=monitor`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, alignSelf: 'flex-start', padding: '7px 12px', borderRadius: 6, background: 'var(--ink)', color: 'var(--paper)', fontSize: 12.5, textDecoration: 'none' }}
+          >
+            <Icon d={I.signal} size={13} stroke={1.5} />
+            {t('reminder.canvas-watcher.cta')}
+          </Link>
         </div>
-      </div>
+      ) : (
+        <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+            {t('onboarding.intro')}
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {steps.map((s, i) => (
+              <Link
+                key={s.href}
+                href={s.href}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 10px',
+                  borderRadius: 6,
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  transition: 'background .1s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--paper-2)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', width: 14 }}>
+                  {i + 1}
+                </span>
+                <Icon d={s.icon} size={14} stroke={1.4} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--ink-2)' }}>{s.label}</span>
+                <Icon d={I.arrow} size={11} stroke={1.4} style={{ color: 'var(--ink-5)', flexShrink: 0 }} />
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

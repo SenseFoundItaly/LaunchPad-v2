@@ -1,13 +1,17 @@
 'use client';
 
 /**
- * Today — thin digest: "where am I + what needs me". Nothing more.
+ * Today — full-width project dashboard: "where am I + what needs me".
  *
- * Three panels: journey position (StageCard), Watchers (compact rows that
- * deep-link into the Inbox's Watchers tab), and the Inbox preview (top
- * pending rows + count). A pending-signals line deep-links to the Signals
- * lane. Everything reviews in /actions — the unified Inbox is the canonical
- * review surface.
+ * Layout (full width, no narrow column):
+ *   - Adaptive onboarding nudge + the Score strip (Project Score + IRL), pinned top.
+ *   - A two-column grid (.lp-home-grid, collapses under ~900px):
+ *       primary  → StageCard (the journey/validation card; its evidence checks
+ *                  ARE the "next to validate" list — no separate panel duplicates it).
+ *       secondary → Watchers (compact rows → Inbox), the Inbox preview, and Notes.
+ *   - The Ecosystem graph spans full width below the grid.
+ * A pending-signals line deep-links to the Signals lane. Everything reviews in
+ * /actions — the unified Inbox is the canonical review surface.
  */
 
 import { use } from 'react';
@@ -20,13 +24,11 @@ import { Pill, Icon, I } from '@/components/design/primitives';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { StageCard } from '@/components/stages/StageCard';
 import { OnboardingCard } from '@/components/onboarding/OnboardingCard';
-import { CanvasWatcherReminder } from '@/components/onboarding/CanvasWatcherReminder';
 import { NotesCard } from '@/components/onboarding/NotesCard';
 import { ScorePanel } from '@/components/home/ScorePanel';
 import { EcosystemPanel } from '@/components/home/EcosystemPanel';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { laneFor } from '@/lib/action-lanes';
-import { checkActionPrompt } from '@/lib/journey-prompts';
 import type { PendingActionType } from '@/types';
 
 interface PendingAction {
@@ -35,39 +37,6 @@ interface PendingAction {
   title: string;
   created_at: string;
 }
-
-// Mirrors the /stages payload (same shape StageCard + SpineSection read).
-interface StageCheckRow {
-  check: { id: string; label: string };
-  result: { passed: boolean; evidence?: string; gap?: string };
-}
-interface StageEval {
-  stage: { id: string; number: number; label: string; tagline?: string };
-  passed: number;
-  total: number;
-  status: 'done' | 'active' | 'pending';
-  results: StageCheckRow[];
-}
-interface StagesPayload {
-  active_stage_id: string;
-  active_stage_number: number;
-  evaluations: StageEval[];
-}
-
-// State labels reused verbatim from SpineSection so Home and the chat spine
-// speak with one voice (Validated / In progress / Not started). Each carries a
-// stable i18n key resolved via t() at the render site (mirrors NavRail's
-// labelKey pattern).
-const STAGE_STATE: Record<StageEval['status'], { color: string; labelKey: MessageKey }> = {
-  done: { color: 'var(--moss)', labelKey: 'today.state-validated' },
-  active: { color: 'var(--accent)', labelKey: 'today.state-in-progress' },
-  pending: { color: 'var(--ink-5)', labelKey: 'today.state-not-started' },
-};
-
-// How many upcoming pending stages to preview after the active one, and the
-// overall open-substep row cap that keeps Home a thin digest.
-const NEXT_PENDING_STAGES = 2;
-const MAX_OPEN_ROWS = 6;
 
 export default function TodayPage({ params }: { params: Promise<{ projectId: string }> }) {
   const t = useT();
@@ -139,40 +108,52 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
           {actionsLoading && !actionsList ? (
             <SkeletonRow />
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 880 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              {/* Full-width: adaptive onboarding nudge + the score strip (pinned top). */}
               <OnboardingCard projectId={projectId} />
-              <CanvasWatcherReminder projectId={projectId} />
               <ScorePanel projectId={projectId} />
-              <StageCard projectId={projectId} />
-              <EcosystemPanel projectId={projectId} />
-              <NextToValidate projectId={projectId} />
-              <Panel
-                label={t('today.watchers')}
-                icon={I.signal}
-                href={`/project/${projectId}/actions?lane=monitor`}
-                hrefLabel={t('today.open-inbox')}
-                empty={null}
-              >
-                <MonitorListPanel projectId={projectId} compact limit={4} title="" />
-                {signalCount > 0 && (
-                  <Link
-                    href={`/project/${projectId}/actions?lane=signal`}
-                    style={{
-                      display: 'block',
-                      padding: '6px 12px',
-                      fontSize: 11,
-                      color: 'var(--ink-4)',
-                      textDecoration: 'none',
-                      fontFamily: 'var(--f-mono)',
-                      borderTop: '1px solid var(--line)',
-                    }}
+
+              {/* Two-column dashboard: wide Journey column + narrow utility column.
+                  Collapses to one column under ~900px (.lp-home-grid). */}
+              <div className="lp-home-grid">
+                {/* Primary — the journey/validation card (its checks ARE the
+                    "next to validate" list, so no separate panel duplicates it). */}
+                <StageCard projectId={projectId} />
+
+                {/* Secondary — Watchers, Intel, Notes. */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                  <Panel
+                    label={t('today.watchers')}
+                    icon={I.signal}
+                    href={`/project/${projectId}/actions?lane=monitor`}
+                    hrefLabel={t('today.open-inbox')}
+                    empty={null}
                   >
-                    {t('today.signals-awaiting-review', { count: signalCount })}
-                  </Link>
-                )}
-              </Panel>
-              <InboxPanel projectId={projectId} actions={actions} totalCount={inboxBadge} />
-              <NotesCard projectId={projectId} />
+                    <MonitorListPanel projectId={projectId} compact limit={4} title="" />
+                    {signalCount > 0 && (
+                      <Link
+                        href={`/project/${projectId}/actions?lane=signal`}
+                        style={{
+                          display: 'block',
+                          padding: '6px 12px',
+                          fontSize: 11,
+                          color: 'var(--ink-4)',
+                          textDecoration: 'none',
+                          fontFamily: 'var(--f-mono)',
+                          borderTop: '1px solid var(--line)',
+                        }}
+                      >
+                        {t('today.signals-awaiting-review', { count: signalCount })}
+                      </Link>
+                    )}
+                  </Panel>
+                  <InboxPanel projectId={projectId} actions={actions} totalCount={inboxBadge} />
+                  <NotesCard projectId={projectId} />
+                </div>
+              </div>
+
+              {/* Full-width: the ecosystem graph gets the whole width to breathe. */}
+              <EcosystemPanel projectId={projectId} />
             </div>
           )}
     </div>
@@ -244,162 +225,6 @@ function InboxPanel({
           {t('today.more-in-inbox', { count: extra })}
         </Link>
       )}
-    </Panel>
-  );
-}
-
-// =============================================================================
-// Next to validate
-// =============================================================================
-
-/**
- * Companion to StageCard: keeps the current stage status (above) AND shows
- * what still needs validating next. Lists the ACTIVE stage plus the next 1-2
- * PENDING stages (by stage.number), each with its OPEN substeps only
- * (results where result.passed === false) rendered "○ {label} — {gap}".
- * Validated stages are not listed — they're done. Total rows are capped so
- * Home stays a thin digest. Reuses the SpineSection ✓/○ treatment + STATE
- * labels for one consistent validation voice across surfaces.
- */
-function NextToValidate({ projectId }: { projectId: string }) {
-  const t = useT();
-  const { data, isLoading } = useQuery<StagesPayload>({
-    queryKey: ['stages', projectId],
-    enabled: !!projectId,
-    queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/stages`);
-      const body = await res.json();
-      if (!body.success) throw new Error(body.error || 'Stages fetch failed');
-      return body.data as StagesPayload;
-    },
-  });
-
-  const title = t('today.next-to-validate');
-
-  if (isLoading || !data) {
-    return (
-      <Panel label={title} icon={I.check} href={`/project/${projectId}/chat`} hrefLabel={t('today.copilot')} empty={null}>
-        <div style={{ padding: '14px 12px', fontSize: 12, color: 'var(--ink-5)', fontFamily: 'var(--f-mono)', textAlign: 'center' }}>
-          {t('common.loading')}
-        </div>
-      </Panel>
-    );
-  }
-
-  const evals = [...data.evaluations].sort((a, b) => a.stage.number - b.stage.number);
-  const active = evals.find((e) => e.status === 'active') ?? null;
-  // The active stage, then the next 1-2 pending stages by number — never any
-  // validated (done) stage.
-  const upcoming = evals.filter((e) => e.status === 'pending').slice(0, NEXT_PENDING_STAGES);
-  const lanes = (active ? [active, ...upcoming] : upcoming);
-
-  // Build capped rows: each lane contributes its open substeps; an active
-  // lane with zero open substeps surfaces a "ready to advance" line instead.
-  let budget = MAX_OPEN_ROWS;
-  const blocks = lanes
-    .map((e) => {
-      const open = e.results.filter((r) => !r.result.passed);
-      const rows = open.slice(0, budget);
-      budget -= rows.length;
-      const readyToAdvance = e.status === 'active' && open.length === 0;
-      return { stage: e, status: e.status, rows, hiddenOpen: open.length - rows.length, readyToAdvance };
-    })
-    // Drop pending lanes that contributed nothing once the budget ran out
-    // (keep the active lane even if empty so "ready to advance" can show).
-    .filter((b) => b.rows.length > 0 || b.readyToAdvance);
-
-  if (blocks.length === 0) {
-    return (
-      <Panel
-        label={title}
-        icon={I.check}
-        href={`/project/${projectId}/chat`}
-        hrefLabel={t('today.copilot')}
-        empty={t('today.all-validated')}
-      >
-        {null}
-      </Panel>
-    );
-  }
-
-  return (
-    <Panel
-      label={title}
-      icon={I.check}
-      href={`/project/${projectId}/chat`}
-      hrefLabel={t('today.copilot')}
-      empty={null}
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '4px 8px 6px' }}>
-        {blocks.map((b) => {
-          const st = STAGE_STATE[b.status];
-          return (
-            <div key={b.stage.stage.id}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-                <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', letterSpacing: 0.3 }}>
-                  {String(b.stage.stage.number).padStart(2, '0')}
-                </span>
-                <span className="lp-serif" style={{ fontSize: 12.5, color: 'var(--ink)' }}>
-                  {b.stage.stage.label}
-                </span>
-                <span className="lp-mono" style={{ fontSize: 9, color: st.color, letterSpacing: 0.3 }}>
-                  {t(st.labelKey)}
-                </span>
-              </div>
-              {b.readyToAdvance ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingLeft: 23 }}>
-                  {b.stage.stage.tagline && (
-                    <div style={{ fontSize: 11, color: 'var(--ink-5)', lineHeight: 1.4 }}>
-                      {b.stage.stage.tagline}
-                    </div>
-                  )}
-                  <div style={{ fontSize: 11.5, color: 'var(--moss)' }}>
-                    {t('today.ready-to-advance')}
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 23 }}>
-                  {b.rows.map((r, i) => (
-                    // Each open substep links to the Co-pilot pre-filled with the
-                    // prompt for THAT substep (?prefill — chat loads it on mount).
-                    <Link
-                      key={r.check.id || i}
-                      href={`/project/${projectId}/chat?prefill=${encodeURIComponent(checkActionPrompt(r.check.label))}`}
-                      title={checkActionPrompt(r.check.label)}
-                      style={{
-                        display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5, lineHeight: 1.4,
-                        textDecoration: 'none', color: 'inherit', borderRadius: 6, padding: '2px 4px', margin: '-2px -4px',
-                        transition: 'background .1s',
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--paper-2)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                    >
-                      <span
-                        aria-hidden
-                        style={{
-                          width: 15, height: 15, borderRadius: 8, flexShrink: 0, marginTop: 1,
-                          background: 'transparent',
-                          border: '1.5px solid var(--line-2)',
-                        }}
-                      />
-                      <span style={{ color: 'var(--ink-3)', flex: 1, minWidth: 0 }}>
-                        {r.check.label}
-                        {r.result.gap && <span style={{ color: 'var(--ink-5)' }}> — {r.result.gap}</span>}
-                      </span>
-                      <Icon d={I.arrow} size={10} stroke={1.4} style={{ color: 'var(--ink-5)', flexShrink: 0, marginTop: 3 }} />
-                    </Link>
-                  ))}
-                  {b.hiddenOpen > 0 && (
-                    <div className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', paddingLeft: 23 }}>
-                      {t('today.more-open', { count: b.hiddenOpen })}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
     </Panel>
   );
 }
