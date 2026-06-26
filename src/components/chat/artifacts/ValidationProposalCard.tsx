@@ -23,6 +23,7 @@
 import { useState } from 'react';
 import type { ValidationProposalArtifact, ValidationProposalItem } from '@/types/artifacts';
 import ArtifactCardShell from './ArtifactCardShell';
+import { HIDE_CREDITS } from '@/lib/credit-costs';
 
 interface ValidationProposalCardProps {
   artifact: ValidationProposalArtifact;
@@ -96,7 +97,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
           <span className="text-moss font-mono">{'✓'}</span>
           <span className="text-ink-3">Validated onto your spine:</span>
           <span className="text-ink font-medium">{n === 1 ? '1 item' : `${n} items`}</span>
-          {combinedCredits > 0 && (
+          {!HIDE_CREDITS && combinedCredits > 0 && (
             <span className="text-ink-5 text-xs ml-auto">{combinedCredits} credits</span>
           )}
         </div>
@@ -162,7 +163,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
                     {it.validates && (
                       <span className="text-[10px] text-moss/90">validates {it.validates}</span>
                     )}
-                    {it.credits > 0 && (
+                    {!HIDE_CREDITS && it.credits > 0 && (
                       <span className="text-[10px] text-ink-5 ml-auto">{it.credits} cr</span>
                     )}
                   </div>
@@ -247,7 +248,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
               // Always state the cost on the button so every card is consistent —
               // "· 6 cr" on paid batches, "· free" on the founder's own ideas
               // (never a bare "Apply 3 items" that hides whether it costs credits).
-              : `Apply ${kept.length === 1 ? '1 item' : `${kept.length} items`} · ${combinedCredits > 0 ? `${combinedCredits} cr` : 'free'}`}
+              : `Apply ${kept.length === 1 ? '1 item' : `${kept.length} items`}${HIDE_CREDITS ? '' : ` · ${combinedCredits > 0 ? `${combinedCredits} cr` : 'free'}`}`}
         </button>
         <button
           type="button"

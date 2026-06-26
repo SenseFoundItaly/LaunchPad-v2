@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { OptionSet } from '@/types/artifacts';
 import { splitOptionLabel } from '@/components/chat/option-label';
 import { useT } from '@/components/providers/LocaleProvider';
+import { HIDE_CREDITS } from '@/lib/credit-costs';
 
 interface OptionSetCardProps {
   artifact: OptionSet;
@@ -101,7 +102,7 @@ function OptionButton({
           {split.label}{labelSuffix}
         </span>
         {/* Per-option credit estimate — what this choice spends, shown before the click. */}
-        {typeof option.credits === 'number' && option.credits > 0 && (
+        {!HIDE_CREDITS && typeof option.credits === 'number' && option.credits > 0 && (
           <span className="lp-mono shrink-0 text-[10px] text-ink-5 whitespace-nowrap">
             ≈{option.credits} {option.credits === 1 ? t('chat.credit') : t('chat.credits')}
           </span>

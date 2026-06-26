@@ -9,7 +9,7 @@ import { TopBar } from '@/components/design/chrome';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import { NODE_COLORS } from '@/types/graph';
 import { watcherWeeklyLabel } from '@/lib/watcher-cost';
-import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
+import { KNOWLEDGE_APPLY_CREDITS, HIDE_CREDITS } from '@/lib/credit-costs';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
 
@@ -1223,7 +1223,7 @@ function ExtractedKnowledgeView({
     : (actionBits.length > 0
         ? t('home.primary-apply', { actions: actionBits.join(' + ') })
         : t('home.primary-start-brief'))
-      + t('home.primary-credits-suffix', { credits: upfrontCredits });
+      + (HIDE_CREDITS ? '' : t('home.primary-credits-suffix', { credits: upfrontCredits }));
 
   const primaryBtnStyle: React.CSSProperties = {
     padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none',
@@ -1362,6 +1362,7 @@ function ExtractedKnowledgeView({
           </button>
         )}
       </div>
+      {!HIDE_CREDITS && (
       <div style={{ fontSize: 10.5, color: 'var(--ink-6)', marginTop: 8, lineHeight: 1.4 }}>
         {t('home.credits-footnote', {
           total: upfrontCredits,
@@ -1369,6 +1370,7 @@ function ExtractedKnowledgeView({
           brief: BRIEF_CREDITS_EST,
         })}
       </div>
+      )}
     </div>
   );
 }

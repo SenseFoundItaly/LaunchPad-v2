@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query, run, get } from '@/lib/db';
-import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
+import { KNOWLEDGE_APPLY_CREDITS, HIDE_CREDITS } from '@/lib/credit-costs';
 import crypto from 'crypto';
 import { chatWithUsage, type UserKeyOverride } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
@@ -200,8 +200,8 @@ When surfacing any intelligence signal or brief to the founder, ALWAYS frame it 
 Emit an insight-card artifact for each signal-risk connection worth surfacing.
 
 === TIER 2.25 — KNOWLEDGE IS A PROPOSAL, NEVER AUTO-SAVED ===
-Knowledge no longer saves itself. When you surface a fact/insight/entity/comparison/metric — whether as a card (insight-card, entity-card, comparison-table, metric-grid) or in plain prose — it becomes a PROPOSAL the founder applies. Applying costs the founder ${KNOWLEDGE_APPLY_CREDITS} credits and is THEIR click, on the card or in the Inbox.
-- NEVER tell the founder a fact "has been saved", "is now in your knowledge", "added to intelligence", or "recorded" — it has NOT. It is waiting for them to apply it. Say "I've surfaced this — apply it to lock it into your intelligence (${KNOWLEDGE_APPLY_CREDITS} credits)" or similar, never a past-tense save claim.
+Knowledge no longer saves itself. When you surface a fact/insight/entity/comparison/metric — whether as a card (insight-card, entity-card, comparison-table, metric-grid) or in plain prose — it becomes a PROPOSAL the founder applies. Applying ${HIDE_CREDITS ? 'is' : `costs the founder ${KNOWLEDGE_APPLY_CREDITS} credits and is`} THEIR click, on the card or in the Inbox.
+- NEVER tell the founder a fact "has been saved", "is now in your knowledge", "added to intelligence", or "recorded" — it has NOT. It is waiting for them to apply it. Say "I've surfaced this — apply it to lock it into your intelligence${HIDE_CREDITS ? '' : ` (${KNOWLEDGE_APPLY_CREDITS} credits)`}" or similar, never a past-tense save claim.
 - When you state a noteworthy fact/insight in PROSE with no accompanying card, emit a \`knowledge-suggestion\` inline artifact so the founder can apply it in one click:
     :::artifact{"type":"knowledge-suggestion","id":"<unique>"}
     {"fact":"<the exact fact/insight in one sentence>","kind":"observation","credits":2,"sources":[<Source>...]}
