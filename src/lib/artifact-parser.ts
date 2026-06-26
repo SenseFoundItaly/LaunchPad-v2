@@ -8,7 +8,11 @@ import {
 export type MessageSegment =
   | { type: 'text'; content: string }
   | { type: 'artifact'; artifact: Artifact; raw: string; used_fallback_sources?: boolean }
-  | { type: 'artifact-pending'; raw: string }
+  // `header` is a best-effort parse of the leading `:::artifact{…}` JSON, which
+  // streams BEFORE the body finishes. It lets the Canvas paint a dimmed
+  // skeleton (item 9: progressive canvas paint) keyed by the artifact id while
+  // the body is still arriving, then reconcile to the full card on completion.
+  | { type: 'artifact-pending'; raw: string; header?: PendingHeader }
   // NEW — emitted when an artifact parses as JSON but fails source validation.
   // UI renders this as a visible red card; persistence layer skips it. This
   // replaces silently-dropping invalid artifacts, which used to hide agent
@@ -54,6 +58,30 @@ function validateArtifactSources(artifact: Artifact): string | null {
 type ParseOutcome =
   | { ok: true; artifact: Artifact; used_fallback_sources?: boolean }
   | { ok: false; reason: string; artifact_type?: string };
+
+/** Minimal artifact header surfaced for in-flight (streaming) blocks. */
+export type PendingHeader = { type?: string; id?: string; department?: string };
+
+/**
+ * Best-effort parse of the leading `:::artifact{…}` header from a raw block.
+ * The header is a single-line JSON object that streams before the body, so it's
+ * usually complete even while the body is still arriving. Returns undefined when
+ * the header JSON hasn't fully streamed yet or carries no type/id.
+ */
+function parsePendingHeader(raw: string): PendingHeader | undefined {
+  const m = raw.match(/:::artifact\s*(\{.*?\})/);
+  if (!m) return undefined;
+  try {
+    const h = JSON.parse(m[1]) as Record<string, unknown>;
+    const type = typeof h.type === 'string' ? h.type : undefined;
+    const id = typeof h.id === 'string' ? h.id : undefined;
+    const department = typeof h.department === 'string' ? h.department : undefined;
+    if (!type && !id) return undefined;
+    return { type, id, department };
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Try to parse a single artifact block from raw text.
@@ -236,7 +264,7 @@ export function parseMessageContent(content: string): MessageSegment[] {
         if (part.endsWith(':::') || part.includes('\n:::')) {
           // Malformed — hide to avoid showing raw JSON syntax.
         } else {
-          segments.push({ type: 'artifact-pending', raw: part });
+          segments.push({ type: 'artifact-pending', raw: part, header: parsePendingHeader(part) });
         }
       } else if (outcome.ok) {
         segments.push({
@@ -272,7 +300,7 @@ export function parseMessageContent(content: string): MessageSegment[] {
         const textBefore = cleaned.slice(0, openIdx).trim();
         const result: MessageSegment[] = [];
         if (textBefore) result.push({ type: 'text', content: textBefore });
-        result.push({ type: 'artifact-pending', raw: after });
+        result.push({ type: 'artifact-pending', raw: after, header: parsePendingHeader(after) });
         return result;
       }
     }

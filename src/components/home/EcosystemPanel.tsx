@@ -1,21 +1,21 @@
 'use client';
 
 /**
- * EcosystemPanel (changelog 17/06 item 14 / "Home → visual graph"): a compact
- * ecosystem readout on Home — entity counts grouped by type (competitors,
- * personas, partners, investors, …) with a link into the full force-directed
- * graph on /knowledge. A full inline mini-graph on Home is the polish follow-up
- * (it pairs with the WS6 graph/competitor-categories work); this gives Home a
- * real ecosystem presence today without a heavy embed.
+ * EcosystemPanel (changelog 17/06 item 14 — "Home → graph visuale"): the
+ * ecosystem on Home is now the actual force-directed graph (read-only), so the
+ * founder sees the startup ↔ competitors/personas/partners/investors web take
+ * shape on the dashboard — not just counts. The textual/editable view lives on
+ * /knowledge (item 14: "Home = visual, Knowledge = textual"). A compact legend
+ * of type counts sits under the graph; apply/dismiss stays on /knowledge (the
+ * graph here omits those handlers, so its detail drawer is read-only).
  */
 
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
-
-interface GraphResp { nodes: Array<{ node_type?: string }>; }
+import { useKnowledgeGraph } from '@/hooks/useKnowledgeGraph';
+import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
 
 // node_type → a founder-facing group label key. Unknown types fall back to "Other".
 const TYPE_LABEL: Record<string, MessageKey> = {
@@ -34,23 +34,18 @@ const TYPE_LABEL: Record<string, MessageKey> = {
 
 export function EcosystemPanel({ projectId }: { projectId: string }) {
   const t = useT();
-  const { data } = useQuery<GraphResp>({
-    queryKey: ['knowledge', projectId, 'eco'],
-    enabled: !!projectId,
-    queryFn: async () => {
-      const res = await fetch(`/api/graph/${projectId}`);
-      const body = await res.json();
-      return (body?.data ?? body) as GraphResp;
-    },
-  });
+  const { graph } = useKnowledgeGraph(projectId);
 
-  const nodes = (data?.nodes ?? []).filter((n) => n.node_type && n.node_type !== 'your_startup');
+  // `your_startup` is the implicit hub — every other node hangs off it, so it
+  // doesn't earn a legend chip. Counts drive the legend under the graph.
+  const ecoNodes = graph.nodes.filter((n) => n.node_type && n.node_type !== 'your_startup');
   const counts = new Map<MessageKey, number>();
-  for (const n of nodes) {
+  for (const n of ecoNodes) {
     const key = TYPE_LABEL[n.node_type as string] ?? 'eco.other';
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   const groups = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const hasGraph = graph.nodes.length > 0;
 
   return (
     <section style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-l)', overflow: 'hidden' }}>
@@ -66,29 +61,40 @@ export function EcosystemPanel({ projectId }: { projectId: string }) {
           {t('eco.view-graph')} <Icon d={I.arrow} size={10} stroke={1.4} />
         </Link>
       </header>
-      <div style={{ padding: groups.length === 0 ? '14px 16px' : 12 }}>
-        {groups.length === 0 ? (
-          <div style={{ fontSize: 12, color: 'var(--ink-5)', fontStyle: 'italic' }}>{t('eco.empty')}</div>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {groups.map(([key, n]) => (
-              <Link
-                key={key}
-                href={`/project/${projectId}/knowledge`}
-                style={{
-                  display: 'inline-flex', alignItems: 'baseline', gap: 6,
-                  padding: '6px 10px', borderRadius: 999,
-                  background: 'var(--paper-2)', border: '1px solid var(--line)',
-                  textDecoration: 'none', color: 'var(--ink-2)', fontSize: 12,
-                }}
-              >
-                <span>{t(key)}</span>
-                <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>{n}</span>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
+
+      {/* The visual graph — read-only on Home (no apply/dismiss handlers → the
+          detail drawer renders without the Apply/Dismiss actions). Mounts only
+          when there are nodes so an empty project doesn't spin up a d3 sim. */}
+      {hasGraph ? (
+        <div style={{ position: 'relative', height: 340, width: '100%' }}>
+          <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} />
+        </div>
+      ) : (
+        <div style={{ padding: '14px 16px', fontSize: 12, color: 'var(--ink-5)', fontStyle: 'italic' }}>
+          {t('eco.empty')}
+        </div>
+      )}
+
+      {/* Compact legend — type counts double as quick links into /knowledge. */}
+      {groups.length > 0 && (
+        <div style={{ padding: 12, borderTop: '1px solid var(--line)', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {groups.map(([key, n]) => (
+            <Link
+              key={key}
+              href={`/project/${projectId}/knowledge`}
+              style={{
+                display: 'inline-flex', alignItems: 'baseline', gap: 6,
+                padding: '6px 10px', borderRadius: 999,
+                background: 'var(--paper-2)', border: '1px solid var(--line)',
+                textDecoration: 'none', color: 'var(--ink-2)', fontSize: 12,
+              }}
+            >
+              <span>{t(key)}</span>
+              <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>{n}</span>
+            </Link>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

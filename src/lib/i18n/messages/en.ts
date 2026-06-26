@@ -449,6 +449,7 @@ export const en = {
   'canvas.signals-pending-other': '{count} signals',
   'canvas.empty-state': 'Your idea canvas takes shape here as you chat with the co-pilot.',
   'canvas.solve-flow': 'Solve flow',
+  'canvas.generating': 'Generating…',
   // Spine + idea-canvas header + department surface (i18n completion for the
   // canvas pane reworked here). "memory" intentionally surfaces as "knowledge".
   'canvas.dept-market': 'Market',

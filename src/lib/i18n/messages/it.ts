@@ -441,6 +441,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'canvas.signals-pending-other': '{count} segnali',
   'canvas.empty-state': 'Il tuo idea canvas prende forma qui mentre parli con il co-pilot.',
   'canvas.solve-flow': 'Flusso di risoluzione',
+  'canvas.generating': 'Generazione…',
   // Superficie spine + intestazione idea-canvas + reparti.
   'canvas.dept-market': 'Mercato',
   'canvas.dept-product': 'Prodotto',
