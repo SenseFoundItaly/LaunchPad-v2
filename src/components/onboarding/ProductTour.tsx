@@ -10,7 +10,8 @@
  * Steps anchor to the persistent NavRail (href-suffix selectors), so it runs on
  * any project page. Covers: platform objective → sections overview → knowledge →
  * watchers → financials → kick off the Co-pilot. Step 7 (post-Idea-Canvas
- * reminder) is a SEPARATE trigger — see CanvasWatcherReminder.
+ * reminder) is a SEPARATE trigger — the adaptive watcher-nudge variant of
+ * OnboardingCard (shown once the Idea Canvas is defined and no watcher is active).
  */
 
 import { useEffect, useRef } from 'react';

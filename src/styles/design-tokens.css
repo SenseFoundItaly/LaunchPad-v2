@@ -118,6 +118,12 @@
 
 /* element primitives */
 .lp-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: var(--shadow-card); }
+/* Home dashboard grid — wide primary (Journey) + narrower secondary column.
+   minmax(0,…) lets both columns shrink so long content never overflows.
+   Collapses to a single column on narrow viewports. */
+.lp-home-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.lp-home-grid > * { min-width: 0; }
+@media (max-width: 900px) { .lp-home-grid { grid-template-columns: 1fr; } }
 .lp-mono { font-family: var(--f-mono); font-feature-settings: 'ss01','cv01','cv02'; }
 .lp-serif { font-family: var(--f-display); letter-spacing: -0.02em; font-weight: 600; }
 .lp-kbd { font-family: var(--f-mono); font-size: 12px; padding: 2px 5px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; color: var(--ink-3); background: var(--paper-2); }
