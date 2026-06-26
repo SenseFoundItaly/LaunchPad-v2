@@ -39,6 +39,101 @@ import {
   type CorrelationResult,
 } from '@/lib/intelligence-correlator';
 
+/**
+ * Per-invocation work budget. Each scheduled tick processes a BOUNDED batch of
+ * heavy (LLM) work so the serverless function finishes well within its
+ * execution budget; the GitHub Actions scheduler re-invokes /api/cron until
+ * everything drains (monitors_remaining + pulse_remaining both reach 0).
+ *
+ * A single monitor agent run can take up to 180s, so the monitor batch is kept
+ * small. The weekly pulse (correlation + heartbeat, one LLM call each per
+ * project) only runs once the monitor queue is empty, so a heavy tick never
+ * stacks a full monitor batch on top of pulse work.
+ */
+// Route segment config: declare the max execution budget. Honored on the
+// Vercel runtime; Netlify (the production deploy) applies its own function
+// ceiling, which is why the work is also bounded per-invocation below.
+export const maxDuration = 300;
+
+const MONITOR_BATCH = Number(process.env.CRON_MONITOR_BATCH) || 4;
+const PULSE_BATCH = Number(process.env.CRON_PULSE_BATCH) || 2;
+
+/**
+ * A cron_run still 'running' past this many minutes was killed by the platform
+ * wall-clock mid-execution — used by both the self-heal sweep and the
+ * concurrency guard.
+ */
+const STALE_RUN_MINUTES = 15;
+
+/**
+ * Self-heal: flip cron_runs left 'running' past STALE_RUN_MINUTES to 'failed'.
+ * Such a row means the function was killed mid-execution — a thrown error would
+ * have hit the GET catch block and been marked 'failed' already. Without this
+ * sweep the 'running' count grows without bound (observed: 51 orphans). Runs at
+ * the very top of every tick so the table self-reconciles even if a run dies.
+ */
+async function sweepStaleRuns(): Promise<number> {
+  const cutoff = new Date(Date.now() - STALE_RUN_MINUTES * 60 * 1000).toISOString();
+  const result = await run(
+    `UPDATE cron_runs
+        SET status = 'failed',
+            finished_at = COALESCE(finished_at, ?),
+            error_message = COALESCE(error_message, 'killed: exceeded execution budget (auto-swept)')
+      WHERE status = 'running' AND started_at < ?`,
+    new Date().toISOString(), cutoff,
+  );
+  const swept = (result as unknown as { count: number }).count ?? 0;
+  if (swept > 0) console.warn(`[cron] swept ${swept} stale 'running' cron_run(s) → 'failed'`);
+  return swept;
+}
+
+/**
+ * Concurrency guard: true if another cron_run started within STALE_RUN_MINUTES
+ * is still 'running'. Prevents overlapping invocations (the duplicate trigger /
+ * scheduler-loop re-entry) from racing each other and producing the paired
+ * stuck rows. Must run AFTER sweepStaleRuns so a dead run never blocks forever.
+ */
+async function isCronAlreadyRunning(): Promise<boolean> {
+  const cutoff = new Date(Date.now() - STALE_RUN_MINUTES * 60 * 1000).toISOString();
+  const rows = await query<{ id: string }>(
+    `SELECT id FROM cron_runs WHERE status = 'running' AND started_at >= ? LIMIT 1`,
+    cutoff,
+  );
+  return rows.length > 0;
+}
+
+/**
+ * Count projects with pulse work still pending, used to report pulse_remaining
+ * when the pulse phase is deferred (monitor queue not yet drained) so the
+ * scheduler loop knows to keep going. Mirrors the eligibility predicates in
+ * processHeartbeats (no heartbeat_reflection in 6d) and processCorrelations
+ * (no correlation brief in 7d).
+ */
+async function countPulsePending(): Promise<number> {
+  const sixDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString();
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const hb = await query<{ n: string }>(
+    `SELECT count(*) AS n FROM projects p
+      WHERE p.owner_user_id IS NOT NULL AND p.status != 'archived'
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_events e
+           WHERE e.user_id = p.owner_user_id AND e.project_id = p.id
+             AND e.event_type = 'heartbeat_reflection' AND e.created_at >= ?
+        )`,
+    sixDaysAgo,
+  );
+  const corr = await query<{ n: string }>(
+    `SELECT count(*) AS n FROM projects p
+      WHERE p.owner_user_id IS NOT NULL AND p.status != 'archived'
+        AND NOT EXISTS (
+          SELECT 1 FROM intelligence_briefs b
+           WHERE b.project_id = p.id AND b.brief_type = 'correlation' AND b.created_at >= ?
+        )`,
+    sevenDaysAgo,
+  );
+  return Number(hb[0]?.n ?? 0) + Number(corr[0]?.n ?? 0);
+}
+
 interface SkillCompletionRow {
   skill_id: string;
   summary: string | null;
@@ -194,7 +289,10 @@ interface MonitorRunOutcome {
   alert_layer?: 'primary' | 'second_pass';
 }
 
-async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
+async function runMonitor(
+  monitor: MonitorRow,
+  triggerType: 'scheduled' | 'manual' = 'scheduled',
+): Promise<MonitorRunOutcome> {
   const runId = generateId('mrun');
   const runAt = new Date().toISOString();
 
@@ -263,8 +361,8 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
 
     await run(
       `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, trigger_type, run_at)
-       VALUES (?, ?, ?, 'completed', ?, ?, 'scheduled', ?)`,
-      runId, monitor.id, monitor.project_id, result, 0, runAt,
+       VALUES (?, ?, ?, 'completed', ?, ?, ?, ?)`,
+      runId, monitor.id, monitor.project_id, result, 0, triggerType, runAt,
     );
 
     const nextRun = calculateNextRun(monitor.schedule);
@@ -444,11 +542,11 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
     const errMsg = (err as Error).message.slice(0, 2000);
     await run(
       `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, trigger_type, run_at)
-       VALUES (?, ?, ?, 'failed', ?, 0, 'scheduled', ?)
+       VALUES (?, ?, ?, 'failed', ?, 0, ?, ?)
        ON CONFLICT (id) DO UPDATE SET
          status = 'failed',
          summary = COALESCE(monitor_runs.summary, '') || E'\n\n[RUN ERROR] ' || excluded.summary`,
-      runId, monitor.id, monitor.project_id, errMsg, runAt,
+      runId, monitor.id, monitor.project_id, errMsg, triggerType, runAt,
     );
 
     logSignalActivity({
@@ -464,13 +562,16 @@ async function runMonitor(monitor: MonitorRow): Promise<MonitorRunOutcome> {
   }
 }
 
-async function processMonitors(monitors: MonitorRow[]): Promise<MonitorRunOutcome[]> {
+async function processMonitors(
+  monitors: MonitorRow[],
+  triggerType: 'scheduled' | 'manual' = 'scheduled',
+): Promise<MonitorRunOutcome[]> {
   // Sequential processing keeps ordering deterministic and avoids a thundering
   // herd against the LLM provider / DB. Phase 1 may parallelize with a worker
   // pool if throughput becomes an issue at >100 active projects.
   const results: MonitorRunOutcome[] = [];
   for (const monitor of monitors) {
-    results.push(await runMonitor(monitor));
+    results.push(await runMonitor(monitor, triggerType));
   }
   return results;
 }
@@ -478,11 +579,26 @@ async function processMonitors(monitors: MonitorRow[]): Promise<MonitorRunOutcom
 /** GET /api/cron — check and run due monitors, then heartbeat reflections.
  *
  * Gated by CRON_SECRET bearer when set. Triggered by the GitHub Actions
- * scheduled-cron.yml workflow (daily at 08:00 UTC).
+ * scheduled-cron.yml workflow (daily at 08:00 UTC), which re-invokes this
+ * endpoint in a loop until the response reports monitors_remaining == 0 &&
+ * pulse_remaining == 0. Each invocation does a BOUNDED amount of heavy LLM work
+ * (MONITOR_BATCH monitors, then PULSE_BATCH pulse projects once the monitor
+ * queue is empty) so the serverless function never exceeds its execution
+ * budget — the failure mode that orphaned 51 runs in 'running'.
  */
 export async function GET(request: NextRequest) {
   const auth = requireCronAuth(request);
   if (!auth.ok) return auth.response;
+
+  // Self-heal first: flip any run killed mid-flight on a previous tick to
+  // 'failed' so the 'running' count can't grow without bound.
+  const sweptStaleRuns = await sweepStaleRuns();
+
+  // Concurrency guard: if a fresh run is still in flight (duplicate trigger or
+  // scheduler-loop re-entry), bail out rather than race it.
+  if (await isCronAlreadyRunning()) {
+    return json({ skipped: 'already_running', swept_stale_runs: sweptStaleRuns });
+  }
 
   const cronRunId = generateId('crun');
   const startedAt = Date.now();
@@ -494,7 +610,11 @@ export async function GET(request: NextRequest) {
   try {
     const now = new Date().toISOString();
 
-    // Find monitors that are due (skip if ran in last 5 minutes to prevent loops)
+    // Phase A. Find due monitors. The 5-min guard (last_run < fiveMinAgo) is what
+    // makes the scheduler's drain loop safe: a monitor processed in batch N has
+    // last_run≈now, so it drops out of the next iteration's due set while the
+    // not-yet-processed monitors stay due. Ordered oldest-due-first; only the
+    // first MONITOR_BATCH run this tick, the rest report as monitors_remaining.
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const due = await query<MonitorRow>(
       `SELECT id, project_id, type, name, schedule, prompt FROM monitors WHERE status = 'active'
@@ -503,11 +623,14 @@ export async function GET(request: NextRequest) {
        AND (
          (next_run IS NOT NULL AND next_run <= ?)
          OR (next_run IS NULL AND last_run IS NULL)
-       )`,
+       )
+       ORDER BY next_run ASC NULLS FIRST`,
       fiveMinAgo, now,
     );
 
-    const monitorResults = due.length > 0 ? await processMonitors(due) : [];
+    const monitorBatch = due.slice(0, MONITOR_BATCH);
+    const monitorsRemaining = due.length - monitorBatch.length;
+    const monitorResults = monitorBatch.length > 0 ? await processMonitors(monitorBatch) : [];
 
     // Phase B: Process due watch sources (URL-based change detection).
     // Up to 10 per cron tick to keep each batch manageable.
@@ -529,16 +652,39 @@ export async function GET(request: NextRequest) {
     // Weekly intelligence pulse — reflection + cross-signal correlation +
     // Monday Brief email. Gated on PULSE_DAY (default Monday UTC) so the daily
     // cron tick only fans this out once per week. Flip via WEEKLY_PULSE_DAY env
-    // (0=Sun…6=Sat) without redeploy.
+    // (0=Sun…6=Sat) without redeploy. The pulse only starts once the monitor
+    // queue is drained for this tick, so a heavy monitor batch never stacks on
+    // top of pulse LLM calls in the same invocation.
     const isPulse = isWeeklyPulseDay();
 
     let correlationResults: CorrelationResult[] = [];
-    if (isPulse) {
+    let heartbeatResults: HeartbeatResult[] = [];
+    let pulseRemaining = 0;
+
+    if (isPulse && monitorsRemaining > 0) {
+      // Defer the pulse to a later drain iteration; report what's still pending
+      // so the scheduler keeps looping.
+      pulseRemaining = await countPulsePending();
+    } else if (isPulse) {
+      // Correlations: bound to PULSE_BATCH eligible projects (no correlation
+      // brief in 7d). processCorrelations re-checks the same window, so the
+      // pre-filter just bounds the batch and avoids wasted calls.
+      let correlationsRemaining = 0;
       try {
-        const activeProjects = await query<{ id: string }>(
-          `SELECT id FROM projects WHERE owner_user_id IS NOT NULL AND status != 'archived'`,
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const eligibleCorr = await query<{ id: string }>(
+          `SELECT p.id FROM projects p
+            WHERE p.owner_user_id IS NOT NULL AND p.status != 'archived'
+              AND NOT EXISTS (
+                SELECT 1 FROM intelligence_briefs b
+                 WHERE b.project_id = p.id AND b.brief_type = 'correlation' AND b.created_at >= ?
+              )
+            ORDER BY p.id`,
+          sevenDaysAgo,
         );
-        for (const proj of activeProjects) {
+        const corrBatch = eligibleCorr.slice(0, PULSE_BATCH);
+        correlationsRemaining = eligibleCorr.length - corrBatch.length;
+        for (const proj of corrBatch) {
           try {
             const result = await processCorrelations(proj.id);
             correlationResults.push(result);
@@ -550,18 +696,23 @@ export async function GET(request: NextRequest) {
       } catch (err) {
         console.warn('[cron] correlation phase failed:', (err as Error).message);
       }
-    }
 
-    const heartbeatResults = isPulse ? await processHeartbeats() : [];
+      // Heartbeats: bounded + resumable; returns how many projects still pending.
+      const hb = await processHeartbeats(PULSE_BATCH);
+      heartbeatResults = hb.results;
+      pulseRemaining = correlationsRemaining + hb.remaining;
+    }
 
     // Phase F: budget reconciliation sanity-check. The per-call audit trail
     // (llm_usage_logs) and the running accumulator (project_budgets) are written
     // by separate, best-effort statements — a dropped write drifts them apart
     // silently. Weekly (pulse-gated) we sum both per active project and warn on
     // any drift beyond rounding tolerance. Pure reads; never throws into cron.
+    // Only run on the FINAL drain iteration (everything else processed) so the
+    // scheduler loop doesn't repeat this whole-fleet scan on every call.
     const budgetDrifts: BudgetReconciliation[] = [];
     const userBudgetDrifts: UserBudgetReconciliation[] = [];
-    if (isPulse) {
+    if (isPulse && monitorsRemaining === 0 && pulseRemaining === 0) {
       try {
         const activeProjects = await query<{ id: string; owner_user_id: string | null }>(
           `SELECT id, owner_user_id FROM projects WHERE owner_user_id IS NOT NULL AND status != 'archived'`,
@@ -609,7 +760,7 @@ export async function GET(request: NextRequest) {
 
     // Phase 1 (4-bucket reorg) — auto-dismiss notification-lane rows older than
     // 7 days so the Notifications tab doesn't accumulate forever. Cheap bulk
-    // UPDATE; runs every 15 min but only flips rows that crossed the threshold
+    // UPDATE; runs every tick but only flips rows that crossed the threshold
     // since the last tick.
     const dismissedNotifications = await dismissStaleNotifications();
 
@@ -629,7 +780,9 @@ export async function GET(request: NextRequest) {
 
     return json({
       cron_run_id: cronRunId,
+      swept_stale_runs: sweptStaleRuns,
       monitors_ran: monitorResults.length,
+      monitors_remaining: monitorsRemaining,
       monitor_results: monitorResults,
       watch_sources_processed: watchSourceResults.length,
       watch_source_results: watchSourceResults,
@@ -638,6 +791,9 @@ export async function GET(request: NextRequest) {
       briefs_expired: briefsExpired,
       heartbeats_ran: heartbeatResults.length,
       heartbeat_results: heartbeatResults,
+      pulse_remaining: pulseRemaining,
+      // `drained` is the scheduler's stop condition: nothing left to process.
+      drained: monitorsRemaining === 0 && pulseRemaining === 0,
       budget_drifts: budgetDrifts.length,
       budget_drift_details: budgetDrifts,
       user_budget_drifts: userBudgetDrifts.length,
@@ -707,40 +863,43 @@ interface HeartbeatResult {
  * produces a 120-250 word reflection, records a memory_event, and ships the
  * Monday Brief email. No work-generation: the inbox stays founder-owned.
  */
-async function processHeartbeats(): Promise<HeartbeatResult[]> {
+async function processHeartbeats(
+  limit: number,
+): Promise<{ results: HeartbeatResult[]; remaining: number }> {
   const results: HeartbeatResult[] = [];
 
-  const projects = await query<{
+  // 6-day window (not 7) so a re-trigger one minute past the pulse-day boundary
+  // still finds last week's row and skips, but the next scheduled pulse always
+  // wins. Earlier daily-cadence used 24h; weekly cadence widens to ~6d.
+  // Eligibility (no heartbeat in 6d) is pushed into SQL so this function only
+  // ever loads projects that still need work — making it resumable across the
+  // scheduler's bounded re-invocations (NOT EXISTS also guards workflow_dispatch
+  // re-runs on the same pulse day).
+  const sixDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString();
+
+  const eligible = await query<{
     id: string; name: string; owner_user_id: string | null; locale: string | null;
   }>(
     `SELECT p.id, p.name, p.owner_user_id, p.locale
      FROM projects p
      WHERE p.owner_user_id IS NOT NULL
-       AND p.status != 'archived'`,
+       AND p.status != 'archived'
+       AND NOT EXISTS (
+         SELECT 1 FROM memory_events e
+          WHERE e.user_id = p.owner_user_id AND e.project_id = p.id
+            AND e.event_type = 'heartbeat_reflection' AND e.created_at >= ?
+       )
+     ORDER BY p.id`,
+    sixDaysAgo,
   );
 
-  // 6-day window (not 7) so a re-trigger one minute past the pulse-day boundary
-  // still finds last week's row and skips, but the next scheduled pulse always
-  // wins. Earlier daily-cadence used 24h; weekly cadence widens to ~6d.
-  const sixDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString();
+  // Bound the heavy LLM fan-out per invocation; the scheduler loop drains the
+  // rest. `remaining` tells it how many projects are still pending.
+  const batch = eligible.slice(0, Math.max(0, limit));
+  const remaining = eligible.length - batch.length;
 
-  for (const project of projects) {
+  for (const project of batch) {
     if (!project.owner_user_id) continue;
-
-    // Skip if a heartbeat has already fired in the last ~6 days. Guards against
-    // manual workflow_dispatch re-runs on the same pulse day.
-    const recent = await query<{ id: string }>(
-      `SELECT id FROM memory_events
-       WHERE user_id = ? AND project_id = ?
-         AND event_type = 'heartbeat_reflection'
-         AND created_at >= ?
-       LIMIT 1`,
-      project.owner_user_id, project.id, sixDaysAgo,
-    );
-    if (recent.length > 0) {
-      results.push({ project_id: project.id, project_name: project.name, status: 'skipped_already_ran' });
-      continue;
-    }
 
     // Cost tracking (observe mode — no hard block)
     const hbCapStatus = await isProjectCapped(project.id);
@@ -861,7 +1020,7 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
     }
   }
 
-  return results;
+  return { results, remaining };
 }
 
 /**
@@ -879,9 +1038,9 @@ async function processHeartbeats(): Promise<HeartbeatResult[]> {
  * bypassing the guard — when you ask for a specific monitor by id, you mean
  * "run it now," not "run it if it's due."
  *
- * Note: runs initiated here are persisted with trigger_type='scheduled'. If
- * we wire this endpoint into a user-driven "trigger from CLI" path later,
- * consider widening the call signature to thread an explicit trigger_type.
+ * Runs initiated here are persisted with trigger_type='manual' and wrapped in a
+ * cron_runs row, so manual/external POST activity is auditable rather than
+ * invisible (it previously left monitor_runs with no parent cron_run).
  */
 export async function POST(request: NextRequest) {
   const auth = requireCronAuth(request);
@@ -938,6 +1097,31 @@ export async function POST(request: NextRequest) {
     return json({ ran: 0, message: 'No monitors matched', forced: force });
   }
 
-  const results = await processMonitors(monitors);
-  return json({ ran: results.length, forced: force, results });
+  // Audit the manual run in cron_runs (same lifecycle as GET). If the function
+  // is killed mid-run, GET's sweepStaleRuns reclaims this row after 15 min.
+  const cronRunId = generateId('crun');
+  const startedAt = Date.now();
+  await run(
+    `INSERT INTO cron_runs (id, started_at, status) VALUES (?, ?, 'running')`,
+    cronRunId, new Date(startedAt).toISOString(),
+  );
+
+  try {
+    const results = await processMonitors(monitors, 'manual');
+    await run(
+      `UPDATE cron_runs
+         SET finished_at = ?, status = 'completed', duration_ms = ?, monitors_ran = ?
+       WHERE id = ?`,
+      new Date().toISOString(), Date.now() - startedAt, results.length, cronRunId,
+    );
+    return json({ cron_run_id: cronRunId, ran: results.length, forced: force, results });
+  } catch (err) {
+    await run(
+      `UPDATE cron_runs
+         SET finished_at = ?, status = 'failed', duration_ms = ?, error_message = ?
+       WHERE id = ?`,
+      new Date().toISOString(), Date.now() - startedAt, (err as Error).message.slice(0, 2000), cronRunId,
+    ).catch(() => {});
+    throw err;
+  }
 }
