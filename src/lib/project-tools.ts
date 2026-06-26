@@ -684,14 +684,13 @@ async function estimateMonitorCredits(
   const monthlyCost = estimateMonthlyCostEur(schedule);
   const monthlyRuns = SCHEDULE_TO_MONTHLY_RUNS[schedule];
 
-  // Credit conversion uses the CANONICAL post-markup ratio (3× markup, founder
-  // decision 2026-06-16): USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD =
-  // 100 / 0.333 = 300 credits per $. The old per-project lookup defaulted to 200
-  // and read project_budgets (never migrated to the markup) — so watcher
-  // estimates came out ~3× too low and the markup pass missed them entirely.
-  // Credits are per-USER now, so the per-user ratio is the source of truth.
+  // Credit conversion uses the committed cost-true ratio (founder decision
+  // 2026-06-26): USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD = 50 / 10 = 5
+  // credits per $ (1 credit ≈ $0.20). Credits are per-USER (shared across
+  // projects), so the per-user ratio is the source of truth — the old
+  // per-project project_budgets lookup is analytics-only.
   const creditsPerDollar =
-    USER_MONTHLY_LLM_USD > 0 ? USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD : 300;
+    USER_MONTHLY_LLM_USD > 0 ? USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD : 5;
   const perRunCredits = +(BALANCED_COST_PER_RUN_EUR * creditsPerDollar).toFixed(2);
   const dailyCredits = Math.max(0, Math.round(perRunCredits * (monthlyRuns / 30)));
   const monthlyCredits = Math.max(0, Math.round(perRunCredits * monthlyRuns));
