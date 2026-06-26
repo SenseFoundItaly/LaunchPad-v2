@@ -5,28 +5,23 @@
  */
 
 /**
- * Flat credit cost to APPLY a knowledge proposal (insight / entity /
- * comparison / metric / fact) into project intelligence. Charged once, on the
- * pending→applied transition — never on re-apply or on dismiss.
- *
- * Founder directive 2026-06-17 (item 14.2): the analysis that PRODUCED the
- * proposal already paid its LLM cost, so the approval itself is just a gating
- * click and must stay cheap — "approval shouldn't exceed 0.25–0.5 credits" — or
- * a graph with many insights becomes unsustainable. Was 2 (which double-charged
- * on top of the generation cost). Fractional debits are supported (debitCredits
- * converts credits→USD with no integer rounding).
+ * STRICT BILLING (founder decision 2026-06-26): "1 message = 1 credit, EVERYTHING
+ * ELSE IS FREE." A founder message debits exactly CREDITS_PER_MESSAGE; no other
+ * action costs credits — skill runs, watcher scans, background agent work,
+ * knowledge applies, document audits and validation applies are all free. We
+ * knowingly absorb their LLM cost for now. This is enforced at two chokepoints:
+ * recordUsage no longer debits the user pool (observational only), and
+ * debitCredits no-ops every step except 'chat_message'. The flat-charge
+ * constants below are therefore 0 — kept as named exports so any surviving UI
+ * label shows "free" and reads consistently if billing is ever un-hidden.
  */
-export const KNOWLEDGE_APPLY_CREDITS = 0.5;
+export const CREDITS_PER_MESSAGE = 1;
 
-/**
- * Flat credit cost to AUDIT one uploaded document — run the extraction passes
- * (entities / canvas / monitors) and ingest it. Founder decision 2026-06-14:
- * documents are priced per-document at a flat rate (complexity-independent);
- * applying the entities the audit surfaces is then FREE (you already paid to
- * audit the doc). Charged once per ingested document in the knowledge upload
- * route when ?audit_charge=1 is set.
- */
-export const DOCUMENT_AUDIT_CREDITS = 3;
+/** Flat credit cost to APPLY a knowledge proposal — FREE (strict billing). */
+export const KNOWLEDGE_APPLY_CREDITS = 0;
+
+/** Flat credit cost to AUDIT one uploaded document — FREE (strict billing). */
+export const DOCUMENT_AUDIT_CREDITS = 0;
 
 /**
  * Default monthly credit pool per USER (founder decision 2026-06-14: credits

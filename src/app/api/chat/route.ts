@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query, run, get } from '@/lib/db';
-import { KNOWLEDGE_APPLY_CREDITS, HIDE_CREDITS } from '@/lib/credit-costs';
+import { KNOWLEDGE_APPLY_CREDITS, HIDE_CREDITS, CREDITS_PER_MESSAGE } from '@/lib/credit-costs';
 import crypto from 'crypto';
 import { chatWithUsage, type UserKeyOverride } from '@/lib/llm';
 import { STEP_SYSTEM_PROMPTS } from '@/lib/llm/prompts';
@@ -22,7 +22,7 @@ import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
 import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
 import { isProjectCapped } from '@/lib/cost-meter';
-import { assertCreditsAvailable } from '@/lib/credits';
+import { assertCreditsAvailable, debitCredits } from '@/lib/credits';
 import { canvasLacksCorePrereqs, isCanvasDependentSkill } from '@/lib/skill-prereqs';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { CACHE_PREFIX_SPLIT, buildSplitUserTurn } from '@/lib/chat-cache-split';
@@ -468,6 +468,16 @@ export async function POST(request: NextRequest) {
       { status: 402, headers: { 'Content-Type': 'application/json' } },
     );
   }
+
+  // STRICT BILLING (founder decision 2026-06-26): a founder message is the ONLY
+  // thing that costs credits — exactly CREDITS_PER_MESSAGE per accepted turn.
+  // Everything else (skills, watchers, applies, background agent work) is free.
+  // Best-effort + fire-and-forget: a debit hiccup must never break the reply,
+  // and debitCredits is the gated chokepoint ('chat_message' is the only step
+  // that actually moves the pool).
+  debitCredits(project_id, CREDITS_PER_MESSAGE, 'chat_message').catch((err) =>
+    console.warn('[chat] message credit debit failed (non-fatal):', (err as Error).message),
+  );
 
   const lastMessage = messages[messages.length - 1]?.content || '';
   const projectContext = `[PROJECT: "${projects[0].name}"${projects[0].description ? ` — ${projects[0].description}` : ''}]\n`;

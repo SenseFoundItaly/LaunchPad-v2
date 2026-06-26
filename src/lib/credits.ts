@@ -294,10 +294,17 @@ export async function debitCredits(
   step = 'credit_debit',
 ): Promise<number> {
   if (credits <= 0) return 0;
+  // STRICT BILLING (founder decision 2026-06-26): "1 message = 1 credit,
+  // everything else is free." This is the central chokepoint for FLAT charges —
+  // gate it so only the per-message debit ('chat_message') actually moves the
+  // pool. Every other caller (knowledge_apply, document_audit, validation_apply)
+  // becomes a no-op here without touching its call site. recordUsage is likewise
+  // observational, so chat is the ONLY thing that debits credits.
+  if (step !== 'chat_message') return 0;
   const owner = await ownerUserId(projectId);
   if (!owner) return 0; // orphan project — no pool to charge
 
-  // Ratio from the USER pool (or per-user defaults). 100 credits / $1 → $0.01.
+  // Ratio from the USER pool (or per-user defaults). 50 credits / $10 → $0.20/cr.
   const budget = await getUserBudget(owner);
   const capCredits = budget?.cap_credits ?? DEFAULT_CAP_CREDITS;
   const capUsd = budget?.cap_llm_usd ?? USER_MONTHLY_LLM_USD;
