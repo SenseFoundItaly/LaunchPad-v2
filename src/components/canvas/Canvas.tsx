@@ -134,6 +134,11 @@ export function Canvas({
   // "proposed" so a populated-but-unapplied graph is visible (audit M1) — the
   // count is NEVER folded into knowledgeCount-as-applied; it's labelled apart.
   const [proposedNodeCount, setProposedNodeCount] = useState(0);
+  // Canonical applied-knowledge total from the server (countAppliedKnowledge:
+  // applied non-root nodes + applied facts, uncapped) — the SAME number the
+  // NavRail badge shows. null until first load; we then fall back to the capped
+  // local estimate only for older/degraded payloads (see knowledgeCount below).
+  const [serverKnowledgeCount, setServerKnowledgeCount] = useState<number | null>(null);
   // `degraded` is true when the intelligence endpoint reports `partial` (a
   // facet query hiccuped) OR the fetch itself failed. Either way we must NOT
   // render a confident empty state — a transient miss shouldn't read to the
@@ -163,6 +168,9 @@ export function Canvas({
                 ? inner.nodes.filter((n: KnowledgeNode) => n.reviewed_state === 'pending').length
                 : 0),
         );
+        setServerKnowledgeCount(
+          typeof inner?.knowledgeCount === 'number' ? inner.knowledgeCount : null,
+        );
         setDegraded(inner?.partial === true);
       } catch {
         if (!cancelled) setDegraded(true);
@@ -181,11 +189,14 @@ export function Canvas({
   const totalArtifacts = canvasEntries.filter((e) => e.artifact.type !== 'solve-progress').length;
   const visibleDepartments = DEPT_ORDER.filter((d) => grouped[d].length > 0);
   const isEmpty = !hasSolveProgress && totalArtifacts === 0 && matchedBriefs.length === 0;
-  // `nodes` now includes pending PROPOSALS as well as applied entities, so the
-  // applied side is facts (always applied) + applied nodes only. Proposed nodes
-  // are counted separately and labelled "proposed" — never as applied knowledge.
+  // Applied-knowledge total shown in the "Knowledge — N elementi" row. Prefer
+  // the canonical server count (countAppliedKnowledge — applied non-root nodes +
+  // applied facts, uncapped) so this matches the NavRail badge exactly. Fall
+  // back to the capped local estimate (applied nodes in the LIMIT-8 list + the
+  // ≤10 facts loaded) only for older/degraded payloads where it's absent.
+  // Proposed (pending) nodes are counted separately — never folded in here.
   const appliedNodeCount = nodes.filter((n) => n.reviewed_state !== 'pending').length;
-  const knowledgeCount = appliedNodeCount + facts.length;
+  const knowledgeCount = serverKnowledgeCount ?? appliedNodeCount + facts.length;
   const hasKnowledgeRow = knowledgeCount > 0 || proposedNodeCount > 0 || alertCount > 0;
 
   // Skim-first collapse: artifacts from the latest chat turn render open,
