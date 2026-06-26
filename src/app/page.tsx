@@ -6,10 +6,10 @@ import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import api from '@/api';
 import { TopBar } from '@/components/design/chrome';
-import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
+import { Pill, Icon, I } from '@/components/design/primitives';
 import { NODE_COLORS } from '@/types/graph';
 import { watcherWeeklyLabel } from '@/lib/watcher-cost';
-import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
+import { KNOWLEDGE_APPLY_CREDITS, HIDE_CREDITS } from '@/lib/credit-costs';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
 
@@ -1090,13 +1090,6 @@ export default function HomePage() {
           </div>
         </div>
       </div>
-
-      <StatusBar
-        heartbeatLabel={t('home.status-heartbeat-idle')}
-        gateway="pi-agent · anthropic"
-        ctxLabel={t('home.status-projects', { count: stats.total_projects })}
-        budget={t('home.status-signals', { count: stats.total_alerts_this_week })}
-      />
     </div>
   );
 }
@@ -1230,7 +1223,7 @@ function ExtractedKnowledgeView({
     : (actionBits.length > 0
         ? t('home.primary-apply', { actions: actionBits.join(' + ') })
         : t('home.primary-start-brief'))
-      + t('home.primary-credits-suffix', { credits: upfrontCredits });
+      + (HIDE_CREDITS ? '' : t('home.primary-credits-suffix', { credits: upfrontCredits }));
 
   const primaryBtnStyle: React.CSSProperties = {
     padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none',
@@ -1369,6 +1362,7 @@ function ExtractedKnowledgeView({
           </button>
         )}
       </div>
+      {!HIDE_CREDITS && (
       <div style={{ fontSize: 10.5, color: 'var(--ink-6)', marginTop: 8, lineHeight: 1.4 }}>
         {t('home.credits-footnote', {
           total: upfrontCredits,
@@ -1376,6 +1370,7 @@ function ExtractedKnowledgeView({
           brief: BRIEF_CREDITS_EST,
         })}
       </div>
+      )}
     </div>
   );
 }

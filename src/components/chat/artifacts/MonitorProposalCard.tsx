@@ -32,6 +32,7 @@ import ArtifactCardShell from './ArtifactCardShell';
 import UnifiedReviewControls from './UnifiedReviewControls';
 import { monitorPalette } from '@/lib/brand-palette';
 import { watcherWeeklyLabel, watcherRunsPerWeek } from '@/lib/watcher-cost';
+import { HIDE_CREDITS } from '@/lib/credit-costs';
 
 interface MonitorProposalCardProps {
   artifact: MonitorProposalArtifact;
@@ -289,6 +290,7 @@ function CostCallout({ artifact }: { artifact: MonitorProposalArtifact }) {
   // per-run estimate when present; otherwise the shared default.
   const weeklyLabel = watcherWeeklyLabel(artifact.schedule, artifact.estimated_per_run_credits);
   const runsPerWeek = watcherRunsPerWeek(artifact.schedule);
+  if (HIDE_CREDITS) return null; // billing-free: hide the cost callout entirely
 
   return (
     <div className="text-xs mb-3 px-2.5 py-2 rounded bg-paper-2/60 border border-line-2 flex items-baseline gap-2 flex-wrap">

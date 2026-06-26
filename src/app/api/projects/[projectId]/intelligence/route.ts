@@ -3,6 +3,7 @@ import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { get, query } from '@/lib/db';
 import { listFacts } from '@/lib/memory/facts';
+import { countAppliedKnowledge } from '@/lib/knowledge-count';
 import { STAGES, blendStageVerdict } from '@/lib/stages';
 import type { StageVerdict } from '@/lib/stages';
 import { canonicalStageId } from '@/lib/journey/canonical';
@@ -225,6 +226,18 @@ export async function GET(
   const appliedNodeCount = nodes.filter((n) => n.reviewed_state === 'applied').length;
   const proposedNodeCount = nodes.filter((n) => n.reviewed_state === 'pending').length;
 
+  // Canonical applied-knowledge total — the SAME number the NavRail badge shows
+  // (countAppliedKnowledge: applied non-root nodes + applied facts, UNCAPPED).
+  // The Canvas labels its "Knowledge — N elementi" row off this so the sidebar
+  // and the canvas can't disagree. Guarded: on failure it degrades to the capped
+  // local estimate (applied nodes in the LIMIT-8 list + the ≤10 facts shown)
+  // rather than 500ing the panel.
+  const knowledgeCount = await guard(
+    'knowledgeCount',
+    () => countAppliedKnowledge(projectId, project.owner_user_id).then((k) => k.total),
+    appliedNodeCount + facts.length,
+  );
+
   const completions = await guard(
     'completions',
     () =>
@@ -310,6 +323,9 @@ export async function GET(
     // without filtering the capped list itself.
     appliedNodeCount,
     proposedNodeCount,
+    // Canonical applied-knowledge total (nodes + facts, uncapped) — the Canvas
+    // "Knowledge — N elementi" label and the NavRail badge both use this.
+    knowledgeCount,
     stages,
     // audit M2 — true only when a guarded facet query actually threw. Lets the
     // Canvas distinguish a genuine empty-but-successful project (partial:false)
