@@ -6,12 +6,11 @@ import { useProject } from '@/hooks/useProject';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { ChromeProvider, useChromeState } from '@/components/design/chrome-context';
 import { TopBar, NavRail } from '@/components/design/chrome';
-import { StatusBar } from '@/components/design/primitives';
 import ProductTour from '@/components/onboarding/ProductTour';
 
 /**
- * Project layout — owns the PERSISTENT chrome (TopBar + NavRail + StatusBar)
- * plus the project-loading gate.
+ * Project layout — owns the PERSISTENT chrome (TopBar + NavRail) plus the
+ * project-loading gate.
  *
  * Locale note: the UI language is ACCOUNT-wide — it's governed by the
  * cookie-seeded LocaleProvider in the ROOT layout (src/app/layout.tsx), which
@@ -23,9 +22,9 @@ import ProductTour from '@/components/onboarding/ProductTour';
  *
  * The chrome lives here (not in each page) so it survives tab navigation: only
  * the content slot re-mounts (keyed on pathname) and crossfades via lp-rise,
- * while TopBar/NavRail/StatusBar stay mounted — no flicker, preserved state.
- * Per-page bits (breadcrumb, TopBar right-content, StatusBar props, chat
- * streaming) flow up through ChromeProvider: pages call useSetChrome(...).
+ * while TopBar/NavRail stay mounted — no flicker, preserved state.
+ * Per-page bits (breadcrumb, TopBar right-content, chat streaming) flow up
+ * through ChromeProvider: pages call useSetChrome(...).
  */
 
 // Fallback breadcrumb tail by route segment, used until (or if) a page publishes
@@ -100,7 +99,6 @@ function ProjectChrome({
           {children}
         </div>
       </div>
-      <StatusBar {...(chrome.status ?? {})} />
       {/* First-login product tour — self-gates on users.onboarded, renders nothing otherwise. */}
       <ProductTour projectId={projectId} />
     </div>

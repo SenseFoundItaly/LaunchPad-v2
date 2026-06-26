@@ -6,7 +6,7 @@ import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import api from '@/api';
 import { TopBar } from '@/components/design/chrome';
-import { Pill, StatusBar, Icon, I } from '@/components/design/primitives';
+import { Pill, Icon, I } from '@/components/design/primitives';
 import { NODE_COLORS } from '@/types/graph';
 import { watcherWeeklyLabel } from '@/lib/watcher-cost';
 import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
@@ -1090,13 +1090,6 @@ export default function HomePage() {
           </div>
         </div>
       </div>
-
-      <StatusBar
-        heartbeatLabel={t('home.status-heartbeat-idle')}
-        gateway="pi-agent · anthropic"
-        ctxLabel={t('home.status-projects', { count: stats.total_projects })}
-        budget={t('home.status-signals', { count: stats.total_alerts_this_week })}
-      />
     </div>
   );
 }
