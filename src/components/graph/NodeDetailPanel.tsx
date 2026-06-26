@@ -173,7 +173,9 @@ export default function NodeDetailPanel({
   const [aiImportance, setAiImportance] = useState<string | null>(null);
   useEffect(() => {
     setAiImportance(null);
-    if (!node || node.importance || !node.project_id) return;
+    // Only pending nodes show the "why this matters" pitch (gated below), so
+    // skip the fetch for applied nodes — its result would never be rendered.
+    if (!node || node.importance || !node.project_id || node.reviewed_state !== 'pending') return;
     let cancelled = false;
     fetch(`/api/projects/${node.project_id}/node-importance`, {
       method: 'POST',
@@ -303,13 +305,17 @@ export default function NodeDetailPanel({
 
       {/* Scrollable body */}
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Why this matters — what merging this node adds to the project. */}
-        <section style={{ background: 'var(--paper-2, var(--surface))', border: '1px solid var(--line)', borderLeft: '2px solid var(--accent)', borderRadius: 6, padding: '10px 12px' }}>
-          <SectionLabel>{t('knowledge.section-why')}</SectionLabel>
-          <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink-3)' }}>
-            {node.importance || aiImportance || t(nodeImportanceKey(node.node_type))}
-          </p>
-        </section>
+        {/* Why this matters — a review-time pitch for WHY the founder should
+            apply this proposal. Pending-only: once applied it is stale, so the
+            box is hidden when the founder re-opens the now-solid node. */}
+        {isPending && (
+          <section style={{ background: 'var(--paper-2, var(--surface))', border: '1px solid var(--line)', borderLeft: '2px solid var(--accent)', borderRadius: 6, padding: '10px 12px' }}>
+            <SectionLabel>{t('knowledge.section-why')}</SectionLabel>
+            <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink-3)' }}>
+              {node.importance || aiImportance || t(nodeImportanceKey(node.node_type))}
+            </p>
+          </section>
+        )}
 
         {/* Summary */}
         {node.summary && (
