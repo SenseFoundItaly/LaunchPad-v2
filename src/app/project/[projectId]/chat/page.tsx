@@ -26,10 +26,10 @@ import { splitOptionLabel } from '@/components/chat/option-label';
 import { IdeaShapingQuickReplies } from '@/components/chat/IdeaShapingQuickReplies';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import { KNOWLEDGE_APPLY_CREDITS, formatMessageCredits } from '@/lib/credit-costs';
-import type { Artifact, ArtifactType, ValidationProposalArtifact } from '@/types/artifacts';
+import type { Artifact, ArtifactType, Department, ValidationProposalArtifact } from '@/types/artifacts';
 import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
 import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard';
-import { Canvas } from '@/components/canvas/Canvas';
+import { Canvas, type PendingPlaceholder } from '@/components/canvas/Canvas';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import { TopBar, NavRail } from '@/components/design/chrome';
 // CreditsBadge is now mounted globally inside TopBar (see chrome.tsx) so we
@@ -771,7 +771,7 @@ export default function CopilotChatPage({
     sourceMessageId: string;
     turnIndex: number;
   }
-  const { canvasEntries, canvasArtifacts, inlineArtifactsByMsgId } = useMemo(() => {
+  const { canvasEntries, canvasArtifacts, inlineArtifactsByMsgId, pendingPlaceholders } = useMemo(() => {
     const inlineMap = new Map<string, Artifact[]>();
     const canvasById = new Map<string, CanvasEntry>();
     let turnIndex = 0;
@@ -793,12 +793,46 @@ export default function CopilotChatPage({
       if (split.canvas.length > 0) turnIndex++;
     }
     const entries = Array.from(canvasById.values());
+
+    // Item 9 — progressive Canvas paint. While the latest assistant message is
+    // still streaming, surface in-flight artifact blocks (the `:::artifact{…}`
+    // header has streamed but the body/closing hasn't) as dimmed skeletons so
+    // the Canvas fills incrementally instead of all-at-once on `done`. Scoped to
+    // the streaming message only — historical malformed blocks never skeleton.
+    // Ids already materialized as full cards are skipped (they win).
+    const placeholders: PendingPlaceholder[] = [];
+    if (isStreaming) {
+      const last = messages[messages.length - 1];
+      if (last && last.role === 'assistant' && last.content) {
+        for (const seg of parseMessageContent(last.content)) {
+          if (seg.type !== 'artifact-pending' || !seg.header) continue;
+          const { type, id, department } = seg.header;
+          if (!type || !id || canvasById.has(id)) continue;
+          const at = type as ArtifactType;
+          // Same canvas/inline split as classifyArtifacts — only paint blocks
+          // that would land in the right-side Canvas (not inline/pinned bubbles).
+          if (
+            INLINE_ARTIFACT_TYPES.has(at) ||
+            PINNED_ARTIFACT_TYPES.has(at) ||
+            NON_CANVAS_TYPES.has(type) ||
+            type === 'solve-progress'
+          ) continue;
+          placeholders.push({
+            id,
+            type,
+            department: (department as Department | undefined) ?? 'market',
+          });
+        }
+      }
+    }
+
     return {
       canvasEntries: entries,
       canvasArtifacts: entries.map((e) => e.artifact),
       inlineArtifactsByMsgId: inlineMap,
+      pendingPlaceholders: placeholders,
     };
-  }, [messages]);
+  }, [messages, isStreaming]);
 
   function handleSend() {
     const v = input.trim();
@@ -1423,6 +1457,7 @@ export default function CopilotChatPage({
             projectId={projectId}
             locale={locale}
             canvasEntries={canvasEntries}
+            pendingPlaceholders={pendingPlaceholders}
             messages={messages}
             handleArtifactAction={handleArtifactAction}
             focusedMessageId={focusedMessageId}

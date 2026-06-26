@@ -42,10 +42,25 @@ interface CanvasEntry {
   turnIndex: number;
 }
 
+/**
+ * In-flight artifact block (item 9: progressive Canvas paint). Parsed from the
+ * `:::artifact{…}` header of the streaming message before its body completes, so
+ * the Canvas can show a dimmed skeleton in the right department while the card
+ * is still arriving. Reconciled away the moment the full artifact (same id)
+ * lands in `canvasEntries`.
+ */
+export interface PendingPlaceholder {
+  id: string;
+  type: string;
+  department: Department;
+}
+
 interface CanvasProps {
   projectId: string;
   locale: 'en' | 'it';
   canvasEntries: CanvasEntry[];
+  /** Streaming-only skeletons for artifacts mid-generation (item 9). */
+  pendingPlaceholders?: PendingPlaceholder[];
   messages: Array<{ role: string; content: string }>;
   handleArtifactAction: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
   focusedMessageId: string | null;
@@ -89,6 +104,7 @@ export function Canvas({
   projectId,
   locale,
   canvasEntries,
+  pendingPlaceholders,
   messages,
   handleArtifactAction,
   focusedMessageId,
@@ -180,7 +196,20 @@ export function Canvas({
 
   const totalArtifacts = canvasEntries.filter((e) => e.artifact.type !== 'solve-progress').length;
   const visibleDepartments = DEPT_ORDER.filter((d) => grouped[d].length > 0);
-  const isEmpty = !hasSolveProgress && totalArtifacts === 0 && matchedBriefs.length === 0;
+
+  // Item 9 — drop any placeholder whose full card has already landed (the real
+  // artifact wins), then keep skeletons while the message is mid-stream.
+  const activePlaceholders = useMemo(() => {
+    if (!pendingPlaceholders?.length) return [] as PendingPlaceholder[];
+    const have = new Set(canvasEntries.map((e) => e.artifact.id));
+    return pendingPlaceholders.filter((p) => !have.has(p.id));
+  }, [pendingPlaceholders, canvasEntries]);
+
+  const isEmpty =
+    !hasSolveProgress &&
+    totalArtifacts === 0 &&
+    matchedBriefs.length === 0 &&
+    activePlaceholders.length === 0;
   // `nodes` now includes pending PROPOSALS as well as applied entities, so the
   // applied side is facts (always applied) + applied nodes only. Proposed nodes
   // are counted separately and labelled "proposed" — never as applied knowledge.
@@ -382,6 +411,38 @@ export function Canvas({
           latestTurnIndex={latestTurnIndex}
         />
       ))}
+
+      {/* Item 9 — progressive paint. Dimmed skeletons for artifacts the agent is
+          mid-streaming, so the Canvas fills card-by-card instead of snapping in
+          all-at-once at stream end. Each reconciles to its real card by id. */}
+      {activePlaceholders.length > 0 && (
+        <section data-canvas-section="pending" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
+          {activePlaceholders.map((p) => (
+            <div
+              key={p.id}
+              className="lp-card lp-scan"
+              style={{
+                position: 'relative',
+                overflow: 'hidden',
+                padding: '12px 14px',
+                borderStyle: 'dashed',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+              }}
+            >
+              <span className="lp-pulse" style={{ display: 'inline-flex', flex: 1, flexDirection: 'column', gap: 6, minWidth: 0 }}>
+                <span className="lp-serif" style={{ fontSize: 13, color: 'var(--ink-2)', textTransform: 'capitalize' }}>
+                  {p.type.replace(/[-_]/g, ' ')}
+                </span>
+                <span style={{ height: 8, width: '70%', borderRadius: 4, background: 'var(--line)' }} />
+                <span style={{ height: 8, width: '45%', borderRadius: 4, background: 'var(--line)' }} />
+              </span>
+              <Pill kind="live" dot>{t('canvas.generating')}</Pill>
+            </div>
+          ))}
+        </section>
+      )}
 
       {isEmpty && facts.length === 0 && nodes.length === 0 && alertCount === 0 && !degraded && (
         <div
