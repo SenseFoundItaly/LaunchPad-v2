@@ -55,6 +55,16 @@ export const USER_MONTHLY_LLM_USD = CREDIT_UNIT_MESSAGE ? 1.40 : 0.333;
 export const USER_MONTHLY_WARN_LLM_USD = CREDIT_UNIT_MESSAGE ? 1.12 : 0.267;
 
 /**
+ * Hide ALL founder-facing credit UI (badge, cost chips, apply/skill/doc prices)
+ * AND the agent's verbal credit-cost mentions — billing-free mode. Build-time
+ * NEXT_PUBLIC so client components inline it. Set NEXT_PUBLIC_HIDE_CREDITS=1
+ * alongside unsetting CREDITS_HARD_STOP; unset both to bring the billing UI back.
+ * The dedicated /usage page is intentionally NOT gated (spend analytics, not a
+ * charge surface).
+ */
+export const HIDE_CREDITS = process.env.NEXT_PUBLIC_HIDE_CREDITS === '1';
+
+/**
  * Credits per USD of LLM cost — the conversion the debit math uses (cap_credits
  * / cap_llm_usd). The DEFAULT ratio (100 / 0.333 ≈ 300) is used for ESTIMATES;
  * the actual per-user debit (and A2a's displayed actual) uses the user's own
