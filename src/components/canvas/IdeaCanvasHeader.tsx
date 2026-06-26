@@ -10,7 +10,8 @@
  * on lp-actions-changed so agent updates appear seamlessly.
  */
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 
@@ -42,8 +43,6 @@ interface IdeaCanvasHeaderProps {
 
 export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShaping }: IdeaCanvasHeaderProps) {
   const t = useT();
-  const [data, setData] = useState<IdeaCanvasRow | null>(null);
-  const [loaded, setLoaded] = useState(false);
   const [relaunchState, setRelaunchState] = useState<'idle' | 'running' | 'error'>('idle');
 
   const handleRelaunch = async () => {
@@ -57,33 +56,24 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
     }
   };
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
+  // Cached via TanStack so the pinned header survives tab navigation. The
+  // 'idea-canvas' topic is invalidated by the lp-actions-changed bridge, so
+  // agent updates still appear seamlessly — no per-component listener needed.
+  const { data = null, isLoading } = useQuery<IdeaCanvasRow | null>({
+    queryKey: ['idea-canvas', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
       try {
         const res = await fetch(`/api/projects/${projectId}/idea-canvas`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const body = await res.json();
-        const ic = (body?.data ?? null) as IdeaCanvasRow | null;
-        if (!cancelled) {
-          setData(ic);
-          setLoaded(true);
-        }
+        return (body?.data ?? null) as IdeaCanvasRow | null;
       } catch {
-        if (!cancelled) {
-          setData(null);
-          setLoaded(true);
-        }
+        return null;
       }
-    }
-    load();
-    const handler = () => { if (!cancelled) load(); };
-    window.addEventListener('lp-actions-changed', handler);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('lp-actions-changed', handler);
-    };
-  }, [projectId]);
+    },
+  });
+  const loaded = !isLoading;
 
   const pending = data?.pending ?? {};
   const isEmpty =

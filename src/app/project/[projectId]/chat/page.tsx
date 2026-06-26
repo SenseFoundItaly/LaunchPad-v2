@@ -16,10 +16,12 @@
  */
 
 import { use, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, createContext, useContext } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import api from '@/api';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
 import { useChat, chatStoreHydrated, markChatHydrated } from '@/hooks/useChat';
+import { useStages } from '@/hooks/useStages';
 import { requestRecharge } from '@/components/credits/recharge-events';
 import { useProject } from '@/hooks/useProject';
 import { splitOptionLabel } from '@/components/chat/option-label';
@@ -141,28 +143,20 @@ const OptionSelectionContext = createContext<OptionSelectionState>({
  *  refetch when the canvas changes (lp-actions-changed fires on validation
  *  applies), so skills UNLOCK the moment a solution + value prop land. */
 function useGatedSkills(projectId: string): Set<string> {
-  const [gated, setGated] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await fetch(`/api/projects/${projectId}/skills?availability=1`, { cache: 'no-store' });
-        const body = await res.json();
-        const list: string[] = Array.isArray(body?.data?.gated) ? body.data.gated : [];
-        if (!cancelled) setGated(new Set(list));
-      } catch {
-        /* leave the current set; fail-open to runnable (server 422 still backstops) */
-      }
-    }
-    load();
-    const handler = () => { if (!cancelled) load(); };
-    window.addEventListener('lp-actions-changed', handler);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('lp-actions-changed', handler);
-    };
-  }, [projectId]);
-  return gated;
+  // Cached via TanStack under the 'skills' topic so it survives tab navigation.
+  // The lp-actions-changed bridge invalidates 'skills', so the set still
+  // refreshes the moment a validation apply unlocks a skill — no per-component
+  // listener and no cache:'no-store' (which forced a fetch on every mount).
+  const { data } = useQuery<string[]>({
+    queryKey: ['skills', projectId, 'gated'],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/skills?availability=1`);
+      const body = await res.json();
+      return Array.isArray(body?.data?.gated) ? body.data.gated : [];
+    },
+  });
+  return useMemo(() => new Set(data ?? []), [data]);
 }
 
 function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artifact[] } {
@@ -1511,47 +1505,24 @@ function ChatHeader({
 // shows no stale placeholder.
 function useCurrentSubtask(projectId: string): string | null {
   const t = useT();
-  const [subtitle, setSubtitle] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await fetch(`/api/projects/${projectId}/stages`);
-        const body = await res.json();
-        if (cancelled) return;
-        const inner = body?.data ?? body;
-        const evals: Array<{
-          stage: { label: string };
-          status: string;
-          results: Array<{ check: { label: string }; result: { passed: boolean } }>;
-        }> = Array.isArray(inner?.evaluations) ? inner.evaluations : [];
-        const active = evals.find((e) => e.status === 'active');
-        if (!active) {
-          // No active stage: either nothing started or everything's validated.
-          const allDone = evals.length > 0 && evals.every((e) => e.status === 'done');
-          setSubtitle(allDone ? t('chat.subtask-all-validated') : null);
-          return;
-        }
-        const openCheck = active.results.find((r) => !r.result.passed);
-        if (openCheck) {
-          setSubtitle(t('chat.subtask-validating', { label: openCheck.check.label }));
-        } else {
-          // Active stage with every substep passed — about to advance.
-          setSubtitle(t('chat.subtask-ready-to-advance', { label: active.stage.label }));
-        }
-      } catch {
-        /* leave whatever was there; non-fatal */
-      }
+  // Shares the cached ['stages', projectId] query with SpineSection (one fetch
+  // serves both) and refreshes via the lp-actions-changed bridge — no separate
+  // per-mount fetch or window listener.
+  const { data: evals } = useStages(projectId);
+  return useMemo(() => {
+    if (!evals) return null; // loading — show no stale placeholder
+    const active = evals.find((e) => e.status === 'active');
+    if (!active) {
+      // No active stage: either nothing started or everything's validated.
+      const allDone = evals.length > 0 && evals.every((e) => e.status === 'done');
+      return allDone ? t('chat.subtask-all-validated') : null;
     }
-    load();
-    const handler = () => { if (!cancelled) load(); };
-    window.addEventListener('lp-actions-changed', handler);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('lp-actions-changed', handler);
-    };
-  }, [projectId, t]);
-  return subtitle;
+    const openCheck = active.results.find((r) => !r.result.passed);
+    return openCheck
+      ? t('chat.subtask-validating', { label: openCheck.check.label })
+      // Active stage with every substep passed — about to advance.
+      : t('chat.subtask-ready-to-advance', { label: active.stage.label });
+  }, [evals, t]);
 }
 
 interface EmptyStateStage {

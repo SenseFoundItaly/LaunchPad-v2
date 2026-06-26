@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/api';
 import {
   computeFinancialModel,
@@ -44,9 +45,14 @@ function money(n: number, cur = 'EUR'): string {
   return `${n < 0 ? '−' : ''}${sym}${s}`;
 }
 
+interface FinancialModelResponse {
+  financial_model: { assumptions?: unknown; generated_at?: string } | null;
+  derived?: { assumptions: Partial<FinancialAssumptions>; provenance: Record<string, string> } | null;
+}
+
 export default function FinancialModelPanel({ projectId }: { projectId: string }) {
+  const qc = useQueryClient();
   const [assumptions, setAssumptions] = useState<FinancialAssumptions>(defaultAssumptions());
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -54,29 +60,41 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
   // (e.g. ARPU from the Idea Canvas) rather than typed by the founder.
   const [provenance, setProvenance] = useState<Record<string, string>>({});
 
-  // Load the stored model's assumptions (or defaults) on mount.
-  useEffect(() => {
-    (async () => {
+  // Cached via TanStack under the 'financial' topic so revisiting the tab is
+  // instant. Editable state below is SEEDED from this query (guarded on !dirty),
+  // never bound to it — so an in-progress edit survives a tab switch.
+  const { data: stored, isLoading: loading } = useQuery<FinancialModelResponse | null>({
+    queryKey: ['financial', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
       try {
-        const { data: resp } = await api.get<ApiResponse<{
-          financial_model: unknown;
-          derived?: { assumptions: Partial<FinancialAssumptions>; provenance: Record<string, string> } | null;
-        }>>(`/api/projects/${projectId}/financial-model`);
-        const model = resp?.data?.financial_model as { assumptions?: unknown; generated_at?: string } | null;
-        const derived = resp?.data?.derived;
-        if (model && model.assumptions) {
-          setAssumptions(coerceAssumptions(model.assumptions));
-          setSavedAt(model.generated_at ?? null);
-        } else if (derived?.assumptions && Object.keys(derived.assumptions).length > 0) {
-          // No saved model — seed from the project's own evidence (ARPU from the
-          // Idea Canvas pricing, …) instead of bare defaults, and show why.
-          setAssumptions(coerceAssumptions({ ...defaultAssumptions(), ...derived.assumptions }));
-          setProvenance(derived.provenance || {});
-        }
-      } catch { /* no model yet — defaults */ }
-      setLoading(false);
-    })();
-  }, [projectId]);
+        const { data: resp } = await api.get<ApiResponse<FinancialModelResponse>>(
+          `/api/projects/${projectId}/financial-model`,
+        );
+        return resp?.data ?? null;
+      } catch {
+        return null; // no model yet — defaults
+      }
+    },
+  });
+
+  // Seed the editable assumptions from the stored model (or project-derived
+  // evidence) once loaded. The !dirty guard is the whole point: if the founder
+  // has unsaved edits, a re-seed (e.g. after navigating back) must not clobber
+  // them. save() updates the cache before clearing dirty, so this re-run lands
+  // on the just-saved values rather than reverting.
+  useEffect(() => {
+    if (loading || dirty) return;
+    const model = stored?.financial_model;
+    const derived = stored?.derived;
+    if (model && model.assumptions) {
+      setAssumptions(coerceAssumptions(model.assumptions));
+      setSavedAt(model.generated_at ?? null);
+    } else if (derived?.assumptions && Object.keys(derived.assumptions).length > 0) {
+      setAssumptions(coerceAssumptions({ ...defaultAssumptions(), ...derived.assumptions }));
+      setProvenance(derived.provenance || {});
+    }
+  }, [stored, loading, dirty]);
 
   // LIVE recompute — pure, instant, runs on every edit.
   const model = useMemo(() => computeFinancialModel(assumptions), [assumptions]);
@@ -97,7 +115,15 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
     setSaving(true);
     try {
       await api.post(`/api/projects/${projectId}/financial-model`, { assumptions });
-      setSavedAt(new Date().toISOString());
+      const generatedAt = new Date().toISOString();
+      // Write the saved model into the cache BEFORE clearing dirty so the
+      // seed effect re-runs against fresh data (no revert flash), and so other
+      // mounts of this query see the new values without a network round-trip.
+      qc.setQueryData<FinancialModelResponse | null>(['financial', projectId], (prev) => ({
+        ...(prev ?? { derived: null }),
+        financial_model: { assumptions, generated_at: generatedAt },
+      }));
+      setSavedAt(generatedAt);
       setDirty(false);
     } catch { /* keep dirty so the founder can retry */ }
     setSaving(false);

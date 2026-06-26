@@ -1,42 +1,31 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { IntelligenceBrief } from '@/types';
 
 /**
  * Fetches active intelligence briefs for a project.
- * Re-fetches on mount and when `lp-actions-changed` fires (which
- * happens after streaming ends or after an action is applied).
+ *
+ * Cached via TanStack under the 'briefs' topic so it survives tab navigation
+ * (no refetch on remount). It refreshes only when the lp-actions-changed bridge
+ * invalidates 'briefs' — e.g. after streaming ends or an action is applied.
  */
 export function useIntelligenceBriefs(projectId: string) {
-  const [briefs, setBriefs] = useState<IntelligenceBrief[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const refetch = useCallback(async () => {
-    setLoading(true);
-    try {
+  const { data, isLoading } = useQuery<IntelligenceBrief[]>({
+    queryKey: ['briefs', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
       const res = await fetch(
         `/api/projects/${projectId}/intelligence-briefs?status=active`,
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const body = await res.json();
-      const data = body?.data ?? body;
-      setBriefs(Array.isArray(data) ? data : []);
-    } catch {
-      setBriefs([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId]);
+      const list = body?.data ?? body;
+      return Array.isArray(list) ? list : [];
+    },
+  });
 
-  useEffect(() => {
-    refetch();
-    const handler = () => refetch();
-    window.addEventListener('lp-actions-changed', handler);
-    return () => window.removeEventListener('lp-actions-changed', handler);
-  }, [refetch]);
-
-  return { briefs, loading };
+  return { briefs: data ?? [], loading: isLoading };
 }
 
 /**

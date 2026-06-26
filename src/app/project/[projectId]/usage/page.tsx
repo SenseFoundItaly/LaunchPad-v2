@@ -1,6 +1,7 @@
 'use client';
 
-import { use, useEffect, useState, useCallback } from 'react';
+import { use } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import api from '@/api';
 import { BarChart } from '@/components/charts';
 import { useSetChrome } from '@/components/design/chrome-context';
@@ -64,9 +65,6 @@ export default function UsagePage({
 }) {
   const { projectId } = use(params);
   const t = useT();
-  const [data, setData] = useState<UsageData | null>(null);
-  const [credits, setCredits] = useState<CreditsInfo | null>(null);
-  const [loading, setLoading] = useState(true);
 
   useSetChrome(
     {
@@ -76,31 +74,41 @@ export default function UsagePage({
     [t],
   );
 
-  const fetchUsage = useCallback(async () => {
-    try {
-      const { data: resp } = await api.get<ApiResponse<UsageData>>(
-        `/api/projects/${projectId}/usage`,
-      );
-      if (resp.data) setData(resp.data);
-    } catch {
-      // usage table might not exist yet
-    }
-    try {
-      const { data: resp } = await api.get<ApiResponse<CreditsInfo>>(
-        `/api/projects/${projectId}/credits`,
-      );
-      if (resp.data) setCredits(resp.data);
-    } catch {
-      // budget row might not exist yet — fall back to the default ratio
-    }
-    setLoading(false);
-  }, [projectId]);
+  // Both fetches join the shared TanStack cache so revisiting the Usage tab is
+  // instant — they refetch only when 'usage'/'credits' is invalidated by the
+  // event bridge (e.g. lp-actions-changed after a chat turn charges credits).
+  // Errors fail soft to null (table/budget row may not exist yet).
+  const { data, isLoading: usageLoading } = useQuery<UsageData | null>({
+    queryKey: ['usage', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      try {
+        const { data: resp } = await api.get<ApiResponse<UsageData>>(
+          `/api/projects/${projectId}/usage`,
+        );
+        return resp.data ?? null;
+      } catch {
+        return null;
+      }
+    },
+  });
 
-  useEffect(() => {
-    fetchUsage();
-  }, [fetchUsage]);
+  const { data: credits, isLoading: creditsLoading } = useQuery<CreditsInfo | null>({
+    queryKey: ['credits', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      try {
+        const { data: resp } = await api.get<ApiResponse<CreditsInfo>>(
+          `/api/projects/${projectId}/credits`,
+        );
+        return resp.data ?? null;
+      } catch {
+        return null;
+      }
+    },
+  });
 
-  if (loading) {
+  if (usageLoading || creditsLoading) {
     return (
       <div className="flex items-center justify-center flex-1 text-ink-5 text-sm">
         {t('usage.loading')}

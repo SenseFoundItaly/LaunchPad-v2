@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import type { ReviewedState } from '@/types/artifacts';
 
@@ -31,12 +32,6 @@ export interface KnowledgeReviewListProps {
   locale: 'en' | 'it';
   /** compact mode hides tabs and shows only pending items — used in sidebar */
   compact?: boolean;
-  /**
-   * Bump this number to force a refetch of every already-loaded tab. Used by
-   * the Knowledge page so a successful file upload makes the new "applied"
-   * facts appear without a full reload.
-   */
-  refreshNonce?: number;
   /**
    * Controlled review-state filter. When set, the internal tab bar is hidden
    * and only this state's items render — the Knowledge page's filter-chip
@@ -246,12 +241,52 @@ function IntelligenceWarning({ locale }: { locale: 'en' | 'it' }) {
 // Main component
 // =============================================================================
 
-export default function KnowledgeReviewList({ projectId, locale, compact, refreshNonce, state }: KnowledgeReviewListProps) {
+export default function KnowledgeReviewList({ projectId, locale, compact, state }: KnowledgeReviewListProps) {
+  const qc = useQueryClient();
+  const factsKey = ['knowledge', projectId, 'facts'] as const;
+
+  // ---------------------------------------------------------------------------
+  // Data fetching — cached via TanStack under the 'knowledge' topic so the list
+  // survives tab navigation (no refetch on remount). It refreshes only when the
+  // bridge invalidates 'knowledge': lp-knowledge-changed (our own apply/reject,
+  // dispatched in patchItem) or lp-actions-changed (chat proposes an entity).
+  // Iter-3 QA fix preserved: all three tabs load together so the badge counts
+  // are real immediately (DB had applied facts hidden behind "In Context (0)").
+  // ---------------------------------------------------------------------------
+  const { data: fetched, isLoading: loading, refetch } = useQuery({
+    queryKey: factsKey,
+    enabled: !!projectId,
+    queryFn: async () => {
+      const fetchTab = async (tab: KnowledgeTab): Promise<KnowledgeItem[]> => {
+        try {
+          const res = await fetch(`/api/projects/${projectId}/knowledge?state=${tab}`);
+          if (!res.ok) {
+            console.warn(`[KnowledgeReviewList] fetch ${tab} failed: HTTP ${res.status}`);
+            return [];
+          }
+          const json = await res.json();
+          return (json.data?.items ?? []) as KnowledgeItem[];
+        } catch (err) {
+          console.warn(`[KnowledgeReviewList] fetch ${tab} error:`, (err as Error).message);
+          return [];
+        }
+      };
+      const [pending, applied, rejected] = await Promise.all([
+        fetchTab('pending'), fetchTab('applied'), fetchTab('rejected'),
+      ]);
+      return { pending, applied, rejected };
+    },
+  });
+
+  // Local mirror of the cached query. The optimistic mutation handlers and the
+  // 8s undo queue operate on this local state (unchanged); the query is just
+  // the SOURCE. Seeding it synchronously from the cache (initializer below)
+  // avoids an empty-state flash when returning to an already-loaded tab.
+  const seed = qc.getQueryData<{ pending: KnowledgeItem[]; applied: KnowledgeItem[]; rejected: KnowledgeItem[] }>(factsKey);
   const [activeTab, setActiveTab] = useState<KnowledgeTab>('pending');
-  const [pendingItems, setPendingItems] = useState<KnowledgeItem[]>([]);
-  const [appliedItems, setAppliedItems] = useState<KnowledgeItem[]>([]);
-  const [rejectedItems, setRejectedItems] = useState<KnowledgeItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [pendingItems, setPendingItems] = useState<KnowledgeItem[]>(seed?.pending ?? []);
+  const [appliedItems, setAppliedItems] = useState<KnowledgeItem[]>(seed?.applied ?? []);
+  const [rejectedItems, setRejectedItems] = useState<KnowledgeItem[]>(seed?.rejected ?? []);
   const [undoQueue, setUndoQueue] = useState<UndoEntry[]>([]);
   const [partialError, setPartialError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -259,55 +294,16 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
   const undoQueueRef = useRef(undoQueue);
   undoQueueRef.current = undoQueue;
 
-  // Iter-3 QA fix: eagerly load ALL three tabs on mount so the tab badge
-  // counts reflect reality. Previously only 'pending' was fetched on mount;
-  // 'applied' and 'rejected' counts read 0 until the founder clicked into
-  // them, which made the loudest "where did my applied facts go?" perception
-  // bug in the QA pass. See qa-report-launchpad-v2-20260608-* — DB had 23
-  // applied memory_facts hidden behind an "In Context (0)" tab label.
-  const loadedTabs = useRef<Set<KnowledgeTab>>(new Set(['pending', 'applied', 'rejected']));
-
-  // ---------------------------------------------------------------------------
-  // Data fetching
-  // ---------------------------------------------------------------------------
-
-  const fetchItemsForTab = useCallback(async (tab: KnowledgeTab) => {
-    try {
-      const res = await fetch(`/api/projects/${projectId}/knowledge?state=${tab}`);
-      if (!res.ok) {
-        console.warn(`[KnowledgeReviewList] fetch ${tab} failed: HTTP ${res.status}`);
-        return;
-      }
-      const json = await res.json();
-      const data: KnowledgeItem[] = json.data?.items ?? [];
-      if (tab === 'pending') setPendingItems(data);
-      else if (tab === 'applied') setAppliedItems(data);
-      else setRejectedItems(data);
-    } catch (err) {
-      console.warn(`[KnowledgeReviewList] fetch ${tab} error:`, (err as Error).message);
-    }
-  }, [projectId]);
-
+  // Re-sync local arrays whenever the query data changes — initial load and
+  // every refetch-after-invalidation (our own mutation, an upload, or a chat
+  // proposal). Optimistic local edits don't change `fetched`, so this never
+  // clobbers them mid-flight; it lands server truth once a refetch completes.
   useEffect(() => {
-    // Iter-3 QA fix: fetch all three tabs in parallel on mount so the
-    // tab badges show real counts immediately. Each tab caps at 50 items,
-    // three independent queries are well within budget for first paint.
-    void Promise.all([
-      fetchItemsForTab('pending'),
-      fetchItemsForTab('applied'),
-      fetchItemsForTab('rejected'),
-    ]).finally(() => setLoading(false));
-  }, [fetchItemsForTab]);
-
-  // Re-fetch every loaded tab when the parent bumps `refreshNonce` (e.g. after
-  // a successful file upload). Skip the initial render (nonce undefined / 0)
-  // so we don't double-fetch alongside the mount effect above.
-  useEffect(() => {
-    if (!refreshNonce) return;
-    for (const tab of loadedTabs.current) {
-      void fetchItemsForTab(tab);
-    }
-  }, [refreshNonce, fetchItemsForTab]);
+    if (!fetched) return;
+    setPendingItems(fetched.pending);
+    setAppliedItems(fetched.applied);
+    setRejectedItems(fetched.rejected);
+  }, [fetched]);
 
   // Controlled mode: when the parent switches the state filter, collapse any
   // open card — the expanded id may not exist in the new list.
@@ -318,10 +314,6 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
   function handleTabClick(tab: KnowledgeTab) {
     setActiveTab(tab);
     setExpandedId(null);
-    if (!loadedTabs.current.has(tab)) {
-      loadedTabs.current.add(tab);
-      void fetchItemsForTab(tab);
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -354,9 +346,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
     const item = pendingItems.find((i) => i.id === itemId);
     if (!item) return;
     setPendingItems((prev) => prev.filter((i) => i.id !== itemId));
-    if (loadedTabs.current.has('applied')) {
-      setAppliedItems((prev) => [{ ...item, reviewed_state: 'applied' as ReviewedState }, ...prev]);
-    }
+    setAppliedItems((prev) => [{ ...item, reviewed_state: 'applied' as ReviewedState }, ...prev]);
     setExpandedId(null);
     setPartialError(null);
     try {
@@ -367,8 +357,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
       setUndoQueue((prev) => [...prev, { item, state: 'applied', timerId }]);
     } catch (err) {
       console.warn('[KnowledgeReviewList] approve failed, reverting:', (err as Error).message);
-      void fetchItemsForTab('pending');
-      if (loadedTabs.current.has('applied')) void fetchItemsForTab('applied');
+      void refetch();
     }
   }
 
@@ -380,9 +369,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
     const item = pendingItems.find((i) => i.id === itemId);
     if (!item) return;
     setPendingItems((prev) => prev.filter((i) => i.id !== itemId));
-    if (loadedTabs.current.has('rejected')) {
-      setRejectedItems((prev) => [{ ...item, reviewed_state: 'rejected' as ReviewedState }, ...prev]);
-    }
+    setRejectedItems((prev) => [{ ...item, reviewed_state: 'rejected' as ReviewedState }, ...prev]);
     setExpandedId(null);
     setPartialError(null);
     try {
@@ -393,8 +380,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
       setUndoQueue((prev) => [...prev, { item, state: 'rejected', timerId }]);
     } catch (err) {
       console.warn('[KnowledgeReviewList] reject failed, reverting:', (err as Error).message);
-      void fetchItemsForTab('pending');
-      if (loadedTabs.current.has('rejected')) void fetchItemsForTab('rejected');
+      void refetch();
     }
   }
 
@@ -406,16 +392,13 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
     const item = appliedItems.find((i) => i.id === itemId);
     if (!item) return;
     setAppliedItems((prev) => prev.filter((i) => i.id !== itemId));
-    if (loadedTabs.current.has('rejected')) {
-      setRejectedItems((prev) => [{ ...item, reviewed_state: 'rejected' as ReviewedState }, ...prev]);
-    }
+    setRejectedItems((prev) => [{ ...item, reviewed_state: 'rejected' as ReviewedState }, ...prev]);
     setExpandedId(null);
     try {
       await patchItem(itemId, 'rejected');
     } catch (err) {
       console.warn('[KnowledgeReviewList] remove failed, reverting:', (err as Error).message);
-      void fetchItemsForTab('applied');
-      if (loadedTabs.current.has('rejected')) void fetchItemsForTab('rejected');
+      void refetch();
     }
   }
 
@@ -433,8 +416,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
       await patchItem(itemId, 'pending');
     } catch (err) {
       console.warn('[KnowledgeReviewList] restore failed, reverting:', (err as Error).message);
-      void fetchItemsForTab('rejected');
-      void fetchItemsForTab('pending');
+      void refetch();
     }
   }
 
@@ -447,10 +429,10 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
     if (!entry) return;
     clearTimeout(entry.timerId);
     setUndoQueue((prev) => prev.filter((u) => u.item.id !== itemId));
-    if (entry.state === 'applied' && loadedTabs.current.has('applied')) {
+    if (entry.state === 'applied') {
       setAppliedItems((prev) => prev.filter((i) => i.id !== itemId));
     }
-    if (entry.state === 'rejected' && loadedTabs.current.has('rejected')) {
+    if (entry.state === 'rejected') {
       setRejectedItems((prev) => prev.filter((i) => i.id !== itemId));
     }
     setPendingItems((prev) => [entry.item, ...prev]);
@@ -471,12 +453,10 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
     const ids = allItems.map((i) => i.id);
     setPendingItems([]);
     setExpandedId(null);
-    if (loadedTabs.current.has('applied')) {
-      setAppliedItems((prev) => [
-        ...allItems.map((i) => ({ ...i, reviewed_state: 'applied' as ReviewedState })),
-        ...prev,
-      ]);
-    }
+    setAppliedItems((prev) => [
+      ...allItems.map((i) => ({ ...i, reviewed_state: 'applied' as ReviewedState })),
+      ...prev,
+    ]);
     let failCount = 0;
     for (const id of ids) {
       try {
@@ -487,8 +467,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, refres
     }
     if (failCount > 0) {
       setPartialError(`${failCount} of ${ids.length} items failed to apply`);
-      void fetchItemsForTab('pending');
-      if (loadedTabs.current.has('applied')) void fetchItemsForTab('applied');
+      void refetch();
     } else {
       const timerId = setTimeout(() => {
         setUndoQueue((prev) => prev.filter((u) => !ids.includes(u.item.id)));
