@@ -13,15 +13,20 @@
  * consumer is added later. Add the topic when you add the query.
  *
  * Current consumers:
- *   'knowledge' → ['knowledge', projectId, 'graph'] (useKnowledgeGraph, knowledge/page.tsx)
- *                 (KnowledgeReviewList is NOT a TanStack consumer — it uses
- *                  refreshNonce + its own internal state.)
+ *   'knowledge' → ['knowledge', projectId, 'graph']      (useKnowledgeGraph, knowledge/page.tsx)
+ *                 ['knowledge', projectId, 'facts']       (KnowledgeReviewList)
  *   'actions'   → ['actions', projectId, 'count']   (useOpenActionCount, NavRail badge)
  *                 ['actions', projectId, 'inbox']   (actions/page.tsx)
  *                 ['actions', projectId, 'preview', 3] (today/page.tsx panel)
  *   'timeline'  → ['timeline', projectId, 7]        (today/page.tsx briefs panel)
  *                 ['timeline', projectId, 14, q]    (signals/page.tsx)
- *   'credits'   → ['credits', projectId]            (CreditsBadge)
+ *   'credits'   → ['credits', projectId]            (CreditsBadge, usage/page.tsx)
+ *   'usage'     → ['usage', projectId]              (usage/page.tsx)
+ *   'stages'    → ['stages', projectId]             (SpineSection)
+ *   'idea-canvas' → ['idea-canvas', projectId]      (IdeaCanvasHeader)
+ *   'briefs'    → ['briefs', projectId]             (useIntelligenceBriefs / Canvas)
+ *   'skills'    → ['skills', projectId, 'gated']    (useGatedSkills / Co-pilot)
+ *   'financial' → ['financial', projectId]          (FinancialModelPanel)
  */
 export const EVENT_TO_TOPICS: Record<string, string[]> = {
   // Knowledge graph nodes/edges. Fired by KnowledgeReviewList apply/reject
@@ -53,6 +58,18 @@ export const EVENT_TO_TOPICS: Record<string, string[]> = {
     'loops',
     'fundraising',
     'memory',
+    // Section-page satellite fetches migrated onto the cache 2026-06-26. A chat
+    // turn can mutate any of these (charges usage, proposes entities, writes
+    // idea_canvas / financial model, unlocks gated skills), so flush their
+    // queries here instead of each component listening to lp-actions-changed
+    // itself (the per-component listeners were removed when they moved to
+    // useQuery — the bridge is now the single source of invalidation).
+    'knowledge',
+    'usage',
+    'idea-canvas',
+    'briefs',
+    'skills',
+    'financial',
   ],
 
   // Workflow/task state. Fired by chat when a workflow-card mutates

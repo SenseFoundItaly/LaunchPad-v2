@@ -16,7 +16,8 @@
  * to see its substep checklist; the active step is open by default.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useStages } from '@/hooks/useStages';
 import { useRouter } from 'next/navigation';
 import { checkActionPrompt } from '@/lib/journey-prompts';
 import { useT } from '@/components/providers/LocaleProvider';
@@ -83,37 +84,17 @@ const STATE: Record<StageEval['status'], { color: string; labelKey: MessageKey }
 export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
   const t = useT();
   const router = useRouter();
-  const [evals, setEvals] = useState<StageEval[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const [openStage, setOpenStage] = useState<string | null>(null);
   const [userPicked, setUserPicked] = useState(false);
   // Which validated substep has its proof expanded (by check id).
   const [openProof, setOpenProof] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await fetch(`/api/projects/${projectId}/stages`);
-        const body = await res.json();
-        if (cancelled) return;
-        const inner = body?.data ?? body;
-        const list: StageEval[] = Array.isArray(inner?.evaluations) ? inner.evaluations : [];
-        list.sort((a, b) => a.stage.number - b.stage.number);
-        setEvals(list);
-        setLoaded(true);
-      } catch {
-        if (!cancelled) setLoaded(true);
-      }
-    }
-    load();
-    const handler = () => { if (!cancelled) load(); };
-    window.addEventListener('lp-actions-changed', handler);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('lp-actions-changed', handler);
-    };
-  }, [projectId]);
+  // Cached via the shared useStages hook (dedupes with the chat-header subtitle
+  // onto one ['stages', projectId] query) so the spine survives tab navigation.
+  // The 'stages' topic is invalidated by the lp-actions-changed bridge, so a
+  // chat turn that advances the pipeline still refreshes it.
+  const { data: evals = [], isLoading } = useStages(projectId);
+  const loaded = !isLoading;
 
   // The first not-yet-validated step — the founder's current focus.
   const activeId = useMemo(
