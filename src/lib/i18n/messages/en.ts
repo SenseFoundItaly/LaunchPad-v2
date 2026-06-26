@@ -314,6 +314,7 @@ export const en = {
   'home.creating': 'Creating…',
   'home.uploading': 'Uploading…',
   'home.create': 'Create',
+  'home.project-language-label': 'Project language',
   'home.mode-scratch-label': 'Start from scratch',
   'home.mode-scratch-desc': 'Blank slate. Shape the canvas via chat.',
   'home.mode-knowledge-label': 'Start from existing knowledge',

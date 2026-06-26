@@ -10,7 +10,8 @@ import { Pill, Icon, I } from '@/components/design/primitives';
 import { NODE_COLORS } from '@/types/graph';
 import { watcherWeeklyLabel } from '@/lib/watcher-cost';
 import { KNOWLEDGE_APPLY_CREDITS, HIDE_CREDITS } from '@/lib/credit-costs';
-import { useT } from '@/components/providers/LocaleProvider';
+import { useT, useLocale } from '@/components/providers/LocaleProvider';
+import { SUPPORTED_LOCALES, LOCALE_NATIVE_NAME, type Locale } from '@/lib/i18n/locales';
 import type { MessageKey } from '@/lib/i18n/messages';
 
 // A watcher the upload extractor suggests from a founder's docs (opt-in).
@@ -83,6 +84,11 @@ export default function HomePage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
+  // Locale is frozen at creation (a project stays in the language it's made in),
+  // so the create form is the only place to pick it. Default to the founder's
+  // account language → no change for single-language users.
+  const accountLocale = useLocale();
+  const [newLocale, setNewLocale] = useState<Locale>(accountLocale);
   const [createError, setCreateError] = useState<string | null>(null);
   // 'scratch'   — empty project, founder builds canvas from chat
   // 'knowledge' — same + optional file uploads ingested into knowledge layer
@@ -156,6 +162,7 @@ export default function HomePage() {
       const { data } = await api.post('/api/projects', {
         name: newName.trim(),
         description: newDesc.trim(),
+        locale: newLocale,
       });
       if (!(data.success && data.data)) {
         setCreateError(data.error || t('home.error-create-failed'));
@@ -736,6 +743,30 @@ export default function HomePage() {
                           outline: 'none',
                         }}
                       />
+                      <select
+                        value={newLocale}
+                        onChange={(e) => setNewLocale(e.target.value as Locale)}
+                        aria-label={t('home.project-language-label')}
+                        title={t('home.project-language-label')}
+                        style={{
+                          flex: 'none',
+                          padding: '7px 10px',
+                          background: 'var(--paper)',
+                          border: '1px solid var(--line-2)',
+                          borderRadius: 'var(--r-m)',
+                          fontSize: 13,
+                          color: 'var(--ink-2)',
+                          fontFamily: 'inherit',
+                          outline: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {SUPPORTED_LOCALES.map((loc) => (
+                          <option key={loc} value={loc}>
+                            {LOCALE_NATIVE_NAME[loc]}
+                          </option>
+                        ))}
+                      </select>
                       <button
                         onClick={handleCreate}
                         disabled={creating || !newName.trim()}
@@ -759,6 +790,7 @@ export default function HomePage() {
                           setShowCreate(false);
                           setNewName('');
                           setNewDesc('');
+                          setNewLocale(accountLocale);
                           setCreateError(null);
                           setCreateMode('scratch');
                           setCreateFiles([]);
