@@ -123,8 +123,8 @@ export interface CreditsSnapshot {
 /**
  * Snapshot of the credit pool for whoever OWNS this project. Resolves
  * owner_user_id and reads user_budgets, so any of the owner's projects returns
- * the same shared pool. Falls back to the per-user defaults (100 credits, $0
- * spent) when no row exists yet — the badge shows 100/100 from day one.
+ * the same shared pool. Falls back to the per-user defaults (50 credits, $0
+ * spent) when no row exists yet — the badge shows 50/50 from day one.
  */
 export async function getCreditsSnapshot(projectId: string): Promise<CreditsSnapshot> {
   const periodMonth = currentPeriodMonth();

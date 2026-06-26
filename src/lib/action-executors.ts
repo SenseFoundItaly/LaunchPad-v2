@@ -42,6 +42,7 @@ import { checkDedup, computeDedupHash } from './monitor-dedup';
 import { recordEvent } from './memory/events';
 import { recordFact } from './memory/facts';
 import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from './credits';
+import { CREDITS_PER_DOLLAR } from '@/lib/credit-costs';
 import { ownerUserId as resolveOwnerUserId } from '@/lib/cost-meter';
 import { seedAssumptionsIfEmpty } from './assumptions';
 import type { Source } from '@/types/artifacts';
@@ -916,11 +917,12 @@ const configureBudget: ActionHandler = async (action) => {
   );
   const prevCap = existing[0]?.cap_llm_usd ?? null;
 
-  // Preserve the 100 credits / $1 invariant (cap_credits = capUsd × 100) so every
-  // ratio-based reader (badge, per-message credit display) stays correct without
-  // change. PostgreSQL UPSERT keyed on (user_id, period_month); current_llm_usd
-  // is untouched on conflict so existing spend tracking survives a cap change.
-  const capCredits = Math.round(proposedCap * 100);
+  // Preserve the committed unit invariant (cap_credits = capUsd × CREDITS_PER_DOLLAR,
+  // = ×5 → 50 cr / $10) so every ratio-based reader (badge, per-message credit
+  // display) stays correct without change. PostgreSQL UPSERT keyed on
+  // (user_id, period_month); current_llm_usd is untouched on conflict so existing
+  // spend tracking survives a cap change.
+  const capCredits = Math.round(proposedCap * CREDITS_PER_DOLLAR);
   const budgetId = generateId('ubud');
   const now = new Date().toISOString();
 

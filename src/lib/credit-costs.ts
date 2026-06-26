@@ -30,29 +30,28 @@ export const DOCUMENT_AUDIT_CREDITS = 3;
 
 /**
  * Default monthly credit pool per USER (founder decision 2026-06-14: credits
- * are per-user, shared across all their projects).
+ * are per-user, shared across ALL their projects — debits resolve the project's
+ * owner first, so spend on any project draws the same pool).
  *
- * PRICING (founder decision 2026-06-16): 3× markup over raw LLM cost. The debit
- * is credits = cost_usd × (cap_credits / cap_llm_usd), so pairing 100 credits
- * with a $0.333 cost ceiling makes creditsPerDollar = 300 → 1 credit ≈ $0.0033
- * of LLM spend, i.e. the founder's 100-credit pool covers ~$0.33 of real cost
- * and the rest is gross margin (~67%). Was $1.00 (pass-through, 0 margin).
+ * UNIT (founder decision 2026-06-26): a generous, cost-true free pool —
+ * **50 credits ≈ $10 of real LLM / month**, so **1 credit ≈ $0.20 of LLM cost**
+ * (creditsPerDollar = 50 / 10 = 5). The debit is credits = cost_usd ×
+ * (cap_credits / cap_llm_usd). A typical chat turn (~$0.14) ≈ 0.7 cr and a heavy
+ * skill (~$0.46) ≈ 2.3 cr, so the $10 pool covers ~50–90 messages or ~20 skill
+ * runs/month. This replaces the old markup-baked unit (100 cr over $0.333 =
+ * 300 cr/$), which made one workflow exhaust the month and drove the "credits
+ * scaled randomly / run out instantly" complaint. The 3× sale markup, if/when
+ * billing returns, lives in the SALE price — NOT in this cost-true unit.
  *
- * These are the FALLBACKS for users with no user_budgets row; EXISTING rows
- * keep their stored cap_llm_usd until migrated (see the companion DB update).
+ * These are the seed values for NEW monthly rows (cost-meter upsert) AND the
+ * fallback ratio for users with no row; EXISTING rows are rebased to match via
+ * scripts/rebase-credit-pool.mjs. Credits are currently HIDDEN ([[HIDE_CREDITS]])
+ * and unenforced (CREDITS_HARD_STOP unset), so this is the internal accounting
+ * basis, not a founder-facing charge.
  */
-// CREDIT UNIT REDENOMINATION (see CREDIT-PRICING-SPEC.md). Default OFF = legacy
-// unit (100 cr over a $0.333 ceiling = 300 cr/$, markup baked into the unit).
-// When CREDIT_UNIT_MESSAGE=1 the unit becomes "1 credit ≈ 1 chat message"
-// (~7.1 cr/$, cost-true: 1 credit ≈ $0.14 real) so a message debits ~1 cr and a
-// skill ~3–6 cr; the 3× markup moves to the SALE price (~€0.40/credit), not the
-// unit. DARK: flipping this rescales every credit number ~42×, so it MUST ship
-// with the user_budgets balance migration (scripts/migrate-credit-unit.mjs).
-export const CREDIT_UNIT_MESSAGE = process.env.CREDIT_UNIT_MESSAGE === '1';
-
-export const USER_MONTHLY_CREDITS = CREDIT_UNIT_MESSAGE ? 10 : 100;
-export const USER_MONTHLY_LLM_USD = CREDIT_UNIT_MESSAGE ? 1.40 : 0.333;
-export const USER_MONTHLY_WARN_LLM_USD = CREDIT_UNIT_MESSAGE ? 1.12 : 0.267;
+export const USER_MONTHLY_CREDITS = 50;
+export const USER_MONTHLY_LLM_USD = 10.0;
+export const USER_MONTHLY_WARN_LLM_USD = 8.0;
 
 /**
  * Hide ALL founder-facing credit UI (badge, cost chips, apply/skill/doc prices)
@@ -66,9 +65,9 @@ export const HIDE_CREDITS = process.env.NEXT_PUBLIC_HIDE_CREDITS === '1';
 
 /**
  * Credits per USD of LLM cost — the conversion the debit math uses (cap_credits
- * / cap_llm_usd). The DEFAULT ratio (100 / 0.333 ≈ 300) is used for ESTIMATES;
- * the actual per-user debit (and A2a's displayed actual) uses the user's own
- * stored ratio. ~300 → 1 credit ≈ $0.0033 of LLM spend (3× markup).
+ * / cap_llm_usd). The DEFAULT ratio (50 / 10 = 5) is used for ESTIMATES; the
+ * actual per-user debit (and A2a's displayed actual) uses the user's own stored
+ * ratio. 5 → 1 credit ≈ $0.20 of LLM spend (cost-true, no markup baked in).
  */
 export const CREDITS_PER_DOLLAR = USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD;
 

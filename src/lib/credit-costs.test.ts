@@ -29,10 +29,10 @@ describe('formatMessageCredits', () => {
 
 // A2b: the skill credit estimate is derived from real USD via these pure helpers.
 describe('creditsFromUsd', () => {
-  it('converts at ~300 credits/$ (3x markup) and rounds', () => {
-    // market-research ~ $0.50 → ~150 cr (the honest number vs the old "≈4")
+  it('converts at the cost-true ~5 credits/$ unit and rounds', () => {
+    // market-research ~ $0.50 → ~3 cr under the 50 cr / $10 unit (5 cr/$)
     expect(creditsFromUsd(0.5)).toBe(Math.round(0.5 * CREDITS_PER_DOLLAR));
-    expect(creditsFromUsd(0.5)).toBeGreaterThan(100);
+    expect(creditsFromUsd(0.5)).toBe(3);
   });
   it('returns 0 for non-positive / non-finite (no negative or NaN estimate)', () => {
     expect(creditsFromUsd(0)).toBe(0);
@@ -40,7 +40,7 @@ describe('creditsFromUsd', () => {
     expect(creditsFromUsd(NaN)).toBe(0);
   });
   it('shows a decimal for sub-1-credit costs', () => {
-    expect(creditsFromUsd(0.001)).toBeCloseTo(0.3, 5); // 0.001 * 300 = 0.3
+    expect(creditsFromUsd(0.1)).toBe(0.5); // 0.1 * 5 = 0.5 cr (sub-1 keeps a decimal)
   });
 });
 
