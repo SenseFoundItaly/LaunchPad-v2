@@ -28,7 +28,9 @@ export async function POST(
     body.stage || 'identified',
     body.check_size || null,
     body.notes || '',
-    JSON.stringify(body.tags || []),
+    // JSONB: bind the raw array — postgres.js single-encodes it. JSON.stringify
+    // would store a double-encoded string scalar (see src/lib/jsonb.ts).
+    body.tags || [],
     now,
     now,
   );
