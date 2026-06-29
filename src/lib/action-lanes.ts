@@ -75,6 +75,26 @@ export function laneFor(type: PendingActionType): ActionLane {
   return ACTION_LANE[type] ?? 'approval';
 }
 
+/**
+ * The "Intel" inbox surface (alpha). From the 2026-06 weekly sync the founder
+ * found Intel cluttered and asked to reduce it to a simple "repository of what
+ * the watchers extract". So the Intel inbox (and its Today preview) shows
+ * WATCHER OUTPUT only: signal_alert (watcher findings) + intelligence_brief
+ * (watcher-synthesized briefs). The knowledge proposals that caused the overlap
+ * (assumption_review, proposed_graph_update) are routed OUT of this surface for
+ * the alpha — their executors still run and they remain in pending_actions.
+ * Single source of truth for both /actions and the Today Intel panel. Widen
+ * this set to restore the full intelligence inbox.
+ */
+export const INTEL_INBOX_TYPES: ReadonlySet<PendingActionType> = new Set<PendingActionType>([
+  'signal_alert',
+  'intelligence_brief',
+]);
+
+export function isIntelInboxType(type: PendingActionType): boolean {
+  return INTEL_INBOX_TYPES.has(type);
+}
+
 /** All action_types belonging to a lane — useful for SQL IN (...) filters. */
 export function typesForLane(lane: ActionLane): PendingActionType[] {
   return (Object.keys(ACTION_LANE) as PendingActionType[]).filter(

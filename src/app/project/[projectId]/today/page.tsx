@@ -28,8 +28,12 @@ import { NotesCard } from '@/components/onboarding/NotesCard';
 import { ScorePanel } from '@/components/home/ScorePanel';
 import { EcosystemPanel } from '@/components/home/EcosystemPanel';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
-import { laneFor } from '@/lib/action-lanes';
+import { laneFor, isIntelInboxType } from '@/lib/action-lanes';
 import type { PendingActionType } from '@/types';
+
+// Mirror of the /actions Intel hide flag — keeps the Today "Intel" panel in
+// lock-step with the full surface. See actions/page.tsx + action-lanes.ts.
+const INTEL_HIDDEN = process.env.NEXT_PUBLIC_INTEL_HIDDEN === '1';
 
 interface PendingAction {
   id: string;
@@ -59,7 +63,11 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
   });
 
   const allPending = actionsList ?? [];
-  const actions = allPending.slice(0, 3);
+  // The Today "Intel" panel mirrors the /actions Intel inbox: WATCHER OUTPUT
+  // only (signal_alert + intelligence_brief), so the preview never shows the
+  // knowledge-proposal clutter the founder asked to drop for the alpha.
+  const intelPending = allPending.filter((a) => isIntelInboxType(a.action_type));
+  const actions = intelPending.slice(0, 3);
   const signalCount = allPending.filter((a) => laneFor(a.action_type) === 'signal').length;
 
   // Publish this page's chrome bits to the persistent layout (TopBar breadcrumb +
@@ -147,7 +155,9 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
                       </Link>
                     )}
                   </Panel>
-                  <InboxPanel projectId={projectId} actions={actions} totalCount={inboxBadge} />
+                  {!INTEL_HIDDEN && (
+                    <InboxPanel projectId={projectId} actions={actions} totalCount={intelPending.length} />
+                  )}
                   <NotesCard projectId={projectId} />
                 </div>
               </div>

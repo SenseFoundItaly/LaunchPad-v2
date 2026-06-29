@@ -29,6 +29,7 @@ import { persistCompetitorAnalysis, COMPETITOR_CATEGORIES } from '@/lib/competit
 import { recordFact } from '@/lib/memory/facts';
 import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
+import { coerceJson } from '@/lib/jsonb';
 import { getCreditsRemaining, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import { ownerUserId } from '@/lib/cost-meter';
 import { USER_MONTHLY_LLM_USD, USER_MONTHLY_CREDITS } from '@/lib/credit-costs';
@@ -469,6 +470,39 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
           lines.push(`\nTracked competitors: ${comps.slice(0, 5).map(c => c.name).join(', ')}`);
         }
       } catch { /* ignore */ }
+    }
+
+    // Financial model snapshot — the founder edits these in the /financial
+    // panel (ARPU, opex, runway assumptions) and expects the copilot to KNOW
+    // them next turn ("what's our RPU?" → the saved value). Without this block
+    // the saved workflow.financial_model was invisible to the agent. Read via
+    // coerceJson so legacy double-encoded rows still parse.
+    try {
+      const wfRows = await query<{ financial_model: unknown }>(
+        'SELECT financial_model FROM workflow WHERE project_id = ?',
+        ctx.projectId,
+      );
+      const model = coerceJson<{ assumptions?: Record<string, unknown> }>(wfRows[0]?.financial_model);
+      const a = model?.assumptions;
+      if (a && typeof a === 'object') {
+        const cur = typeof a.currency === 'string' ? a.currency : 'EUR';
+        const fin: string[] = [];
+        const num = (k: string) => (typeof a[k] === 'number' ? a[k] as number : undefined);
+        const arpu = num('arpu_monthly');
+        if (arpu !== undefined) fin.push(`ARPU/RPU: ${arpu} ${cur}/mo`);
+        if (num('monthly_opex') !== undefined) fin.push(`Monthly opex: ${num('monthly_opex')} ${cur}`);
+        if (num('starting_cash') !== undefined) fin.push(`Starting cash: ${num('starting_cash')} ${cur}`);
+        if (num('gross_margin_pct') !== undefined) fin.push(`Gross margin: ${num('gross_margin_pct')}%`);
+        if (num('monthly_growth_rate_pct') !== undefined) fin.push(`Growth: ${num('monthly_growth_rate_pct')}%/mo`);
+        if (num('monthly_churn_rate_pct') !== undefined) fin.push(`Churn: ${num('monthly_churn_rate_pct')}%/mo`);
+        if (fin.length > 0) {
+          lines.push('\nFinancial model (founder-edited assumptions):');
+          for (const f of fin) lines.push(`  ${f}`);
+          lines.push('→ Use these saved figures; do not re-ask. Details on the /financial page.');
+        }
+      }
+    } catch (err) {
+      console.warn('[get_project_summary] financial snapshot failed (non-fatal):', err);
     }
 
     // Phase H — append the 7-stage readiness snapshot. The agent reads this
