@@ -11,6 +11,7 @@ import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { LOCALE_ENGLISH_NAME } from '@/lib/i18n/locales';
 import { makeProjectTools, withSourceTitles } from '@/lib/project-tools';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { buildMemoryContext } from '@/lib/memory/context';
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
 import { buildResearchContext } from '@/lib/research-context';
@@ -436,6 +437,12 @@ export async function POST(request: NextRequest) {
       { status: 400, headers: { 'Content-Type': 'application/json' } },
     );
   }
+
+  // SECURITY: verify the caller can access this project before reading its
+  // context, running the agent, or debiting its credits. Without this gate any
+  // authenticated user could chat into / read / bill any project (IDOR).
+  const access = await tryProjectAccess(project_id);
+  if (!access.ok) return access.response;
 
   // current_step (legacy 5-stage int) is intentionally NOT selected — the agent's
   // stage comes from the live journey evaluator (get_project_summary / getActiveStage),

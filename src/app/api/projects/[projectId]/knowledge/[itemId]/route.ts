@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { get, run } from '@/lib/db';
 import { recordEvent, type EventType } from '@/lib/memory/events';
-import { requireUser, AuthError } from '@/lib/auth/require-user';
+import { AuthError } from '@/lib/auth/require-user';
+import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import type { ReviewedState } from '@/types/artifacts';
 import type { EcosystemAlertState } from '@/types';
@@ -55,15 +56,16 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string; itemId: string }> },
 ) {
+  const { projectId, itemId } = await params;
+  // SECURITY: gate on project access (the prior `row.project_id !== projectId`
+  // check was attacker-controllable on both sides; debits credits + mutates).
   let userId: string;
   try {
-    ({ userId } = await requireUser());
+    ({ userId } = await requireProjectAccess(projectId));
   } catch (e) {
     if (e instanceof AuthError) return error(e.message, e.status);
     throw e;
   }
-
-  const { projectId, itemId } = await params;
 
   const body = await request.json().catch(() => null);
   const state = body?.state as string | undefined;
