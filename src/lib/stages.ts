@@ -84,6 +84,10 @@ export const STAGES: StageDef[] = [
     color: 'purple',
     skills: [
       { id: 'market-research', label: 'Market Research', route: 'chat?skill=market-research', dataKey: 'research' },
+      // L2 Validation Gate · track 1B — technical feasibility / dependencies /
+      // regulatory. Validates incrementally from chat (memory_facts) and closes
+      // the 1B checks in stage-2-market-validation.ts.
+      { id: 'technical-validation', label: 'Technical Validation', route: 'chat?skill=technical-validation', dataKey: 'technical_validation' },
       { id: 'simulation', label: 'Simulation', route: 'chat?skill=simulation', dataKey: 'simulation' },
     ],
   },

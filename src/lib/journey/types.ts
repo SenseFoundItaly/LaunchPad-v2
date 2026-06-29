@@ -33,6 +33,10 @@ export interface StageCheck {
    *  data source, not just the verdict. Examples: "canvas.problem",
    *  "competitor_profiles", "pricing_state.wtp". */
   source: string;
+  /** L2 Validation-Gate sub-track this check belongs to (walkthrough §2):
+   *  1A Market · 1B Technical · 1C Problem-Solution Fit. Optional — only the
+   *  validation-gate checks carry it; other stages leave it undefined. */
+  track?: '1A' | '1B' | '1C';
   evaluate: (snapshot: ProjectSnapshot) => CheckResult;
 }
 

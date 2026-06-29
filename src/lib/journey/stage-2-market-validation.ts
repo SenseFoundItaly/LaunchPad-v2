@@ -135,5 +135,51 @@ export const stageMarketValidation: Stage = {
           : { passed: false, gap: 'Pin what makes you different in chat' };
       },
     },
+    // ── L2 Validation Gate · track 1B (Technical Validation) ──────────────────
+    // These validate INCREMENTALLY as the chat advances: each reads memory_facts
+    // (founder-stated in chat, or written by the `technical-validation` skill),
+    // so the gate's technical track closes "man mano" — no single big run needed.
+    {
+      id: 'tech_feasibility',
+      label: 'Technical feasibility assessed',
+      source: 'memory_facts (feasibility)',
+      track: '1B',
+      evaluate: (s) => {
+        const n = countMemoryFactsMatching(s, [
+          'feasibility', 'feasible', 'technically possible', 'build approach', 'architecture', 'tech stack', 'technical risk',
+        ]);
+        return n > 0
+          ? { passed: true, evidence: "You've assessed whether the core approach is buildable." }
+          : { passed: false, gap: 'Assess technical feasibility (run Technical Validation or note it in chat)' };
+      },
+    },
+    {
+      id: 'key_dependencies',
+      label: 'Key technical dependencies named',
+      source: 'memory_facts (dependencies)',
+      track: '1B',
+      evaluate: (s) => {
+        const n = countMemoryFactsMatching(s, [
+          'dependency', 'depends on', 'third-party', 'integration', 'infrastructure', 'vendor', 'relies on',
+        ]);
+        return n > 0
+          ? { passed: true, evidence: "You've named the critical external dependencies." }
+          : { passed: false, gap: 'Name the key dependencies (APIs, models, infra, vendors)' };
+      },
+    },
+    {
+      id: 'regulatory_check',
+      label: 'Regulatory / compliance constraints checked',
+      source: 'memory_facts (regulatory)',
+      track: '1B',
+      evaluate: (s) => {
+        const n = countMemoryFactsMatching(s, [
+          'regulation', 'regulatory', 'compliance', 'GDPR', 'license', 'certification', 'data protection', 'legal constraint',
+        ]);
+        return n > 0
+          ? { passed: true, evidence: "You've checked the regulatory/compliance constraints." }
+          : { passed: false, gap: 'Check any regulatory/compliance constraints (e.g. GDPR, licensing)' };
+      },
+    },
   ],
 };
