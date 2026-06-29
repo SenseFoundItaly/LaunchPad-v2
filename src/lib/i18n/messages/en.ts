@@ -274,6 +274,8 @@ export const en = {
   'knowledge.pending-count': '{count} pending',
   'knowledge.add-documents-tooltip': 'Upload documents and choose what to add to your knowledge',
   'knowledge.add-documents': 'Add documents',
+  'knowledge.view-graph': 'Graph',
+  'knowledge.view-list': 'List',
   'knowledge.status-graph-loading': 'graph · loading',
   'knowledge.status-graph-edges-one': 'graph · {edges} edge',
   'knowledge.status-graph-edges-many': 'graph · {edges} edges',
