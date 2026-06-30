@@ -19,9 +19,18 @@ interface CheckResult {
   gap?: string;
 }
 interface CheckRow {
-  check: { id: string; label: string; source: string };
+  check: { id: string; label: string; source: string; track?: '1A' | '1B' | '1C' };
   result: CheckResult;
 }
+
+// L2 Validation Gate sub-track headers (walkthrough §2). Only the validation
+// stage tags its checks; everywhere else `track` is undefined → flat render.
+const TRACK_LABEL: Record<'1A' | '1B' | '1C', string> = {
+  '1A': '1A · Market',
+  '1B': '1B · Technical',
+  '1C': '1C · Problem-Solution Fit',
+};
+const TRACK_ORDER: Array<'1A' | '1B' | '1C'> = ['1A', '1B', '1C'];
 interface StageEvaluation {
   stage: {
     id: string;
@@ -92,9 +101,29 @@ export function StageCard({ projectId }: { projectId: string }) {
         }
       >
         <div style={{ padding: '4px 0' }}>
-          {headline.results.map(({ check, result }) => (
+          {/* Untracked checks first (every non-validation stage), then the
+              Validation Gate's 1A/1B/1C tracks under small sub-headers. */}
+          {headline.results.filter((r) => !r.check.track).map(({ check, result }) => (
             <CheckRowView key={check.id} projectId={projectId} check={check} result={result} />
           ))}
+          {TRACK_ORDER.map((tk) => {
+            const rows = headline.results.filter((r) => r.check.track === tk);
+            if (rows.length === 0) return null;
+            const done = rows.filter((r) => r.result.passed).length;
+            return (
+              <div key={tk}>
+                <div style={{ padding: '8px 14px 2px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span className="lp-mono" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5, color: 'var(--ink-5)', textTransform: 'uppercase' }}>
+                    {TRACK_LABEL[tk]}
+                  </span>
+                  <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-6, var(--ink-5))' }}>{done}/{rows.length}</span>
+                </div>
+                {rows.map(({ check, result }) => (
+                  <CheckRowView key={check.id} projectId={projectId} check={check} result={result} />
+                ))}
+              </div>
+            );
+          })}
         </div>
         {active && active.passed < active.total && (
           <div style={{

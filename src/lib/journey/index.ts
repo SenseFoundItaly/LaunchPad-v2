@@ -16,7 +16,7 @@ import { stageBuildLaunch } from './stage-5-build-launch';
 import { stageFundraise } from './stage-6-fundraise';
 import { stageOperate } from './stage-7-operate';
 
-export { buildProjectSnapshot, countMemoryFactsMatching } from './snapshot';
+export { buildProjectSnapshot, countMemoryFactsMatching, keywordMatcher } from './snapshot';
 // Canonical id/number/label source of truth — import from here (or from
 // './canonical' directly in client code) instead of hardcoding stage names.
 export {
@@ -77,7 +77,7 @@ export function evaluateAllStages(snapshot: ProjectSnapshot): StageEvaluation[] 
         const proof = resolveProof(check.source, snapshot);
         if (proof) result.proof = proof;
       }
-      return { check: { id: check.id, label: check.label, source: check.source }, result };
+      return { check: { id: check.id, label: check.label, source: check.source, track: check.track }, result };
     });
     const passed = results.filter((r) => r.result.passed).length;
     return { stage, passed, total: stage.checks.length, results };

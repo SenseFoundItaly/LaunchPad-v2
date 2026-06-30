@@ -71,7 +71,7 @@ export interface StageDef {
 export const STAGES: StageDef[] = [
   {
     number: 1,
-    name: canonicalStageLabel(1), // Idea Validation
+    name: canonicalStageLabel(1), // Idea Canvas (Fase 0 rename)
     color: 'blue',
     skills: [
       { id: 'idea-shaping', label: 'Idea Canvas', route: 'chat?skill=idea-shaping', dataKey: 'idea_canvas' },
@@ -84,6 +84,10 @@ export const STAGES: StageDef[] = [
     color: 'purple',
     skills: [
       { id: 'market-research', label: 'Market Research', route: 'chat?skill=market-research', dataKey: 'research' },
+      // L2 Validation Gate · track 1B — technical feasibility / dependencies /
+      // regulatory. Validates incrementally from chat (memory_facts) and closes
+      // the 1B checks in stage-2-market-validation.ts.
+      { id: 'technical-validation', label: 'Technical Validation', route: 'chat?skill=technical-validation', dataKey: 'technical_validation' },
       { id: 'simulation', label: 'Simulation', route: 'chat?skill=simulation', dataKey: 'simulation' },
     ],
   },
@@ -142,6 +146,7 @@ export const SKILL_KICKOFFS: Record<string, string> = {
   'idea-shaping': 'Help me structure my startup idea into a Lean Canvas. Walk me through each section.',
   'startup-scoring': 'Score my startup idea across all 6 dimensions and give me specific ratings.',
   'market-research': 'Run a comprehensive market analysis — TAM/SAM/SOM, competitors, and trends.',
+  'technical-validation': 'Validate the technical feasibility — build approach, key dependencies, and regulatory/compliance constraints.',
   'scientific-validation': 'Generate detailed buyer personas and an empathy map for my startup.',
   'risk-scoring': 'Run a comprehensive risk audit across all dimensions — technical, market, regulatory, team, and financial.',
   'business-model': 'Help me evaluate and score business model options for my startup.',
