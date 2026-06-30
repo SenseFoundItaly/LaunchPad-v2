@@ -341,6 +341,9 @@ async function runMonitor(
       timeout: 180000,
       maxToolCalls: 5,
       task: 'monitor-agent',
+      // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
+      projectId: monitor.project_id,
+      step: `cron.${monitor.type}`,
     });
     const latencyMs = Date.now() - startedAt;
 
@@ -348,7 +351,7 @@ async function runMonitor(
     // project_budgets. No hard-stop in Phase 0; crossed_warn surfaces as an
     // alerts row that the Monday Brief can include in its operational section.
     const { provider: monProvider, model: monModel } = pickModel('monitor-agent');
-    recordUsage({
+    await recordUsage({
       project_id: monitor.project_id,
       step: `cron.${monitor.type}`,
       provider: monProvider,
@@ -957,7 +960,7 @@ async function processHeartbeats(
       // Resolve the real provider+model from the router so the logged slug
       // matches what was actually called (Anthropic direct or OpenRouter).
       const { provider, model } = pickModel('heartbeat-reflect');
-      recordUsage({
+      await recordUsage({
         project_id: project.id,
         skill_id: 'heartbeat',
         step: 'daily_reflection',

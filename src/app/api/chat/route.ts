@@ -812,6 +812,9 @@ export async function POST(request: NextRequest) {
       sessionId,
       systemPrompt,
       seedHistory,
+      // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
+      projectId: project_id,
+      step,
       extraTools: [...projectTools, ...skillTools],
       // 180s — generous for research-heavy turns but cuts off the
       // agent-stuck-in-loop case (observed turns hanging to 10+ min with
@@ -923,7 +926,7 @@ export async function POST(request: NextRequest) {
         };
         const cost = streamUsage?.cost ?? estimateCost(piProvider, piModel, usage);
         await logUsageToDb(project_id, null, step, piProvider, piModel, usage, cost, latencyMs);
-        const langfuseTraceId = logToLangfuse(
+        const langfuseTraceId = await logToLangfuse(
           { projectId: project_id, step, provider: piProvider as 'anthropic' | 'openai' | 'openrouter', model: piModel },
           usage, cost, latencyMs,
           lastMessage.slice(0, 1000), fullResponse.slice(0, 2000),
@@ -1291,7 +1294,7 @@ export async function POST(request: NextRequest) {
         const fallbackNotice = '\n\n---\n*[Running in limited mode — project tools unavailable. Responses are based on general knowledge, not your project data. Please retry if this persists.]*\n';
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: directResponseText + fallbackNotice })}\n\n`));
         await logUsageToDb(project_id, null, step, fbProvider, fbModel, dUsage, cost, latencyMs);
-        logToLangfuse(
+        await logToLangfuse(
           { projectId: project_id, step, provider: fbProvider as 'anthropic' | 'openai' | 'openrouter', model: fbModel },
           dUsage, cost, latencyMs,
           lastMessage.slice(0, 1000),

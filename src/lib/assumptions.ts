@@ -126,7 +126,7 @@ export async function extractAssumptions(
     timeout: 60000,
     maxToolCalls: 0,
   });
-  recordAgentUsage({
+  await recordAgentUsage({
     project_id: projectId,
     step: 'assumption-extract',
     task: 'assumption-extract',
@@ -439,7 +439,7 @@ Verdict?`;
         timeout: 30000,
         maxToolCalls: 0,
       });
-      recordAgentUsage({
+      await recordAgentUsage({
         project_id: projectId,
         skill_id: skillId,
         step: 'assumption-linker',

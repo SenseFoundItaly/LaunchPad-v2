@@ -27,7 +27,9 @@ export interface TelemetryContext {
   projectId: string;
   skillId?: string;
   step?: string;
-  provider: 'anthropic' | 'openai' | 'openrouter';
+  // 'exa'/'jina' cover the paid web_search / read_url tool providers, whose
+  // per-call cost is metered separately from LLM token spend (see tool-spend.ts).
+  provider: 'anthropic' | 'openai' | 'openrouter' | 'exa' | 'jina';
   model?: string;
 }
 
@@ -85,14 +87,14 @@ export function estimateCost(
 // ---------------------------------------------------------------------------
 // logToLangfuse — standalone Langfuse trace with full cost/model/token tracking
 // ---------------------------------------------------------------------------
-export function logToLangfuse(
+export async function logToLangfuse(
   ctx: TelemetryContext,
   usage: TokenUsage,
   cost: number,
   latencyMs: number,
   input?: string,
   output?: string,
-): string | null {
+): Promise<string | null> {
   try {
     const lf = getLangfuse();
     if (!lf) return null;
@@ -100,13 +102,13 @@ export function logToLangfuse(
     const now = new Date();
     const startTime = new Date(now.getTime() - latencyMs);
 
-    // Map model names to Langfuse-recognized canonical IDs. Auto-register
-    // OpenRouter slugs from MODEL_CONFIG so adding a model in models.ts is
-    // sufficient — no manual sync needed here.
-    const modelMap: Record<string, string> = {
-      'sonnet': 'claude-sonnet-4-20250514',
-      'claude-sonnet-4': 'claude-sonnet-4-20250514',
-    };
+    // Map OpenRouter slugs back to the canonical Anthropic id Langfuse displays,
+    // built entirely from MODEL_CONFIG so adding a model in models.ts is enough.
+    // A canonical id (e.g. 'claude-sonnet-4-6') or unknown slug passes through
+    // unchanged. (The old hardcoded 'sonnet'/'claude-sonnet-4' → Sonnet-4.0
+    // aliases were dead — no caller ever passed those bare strings; removed
+    // 2026-06-30 so the logged model can never silently misattribute to 4.0.)
+    const modelMap: Record<string, string> = {};
     for (const cfg of Object.values(MODEL_CONFIG)) {
       modelMap[cfg.openrouterId] = cfg.id;
     }
@@ -170,7 +172,17 @@ export function logToLangfuse(
       },
     });
 
-    lf.flush();
+    // Serverless delivery: on Netlify/OpenNext the Lambda is frozen the instant
+    // the HTTP response returns, so a fire-and-forget flush() (which only
+    // SCHEDULES the batch send) drops any in-flight events. Await flushAsync()
+    // so the trace is actually on the wire before this resolves — the documented
+    // serverless pattern. Best-effort: a flush failure must not lose the
+    // already-created trace id we return, so it gets its own try/catch.
+    try {
+      await lf.flushAsync();
+    } catch (flushErr) {
+      console.warn('Langfuse flushAsync failed (non-fatal):', (flushErr as Error).message);
+    }
     return trace.id;
   } catch (err) {
     console.error('Langfuse logging failed:', err);
@@ -218,15 +230,25 @@ export async function logUsageToDb(
     console.error('Failed to log LLM usage:', err);
   }
 
-  // Accumulate into BOTH budget ledgers so the credits badge / cap-enforcement
-  // path see chat spend. Chat is the dominant cost driver; it flows through
-  // logUsageToDb (not recordUsage), so this is the only place chat spend gets
-  // metered. History:
+  // STRICT BILLING (founder decision 2026-06-26): "1 message = 1 credit,
+  // everything else is free." A chat message's ONLY credit charge is the flat
+  // debitCredits('chat_message') in the chat route — the sole writer to the
+  // per-USER credit pool (user_budgets). logUsageToDb is therefore
+  // OBSERVATIONAL for that pool (exactly like recordUsage): it accumulates the
+  // real token cost into project_budgets (the /usage analytics page +
+  // per-project reconciliation) and logs the row above, but it must NOT touch
+  // user_budgets.
+  //
+  // History — why this used to write user_budgets and why it no longer does:
   //   - pre-2026-06-04 it touched neither ledger (undercounted ~4x);
   //   - then project_budgets only;
-  //   - now ALSO user_budgets — the per-user pool became the authoritative
-  //     credit/cap source (2026-06-14), and recordUsage already writes both, so
-  //     without this chat spend silently escaped the pool the cap reads.
+  //   - 2026-06-14 ALSO user_budgets, when the per-user pool became the
+  //     authoritative credit source;
+  //   - 2026-06-26 strict billing made recordUsage observational, but this
+  //     path was missed — so chat double-charged (flat $0.20 from debitCredits
+  //     PLUS the real token cost here), making a message cost ~2+ credits
+  //     instead of 1 and scaling credits with usage. Removed the user-pool
+  //     write so the flat per-message debit is the only thing that moves it.
   //
   // Dynamic import to avoid a circular dep (cost-meter ← db ← telemetry).
   // Wrapped in try/catch independently because budget accumulation must NEVER
@@ -234,12 +256,11 @@ export async function logUsageToDb(
   try {
     if (cost > 0) {
       const periodMonth = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
-      const { upsertMonthlyBudget, upsertUserMonthlyBudget, ownerUserId } = await import('@/lib/cost-meter');
-      // Per-project $ accumulator (usage page + per-project reconciliation).
+      const { upsertMonthlyBudget } = await import('@/lib/cost-meter');
+      // Per-project $ accumulator only (usage page + per-project
+      // reconciliation). NOT the per-user credit pool — that is moved solely by
+      // debitCredits('chat_message') at exactly 1 credit per message.
       await upsertMonthlyBudget(projectId, periodMonth, cost);
-      // Authoritative per-USER pool (the badge + cap read this).
-      const owner = await ownerUserId(projectId);
-      if (owner) await upsertUserMonthlyBudget(owner, periodMonth, cost);
     }
   } catch (err) {
     console.error('Failed to accumulate budget from logUsageToDb:', err);

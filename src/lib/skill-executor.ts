@@ -228,6 +228,9 @@ export async function runSkill(
     timeout: opts.timeoutMs ?? 120_000,
     task: 'skill-invoke',
     onDelta: opts.onDelta,
+    // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
+    projectId,
+    step: skillId,
   });
   const latencyMs = Date.now() - startedAt;
 
@@ -260,7 +263,7 @@ export async function runSkill(
           }),
         },
       };
-  recordUsage({
+  await recordUsage({
     project_id: projectId,
     skill_id: skillId,
     step: 'heartbeat-executor',
