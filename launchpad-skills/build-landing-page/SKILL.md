@@ -10,7 +10,7 @@ Generate a production-ready, self-contained HTML landing page using the founder'
 
 ## When to Use
 
-- After completing Idea Validation (stage 1) and at least Market Validation (stage 2)
+- After completing Idea Canvas (stage 1) and at least Market Validation (stage 2)
 - When the founder asks to "build a landing page", "create a website", or "make a homepage"
 - During the Build & Launch stage (stage 5) as a concrete deliverable
 - When preparing to test messaging with real users

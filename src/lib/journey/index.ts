@@ -16,7 +16,7 @@ import { stageBuildLaunch } from './stage-5-build-launch';
 import { stageFundraise } from './stage-6-fundraise';
 import { stageOperate } from './stage-7-operate';
 
-export { buildProjectSnapshot, countMemoryFactsMatching } from './snapshot';
+export { buildProjectSnapshot, countMemoryFactsMatching, keywordMatcher } from './snapshot';
 // Canonical id/number/label source of truth — import from here (or from
 // './canonical' directly in client code) instead of hardcoding stage names.
 export {

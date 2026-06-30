@@ -33,7 +33,7 @@ import { getCreditsRemaining, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import { ownerUserId } from '@/lib/cost-meter';
 import { USER_MONTHLY_LLM_USD, USER_MONTHLY_CREDITS } from '@/lib/credit-costs';
 import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readiness';
-import { getActiveStage } from '@/lib/journey';
+import { getActiveStage, keywordMatcher } from '@/lib/journey';
 import {
   validationTargetsFor,
   validationLabel,
@@ -2394,9 +2394,9 @@ const saveMemoryFactTool = (ctx: ToolContext): AgentTool => ({
   name: 'save_memory_fact',
   label: 'Save Memory Fact',
   description:
-    'Persist a single short fact about the project to memory_facts. Use for: customer interview quotes ("X said our pricing felt high"), pain-point validation ("biggest frustration is onboarding takes 3 weeks"), ICP details ("ICP = solo SaaS founders with $10-50k MRR"), market sizing notes ("EU SaaS market ~$30B"), channel hypotheses ("LinkedIn outbound is the cheapest channel"). These facts power Stage 2/3/4 evidence checks. Keep each fact ≤300 chars and self-contained — don\'t use it for conversation transcripts or sprawling notes.',
+    'Persist a single short fact about the project to memory_facts. Use for: customer interview quotes ("X said our pricing felt high"), pain-point validation ("biggest frustration is onboarding takes 3 weeks"), ICP details ("ICP = solo SaaS founders with $10-50k MRR"), market sizing notes ("EU SaaS market ~$30B"), channel hypotheses ("LinkedIn outbound is the cheapest channel"), and TECHNICAL-VALIDATION facts: feasibility ("buildable with Postgres + vector search; main technical risk is data freshness"), key technical dependencies ("relies on OpenAI API and the regional portal feeds"), and regulatory/compliance constraints ("processes EU SME data → GDPR applies"). These facts power the Stage 2 evidence checks, INCLUDING the 1B Technical Validation track (feasibility / dependencies / regulatory) — calling this for each discrete fact the founder states closes those checks incrementally ("man mano"), so prefer it over only proposing a skill when the founder has already stated the fact. Keep each fact ≤300 chars and self-contained — don\'t use it for conversation transcripts or sprawling notes.',
   parameters: Type.Object({
-    content: Type.String({ description: 'The fact itself, ≤300 chars. Quote the founder verbatim when relevant ("Maria said: …"). Include the source category at the start when natural: "Interview: …", "Pain point: …", "ICP: …", "Channel: …", "Market size: …".' }),
+    content: Type.String({ description: 'The fact itself, ≤300 chars. Quote the founder verbatim when relevant ("Maria said: …"). Include the source category at the start when natural: "Interview: …", "Pain point: …", "ICP: …", "Channel: …", "Market size: …", "Feasibility: …", "Dependency: …", "Regulatory: …".' }),
     sources: Type.Optional(Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Optional source[] — usually a chat-turn citation. Improves provenance for stage evidence.' })),
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
@@ -2421,9 +2421,15 @@ const saveMemoryFactTool = (ctx: ToolContext): AgentTool => ({
     // 'applied', would silently turn the "Market size estimated" substep GREEN
     // with no founder approval — violating the 2026-06-12 invariant. Keep this
     // list in lockstep with that check; it is a mirror, not a divergent copy.
+    // Matched via the SHARED keywordMatcher (whole-word/phrase, length-tuned
+    // boundaries) — NOT a bare substring. A substring `.includes('tam')` gated
+    // the acronym INSIDE unrelated words: Italian "trat·tam·ento" (= "processing",
+    // common in GDPR/regulatory facts) was wrongly flagged spine-moving and
+    // persisted PENDING, so the founder's regulatory/technical facts silently
+    // never counted toward the Stage-2 1B checks. Mirror of the Stage-2
+    // `market_size` check — both now share keywordMatcher().
     const MARKET_SIZE_KEYWORDS = ['market size', 'TAM', 'SAM', 'SOM', 'addressable'];
-    const lowered = content.toLowerCase();
-    const isSpineMoving = MARKET_SIZE_KEYWORDS.some((kw) => lowered.includes(kw.toLowerCase()));
+    const isSpineMoving = keywordMatcher(MARKET_SIZE_KEYWORDS).test(content);
 
     // Delegate to recordFact (handles dedup, source persistence, memory_event
     // emission). Reviewed-state split honours BOTH live decisions:

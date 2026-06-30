@@ -71,7 +71,7 @@ export interface StageDef {
 export const STAGES: StageDef[] = [
   {
     number: 1,
-    name: canonicalStageLabel(1), // Idea Validation
+    name: canonicalStageLabel(1), // Idea Canvas (Fase 0 rename)
     color: 'blue',
     skills: [
       { id: 'idea-shaping', label: 'Idea Canvas', route: 'chat?skill=idea-shaping', dataKey: 'idea_canvas' },

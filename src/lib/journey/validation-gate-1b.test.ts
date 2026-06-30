@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateAllStages } from '@/lib/journey';
+import { evaluateAllStages, keywordMatcher } from '@/lib/journey';
 import type { ProjectSnapshot } from '@/lib/journey/types';
 
 /**
@@ -73,6 +73,25 @@ describe('L2 Validation Gate · 1B Technical (incremental)', () => {
     expect(c.regulatory_check).toBe(true);
   });
 
+  it('1B checks close on ITALIAN facts (bilingual founders)', () => {
+    // Real text the chat agent persisted for an Italian founder (proj_9f77e3a5).
+    const c = gateChecks(mkSnapshot([
+      { content: 'Rischio tecnico principale: mantenere i dati dei bandi aggiornati su decine di portali regionali italiani.' },
+      { content: 'Dipendenze chiave: feed dei portali bandi regionali italiani e OpenAI API per il matching.' },
+      { content: 'Compliance: processa dati di PMI italiane → obbligo GDPR e protezione dati.' },
+    ]));
+    expect(c.tech_feasibility).toBe(true);
+    expect(c.key_dependencies).toBe(true);
+    expect(c.regulatory_check).toBe(true);
+  });
+
+  it('the IT dependency stem does NOT match "dipendenti" (employees)', () => {
+    const c = gateChecks(mkSnapshot([
+      { content: 'Abbiamo 10 dipendenti a tempo pieno nel team.' },
+    ]));
+    expect(c.key_dependencies).toBe(false);
+  });
+
   it('they validate INDEPENDENTLY (only the matched track closes)', () => {
     const c = gateChecks(mkSnapshot([
       { content: 'Key dependency: relies on a third-party payments vendor.' },
@@ -80,6 +99,39 @@ describe('L2 Validation Gate · 1B Technical (incremental)', () => {
     expect(c.key_dependencies).toBe(true);
     expect(c.tech_feasibility).toBe(false);
     expect(c.regulatory_check).toBe(false);
+  });
+
+  it('an Italian regulatory fact closes regulatory_check WITHOUT false-closing market_size', () => {
+    // Regression for the bilingual substring bug: the founder's GDPR fact reads
+    // "trattamento dati …" — Italian "trattamento" (= processing) contains the
+    // substring "tam". The old bare-substring matcher (a) gated this as
+    // market-sizing in save_memory_fact (→ pending → invisible to the check) and
+    // (b) would false-close the Stage-2 `market_size` check if applied. With the
+    // shared keywordMatcher, "tam"∈"trattamento" no longer matches TAM.
+    const c = gateChecks(mkSnapshot([
+      { content: 'Regulatory: il trattamento dati delle PMI italiane implica obbligo di GDPR compliance.' },
+    ]));
+    expect(c.regulatory_check).toBe(true); // GDPR/compliance/regulatory still match
+    expect(c.market_size).toBe(false); // "tam"∈"trattamento" must NOT count as TAM
+  });
+
+  it('keywordMatcher: acronyms are whole-word, longer keywords keep plural/suffix reach', () => {
+    expect(keywordMatcher(['TAM', 'SAM', 'SOM']).test('trattamento dati')).toBe(false);
+    expect(keywordMatcher(['TAM', 'SAM', 'SOM']).test('some sample')).toBe(false);
+    expect(keywordMatcher(['TAM', 'SAM', 'SOM']).test('our TAM is 5B')).toBe(true);
+    expect(keywordMatcher(['channel']).test('paid channels')).toBe(true); // plural preserved
+    expect(keywordMatcher(['persona']).test('our personas')).toBe(true); // plural preserved
+  });
+
+  it('1A market checks (pain / differentiation / market_size) close on ITALIAN prose', () => {
+    const c = gateChecks(mkSnapshot([
+      { content: 'Il problema principale dei dentisti è la gestione manuale dei richiami pazienti.' },
+      { content: 'Ci distinguiamo dai gestionali desktop legacy perché siamo cloud e mobile-first.' },
+      { content: 'Dimensione del mercato: circa 40.000 studi dentistici in Italia.' },
+    ]));
+    expect(c.pain_validated).toBe(true);
+    expect(c.differentiation_evidence).toBe(true);
+    expect(c.market_size).toBe(true);
   });
 
   it('file-dump / monitor facts do NOT count (gate integrity)', () => {
