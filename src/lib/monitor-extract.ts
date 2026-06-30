@@ -145,7 +145,7 @@ export async function extractAlertsSecondPass(input: SecondPassInput): Promise<S
     // Meter the extraction like every other monitor LLM call so it counts
     // toward the project budget.
     const { provider, model } = pickModel(EXTRACT_TASK);
-    recordUsage({
+    await recordUsage({
       project_id: input.projectId,
       step: `${input.trigger}.${input.monitorType}.second_pass_extract`,
       provider,

@@ -123,7 +123,7 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
   // is safe to call unconditionally from local-dev or prod.
   const provider = input.provider as TelemetryContext['provider'];
   try {
-    logToLangfuse(
+    await logToLangfuse(
       {
         projectId: input.project_id,
         skillId: input.skill_id,
@@ -182,7 +182,7 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
  * Safe to call with undefined usage — no-ops. Never throws (recordUsage's
  * promise rejection is logged but swallowed).
  */
-export function recordAgentUsage(opts: {
+export async function recordAgentUsage(opts: {
   project_id: string;
   skill_id?: string;
   step: string;
@@ -192,7 +192,7 @@ export function recordAgentUsage(opts: {
   /** "Absorb" the cost — still log it (llm_usage_logs + Langfuse), but don't
    *  debit the founder's credits. For system-side niceties they didn't trigger. */
   skip_credit_debit?: boolean;
-}): void {
+}): Promise<void> {
   if (!opts.usage) return;
   const { provider, model } = pickModel(opts.task);
   const u = opts.usage as unknown as {
@@ -215,7 +215,7 @@ export function recordAgentUsage(opts: {
           }),
         },
       };
-  recordUsage({
+  await recordUsage({
     project_id: opts.project_id,
     skill_id: opts.skill_id,
     step: opts.step,

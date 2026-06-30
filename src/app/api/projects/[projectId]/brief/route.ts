@@ -111,8 +111,9 @@ ${ctx}`;
   try {
     const { text, usage } = await runAgent(prompt, { task: 'chat', tools: false, timeout: 40_000 });
     prose = (text || '').trim();
-    // Meter the LLM cost → credits deducted (fire-and-forget; returns void).
-    recordAgentUsage({
+    // Meter the LLM cost. Awaited so the llm_usage_logs row + Langfuse flush
+    // land before the serverless response returns and the Lambda freezes.
+    await recordAgentUsage({
       project_id: projectId,
       step: 'project-brief',
       task: 'chat',

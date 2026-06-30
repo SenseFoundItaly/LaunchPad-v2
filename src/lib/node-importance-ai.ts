@@ -70,7 +70,7 @@ export async function generateNodeImportance(projectId: string, node: Importance
       timeout: 25000,
       maxToolCalls: 0,
     });
-    recordAgentUsage({
+    await recordAgentUsage({
       project_id: projectId,
       step: 'node-importance',
       task: 'summarize',

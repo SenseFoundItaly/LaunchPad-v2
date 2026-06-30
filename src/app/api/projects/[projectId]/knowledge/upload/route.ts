@@ -163,7 +163,7 @@ async function extractEntities(text: string, projectId: string): Promise<Extract
       tools: false,
       timeout: 25_000,
     });
-    recordAgentUsage({
+    await recordAgentUsage({
       project_id: projectId,
       step: 'knowledge-upload-extract',
       task: 'classify',
@@ -234,7 +234,7 @@ async function extractCanvas(text: string, projectId: string): Promise<ProposedC
       tools: false,
       timeout: 25_000,
     });
-    recordAgentUsage({
+    await recordAgentUsage({
       project_id: projectId,
       step: 'knowledge-upload-canvas',
       task: 'classify',
@@ -295,7 +295,7 @@ async function extractMonitors(text: string, projectId: string): Promise<Propose
       tools: false,
       timeout: 25_000,
     });
-    recordAgentUsage({
+    await recordAgentUsage({
       project_id: projectId,
       step: 'knowledge-upload-monitors',
       task: 'classify',
