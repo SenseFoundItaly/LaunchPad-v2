@@ -146,6 +146,7 @@ export const SKILL_KICKOFFS: Record<string, string> = {
   'idea-shaping': 'Help me structure my startup idea into a Lean Canvas. Walk me through each section.',
   'startup-scoring': 'Score my startup idea across all 6 dimensions and give me specific ratings.',
   'market-research': 'Run a comprehensive market analysis — TAM/SAM/SOM, competitors, and trends.',
+  'technical-validation': 'Validate the technical feasibility — build approach, key dependencies, and regulatory/compliance constraints.',
   'scientific-validation': 'Generate detailed buyer personas and an empathy map for my startup.',
   'risk-scoring': 'Run a comprehensive risk audit across all dimensions — technical, market, regulatory, team, and financial.',
   'business-model': 'Help me evaluate and score business model options for my startup.',

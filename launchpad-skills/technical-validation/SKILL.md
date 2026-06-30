@@ -21,19 +21,27 @@ durable fact so the gate's 1B checks close progressively:
 - **Regulatory / compliance** — any regulation, licensing, certification, or data-protection
   constraint (e.g. GDPR, sector licenses) that affects whether/how this can be built or shipped.
 
-## How to capture evidence (so the gate validates "man mano")
+## How findings persist (so the gate validates "man mano")
 
-For every technical finding, persist it with `save_memory_fact` so the 1B checks read it on
-the next evaluation. Use clear, keyword-bearing phrasing the gate can match:
+This skill has **no tools** — it persists by **emitting `insight-card` artifacts** that the skill
+runner saves to the project's memory facts. The Validation-Gate **1B** checks read those facts on
+the next evaluation, so emitting these cards is what turns the technical track green. Emit **one
+card per area** with `category: "technology"`, keyword-bearing `body` text the gate can match
+(feasibility / dependency / regulatory), and at least one source:
 
-- feasibility → e.g. *"Technical feasibility: the matching engine is feasible with a vector DB;
-  main technical risk is latency at scale."*
-- dependencies → e.g. *"Key dependency: relies on the Stripe API for billing and OpenAI for
-  embeddings."*
-- regulatory → e.g. *"Regulatory: handling EU user data → GDPR applies; needs a DPA with vendors."*
+```
+:::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Technical feasibility","body":"<feasibility verdict — note the build approach/architecture and the single biggest technical risk>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"<what the founder said>"}]}
+:::
+:::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Key dependencies","body":"<the critical external dependencies: APIs, models, infra, vendors, integrations>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}
+:::
+:::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Regulatory / compliance","body":"<regulation/licensing/data-protection constraints, e.g. GDPR>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}
+:::
+```
 
-Do NOT invent specifics. If the founder hasn't decided a dependency or you can't assess a
-constraint, say so plainly and ask the one question that unblocks it — then capture the answer.
+The founder can also validate these **incrementally in normal chat** — the chat co-pilot captures
+technical facts as the conversation goes; this skill is the structured, in-bulk path. Do NOT invent
+specifics: if a dependency isn't decided or a constraint can't be assessed, say so plainly and ask
+the one question that unblocks it.
 
 ## Output
 

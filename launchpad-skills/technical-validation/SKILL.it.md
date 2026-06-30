@@ -21,13 +21,26 @@ così i check 1B del gate si chiudono progressivamente:
 - **Regolatorio / compliance** — regolamenti, licenze, certificazioni o vincoli di protezione dati
   (es. GDPR, licenze di settore) che incidono su se/come costruire e rilasciare.
 
-## Come catturare l'evidenza (così il gate valida "man mano")
+## Come persistono i finding (così il gate valida "man mano")
 
-Per ogni finding tecnico, persistilo con `save_memory_fact` così i check 1B lo leggono alla
-valutazione successiva. Usa frasi chiare e con le parole-chiave che il gate può intercettare
-(feasibility / dependency / regulatory). Non inventare specifiche: se il founder non ha deciso una
-dipendenza o non puoi valutare un vincolo, dillo chiaramente e fai l'unica domanda che sblocca —
-poi cattura la risposta.
+Questa skill **non ha tool** — persiste **emettendo artifact `insight-card`** che il runner salva
+nei memory_facts del progetto. I check **1B** del Validation Gate leggono quei fatti alla
+valutazione successiva: emettere queste card è ciò che rende verde la traccia tecnica. Emetti
+**una card per area** con `category: "technology"`, `body` con le parole-chiave che il gate
+intercetta (feasibility / dependency / regulatory) e almeno una source:
+
+```
+:::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Fattibilità tecnica","body":"<verdetto fattibilità — approccio/architettura + il rischio tecnico maggiore>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}
+:::
+:::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Dipendenze chiave","body":"<dipendenze esterne critiche: API, modelli, infra, vendor, integrazioni>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}
+:::
+:::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Regolatorio / compliance","body":"<vincoli regolatori/licenze/protezione dati, es. GDPR>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}
+:::
+```
+
+Il founder può validare anche **in modo incrementale nella chat normale** (il co-pilot cattura i
+fatti tecnici man mano); questa skill è la via strutturata, in blocco. Non inventare specifiche: se
+una dipendenza non è decisa o un vincolo non è valutabile, dillo e fai l'unica domanda che sblocca.
 
 ## Output
 
