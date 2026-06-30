@@ -71,7 +71,7 @@ export interface StageEvaluation {
   /** done = all checks passed. active = first non-done stage. pending = later. */
   status: 'done' | 'active' | 'pending';
   results: Array<{
-    check: { id: string; label: string; source: string };
+    check: { id: string; label: string; source: string; track?: '1A' | '1B' | '1C' };
     result: CheckResult;
   }>;
 }

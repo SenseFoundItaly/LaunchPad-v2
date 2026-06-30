@@ -77,7 +77,7 @@ export function evaluateAllStages(snapshot: ProjectSnapshot): StageEvaluation[] 
         const proof = resolveProof(check.source, snapshot);
         if (proof) result.proof = proof;
       }
-      return { check: { id: check.id, label: check.label, source: check.source }, result };
+      return { check: { id: check.id, label: check.label, source: check.source, track: check.track }, result };
     });
     const passed = results.filter((r) => r.result.passed).length;
     return { stage, passed, total: stage.checks.length, results };
