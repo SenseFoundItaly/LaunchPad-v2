@@ -31,8 +31,6 @@ import SourcesFooter from './SourcesFooter';
 import ArtifactCardShell from './ArtifactCardShell';
 import UnifiedReviewControls from './UnifiedReviewControls';
 import { monitorPalette } from '@/lib/brand-palette';
-import { watcherWeeklyLabel, watcherRunsPerWeek } from '@/lib/watcher-cost';
-import { HIDE_CREDITS } from '@/lib/credit-costs';
 
 interface MonitorProposalCardProps {
   artifact: MonitorProposalArtifact;
@@ -282,25 +280,8 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
  * hasn't committed yet, and saying "consumes X credits/day" present-tense
  * on a not-yet-active monitor would be misleading.
  */
-function CostCallout({ artifact }: { artifact: MonitorProposalArtifact }) {
-  // WEEKLY estimate is the founder-facing unit (founder directive 2026-06-11:
-  // "estimate usage per week of what watcher if set"). Deterministic from the
-  // cadence × per-run cost, so it ALWAYS shows — even on older proposals that
-  // never carried estimated_* fields. Prefers the artifact's per-project
-  // per-run estimate when present; otherwise the shared default.
-  const weeklyLabel = watcherWeeklyLabel(artifact.schedule, artifact.estimated_per_run_credits);
-  const runsPerWeek = watcherRunsPerWeek(artifact.schedule);
-  if (HIDE_CREDITS) return null; // billing-free: hide the cost callout entirely
-
-  return (
-    <div className="text-xs mb-3 px-2.5 py-2 rounded bg-paper-2/60 border border-line-2 flex items-baseline gap-2 flex-wrap">
-      <span className="text-ink-5 text-[10.5px] uppercase tracking-wider">
-        Cost if applied
-      </span>
-      <span className="text-ink font-medium">{weeklyLabel}</span>
-      <span className="text-ink-5 text-[11px]">
-        ({runsPerWeek === 1 ? '1 run' : `${runsPerWeek} runs`}/week · metered per run)
-      </span>
-    </div>
-  );
+function CostCallout(_props: { artifact: MonitorProposalArtifact }) {
+  // Billing model: only a founder chat message costs a credit (1/message).
+  // Watcher runs are free, so there is no per-run cost to quote.
+  return null;
 }

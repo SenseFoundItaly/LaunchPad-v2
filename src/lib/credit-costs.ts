@@ -40,23 +40,19 @@ export const DOCUMENT_AUDIT_CREDITS = 0;
  *
  * These are the seed values for NEW monthly rows (cost-meter upsert) AND the
  * fallback ratio for users with no row; EXISTING rows are rebased to match via
- * scripts/rebase-credit-pool.mjs. Credits are currently HIDDEN ([[HIDE_CREDITS]])
- * and unenforced (CREDITS_HARD_STOP unset), so this is the internal accounting
- * basis, not a founder-facing charge.
+ * scripts/rebase-credit-pool.mjs. Credits are unenforced (CREDITS_HARD_STOP
+ * unset), so this is the internal accounting basis, not a founder-facing charge.
+ *
+ * FOUNDER-FACING SURFACE (2026-07-01): only two credit surfaces remain — the
+ * monthly-pool badge (chrome.tsx) and the ACTUAL per-message cost shown under
+ * each chat turn. Per-action price quotes (skills, applies, doc audits,
+ * watchers) were REMOVED, not hidden, to match the "1 message = 1 credit,
+ * everything else free" rule — so the old NEXT_PUBLIC_HIDE_CREDITS flag and its
+ * HIDE_CREDITS export are gone (any lingering env var is now inert).
  */
 export const USER_MONTHLY_CREDITS = 50;
 export const USER_MONTHLY_LLM_USD = 10.0;
 export const USER_MONTHLY_WARN_LLM_USD = 8.0;
-
-/**
- * Hide ALL founder-facing credit UI (badge, cost chips, apply/skill/doc prices)
- * AND the agent's verbal credit-cost mentions — billing-free mode. Build-time
- * NEXT_PUBLIC so client components inline it. Set NEXT_PUBLIC_HIDE_CREDITS=1
- * alongside unsetting CREDITS_HARD_STOP; unset both to bring the billing UI back.
- * The dedicated /usage page is intentionally NOT gated (spend analytics, not a
- * charge surface).
- */
-export const HIDE_CREDITS = process.env.NEXT_PUBLIC_HIDE_CREDITS === '1';
 
 /**
  * Credits per USD of LLM cost — the conversion the debit math uses (cap_credits

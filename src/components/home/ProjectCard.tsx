@@ -45,7 +45,7 @@ export default function ProjectCard({
       {/* Progress bar */}
       <div className="mb-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-[10px] text-ink-6">{skillsCompleted}/{totalSkills} skills</span>
+          <span className="text-[10px] text-ink-6">{skillsCompleted}/{totalSkills} analyses</span>
           <span className="text-[10px] text-ink-6">{pct}%</span>
         </div>
         <div className="w-full h-1.5 bg-paper-2 rounded-full overflow-hidden">
