@@ -266,6 +266,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   'knowledge.pending-count': '{count} in attesa',
   'knowledge.add-documents-tooltip': 'Carica documenti e scegli cosa aggiungere alla tua conoscenza',
   'knowledge.add-documents': 'Aggiungi documenti',
+  'knowledge.view-graph': 'Grafo',
+  'knowledge.view-list': 'Lista',
   'knowledge.status-graph-loading': 'grafo · caricamento',
   'knowledge.status-graph-edges-one': 'grafo · {edges} collegamento',
   'knowledge.status-graph-edges-many': 'grafo · {edges} collegamenti',
