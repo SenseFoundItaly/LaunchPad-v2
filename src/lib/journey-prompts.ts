@@ -5,26 +5,38 @@
  * SpineSection substeps — so "click an unmet substep → pre-fill chat" and the
  * briefing's next steps always phrase the ask the same way.
  *
- * Pure + dependency-free → safe in both client components and server routes.
+ * Pure → depends only on the injected translate fn, so it's safe in both client
+ * components (pass `useT()`) and server routes (pass `(k, v) => translate(locale, k, v)`).
+ * The returned prompt is localized to the caller's locale; the keyword match runs
+ * on the (always-English) check label, so category routing is locale-independent.
  */
-export function checkActionPrompt(label: string): string {
+import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
+
+type TFn = (key: MessageKey, vars?: TranslateVars) => string;
+
+export function checkActionPrompt(label: string, t: TFn): string {
   const l = label.toLowerCase();
-  if (/segment|icp|ideal customer|persona|beachhead/.test(l)) return 'Help me define and validate my target customer segment.';
-  if (/competitor/.test(l)) return 'Research and map my top competitors.';
-  if (/interview/.test(l)) return "Help me log customer interviews — I'll tell you who I spoke to and what they said.";
-  if (/watcher|monitor/.test(l)) return 'Set up a watcher on my key competitors or market trends.';
-  if (/market size|\btam\b|\bsam\b|\bsom\b/.test(l)) return 'Help me size my market (TAM / SAM / SOM).';
-  if (/channel|acquisition|reach|distribution/.test(l)) return 'Help me identify my acquisition channels.';
-  if (/business model|revenue|pricing|unit econ|tier|willingness|anchor price/.test(l)) return 'Help me define my business model and pricing.';
-  if (/differentiat|competitive|edge|advantage/.test(l)) return "Help me articulate how I'm different from competitors.";
-  if (/value prop/.test(l)) return 'Help me sharpen my value proposition.';
-  if (/problem/.test(l)) return 'Help me sharpen my problem statement.';
-  if (/solution/.test(l)) return 'Help me describe my solution in more depth.';
-  if (/runway|burn/.test(l)) return 'Help me work out my runway and burn rate.';
-  if (/growth loop|growth/.test(l)) return 'Help me design a growth loop.';
-  if (/metric/.test(l)) return 'Help me decide which metrics to track.';
-  if (/mvp|ship|launch|\bbuild\b/.test(l)) return 'Help me scope my MVP.';
-  if (/capital|fundrais|round|investor/.test(l)) return 'Help me plan my fundraise.';
-  if (/users/.test(l)) return 'Help me get my first users.';
-  return `Help me with: ${label}`;
+  // `/dependenc/` before feasibility: "Key technical dependencies named" matches both.
+  if (/dependenc/.test(l)) return t('journey-prompt.dependencies');
+  if (/feasibilit|technical/.test(l)) return t('journey-prompt.feasibility');
+  if (/regulat|complian|gdpr|licens/.test(l)) return t('journey-prompt.regulatory');
+  if (/segment|icp|ideal customer|persona|beachhead/.test(l)) return t('journey-prompt.segment');
+  if (/competitor/.test(l)) return t('journey-prompt.competitors');
+  if (/interview/.test(l)) return t('journey-prompt.interviews');
+  if (/watcher|monitor/.test(l)) return t('journey-prompt.watcher');
+  if (/market size|\btam\b|\bsam\b|\bsom\b/.test(l)) return t('journey-prompt.market-size');
+  if (/pain/.test(l)) return t('journey-prompt.pain-point');
+  if (/channel|acquisition|reach|distribution/.test(l)) return t('journey-prompt.channels');
+  if (/business model|revenue|pricing|unit econ|tier|willingness|anchor price/.test(l)) return t('journey-prompt.business-model');
+  if (/differentiat|competitive|edge|advantage/.test(l)) return t('journey-prompt.differentiation');
+  if (/value prop/.test(l)) return t('journey-prompt.value-prop');
+  if (/problem/.test(l)) return t('journey-prompt.problem');
+  if (/solution/.test(l)) return t('journey-prompt.solution');
+  if (/runway|burn/.test(l)) return t('journey-prompt.runway');
+  if (/growth loop|growth/.test(l)) return t('journey-prompt.growth');
+  if (/metric/.test(l)) return t('journey-prompt.metrics');
+  if (/mvp|ship|launch|\bbuild\b/.test(l)) return t('journey-prompt.mvp');
+  if (/capital|fundrais|round|investor/.test(l)) return t('journey-prompt.fundraise');
+  if (/users/.test(l)) return t('journey-prompt.users');
+  return t('journey-prompt.generic', { label });
 }

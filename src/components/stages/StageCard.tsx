@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Panel, Pill, Icon, I } from '@/components/design/primitives';
 import { checkActionPrompt } from '@/lib/journey-prompts';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface CheckResult {
   passed: boolean;
@@ -157,10 +158,11 @@ export function StageCard({ projectId }: { projectId: string }) {
 }
 
 function CheckRowView({ projectId, check, result }: { projectId: string; check: CheckRow['check']; result: CheckResult }) {
+  const t = useT();
   // Unmet checks get an actionable CTA that pre-fills the Co-pilot composer with
   // the prompt for THIS substep (cross-page via ?prefill — the chat page loads
   // it on mount). Passed checks keep their source tag (the proof's home key).
-  const prefillHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(checkActionPrompt(check.label))}`;
+  const prefillHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(checkActionPrompt(check.label, t))}`;
   return (
     <div style={{
       padding: '10px 14px',
