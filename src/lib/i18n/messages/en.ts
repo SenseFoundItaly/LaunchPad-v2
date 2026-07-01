@@ -490,6 +490,11 @@ export const en = {
   'canvas.ask-copilot-tooltip': 'Ask the co-pilot to work on this',
   'canvas.view-in-canvas': 'View in canvas',
   'canvas.view-in-know': 'View in knowledge',
+  // L2 Validation-Gate sub-track headers (walkthrough §2). Only the validation
+  // stage tags checks with a track; the spine groups them under these headers.
+  'canvas.track-1a': '1A · Market',
+  'canvas.track-1b': '1B · Technical',
+  'canvas.track-1c': '1C · Problem-Solution Fit',
   // Knowledge / data-room / document-upload (i18n completion for the in-progress
   // knowledge-upload UI — the components referenced these keys but they weren't
   // in the catalog yet, breaking the typecheck). Best-effort copy; refine freely.
