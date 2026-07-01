@@ -231,7 +231,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
               const canPrefill = isGap && !!onPickPrompt;
               const clickable = canPrefill || hasProof;
               const onRowClick = canPrefill
-                ? () => onPickPrompt?.(checkActionPrompt(r.check.label))
+                ? () => onPickPrompt?.(checkActionPrompt(r.check.label, t))
                 : hasProof
                   ? () => setOpenProof(proofOpen ? null : rowId)
                   : undefined;

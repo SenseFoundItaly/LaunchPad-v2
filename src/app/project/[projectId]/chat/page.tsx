@@ -1651,7 +1651,7 @@ function ChatEmptyState({
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {openChecks.slice(0, 4).map((c) => (
-                <button key={c.check.id} onClick={() => onPick(checkActionPrompt(c.check.label))} style={btnStyle}>
+                <button key={c.check.id} onClick={() => onPick(checkActionPrompt(c.check.label, t))} style={btnStyle}>
                   <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{c.check.label}</span>
                   {c.result.gap && (
                     <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-5)', marginTop: 2 }}>{c.result.gap}</span>

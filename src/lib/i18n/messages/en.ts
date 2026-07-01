@@ -487,6 +487,32 @@ export const en = {
   'canvas.proof-from': 'Proof from {source}',
   'canvas.ask-copilot-cta': 'Ask the co-pilot',
   'canvas.ask-copilot-tooltip': 'Ask the co-pilot to work on this',
+  // Prefill prompts injected into the chat composer when a founder clicks an
+  // unmet Validation-Gate check. Keyword-routed from the (English) check label
+  // in src/lib/journey-prompts.ts; localized here so the composer text matches
+  // the project language.
+  'journey-prompt.segment': 'Help me define and validate my target customer segment.',
+  'journey-prompt.competitors': 'Research and map my top competitors.',
+  'journey-prompt.interviews': "Help me log customer interviews — I'll tell you who I spoke to and what they said.",
+  'journey-prompt.watcher': 'Set up a watcher on my key competitors or market trends.',
+  'journey-prompt.market-size': 'Help me size my market (TAM / SAM / SOM).',
+  'journey-prompt.pain-point': 'Help me capture the single biggest pain point.',
+  'journey-prompt.channels': 'Help me identify my acquisition channels.',
+  'journey-prompt.business-model': 'Help me define my business model and pricing.',
+  'journey-prompt.differentiation': "Help me articulate how I'm different from competitors.",
+  'journey-prompt.value-prop': 'Help me sharpen my value proposition.',
+  'journey-prompt.problem': 'Help me sharpen my problem statement.',
+  'journey-prompt.solution': 'Help me describe my solution in more depth.',
+  'journey-prompt.runway': 'Help me work out my runway and burn rate.',
+  'journey-prompt.growth': 'Help me design a growth loop.',
+  'journey-prompt.metrics': 'Help me decide which metrics to track.',
+  'journey-prompt.mvp': 'Help me scope my MVP.',
+  'journey-prompt.fundraise': 'Help me plan my fundraise.',
+  'journey-prompt.users': 'Help me get my first users.',
+  'journey-prompt.feasibility': 'Help me assess my technical feasibility.',
+  'journey-prompt.dependencies': 'Help me name my key technical dependencies.',
+  'journey-prompt.regulatory': 'Help me check my regulatory and compliance constraints (e.g. GDPR).',
+  'journey-prompt.generic': 'Help me with: {label}',
   'canvas.view-in-canvas': 'View in canvas',
   'canvas.view-in-know': 'View in knowledge',
   // L2 Validation-Gate sub-track headers (walkthrough §2). Only the validation
