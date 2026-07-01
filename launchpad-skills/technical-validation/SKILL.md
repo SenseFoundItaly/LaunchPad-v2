@@ -26,15 +26,16 @@ durable fact so the gate's 1B checks close progressively:
 This skill has **no tools** — it persists by **emitting `insight-card` artifacts** that the skill
 runner saves to the project's memory facts. The Validation-Gate **1B** checks read those facts on
 the next evaluation, so emitting these cards is what turns the technical track green. Emit **one
-card per area** with `category: "technology"`, keyword-bearing `body` text the gate can match
-(feasibility / dependency / regulatory), and at least one source:
+card per area** (feasibility + dependencies use `category: "technology"`; the regulatory card
+uses `category: "regulatory"`), with keyword-bearing `body` text the gate can match, and at least
+one source:
 
 ```
 :::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Technical feasibility","body":"<feasibility verdict — note the build approach/architecture and the single biggest technical risk>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"<what the founder said>"}]}
 :::
 :::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Key dependencies","body":"<the critical external dependencies: APIs, models, infra, vendors, integrations>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}
 :::
-:::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Regulatory / compliance","body":"<regulation/licensing/data-protection constraints, e.g. GDPR>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}
+:::artifact{"type":"insight-card","id":"ins_<random>","category":"regulatory","title":"Regulatory / compliance","body":"<regulation/licensing/data-protection constraints, e.g. GDPR>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}
 :::
 ```
 
