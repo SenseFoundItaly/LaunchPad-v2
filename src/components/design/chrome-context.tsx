@@ -15,6 +15,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { StatusBarProps } from './primitives';
+import type { Mode } from './chrome';
 
 export interface ChromeState {
   breadcrumb?: string[];
@@ -24,6 +25,9 @@ export interface ChromeState {
   status?: StatusBarProps;
   /** Pulse the Co-pilot nav icon while the chat streams. */
   chatStreaming?: boolean;
+  /** Override the mode a page maps to (rare — mode is normally derived from
+   *  the route segment in the project layout). */
+  mode?: Mode;
 }
 
 interface ChromeCtx {

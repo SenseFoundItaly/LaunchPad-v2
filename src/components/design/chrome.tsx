@@ -1,23 +1,23 @@
 /**
  * Design-system chrome — TopBar + NavRail.
  *
- * Two-section nav:
+ * Information architecture: the **7-stage journey spine is the backbone/home**
+ * (`today`). Solve / Build / Intelligence are GLOBAL working modes that serve
+ * the spine — work done in a mode auto-attributes to the founder's active
+ * stage and its evidence flows back onto that stage's card. The spine is never
+ * demoted to a peer of the modes: it is reachable everywhere via the rail's
+ * home control and a persistent **active-stage pill** in the TopBar (which
+ * doubles as "return to spine").
  *
- *   PRIMARY (top):
- *     dashboard → /project/{id}/today  (project stage + todos + signal log)
+ *   TopBar (44px):  [Logomark LAUNCHPAD]  [active-stage pill → today]
+ *                   [ Solve · Build · Intelligence ]  breadcrumb  …  right-slot
+ *   NavRail (48px): brand→spine · per-mode icon nav (journey mode → 7-stage
+ *                   mini-spine) · settings chip
  *
- *   CHANNELS (bottom):
- *     inbox     → /project/{id}/actions    (pending actions)
- *     signals   → /project/{id}/signals    (briefs + findings)
- *     knowledge → /project/{id}/knowledge  (uploads)
- *     chat      → /project/{id}/chat       (Co-pilot — chat + single-scroll
- *                                           Canvas, grouped by department)
- *
- * Departments still live as data in src/lib/departments.ts — they own
- * tables and chat-tool prefixes — but they no longer have their own
- * routes. The Canvas is one department-grouped scroll inside the
- * Co-pilot (the facet tabs were removed in the 2026-06 simplification);
- * Canvas as a concept lives in the chat page, not the sidebar.
+ * `mode` is DERIVED from the route segment (`modeForSegment`) — existing routes
+ * keep working; the mode layer is purely additive. New Intelligence/Build
+ * routes are wired into `RAIL_BY_MODE` / `MODE_DEFAULT_ROUTE` as those phases
+ * land (marked below).
  */
 
 'use client';
@@ -26,36 +26,117 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icon, I, type IconKey } from './icons';
+import { Pill } from './primitives';
 import { ShareButton } from '@/components/project/ShareButton';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { HIDE_CREDITS } from '@/lib/credit-costs';
 import { LanguageSwitch } from '@/components/design/LanguageSwitch';
 import { Logomark } from '@/components/design/Logomark';
 import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
+import { useStages } from '@/hooks/useStages';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
 
 // =============================================================================
-// TopBar — 38px, brand mark + breadcrumbs + right slot
+// Modes — the spine is `journey` (home); Solve/Build/Intelligence are the
+// working modes shown as TopBar tabs. Mode is derived from the route segment.
+// =============================================================================
+
+export type Mode = 'journey' | 'solve' | 'build' | 'intelligence';
+
+const SEGMENT_MODE: Record<string, Mode> = {
+  today: 'journey',
+  chat: 'solve',
+  knowledge: 'solve',
+  // Inbox/watchers + activity live under Intelligence (signals feed it).
+  actions: 'intelligence',
+  signals: 'intelligence',
+  monitors: 'intelligence',
+  assumptions: 'intelligence',
+  usage: 'intelligence',
+  intelligence: 'intelligence', // Phase 4 competitor/briefs/signals routes
+  financial: 'build',
+  build: 'build', // Phase 6 3-pane
+};
+
+export function modeForSegment(seg: string): Mode {
+  return SEGMENT_MODE[seg] ?? 'journey';
+}
+
+// Default route each mode tab lands on. Intelligence/Build point at existing
+// routes until their dedicated surfaces land (Phase 4 → 'intelligence',
+// Phase 6 → 'build'), so a tab never 404s mid-migration.
+export const MODE_DEFAULT_ROUTE: Record<Mode, string> = {
+  journey: 'today',
+  solve: 'chat',
+  intelligence: 'intelligence',
+  build: 'build',
+};
+
+// Working-mode tabs (journey is home, not a tab). Labels are product
+// proper-nouns — kept literal rather than routed through i18n.
+const MODE_TABS: { mode: Exclude<Mode, 'journey'>; label: string }[] = [
+  { mode: 'solve', label: 'Solve' },
+  { mode: 'build', label: 'Build' },
+  { mode: 'intelligence', label: 'Intelligence' },
+];
+
+interface NavItem {
+  id: string;
+  iconKey: IconKey;
+  /** Path segment after /project/{id}/ */
+  route: string;
+  /** i18n key for the tooltip label (falls back to `label`/id). */
+  labelKey?: MessageKey;
+  /** Literal tooltip label when there's no i18n key yet. */
+  label?: string;
+  tooltipKey?: MessageKey;
+}
+
+// Per-mode rail item sets. `journey` is special-cased into a 7-stage mini
+// spine (see JourneyRail). New routes get appended here in their phase.
+const RAIL_BY_MODE: Record<Mode, NavItem[]> = {
+  journey: [],
+  solve: [
+    { id: 'chat', iconKey: 'chat', route: 'chat', labelKey: 'nav.copilot', tooltipKey: 'nav.copilot.tooltip' },
+    { id: 'knowledge', iconKey: 'book', route: 'knowledge', labelKey: 'nav.knowledge', tooltipKey: 'nav.knowledge.tooltip' },
+  ],
+  intelligence: [
+    { id: 'competitor', iconKey: 'signal', route: 'intelligence', label: 'Competitors' },
+    { id: 'briefs', iconKey: 'flag', route: 'intelligence/briefs', label: 'Daily briefs' },
+    { id: 'feed', iconKey: 'history', route: 'intelligence/signals', label: 'All signals' },
+    { id: 'inbox', iconKey: 'tickets', route: 'actions', labelKey: 'nav.inbox', tooltipKey: 'nav.inbox.tooltip' },
+  ],
+  build: [
+    { id: 'build', iconKey: 'layers', route: 'build', label: 'Build' },
+    { id: 'financial', iconKey: 'dollar', route: 'financial', labelKey: 'nav.financial', tooltipKey: 'nav.financial.tooltip' },
+  ],
+};
+
+// =============================================================================
+// TopBar — 44px: brand + active-stage pill + mode tabs + breadcrumb + right
 // =============================================================================
 
 export interface TopBarProps {
   breadcrumb?: string[];
   right?: React.ReactNode;
-  /** When set, renders a Share button on the right that opens the per-project
-   *  sharing dialog. Optional so non-project surfaces (login, projects index)
-   *  can omit it. Renders BEFORE the page's `right` content so positional
-   *  ordering stays consistent across pages. */
+  /** When set, renders the Share button + credits badge and enables the
+   *  in-project chrome (active-stage pill, mode tabs). Omitted on non-project
+   *  surfaces (projects index, login). */
   projectId?: string;
+  /** Active product mode (derived from the route in the project layout). Only
+   *  rendered when `projectId` is also present. */
+  mode?: Mode;
   /** Legacy prop from design — accepted but ignored; theme is global. */
   theme?: 'paper' | 'ink';
 }
 
-export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
+export function TopBar({ breadcrumb, right, projectId, mode }: TopBarProps) {
+  const inProject = !!projectId && !!mode;
   return (
     <div
       style={{
-        height: 38,
+        height: 44,
         flexShrink: 0,
         borderBottom: '1px solid var(--line)',
         background: 'var(--surface)',
@@ -65,57 +146,57 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
         gap: 12,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-        {/* Brand mark — SenseFound logomark + wordmark (V1.1 guidelines: the
-            protective bracket + validation arrow is the brand's identity). The
-            logomark links home; the wordmark is hidden on narrow widths. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+        {/* Brand — SenseFound logomark (bracket + arrow) + LaunchPad wordmark.
+            Links to the projects index. 22px = brand's documented minimum. */}
         <a href="/" aria-label="LaunchPad — home" style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none', flexShrink: 0 }}>
-          {/* SenseFound logomark (brand symbol) + LaunchPad wordmark (product
-              name). 22px = the brand's documented minimum logo size (p.12). */}
           <Logomark size={22} />
-          {/* Wordmark in the display/sans face (Safiro stand-in), NOT mono —
-              the brand wordmark is a grotesque semibold, uppercase, tight. */}
-          <span
-            style={{ fontFamily: 'var(--f-display)', fontSize: 13, fontWeight: 700, letterSpacing: '.02em', color: 'var(--ink)' }}
-          >
+          <span style={{ fontFamily: 'var(--f-display)', fontSize: 13, fontWeight: 700, letterSpacing: '.02em', color: 'var(--ink)' }}>
             LAUNCHPAD
           </span>
         </a>
+        {/* Active-stage pill — the spine is home; this shows which stage the
+            current work attributes to, and returns to the spine on click. */}
+        {inProject && <ActiveStagePill projectId={projectId!} />}
+        {/* Mode tabs — global working surfaces (journey/home is not a tab). */}
+        {inProject && <ModeTabs projectId={projectId!} mode={mode!} />}
         {breadcrumb && breadcrumb.length > 0 && (
-          <span style={{ color: 'var(--ink-6)', margin: '0 2px' }}>·</span>
-        )}
-        {breadcrumb && breadcrumb.length > 0 && (
-          <span
-            style={{
-              fontSize: 12,
-              color: 'var(--ink-3)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            {breadcrumb.map((b, i) => (
-              <React.Fragment key={`${b}-${i}`}>
-                {i > 0 && <Icon d={I.chevr} size={10} style={{ opacity: 0.5 }} />}
-                <span style={{ color: i === breadcrumb.length - 1 ? 'var(--ink)' : 'var(--ink-4)' }}>
-                  {b}
-                </span>
-              </React.Fragment>
-            ))}
-          </span>
+          <>
+            <span style={{ color: 'var(--ink-6)', margin: '0 1px' }}>·</span>
+            <span
+              style={{
+                fontSize: 12,
+                color: 'var(--ink-3)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                minWidth: 0,
+                overflow: 'hidden',
+              }}
+            >
+              {breadcrumb.map((b, i) => (
+                <React.Fragment key={`${b}-${i}`}>
+                  {i > 0 && <Icon d={I.chevr} size={10} style={{ opacity: 0.5, flexShrink: 0 }} />}
+                  <span
+                    style={{
+                      color: i === breadcrumb.length - 1 ? 'var(--ink)' : 'var(--ink-4)',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {b}
+                  </span>
+                </React.Fragment>
+              ))}
+            </span>
+          </>
         )}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)', flexShrink: 0 }}>
         {projectId && <ShareButton projectId={projectId} />}
         {right}
         <LanguageSwitch />
-        {/* CreditsBadge sits *after* page-supplied `right` content so the
-            credits chip is always pinned to the far right — making the
-            credit balance the founder's most-visible header signal. The
-            badge owns its own TanStack cache + event-bridge subscription,
-            so mounting it globally costs one query per project per session
-            (no per-route re-fetch). The title-wrapping span keeps the
-            tooltip in chrome.tsx without touching CreditsBadge itself. */}
         {projectId && !HIDE_CREDITS && (
           <span title="Credits — your project's monthly budget">
             <CreditsBadge projectId={projectId} />
@@ -126,47 +207,73 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
   );
 }
 
-// =============================================================================
-// NavRail — 54px left icon rail with micro labels
-// =============================================================================
-
-interface NavItem {
-  id: string;
-  iconKey: IconKey;
-  /** i18n key for the micro label — resolved via useT() at render. */
-  labelKey: MessageKey;
-  /** Path segment after /project/{id}/ — e.g. 'dashboard', 'chat' */
-  route: string;
-  /** If true, highlight when pathname segment matches `route` loosely */
-  fuzzy?: boolean;
-  /** i18n key for the longer hover tooltip. Falls back to label when omitted. */
-  tooltipKey?: MessageKey;
+/** Active-stage pill — reads the shared /stages query (deduped with the spine),
+ *  so it costs no extra fetch. Shows the active stage (or the first pending /
+ *  last stage as fallback) and links back to the spine. */
+function ActiveStagePill({ projectId }: { projectId: string }) {
+  const { data: stages } = useStages(projectId);
+  if (!stages || stages.length === 0) return null;
+  const active =
+    stages.find((s) => s.status === 'active') ??
+    stages.find((s) => s.status === 'pending') ??
+    stages[stages.length - 1];
+  if (!active) return null;
+  const label = active.stage.label.length > 22 ? `${active.stage.label.slice(0, 22)}…` : active.stage.label;
+  return (
+    <Link
+      href={`/project/${projectId}/today`}
+      title="Journey — return to the spine"
+      style={{ textDecoration: 'none', flexShrink: 0 }}
+    >
+      <Pill kind="live" dot>
+        S{active.stage.number} · {label}
+      </Pill>
+    </Link>
+  );
 }
 
-// Primary nav — the project landing surface (project stage + todos + signal log).
-const PRIMARY_ITEMS: NavItem[] = [
-  { id: 'dashboard', iconKey: 'home', labelKey: 'nav.home', route: 'today',
-    tooltipKey: 'nav.home.tooltip' },
-];
+/** Mode tabs — Solve / Build / Intelligence. Active tab matches the NavRail
+ *  active treatment (surface fill + inset hairline) for a consistent language. */
+function ModeTabs({ projectId, mode }: { projectId: string; mode: Mode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+      {MODE_TABS.map((tab) => {
+        const active = mode === tab.mode;
+        return (
+          <Link
+            key={tab.mode}
+            href={`/project/${projectId}/${MODE_DEFAULT_ROUTE[tab.mode]}`}
+            style={{
+              padding: '4px 10px',
+              borderRadius: 'var(--r-s)',
+              fontSize: 12,
+              fontFamily: 'var(--f-mono)',
+              textTransform: 'uppercase',
+              letterSpacing: 0.3,
+              textDecoration: 'none',
+              color: active ? 'var(--ink)' : 'var(--ink-4)',
+              background: active ? 'var(--surface)' : 'transparent',
+              boxShadow: active ? 'inset 0 0 0 1px var(--line)' : 'none',
+              transition: 'color .12s, background .12s',
+            }}
+          >
+            {tab.label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
 
-// Channels — cross-cutting activity surfaces shown below the divider.
-// Phase 1 consolidation (2026-06): the dedicated Signals nav was removed —
-// signal_alert + intelligence_brief now materialize into the Inbox, so the
-// channel is collapsed into the single proposal queue.
-const CHANNEL_ITEMS: NavItem[] = [
-  { id: 'inbox',     iconKey: 'tickets', labelKey: 'nav.inbox',     route: 'actions',
-    tooltipKey: 'nav.inbox.tooltip' },
-  { id: 'knowledge', iconKey: 'book',    labelKey: 'nav.knowledge', route: 'knowledge',
-    tooltipKey: 'nav.knowledge.tooltip' },
-  { id: 'financial', iconKey: 'dollar',  labelKey: 'nav.financial', route: 'financial',
-    tooltipKey: 'nav.financial.tooltip' },
-  { id: 'chat',      iconKey: 'chat',    labelKey: 'nav.copilot',   route: 'chat',
-    tooltipKey: 'nav.copilot.tooltip' },
-];
+// =============================================================================
+// NavRail — 48px left icon rail; per-mode item sets; journey = 7-stage spine
+// =============================================================================
 
 export interface NavRailProps {
   projectId: string;
-  /** Explicit override for which item is current. Otherwise inferred from pathname. */
+  /** Active mode; defaults to the spine home. */
+  mode?: Mode;
+  /** Explicit override for which item is current (else inferred from pathname). */
   current?: string;
   /** Badge count shown on the Inbox nav item (pending actions). */
   inboxBadge?: number;
@@ -174,22 +281,27 @@ export interface NavRailProps {
   chatStreaming?: boolean;
 }
 
-export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRailProps) {
+export function NavRail({ projectId, mode = 'journey', current, inboxBadge, chatStreaming }: NavRailProps) {
   const pathname = usePathname() || '';
   const t = useT();
-  // Self-fetched (cached + shared across pages) so the "Know" count shows on
-  // every surface without each page having to thread it down as a prop.
   const { count: knowledgeCount } = useKnowledgeCount(projectId);
 
-  function isActive(item: NavItem): boolean {
-    if (current) return current === item.id;
-    return pathname.includes(`/project/${projectId}/${item.route}`);
-  }
+  const items = RAIL_BY_MODE[mode] ?? [];
+
+  // Current sub-path after /project/{id}/ (e.g. 'intelligence/briefs').
+  const currentSub = pathname.split('/').slice(3).join('/');
+  // Longest-prefix match so 'intelligence/briefs' activates the briefs item,
+  // not the shorter 'intelligence' (competitor) item.
+  const activeId = current
+    ? current
+    : items
+        .filter((it) => currentSub === it.route || currentSub.startsWith(`${it.route}/`))
+        .sort((a, b) => b.route.length - a.route.length)[0]?.id;
 
   return (
     <div
       style={{
-        width: 54,
+        width: 48,
         flexShrink: 0,
         borderRight: '1px solid var(--line)',
         background: 'var(--paper-2)',
@@ -197,51 +309,47 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
         flexDirection: 'column',
         alignItems: 'center',
         padding: '8px 0',
-        gap: 2,
+        gap: 3,
       }}
     >
-      {PRIMARY_ITEMS.map((it) => (
-        <NavRailItem
-          key={it.id}
-          item={it}
-          label={t(it.labelKey)}
-          tooltip={it.tooltipKey ? t(it.tooltipKey) : undefined}
-          projectId={projectId}
-          active={isActive(it)}
-        />
-      ))}
-      {/* Divider — separates departments (where you work) from channels
-          (how you triage). 1px line, inset 8px on each side. */}
-      <div
-        aria-hidden
+      {/* Brand mark = home/spine control. Returns to this project's journey. */}
+      <Link
+        href={`/project/${projectId}/today`}
+        title="Journey — the spine"
+        aria-label="Journey"
         style={{
-          width: 28,
-          height: 1,
-          background: 'var(--line)',
-          margin: '6px 0',
-          flexShrink: 0,
+          width: 40,
+          height: 32,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          textDecoration: 'none',
+          color: mode === 'journey' ? 'var(--ink)' : 'var(--ink-3)',
         }}
-      />
-      {CHANNEL_ITEMS.map((it) => (
-        <NavRailItem
-          key={it.id}
-          item={it}
-          label={t(it.labelKey)}
-          tooltip={it.tooltipKey ? t(it.tooltipKey) : undefined}
-          projectId={projectId}
-          active={isActive(it)}
-          badge={it.id === 'inbox' ? inboxBadge : it.id === 'knowledge' ? knowledgeCount : undefined}
-          // Inbox badge = items needing action (urgent → clay). The Know badge
-          // is just an informational item count (neutral), not an alert.
-          badgeTone={it.id === 'knowledge' ? 'count' : 'alert'}
-          streaming={it.id === 'chat' ? chatStreaming : undefined}
-        />
-      ))}
-      {/* flexShrink:0 so a short viewport collapses THIS spacer (not the chip). */}
+      >
+        <Logomark size={18} />
+      </Link>
+      <div aria-hidden style={{ width: 28, height: 1, background: 'var(--line)', margin: '3px 0 5px', flexShrink: 0 }} />
+
+      {mode === 'journey' ? (
+        <JourneyRail projectId={projectId} />
+      ) : (
+        items.map((it) => (
+          <NavRailItem
+            key={it.id}
+            item={it}
+            tooltip={it.tooltipKey ? t(it.tooltipKey) : it.labelKey ? t(it.labelKey) : it.label ?? it.id}
+            projectId={projectId}
+            active={activeId === it.id}
+            badge={it.id === 'inbox' ? inboxBadge : it.id === 'knowledge' ? knowledgeCount : undefined}
+            badgeTone={it.id === 'knowledge' ? 'count' : 'alert'}
+            streaming={it.id === 'chat' ? chatStreaming : undefined}
+          />
+        ))
+      )}
+
       <div style={{ flex: 1, minHeight: 6 }} />
-      {/* User chip — links to /settings for BYOK + model preferences.
-          flexShrink:0 keeps the 28px chip from being squeezed to nothing on a
-          short rail (item 3: the account/settings icon "sometimes disappears"). */}
+      {/* User chip → settings (BYOK + model preferences). */}
       <Link
         href="/settings"
         title={t('nav.settings')}
@@ -269,36 +377,101 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
   );
 }
 
-function NavRailItem({ item, label, tooltip, projectId, active, badge, badgeTone = 'alert', streaming }: { item: NavItem; label: string; tooltip?: string; projectId: string; active: boolean; badge?: number; badgeTone?: 'alert' | 'count'; streaming?: boolean }) {
+/** Journey mode rail — a vertical 7-stage mini-spine. Each stage links back to
+ *  the spine (today); status drives the colour (done = moss, active = accent,
+ *  pending = muted). Reads the shared /stages query (deduped with the pill). */
+function JourneyRail({ projectId }: { projectId: string }) {
+  const { data: stages } = useStages(projectId);
+  const list = stages ?? [];
+  if (list.length === 0) {
+    // No stages yet — fall back to a single home affordance.
+    return (
+      <Link
+        href={`/project/${projectId}/today`}
+        title="Home"
+        style={{ width: 40, height: 40, borderRadius: 'var(--r-m)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink)', background: 'var(--surface)', boxShadow: 'inset 0 0 0 1px var(--line)', textDecoration: 'none' }}
+      >
+        <Icon d={I.home} size={16} stroke={1.4} />
+      </Link>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      {list.map((s) => {
+        const color =
+          s.status === 'done' ? 'var(--moss)' : s.status === 'active' ? 'var(--accent)' : 'var(--ink-5)';
+        return (
+          <Link
+            key={s.stage.id}
+            href={`/project/${projectId}/today`}
+            title={`Stage ${s.stage.number} · ${s.stage.label} — ${s.passed}/${s.total}`}
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 'var(--r-m)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textDecoration: 'none',
+              border: s.status === 'active' ? '1px solid var(--accent)' : '1px solid transparent',
+              background: s.status === 'active' ? 'var(--surface)' : 'transparent',
+            }}
+          >
+            <span className="lp-mono" style={{ fontSize: 11, fontWeight: 600, color }}>
+              {s.stage.number}
+            </span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+function NavRailItem({
+  item,
+  tooltip,
+  projectId,
+  active,
+  badge,
+  badgeTone = 'alert',
+  streaming,
+}: {
+  item: NavItem;
+  tooltip?: string;
+  projectId: string;
+  active: boolean;
+  badge?: number;
+  badgeTone?: 'alert' | 'count';
+  streaming?: boolean;
+}) {
   const isCount = badgeTone === 'count';
   return (
     <Link
       href={`/project/${projectId}/${item.route}`}
-      title={tooltip ?? label}
+      title={tooltip}
       style={{
-        width: 42,
-        padding: '8px 0',
+        width: 40,
+        height: 40,
         borderRadius: 'var(--r-m)',
         cursor: 'pointer',
         background: active ? 'var(--surface)' : 'transparent',
         boxShadow: active ? 'inset 0 0 0 1px var(--line)' : 'none',
         color: active ? 'var(--ink)' : 'var(--ink-4)',
         display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
-        gap: 3,
+        justifyContent: 'center',
         textDecoration: 'none',
         transition: 'background .12s, color .12s',
         position: 'relative',
       }}
     >
-      <Icon d={I[item.iconKey]} size={15} stroke={1.3} />
+      <Icon d={I[item.iconKey]} size={16} stroke={1.4} />
       {typeof badge === 'number' && badge > 0 && (
         <span
           style={{
             position: 'absolute',
-            top: 4,
-            right: 4,
+            top: 3,
+            right: 3,
             minWidth: 14,
             height: 14,
             borderRadius: 7,
@@ -322,27 +495,9 @@ function NavRailItem({ item, label, tooltip, projectId, active, badge, badgeTone
       {streaming && (
         <span
           className="lp-dot lp-pulse"
-          style={{
-            position: 'absolute',
-            top: 4,
-            right: 4,
-            width: 6,
-            height: 6,
-            background: 'var(--accent)',
-          }}
+          style={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, background: 'var(--accent)' }}
         />
       )}
-      <span
-        style={{
-          fontSize: 9,
-          fontFamily: 'var(--f-mono)',
-          letterSpacing: -0.2,
-          textTransform: 'uppercase',
-        }}
-      >
-        {label}
-      </span>
     </Link>
   );
 }
-

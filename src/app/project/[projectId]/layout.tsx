@@ -1,11 +1,11 @@
 'use client';
 
-import { use } from 'react';
+import { use, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { useProject } from '@/hooks/useProject';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { ChromeProvider, useChromeState } from '@/components/design/chrome-context';
-import { TopBar, NavRail } from '@/components/design/chrome';
+import { TopBar, NavRail, modeForSegment } from '@/components/design/chrome';
 import ProductTour from '@/components/onboarding/ProductTour';
 
 /**
@@ -30,7 +30,8 @@ import ProductTour from '@/components/onboarding/ProductTour';
 // Fallback breadcrumb tail by route segment, used until (or if) a page publishes
 // its own via useSetChrome — avoids a one-frame blank on first paint.
 const FALLBACK_CRUMB: Record<string, string> = {
-  today: 'Home', actions: 'Inbox', knowledge: 'Knowledge', chat: 'Co-pilot', usage: 'Usage',
+  today: 'Journey', actions: 'Inbox', knowledge: 'Knowledge', chat: 'Co-pilot', usage: 'Activity',
+  financial: 'Financials', intelligence: 'Intelligence', build: 'Build',
 };
 
 export default function ProjectLayout({
@@ -82,16 +83,31 @@ function ProjectChrome({
   const { count: inboxBadge } = useOpenActionCount(projectId);
   const chrome = useChromeState();
 
+  // Mode is derived from the route segment (spine = journey/home; the working
+  // surfaces map to solve/build/intelligence). A page may override via chrome.
+  const mode = chrome.mode ?? modeForSegment(seg);
+
+  // Remember the last-open sub-route so /project/{id} resumes here next time
+  // (see project/[projectId]/page.tsx). Skip the bare index.
+  useEffect(() => {
+    if (!seg) return;
+    try {
+      localStorage.setItem(`lp:last-route:${projectId}`, seg);
+    } catch {
+      /* private-mode / storage disabled — resume just falls back to today */
+    }
+  }, [projectId, seg]);
+
   const breadcrumb =
     chrome.breadcrumb ?? ['Project', FALLBACK_CRUMB[seg] ?? projectName ?? ''];
 
   return (
     <div className="lp-frame">
-      <TopBar projectId={projectId} breadcrumb={breadcrumb} right={chrome.right} />
+      <TopBar projectId={projectId} mode={mode} breadcrumb={breadcrumb} right={chrome.right} />
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* current is inferred from pathname (NavRail.isActive matches item.route
             against the URL), so no per-page `current` prop is needed. */}
-        <NavRail projectId={projectId} inboxBadge={inboxBadge} chatStreaming={chrome.chatStreaming} />
+        <NavRail projectId={projectId} mode={mode} inboxBadge={inboxBadge} chatStreaming={chrome.chatStreaming} />
         {/* Content slot: re-mounts on tab change (key) and crossfades in. The
             chrome above/around it stays mounted. display:flex so multi-column
             pages (chat = column + canvas) and single-column pages both fit. */}
