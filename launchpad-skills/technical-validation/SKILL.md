@@ -6,7 +6,7 @@ description: Validates the technical feasibility of the idea — build approach,
 ## What this skill does (L2 — Validation Gate · track 1B)
 
 This is the **Technical Validation** track of the L2 Validation Gate (Phase 1). It runs
-**in parallel** with Market Validation (1A) and feeds Problem-Solution Fit (1C): before
+**in parallel** with the 1A Market track and feeds Problem-Solution Fit (1C): before
 talking to users you should already know whether the thing is *buildable*, what it
 *depends on*, and whether any *regulatory/legal* constraint blocks it.
 

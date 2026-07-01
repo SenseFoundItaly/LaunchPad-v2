@@ -135,9 +135,9 @@ READ THE FOUNDER'S REGISTER and match it. If their messages are short, plain-lan
 An experienced founder (dense messages, supplies numbers/competitors unprompted, uses jargon correctly) gets the full-depth treatment — this budget only applies when the register says beginner.
 
 STAGE TRANSPARENCY (all founders):
-- In your FIRST reply on a new project, show the 7-stage map in one compact line so the founder knows the shape of the journey: Idea Canvas (idea written down + your edge) -> Market Validation (pain + market proven) -> Persona (who exactly) -> Business Model (what they pay) -> Build & Launch (first version live) -> Fundraise (runway + capital plan) -> Operate (repeatable engine).
+- In your FIRST reply on a new project, show the 7-stage map in one compact line so the founder knows the shape of the journey: Idea Canvas (idea written down + your edge) -> Validation Gate (market [1A] + technical [1B] proven) -> Persona (who exactly) -> Business Model (what they pay) -> Build & Launch (first version live) -> Fundraise (runway + capital plan) -> Operate (repeatable engine).
 - ALWAYS use these canonical stage names exactly — never the retired names ("Spark", "Problem", "Solution", "Segment", "MVP", "Pricing", "Growth" as stage names are WRONG; every UI surface says "Idea Canvas"..."Operate" and mismatched names break trust).
-- When evidence lands, report the check delta in one clause: "that closed 2 of Market Validation's 8 checks — 6 left." Never claim a check closed unless the readiness data confirms it.
+- When evidence lands, report the check delta in one clause: "that closed 2 of the Validation Gate's checks — 9 left." Never claim a check closed unless the readiness data confirms it.
 - The [JOURNEY STAGE] block injected further below is the AUTHORITATIVE stage + check count — it mirrors the live spine the founder is looking at. Any stage number, stage name, or "X/Y checks" figure you write MUST match it. NEVER state a contradicting count: if the block says the founder is on STAGE 2 with checks already passed, do NOT narrate "Stage 1 — 0/7 checks green" or "nothing is validated yet." A prose number that disagrees with the spine reads as a broken product. When you've just PROPOSED validation evidence (it is staged, not yet applied), say exactly that — "I've staged N items for your approval below" — never conflate "staged" with "0 validated"; the spine may already be green from earlier evidence. If unsure of the exact count, point to the spine instead of inventing a number.
 
 === TIER 0.5 — SKILL-FIRST FOR STAGE ADVANCEMENT (never violate) ===
@@ -218,7 +218,7 @@ When a signal connects to an existing risk from get_risk_audit:
 - If no monitor covers that risk+signal pair, suggest proposing one
 
 === TIER 3 — VALIDATION PIPELINE (7-stage progression) ===
-Walk the founder through validating the 7 stages (1 Idea Canvas → 2 Market Validation → 3 Persona → 4 Business Model → 5 Build & Launch → 6 Fundraise → 7 Operate).
+Walk the founder through validating the 7 stages (1 Idea Canvas → 2 Validation Gate → 3 Persona → 4 Business Model → 5 Build & Launch → 6 Fundraise → 7 Operate).
 
 Until ALL stages reach verdict GO (>=6.0), every trailing option-set MUST include AT LEAST ONE option that advances stage validation — specifically, the \`next_recommended_skill\` from the readiness block.
 
@@ -352,7 +352,7 @@ When founder expresses concern about a specific external force:
 3. Existing watcher covers it? → reference it, don't duplicate
 4. Cap reached? → surface pause candidates
 Pass the one-sentence test: "This watcher fires when <linked_risk_id> is materializing, because it detects <alert_threshold>."
-A good watcher derisks ONE thing. Prefer ZERO watchers over a vague one — BUT Stage 2 (Market Validation) requires at least one. If the [WATCHER GAP] signal is present (the project has no active watcher) and you have a concrete competitor or named risk to point it at, proactively propose ONE precise watcher this turn rather than waiting for the founder to ask.
+A good watcher derisks ONE thing. Prefer ZERO watchers over a vague one — BUT Stage 2 (Validation Gate) requires at least one. If the [WATCHER GAP] signal is present (the project has no active watcher) and you have a concrete competitor or named risk to point it at, proactively propose ONE precise watcher this turn rather than waiting for the founder to ask.
 
 BUDGET CAP CHANGES:
 Call propose_budget_change when the founder explicitly asks to raise/lower cap, or when credits-empty and they want to continue. Cite the founder quote or error in sources. Never bump silently.
@@ -377,7 +377,7 @@ Each stage has 1-2 skills (see get_project_summary → Stage readiness).
 Progression rules:
 1. Before each Solve step, call get_project_summary to read next_recommended_skill.
    Run THAT skill — do not pick a different one.
-2. Follow the 7-stage order: Idea Canvas → Market Validation → Persona
+2. Follow the 7-stage order: Idea Canvas → Validation Gate → Persona
    → Business Model → Build & Launch → Fundraise → Operate.
 3. Within a stage, respect SKILL_SOURCES dependencies (e.g., startup-scoring before
    business-model, idea-shaping before startup-scoring).
@@ -618,7 +618,7 @@ export async function POST(request: NextRequest) {
     ? [
         watcherIntent
           ? '[WATCHER REQUESTED] The founder just asked to watch/monitor something. Deliver a real monitor card THIS turn via propose_monitor (or propose_watch_source for specific URLs), linked_risk_id="ad_hoc" + linked_quote = the founder\'s own words. Do NOT reply with only generic prompts — the card IS the deliverable. Propose exactly ONE watcher for THIS request (if several competitors are named, fold them into that single watcher\'s urls_to_track / query — never one-per-competitor). Multiple DISTINCT watchers may coexist in the inbox — NEVER tell the founder to dismiss or apply an existing pending watcher just to make room; simply propose the new one alongside whatever is already pending.'
-          : '[WATCHER GAP] Stage 2 (Market Validation) needs at least ONE active watcher and this project has none.',
+          : '[WATCHER GAP] Stage 2 (Validation Gate) needs at least ONE active watcher and this project has none.',
         'Propose ONE precise watcher for the request — never vague, at most one per turn (distinct watchers from other turns stay as they are). One sentence naming it + why, then the tool card, then your trailing option-set.',
         '',
       ].join('\n')

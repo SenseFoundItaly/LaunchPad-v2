@@ -80,7 +80,7 @@ export const STAGES: StageDef[] = [
   },
   {
     number: 2,
-    name: canonicalStageLabel(2), // Market Validation
+    name: canonicalStageLabel(2), // Validation Gate (L2 reshape: 1A Market + 1B Technical)
     color: 'purple',
     skills: [
       { id: 'market-research', label: 'Market Research', route: 'chat?skill=market-research', dataKey: 'research' },

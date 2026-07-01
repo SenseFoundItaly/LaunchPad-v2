@@ -6,7 +6,7 @@ description: Valida la fattibilità tecnica dell'idea — approccio di build, di
 ## Cosa fa questa skill (L2 — Validation Gate · traccia 1B)
 
 È la traccia di **Validazione Tecnica** del Validation Gate L2 (Fase 1). Gira **in parallelo**
-alla Market Validation (1A) e alimenta il Problem-Solution Fit (1C): prima di parlare con gli
+al track 1A Mercato e alimenta il Problem-Solution Fit (1C): prima di parlare con gli
 utenti devi già sapere se la cosa è *costruibile*, da cosa *dipende* e se un vincolo
 *regolatorio/legale* la blocca.
 

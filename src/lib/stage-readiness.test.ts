@@ -37,9 +37,9 @@ describe('formatReadinessForPrompt — spine (completion) vs score (depth) recon
 
   it('preserves the skill verdict for a NOT-spine-done stage (depth signal intact)', () => {
     const out = formatReadinessForPrompt(mkReadiness([
-      mkStage(2, 'Market Validation', 0, 'NOT READY', false),
+      mkStage(2, 'Validation Gate', 0, 'NOT READY', false),
     ]));
-    const line = out.split('\n').find((l) => l.includes('Stage 2 Market Validation'))!;
+    const line = out.split('\n').find((l) => l.includes('Stage 2 Validation Gate'))!;
     expect(line).toContain('NOT READY');
     expect(line).not.toContain('DONE');
   });
