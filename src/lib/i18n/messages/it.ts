@@ -481,6 +481,11 @@ export const it: Partial<Record<MessageKey, string>> = {
   'canvas.ask-copilot-tooltip': 'Chiedi al co-pilot di lavorarci',
   'canvas.view-in-canvas': 'Vedi nel canvas',
   'canvas.view-in-know': 'Vedi nella conoscenza',
+  // Sotto-tracce del Validation Gate L2 (walkthrough §2). Solo lo stage di
+  // validazione tagga i check con una traccia; la spine li raggruppa qui.
+  'canvas.track-1a': '1A · Mercato',
+  'canvas.track-1b': '1B · Tecnica',
+  'canvas.track-1c': '1C · Fit Problema-Soluzione',
   // Knowledge / data-room / caricamento documenti (completamento i18n del WIP).
   'common.all': 'Tutti',
   'common.close': 'Chiudi',
