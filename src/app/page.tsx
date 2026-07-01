@@ -9,7 +9,6 @@ import { TopBar } from '@/components/design/chrome';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import { NODE_COLORS } from '@/types/graph';
 import { watcherWeeklyLabel } from '@/lib/watcher-cost';
-import { KNOWLEDGE_APPLY_CREDITS, HIDE_CREDITS } from '@/lib/credit-costs';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
 import { SUPPORTED_LOCALES, LOCALE_NATIVE_NAME, type Locale } from '@/lib/i18n/locales';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -1176,18 +1175,10 @@ function ExtractedKnowledgeView({
     ? CANVAS_FIELD_LABELS.filter((f) => canvas[f.key]?.trim())
     : [];
 
-  // Three separate cost models — never blended into one number:
-  //   canvas = free · entities = flat KNOWLEDGE_APPLY_CREDITS each · watchers = weekly.
-  // Sourced from the constant (credit-costs.ts is client-safe — no postgres),
-  // so this displayed estimate can never drift from the server's debit.
-  const APPLY_COST = KNOWLEDGE_APPLY_CREDITS;
+  // Applying is free (only a founder chat message costs a credit), so no cost
+  // estimate is computed or shown on the home apply action.
   const applicableIds = entities.map((e) => e.node_id).filter((x): x is string => !!x);
-  const applyCredits = applicableIds.length * APPLY_COST;
   const checkedCount = checkedWatchers.size;
-  // Applying also generates a personalized AI brief (one Sonnet call, metered).
-  // Estimate shown on the button; actual cost is metered server-side.
-  const BRIEF_CREDITS_EST = 3;
-  const upfrontCredits = applyCredits + BRIEF_CREDITS_EST;
 
   function toggleWatcher(i: number) {
     setCheckedWatchers((prev) => {
@@ -1255,7 +1246,7 @@ function ExtractedKnowledgeView({
     : (actionBits.length > 0
         ? t('home.primary-apply', { actions: actionBits.join(' + ') })
         : t('home.primary-start-brief'))
-      + (HIDE_CREDITS ? '' : t('home.primary-credits-suffix', { credits: upfrontCredits }));
+      + t('home.primary-credits-suffix');
 
   const primaryBtnStyle: React.CSSProperties = {
     padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none',
@@ -1342,8 +1333,8 @@ function ExtractedKnowledgeView({
           {applicableIds.length > 0 && (
             <div style={{ fontSize: 11, color: 'var(--ink-5)', marginBottom: 14 }}>
               {applicableIds.length === 1
-                ? t('home.apply-entities-line-one', { count: applicableIds.length, credits: applyCredits })
-                : t('home.apply-entities-line-many', { count: applicableIds.length, credits: applyCredits })}
+                ? t('home.apply-entities-line-one', { count: applicableIds.length })
+                : t('home.apply-entities-line-many', { count: applicableIds.length })}
             </div>
           )}
         </>
@@ -1394,15 +1385,6 @@ function ExtractedKnowledgeView({
           </button>
         )}
       </div>
-      {!HIDE_CREDITS && (
-      <div style={{ fontSize: 10.5, color: 'var(--ink-6)', marginTop: 8, lineHeight: 1.4 }}>
-        {t('home.credits-footnote', {
-          total: upfrontCredits,
-          applyClause: applyCredits > 0 ? t('home.credits-footnote-apply-clause', { credits: applyCredits }) : '',
-          brief: BRIEF_CREDITS_EST,
-        })}
-      </div>
-      )}
     </div>
   );
 }

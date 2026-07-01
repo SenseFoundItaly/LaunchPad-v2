@@ -34,10 +34,9 @@ import {
 } from '@/components/design/primitives';
 import type { PendingAction, PendingActionStatus, PendingActionType } from '@/types';
 import type { Watcher } from '@/lib/watchers';
-import { KNOWLEDGE_APPLY_CREDITS, HIDE_CREDITS } from '@/lib/credit-costs';
 import { laneFor } from '@/lib/action-lanes';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
-import { SkillProposalReview, skillCreditsFromAction } from '@/components/actions/SkillProposalReview';
+import { SkillProposalReview } from '@/components/actions/SkillProposalReview';
 import { PayloadSummary } from '@/components/actions/PayloadSummary';
 import { nodeImportanceKey } from '@/lib/node-importance';
 
@@ -531,15 +530,6 @@ const STATUS_LABEL_KEY: Record<PendingActionStatus, MessageKey> = {
   failed: 'actions.status-failed',
 };
 
-// The flat credit cost shown on the inbox Apply button — sourced from the same
-// constant the server debits with (credit-costs.ts is client-safe), so the
-// label can never drift from the real charge (every apply-to-intelligence item
-// costs the same flat KNOWLEDGE_APPLY_CREDITS to apply).
-const APPLY_CREDITS = KNOWLEDGE_APPLY_CREDITS;
-
-/** Billing-free mode: strip a trailing credit clause (" · N credits" / " (≈N credits)")
- *  from a button label so the chip reads "Apply" / "Run skill" with no price. */
-const stripCreditClause = (s: string): string => (HIDE_CREDITS ? s.replace(/\s*[·(].*$/, '') : s);
 
 // Small type chip on each inbox row — a human label for the kind of
 // intelligence item (Signal / Graph update / Assumption / Brief). Pure
@@ -677,7 +667,7 @@ function InboxRow({
           onClick={(e) => { e.stopPropagation(); onTransition(action.id, 'apply'); }}
           style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--moss)', color: 'var(--paper)', cursor: 'pointer', whiteSpace: 'nowrap' }}
         >
-          {stripCreditClause(t('actions.apply-credits', { credits: APPLY_CREDITS }))}
+          {t('actions.apply-credits')}
         </button>
         <button
           type="button"
@@ -889,7 +879,7 @@ function LaneAwareActions({
   const KNOWLEDGE_MERGE_TYPES = new Set(['proposed_graph_update', 'assumption_review', 'intelligence_brief']);
   const applyLabel =
     action.action_type === 'run_skill'
-      ? stripCreditClause(t('actions.run-skill-credits', { credits: skillCreditsFromAction(action) }))
+      ? t('actions.run-skill-credits')
       : action.action_type === 'signal_alert'
         ? t('actions.accept-into-knowledge')
         : KNOWLEDGE_MERGE_TYPES.has(action.action_type)

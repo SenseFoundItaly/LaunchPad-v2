@@ -1089,7 +1089,7 @@ export default function CopilotChatPage({
             }
           }
           const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-          throw new Error(err.error || `Skill run failed with status ${res.status}`);
+          throw new Error(err.error || `Analysis run failed with status ${res.status}`);
         }
         // Inject the skill output back into the conversation. The skill ran in a
         // SEPARATE request (runSkill) that touched the DB but NOT the `messages`
@@ -2267,21 +2267,8 @@ function InlineOption({
         >
           {labelText}
         </span>
-        {/* Per-option credit estimate — what this choice spends, shown before the
-            click. Suppressed when locked: a skill that can't run spends nothing. */}
-        {!locked && !option.commit && typeof option.credits === 'number' && option.credits > 0 && (
-          <span
-            className="lp-mono"
-            style={{
-              flexShrink: 0,
-              fontSize: 10,
-              color: 'var(--ink-5)',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            ≈{option.credits} {option.credits === 1 ? t('chat.credit') : t('chat.credits')}
-          </span>
-        )}
+        {/* No per-option credit chip: only a founder chat message costs a credit
+            (1/message); running an analysis, applying, and committing are free. */}
       </div>
       {split.description && (
         <div
@@ -2486,7 +2473,6 @@ function SkillSuggestionCard({
   const skillId = typeof a.skill_id === 'string' ? a.skill_id : '';
   const label = typeof a.skill_label === 'string' && a.skill_label ? a.skill_label : (skillId || t('chat.skill-fallback'));
   const rationale = typeof a.rationale === 'string' ? a.rationale : '';
-  const credits = typeof a.credits === 'number' ? a.credits : null;
   const context = typeof a.context === 'string' ? a.context : '';
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [errMsg, setErrMsg] = useState('');
@@ -2508,7 +2494,7 @@ function SkillSuggestionCard({
     state === 'running' ? t('chat.running') :
     state === 'done' ? t('common.done') :
     state === 'error' ? t('common.retry') :
-    credits != null ? t('chat.run-with-credits', { credits }) : t('chat.run');
+    t('chat.run');
 
   // Inline, NOT a separate bordered section: the skill CTA flows within the
   // assistant's message (founder directive 2026-06-11 — "should not render as
@@ -2538,11 +2524,6 @@ function SkillSuggestionCard({
         </button>
         <span style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 500 }}>
           {label}
-          {state === 'idle' && credits != null && (
-            <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--ink-5)', fontWeight: 400 }}>
-              ≈{credits} {t('chat.credits')}
-            </span>
-          )}
         </span>
       </div>
       {state === 'idle' && rationale && (

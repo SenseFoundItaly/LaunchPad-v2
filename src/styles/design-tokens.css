@@ -103,6 +103,12 @@
   --line-2: rgba(242, 238, 228, 0.16);
   --surface: #1A1813;
   --surface-sunk: #0F0E0A;
+  /* Dark-theme accent TEXT/link color. MUST be overridden here: --accent-wash
+     below is a DARK surface in dark mode, so the light-theme dark-peach ink
+     (L .40) rendered dark-on-dark ("red on red" — the Idea Canvas fact pill,
+     .lp-md / .lp-prose links). A light peach restores contrast on both the
+     dark paper and the dark accent-wash. */
+  --accent-ink: oklch(0.82 0.09 55);
   --accent-wash: oklch(0.28 0.06 60);
   --moss-wash: oklch(0.25 0.03 155);
   --sky-wash: oklch(0.25 0.03 235);
