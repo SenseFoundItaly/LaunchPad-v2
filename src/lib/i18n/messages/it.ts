@@ -417,7 +417,6 @@ export const it: Partial<Record<MessageKey, string>> = {
   'chat.run-failed': 'Esecuzione fallita',
   'chat.running': 'In esecuzione…',
   'chat.commit-failed': 'salvataggio non riuscito — tocca per riprovare',
-  'chat.actual-cost-title': 'Crediti effettivi spesi in questo turno (misurati sul consumo reale di token)',
   'chat.run-with-credits': 'Esegui',
   'chat.skill-running-note': 'In esecuzione in tempo reale — al termine registra le prove di validazione.',
   'chat.skill-done-note': 'Analisi eseguita — preparazione e spine aggiornate.',

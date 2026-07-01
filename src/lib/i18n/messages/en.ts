@@ -425,7 +425,6 @@ export const en = {
   'chat.run-failed': 'Run failed',
   'chat.running': 'Running…',
   'chat.commit-failed': "couldn't save — tap to retry",
-  'chat.actual-cost-title': 'Actual credits this turn cost (metered from real token usage)',
   'chat.run-with-credits': 'Run',
   'chat.skill-running-note': 'Running in real time — this writes validation evidence when it finishes.',
   'chat.skill-done-note': 'Analysis ran — readiness and the spine have been updated.',

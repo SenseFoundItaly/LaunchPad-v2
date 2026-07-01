@@ -43,12 +43,12 @@ export const DOCUMENT_AUDIT_CREDITS = 0;
  * scripts/rebase-credit-pool.mjs. Credits are unenforced (CREDITS_HARD_STOP
  * unset), so this is the internal accounting basis, not a founder-facing charge.
  *
- * FOUNDER-FACING SURFACE (2026-07-01): only two credit surfaces remain — the
- * monthly-pool badge (chrome.tsx) and the ACTUAL per-message cost shown under
- * each chat turn. Per-action price quotes (skills, applies, doc audits,
- * watchers) were REMOVED, not hidden, to match the "1 message = 1 credit,
- * everything else free" rule — so the old NEXT_PUBLIC_HIDE_CREDITS flag and its
- * HIDE_CREDITS export are gone (any lingering env var is now inert).
+ * FOUNDER-FACING SURFACE (2026-07-01): the monthly-pool badge (chrome.tsx) is
+ * the ONLY remaining credit surface. Per-action price quotes (skills, applies,
+ * doc audits, watchers) and the per-message actual-cost line were REMOVED, not
+ * hidden, to match the "1 message = 1 credit, everything else free" rule — so
+ * the old NEXT_PUBLIC_HIDE_CREDITS flag and its HIDE_CREDITS export are gone
+ * (any lingering env var is now inert).
  */
 export const USER_MONTHLY_CREDITS = 50;
 export const USER_MONTHLY_LLM_USD = 10.0;
@@ -77,22 +77,3 @@ export function median(nums: number[]): number | null {
   return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
 }
 
-/**
- * A2a (copilot-sota): format the ACTUAL metered credit cost of one chat message
- * for display under the message. The real per-message cost is computed in
- * useChat (from the `done` SSE usage event) and was previously dropped on the
- * floor — showing it is the founder's loudest-pain ("credits feel random") fix:
- * the true number, after the fact, beats a fictional pre-quote.
- *
- * Returns null (render nothing) for: missing cost (historical / in-flight
- * messages), non-finite, or non-positive — never "undefined cr" / "NaN cr" / "0 cr".
- * >=1 credit rounds to an integer; sub-1 shows one decimal (e.g. "0.5 cr").
- */
-export function formatMessageCredits(
-  info: { credits?: number } | null | undefined,
-): string | null {
-  const c = info?.credits;
-  if (typeof c !== 'number' || !Number.isFinite(c) || c <= 0) return null;
-  const n = c >= 1 ? Math.round(c) : Math.round(c * 10) / 10;
-  return `${n} cr`;
-}
