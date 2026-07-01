@@ -10,7 +10,7 @@ Genera una landing page HTML production-ready e autocontenuta usando l'idea vali
 
 ## Quando Usarla
 
-- Dopo aver completato Idea Canvas (stage 1) e almeno Market Validation (stage 2)
+- Dopo aver completato Idea Canvas (stage 1) e almeno il Validation Gate (stage 2)
 - Quando il founder chiede di "costruire una landing page", "creare un sito web", o "fare una homepage"
 - Durante lo stage Build & Launch (stage 5) come deliverable concreto
 - Quando ci si prepara a testare il messaging con utenti reali
