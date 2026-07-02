@@ -103,32 +103,60 @@ async function isCronAlreadyRunning(): Promise<boolean> {
 }
 
 /**
+ * Pulse eligibility floor: a project only receives weekly-pulse work
+ * (heartbeat reflection + correlation brief + Monday Brief email) when a
+ * founder actually touched it recently — at least one chat message in the
+ * last PULSE_ACTIVITY_DAYS. Reflecting on dormant/e2e projects burned the
+ * majority of the pulse LLM budget (62 eligible vs ~8 active, 2026-07 audit)
+ * and was what made Monday ticks exceed the execution budget.
+ *
+ * The predicate is a shared fragment because it MUST stay identical across
+ * countPulsePending (the drain signal), the correlation batch query, and
+ * processHeartbeats — if they diverge, the scheduler loop either spins on
+ * projects that never process or stops while work is still pending.
+ * Each use appends one `?` bind: the ISO cutoff from pulseActivityCutoff().
+ */
+const PULSE_ACTIVITY_DAYS = 14;
+const PULSE_ACTIVITY_PREDICATE = `EXISTS (
+          SELECT 1 FROM chat_messages cm
+           WHERE cm.project_id = p.id AND cm.timestamp >= ?
+        )`;
+function pulseActivityCutoff(): string {
+  return new Date(Date.now() - PULSE_ACTIVITY_DAYS * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/**
  * Count projects with pulse work still pending, used to report pulse_remaining
  * when the pulse phase is deferred (monitor queue not yet drained) so the
  * scheduler loop knows to keep going. Mirrors the eligibility predicates in
  * processHeartbeats (no heartbeat_reflection in 6d) and processCorrelations
- * (no correlation brief in 7d).
+ * (no correlation brief in 7d), both floored on recent founder activity.
  */
 async function countPulsePending(): Promise<number> {
   const sixDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString();
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const activityCutoff = pulseActivityCutoff();
   const hb = await query<{ n: string }>(
     `SELECT count(*) AS n FROM projects p
       WHERE p.owner_user_id IS NOT NULL AND p.status != 'archived'
+        AND ${PULSE_ACTIVITY_PREDICATE}
         AND NOT EXISTS (
           SELECT 1 FROM memory_events e
            WHERE e.user_id = p.owner_user_id AND e.project_id = p.id
              AND e.event_type = 'heartbeat_reflection' AND e.created_at >= ?
         )`,
+    activityCutoff,
     sixDaysAgo,
   );
   const corr = await query<{ n: string }>(
     `SELECT count(*) AS n FROM projects p
       WHERE p.owner_user_id IS NOT NULL AND p.status != 'archived'
+        AND ${PULSE_ACTIVITY_PREDICATE}
         AND NOT EXISTS (
           SELECT 1 FROM intelligence_briefs b
            WHERE b.project_id = p.id AND b.brief_type = 'correlation' AND b.created_at >= ?
         )`,
+    activityCutoff,
     sevenDaysAgo,
   );
   return Number(hb[0]?.n ?? 0) + Number(corr[0]?.n ?? 0);
@@ -678,11 +706,13 @@ export async function GET(request: NextRequest) {
         const eligibleCorr = await query<{ id: string }>(
           `SELECT p.id FROM projects p
             WHERE p.owner_user_id IS NOT NULL AND p.status != 'archived'
+              AND ${PULSE_ACTIVITY_PREDICATE}
               AND NOT EXISTS (
                 SELECT 1 FROM intelligence_briefs b
                  WHERE b.project_id = p.id AND b.brief_type = 'correlation' AND b.created_at >= ?
               )
             ORDER BY p.id`,
+          pulseActivityCutoff(),
           sevenDaysAgo,
         );
         const corrBatch = eligibleCorr.slice(0, PULSE_BATCH);
@@ -767,17 +797,31 @@ export async function GET(request: NextRequest) {
     // since the last tick.
     const dismissedNotifications = await dismissStaleNotifications();
 
+    // Fleet-wide scrape failure is an OUTAGE, not routine noise: when every
+    // watch source processed this tick errored (the 2026-06 Jina-402 mode ran
+    // 3 weeks reporting green), record it on the cron_runs row so cronbeat /
+    // DB dashboards see a degraded run instead of a healthy one. status stays
+    // 'completed' — monitors/pulse may have succeeded — but error_message
+    // carries the outage signature.
+    const watchSourcesFailed = watchSourceResults.filter((r) => r.status === 'error').length;
+    const allScrapesFailed = watchSourceResults.length > 0 && watchSourcesFailed === watchSourceResults.length;
+    const scrapeOutageMsg = allScrapesFailed
+      ? `all ${watchSourcesFailed} watch-source scrapes failed: ${(watchSourceResults[0]?.error || 'unknown').slice(0, 300)}`
+      : null;
+
     // Finalize cron_runs row with stats
     const durationMs = Date.now() - startedAt;
     await run(
       `UPDATE cron_runs
        SET finished_at = ?, status = 'completed', duration_ms = ?,
            monitors_ran = ?, watch_sources_processed = ?,
-           correlations_ran = ?, heartbeats_ran = ?, notifications_dismissed = ?
+           correlations_ran = ?, heartbeats_ran = ?, notifications_dismissed = ?,
+           error_message = ?
        WHERE id = ?`,
       new Date().toISOString(), durationMs,
       monitorResults.length, watchSourceResults.length,
       correlationResults.length, heartbeatResults.length, dismissedNotifications,
+      scrapeOutageMsg,
       cronRunId,
     );
 
@@ -788,6 +832,7 @@ export async function GET(request: NextRequest) {
       monitors_remaining: monitorsRemaining,
       monitor_results: monitorResults,
       watch_sources_processed: watchSourceResults.length,
+      watch_sources_failed: watchSourcesFailed,
       watch_source_results: watchSourceResults,
       correlations_ran: correlationResults.length,
       correlation_results: correlationResults,
@@ -887,12 +932,14 @@ async function processHeartbeats(
      FROM projects p
      WHERE p.owner_user_id IS NOT NULL
        AND p.status != 'archived'
+       AND ${PULSE_ACTIVITY_PREDICATE}
        AND NOT EXISTS (
          SELECT 1 FROM memory_events e
           WHERE e.user_id = p.owner_user_id AND e.project_id = p.id
             AND e.event_type = 'heartbeat_reflection' AND e.created_at >= ?
        )
      ORDER BY p.id`,
+    pulseActivityCutoff(),
     sixDaysAgo,
   );
 
