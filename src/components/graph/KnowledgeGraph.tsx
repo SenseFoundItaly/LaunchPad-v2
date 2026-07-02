@@ -5,7 +5,7 @@ import * as d3 from 'd3';
 import type { GraphNode, GraphEdge, MacroCategory } from '@/types/graph';
 import { NODE_COLORS, MACRO_CATEGORY_ORDER, MACRO_CATEGORY_LABEL, MACRO_CATEGORY_COLOR, macroCategoryFor } from '@/types/graph';
 import NodeDetailPanel, { type NodeNeighbor } from './NodeDetailPanel';
-import { useLocale } from '@/components/providers/LocaleProvider';
+import { useLocale, useT } from '@/components/providers/LocaleProvider';
 
 interface KnowledgeGraphProps {
   nodes: GraphNode[];
@@ -64,6 +64,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
   // Active locale → which macro-category region label to draw (Concorrenza vs
   // Competition). Inside a project this resolves to the project's language.
   const locale = useLocale();
+  const t = useT();
 
   const toggleType = useCallback((type: string) => {
     setHiddenTypes(prev => {
@@ -393,7 +394,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
     // Hover cue — pending nodes invite a review; others show the name.
     node.append('title').text(d =>
       d.rawData.reviewed_state === 'pending'
-        ? 'Pending — click to review'
+        ? t('knowledge.graph-pending-hint')
         : d.name,
     );
 
@@ -444,7 +445,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
     });
 
     return () => { simulation.stop(); };
-  }, [visibleNodes, visibleEdges, onNodeClick, onEdgeClick, searchQuery, locale]);
+  }, [visibleNodes, visibleEdges, onNodeClick, onEdgeClick, searchQuery, locale, t]);
 
   // Import legend here to avoid circular — pass from parent instead
   const GraphLegend = require('./GraphLegend').default;
@@ -504,7 +505,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search nodes..."
+          placeholder={t('knowledge.graph-search')}
           className="px-3 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-xs text-ink-3 placeholder-ink-6 outline-none focus:border-ink-6 w-48"
         />
         <div className="flex-1" />
@@ -512,7 +513,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
           onClick={() => setIsFullscreen(!isFullscreen)}
           className="px-2 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-xs text-ink-4 hover:text-ink-2 transition-colors"
         >
-          {isFullscreen ? 'Exit' : 'Expand'}
+          {isFullscreen ? t('knowledge.graph-exit') : t('knowledge.graph-expand')}
         </button>
         {isFullscreen && (
           <button
@@ -526,7 +527,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
 
       {nodes.length === 0 ? (
         <div className="absolute inset-0 flex items-center justify-center text-ink-5 text-sm">
-          Knowledge graph will populate as you chat
+          {t('knowledge.graph-will-populate')}
         </div>
       ) : (
         <svg ref={svgRef} className="w-full h-full" />

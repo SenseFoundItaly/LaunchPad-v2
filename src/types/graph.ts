@@ -93,6 +93,36 @@ export function macroCategoryFor(type: string): MacroCategory | null {
   return MACRO_CATEGORY[type as GraphNodeType] ?? 'contesto';
 }
 
+/** Bilingual node-type labels for the graph legend (in-project language). */
+export const NODE_TYPE_LABEL: Record<GraphNodeType, { en: string; it: string }> = {
+  your_startup: { en: 'Your startup', it: 'La tua startup' },
+  competitor: { en: 'Competitor', it: 'Concorrente' },
+  company: { en: 'Company', it: 'Azienda' },
+  competitor_set: { en: 'Competitor set', it: 'Set concorrenti' },
+  persona: { en: 'Persona', it: 'Persona' },
+  market_segment: { en: 'Market segment', it: 'Segmento di mercato' },
+  market: { en: 'Market', it: 'Mercato' },
+  partner: { en: 'Partner', it: 'Partner' },
+  funding_source: { en: 'Investor', it: 'Investitore' },
+  technology: { en: 'Technology', it: 'Tecnologia' },
+  trend: { en: 'Trend', it: 'Trend' },
+  risk: { en: 'Risk', it: 'Rischio' },
+  compliance: { en: 'Compliance', it: 'Compliance' },
+  regulation: { en: 'Regulation', it: 'Normativa' },
+  feature: { en: 'Feature', it: 'Funzionalità' },
+  metric: { en: 'Metric', it: 'Metrica' },
+  metrics: { en: 'Metrics', it: 'Metriche' },
+  benchmark: { en: 'Benchmark', it: 'Benchmark' },
+  comparison: { en: 'Comparison', it: 'Confronto' },
+  research_metric: { en: 'Research metric', it: 'Metrica di ricerca' },
+};
+
+export function nodeTypeLabel(type: string, locale: string): string {
+  const entry = NODE_TYPE_LABEL[type as GraphNodeType];
+  if (entry) return locale === 'it' ? entry.it : entry.en;
+  return type.replace(/_/g, ' ');
+}
+
 /**
  * Derived-analysis node types minted as a side effect of chat artifacts
  * (metric-grid → metrics/benchmark/research_metric; comparison-table →
