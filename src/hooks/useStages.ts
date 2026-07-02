@@ -28,7 +28,13 @@ export interface StageEvaluation {
 
 export function useStages(projectId: string) {
   return useQuery<StageEvaluation[]>({
-    queryKey: ['stages', projectId],
+    // 'list' suffix: this hook caches the SORTED EVALUATIONS ARRAY, while
+    // StageCard/ScorePanel cache the raw payload OBJECT under
+    // ['stages', projectId]. Sharing one key across two shapes poisons the
+    // cache by mount order (data.evaluations.find crashed on the array).
+    // The lp-actions-changed bridge invalidates by ['stages'] prefix, so both
+    // keys still refresh together.
+    queryKey: ['stages', projectId, 'list'],
     enabled: !!projectId,
     queryFn: async () => {
       const res = await fetch(`/api/projects/${projectId}/stages`);
