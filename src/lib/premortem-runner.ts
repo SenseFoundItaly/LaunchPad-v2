@@ -139,7 +139,7 @@ export async function runPremortemPass<TOutput>(
     timeout: config.timeoutMs ?? 90_000,
     maxToolCalls: 0,
   });
-  recordAgentUsage({
+  await recordAgentUsage({
     project_id: projectId,
     step: `premortem-${config.agentType}`,
     task: config.task,

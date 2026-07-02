@@ -26,8 +26,14 @@ export interface CanonicalStage {
 }
 
 export const CANONICAL_STAGES: CanonicalStage[] = [
-  { id: 'idea_validation', number: 1, label: 'Idea Validation' },
-  { id: 'market_validation', number: 2, label: 'Market Validation' },
+  // L2 reshape (Fase 0): "Idea Validation" → "Idea Canvas" — the Lean Canvas
+  // "contract" + initial score (walkthrough §3, Phase 0). Id kept to avoid a
+  // cross-codebase rename; only the founder-facing label changes.
+  { id: 'idea_validation', number: 1, label: 'Idea Canvas' },
+  // L2 reshape (walkthrough §Phase 1): "Market Validation" → "Validation Gate" —
+  // the gate holds the 1A Market + 1B Technical tracks (see stage-2 checks). Id
+  // kept ('market_validation'); only the founder-facing label changes.
+  { id: 'market_validation', number: 2, label: 'Validation Gate' },
   { id: 'persona', number: 3, label: 'Persona' },
   { id: 'business_model', number: 4, label: 'Business Model' },
   { id: 'build_launch', number: 5, label: 'Build & Launch' },

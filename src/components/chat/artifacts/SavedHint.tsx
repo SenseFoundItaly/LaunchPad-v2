@@ -31,11 +31,6 @@
 import { useState } from 'react';
 import type { ReviewedState } from '@/types/artifacts';
 import { usePersistedArtifact } from '@/hooks/usePersistedArtifact';
-import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
-
-// Sourced from the constant (credit-costs.ts is client-safe) so the button label
-// can never drift from the amount the server actually debits on apply.
-const APPLY_CREDITS = KNOWLEDGE_APPLY_CREDITS;
 
 type KnowledgeType = 'fact' | 'graph_node' | 'tabular_review';
 
@@ -116,7 +111,7 @@ export default function KnowledgeApplyControls({
           whiteSpace: 'nowrap',
         }}
       >
-        {busy ? 'Applying…' : `Apply · ${APPLY_CREDITS} credits`}
+        {busy ? 'Applying…' : 'Apply'}
       </button>
       <button
         type="button"

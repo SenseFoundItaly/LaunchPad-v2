@@ -457,12 +457,14 @@ async function classifyChange(
     systemPrompt,
     timeout: 30_000,
     task: 'signal-classify',
+    // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
+    projectId: ws.project_id,
   });
   const latencyMs = Date.now() - startedAt;
 
   // Record cost
   const { provider, model } = pickModel('signal-classify');
-  recordUsage({
+  await recordUsage({
     project_id: ws.project_id,
     skill_id: 'signals',
     step: 'signal_classify',

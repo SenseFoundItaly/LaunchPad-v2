@@ -4,7 +4,6 @@ import { useState } from 'react';
 import type { OptionSet } from '@/types/artifacts';
 import { splitOptionLabel } from '@/components/chat/option-label';
 import { useT } from '@/components/providers/LocaleProvider';
-import { HIDE_CREDITS } from '@/lib/credit-costs';
 
 interface OptionSetCardProps {
   artifact: OptionSet;
@@ -101,12 +100,8 @@ function OptionButton({
         <span className="block text-sm font-medium text-ink-2 truncate flex-1 min-w-0">
           {split.label}{labelSuffix}
         </span>
-        {/* Per-option credit estimate — what this choice spends, shown before the click. */}
-        {!HIDE_CREDITS && typeof option.credits === 'number' && option.credits > 0 && (
-          <span className="lp-mono shrink-0 text-[10px] text-ink-5 whitespace-nowrap">
-            ≈{option.credits} {option.credits === 1 ? t('chat.credit') : t('chat.credits')}
-          </span>
-        )}
+        {/* No per-option credit chip: only a founder chat message costs a credit
+            (1/message); skills, applies and commits are free. */}
       </span>
       {split.description && (
         <span className="block text-xs text-ink-4 mt-1 line-clamp-2">{split.description}</span>

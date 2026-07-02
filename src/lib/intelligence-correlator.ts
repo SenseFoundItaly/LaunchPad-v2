@@ -144,12 +144,14 @@ export async function processCorrelations(
       systemPrompt: CORRELATOR_SYSTEM_PROMPT,
       timeout: 120_000,
       task: 'signal-correlate',
+      // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
+      projectId,
     });
     const latencyMs = Date.now() - startedAt;
 
     // Record cost
     const { provider, model } = pickModel('signal-correlate');
-    recordUsage({
+    await recordUsage({
       project_id: projectId,
       skill_id: 'intelligence',
       step: 'signal_correlate',

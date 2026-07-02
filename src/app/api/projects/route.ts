@@ -4,6 +4,7 @@ import { query, run } from '@/lib/db';
 import { json, error, mapProject } from '@/lib/api-helpers';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { ensureStartupRootNode } from '@/lib/knowledge/root-node';
+import { seedIdeaCanvasFromDescription } from '@/lib/idea-canvas-seed';
 import { isLocale } from '@/lib/i18n/locales';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 
@@ -85,6 +86,20 @@ export async function POST(request: NextRequest) {
   // the co-pilot proposes them at Stage 2 (chat/route.ts) — onboarding teaches
   // how. `seedEcosystemMonitorsForProject` stays available for an explicit
   // "add recommended watchers" gesture if we reintroduce one.
+
+  // Seed a PENDING Idea Canvas proposal from the founder's description so Stage 0
+  // has a one-click "approve your canvas" card waiting — WITHOUT depending on the
+  // chat agent to emit the canvas on turn 1 (unreliable: Italian founder sim
+  // 2026-06-30 left the canvas null after turn 1). Gate-respecting (proposes
+  // only) + never throws (mirrors ensureStartupRootNode), so it cannot break
+  // creation. Awaited (not fire-and-forget) because serverless may kill detached
+  // work after the response; a one-shot Sonnet extraction is ~1-2s.
+  await seedIdeaCanvasFromDescription({
+    projectId: id,
+    name: body.name,
+    description: body.description || '',
+    locale,
+  }).catch(() => {});
 
   const row = await query('SELECT * FROM projects WHERE id = ?', id);
   return json(mapProject(row[0]), 201);

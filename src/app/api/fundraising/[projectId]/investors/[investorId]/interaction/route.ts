@@ -14,7 +14,8 @@ export async function POST(
 
   if (!body?.type) {return error('type is required');}
 
-  const invRows = await query('SELECT id FROM investors WHERE id = ?', investorId);
+  // SECURITY: scope the investor to the URL project (cross-project IDOR).
+  const invRows = await query('SELECT id FROM investors WHERE id = ? AND project_id = ?', investorId, projectId);
   if (invRows.length === 0) {return error('Investor not found', 404);}
 
   const id = generateId('int');

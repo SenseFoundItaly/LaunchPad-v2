@@ -13,7 +13,28 @@ import api from '@/api';
 import { SUPPORTED_LOCALES, type Locale } from '@/lib/i18n/locales';
 import { useLocale } from '@/components/providers/LocaleProvider';
 
-export function LanguageSwitch() {
+// Inside a project the language is frozen at creation (projects.locale takes
+// precedence over users.locale), so it's displayed read-only — no dropdown.
+function LanguageDisplay() {
+  const current = useLocale();
+  return (
+    <span
+      aria-label="Language"
+      title="Language"
+      style={{
+        display: 'inline-flex', alignItems: 'center',
+        padding: '3px 8px', borderRadius: 6,
+        border: '1px solid var(--line-2)', background: 'var(--surface)',
+        color: 'var(--ink-3)', fontSize: 12, fontWeight: 600,
+        textTransform: 'uppercase', letterSpacing: '.04em',
+      }}
+    >
+      {current}
+    </span>
+  );
+}
+
+export function LanguageSwitch({ readOnly = false }: { readOnly?: boolean }) {
   const current = useLocale();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -39,6 +60,8 @@ export function LanguageSwitch() {
       setOpen(false);
     }
   }
+
+  if (readOnly) return <LanguageDisplay />;
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>

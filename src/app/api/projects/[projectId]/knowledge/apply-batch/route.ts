@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { get, run } from '@/lib/db';
-import { requireUser, AuthError } from '@/lib/auth/require-user';
+import { AuthError } from '@/lib/auth/require-user';
+import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import { recordEvent } from '@/lib/memory/events';
 
@@ -24,15 +25,15 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  const { projectId } = await params;
+  // SECURITY: gate on project access before applying nodes + debiting credits.
   let userId: string;
   try {
-    ({ userId } = await requireUser());
+    ({ userId } = await requireProjectAccess(projectId));
   } catch (e) {
     if (e instanceof AuthError) return error(e.message, e.status);
     throw e;
   }
-
-  const { projectId } = await params;
 
   let body: { item_ids?: unknown; skip_charge?: unknown };
   try {

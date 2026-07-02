@@ -14,16 +14,18 @@ export async function PUT(
 
   if (!body?.stage) {return error('stage is required');}
 
-  const rows = await query('SELECT id FROM investors WHERE id = ?', investorId);
+  // SECURITY: scope the investor to the URL project (cross-project IDOR).
+  const rows = await query('SELECT id FROM investors WHERE id = ? AND project_id = ?', investorId, projectId);
   if (rows.length === 0) {return error('Investor not found', 404);}
 
   await run(
-    'UPDATE investors SET stage = ?, updated_at = ? WHERE id = ?',
+    'UPDATE investors SET stage = ?, updated_at = ? WHERE id = ? AND project_id = ?',
     body.stage,
     new Date().toISOString(),
     investorId,
+    projectId,
   );
 
-  const [investor] = await query('SELECT * FROM investors WHERE id = ?', investorId);
+  const [investor] = await query('SELECT * FROM investors WHERE id = ? AND project_id = ?', investorId, projectId);
   return json(investor);
 }

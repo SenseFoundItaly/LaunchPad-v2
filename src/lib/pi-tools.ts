@@ -2,6 +2,7 @@ import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import type { Source } from '@/types/artifacts';
 import { wrapUntrusted } from '@/lib/untrusted-content';
+import { recordToolSpend, type ToolSpendCtx, type ToolKind } from '@/lib/tool-spend';
 
 /**
  * Web search + URL read tools.
@@ -632,7 +633,35 @@ const calculatorTool: AgentTool = {
   },
 };
 
-/** Get all available tools */
-export function getTools(): AgentTool[] {
-  return [webSearchTool, urlFetchTool, calculatorTool];
+/**
+ * Wrap a search/read tool so each billable provider call (Exa, or keyed Jina)
+ * is metered to llm_usage_logs + Langfuse. Reads details.source from the result
+ * to know which provider actually served it (free DDG/raw-fetch fallbacks and
+ * keyless Jina are no-ops). Fire-and-forget so metering never adds latency to
+ * the agent's tool call. Identity-preserving otherwise (name/label/params/desc).
+ */
+function meterTool(tool: AgentTool, ctx: ToolSpendCtx, kind: ToolKind): AgentTool {
+  return {
+    ...tool,
+    async execute(id, params) {
+      const out = await tool.execute(id, params);
+      const source = (out?.details as { source?: string } | undefined)?.source;
+      void recordToolSpend(ctx, kind, source);
+      return out;
+    },
+  };
+}
+
+/**
+ * Get all available tools. Pass a ToolSpendCtx (projectId + step) to enable
+ * cost metering of the paid web_search / read_url providers; without a
+ * projectId the tools are returned unwrapped (no attribution → no metering).
+ */
+export function getTools(ctx?: ToolSpendCtx): AgentTool[] {
+  if (!ctx?.projectId) return [webSearchTool, urlFetchTool, calculatorTool];
+  return [
+    meterTool(webSearchTool, ctx, 'web_search'),
+    meterTool(urlFetchTool, ctx, 'read_url'),
+    calculatorTool,
+  ];
 }

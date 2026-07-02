@@ -357,7 +357,7 @@ async function handleExpand(
 
   // Cost meter — log against the actual provider/model from the router.
   const { provider, model } = pickModel('task-expand');
-  recordUsage({
+  await recordUsage({
     project_id: projectId,
     step: 'task-expand',
     provider,

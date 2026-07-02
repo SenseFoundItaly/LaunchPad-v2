@@ -148,8 +148,36 @@ export function countMemoryFactsMatching(
   snapshot: ProjectSnapshot,
   keywords: string[],
 ): number {
-  const re = new RegExp(keywords.join('|'), 'i');
+  const re = keywordMatcher(keywords);
   return snapshot.memory_facts.filter(
     (f) => f.source_type !== 'file' && f.kind !== 'file_upload' && f.source_type !== 'monitor' && re.test(f.content),
   ).length;
+}
+
+/**
+ * Build a case-insensitive matcher for a keyword list that matches each keyword
+ * as a WHOLE WORD/PHRASE, not a bare substring. A bare `keywords.join('|')`
+ * substring-matched short acronyms (TAM/SAM/SOM/ICP/GDPR) INSIDE unrelated words
+ * — e.g. Italian "trat·TAM·ento" or English "SOMe" — silently gating/greening a
+ * check by accident. This bilingual footgun only surfaces with real non-English
+ * founder text (the English unit tests never tripped it).
+ *
+ * Boundaries are length-tuned so the permissive plural/suffix matching the checks
+ * rely on still works:
+ *   - short tokens (≤4 non-space chars = acronyms): `\bKW\b` — exact word only
+ *     (kills "tam"∈"trattamento", "som"∈"some"; acronyms are never pluralised).
+ *   - longer tokens:                                `\bKW`  — leading boundary,
+ *     open end, so "channel"→"channels", "persona"→"personas", "trial"→"trials".
+ * Multi-word phrases ("market size", "data protection") match verbatim after a
+ * leading boundary. This is the SINGLE source of keyword-matching truth — the
+ * save_memory_fact spine-moving gate imports it so the gate and the Stage-2
+ * `market_size` check stay a true mirror, not a divergent copy.
+ */
+export function keywordMatcher(keywords: string[]): RegExp {
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts = keywords.map((kw) => {
+    const trailing = kw.replace(/\s/g, '').length <= 4 ? '\\b' : '';
+    return `\\b${esc(kw)}${trailing}`;
+  });
+  return new RegExp(parts.join('|'), 'i');
 }

@@ -14,7 +14,7 @@ import { useQuery } from '@tanstack/react-query';
  */
 
 export interface StageCheckRow {
-  check: { id: string; label: string; source?: string };
+  check: { id: string; label: string; source?: string; track?: '1A' | '1B' | '1C' };
   result: { passed: boolean; evidence?: string; gap?: string; proof?: string };
 }
 

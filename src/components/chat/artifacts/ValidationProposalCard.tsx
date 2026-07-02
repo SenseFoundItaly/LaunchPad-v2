@@ -23,7 +23,6 @@
 import { useState } from 'react';
 import type { ValidationProposalArtifact, ValidationProposalItem } from '@/types/artifacts';
 import ArtifactCardShell from './ArtifactCardShell';
-import { HIDE_CREDITS } from '@/lib/credit-costs';
 
 interface ValidationProposalCardProps {
   artifact: ValidationProposalArtifact;
@@ -58,7 +57,6 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
   }
 
   const kept = survivingItems();
-  const combinedCredits = kept.reduce((s, it) => s + (it.credits || 0), 0);
 
   async function handleApply() {
     if (kept.length === 0) return;
@@ -97,9 +95,6 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
           <span className="text-moss font-mono">{'✓'}</span>
           <span className="text-ink-3">Validated onto your spine:</span>
           <span className="text-ink font-medium">{n === 1 ? '1 item' : `${n} items`}</span>
-          {!HIDE_CREDITS && combinedCredits > 0 && (
-            <span className="text-ink-5 text-xs ml-auto">{combinedCredits} credits</span>
-          )}
         </div>
       </div>
     );
@@ -162,9 +157,6 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
                     <span className="text-xs font-medium text-ink">{it.label}</span>
                     {it.validates && (
                       <span className="text-[10px] text-moss/90">validates {it.validates}</span>
-                    )}
-                    {!HIDE_CREDITS && it.credits > 0 && (
-                      <span className="text-[10px] text-ink-5 ml-auto">{it.credits} cr</span>
                     )}
                   </div>
 
@@ -245,10 +237,9 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
             ? 'Applying…'
             : kept.length === 0
               ? 'Nothing selected'
-              // Always state the cost on the button so every card is consistent —
-              // "· 6 cr" on paid batches, "· free" on the founder's own ideas
-              // (never a bare "Apply 3 items" that hides whether it costs credits).
-              : `Apply ${kept.length === 1 ? '1 item' : `${kept.length} items`}${HIDE_CREDITS ? '' : ` · ${combinedCredits > 0 ? `${combinedCredits} cr` : 'free'}`}`}
+              // Applying validation evidence is free (only a chat message costs a
+              // credit), so the button states just the item count.
+              : `Apply ${kept.length === 1 ? '1 item' : `${kept.length} items`}`}
         </button>
         <button
           type="button"
@@ -258,9 +249,6 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
         >
           Skip
         </button>
-        {combinedCredits === 0 && kept.length > 0 && (
-          <span className="text-[10px] text-ink-5 ml-auto">free — your own idea</span>
-        )}
       </div>
 
       {state === 'error' && serverError && (

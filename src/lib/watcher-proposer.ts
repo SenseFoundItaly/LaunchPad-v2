@@ -214,6 +214,8 @@ export async function proposeWatchers(ctx: ProjectContextForProposer): Promise<P
       systemPrompt,
       timeout: 60000,
       task: 'monitor-agent',
+      // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
+      projectId: ctx.projectId,
     });
     raw = result.text;
     usage = result.usage;
@@ -224,7 +226,7 @@ export async function proposeWatchers(ctx: ProjectContextForProposer): Promise<P
 
   const latency = Date.now() - startedAt;
   const { provider, model } = pickModel('monitor-agent');
-  recordUsage({
+  await recordUsage({
     project_id: ctx.projectId,
     step: 'watcher_proposer',
     provider,

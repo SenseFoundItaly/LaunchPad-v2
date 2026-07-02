@@ -195,6 +195,14 @@ export interface RunAgentOptions {
   /** Additional tools to merge in, e.g. project-scoped tools from makeProjectTools(projectId). */
   extraTools?: AgentTool[];
   /**
+   * Project this run belongs to. When set, the base web_search / read_url tools
+   * meter their paid Exa/Jina calls to that project (llm_usage_logs + Langfuse).
+   * Omitted ⇒ tool spend is not attributed (metering skipped, no breakage).
+   */
+  projectId?: string;
+  /** Audit step label used for tool-spend metering (e.g. 'chat', 'cron.competitors'). */
+  step?: string;
+  /**
    * Task-complexity label. When set, the router selects the model tier
    * (cheap/balanced/premium) based on this task rather than reading
    * PI_PROVIDER + PI_MODEL globals. See src/lib/llm/router.ts.
@@ -351,7 +359,9 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
   }
   // Compose tool set: base generic tools (web_search, read_url, calculate)
   // plus any project-scoped tools from makeProjectTools(projectId).
-  const baseTools = options.tools !== false ? getTools() : [];
+  const baseTools = options.tools !== false
+    ? getTools({ projectId: options.projectId, step: options.step ?? options.task })
+    : [];
   const extraTools = options.extraTools || [];
   if (baseTools.length > 0 || extraTools.length > 0) {
     agent.state.tools = [...baseTools, ...extraTools];
@@ -438,7 +448,9 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
       if (options.systemPrompt) {
         agent.state.systemPrompt = options.systemPrompt;
       }
-      const baseToolsS = options.tools !== false ? getTools() : [];
+      const baseToolsS = options.tools !== false
+        ? getTools({ projectId: options.projectId, step: options.step ?? options.task })
+        : [];
       const extraToolsS = options.extraTools || [];
       if (baseToolsS.length > 0 || extraToolsS.length > 0) {
         agent.state.tools = [...baseToolsS, ...extraToolsS];

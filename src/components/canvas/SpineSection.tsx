@@ -24,7 +24,7 @@ import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
 
 interface CheckRow {
-  check: { id: string; label: string; source?: string };
+  check: { id: string; label: string; source?: string; track?: '1A' | '1B' | '1C' };
   result: { passed: boolean; evidence?: string; gap?: string; proof?: string };
 }
 
@@ -80,6 +80,17 @@ const STATE: Record<StageEval['status'], { color: string; labelKey: MessageKey }
   active: { color: 'var(--accent)', labelKey: 'canvas.state-in-progress' },
   pending: { color: 'var(--ink-5)', labelKey: 'canvas.state-not-started' },
 };
+
+// L2 Validation-Gate sub-tracks (walkthrough §2). Untracked checks render first;
+// tracked checks group under these headers (mirrors the Home StageCard). Only the
+// Validation Gate stage tags checks today (1A Market + 1B Technical); empty groups
+// (e.g. 1C until PSF is built) are skipped.
+const TRACK_LABEL: Record<'1A' | '1B' | '1C', MessageKey> = {
+  '1A': 'canvas.track-1a',
+  '1B': 'canvas.track-1b',
+  '1C': 'canvas.track-1c',
+};
+const TRACK_ORDER: Array<'1A' | '1B' | '1C'> = ['1A', '1B', '1C'];
 
 export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
   const t = useT();
@@ -206,12 +217,12 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
               {openEval.stage.tagline}
             </div>
           )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-            {openEval.results.map((r, i) => {
+          {(() => {
+            const renderRow = (r: CheckRow) => {
               const ok = r.result.passed;
               const isGap = !ok;
               const detail = ok ? r.result.evidence : r.result.gap;
-              const rowId = r.check.id || String(i);
+              const rowId = r.check.id;
               const hasProof = ok && !!r.result.proof;
               const proofOpen = openProof === rowId;
               const jt = hasProof ? jumpTarget(r.check.source) : null;
@@ -220,7 +231,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
               const canPrefill = isGap && !!onPickPrompt;
               const clickable = canPrefill || hasProof;
               const onRowClick = canPrefill
-                ? () => onPickPrompt?.(checkActionPrompt(r.check.label))
+                ? () => onPickPrompt?.(checkActionPrompt(r.check.label, t))
                 : hasProof
                   ? () => setOpenProof(proofOpen ? null : rowId)
                   : undefined;
@@ -293,13 +304,38 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                   )}
                 </div>
               );
-            })}
-            {openEval.results.length === 0 && (
-              <div style={{ fontSize: 11.5, color: 'var(--ink-5)', fontStyle: 'italic' }}>
-                {t('canvas.no-substeps')}
+            };
+            // Untracked checks first (every non-validation stage), then the
+            // Validation Gate's 1A/1B/1C tracks under sub-headers — mirrors the
+            // Home StageCard so the two surfaces read identically.
+            const untracked = openEval.results.filter((r) => !r.check.track);
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {untracked.map(renderRow)}
+                {TRACK_ORDER.map((tk) => {
+                  const rows = openEval.results.filter((r) => r.check.track === tk);
+                  if (rows.length === 0) return null;
+                  const done = rows.filter((r) => r.result.passed).length;
+                  return (
+                    <div key={tk} style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 3, paddingTop: 6, borderTop: '1px solid var(--line)' }}>
+                        <span className="lp-mono" style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.5, color: 'var(--ink-5)', textTransform: 'uppercase' }}>
+                          {t(TRACK_LABEL[tk])}
+                        </span>
+                        <span className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-5)' }}>{done}/{rows.length}</span>
+                      </div>
+                      {rows.map(renderRow)}
+                    </div>
+                  );
+                })}
+                {openEval.results.length === 0 && (
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-5)', fontStyle: 'italic' }}>
+                    {t('canvas.no-substeps')}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
         </div>
       )}
     </div>
