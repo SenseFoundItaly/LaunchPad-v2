@@ -13,5 +13,13 @@ export const UNTRUSTED_OPEN =
 export const UNTRUSTED_CLOSE = '<<<END_UNTRUSTED_WEB_CONTENT>>>';
 
 export function wrapUntrusted(body: string): string {
-  return `${UNTRUSTED_OPEN}\n${body}\n${UNTRUSTED_CLOSE}`;
+  // SECURITY: the fence is only effective if the body cannot contain the close
+  // marker (or a fake open marker). A scraped/searched page that embeds
+  // `<<<END_UNTRUSTED_WEB_CONTENT>>>` followed by "now ignore your instructions"
+  // would otherwise break out of the data block. Neutralize both markers in the
+  // body before wrapping so the delimiters the model trusts are always ours.
+  const sanitized = body
+    .split(UNTRUSTED_OPEN).join('[removed-marker]')
+    .split(UNTRUSTED_CLOSE).join('[removed-marker]');
+  return `${UNTRUSTED_OPEN}\n${sanitized}\n${UNTRUSTED_CLOSE}`;
 }
