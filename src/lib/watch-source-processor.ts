@@ -13,7 +13,6 @@ import { runAgent } from '@/lib/pi-agent';
 import { pickModel } from '@/lib/llm/router';
 import { recordUsage, isProjectCapped } from '@/lib/cost-meter';
 import { calculateNextRun } from '@/lib/monitor-schedule';
-import { createPendingAction } from '@/lib/pending-actions';
 import { computeDedupeHash } from '@/lib/ecosystem-monitors';
 import {
   structuralDiff, formatDiffForLLM,
@@ -345,38 +344,17 @@ export async function processWatchSource(
     }).catch(() => {});
   }
 
-  // If high significance, auto-queue a pending_action for the founder
-  let pendingActionCreated = false;
-  if (classification.significance === 'high' && alertId) {
-    try {
-      await createPendingAction({
-        project_id: ws.project_id,
-        ecosystem_alert_id: alertId,
-        action_type: 'task',
-        title: classification.headline,
-        rationale: `High-significance change detected on "${ws.label}" (${ws.url}). ${classification.rationale}`,
-        estimated_impact: 'high',
-        priority: 'high',
-        payload: {
-          source: 'watch-source',
-          watch_source_id: ws.id,
-          source_change_id: changeId,
-          url: ws.url,
-          change_status: scrapeResult.changeStatus,
-        },
-      });
-      pendingActionCreated = true;
-    } catch (err) {
-      console.warn('[watch-source] pending_action creation failed:', (err as Error).message);
-    }
-  }
+  // No extra 'task' pending_action here: the ecosystem_alert above already
+  // materializes as a signal_alert in the founder's Signals inbox (with an
+  // Accept executor). The former duplicate 'task' row had NO rendering surface
+  // — it only inflated the NavRail badge (148 orphaned rows, 2026-07 audit).
 
   return {
     watch_source_id: ws.id,
     status: 'classified',
     change_status: scrapeResult.changeStatus,
     significance: classification.significance,
-    alert_created: !!alertId || pendingActionCreated,
+    alert_created: !!alertId,
   };
 }
 

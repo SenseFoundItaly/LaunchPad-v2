@@ -34,7 +34,7 @@ import {
 } from '@/components/design/primitives';
 import type { PendingAction, PendingActionStatus, PendingActionType } from '@/types';
 import type { Watcher } from '@/lib/watchers';
-import { laneFor } from '@/lib/action-lanes';
+import { laneFor, APPLY_TO_INTELLIGENCE_TYPES } from '@/lib/action-lanes';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { SkillProposalReview } from '@/components/actions/SkillProposalReview';
 import { PayloadSummary } from '@/components/actions/PayloadSummary';
@@ -72,12 +72,11 @@ const TAB_ORDER: DisplayTab[] = ['inbox', 'monitor'];
 // the Inbox tab. signal_alert = watcher findings; the rest are knowledge
 // proposals the founder applies to project intelligence. Anything not here is
 // hidden from this surface (but still lives in pending_actions + its executor).
-const APPLY_TO_INTELLIGENCE: ReadonlySet<PendingActionType> = new Set<PendingActionType>([
-  'signal_alert',
-  'proposed_graph_update',
-  'assumption_review',
-  'intelligence_brief',
-]);
+// The list itself lives in action-lanes.ts so the server-side badge count
+// (inboxSummary → NavRail) filters on the SAME types and can never drift from
+// what this page renders.
+const APPLY_TO_INTELLIGENCE: ReadonlySet<PendingActionType> =
+  new Set<PendingActionType>(APPLY_TO_INTELLIGENCE_TYPES);
 
 // ?lane= deep-link values. Old links carried lane names (todo / approval /
 // notification / signal / monitor); all of those now collapse to the Inbox
