@@ -530,6 +530,9 @@ async function persistMetricGrid(ctx: PersistContext, a: MetricGrid): Promise<Pe
 
   // Themed routing — only when the title clearly signals market sizing data
   // (research.market_size is the TAM/SAM/SOM column).
+  // Bind the RAW object, not JSON.stringify(...) — market_size is JSONB and
+  // postgres.js single-encodes bound objects; a pre-stringified bind lands as
+  // a jsonb string scalar (the double-encode class, #142).
   if (isMarket) {
     const existing = await get<{ project_id: string }>(
       'SELECT project_id FROM research WHERE project_id = ?',
@@ -538,7 +541,7 @@ async function persistMetricGrid(ctx: PersistContext, a: MetricGrid): Promise<Pe
     if (existing) {
       await run(
         'UPDATE research SET market_size = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
-        JSON.stringify({ ...marketData, _title: a.title }),
+        { ...marketData, _title: a.title },
         srcJson,
         ctx.projectId,
       );
@@ -546,7 +549,7 @@ async function persistMetricGrid(ctx: PersistContext, a: MetricGrid): Promise<Pe
       await run(
         'INSERT INTO research (project_id, market_size, sources) VALUES (?, ?, ?)',
         ctx.projectId,
-        JSON.stringify({ ...marketData, _title: a.title }),
+        { ...marketData, _title: a.title },
         srcJson,
       );
     }
@@ -602,10 +605,14 @@ async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): 
       'SELECT project_id FROM research WHERE project_id = ?',
       ctx.projectId,
     );
+    // Bind the RAW array, not JSON.stringify(...) — competitors is JSONB and
+    // postgres.js single-encodes bound values; a pre-stringified bind lands as
+    // a jsonb string scalar (the double-encode class, #142), which
+    // loadMonitorContext's `parsed.map(c => c.name)` reader silently empties.
     if (existing) {
       await run(
         'UPDATE research SET competitors = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
-        JSON.stringify(rowData),
+        rowData,
         srcJson,
         ctx.projectId,
       );
@@ -613,7 +620,7 @@ async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): 
       await run(
         'INSERT INTO research (project_id, competitors, sources) VALUES (?, ?, ?)',
         ctx.projectId,
-        JSON.stringify(rowData),
+        rowData,
         srcJson,
       );
     }
