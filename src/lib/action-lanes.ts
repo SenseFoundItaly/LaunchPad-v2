@@ -75,26 +75,32 @@ export function laneFor(type: PendingActionType): ActionLane {
   return ACTION_LANE[type] ?? 'approval';
 }
 
+/**
+ * The "Intel" inbox surface (alpha). From the 2026-06 weekly sync the founder
+ * found Intel cluttered and asked to reduce it to a simple "repository of what
+ * the watchers extract". So the Intel inbox (and its Today preview) shows
+ * WATCHER OUTPUT only: signal_alert (watcher findings) + intelligence_brief
+ * (watcher-synthesized briefs). The knowledge proposals that caused the overlap
+ * (assumption_review, proposed_graph_update) are routed OUT of this surface for
+ * the alpha — their executors still run and they remain in pending_actions.
+ * Single source of truth for both /actions and the Today Intel panel. Widen
+ * this set to restore the full intelligence inbox.
+ */
+export const INTEL_INBOX_TYPES: ReadonlySet<PendingActionType> = new Set<PendingActionType>([
+  'signal_alert',
+  'intelligence_brief',
+]);
+
+export function isIntelInboxType(type: PendingActionType): boolean {
+  return INTEL_INBOX_TYPES.has(type);
+}
+
 /** All action_types belonging to a lane — useful for SQL IN (...) filters. */
 export function typesForLane(lane: ActionLane): PendingActionType[] {
   return (Object.keys(ACTION_LANE) as PendingActionType[]).filter(
     (t) => ACTION_LANE[t] === lane,
   );
 }
-
-/**
- * The "apply to intelligence" allow-list — the ONLY action_types the Inbox tab
- * renders (/project/[id]/actions). Kept here (pure module) so the page filter
- * and the server-side badge count derive from the same list; when they diverge
- * the NavRail badge counts rows the founder cannot see (267 phantom rows,
- * 2026-07 audit).
- */
-export const APPLY_TO_INTELLIGENCE_TYPES: readonly PendingActionType[] = [
-  'signal_alert',
-  'proposed_graph_update',
-  'assumption_review',
-  'intelligence_brief',
-];
 
 /** Watcher proposals — rendered with inline Apply/Dismiss in the Watchers tab. */
 export const WATCHER_PROPOSAL_TYPES: readonly PendingActionType[] = [
@@ -103,13 +109,17 @@ export const WATCHER_PROPOSAL_TYPES: readonly PendingActionType[] = [
 ];
 
 /**
- * Every action_type with a founder-reachable accept path somewhere in the UI.
- * This — not the full pending_actions table — is what open-count badges must
- * count. Types outside this list (task, workflow_step, drafts, hypotheses, …)
- * still live in pending_actions with working executors, but are only reachable
- * through chat (list_pending_actions), so they must not inflate UI badges.
+ * Every action_type with a founder-reachable accept path somewhere in the UI:
+ * the Intel inbox (INTEL_INBOX_TYPES — the alpha "watcher repository" surface)
+ * plus the Watchers-tab proposals. This — not the full pending_actions table —
+ * is what open-count badges must count. Types outside this list
+ * (assumption_review, proposed_graph_update, task, workflow_step, drafts, …)
+ * still live in pending_actions with working executors, but have no UI accept
+ * path during the alpha, so they must not inflate UI badges (the "38 actions /
+ * 0 visible" pathology, 2026-07 audit). Widening INTEL_INBOX_TYPES widens this
+ * automatically.
  */
 export const SURFACED_ACTION_TYPES: readonly PendingActionType[] = [
-  ...APPLY_TO_INTELLIGENCE_TYPES,
+  ...INTEL_INBOX_TYPES,
   ...WATCHER_PROPOSAL_TYPES,
 ];

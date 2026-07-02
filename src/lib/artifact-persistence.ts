@@ -263,8 +263,35 @@ export async function persistArtifact(ctx: PersistContext, artifact: Artifact): 
 
 // ─── entity-card → graph_nodes + graph_edges ─────────────────────────────────
 
+// Section headings and option-set labels that leaked into the graph as nodes
+// (the founder's 2026-06 complaint: "opzioni target", "opzioni vantaggio
+// competitivo", "market sizing" showing up as graph nodes alongside real
+// competitors). These are dimensions/headings, not named entities — a real
+// node has a proper name. Conservative match: option-set prefixes + a few exact
+// heading phrases. Market sizing belongs in research.market_size, not the graph.
+const JUNK_NODE_NAME = [
+  /^opzion[ei]\b/i,          // "opzione/opzioni …" (Italian option-set labels)
+  /^option[s]?\b/i,           // "option/options …"
+  /^(market sizing|market size|dimensione di mercato|dimensionamento)\b/i,
+  /^(tam|sam|som)\b/i,
+  /^(vantaggio competitivo|competitive advantage)$/i,
+  /^(target|target market|mercato target|segmento target)$/i,
+  /^(value proposition|proposta di valore|problema|problem|soluzione|solution)$/i,
+];
+
+function isJunkEntityName(name: string): boolean {
+  const n = name.trim();
+  if (n.length < 2) return true;
+  return JUNK_NODE_NAME.some(re => re.test(n));
+}
+
 async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<PersistResult> {
   if (!a.name) return { type: a.type, persisted: false, note: 'missing name' };
+
+  // Drop option-set / heading junk before it pollutes the graph (see above).
+  if (isJunkEntityName(a.name)) {
+    return { type: a.type, persisted: false, note: `skipped non-entity heading "${a.name}"` };
+  }
 
   // Dedup by (project_id, lower(name)) — agent may mention same entity across turns.
   const existing = await get<{ id: string }>(

@@ -163,6 +163,19 @@ export function withEmissionDiscipline(prompt: string, locale: 'en' | 'it'): str
 }
 
 /**
+ * Append an explicit language directive to a brief/correlation prompt whose
+ * scaffolding is English. The emitted founder-facing fields (title, narrative,
+ * recommended actions) must be in the project's language — the 2026-06 weekly
+ * sync flagged Intel briefs staying English under an Italian project. Keep this
+ * separate from withEmissionDiscipline: that governs the artifact contract,
+ * this governs the prose language. No-op for English projects.
+ */
+export function withBriefLanguage(prompt: string, locale: 'en' | 'it'): string {
+  if (locale !== 'it') return prompt;
+  return `${prompt}\n\n[LINGUA] Scrivi ogni campo destinato al founder — title, narrative, recommended actions/azioni — in ITALIANO. Mantieni in inglese solo gli identificatori tecnici (signal_ids, nomi di entità/competitor). Non rispondere in inglese.`;
+}
+
+/**
  * The exact `:::artifact{"type":"ecosystem_alert"}` output contract that the
  * cron/run parser (src/lib/ecosystem-alert-parser.ts) extracts into
  * ecosystem_alerts rows. EXPORTED so the chat-monitor path

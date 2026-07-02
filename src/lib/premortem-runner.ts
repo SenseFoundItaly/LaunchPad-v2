@@ -26,6 +26,8 @@ import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
 import { logSignalActivity } from '@/lib/signal-activity-log';
 import { listAssumptions, type AssumptionRow } from '@/lib/assumptions';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { withBriefLanguage } from '@/lib/ecosystem-monitors';
 import type { TaskLabel } from '@/lib/llm/router';
 
 export interface PremortemBriefShape {
@@ -128,7 +130,13 @@ export async function runPremortemPass<TOutput>(
   config: PremortemAgentConfig<TOutput>,
 ): Promise<PremortemRunResult> {
   const assumptionContext = await buildAssumptionContext(projectId);
-  const fullPrompt = `Project context:\n\n${context}\n\nReturn JSON only.`;
+  // Premortem briefs are founder-facing Intel — emit in the project's language.
+  // resolveLocale(null, projectId) returns the project locale (which wins).
+  const locale = await resolveLocale(null, projectId);
+  const fullPrompt = withBriefLanguage(
+    `Project context:\n\n${context}\n\nReturn JSON only.`,
+    locale === 'it' ? 'it' : 'en',
+  );
   const systemPrompt = config.systemPrompt + assumptionContext;
 
   const startedAt = Date.now();

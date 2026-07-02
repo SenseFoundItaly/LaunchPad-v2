@@ -34,7 +34,7 @@ import {
 } from '@/components/design/primitives';
 import type { PendingAction, PendingActionStatus, PendingActionType } from '@/types';
 import type { Watcher } from '@/lib/watchers';
-import { laneFor, APPLY_TO_INTELLIGENCE_TYPES } from '@/lib/action-lanes';
+import { laneFor, INTEL_INBOX_TYPES } from '@/lib/action-lanes';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { SkillProposalReview } from '@/components/actions/SkillProposalReview';
 import { PayloadSummary } from '@/components/actions/PayloadSummary';
@@ -66,17 +66,20 @@ const TAB_LABEL_KEY: Record<DisplayTab, MessageKey> = {
   inbox: 'actions.tab-inbox',
   monitor: 'actions.tab-watchers',
 };
-const TAB_ORDER: DisplayTab[] = ['inbox', 'monitor'];
+// Escape hatch: set NEXT_PUBLIC_INTEL_HIDDEN=1 to hide the Intel (Inbox) tab
+// wholesale (Watchers stays). The founder said Intel is "non prioritario per
+// alpha" and could simply be hidden — this flag does that without deleting code.
+const INTEL_HIDDEN = process.env.NEXT_PUBLIC_INTEL_HIDDEN === '1';
+
+const TAB_ORDER: DisplayTab[] = INTEL_HIDDEN ? ['monitor'] : ['inbox', 'monitor'];
 
 // The "apply to intelligence" allow-list. ONLY these action_types render in
-// the Inbox tab. signal_alert = watcher findings; the rest are knowledge
-// proposals the founder applies to project intelligence. Anything not here is
-// hidden from this surface (but still lives in pending_actions + its executor).
-// The list itself lives in action-lanes.ts so the server-side badge count
-// (inboxSummary → NavRail) filters on the SAME types and can never drift from
-// what this page renders.
-const APPLY_TO_INTELLIGENCE: ReadonlySet<PendingActionType> =
-  new Set<PendingActionType>(APPLY_TO_INTELLIGENCE_TYPES);
+// the Inbox tab. Anything not here is hidden from this surface (but still lives
+// in pending_actions + its executor). Single source of truth = INTEL_INBOX_TYPES
+// in src/lib/action-lanes.ts (alpha = WATCHER OUTPUT only; see the note there) —
+// the server-side badge count (inboxSummary → NavRail) derives from the SAME
+// list via SURFACED_ACTION_TYPES, so badge and page can never drift.
+const APPLY_TO_INTELLIGENCE = INTEL_INBOX_TYPES;
 
 // ?lane= deep-link values. Old links carried lane names (todo / approval /
 // notification / signal / monitor); all of those now collapse to the Inbox
@@ -137,7 +140,7 @@ export default function TicketsPage({
   // based on whichever tab has the most open rows (a founder with 0 inbox
   // rows and 4 pending signals lands on Signals first). Filters default to
   // 'any' so the list shows everything until the founder narrows.
-  const [tab, setTab] = useState<DisplayTab>('inbox');
+  const [tab, setTab] = useState<DisplayTab>(INTEL_HIDDEN ? 'monitor' : 'inbox');
   const [tabInitialized, setTabInitialized] = useState(false);
   // Deep-link preselection for the Watchers tab: ?lane=monitor&watcher=<id>
   // (old /project/:id/monitors/:monitorId links redirect here). Read once on
@@ -234,10 +237,14 @@ export default function TicketsPage({
     const validFromUrl = fromUrl ? LANE_PARAM_TO_TAB[fromUrl] ?? null : null;
     const watcherFromUrl = search?.get('watcher') ?? null;
     if (watcherFromUrl) setDeepLinkWatcherId(watcherFromUrl);
-    const winner = validFromUrl ?? TAB_ORDER.reduce<DisplayTab>(
-      (best, t) => (tabOpenCounts[t] > tabOpenCounts[best] ? t : best),
-      'inbox',
-    );
+    // When Intel is hidden, Watchers is the only tab — force it and ignore any
+    // ?lane=inbox deep link that would select a now-absent tab.
+    const winner = INTEL_HIDDEN
+      ? 'monitor'
+      : validFromUrl ?? TAB_ORDER.reduce<DisplayTab>(
+        (best, t) => (tabOpenCounts[t] > tabOpenCounts[best] ? t : best),
+        'inbox',
+      );
     setTab(winner);
     setTabInitialized(true);
   }, [tabOpenCounts, tabInitialized, loading]);

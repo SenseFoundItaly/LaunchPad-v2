@@ -2,9 +2,10 @@
 
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import * as d3 from 'd3';
-import type { GraphNode, GraphEdge } from '@/types/graph';
-import { NODE_COLORS } from '@/types/graph';
+import type { GraphNode, GraphEdge, MacroCategory } from '@/types/graph';
+import { NODE_COLORS, MACRO_CATEGORY_ORDER, MACRO_CATEGORY_LABEL, macroCategoryFor } from '@/types/graph';
 import NodeDetailPanel, { type NodeNeighbor } from './NodeDetailPanel';
+import { useLocale } from '@/components/providers/LocaleProvider';
 
 interface KnowledgeGraphProps {
   nodes: GraphNode[];
@@ -35,22 +36,20 @@ interface SimLink extends d3.SimulationLinkDatum<SimNode> {
   rawData: GraphEdge;
 }
 
-/** Cluster positions — radial layout by type around center */
-const CLUSTER_ANGLES: Record<string, number> = {
-  your_startup: 0, // center
-  competitor: 0,
-  technology: 45,
-  market_segment: 90,
-  persona: 135,
-  risk: 180,
-  trend: 225,
-  company: 270,
-  compliance: 315,
-  regulation: 330,
-  partner: 30,
-  funding_source: 60,
-  feature: 150,
-  metric: 210,
+// Cluster positions — radial layout by MACRO-CATEGORY around the startup root,
+// not by raw node_type. This is the "matrioska" ordering from the 2026-06 sync:
+// each ecosystem role (concorrenza / clienti / partner / investitori / contesto)
+// gets its own wedge so the graph reads as grouped regions instead of a flat
+// scatter. Evenly spaced clockwise from the right.
+const MACRO_ANGLE: Record<MacroCategory, number> = MACRO_CATEGORY_ORDER.reduce(
+  (acc, cat, i) => { acc[cat] = (360 / MACRO_CATEGORY_ORDER.length) * i; return acc; },
+  {} as Record<MacroCategory, number>,
+);
+
+/** The macro-category wedge angle (deg) a node clusters into; startup = center. */
+const angleForType = (type: string): number => {
+  const cat = macroCategoryFor(type);
+  return cat ? MACRO_ANGLE[cat] : 0;
 };
 
 /** Normalize an edge endpoint (string id, raw node, or sim node) to its id.
@@ -73,6 +72,9 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
   // drawer replaced the old pending-only floating popover so there is a single
   // detail surface for the graph. Set on node click; cleared on background click.
   const [detailNode, setDetailNode] = useState<GraphNode | null>(null);
+  // Active locale → which macro-category region label to draw (Concorrenza vs
+  // Competition). Inside a project this resolves to the project's language.
+  const locale = useLocale();
 
   const toggleType = useCallback((type: string) => {
     setHiddenTypes(prev => {
@@ -161,15 +163,15 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
 
     const getColor = (type: string) => NODE_COLORS[type] || 'var(--ink-5)';
 
-    // Cluster targets
+    // Cluster targets — by macro-category wedge (startup at center).
     const clusterX = (type: string) => {
       if (type === 'your_startup') return cx;
-      const angle = (CLUSTER_ANGLES[type] || 0) * (Math.PI / 180);
+      const angle = angleForType(type) * (Math.PI / 180);
       return cx + Math.cos(angle) * clusterRadius;
     };
     const clusterY = (type: string) => {
       if (type === 'your_startup') return cy;
-      const angle = (CLUSTER_ANGLES[type] || 0) * (Math.PI / 180);
+      const angle = angleForType(type) * (Math.PI / 180);
       return cy + Math.sin(angle) * clusterRadius;
     };
 
@@ -189,6 +191,32 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
       .scaleExtent([0.1, 4])
       .on('zoom', (event) => { g.attr('transform', event.transform); })
     );
+
+    // Macro-category region labels — one faint anchor per category that actually
+    // has visible nodes, parked at its wedge so the founder reads the graph as
+    // grouped regions (Concorrenza / Clienti / Partner / Investitori / Contesto).
+    // Drawn first → sits behind links + nodes; static (not tick-driven).
+    const presentCats = new Set(
+      visibleNodes.map(n => macroCategoryFor(n.node_type)).filter(Boolean),
+    );
+    const labelRadius = clusterRadius * 1.32;
+    const regionGroup = g.append('g').attr('pointer-events', 'none');
+    for (const cat of MACRO_CATEGORY_ORDER) {
+      if (!presentCats.has(cat)) continue;
+      const a = MACRO_ANGLE[cat] * (Math.PI / 180);
+      regionGroup.append('text')
+        .text(MACRO_CATEGORY_LABEL[cat][locale === 'it' ? 'it' : 'en'].toUpperCase())
+        .attr('x', cx + Math.cos(a) * labelRadius)
+        .attr('y', cy + Math.sin(a) * labelRadius)
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'middle')
+        .attr('font-size', '11px')
+        .attr('font-weight', '700')
+        .attr('letter-spacing', '0.08em')
+        .attr('fill', 'var(--ink-5)')
+        .style('font-family', 'system-ui')
+        .style('text-transform', 'uppercase');
+    }
 
     const getLinkPath = (d: SimLink) => {
       const src = d.source as SimNode, tgt = d.target as SimNode;
@@ -355,7 +383,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
     });
 
     return () => { simulation.stop(); };
-  }, [visibleNodes, visibleEdges, onNodeClick, onEdgeClick, searchQuery]);
+  }, [visibleNodes, visibleEdges, onNodeClick, onEdgeClick, searchQuery, locale]);
 
   // Import legend here to avoid circular — pass from parent instead
   const GraphLegend = require('./GraphLegend').default;

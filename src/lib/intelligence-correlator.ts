@@ -14,7 +14,7 @@ import { generateId } from '@/lib/api-helpers';
 import { runAgent } from '@/lib/pi-agent';
 import { pickModel } from '@/lib/llm/router';
 import { recordUsage, isProjectCapped } from '@/lib/cost-meter';
-import { loadMonitorContext } from '@/lib/ecosystem-monitors';
+import { loadMonitorContext, withBriefLanguage } from '@/lib/ecosystem-monitors';
 import { linkBriefToProfile } from '@/lib/competitor-profiles';
 import type { IntelligenceBrief, RecommendedAction } from '@/types';
 
@@ -133,8 +133,11 @@ export async function processCorrelations(
   // Group signals by entity (match against known competitor names)
   const entityGroups = groupSignalsByEntity(alerts, sourceChanges, ctx.knownCompetitors);
 
-  // Build the correlation prompt
-  const prompt = buildCorrelationPrompt(entityGroups, ctx);
+  // Build the correlation prompt. The brief is founder-facing Intel, so it must
+  // be in the project's language. loadMonitorContext already resolves ctx.locale
+  // (project locale wins, per resolve-locale.ts) — the prompt builder is English
+  // scaffolding, so append an explicit language directive for the emitted fields.
+  const prompt = withBriefLanguage(buildCorrelationPrompt(entityGroups, ctx), ctx.locale);
 
   // Call LLM
   const startedAt = Date.now();
