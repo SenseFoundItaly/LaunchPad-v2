@@ -94,6 +94,16 @@ async function recordScrapeFailure(
   now: string,
 ): Promise<ProcessResult> {
   const newErrorCount = (ws.error_count || 0) + 1;
+  // Backoff: once a source has flipped to 'error' (cron keeps retrying it —
+  // see processWatchSourcesCron), each further failure pushes next_scrape_at
+  // an extra day beyond its schedule, capped at +7d. A dead provider gets
+  // probed ~weekly instead of hammered daily, and a restored key still
+  // self-heals within a week at worst.
+  const baseNext = calculateNextRun(ws.schedule) || now;
+  const backoffDays = Math.min(Math.max(newErrorCount - MAX_CONSECUTIVE_ERRORS, 0), 7);
+  const nextScrapeAt = backoffDays > 0
+    ? new Date(Math.max(Date.parse(baseNext), Date.parse(now)) + backoffDays * 24 * 60 * 60 * 1000).toISOString()
+    : baseNext;
   await run(
     `UPDATE watch_sources SET
        error_message = ?, error_count = ?,
@@ -104,7 +114,7 @@ async function recordScrapeFailure(
     newErrorCount,
     newErrorCount,
     MAX_CONSECUTIVE_ERRORS,
-    calculateNextRun(ws.schedule) || now,
+    nextScrapeAt,
     now,
     ws.id,
   );
@@ -580,15 +590,23 @@ function tryStructuralDiff(
 /**
  * Process a batch of watch sources (for cron). Processes up to `limit`
  * sources that are due for scraping.
+ *
+ * status='error' rows are INCLUDED: an error source is one whose scrapes kept
+ * failing (e.g. provider quota 402), not one a founder retired. They stay on
+ * the schedule with growing backoff (recordScrapeFailure pushes next_scrape_at
+ * further as error_count climbs) so a fixed provider key self-heals the fleet
+ * on the next due tick — previously they were orphaned forever. Active rows
+ * are drained first so a backlog of broken sources can't starve healthy ones.
  */
 export async function processWatchSourcesCron(limit = 10): Promise<ProcessResult[]> {
   const now = new Date().toISOString();
 
   const due = await query<WatchSource>(
     `SELECT * FROM watch_sources
-     WHERE status = 'active'
+     WHERE status IN ('active', 'error')
        AND (next_scrape_at IS NULL OR next_scrape_at <= ?)
-     ORDER BY next_scrape_at ASC NULLS FIRST
+     ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END,
+              next_scrape_at ASC NULLS FIRST
      LIMIT ?`,
     now,
     limit,

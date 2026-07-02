@@ -23,13 +23,18 @@ jobs:
           # until the response reports drained:true (nothing left to process),
           # or we hit the iteration cap. drained lives at .data.drained because
           # the json() helper wraps payloads in { success, data }.
-          MAX_ITERS=15
+          # 25 gives headroom over the worst observed queue (pulse day after a
+          # backlog); the loop exits early on drained:true so extra iterations
+          # are free. The pulse itself is bounded by the 14-day founder-activity
+          # eligibility floor in /api/cron, so this cap is a backstop, not the
+          # primary capacity control.
+          MAX_ITERS=25
           for i in $(seq 1 "$MAX_ITERS"); do
             resp=$(curl -sf -X GET \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${SITE_URL}/api/cron" \
               --max-time 150) || { echo "call $i failed (likely a timeout) — retrying"; sleep 10; continue; }
-            echo "iter $i: $(echo "$resp" | jq -c '.data | {monitors_ran, monitors_remaining, heartbeats_ran, pulse_remaining, drained, skipped}')"
+            echo "iter $i: $(echo "$resp" | jq -c '.data | {monitors_ran, monitors_remaining, heartbeats_ran, pulse_remaining, watch_sources_failed, drained, skipped}')"
             drained=$(echo "$resp" | jq -r '.data.drained // false')
             if [ "$drained" = "true" ]; then
               echo "cron drained after $i iteration(s)"
