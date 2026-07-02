@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { run, get } from '@/lib/db';
-import { requireUser, AuthError } from '@/lib/auth/require-user';
+import { AuthError } from '@/lib/auth/require-user';
+import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { debitCredits, DOCUMENT_AUDIT_CREDITS } from '@/lib/credits';
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
@@ -423,15 +424,19 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  const { projectId } = await params;
+
+  // SECURITY: verify the caller can access this project before ingesting
+  // documents into it, injecting extracted entities/monitors into its
+  // knowledge graph, or debiting its owner's credits (cross-tenant IDOR).
+  // requireUser() alone let any authenticated user write to any project.
   let userId: string;
   try {
-    ({ userId } = await requireUser());
+    ({ userId } = await requireProjectAccess(projectId));
   } catch (e) {
     if (e instanceof AuthError) return error(e.message, e.status);
     throw e;
   }
-
-  const { projectId } = await params;
 
   // Opt-in entity extraction. Off by default so existing callers don't pay
   // the extra Haiku latency. The in-app KnowledgeUpload dropzone passes
