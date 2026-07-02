@@ -62,6 +62,8 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
   const startedAt = Date.now();
   const { stream: piStream, cleanup } = runAgentStream(scanPrompt, {
     systemPrompt,
+    // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
+    projectId,
     // Budget headroom for synthesis: cap tool calls at 5 (pi-agent strips
     // tools at the cap, forcing a final text turn where the alert artifacts
     // get emitted) and allow that final turn to finish within the timeout.
@@ -110,7 +112,7 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
             // no-ops gracefully.
             const usage = payload.usage as Parameters<typeof recordUsage>[0]['usage'];
             const { provider: monProvider, model: monModel } = pickModel('monitor-agent');
-            recordUsage({
+            await recordUsage({
               project_id: projectId,
               step: `manual.${monitorType}`,
               provider: monProvider,

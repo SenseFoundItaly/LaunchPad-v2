@@ -56,6 +56,29 @@ const KIND_GROUPS: Array<{ kind: KnowledgeKind; labelKey: string; labelLowerKey:
   { kind: 'interview', labelKey: 'kb.kind-interviews', labelLowerKey: 'kb.kind-interviews-lower' },
 ];
 
+/**
+ * Per-kind section tint (Obsidian-style): a subtle diagonal wash fading to the
+ * card surface, plus a solid colored left edge. Uses the existing design tokens
+ * (src/styles/design-tokens.css) — `--<x>` solid + `--<x>-wash` light variant.
+ * Colors echo the graph's NODE_COLORS where they overlap (competitor → clay).
+ */
+const KIND_TINT: Record<KnowledgeKind, { solid: string; wash: string }> = {
+  entity:     { solid: 'var(--sky)',      wash: 'var(--sky-wash)' },
+  competitor: { solid: 'var(--clay)',     wash: 'var(--clay-wash)' },
+  fact:       { solid: 'var(--moss)',     wash: 'var(--moss-wash)' },
+  signal:     { solid: 'var(--cat-gold)', wash: 'var(--cat-gold-wash)' },
+  brief:      { solid: 'var(--plum)',     wash: 'var(--plum-wash)' },
+  interview:  { solid: 'var(--cat-teal)', wash: 'var(--cat-teal-wash)' },
+};
+
+function sectionStyle(kind: KnowledgeKind) {
+  const tint = KIND_TINT[kind];
+  return {
+    background: `linear-gradient(135deg, ${tint.wash} 0%, var(--surface) 70%)`,
+    borderLeft: `3px solid ${tint.solid}`,
+  };
+}
+
 const TIER_BADGE: Record<ProvenanceTier, { labelKey: string; kind: 'n' | 'info' | 'ok' }> = {
   founder_asserted: { labelKey: 'kb.tier-founder-stated', kind: 'n' },
   workflow_derived: { labelKey: 'kb.tier-derived', kind: 'info' },
@@ -148,7 +171,7 @@ export default function AllKnowledgePanel({ projectId }: { projectId: string }) 
         const group = items.filter(it => it.kind === kind);
         if (group.length === 0) return null;
         return (
-          <Panel key={kind} title={t(labelKey as MessageKey)} subtitle={`${group.length}`}>
+          <Panel key={kind} title={t(labelKey as MessageKey)} subtitle={`${group.length}`} style={sectionStyle(kind)}>
             <div>
               {group.map((it, i) => (
                 <KnowledgeRow

@@ -27,8 +27,13 @@ export {
   ACTION_LANE,
   laneFor,
   typesForLane,
+  INTEL_INBOX_TYPES,
+  isIntelInboxType,
+  WATCHER_PROPOSAL_TYPES,
+  SURFACED_ACTION_TYPES,
   type ActionLane,
 } from '@/lib/action-lanes';
+import { SURFACED_ACTION_TYPES } from '@/lib/action-lanes';
 
 // =============================================================================
 // Row <-> domain conversion
@@ -563,18 +568,30 @@ export interface InboxSummary {
 export async function inboxSummary(projectId: string): Promise<InboxSummary> {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
+  // Count ONLY types with a founder-reachable accept path in the UI (Inbox
+  // tab allow-list + Watchers tab proposals). This summary powers the NavRail
+  // Inbox badge (useOpenActionCount); counting the whole table made the badge
+  // claim "38 actions" on projects whose Inbox rendered zero rows (chat-only
+  // types like task / workflow_step / drafts — 267 such rows, 2026-07 audit).
+  const surfacedPlaceholders = SURFACED_ACTION_TYPES.map(() => '?').join(',');
   const counts = await query<{ status: string; c: number }>(
-    `SELECT status, COUNT(*) as c FROM pending_actions WHERE project_id = ? GROUP BY status`,
+    `SELECT status, COUNT(*) as c FROM pending_actions
+     WHERE project_id = ? AND action_type IN (${surfacedPlaceholders})
+     GROUP BY status`,
     projectId,
+    ...SURFACED_ACTION_TYPES,
   );
   const byStatus: Record<string, number> = {};
   for (const row of counts) byStatus[row.status] = row.c;
 
   const recent = await query<{ status: string; c: number }>(
     `SELECT status, COUNT(*) as c FROM pending_actions
-     WHERE project_id = ? AND updated_at >= ? AND status IN ('sent', 'rejected')
+     WHERE project_id = ? AND action_type IN (${surfacedPlaceholders})
+       AND updated_at >= ? AND status IN ('sent', 'rejected')
      GROUP BY status`,
-    projectId, sevenDaysAgo,
+    projectId,
+    ...SURFACED_ACTION_TYPES,
+    sevenDaysAgo,
   );
   const recentByStatus: Record<string, number> = {};
   for (const row of recent) recentByStatus[row.status] = row.c;

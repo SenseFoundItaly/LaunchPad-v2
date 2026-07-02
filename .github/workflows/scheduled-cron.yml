@@ -2,20 +2,44 @@ name: Daily cron trigger
 
 on:
   schedule:
-    # 08:00 UTC daily — same as the previous vercel.json cron
-    - cron: "0 8 * * *"
+    # 06:17 UTC daily. Deliberately an odd, off-the-hour minute: GitHub heavily
+    # throttles the popular top-of-hour slots (the old "0 8 * * *" was delayed
+    # 2.5–5.5h, firing 10:30–13:33). An odd minute typically runs within minutes.
+    - cron: "17 6 * * *"
   workflow_dispatch: {}
 
 jobs:
   trigger-cron:
     runs-on: ubuntu-latest
     steps:
-      - name: Call /api/cron
+      - name: Drain /api/cron
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           SITE_URL: ${{ secrets.SITE_URL }}
         run: |
-          curl -sf -X GET \
-            -H "Authorization: Bearer ${CRON_SECRET}" \
-            "${SITE_URL}/api/cron" \
-            --max-time 300
+          set -euo pipefail
+          # Each /api/cron call processes a bounded batch of heavy LLM work so
+          # the serverless function never exceeds its execution budget. Loop
+          # until the response reports drained:true (nothing left to process),
+          # or we hit the iteration cap. drained lives at .data.drained because
+          # the json() helper wraps payloads in { success, data }.
+          # 25 gives headroom over the worst observed queue (pulse day after a
+          # backlog); the loop exits early on drained:true so extra iterations
+          # are free. The pulse itself is bounded by the 14-day founder-activity
+          # eligibility floor in /api/cron, so this cap is a backstop, not the
+          # primary capacity control.
+          MAX_ITERS=25
+          for i in $(seq 1 "$MAX_ITERS"); do
+            resp=$(curl -sf -X GET \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              "${SITE_URL}/api/cron" \
+              --max-time 150) || { echo "call $i failed (likely a timeout) — retrying"; sleep 10; continue; }
+            echo "iter $i: $(echo "$resp" | jq -c '.data | {monitors_ran, monitors_remaining, heartbeats_ran, pulse_remaining, watch_sources_failed, drained, skipped}')"
+            drained=$(echo "$resp" | jq -r '.data.drained // false')
+            if [ "$drained" = "true" ]; then
+              echo "cron drained after $i iteration(s)"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "hit iteration cap ($MAX_ITERS) without draining — remaining work resumes on the next tick"

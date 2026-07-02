@@ -146,7 +146,7 @@ export interface OptionSet extends ArtifactBase {
 
 export interface InsightCard extends ArtifactBase {
   type: 'insight-card';
-  category: 'competitor' | 'market' | 'risk' | 'opportunity' | 'technology';
+  category: 'competitor' | 'market' | 'risk' | 'opportunity' | 'technology' | 'regulatory';
   title: string;
   body: string;
   confidence: 'low' | 'medium' | 'high';

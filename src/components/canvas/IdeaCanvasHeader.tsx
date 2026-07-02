@@ -14,7 +14,6 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
-import { HIDE_CREDITS } from '@/lib/credit-costs';
 
 type CanvasFieldName = 'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model';
 
@@ -159,9 +158,7 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
                 ? t('canvas.relaunch-idea-shaping-running')
                 : relaunchState === 'error'
                   ? t('canvas.relaunch-idea-shaping-error')
-                  : HIDE_CREDITS
-                    ? t('canvas.relaunch-idea-shaping').replace(/\s*·.*$/, '') // strip " · ~4 cr"
-                    : t('canvas.relaunch-idea-shaping')}
+                  : t('canvas.relaunch-idea-shaping')}
             </button>
           )}
         </div>

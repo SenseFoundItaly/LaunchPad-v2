@@ -78,9 +78,10 @@ export async function POST(
         pitchId,
         projectId,
         r.version_number || pitchVersions.length + 1,
-        JSON.stringify(r.key_slides),
+        // JSONB: bind raw (slides, changelog) — JSON.stringify double-encodes.
+        r.key_slides,
         r.pitch_narrative || '',
-        JSON.stringify(r.changes_from_previous || []),
+        r.changes_from_previous || [],
         new Date().toISOString(),
       );
 

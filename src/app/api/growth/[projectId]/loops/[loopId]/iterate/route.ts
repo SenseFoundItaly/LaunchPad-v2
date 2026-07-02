@@ -26,7 +26,8 @@ export async function POST(
   setTimeout(async () => {
     try {
       setProgress(task.task_id, 10, 'Loading growth loop data...');
-      const loops = await query('SELECT * FROM growth_loops WHERE id = ?', loopId);
+      // SECURITY: scope the loop to the URL project (cross-project IDOR).
+      const loops = await query('SELECT * FROM growth_loops WHERE id = ? AND project_id = ?', loopId, projectId);
       if (loops.length === 0) {
         failTask(task.task_id, 'Growth loop not found.');
         return;
@@ -70,7 +71,8 @@ export async function POST(
         iterId,
         loopId,
         r.hypothesis,
-        JSON.stringify(r.proposed_changes),
+        // JSONB: bind raw array — JSON.stringify double-encodes (see src/lib/jsonb.ts).
+        r.proposed_changes,
         new Date().toISOString(),
       );
 

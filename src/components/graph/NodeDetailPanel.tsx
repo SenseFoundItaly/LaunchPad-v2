@@ -19,7 +19,6 @@ import type { GraphNode } from '@/types/graph';
 import type { Source } from '@/types/artifacts';
 import { coerceJson } from '@/lib/jsonb';
 import { NODE_COLORS } from '@/types/graph';
-import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
 import { nodeImportanceKey } from '@/lib/node-importance';
 import { useT } from '@/components/providers/LocaleProvider';
 
@@ -471,7 +470,7 @@ export default function NodeDetailPanel({
                 cursor: 'pointer',
               }}
             >
-              Apply · {KNOWLEDGE_APPLY_CREDITS} credits
+              Apply
             </button>
           )}
           {onDismiss && (

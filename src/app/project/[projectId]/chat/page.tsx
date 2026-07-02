@@ -27,7 +27,7 @@ import { useProject } from '@/hooks/useProject';
 import { splitOptionLabel } from '@/components/chat/option-label';
 import { IdeaShapingQuickReplies } from '@/components/chat/IdeaShapingQuickReplies';
 import { parseMessageContent } from '@/lib/artifact-parser';
-import { KNOWLEDGE_APPLY_CREDITS, formatMessageCredits } from '@/lib/credit-costs';
+import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
 import type { Artifact, ArtifactType, Department, ValidationProposalArtifact } from '@/types/artifacts';
 import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
 import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard';
@@ -446,7 +446,7 @@ export default function CopilotChatPage({
   // One project = one chat. The chat_messages.step column is fixed to 'chat'
   // (multi-thread routing was removed — see commit history).
   const step = 'chat';
-  const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages, messageCosts } = useChat(projectId, step);
+  const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages } = useChat(projectId, step);
   const [input, setInput] = useState('');
   // Option-set selection memory (see OptionSelectionContext): which option the
   // founder picked per set, so a chosen set locks — saved, not clickable. First
@@ -1089,7 +1089,7 @@ export default function CopilotChatPage({
             }
           }
           const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-          throw new Error(err.error || `Skill run failed with status ${res.status}`);
+          throw new Error(err.error || `Analysis run failed with status ${res.status}`);
         }
         // Inject the skill output back into the conversation. The skill ran in a
         // SEPARATE request (runSkill) that touched the DB but NOT the `messages`
@@ -1359,7 +1359,6 @@ export default function CopilotChatPage({
                       who={m.role === 'user' ? 'user' : 'ai'}
                       agent="Chief"
                       streaming={m.role === 'assistant' && isStreaming && m === messages[messages.length - 1]}
-                      cost={m.role !== 'user' ? formatMessageCredits(messageCosts[m.id]) : null}
                       tools={m.tools}
                       rawContent={m.content}
                       inlineArtifacts={inlineArtifactsByMsgId.get(m.id)}
@@ -1652,7 +1651,7 @@ function ChatEmptyState({
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {openChecks.slice(0, 4).map((c) => (
-                <button key={c.check.id} onClick={() => onPick(checkActionPrompt(c.check.label))} style={btnStyle}>
+                <button key={c.check.id} onClick={() => onPick(checkActionPrompt(c.check.label, t))} style={btnStyle}>
                   <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{c.check.label}</span>
                   {c.result.gap && (
                     <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-5)', marginTop: 2 }}>{c.result.gap}</span>
@@ -1698,7 +1697,6 @@ function Msg({
   who,
   agent,
   streaming,
-  cost,
   tools,
   children,
   rawContent,
@@ -1713,9 +1711,6 @@ function Msg({
   who: 'user' | 'ai';
   agent: string;
   streaming?: boolean;
-  /** A2a: the message's ACTUAL metered credit cost, pre-formatted (e.g. "53 cr"),
-   *  or null to render nothing (in-flight / historical / free messages). */
-  cost?: string | null;
   tools?: Array<{ id: string; name: string; status: string }>;
   children: React.ReactNode;
   /** Raw text for clipboard + retry. User sees `children` (stripped);
@@ -1889,17 +1884,6 @@ function Msg({
       {/* Fallback quick-reply chips when the model omitted an option-set */}
       {!streaming && who === 'ai' && (!inlineArtifacts || inlineArtifacts.length === 0) && (
         <QuickReplies rawContent={rawContent} onReply={onQuickReply} />
-      )}
-      {!streaming && who === 'ai' && cost && (
-        // A2a: the ACTUAL metered cost of this turn — the honest number, shown
-        // after the fact (vs the fictional pre-quote). title spells out "this turn".
-        <div
-          className="lp-mono"
-          title={t('chat.actual-cost-title')}
-          style={{ fontSize: 10, color: 'var(--ink-5)', marginTop: 3, letterSpacing: 0.2 }}
-        >
-          {cost}
-        </div>
       )}
       {!streaming && <MsgActions content={rawContent} align="left" />}
     </div>
@@ -2267,21 +2251,8 @@ function InlineOption({
         >
           {labelText}
         </span>
-        {/* Per-option credit estimate — what this choice spends, shown before the
-            click. Suppressed when locked: a skill that can't run spends nothing. */}
-        {!locked && !option.commit && typeof option.credits === 'number' && option.credits > 0 && (
-          <span
-            className="lp-mono"
-            style={{
-              flexShrink: 0,
-              fontSize: 10,
-              color: 'var(--ink-5)',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            ≈{option.credits} {option.credits === 1 ? t('chat.credit') : t('chat.credits')}
-          </span>
-        )}
+        {/* No per-option credit chip: only a founder chat message costs a credit
+            (1/message); running an analysis, applying, and committing are free. */}
       </div>
       {split.description && (
         <div
@@ -2486,7 +2457,6 @@ function SkillSuggestionCard({
   const skillId = typeof a.skill_id === 'string' ? a.skill_id : '';
   const label = typeof a.skill_label === 'string' && a.skill_label ? a.skill_label : (skillId || t('chat.skill-fallback'));
   const rationale = typeof a.rationale === 'string' ? a.rationale : '';
-  const credits = typeof a.credits === 'number' ? a.credits : null;
   const context = typeof a.context === 'string' ? a.context : '';
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [errMsg, setErrMsg] = useState('');
@@ -2508,7 +2478,7 @@ function SkillSuggestionCard({
     state === 'running' ? t('chat.running') :
     state === 'done' ? t('common.done') :
     state === 'error' ? t('common.retry') :
-    credits != null ? t('chat.run-with-credits', { credits }) : t('chat.run');
+    t('chat.run');
 
   // Inline, NOT a separate bordered section: the skill CTA flows within the
   // assistant's message (founder directive 2026-06-11 — "should not render as
@@ -2538,11 +2508,6 @@ function SkillSuggestionCard({
         </button>
         <span style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 500 }}>
           {label}
-          {state === 'idle' && credits != null && (
-            <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--ink-5)', fontWeight: 400 }}>
-              ≈{credits} {t('chat.credits')}
-            </span>
-          )}
         </span>
       </div>
       {state === 'idle' && rationale && (

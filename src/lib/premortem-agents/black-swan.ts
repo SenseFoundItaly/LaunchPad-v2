@@ -268,7 +268,10 @@ async function postInsert(
         projectId,
         'ecosystem.black_swan',
         `Black Swan: ${scenario.scenario}`.slice(0, 200),
-        JSON.stringify({
+        // JSONB: bind the raw object/array — JSON.stringify double-encodes into
+        // a string scalar (see src/lib/jsonb.ts); monitor-dedup + the cron
+        // config reader then can't parse config/urls_to_track/sources.
+        {
           source_brief_id: briefId,
           scenario_index: i,
           category: scenario.category,
@@ -276,7 +279,7 @@ async function postInsert(
           linked_assumptions: scenario.linked_assumptions,
           early_signals: scenario.early_signals,
           alert_trigger: scenario.alert_trigger,
-        }),
+        },
         monitorPrompt,
         nextRun,
         now,
@@ -285,8 +288,8 @@ async function postInsert(
         // urls_to_track is empty until the founder (or a future enrichment
         // pass) suggests specific sources. The cron loop's web_search step
         // handles general-purpose detection.
-        JSON.stringify([]),
-        JSON.stringify([]),
+        [],
+        [],
       );
       created.push(monitorId);
     } catch (err) {

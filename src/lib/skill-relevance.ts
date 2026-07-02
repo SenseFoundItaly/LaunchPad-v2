@@ -108,7 +108,7 @@ Return the ${topN} most relevant skill ids as a JSON array, e.g. ["market-resear
     );
 
     // Log classifier token usage — small but adds up across every chat turn.
-    recordUsage({
+    await recordUsage({
       project_id: project.id,
       step: 'skill-relevance.classify',
       provider,

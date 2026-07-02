@@ -18,6 +18,7 @@ import { useSetChrome } from '@/components/design/chrome-context';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
 import EntityGridFallback from '@/components/knowledge/EntityGridFallback';
+import AllKnowledgePanel from '@/components/knowledge/AllKnowledgePanel';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import { CompetitorMatryoshka } from '@/components/knowledge/CompetitorMatryoshka';
 import type { GraphNode, GraphEdge } from '@/types/graph';
@@ -38,6 +39,9 @@ export default function KnowledgePage({
   const t = useT();
   const qc = useQueryClient();
   const [showAddDocs, setShowAddDocs] = useState(false);
+  // Graph (D3 force viz) vs List (AllKnowledgePanel — every knowledge item
+  // grouped by kind, each section gradient-tinted). Graph is the default.
+  const [view, setView] = useState<'graph' | 'list'>('graph');
 
   // After the popup applies extracted entities, refetch the graph and bump the
   // credits/knowledge listeners — same invalidation contract as applyNode below.
@@ -185,7 +189,32 @@ export default function KnowledgePage({
           → detail. Renders nothing when there are no competitors. */}
       <CompetitorMatryoshka projectId={projectId} />
       <div style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
-        {graphLoading ? (
+        {/* Graph ↔ List toggle (top-right; the graph's own search/expand sit top-left). */}
+        <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 5, display: 'flex', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-m)', overflow: 'hidden' }}>
+          {(['graph', 'list'] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              aria-pressed={view === v}
+              style={{
+                fontSize: 11.5,
+                fontWeight: 600,
+                padding: '5px 12px',
+                cursor: 'pointer',
+                border: 'none',
+                background: view === v ? 'var(--ink)' : 'transparent',
+                color: view === v ? 'var(--on-accent, var(--paper))' : 'var(--ink-4)',
+              }}
+            >
+              {t(v === 'graph' ? 'knowledge.view-graph' : 'knowledge.view-list')}
+            </button>
+          ))}
+        </div>
+        {view === 'list' ? (
+          <div style={{ position: 'absolute', inset: 0, overflow: 'auto', padding: 16 }}>
+            <AllKnowledgePanel projectId={projectId} />
+          </div>
+        ) : graphLoading ? (
           <GraphEmpty message={t('knowledge.loading-graph')} />
         ) : graphError ? (
           <GraphEmpty message={t('knowledge.load-error', { error: graphError })} tone="error" />
@@ -201,7 +230,7 @@ export default function KnowledgePage({
         ) : (
           <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} />
         )}
-        {pendingCount > 0 && (
+        {view === 'graph' && pendingCount > 0 && (
           <div
             style={{
               position: 'absolute',

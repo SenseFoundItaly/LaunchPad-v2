@@ -278,7 +278,8 @@ const proposedHypothesis: ActionHandler = async (action) => {
     iterId,
     loopId,
     hypothesis,
-    proposedChanges ? JSON.stringify(proposedChanges) : null,
+    // JSONB: bind the raw array (or null) — JSON.stringify double-encodes (see src/lib/jsonb.ts).
+    proposedChanges ?? null,
   );
 
   return {

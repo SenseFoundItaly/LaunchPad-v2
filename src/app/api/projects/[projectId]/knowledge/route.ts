@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { query, run, get } from '@/lib/db';
-import { requireUser, AuthError } from '@/lib/auth/require-user';
+import { AuthError } from '@/lib/auth/require-user';
+import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import { recordEvent } from '@/lib/memory/events';
 
@@ -26,15 +27,18 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  const { projectId } = await params;
+  // SECURITY: verify the caller can access this project (graph_nodes /
+  // tabular_reviews have no user_id column, so requireUser alone leaked them
+  // cross-tenant). requireProjectAccess also authenticates and returns userId.
   let userId: string;
   try {
-    ({ userId } = await requireUser());
+    ({ userId } = await requireProjectAccess(projectId));
   } catch (e) {
     if (e instanceof AuthError) return error(e.message, e.status);
     throw e;
   }
 
-  const { projectId } = await params;
   const stateParam = request.nextUrl.searchParams.get('state') || 'pending';
 
   const stateFilter = stateParam === 'all'
@@ -127,15 +131,16 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  const { projectId } = await params;
+  // SECURITY: project-access gate before any write (see GET).
   let userId: string;
   try {
-    ({ userId } = await requireUser());
+    ({ userId } = await requireProjectAccess(projectId));
   } catch (e) {
     if (e instanceof AuthError) return error(e.message, e.status);
     throw e;
   }
 
-  const { projectId } = await params;
   const body = await request.json().catch(() => null);
   if (!body?.title) return error('title is required', 400);
 

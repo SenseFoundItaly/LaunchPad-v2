@@ -101,3 +101,25 @@ export function typesForLane(lane: ActionLane): PendingActionType[] {
     (t) => ACTION_LANE[t] === lane,
   );
 }
+
+/** Watcher proposals — rendered with inline Apply/Dismiss in the Watchers tab. */
+export const WATCHER_PROPOSAL_TYPES: readonly PendingActionType[] = [
+  'configure_monitor',
+  'configure_watch_source',
+];
+
+/**
+ * Every action_type with a founder-reachable accept path somewhere in the UI:
+ * the Intel inbox (INTEL_INBOX_TYPES — the alpha "watcher repository" surface)
+ * plus the Watchers-tab proposals. This — not the full pending_actions table —
+ * is what open-count badges must count. Types outside this list
+ * (assumption_review, proposed_graph_update, task, workflow_step, drafts, …)
+ * still live in pending_actions with working executors, but have no UI accept
+ * path during the alpha, so they must not inflate UI badges (the "38 actions /
+ * 0 visible" pathology, 2026-07 audit). Widening INTEL_INBOX_TYPES widens this
+ * automatically.
+ */
+export const SURFACED_ACTION_TYPES: readonly PendingActionType[] = [
+  ...INTEL_INBOX_TYPES,
+  ...WATCHER_PROPOSAL_TYPES,
+];

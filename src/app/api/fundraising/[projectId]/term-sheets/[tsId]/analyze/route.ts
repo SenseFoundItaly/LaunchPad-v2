@@ -26,7 +26,8 @@ export async function POST(
   setTimeout(async () => {
     try {
       setProgress(task.task_id, 10, 'Loading term sheet...');
-      const tsRows = await query('SELECT * FROM term_sheets WHERE id = ?', tsId);
+      // SECURITY: scope the term sheet to the URL project (cross-project IDOR).
+      const tsRows = await query('SELECT * FROM term_sheets WHERE id = ? AND project_id = ?', tsId, projectId);
       if (tsRows.length === 0) {
         failTask(task.task_id, 'Term sheet not found.');
         return;
