@@ -93,6 +93,23 @@ export function macroCategoryFor(type: string): MacroCategory | null {
   return MACRO_CATEGORY[type as GraphNodeType] ?? 'contesto';
 }
 
+/**
+ * Derived-analysis node types minted as a side effect of chat artifacts
+ * (metric-grid → metrics/benchmark/research_metric; comparison-table →
+ * comparison/competitor_set). Their names are dashboard/scorecard titles
+ * ("7-Stage Validation Spine — Current Status", "Competitor Landscape"), NOT
+ * ecosystem entities — the exact "disordinato" clutter from the 2026-06 sync.
+ * Excluded from the Knowledge graph AND the unified list so both surfaces show
+ * real named entities only. The underlying artifact still renders in chat.
+ */
+export const DERIVED_ANALYSIS_NODE_TYPES: ReadonlySet<string> = new Set([
+  'metrics', 'benchmark', 'comparison', 'competitor_set', 'research_metric',
+]);
+
+export function isDerivedAnalysisNode(type: string | null | undefined): boolean {
+  return !!type && DERIVED_ANALYSIS_NODE_TYPES.has(type);
+}
+
 export interface GraphNode {
   id: string;
   /** Owning project — returned by /api/graph (SELECT *); used for lazy fetches. */
