@@ -232,38 +232,6 @@ export default function KnowledgePage({ params }: { params: Promise<{ projectId:
   );
 }
 
-function CuratedView({ items }: { items: CuratedItem[] }) {
-  return (
-    <>
-      <div style={{ padding: '18px 24px 12px', borderBottom: '1px solid var(--line)' }}>
-        <h2 className="lp-h4" style={{ margin: 0 }}>Project Knowledge</h2>
-        <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
-          {items.length} {items.length === 1 ? 'entry' : 'entries'} · grounds every co-pilot reply in this project
-        </div>
-      </div>
-      <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', padding: '4px 24px' }}>
-        {items.length === 0 ? (
-          <div style={{ padding: 48, textAlign: 'center', color: 'var(--ink-4)', fontSize: 12.5 }}>
-            No applied knowledge yet. Apply findings from the Inbox to ground the co-pilot.
-          </div>
-        ) : (
-          items.map((it) => (
-            <KnowledgeRow
-              key={it.id}
-              tone={toneForKind(it.kind)}
-              type={it.kind}
-              title={it.title}
-              body={it.summary || undefined}
-              source={it.sourceRef || undefined}
-              attrs={it.provenanceTier ? [{ k: 'source', v: it.provenanceTier.replace(/_/g, ' ') }] : []}
-            />
-          ))
-        )}
-      </div>
-    </>
-  );
-}
-
 function InboxView({
   groups,
   selected,
