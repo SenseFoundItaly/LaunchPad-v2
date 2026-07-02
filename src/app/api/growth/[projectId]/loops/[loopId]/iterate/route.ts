@@ -71,7 +71,8 @@ export async function POST(
         iterId,
         loopId,
         r.hypothesis,
-        JSON.stringify(r.proposed_changes),
+        // JSONB: bind raw array — JSON.stringify double-encodes (see src/lib/jsonb.ts).
+        r.proposed_changes,
         new Date().toISOString(),
       );
 
