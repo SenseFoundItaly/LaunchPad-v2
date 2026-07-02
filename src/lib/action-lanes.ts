@@ -81,3 +81,35 @@ export function typesForLane(lane: ActionLane): PendingActionType[] {
     (t) => ACTION_LANE[t] === lane,
   );
 }
+
+/**
+ * The "apply to intelligence" allow-list — the ONLY action_types the Inbox tab
+ * renders (/project/[id]/actions). Kept here (pure module) so the page filter
+ * and the server-side badge count derive from the same list; when they diverge
+ * the NavRail badge counts rows the founder cannot see (267 phantom rows,
+ * 2026-07 audit).
+ */
+export const APPLY_TO_INTELLIGENCE_TYPES: readonly PendingActionType[] = [
+  'signal_alert',
+  'proposed_graph_update',
+  'assumption_review',
+  'intelligence_brief',
+];
+
+/** Watcher proposals — rendered with inline Apply/Dismiss in the Watchers tab. */
+export const WATCHER_PROPOSAL_TYPES: readonly PendingActionType[] = [
+  'configure_monitor',
+  'configure_watch_source',
+];
+
+/**
+ * Every action_type with a founder-reachable accept path somewhere in the UI.
+ * This — not the full pending_actions table — is what open-count badges must
+ * count. Types outside this list (task, workflow_step, drafts, hypotheses, …)
+ * still live in pending_actions with working executors, but are only reachable
+ * through chat (list_pending_actions), so they must not inflate UI badges.
+ */
+export const SURFACED_ACTION_TYPES: readonly PendingActionType[] = [
+  ...APPLY_TO_INTELLIGENCE_TYPES,
+  ...WATCHER_PROPOSAL_TYPES,
+];

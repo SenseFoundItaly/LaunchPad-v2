@@ -554,11 +554,11 @@ const VALID_ACTION_TYPES: readonly PendingActionType[] = [
 const createPendingActionTool = (ctx: ToolContext): AgentTool => ({
   name: 'queue_draft_for_review',
   label: 'Queue Draft',
-  description: 'Queue a draft (email, LinkedIn post, hypothesis, graph update) for founder review. The founder sees it in their inbox and can apply, edit, or reject.',
+  description: 'Queue a draft (email, LinkedIn post, hypothesis, graph update) for founder review. ONLY proposed_graph_update appears in the founder\'s Inbox UI — every other type (drafts, hypotheses, tasks) is retrievable ONLY through this chat via list_pending_actions, so you MUST include the full draft content in your reply; never tell the founder to "check their inbox" for a draft.',
   parameters: Type.Object({
     action_type: Type.String({ description: `One of: ${VALID_ACTION_TYPES.join(', ')}` }),
     title: Type.String({ description: 'One-line summary of what this action does.' }),
-    rationale: Type.Optional(Type.String({ description: 'Why this is being queued. Shown to the founder on the inbox card.' })),
+    rationale: Type.Optional(Type.String({ description: 'Why this is being queued. Shown on the card when the type has a UI surface (proposed_graph_update).' })),
     payload: Type.Object({}, { additionalProperties: true, description: 'Action-specific payload. For draft_email: {to, subject, body}. For draft_linkedin_post: {body, url?}. For proposed_graph_update: {name, node_type, summary}. For proposed_hypothesis: {hypothesis, growth_loop_id?, proposed_changes?}.' }),
     estimated_impact: Type.Optional(Type.String({ description: 'low | medium | high. Default medium.' })),
   }),
