@@ -53,7 +53,12 @@ export async function POST(request: NextRequest) {
            WHERE project_id = $7`,
           JSON.stringify(r.gtm_strategy),
           JSON.stringify(r.pitch_deck),
-          JSON.stringify(r.financial_model),
+          // financial_model bound RAW (object) — JSONB single-encode. The other
+          // four cols stay JSON.stringify'd for now (their clients expect the
+          // legacy shape); financial_model is read via coerceJson by the copilot
+          // (get_project_summary), the /financial-model GET guard, and the
+          // assumption-revision executor, so it must be a clean JSONB object.
+          r.financial_model,
           JSON.stringify(r.roadmap),
           JSON.stringify(r.action_items),
           new Date().toISOString(),
@@ -66,7 +71,8 @@ export async function POST(request: NextRequest) {
           projectId,
           JSON.stringify(r.gtm_strategy),
           JSON.stringify(r.pitch_deck),
-          JSON.stringify(r.financial_model),
+          // financial_model bound RAW (object) — JSONB single-encode (see UPDATE above).
+          r.financial_model,
           JSON.stringify(r.roadmap),
           JSON.stringify(r.action_items),
           new Date().toISOString(),

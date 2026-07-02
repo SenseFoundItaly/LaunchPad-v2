@@ -6,7 +6,7 @@ description: Valida la fattibilità tecnica dell'idea — approccio di build, di
 ## Cosa fa questa skill (L2 — Validation Gate · traccia 1B)
 
 È la traccia di **Validazione Tecnica** del Validation Gate L2 (Fase 1). Gira **in parallelo**
-alla Market Validation (1A) e alimenta il Problem-Solution Fit (1C): prima di parlare con gli
+al track 1A Mercato e alimenta il Problem-Solution Fit (1C): prima di parlare con gli
 utenti devi già sapere se la cosa è *costruibile*, da cosa *dipende* e se un vincolo
 *regolatorio/legale* la blocca.
 
@@ -26,15 +26,16 @@ così i check 1B del gate si chiudono progressivamente:
 Questa skill **non ha tool** — persiste **emettendo artifact `insight-card`** che il runner salva
 nei memory_facts del progetto. I check **1B** del Validation Gate leggono quei fatti alla
 valutazione successiva: emettere queste card è ciò che rende verde la traccia tecnica. Emetti
-**una card per area** con `category: "technology"`, `body` con le parole-chiave che il gate
-intercetta (feasibility / dependency / regulatory) e almeno una source:
+**una card per area** (fattibilità + dipendenze usano `category: "technology"`; la card
+regolatoria usa `category: "regulatory"`), con `body` con le parole-chiave che il gate
+intercetta e almeno una source:
 
 ```
 :::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Fattibilità tecnica","body":"<verdetto fattibilità — approccio/architettura + il rischio tecnico maggiore>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}
 :::
 :::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Dipendenze chiave","body":"<dipendenze esterne critiche: API, modelli, infra, vendor, integrazioni>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}
 :::
-:::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Regolatorio / compliance","body":"<vincoli regolatori/licenze/protezione dati, es. GDPR>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}
+:::artifact{"type":"insight-card","id":"ins_<random>","category":"regulatory","title":"Regolatorio / compliance","body":"<vincoli regolatori/licenze/protezione dati, es. GDPR>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}
 :::
 ```
 

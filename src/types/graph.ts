@@ -16,6 +16,50 @@ export type GraphNodeType =
   | 'feature'
   | 'metric';
 
+/**
+ * Macro-category grouping — the "matrioska" the founder asked for in the
+ * 2026-06 weekly sync: the graph was "disordinato" (a flat mix of competitors,
+ * options nodes, market sizing). Node types collapse into a handful of
+ * founder-legible buckets so the graph clusters by ecosystem role (concorrenza
+ * / clienti / partner / investitori) with everything else under "contesto".
+ * your_startup is the root and has no macro-category (it sits at center).
+ */
+export type MacroCategory = 'concorrenza' | 'clienti' | 'partner' | 'investitori' | 'contesto';
+
+export const MACRO_CATEGORY: Record<GraphNodeType, MacroCategory | null> = {
+  your_startup: null,
+  competitor: 'concorrenza',
+  company: 'concorrenza',
+  persona: 'clienti',
+  market_segment: 'clienti',
+  partner: 'partner',
+  funding_source: 'investitori',
+  technology: 'contesto',
+  trend: 'contesto',
+  risk: 'contesto',
+  compliance: 'contesto',
+  regulation: 'contesto',
+  feature: 'contesto',
+  metric: 'contesto',
+};
+
+/** Stable render order (clockwise from the right) + bilingual labels. */
+export const MACRO_CATEGORY_ORDER: MacroCategory[] = [
+  'concorrenza', 'clienti', 'partner', 'investitori', 'contesto',
+];
+
+export const MACRO_CATEGORY_LABEL: Record<MacroCategory, { en: string; it: string }> = {
+  concorrenza: { en: 'Competition', it: 'Concorrenza' },
+  clienti: { en: 'Customers', it: 'Clienti' },
+  partner: { en: 'Partners', it: 'Partner' },
+  investitori: { en: 'Investors', it: 'Investitori' },
+  contesto: { en: 'Context', it: 'Contesto' },
+};
+
+export function macroCategoryFor(type: string): MacroCategory | null {
+  return MACRO_CATEGORY[type as GraphNodeType] ?? 'contesto';
+}
+
 export interface GraphNode {
   id: string;
   /** Owning project — returned by /api/graph (SELECT *); used for lazy fetches. */

@@ -11,9 +11,10 @@ export async function POST(
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
 
-  const rows = await query('SELECT id FROM alerts WHERE id = ?', alertId);
+  // SECURITY: scope the alert to the URL project (cross-project IDOR).
+  const rows = await query('SELECT id FROM alerts WHERE id = ? AND project_id = ?', alertId, projectId);
   if (rows.length === 0) {return error('Alert not found', 404);}
 
-  await run('UPDATE alerts SET dismissed = true WHERE id = ?', alertId);
+  await run('UPDATE alerts SET dismissed = true WHERE id = ? AND project_id = ?', alertId, projectId);
   return json(null);
 }

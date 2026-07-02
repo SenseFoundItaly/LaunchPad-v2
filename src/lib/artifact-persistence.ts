@@ -263,8 +263,35 @@ export async function persistArtifact(ctx: PersistContext, artifact: Artifact): 
 
 // ─── entity-card → graph_nodes + graph_edges ─────────────────────────────────
 
+// Section headings and option-set labels that leaked into the graph as nodes
+// (the founder's 2026-06 complaint: "opzioni target", "opzioni vantaggio
+// competitivo", "market sizing" showing up as graph nodes alongside real
+// competitors). These are dimensions/headings, not named entities — a real
+// node has a proper name. Conservative match: option-set prefixes + a few exact
+// heading phrases. Market sizing belongs in research.market_size, not the graph.
+const JUNK_NODE_NAME = [
+  /^opzion[ei]\b/i,          // "opzione/opzioni …" (Italian option-set labels)
+  /^option[s]?\b/i,           // "option/options …"
+  /^(market sizing|market size|dimensione di mercato|dimensionamento)\b/i,
+  /^(tam|sam|som)\b/i,
+  /^(vantaggio competitivo|competitive advantage)$/i,
+  /^(target|target market|mercato target|segmento target)$/i,
+  /^(value proposition|proposta di valore|problema|problem|soluzione|solution)$/i,
+];
+
+function isJunkEntityName(name: string): boolean {
+  const n = name.trim();
+  if (n.length < 2) return true;
+  return JUNK_NODE_NAME.some(re => re.test(n));
+}
+
 async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<PersistResult> {
   if (!a.name) return { type: a.type, persisted: false, note: 'missing name' };
+
+  // Drop option-set / heading junk before it pollutes the graph (see above).
+  if (isJunkEntityName(a.name)) {
+    return { type: a.type, persisted: false, note: `skipped non-entity heading "${a.name}"` };
+  }
 
   // Dedup by (project_id, lower(name)) — agent may mention same entity across turns.
   const existing = await get<{ id: string }>(
@@ -530,6 +557,9 @@ async function persistMetricGrid(ctx: PersistContext, a: MetricGrid): Promise<Pe
 
   // Themed routing — only when the title clearly signals market sizing data
   // (research.market_size is the TAM/SAM/SOM column).
+  // Bind the RAW object, not JSON.stringify(...) — market_size is JSONB and
+  // postgres.js single-encodes bound objects; a pre-stringified bind lands as
+  // a jsonb string scalar (the double-encode class, #142).
   if (isMarket) {
     const existing = await get<{ project_id: string }>(
       'SELECT project_id FROM research WHERE project_id = ?',
@@ -538,7 +568,7 @@ async function persistMetricGrid(ctx: PersistContext, a: MetricGrid): Promise<Pe
     if (existing) {
       await run(
         'UPDATE research SET market_size = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
-        JSON.stringify({ ...marketData, _title: a.title }),
+        { ...marketData, _title: a.title },
         srcJson,
         ctx.projectId,
       );
@@ -546,7 +576,7 @@ async function persistMetricGrid(ctx: PersistContext, a: MetricGrid): Promise<Pe
       await run(
         'INSERT INTO research (project_id, market_size, sources) VALUES (?, ?, ?)',
         ctx.projectId,
-        JSON.stringify({ ...marketData, _title: a.title }),
+        { ...marketData, _title: a.title },
         srcJson,
       );
     }
@@ -602,10 +632,14 @@ async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): 
       'SELECT project_id FROM research WHERE project_id = ?',
       ctx.projectId,
     );
+    // Bind the RAW array, not JSON.stringify(...) — competitors is JSONB and
+    // postgres.js single-encodes bound values; a pre-stringified bind lands as
+    // a jsonb string scalar (the double-encode class, #142), which
+    // loadMonitorContext's `parsed.map(c => c.name)` reader silently empties.
     if (existing) {
       await run(
         'UPDATE research SET competitors = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
-        JSON.stringify(rowData),
+        rowData,
         srcJson,
         ctx.projectId,
       );
@@ -613,7 +647,7 @@ async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): 
       await run(
         'INSERT INTO research (project_id, competitors, sources) VALUES (?, ?, ?)',
         ctx.projectId,
-        JSON.stringify(rowData),
+        rowData,
         srcJson,
       );
     }

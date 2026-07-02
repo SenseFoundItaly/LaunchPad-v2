@@ -29,6 +29,7 @@ import { persistCompetitorAnalysis, COMPETITOR_CATEGORIES } from '@/lib/competit
 import { recordFact } from '@/lib/memory/facts';
 import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
+import { coerceJson } from '@/lib/jsonb';
 import { getCreditsRemaining, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import { ownerUserId } from '@/lib/cost-meter';
 import { USER_MONTHLY_LLM_USD, USER_MONTHLY_CREDITS } from '@/lib/credit-costs';
@@ -471,6 +472,39 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
       } catch { /* ignore */ }
     }
 
+    // Financial model snapshot — the founder edits these in the /financial
+    // panel (ARPU, opex, runway assumptions) and expects the copilot to KNOW
+    // them next turn ("what's our RPU?" → the saved value). Without this block
+    // the saved workflow.financial_model was invisible to the agent. Read via
+    // coerceJson so legacy double-encoded rows still parse.
+    try {
+      const wfRows = await query<{ financial_model: unknown }>(
+        'SELECT financial_model FROM workflow WHERE project_id = ?',
+        ctx.projectId,
+      );
+      const model = coerceJson<{ assumptions?: Record<string, unknown> }>(wfRows[0]?.financial_model);
+      const a = model?.assumptions;
+      if (a && typeof a === 'object') {
+        const cur = typeof a.currency === 'string' ? a.currency : 'EUR';
+        const fin: string[] = [];
+        const num = (k: string) => (typeof a[k] === 'number' ? a[k] as number : undefined);
+        const arpu = num('arpu_monthly');
+        if (arpu !== undefined) fin.push(`ARPU/RPU: ${arpu} ${cur}/mo`);
+        if (num('monthly_opex') !== undefined) fin.push(`Monthly opex: ${num('monthly_opex')} ${cur}`);
+        if (num('starting_cash') !== undefined) fin.push(`Starting cash: ${num('starting_cash')} ${cur}`);
+        if (num('gross_margin_pct') !== undefined) fin.push(`Gross margin: ${num('gross_margin_pct')}%`);
+        if (num('monthly_growth_rate_pct') !== undefined) fin.push(`Growth: ${num('monthly_growth_rate_pct')}%/mo`);
+        if (num('monthly_churn_rate_pct') !== undefined) fin.push(`Churn: ${num('monthly_churn_rate_pct')}%/mo`);
+        if (fin.length > 0) {
+          lines.push('\nFinancial model (founder-edited assumptions):');
+          for (const f of fin) lines.push(`  ${f}`);
+          lines.push('→ Use these saved figures; do not re-ask. Details on the /financial page.');
+        }
+      }
+    } catch (err) {
+      console.warn('[get_project_summary] financial snapshot failed (non-fatal):', err);
+    }
+
     // Phase H — append the 7-stage readiness snapshot. The agent reads this
     // to decide which skill kickoff to surface in its trailing option-set.
     // Without this block, option-sets default to topic-of-conversation
@@ -554,11 +588,11 @@ const VALID_ACTION_TYPES: readonly PendingActionType[] = [
 const createPendingActionTool = (ctx: ToolContext): AgentTool => ({
   name: 'queue_draft_for_review',
   label: 'Queue Draft',
-  description: 'Queue a draft (email, LinkedIn post, hypothesis, graph update) for founder review. The founder sees it in their inbox and can apply, edit, or reject.',
+  description: 'Queue a draft (email, LinkedIn post, hypothesis, graph update) for founder review. ONLY proposed_graph_update appears in the founder\'s Inbox UI — every other type (drafts, hypotheses, tasks) is retrievable ONLY through this chat via list_pending_actions, so you MUST include the full draft content in your reply; never tell the founder to "check their inbox" for a draft.',
   parameters: Type.Object({
     action_type: Type.String({ description: `One of: ${VALID_ACTION_TYPES.join(', ')}` }),
     title: Type.String({ description: 'One-line summary of what this action does.' }),
-    rationale: Type.Optional(Type.String({ description: 'Why this is being queued. Shown to the founder on the inbox card.' })),
+    rationale: Type.Optional(Type.String({ description: 'Why this is being queued. Shown on the card when the type has a UI surface (proposed_graph_update).' })),
     payload: Type.Object({}, { additionalProperties: true, description: 'Action-specific payload. For draft_email: {to, subject, body}. For draft_linkedin_post: {body, url?}. For proposed_graph_update: {name, node_type, summary}. For proposed_hypothesis: {hypothesis, growth_loop_id?, proposed_changes?}.' }),
     estimated_impact: Type.Optional(Type.String({ description: 'low | medium | high. Default medium.' })),
   }),
@@ -2472,7 +2506,7 @@ const logInterviewTool = (ctx: ToolContext): AgentTool => ({
   name: 'log_interview',
   label: 'Log Interview',
   description:
-    'Persist a structured customer/user interview to the interviews table. Use whenever the founder reports having talked to a potential or current user about the problem, the solution, or pricing. PRECONDITION: needs at minimum person_name + a 1-3 sentence summary. If the founder mentions an interview happened but doesn\'t name the person or describe what was said, ASK for those before calling. Use top_pain to capture the verbatim biggest-pain quote when provided. Use wtp_amount when the founder reports a willingness-to-pay number. Triggers Stage 2 (Market Validation) check re-evaluation — this is the canonical input for the "5+ customer signals" gate.',
+    'Persist a structured customer/user interview to the interviews table. Use whenever the founder reports having talked to a potential or current user about the problem, the solution, or pricing. PRECONDITION: needs at minimum person_name + a 1-3 sentence summary. If the founder mentions an interview happened but doesn\'t name the person or describe what was said, ASK for those before calling. Use top_pain to capture the verbatim biggest-pain quote when provided. Use wtp_amount when the founder reports a willingness-to-pay number. Triggers Stage 2 (Validation Gate) check re-evaluation — this is the canonical input for the "5+ customer signals" gate.',
   parameters: Type.Object({
     person_name: Type.String({ description: 'Who was interviewed. First name or full name ≤200 chars. Example: "Maria", "Maria Rossi".' }),
     summary: Type.String({ description: '1-3 sentence agent-readable takeaway. ≤2000 chars. Should capture WHAT was learned. Example: "Maria runs a 3-person agency, manually exports client reports each week, says onboarding any new tool takes 3+ weeks because she does it herself."' }),

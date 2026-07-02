@@ -29,7 +29,6 @@ import { Icon, I, type IconKey } from './icons';
 import { Pill } from './primitives';
 import { ShareButton } from '@/components/project/ShareButton';
 import { CreditsBadge } from '@/components/CreditsBadge';
-import { HIDE_CREDITS } from '@/lib/credit-costs';
 import { LanguageSwitch } from '@/components/design/LanguageSwitch';
 import { Logomark } from '@/components/design/Logomark';
 import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
@@ -196,8 +195,15 @@ export function TopBar({ breadcrumb, right, projectId, mode }: TopBarProps) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)', flexShrink: 0 }}>
         {projectId && <ShareButton projectId={projectId} />}
         {right}
-        <LanguageSwitch />
-        {projectId && !HIDE_CREDITS && (
+        <LanguageSwitch readOnly={!!projectId} />
+        {/* CreditsBadge sits *after* page-supplied `right` content so the
+            credits chip is always pinned to the far right — making the
+            credit balance the founder's most-visible header signal. The
+            badge owns its own TanStack cache + event-bridge subscription,
+            so mounting it globally costs one query per project per session
+            (no per-route re-fetch). The title-wrapping span keeps the
+            tooltip in chrome.tsx without touching CreditsBadge itself. */}
+        {projectId && (
           <span title="Credits — your project's monthly budget">
             <CreditsBadge projectId={projectId} />
           </span>

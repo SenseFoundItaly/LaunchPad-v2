@@ -78,7 +78,7 @@ export default function SkillDetailPanel({ skill, data, projectId, skillStatus, 
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-center px-8">
               <div className="text-ink-6 text-3xl mb-3">-</div>
-              <p className="text-sm text-ink-4 mb-1">This skill hasn't been run yet</p>
+              <p className="text-sm text-ink-4 mb-1">This analysis hasn't been run yet</p>
               <p className="text-xs text-ink-6 mb-4">Click below to start this validation step</p>
               <Link
                 href={`/project/${projectId}/${skill.route}`}

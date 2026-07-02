@@ -83,7 +83,8 @@ const STATE: Record<StageEval['status'], { color: string; labelKey: MessageKey }
 
 // L2 Validation-Gate sub-tracks (walkthrough §2). Untracked checks render first;
 // tracked checks group under these headers (mirrors the Home StageCard). Only the
-// validation stage tags checks today (1B Technical); empty groups are skipped.
+// Validation Gate stage tags checks today (1A Market + 1B Technical); empty groups
+// (e.g. 1C until PSF is built) are skipped.
 const TRACK_LABEL: Record<'1A' | '1B' | '1C', MessageKey> = {
   '1A': 'canvas.track-1a',
   '1B': 'canvas.track-1b',
@@ -230,7 +231,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
               const canPrefill = isGap && !!onPickPrompt;
               const clickable = canPrefill || hasProof;
               const onRowClick = canPrefill
-                ? () => onPickPrompt?.(checkActionPrompt(r.check.label))
+                ? () => onPickPrompt?.(checkActionPrompt(r.check.label, t))
                 : hasProof
                   ? () => setOpenProof(proofOpen ? null : rowId)
                   : undefined;

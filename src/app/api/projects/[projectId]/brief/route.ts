@@ -1,11 +1,14 @@
 import { NextRequest } from 'next/server';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { run, get, query } from '@/lib/db';
-import { requireUser, AuthError } from '@/lib/auth/require-user';
+import { AuthError } from '@/lib/auth/require-user';
+import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
 import { buildProjectSnapshot, evaluateAllStages } from '@/lib/journey';
 import { checkActionPrompt } from '@/lib/journey-prompts';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { translate } from '@/lib/i18n/messages';
 
 /**
  * POST /api/projects/{projectId}/brief
@@ -35,14 +38,16 @@ export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  const { projectId } = await params;
+  // SECURITY: gate on project access — this injects a chat message and burns
+  // LLM credits against the target project, so a session check alone was an IDOR.
   let userId: string;
   try {
-    ({ userId } = await requireUser());
+    ({ userId } = await requireProjectAccess(projectId));
   } catch (e) {
     if (e instanceof AuthError) return error(e.message, e.status);
     throw e;
   }
-  const { projectId } = await params;
 
   // Idempotent — only brief once, before any real conversation exists.
   const existing = await get<{ c: number }>(
@@ -129,9 +134,11 @@ ${ctx}`;
   // next steps (the prose is the LLM's; the actions are code, so never wrong).
   let content = prose;
   if (openChecks.length > 0) {
+    const locale = await resolveLocale(userId, projectId);
+    const t = (k: Parameters<typeof translate>[1], v?: Parameters<typeof translate>[2]) => translate(locale, k, v);
     const options = openChecks.slice(0, 4).map((r, i) => ({
       id: `step_${i}`,
-      label: checkActionPrompt(r.check.label),
+      label: checkActionPrompt(r.check.label, t),
       description: r.result.gap || r.check.label,
       credits: 1,
     }));

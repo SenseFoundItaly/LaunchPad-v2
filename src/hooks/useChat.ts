@@ -4,11 +4,6 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { ChatMessage, ToolActivity } from '@/types';
 import { requestRecharge, RECHARGED_EVENT } from '@/components/credits/recharge-events';
 
-export interface MessageCostInfo {
-  cost_usd: number;
-  credits: number;
-}
-
 // ---------------------------------------------------------------------------
 // Module-level chat store, keyed by `${projectId}::${step}`.
 //
@@ -27,7 +22,6 @@ export interface MessageCostInfo {
 interface ChatStoreState {
   messages: ChatMessage[];
   isStreaming: boolean;
-  messageCosts: Record<string, MessageCostInfo>;
 }
 
 interface ChatStore {
@@ -41,7 +35,7 @@ interface ChatStore {
   listeners: Set<() => void>;
 }
 
-const EMPTY_STATE: ChatStoreState = { messages: [], isStreaming: false, messageCosts: {} };
+const EMPTY_STATE: ChatStoreState = { messages: [], isStreaming: false };
 const stores = new Map<string, ChatStore>();
 
 // Messages dropped on a 402 (out of credits), keyed by store key. Stashed so a
@@ -226,18 +220,6 @@ export function useChat(projectId: string, step: string = 'chat') {
               setLast((m) => ({ ...m, content: fullContent, tools: [...toolsList] }));
             }
 
-            if (parsed.done && parsed.usage?.cost) {
-              const msgId = store.state.messages[store.state.messages.length - 1]?.id;
-              if (msgId) {
-                patch(store, {
-                  messageCosts: {
-                    ...store.state.messageCosts,
-                    [msgId]: { cost_usd: parsed.usage.cost, credits: parsed.usage.credits ?? 0 },
-                  },
-                });
-              }
-            }
-
             // Broadcast persisted artifact IDs so cards can wire apply/reject.
             if (parsed.done && parsed.persisted_artifacts && typeof window !== 'undefined') {
               window.dispatchEvent(
@@ -327,6 +309,5 @@ export function useChat(projectId: string, step: string = 'chat') {
     stopStreaming,
     clearMessages,
     setMessages,
-    messageCosts: state.messageCosts,
   };
 }

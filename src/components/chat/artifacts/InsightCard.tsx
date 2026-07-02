@@ -17,6 +17,7 @@ const CATEGORY_LABELS: Record<InsightCardType['category'], string> = {
   risk: 'Risk',
   opportunity: 'Opportunity',
   technology: 'Technology',
+  regulatory: 'Regulatory',
 };
 
 /**

@@ -19,6 +19,7 @@ import { get, run } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { chatJSONByTask } from '@/lib/llm';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
+import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { recordEvent } from '@/lib/memory/events';
 import { getActiveStage } from '@/lib/journey';
 
@@ -184,8 +185,10 @@ export async function GET(
 ) {
   const { projectId } = await params;
 
+  // SECURITY: this returned any project's risk audit with only a session check.
+  // Gate on project access (matches the ownership gate the POST already applies).
   try {
-    await requireUser();
+    await requireProjectAccess(projectId);
   } catch (e) {
     if (e instanceof AuthError) return error(e.message, e.status);
     throw e;

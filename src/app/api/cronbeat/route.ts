@@ -1,5 +1,7 @@
+import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { json } from '@/lib/api-helpers';
+import { json, error } from '@/lib/api-helpers';
+import { requireUser, AuthError } from '@/lib/auth/require-user';
 
 interface CronRunRow {
   id: string;
@@ -27,7 +29,22 @@ type HealthStatus = 'healthy' | 'stale' | 'dead';
  * - dead: >50h or no runs at all
  * - running rows older than 15min are treated as failed (timeout)
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // SECURITY: this was fully public and exposed cron telemetry + raw
+  // error_message. Allow either a CRON_SECRET bearer (so an external uptime
+  // check can poll it, matching /api/cron) or an authenticated session.
+  const secret = process.env.CRON_SECRET;
+  const bearer = request.headers.get('authorization') || request.headers.get('Authorization');
+  const hasCronSecret = !!secret && bearer === `Bearer ${secret}`;
+  if (!hasCronSecret) {
+    try {
+      await requireUser();
+    } catch (e) {
+      if (e instanceof AuthError) return error(e.message, e.status);
+      throw e;
+    }
+  }
+
   const recentRuns = await query<CronRunRow>(
     `SELECT id, started_at, finished_at, status, duration_ms,
             monitors_ran, watch_sources_processed, correlations_ran,

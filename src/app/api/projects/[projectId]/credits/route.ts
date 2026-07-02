@@ -37,6 +37,13 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
+  // SECURITY: this mints free credits. It is a dev/E2E affordance only — the
+  // client gated the button behind NODE_ENV, but the route had no server guard,
+  // so a crafted request could mint credits in production. Hard-stop here.
+  if (process.env.NODE_ENV === 'production') {
+    return error('Not available in production', 403);
+  }
+
   const { projectId } = await params;
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
@@ -70,7 +77,7 @@ export async function PATCH(
   const currentCapUsd = existing?.cap_llm_usd ?? USER_MONTHLY_LLM_USD;
   const creditsPerDollar = currentCapCredits > 0
     ? currentCapCredits / currentCapUsd
-    : 100; // fallback — matches the per-user default (100 / $1)
+    : USER_MONTHLY_CREDITS / USER_MONTHLY_LLM_USD; // canonical default ratio (was a stale hardcoded 100)
 
   const newCapCredits = currentCapCredits + bumpCredits;
   const newCapUsd = newCapCredits / creditsPerDollar;

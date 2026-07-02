@@ -361,6 +361,9 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   content TEXT,
   user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  -- Reads order/filter by created_at (migration 027); kept alongside the legacy
+  -- `timestamp` column that INSERTs still populate.
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   tools_json TEXT,
   -- Parsed prose-level citations extracted from <CITATIONS> blocks.
   -- Stored as Source[] JSON so the UI can render a ProseCitationsFooter

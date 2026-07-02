@@ -20,12 +20,13 @@ import { countMemoryFactsMatching } from './snapshot';
 
 export const stageMarketValidation: Stage = {
   ...CANONICAL_BY_ID.market_validation,
-  tagline: 'Validate the pain is real, frequent, and worth paying to solve.',
+  tagline: 'Validate market demand and technical feasibility before you build.',
   checks: [
     {
       id: 'problem_defined',
       label: 'Problem clearly defined',
       source: 'idea_canvas.problem',
+      track: '1A',
       evaluate: (s) => {
         const p = s.idea_canvas?.problem?.trim() ?? '';
         const ok = p.length >= 40;
@@ -38,6 +39,7 @@ export const stageMarketValidation: Stage = {
       id: 'segment_named',
       label: 'Target segment named',
       source: 'idea_canvas.target_market',
+      track: '1A',
       evaluate: (s) => {
         const ok = !!s.idea_canvas?.target_market?.trim();
         return ok
@@ -49,6 +51,7 @@ export const stageMarketValidation: Stage = {
       id: 'competitors_mapped',
       label: '3+ competitors mapped',
       source: 'competitor_profiles',
+      track: '1A',
       evaluate: (s) => {
         const n = s.competitors.length;
         const ok = n >= 3;
@@ -61,6 +64,7 @@ export const stageMarketValidation: Stage = {
       id: 'market_size',
       label: 'Market size estimated',
       source: 'memory_facts (market sizing)',
+      track: '1A',
       evaluate: (s) => {
         // Bilingual (EN + IT): TAM/SAM/SOM are universal; "dimensione del mercato",
         // "mercato indirizzabile" are how an Italian founder states it in prose.
@@ -78,6 +82,7 @@ export const stageMarketValidation: Stage = {
       id: 'interviews_logged',
       label: '5+ customer interviews logged',
       source: 'interviews',
+      track: '1A',
       evaluate: (s) => {
         // Deterministic row count from the structured interviews table.
         // Founder logs via chat (log_interview tool) or POST /api/.../interviews.
@@ -92,6 +97,7 @@ export const stageMarketValidation: Stage = {
       id: 'pain_validated',
       label: 'Top pain point captured',
       source: 'interviews.top_pain + memory_facts',
+      track: '1A',
       evaluate: (s) => {
         // Prefer structured: an interview row with a non-empty top_pain is
         // higher-signal than a memory_fact keyword match. Fall back to
@@ -117,6 +123,7 @@ export const stageMarketValidation: Stage = {
       id: 'monitors_set',
       label: 'Watchers active',
       source: 'monitors + watch_sources',
+      track: '1A',
       evaluate: (s) => {
         // ANY active signal-watching counts: topic monitors AND URL watchers
         // (watch_sources). Both are "watchers" to the founder — a project
@@ -134,6 +141,7 @@ export const stageMarketValidation: Stage = {
       id: 'differentiation_evidence',
       label: 'Differentiation evidenced',
       source: 'memory_facts (vs. competitors)',
+      track: '1A',
       evaluate: (s) => {
         // NOTE: 'vs' was removed — as a bare substring it matched almost any
         // comparison ("email vs calls"), letting unrelated facts falsely green

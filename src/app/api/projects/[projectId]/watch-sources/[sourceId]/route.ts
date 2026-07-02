@@ -4,6 +4,7 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { json, error } from '@/lib/api-helpers';
 import type { WatchSource, SourceChange, WatchSourceCategory } from '@/types';
 import { VALID_CATEGORIES } from '@/types';
+import { processWatchSource } from '@/lib/watch-source-processor';
 
 /**
  * GET /api/projects/[projectId]/watch-sources/[sourceId]
@@ -112,4 +113,37 @@ export async function DELETE(
   );
 
   return json({ deleted: true });
+}
+
+/**
+ * POST /api/projects/[projectId]/watch-sources/[sourceId]
+ * Manual "Scrape now" trigger — runs processWatchSource and returns the result.
+ *
+ * Folded here from the old .../[sourceId]/scrape leaf: a static segment under
+ * two dynamic segments ([projectId]/[sourceId]/scrape) 404s at runtime on the
+ * OpenNext/Netlify adapter despite a clean build (same footgun the monitor /run
+ * verb hit). The action lives on the parent dynamic route so it resolves in prod.
+ */
+export async function POST(
+  _request: NextRequest,
+  { params }: { params: Promise<{ projectId: string; sourceId: string }> },
+) {
+  const { projectId, sourceId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+
+  const sources = await query<WatchSource>(
+    'SELECT * FROM watch_sources WHERE id = ? AND project_id = ?',
+    sourceId, projectId,
+  );
+  if (sources.length === 0) {
+    return error('Watch source not found', 404);
+  }
+
+  try {
+    const result = await processWatchSource(sources[0]);
+    return json(result);
+  } catch (err) {
+    return error(`Scrape failed: ${(err as Error).message}`, 500);
+  }
 }

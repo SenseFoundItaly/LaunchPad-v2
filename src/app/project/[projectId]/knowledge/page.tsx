@@ -23,6 +23,7 @@ import { KnowledgeRow, type KnowledgeTone } from '@/components/shared/KnowledgeR
 import { InboxGroup, type TriageRow } from '@/components/shared/InboxGroup';
 import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
 import EntityGridFallback from '@/components/knowledge/EntityGridFallback';
+import AllKnowledgePanel from '@/components/knowledge/AllKnowledgePanel';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import { CompetitorMatryoshka } from '@/components/knowledge/CompetitorMatryoshka';
 import type { GraphNode, GraphEdge } from '@/types/graph';
@@ -169,7 +170,16 @@ export default function KnowledgePage({ params }: { params: Promise<{ projectId:
     <div className="lp-rise" style={{ flex: 1, minWidth: 0, display: 'flex', minHeight: 0 }}>
       <KnowledgeSidebar views={views} active={view} onSelect={(id) => setView(id as View)} />
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {view === 'all' && <CuratedView items={curated} />}
+        {/* 'all' renders AllKnowledgePanel (PR #175: every knowledge item grouped
+            by kind, gradient-tinted sections). It supersedes the mockup-era
+            CuratedView: when the sidebar IA (this restyle) met the Graph↔List
+            toggle (#175), the sidebar's Project Knowledge entry became the list
+            view, so the floating toggle is gone and one list implementation wins. */}
+        {view === 'all' && (
+          <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 16 }}>
+            <AllKnowledgePanel projectId={projectId} />
+          </div>
+        )}
         {view === 'inbox' && (
           <InboxView
             groups={groups}
@@ -194,6 +204,23 @@ export default function KnowledgePage({ params }: { params: Promise<{ projectId:
                 <EntityGridFallback nodes={graph.nodes} />
               ) : (
                 <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} />
+              )}
+              {pending.length > 0 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 12,
+                    bottom: 12,
+                    fontSize: 10.5,
+                    color: 'var(--ink-5)',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--line)',
+                    borderRadius: 6,
+                    padding: '4px 8px',
+                  }}
+                >
+                  {t('knowledge.dashed-hint')}
+                </div>
               )}
             </div>
           </div>
