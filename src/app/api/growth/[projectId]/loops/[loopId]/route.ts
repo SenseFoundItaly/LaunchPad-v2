@@ -11,7 +11,8 @@ export async function GET(
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
 
-  const loops = await query('SELECT * FROM growth_loops WHERE id = ?', loopId);
+  // SECURITY: scope the loop to the URL project (cross-project IDOR).
+  const loops = await query('SELECT * FROM growth_loops WHERE id = ? AND project_id = ?', loopId, projectId);
   if (loops.length === 0) {return error('Loop not found', 404);}
 
   const iterations = await query(

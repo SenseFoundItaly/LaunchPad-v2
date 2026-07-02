@@ -16,8 +16,8 @@ export async function POST(
     return error('value is required');
   }
 
-  // Verify metric exists
-  const metrics = await query('SELECT id FROM metrics WHERE id = ?', metricId);
+  // SECURITY: verify the metric belongs to the URL project (cross-project IDOR).
+  const metrics = await query('SELECT id FROM metrics WHERE id = ? AND project_id = ?', metricId, projectId);
   if (metrics.length === 0) {return error('Metric not found', 404);}
 
   const id = generateId('ent');

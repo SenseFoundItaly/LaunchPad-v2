@@ -13,7 +13,9 @@ export async function PUT(
   const body = await request.json();
   if (!body) {return error('Request body required');}
 
-  const rows = await query('SELECT id FROM investors WHERE id = ?', investorId);
+  // SECURITY: scope the investor to the URL project — tryProjectAccess only
+  // authorizes projectId, not that investorId belongs to it (cross-project IDOR).
+  const rows = await query('SELECT id FROM investors WHERE id = ? AND project_id = ?', investorId, projectId);
   if (rows.length === 0) {return error('Investor not found', 404);}
 
   const fields: string[] = [];
@@ -37,11 +39,11 @@ export async function PUT(
   if (fields.length > 0) {
     fields.push('updated_at = ?');
     values.push(new Date().toISOString());
-    values.push(investorId);
-    await run(`UPDATE investors SET ${fields.join(', ')} WHERE id = ?`, ...values);
+    values.push(investorId, projectId);
+    await run(`UPDATE investors SET ${fields.join(', ')} WHERE id = ? AND project_id = ?`, ...values);
   }
 
-  const [investor] = await query('SELECT * FROM investors WHERE id = ?', investorId);
+  const [investor] = await query('SELECT * FROM investors WHERE id = ? AND project_id = ?', investorId, projectId);
   return json(investor);
 }
 
@@ -53,12 +55,13 @@ export async function DELETE(
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
 
-  const rows = await query('SELECT id FROM investors WHERE id = ?', investorId);
+  // SECURITY: verify the investor belongs to the URL project before cascading.
+  const rows = await query('SELECT id FROM investors WHERE id = ? AND project_id = ?', investorId, projectId);
   if (rows.length === 0) {return error('Investor not found', 404);}
 
   await run('DELETE FROM investor_interactions WHERE investor_id = ?', investorId);
   await run('DELETE FROM term_sheets WHERE investor_id = ?', investorId);
-  await run('DELETE FROM investors WHERE id = ?', investorId);
+  await run('DELETE FROM investors WHERE id = ? AND project_id = ?', investorId, projectId);
 
   return json(null);
 }

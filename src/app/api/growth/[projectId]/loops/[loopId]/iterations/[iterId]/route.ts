@@ -13,7 +13,14 @@ export async function PUT(
   const body = await request.json();
   if (!body) {return error('Request body required');}
 
-  const rows = await query('SELECT id FROM growth_iterations WHERE id = ?', iterId);
+  // SECURITY: growth_iterations has no project_id, so verify via its loop that
+  // the iteration belongs to the URL project (cross-project IDOR).
+  const rows = await query(
+    `SELECT gi.id FROM growth_iterations gi
+     JOIN growth_loops gl ON gl.id = gi.loop_id
+     WHERE gi.id = ? AND gl.project_id = ?`,
+    iterId, projectId,
+  );
   if (rows.length === 0) {return error('Iteration not found', 404);}
 
   const fields: string[] = [];
@@ -37,8 +44,12 @@ export async function PUT(
   }
 
   if (fields.length > 0) {
-    values.push(iterId);
-    await run(`UPDATE growth_iterations SET ${fields.join(', ')} WHERE id = ?`, ...values);
+    values.push(iterId, projectId);
+    await run(
+      `UPDATE growth_iterations SET ${fields.join(', ')}
+       WHERE id = ? AND loop_id IN (SELECT id FROM growth_loops WHERE project_id = ?)`,
+      ...values,
+    );
   }
 
   const [iteration] = await query('SELECT * FROM growth_iterations WHERE id = ?', iterId);
