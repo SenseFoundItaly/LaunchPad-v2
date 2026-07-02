@@ -14,6 +14,9 @@ const ALL_TYPES: GraphNodeType[] = [
   'your_startup', 'competitor', 'technology', 'market_segment', 'persona',
   'risk', 'trend', 'company', 'compliance', 'regulation',
   'partner', 'funding_source', 'feature', 'metric',
+  // Derived-analysis types — surfaced so they carry a colour swatch + can be
+  // toggled off, instead of appearing as unlabelled grey dots.
+  'metrics', 'benchmark', 'comparison', 'competitor_set', 'research_metric', 'market',
 ];
 
 export default function GraphLegend({ activeTypes, hiddenTypes, onToggleType, nodeCount, edgeCount }: GraphLegendProps) {

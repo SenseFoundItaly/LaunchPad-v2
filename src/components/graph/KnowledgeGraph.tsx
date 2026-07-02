@@ -3,7 +3,7 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import * as d3 from 'd3';
 import type { GraphNode, GraphEdge, MacroCategory } from '@/types/graph';
-import { NODE_COLORS, MACRO_CATEGORY_ORDER, MACRO_CATEGORY_LABEL, macroCategoryFor } from '@/types/graph';
+import { NODE_COLORS, MACRO_CATEGORY_ORDER, MACRO_CATEGORY_LABEL, MACRO_CATEGORY_COLOR, macroCategoryFor } from '@/types/graph';
 import NodeDetailPanel, { type NodeNeighbor } from './NodeDetailPanel';
 import { useLocale } from '@/components/providers/LocaleProvider';
 
@@ -36,21 +36,10 @@ interface SimLink extends d3.SimulationLinkDatum<SimNode> {
   rawData: GraphEdge;
 }
 
-// Cluster positions — radial layout by MACRO-CATEGORY around the startup root,
-// not by raw node_type. This is the "matrioska" ordering from the 2026-06 sync:
-// each ecosystem role (concorrenza / clienti / partner / investitori / contesto)
-// gets its own wedge so the graph reads as grouped regions instead of a flat
-// scatter. Evenly spaced clockwise from the right.
-const MACRO_ANGLE: Record<MacroCategory, number> = MACRO_CATEGORY_ORDER.reduce(
-  (acc, cat, i) => { acc[cat] = (360 / MACRO_CATEGORY_ORDER.length) * i; return acc; },
-  {} as Record<MacroCategory, number>,
-);
-
-/** The macro-category wedge angle (deg) a node clusters into; startup = center. */
-const angleForType = (type: string): number => {
-  const cat = macroCategoryFor(type);
-  return cat ? MACRO_ANGLE[cat] : 0;
-};
+// Layout note: nodes cluster by MACRO-CATEGORY (the 2026-06 "matrioska"), one
+// tinted region per ecosystem role. The per-category ANGLE is computed inside
+// the effect from the categories actually present, so absent roles don't leave
+// the graph lopsided — see catAngleDeg below.
 
 /** Normalize an edge endpoint (string id, raw node, or sim node) to its id.
  * Module-scope + pure so it has a stable identity across renders. */
@@ -107,6 +96,13 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
   const visibleEdges = useMemo(() => {
     const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
     return edges.filter(e => {
+      // Virtual root→node edges are a layout/UX artefact ("belongs to the
+      // project"), NOT real relationships. Drawing + simulating them collapsed
+      // every unconnected node into a radial star around the root and defeated
+      // the category clustering. Exclude them here so the graph lays out purely
+      // by ecosystem region; the NodeDetailPanel still derives "belongs to" from
+      // the raw `edges` prop, so that context is not lost.
+      if (e.virtual) return false;
       const s = getId(e.source), t = getId(e.target);
       return visibleNodeIds.has(s) && visibleNodeIds.has(t);
     });
@@ -163,25 +159,46 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
 
     const getColor = (type: string) => NODE_COLORS[type] || 'var(--ink-5)';
 
-    // Cluster targets — by macro-category wedge (startup at center).
+    // Distribute the categories that ACTUALLY have nodes evenly around the
+    // circle (starting at the top, clockwise) instead of using fixed global
+    // wedges. With fixed wedges an absent category (e.g. no investors) left a
+    // gap and shoved the whole graph off-centre; even distribution keeps the
+    // startup root balanced in the middle whatever mix of categories exists.
+    const presentCats = MACRO_CATEGORY_ORDER.filter(cat =>
+      simNodes.some(n => n.node_type !== 'your_startup' && macroCategoryFor(n.node_type) === cat),
+    );
+    const catAngleDeg = new Map<MacroCategory, number>(
+      presentCats.map((cat, i) => [cat, -90 + (360 / Math.max(1, presentCats.length)) * i]),
+    );
+    const angleForNodeType = (type: string): number => {
+      const cat = macroCategoryFor(type);
+      return cat && catAngleDeg.has(cat) ? catAngleDeg.get(cat)! : -90;
+    };
+
+    // Cluster targets — by macro-category (startup pinned at centre).
     const clusterX = (type: string) => {
       if (type === 'your_startup') return cx;
-      const angle = angleForType(type) * (Math.PI / 180);
+      const angle = angleForNodeType(type) * (Math.PI / 180);
       return cx + Math.cos(angle) * clusterRadius;
     };
     const clusterY = (type: string) => {
       if (type === 'your_startup') return cy;
-      const angle = angleForType(type) * (Math.PI / 180);
+      const angle = angleForNodeType(type) * (Math.PI / 180);
       return cy + Math.sin(angle) * clusterRadius;
     };
 
-    // Simulation with clustering forces
+    // Simulation with STRONG clustering forces. The category pull (0.35) now
+    // dominates the (real-edge-only) link + charge forces, so same-category
+    // nodes sit together in their wedge and the graph reads as grouped regions
+    // rather than one radial scatter. Charge is softened and collide tightened
+    // so a category with many nodes spreads into a readable disk instead of a
+    // line. your_startup is pinned to the exact centre so it anchors the middle.
     const simulation = d3.forceSimulation<SimNode>(simNodes)
-      .force('link', d3.forceLink<SimNode, SimLink>(simLinks).id(d => d.id).distance(120))
-      .force('charge', d3.forceManyBody().strength(-300))
-      .force('collide', d3.forceCollide(40))
-      .force('clusterX', d3.forceX<SimNode>(d => clusterX(d.node_type)).strength(0.08))
-      .force('clusterY', d3.forceY<SimNode>(d => clusterY(d.node_type)).strength(0.08));
+      .force('link', d3.forceLink<SimNode, SimLink>(simLinks).id(d => d.id).distance(90).strength(0.3))
+      .force('charge', d3.forceManyBody().strength(-160))
+      .force('collide', d3.forceCollide(30))
+      .force('clusterX', d3.forceX<SimNode>(d => clusterX(d.node_type)).strength(d => d.node_type === 'your_startup' ? 1 : 0.35))
+      .force('clusterY', d3.forceY<SimNode>(d => clusterY(d.node_type)).strength(d => d.node_type === 'your_startup' ? 1 : 0.35));
 
     simulationRef.current = simulation;
 
@@ -192,31 +209,74 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
       .on('zoom', (event) => { g.attr('transform', event.transform); })
     );
 
-    // Macro-category region labels — one faint anchor per category that actually
-    // has visible nodes, parked at its wedge so the founder reads the graph as
-    // grouped regions (Concorrenza / Clienti / Partner / Investitori / Contesto).
-    // Drawn first → sits behind links + nodes; static (not tick-driven).
-    const presentCats = new Set(
-      visibleNodes.map(n => macroCategoryFor(n.node_type)).filter(Boolean),
-    );
-    const labelRadius = clusterRadius * 1.32;
-    const regionGroup = g.append('g').attr('pointer-events', 'none');
-    for (const cat of MACRO_CATEGORY_ORDER) {
-      if (!presentCats.has(cat)) continue;
-      const a = MACRO_ANGLE[cat] * (Math.PI / 180);
-      regionGroup.append('text')
-        .text(MACRO_CATEGORY_LABEL[cat][locale === 'it' ? 'it' : 'en'].toUpperCase())
-        .attr('x', cx + Math.cos(a) * labelRadius)
-        .attr('y', cy + Math.sin(a) * labelRadius)
-        .attr('text-anchor', 'middle')
-        .attr('dominant-baseline', 'middle')
-        .attr('font-size', '11px')
-        .attr('font-weight', '700')
-        .attr('letter-spacing', '0.08em')
-        .attr('fill', 'var(--ink-5)')
-        .style('font-family', 'system-ui')
-        .style('text-transform', 'uppercase');
-    }
+    // Macro-category REGIONS — a soft tinted background hull per ecosystem role
+    // (Concorrenza / Clienti / Partner / Investitori / Contesto), each in the
+    // category's colour at low opacity with its label floated above. This is the
+    // founder's "un colore chiaro per categoria" + "gruppi per categoria vicini":
+    // the wash makes the grouping legible even when a project has no real edges.
+    // Drawn FIRST so it sits behind links + nodes; positions recomputed on tick
+    // because the cluster force settles the node coordinates over time.
+    const hullGroup = g.append('g').attr('pointer-events', 'none');
+    // presentCats is computed above (drives the cluster angles too).
+
+    /** Rounded, padded blob path around a category's node points. 1 point → a
+     *  circle; 2 → a capsule-ish circle; ≥3 → a Catmull-Rom-smoothed convex hull
+     *  expanded outward from its centroid so nodes sit comfortably inside. */
+    const HULL_PAD = 34;
+    const smoothClosed = d3.line().curve(d3.curveCatmullRomClosed.alpha(0.6));
+    const circlePath = (x: number, y: number, r: number) =>
+      `M${x - r},${y}a${r},${r} 0 1,0 ${r * 2},0a${r},${r} 0 1,0 ${-r * 2},0`;
+    const regionPath = (pts: [number, number][]): string => {
+      if (pts.length === 0) return '';
+      if (pts.length === 1) return circlePath(pts[0][0], pts[0][1], HULL_PAD + 6);
+      if (pts.length === 2) {
+        const mx = (pts[0][0] + pts[1][0]) / 2, my = (pts[0][1] + pts[1][1]) / 2;
+        const r = Math.hypot(pts[0][0] - mx, pts[0][1] - my) + HULL_PAD + 6;
+        return circlePath(mx, my, r);
+      }
+      const hull = d3.polygonHull(pts);
+      if (!hull) return '';
+      const hx = d3.mean(hull, p => p[0]) ?? 0, hy = d3.mean(hull, p => p[1]) ?? 0;
+      const expanded = hull.map(([x, y]) => {
+        const dx = x - hx, dy = y - hy, d = Math.hypot(dx, dy) || 1;
+        return [x + (dx / d) * HULL_PAD, y + (dy / d) * HULL_PAD] as [number, number];
+      });
+      return smoothClosed(expanded) ?? '';
+    };
+
+    const regions = hullGroup.selectAll<SVGGElement, MacroCategory>('g.region')
+      .data(presentCats).enter().append('g').attr('class', 'region');
+    regions.append('path')
+      .attr('fill', d => MACRO_CATEGORY_COLOR[d])
+      .attr('fill-opacity', 0.07)
+      .attr('stroke', d => MACRO_CATEGORY_COLOR[d])
+      .attr('stroke-opacity', 0.22)
+      .attr('stroke-width', 1);
+    regions.append('text')
+      .text(d => MACRO_CATEGORY_LABEL[d][locale === 'it' ? 'it' : 'en'].toUpperCase())
+      .attr('text-anchor', 'middle')
+      .attr('font-size', '10.5px')
+      .attr('font-weight', '700')
+      .attr('letter-spacing', '0.09em')
+      .attr('fill', d => MACRO_CATEGORY_COLOR[d])
+      .attr('fill-opacity', 0.85)
+      .style('font-family', 'system-ui');
+
+    /** Recompute every region hull + label from the current node positions. */
+    const updateRegions = () => {
+      regions.each(function (cat) {
+        const pts = simNodes
+          .filter(n => n.node_type !== 'your_startup' && macroCategoryFor(n.node_type) === cat && n.x != null && n.y != null)
+          .map(n => [n.x as number, n.y as number] as [number, number]);
+        const sel = d3.select(this);
+        sel.select('path').attr('d', regionPath(pts));
+        if (pts.length > 0) {
+          const lx = d3.mean(pts, p => p[0]) ?? 0;
+          const minY = d3.min(pts, p => p[1]) ?? 0;
+          sel.select('text').attr('x', lx).attr('y', minY - HULL_PAD - 4);
+        }
+      });
+    };
 
     const getLinkPath = (d: SimLink) => {
       const src = d.source as SimNode, tgt = d.target as SimNode;
@@ -355,6 +415,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
 
     // Tick
     simulation.on('tick', () => {
+      updateRegions();
       link.attr('d', d => getLinkPath(d));
       linkLabelGroup.each(function (d) {
         const mid = getLinkMid(d);

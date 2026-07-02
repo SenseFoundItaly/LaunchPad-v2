@@ -14,7 +14,20 @@ export type GraphNodeType =
   | 'partner'
   | 'funding_source'
   | 'feature'
-  | 'metric';
+  | 'metric'
+  // Derived-analysis node types minted by chat artifacts (metric-grid,
+  // comparison-table). They were historically absent from the colour/category
+  // maps → rendered as anonymous grey dots outside every legend/region. They
+  // are ecosystem CONTEXT (benchmarks, metric snapshots, comparisons), except
+  // competitor_set (a set of competitors → competition) and market (a market →
+  // customers). Note `metrics` (plural) is the DB value; `metric` is the legacy
+  // singular — both are mapped.
+  | 'metrics'
+  | 'benchmark'
+  | 'comparison'
+  | 'competitor_set'
+  | 'research_metric'
+  | 'market';
 
 /**
  * Macro-category grouping — the "matrioska" the founder asked for in the
@@ -30,8 +43,10 @@ export const MACRO_CATEGORY: Record<GraphNodeType, MacroCategory | null> = {
   your_startup: null,
   competitor: 'concorrenza',
   company: 'concorrenza',
+  competitor_set: 'concorrenza',
   persona: 'clienti',
   market_segment: 'clienti',
+  market: 'clienti',
   partner: 'partner',
   funding_source: 'investitori',
   technology: 'contesto',
@@ -41,6 +56,24 @@ export const MACRO_CATEGORY: Record<GraphNodeType, MacroCategory | null> = {
   regulation: 'contesto',
   feature: 'contesto',
   metric: 'contesto',
+  metrics: 'contesto',
+  benchmark: 'contesto',
+  comparison: 'contesto',
+  research_metric: 'contesto',
+};
+
+/**
+ * One tint per macro-category — the soft background wash that groups each
+ * ecosystem region on the graph (the founder's "un colore chiaro per
+ * categoria"). Each is the dominant node colour of that category so the wash
+ * harmonises with the nodes sitting on it; applied at low fill-opacity.
+ */
+export const MACRO_CATEGORY_COLOR: Record<MacroCategory, string> = {
+  concorrenza: 'var(--clay)',
+  clienti: 'var(--cat-gold)',
+  partner: 'var(--cat-teal)',
+  investitori: 'var(--moss)',
+  contesto: 'var(--plum)',
 };
 
 /** Stable render order (clockwise from the right) + bilingual labels. */
@@ -118,4 +151,11 @@ export const NODE_COLORS: Record<string, string> = {
   funding_source: 'var(--moss)',
   feature: 'var(--plum)',
   metric: 'var(--sky)',
+  // Derived-analysis types (see GraphNodeType note) — no longer grey blobs.
+  metrics: 'var(--sky)',
+  benchmark: 'var(--sky)',
+  research_metric: 'var(--sky)',
+  comparison: 'var(--plum)',
+  competitor_set: 'var(--clay)',
+  market: 'var(--moss)',
 };
