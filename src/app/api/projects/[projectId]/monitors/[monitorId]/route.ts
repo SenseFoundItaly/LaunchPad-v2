@@ -51,7 +51,10 @@ interface AlertRow {
 }
 
 const VALID_SCHEDULES = new Set(['daily', 'weekly', 'monthly', 'manual']);
-const VALID_STATUSES = new Set(['active', 'paused']);
+// 'archived' is a soft delete: listWatchers already filters it out, so an
+// archived watcher disappears from the founder's list but its runs/alerts stay
+// intact (no FK cascade). Reversible by PATCHing back to 'paused'/'active'.
+const VALID_STATUSES = new Set(['active', 'paused', 'archived']);
 
 /**
  * GET /api/projects/[projectId]/monitors/[monitorId]

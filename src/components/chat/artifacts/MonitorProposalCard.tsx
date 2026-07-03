@@ -155,17 +155,27 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
         )}
       </div>
 
-      {/* Overlap warning */}
+      {/* Overlap warning — every field is optional-guarded so a partial
+          payload (e.g. an override with no computed overlap) degrades to just
+          the override reason instead of crashing on undefined.toFixed(). */}
       {artifact.overlap_warning && (
         <div className="mb-2 p-2 bg-clay/10 border border-clay/40 rounded text-[11px]">
           <div className="font-semibold text-clay mb-0.5">
             Dedup warning — agent bypassed semantic overlap check
           </div>
-          <div className="text-clay/80">
-            Matches existing monitor <span className="font-mono">{artifact.overlap_warning.existing_name}</span>
-            {' '}(score {artifact.overlap_warning.overlap_score.toFixed(2)})
-          </div>
-          <div className="text-clay/70 mt-1">Reason: {artifact.overlap_warning.reason}</div>
+          {artifact.overlap_warning.existing_name && (
+            <div className="text-clay/80">
+              Matches existing monitor <span className="font-mono">{artifact.overlap_warning.existing_name}</span>
+              {typeof artifact.overlap_warning.overlap_score === 'number' &&
+                ` (score ${artifact.overlap_warning.overlap_score.toFixed(2)})`}
+            </div>
+          )}
+          {artifact.overlap_warning.reason && (
+            <div className="text-clay/70 mt-1">Reason: {artifact.overlap_warning.reason}</div>
+          )}
+          {artifact.overlap_warning.override_reason && (
+            <div className="text-clay/70 mt-1">Override: {artifact.overlap_warning.override_reason}</div>
+          )}
         </div>
       )}
 

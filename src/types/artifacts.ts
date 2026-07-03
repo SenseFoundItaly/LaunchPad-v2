@@ -357,6 +357,8 @@ export interface MonitorProposalArtifact extends ArtifactBase {
     existing_name: string;
     overlap_score: number;
     reason: string;
+    /** The agent's public justification for overriding the dedup check. */
+    override_reason?: string;
   };
 
   // Estimated monthly cost in EUR based on schedule × avg-runs × balanced-tier.

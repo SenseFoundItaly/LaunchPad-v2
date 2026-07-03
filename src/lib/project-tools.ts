@@ -882,9 +882,21 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
 
     const estimatedMonthlyCost = estimateMonthlyCostEur(schedule);
     const creditEstimate = await estimateMonitorCredits(ctx.projectId, schedule);
-    const overlapWarning = p.dedup_override && p.override_reason
-      ? { override_reason: p.override_reason }
-      : undefined;
+    // Populate the founder's overlap warning from the dedup verdict's real
+    // overlap details (existing monitor + score + reason) — NOT just the
+    // override_reason. The card renders existing_name/overlap_score, so a
+    // partial object crashed it; here it is either fully populated or absent.
+    const dedupOverlap = dedup.ok ? dedup.overlap : undefined;
+    const overlapWarning =
+      p.dedup_override && dedupOverlap
+        ? {
+            existing_monitor_id: dedupOverlap.existing_monitor_id,
+            existing_name: dedupOverlap.existing_name,
+            overlap_score: dedupOverlap.overlap_score,
+            reason: dedupOverlap.reason,
+            override_reason: p.override_reason,
+          }
+        : undefined;
 
     // Create the pending_actions row. The payload mirrors the artifact
     // shape exactly so the configure_monitor executor can pull straight

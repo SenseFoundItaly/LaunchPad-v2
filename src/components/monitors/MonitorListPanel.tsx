@@ -34,6 +34,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import type { Watcher } from '@/lib/watchers';
+import { runSummaryDisplay } from '@/lib/monitor-run-summary';
 import { watcherRunLabel } from '@/lib/watcher-cost';
 import NewWatcherForm from '@/components/monitors/NewWatcherForm';
 import { useT } from '@/components/providers/LocaleProvider';
@@ -521,7 +522,10 @@ function ExpandableWatcherRow({
     },
   });
 
-  const [busy, setBusy] = useState<'run' | 'status' | 'save' | null>(null);
+  const [busy, setBusy] = useState<'run' | 'status' | 'save' | 'archive' | null>(null);
+  // Two-click archive guard: first click arms (turns the button red), second
+  // confirms. Disarms on mouse-leave so a stray click can't remove a watcher.
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
 
   // Live-run state: the activity feed + streamed prose + final outcome.
@@ -557,10 +561,13 @@ function ExpandableWatcherRow({
     }
   }
 
-  // Pause / resume — same PATCH CronSettingsPanel issues.
-  async function setStatus(next: 'active' | 'paused') {
+  // Pause / resume / archive — all one PATCH {status}. 'archived' is a soft
+  // delete: the row drops out of the founder's list (listWatchers filters it)
+  // but its runs/alerts survive, and it can be un-archived from the DB. Gives
+  // the founder a real "remove this watcher" without a destructive cascade.
+  async function setStatus(next: 'active' | 'paused' | 'archived') {
     if (busy) return;
-    setBusy('status');
+    setBusy(next === 'archived' ? 'archive' : 'status');
     setActionErr(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/monitors/${w._origin_id}`, {
@@ -715,8 +722,20 @@ function ExpandableWatcherRow({
   }
 
   const liveStatus = detail?.monitor?.status ?? w.status;
-  const summary = detail?.last_run?.summary?.trim() || '';
-  const summaryExcerpt = summary.length > 360 ? `${summary.slice(0, 360)}…` : summary;
+  // Founder-facing run verdict — never the raw agent transcript. A 0-alert run
+  // shows a clean "checked, nothing moved" (or an honest "source unavailable"
+  // when the search provider was down), and only a genuine finding shows prose.
+  const runDisp = detail?.last_run ? runSummaryDisplay(detail.last_run) : null;
+  const summaryExcerpt = (() => {
+    if (!runDisp) return '';
+    switch (runDisp.kind) {
+      case 'all-clear': return t('monitors.run-all-clear');
+      case 'source-unavailable': return t('monitors.run-source-unavailable');
+      case 'failed': return t('monitors.run-failed-line');
+      case 'text': return runDisp.text.length > 360 ? `${runDisp.text.slice(0, 360)}…` : runDisp.text;
+      default: return '';
+    }
+  })();
   // Run history for the Logs subsection (already ordered newest-first).
   const recentRuns = detail?.recent_runs ?? [];
 
@@ -908,8 +927,16 @@ function ExpandableWatcherRow({
                     {logsOpen && (
                       <ul style={{ margin: '8px 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
                         {recentRuns.map((run) => {
-                          const runSummary = run.summary?.trim() || '';
-                          const runExcerpt = runSummary.length > 400 ? `${runSummary.slice(0, 400)}…` : runSummary;
+                          // Same verdict mapping as the headline run — never the
+                          // raw transcript. 'none' collapses to the italic
+                          // no-summary line via the empty string.
+                          const rd = runSummaryDisplay(run);
+                          const runExcerpt =
+                            rd.kind === 'all-clear' ? t('monitors.run-all-clear')
+                            : rd.kind === 'source-unavailable' ? t('monitors.run-source-unavailable')
+                            : rd.kind === 'failed' ? t('monitors.run-failed-line')
+                            : rd.kind === 'text' ? (rd.text.length > 400 ? `${rd.text.slice(0, 400)}…` : rd.text)
+                            : '';
                           const isOpen = openRunId === run.id;
                           return (
                             <li key={run.id} style={{ background: 'var(--paper-2)', borderRadius: 6 }}>
@@ -1006,6 +1033,20 @@ function ExpandableWatcherRow({
                     style={{ ...miniBtn, opacity: busy ? 0.55 : 1 }}
                   >
                     {busy === 'status' ? t('monitors.saving') : liveStatus === 'paused' ? t('monitors.resume') : t('monitors.pause')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy !== null}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirmArchive) { void setStatus('archived'); setConfirmArchive(false); }
+                      else setConfirmArchive(true);
+                    }}
+                    onMouseLeave={() => setConfirmArchive(false)}
+                    style={{ ...miniBtn, opacity: busy ? 0.55 : 1, color: confirmArchive ? 'var(--clay)' : undefined, borderColor: confirmArchive ? 'var(--clay)' : undefined }}
+                    title={t('monitors.archive-hint')}
+                  >
+                    {busy === 'archive' ? t('monitors.saving') : confirmArchive ? t('monitors.archive-confirm') : t('monitors.archive')}
                   </button>
                   {actionErr && <span style={{ fontSize: 11, color: 'var(--clay)' }}>{actionErr}</span>}
                 </div>
