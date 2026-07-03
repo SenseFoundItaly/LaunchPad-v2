@@ -16,6 +16,8 @@ interface KnowledgeGraphProps {
   onApplyNode?: (node: GraphNode) => void;
   /** Called when a PENDING node is dismissed from the detail drawer — rejects it (free). */
   onDismissNode?: (node: GraphNode) => void;
+  /** Persist an edited name/summary for a node (from the detail drawer). */
+  onSaveNode?: (node: GraphNode, patch: { name?: string; summary?: string }) => Promise<void> | void;
 }
 
 interface SimNode extends d3.SimulationNodeDatum {
@@ -49,7 +51,7 @@ const getId = (ref: string | GraphNode | SimNode | undefined): string => {
   return (ref as { id: string }).id || '';
 };
 
-export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick, onApplyNode, onDismissNode }: KnowledgeGraphProps) {
+export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick, onApplyNode, onDismissNode, onSaveNode }: KnowledgeGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<d3.Simulation<SimNode, SimLink> | null>(null);
@@ -499,30 +501,29 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
       backgroundImage: 'radial-gradient(var(--line) 1px, transparent 1px)',
       backgroundSize: '20px 20px',
     }}>
-      {/* Controls bar */}
-      <div className="absolute top-3 left-3 right-3 flex items-center gap-2 z-10">
+      {/* Controls bar — clustered on the LEFT so it never collides with the
+          page's Graph/List toggle in the top-right corner. Search + Expand sit
+          together; the fullscreen Expand becomes an icon button to stay compact. */}
+      <div className="absolute top-3 left-3 flex items-center gap-2 z-10">
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t('knowledge.graph-search')}
-          className="px-3 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-xs text-ink-3 placeholder-ink-6 outline-none focus:border-ink-6 w-48"
+          className="px-3 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-xs text-ink-3 placeholder-ink-6 outline-none focus:border-ink-6 w-44"
         />
-        <div className="flex-1" />
         <button
           onClick={() => setIsFullscreen(!isFullscreen)}
-          className="px-2 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-xs text-ink-4 hover:text-ink-2 transition-colors"
+          title={isFullscreen ? t('knowledge.graph-exit') : t('knowledge.graph-expand')}
+          aria-label={isFullscreen ? t('knowledge.graph-exit') : t('knowledge.graph-expand')}
+          className="flex items-center justify-center w-8 h-8 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-ink-4 hover:text-ink-2 transition-colors"
         >
-          {isFullscreen ? t('knowledge.graph-exit') : t('knowledge.graph-expand')}
+          {isFullscreen ? (
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M6 2H2v4M14 6V2h-4M10 14h4v-4M2 10v4h4" /></svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 2h4v4M14 2l-5 5M6 14H2v-4M2 14l5-5" /></svg>
+          )}
         </button>
-        {isFullscreen && (
-          <button
-            onClick={() => setIsFullscreen(false)}
-            className="px-2 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-xs text-ink-4 hover:text-ink-2"
-          >
-            ESC
-          </button>
-        )}
       </div>
 
       {nodes.length === 0 ? (
@@ -544,6 +545,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
         onSelectNeighbor={(n) => setDetailNode(n)}
         onApply={handleApply}
         onDismiss={handleDismiss}
+        onSaveEdit={onSaveNode}
       />
 
       <GraphLegend

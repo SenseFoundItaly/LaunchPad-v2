@@ -168,6 +168,25 @@ export default function KnowledgePage({
     }
   }
 
+  // Save an edited node name/summary from the graph detail drawer. Free (an
+  // edit, not an apply); PATCH carries {name, summary} instead of {state}. The
+  // graph refetches so the node re-renders with the new label/summary.
+  async function saveNode(node: GraphNode, patch: { name?: string; summary?: string }) {
+    const id = (node as { id?: string }).id;
+    if (!id) return;
+    const res = await fetch(`/api/projects/${projectId}/knowledge/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || `HTTP ${res.status}`);
+    }
+    window.dispatchEvent(new CustomEvent('lp-knowledge-changed'));
+    await qc.invalidateQueries({ queryKey: ['knowledge', projectId] });
+  }
+
   // Dismiss a pending node (reject). Unlike Apply this debits NOTHING, so we
   // fire only lp-knowledge-changed (no lp-credits-changed) and refetch so the
   // rejected node drops out of the graph.
@@ -232,7 +251,7 @@ export default function KnowledgePage({
           // The graph now groups nodes into tinted macro-category regions even
           // with zero real edges, so the old "disconnected dots → grid" fallback
           // is no longer needed — the grouped graph IS the good edgeless view.
-          <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} />
+          <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} />
         )}
         {view === 'graph' && pendingCount > 0 && (
           <div
