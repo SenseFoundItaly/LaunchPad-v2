@@ -16,6 +16,7 @@ import { generateId } from '@/lib/api-helpers';
 import { computeDedupeHash } from '@/lib/ecosystem-monitors';
 import { createPendingAction } from '@/lib/pending-actions';
 import { updateCompetitorProfile } from '@/lib/competitor-profiles';
+import { isAutoflowEnabled, routeAlertAutoflow } from '@/lib/signal-autoflow';
 import { logSignalActivity } from '@/lib/signal-activity-log';
 import type { EcosystemAlertType } from '@/types';
 
@@ -335,6 +336,27 @@ export async function persistEcosystemAlerts(
     }
   }
 
+  // ── SIGNAL_AUTOFLOW (Phase 2, flag-gated) ────────────────────────────────
+  // Route each freshly-persisted signal straight into Knowledge when it can be
+  // attributed deterministically (see signal-autoflow.ts for the full table):
+  // entity matches an existing node → enrich its timeline; confident new
+  // entity → create the node; junk → soft-drop with reason. Routed alerts are
+  // 'accepted'/'auto_dropped' so BOTH inbox producers skip them (the queue
+  // below via this set; materialize-on-read via its reviewed_state filter) —
+  // only unattributable / mid-confidence signals still reach the inbox. All
+  // routing is plain SQL (never an LLM call — this runs inside the scan/cron
+  // request); any routing error falls back to the inbox path, so autoflow can
+  // reduce founder workload but never lose a signal. Flag OFF ⇒ this block is
+  // inert and the behavior below is byte-identical to Phase 1.
+  const autoflowRouted = new Set<string>();
+  if (isAutoflowEnabled()) {
+    for (const p of persistedAlerts) {
+      if (!p.alertId) continue;
+      const verdict = await routeAlertAutoflow(opts.projectId, p.alertId);
+      if (verdict !== 'inbox') autoflowRouted.add(p.alertId);
+    }
+  }
+
   // ── Auto-queue: a signal is ONE thing ──────────────────────────────────
   // INVARIANT: every watcher finding materializes as action_type='signal_alert'
   // — accept routes to knowledge, reject dismisses; no type mutation. Findings
@@ -349,7 +371,7 @@ export async function persistEcosystemAlerts(
   // suggested_action is still a signal the founder must review.
   const candidates = persistedAlerts
     // alertId guard: alerts whose DB write failed have no FK target — never queue.
-    .filter(p => p.alertId && p.alert.relevance_score >= threshold)
+    .filter(p => p.alertId && !autoflowRouted.has(p.alertId) && p.alert.relevance_score >= threshold)
     .sort((a, b) => (b.alert.relevance_score * b.alert.confidence) - (a.alert.relevance_score * a.alert.confidence));
 
   // Dedupe against pending_actions already holding the alert's FK. Monitor

@@ -63,13 +63,28 @@ Read-only, reverse-chronological, cross-node UNION over every node's `attributes
 
 ---
 
-## Phase 2 — HOLD: auto-flow on ingest + inbox removal (gated on measured precision)
+## Phase 2 — SHIPPED 2026-07-03 (founder overrode the hold): deterministic auto-flow on ingest
 
-Only after Phase 1 produces routing-precision data (enrich accuracy, name-match false-positive rate, relevance-score distribution, `auto_dropped` review). Then:
-- Flag `SIGNAL_AUTOFLOW`: ON = route at ingest AND suppress the `signal_alert` pending_action auto-queue (that suppression IS the "no inbox" mechanism). Gate both edit sites so OFF is byte-identical to today.
-- **Write-side provenance on every auto-landed node/entry** (`origin='autoflow'`, confidence, source alert id) so bad data is identifiable and reversible.
-- **Delete→recreate guard:** a founder-deleted auto node needs a tombstone/suppress or the next run recreates it (Sisyphean curate-after).
-- Enrich onto an existing node demands a *higher* confidence bar than new_entity (a mis-enrich corrupts curated knowledge in place; a stray new node is just deletable).
+Founder decision: proceed without waiting for precision data. Built with every safety rail from the review; the LLM classifier remains NOT built — routing is **deterministic SQL only** (no model call in the scan/cron path, per the D1 cron-killer finding). Ambiguity falls back to the inbox, so autoflow can only reduce founder workload, never lose a signal.
+
+**Routing table** (`src/lib/signal-autoflow.ts`, flag `SIGNAL_AUTOFLOW=1`):
+| Signal at ingest | Route |
+|---|---|
+| relevance < 0.5 | `auto_dropped` (soft-delete; reason in `signal_activity_logs`) |
+| entity matches a REJECTED node | `auto_dropped` (tombstone — founder said no; autoflow never resurrects; a MANUAL inbox accept still can) |
+| entity matches an existing node | **enrich** — reuses `acceptAlertIntoKnowledge` (timeline append, no clobber, back-link, memory_fact); no inbox item |
+| no match + relevance ≥ 0.8 | **new_entity** — node created applied; no inbox item |
+| no resolvable entity, or mid-confidence new | **inbox** (exception queue = today's path) |
+
+- **Provenance:** `founder_action_taken='autoflow'` on the alert row (vs `inbox_apply`) — auto-landed writes queryable/reversible as a class; activity log carries verdict+reason per signal.
+- **Suppression mechanism:** routed alerts leave `pending` state → the parser auto-queue skips them (routed-set) AND materialize-on-read skips them (its `reviewed_state='pending'` filter). Inbox empties by construction; the surface stays for fallback signals + briefs.
+- **Idempotency:** dedup-upserted alerts that were already reviewed are left untouched (route-once).
+- **Fail-safe:** any routing error → inbox path.
+- **OFF = byte-identical to Phase 1** (the block is inert without the flag).
+- **No migration:** no CHECK constraints on ecosystem_alerts; `signal_activity_logs` (plural!) already exists.
+- Tombstone works because UI node-delete = `reviewed_state='rejected'` (no hard DELETE of graph_nodes exists in src).
+
+**Verified:** 7 unit tests (pure `decideAutoflowRoute`); live harness `signal-autoflow.live.test.ts` (env-guarded, skipped in CI) = **18/18** through the real `persistEcosystemAlerts` on the e2e project: enrich/no-clobber/backlink, new-entity create, tombstone no-resurrect, junk drop didn't enrich, exactly 1 inbox ticket for the unattributable signal, 2+2 audit events; self-cleaning.
 
 ---
 
