@@ -4,7 +4,7 @@ import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import * as d3 from 'd3';
 import type { GraphNode, GraphEdge, MacroCategory } from '@/types/graph';
 import { NODE_COLORS, MACRO_CATEGORY_ORDER, MACRO_CATEGORY_LABEL, MACRO_CATEGORY_COLOR, macroCategoryFor } from '@/types/graph';
-import NodeDetailPanel, { type NodeNeighbor } from './NodeDetailPanel';
+import NodeDetailPanel, { type NodeNeighbor, type TimelineEntry } from './NodeDetailPanel';
 import { useLocale, useT } from '@/components/providers/LocaleProvider';
 
 interface KnowledgeGraphProps {
@@ -18,6 +18,8 @@ interface KnowledgeGraphProps {
   onDismissNode?: (node: GraphNode) => void;
   /** Persist an edited name/summary for a node (from the detail drawer). */
   onSaveNode?: (node: GraphNode, patch: { name?: string; summary?: string }) => Promise<void> | void;
+  /** Remove one dated move from a node's timeline (from the detail drawer). */
+  onDeleteTimelineEntry?: (node: GraphNode, entry: TimelineEntry) => Promise<void> | void;
 }
 
 interface SimNode extends d3.SimulationNodeDatum {
@@ -51,7 +53,7 @@ const getId = (ref: string | GraphNode | SimNode | undefined): string => {
   return (ref as { id: string }).id || '';
 };
 
-export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick, onApplyNode, onDismissNode, onSaveNode }: KnowledgeGraphProps) {
+export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick, onApplyNode, onDismissNode, onSaveNode, onDeleteTimelineEntry }: KnowledgeGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<d3.Simulation<SimNode, SimLink> | null>(null);
@@ -546,6 +548,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
         onApply={handleApply}
         onDismiss={handleDismiss}
         onSaveEdit={onSaveNode}
+        onDeleteTimelineEntry={onDeleteTimelineEntry}
       />
 
       <GraphLegend

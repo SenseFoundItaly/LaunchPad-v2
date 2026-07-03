@@ -1100,7 +1100,7 @@ async function upsertAlertGraphNode(
         ref_id: alert.id,
         ...(alert.body ? { quote: alert.body.slice(0, 280) } : {}),
       };
-  const attributes = {
+  const baseAttributes = {
     origin: 'ecosystem_alert',
     ecosystem_alert_id: alert.id,
     alert_type: alert.alert_type,
@@ -1110,38 +1110,72 @@ async function upsertAlertGraphNode(
   const nodeType = nodeTypeForAlert(alert.alert_type);
   // Node NAME = the entity the alert is about, not the event sentence
   // ("HelloFresh", not "HelloFresh launches 'Ciao, Italia' series…").
-  // Primary: alert.entity — persisted at parse time from the artifact's
-  // entity field (migration 017); the headline heuristic covers pre-017 rows.
-  // The full headline stays in the summary, so no information is lost — and
-  // dedup-by-name now collapses repeat signals about the same entity into one
-  // knowledge node instead of one node per news event.
+  // Primary: alert.entity — persisted at parse time (migration 017); the
+  // headline heuristic covers pre-017 rows. NOTE: entityNameFromHeadline's verb
+  // list is English-only, so IT-locale projects must rely on alert.entity or the
+  // whole headline becomes the node name.
   const nodeName = alert.entity || entityNameFromHeadline(alert.headline) || alert.headline;
   const nodeSummary = alert.body
     ? `${alert.headline} — ${alert.body}`
     : alert.headline;
 
+  // One dated entry per accepted signal. This is what turns an entity node into
+  // a living DOSSIER: repeat signals about the same entity APPEND to the node's
+  // attributes.timeline instead of overwriting its state, so the graph gets
+  // richer, not longer. Kept small (headline + source + relevance + alert id).
+  const timelineEntry = {
+    date: new Date().toISOString(),
+    headline: alert.headline,
+    ...(alert.source_url ? { source_url: alert.source_url } : {}),
+    relevance: alert.relevance_score,
+    alert_id: alert.id,
+  };
+  // New node carries the entry as its first timeline element. Existing node
+  // appends it atomically in the DO UPDATE below. Both bind the RAW object/array
+  // — postgres.js serializes to JSONB exactly once. Pre-stringifying DOUBLE-
+  // encodes (verified by the Phase-1 live integration test: a JSON.stringify into
+  // `?::jsonb` stored a jsonb STRING scalar, so every appended entry lost its
+  // shape and read back as text). Same footgun the codebase fought repeatedly.
+  const initialAttributes = { ...baseAttributes, timeline: [timelineEntry] };
+  const timelineAppend = [timelineEntry];
+
   // Atomic upsert on (project_id, LOWER(name)) — migration 018's unique index.
-  // Re-approving the same finding (or a finding about an already-tracked entity)
-  // UPDATES the existing node rather than duplicating it. The previous
-  // SELECT-then-UPDATE|INSERT raced under pgbouncer transaction pooling: a batch
-  // of same-entity accepts could have accept #2's SELECT miss accept #1's
-  // not-yet-visible INSERT, yielding byte-identical duplicate nodes (observed:
-  // 3 accepts of "AI Plant Doctor" → 2 nodes). A single statement closes that
-  // window. reviewed_state='applied': the founder just approved this signal, so
-  // it's visible to the Intelligence panel + journey gates (which filter
-  // applied). attributes and [provenance] are passed RAW — graph_nodes.attributes
-  // and .sources are JSONB and postgres.js auto-serializes; JSON.stringify would
-  // double-encode. RETURNING id surfaces the surviving node id (whether inserted
-  // or pre-existing) so the function still returns it for the alert back-link.
+  // INSERT path: a brand-new entity node with its first timeline entry.
+  // CONFLICT path (entity already tracked): do NOT clobber the node's curated
+  // state (the old code overwrote summary + attributes with the newest signal,
+  // destroying history AND any founder edit from the panel). Instead:
+  //   - summary: keep the existing/founder text; only fill if the node had none.
+  //   - attributes.timeline: append this event, capped to the newest 20, entirely
+  //     in SQL. No JS read-modify-write, so two signals enriching the same node
+  //     in one run cannot clobber each other's entries (lost-update race). No
+  //     stringify into a jsonb column, so no double-encode. The subquery re-sorts
+  //     to chronological (append) order after keeping the newest 20.
+  //   - sources: append this signal's provenance; never overwrite prior sources.
+  // The single statement also closes the pgbouncer duplicate-node race the old
+  // SELECT-then-UPSERT had. RETURNING id surfaces the surviving node id.
   try {
     const upserted = await query<{ id: string }>(
       `INSERT INTO graph_nodes
          (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'applied')
        ON CONFLICT (project_id, LOWER(name)) DO UPDATE SET
-         summary = ?,
-         attributes = ?,
-         sources = ?,
+         summary = COALESCE(NULLIF(graph_nodes.summary, ''), EXCLUDED.summary),
+         attributes = jsonb_set(
+           COALESCE(graph_nodes.attributes, '{}'::jsonb),
+           '{timeline}',
+           (
+             SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+             FROM (
+               SELECT elem, ord
+               FROM jsonb_array_elements(
+                 COALESCE(graph_nodes.attributes -> 'timeline', '[]'::jsonb) || ?::jsonb
+               ) WITH ORDINALITY AS t(elem, ord)
+               ORDER BY ord DESC
+               LIMIT 20
+             ) recent
+           )
+         ),
+         sources = COALESCE(graph_nodes.sources, '[]'::jsonb) || EXCLUDED.sources,
          reviewed_state = 'applied'
        RETURNING id`,
       generateId('gnode'),
@@ -1149,12 +1183,9 @@ async function upsertAlertGraphNode(
       nodeName,
       nodeType,
       nodeSummary,
-      attributes,
+      initialAttributes,
       [provenance],
-      // ON CONFLICT DO UPDATE SET — same fields the old UPDATE branch set.
-      nodeSummary,
-      attributes,
-      [provenance],
+      timelineAppend,
     );
     return upserted[0]?.id ?? null;
   } catch (err) {

@@ -17,7 +17,9 @@ import { useT } from '@/components/providers/LocaleProvider';
 import { useSetChrome } from '@/components/design/chrome-context';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
+import type { TimelineEntry } from '@/components/graph/NodeDetailPanel';
 import AllKnowledgePanel from '@/components/knowledge/AllKnowledgePanel';
+import RecentMovesFeed from '@/components/knowledge/RecentMovesFeed';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import { CompetitorMatryoshka } from '@/components/knowledge/CompetitorMatryoshka';
 import type { GraphNode, GraphEdge } from '@/types/graph';
@@ -40,7 +42,7 @@ export default function KnowledgePage({
   const [showAddDocs, setShowAddDocs] = useState(false);
   // Graph (D3 force viz) vs List (AllKnowledgePanel — every knowledge item
   // grouped by kind, each section gradient-tinted). Graph is the default.
-  const [view, setView] = useState<'graph' | 'list'>('graph');
+  const [view, setView] = useState<'graph' | 'list' | 'moves'>('graph');
 
   // After the popup applies extracted entities, refetch the graph and bump the
   // credits/knowledge listeners — same invalidation contract as applyNode below.
@@ -187,6 +189,25 @@ export default function KnowledgePage({
     await qc.invalidateQueries({ queryKey: ['knowledge', projectId] });
   }
 
+  // Remove one dated move from a node's timeline (curating a wrong/misattributed
+  // auto-added entry) without deleting the whole node. Free — content edit, not
+  // an apply. Matched by the entry's alert_id; refetch so the row drops.
+  async function deleteTimelineEntry(node: GraphNode, entry: TimelineEntry) {
+    const id = (node as { id?: string }).id;
+    if (!id || !entry.alert_id) return;
+    const res = await fetch(`/api/projects/${projectId}/knowledge/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ remove_timeline_alert_id: entry.alert_id }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || `HTTP ${res.status}`);
+    }
+    window.dispatchEvent(new CustomEvent('lp-knowledge-changed'));
+    await qc.invalidateQueries({ queryKey: ['knowledge', projectId] });
+  }
+
   // Dismiss a pending node (reject). Unlike Apply this debits NOTHING, so we
   // fire only lp-knowledge-changed (no lp-credits-changed) and refetch so the
   // rejected node drops out of the graph.
@@ -215,7 +236,7 @@ export default function KnowledgePage({
       <div style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
         {/* Graph ↔ List toggle (top-right; the graph's own search/expand sit top-left). */}
         <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 5, display: 'flex', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-m)', overflow: 'hidden' }}>
-          {(['graph', 'list'] as const).map((v) => (
+          {(['graph', 'list', 'moves'] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -230,11 +251,15 @@ export default function KnowledgePage({
                 color: view === v ? 'var(--on-accent, var(--paper))' : 'var(--ink-4)',
               }}
             >
-              {t(v === 'graph' ? 'knowledge.view-graph' : 'knowledge.view-list')}
+              {t(v === 'graph' ? 'knowledge.view-graph' : v === 'list' ? 'knowledge.view-list' : 'knowledge.view-moves')}
             </button>
           ))}
         </div>
-        {view === 'list' ? (
+        {view === 'moves' ? (
+          <div style={{ position: 'absolute', inset: 0, overflow: 'auto', padding: 16 }}>
+            <RecentMovesFeed projectId={projectId} />
+          </div>
+        ) : view === 'list' ? (
           <div style={{ position: 'absolute', inset: 0, overflow: 'auto', padding: 16 }}>
             <AllKnowledgePanel projectId={projectId} />
           </div>
@@ -251,7 +276,7 @@ export default function KnowledgePage({
           // The graph now groups nodes into tinted macro-category regions even
           // with zero real edges, so the old "disconnected dots → grid" fallback
           // is no longer needed — the grouped graph IS the good edgeless view.
-          <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} />
+          <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} onDeleteTimelineEntry={deleteTimelineEntry} />
         )}
         {view === 'graph' && pendingCount > 0 && (
           <div
