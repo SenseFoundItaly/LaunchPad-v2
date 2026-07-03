@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
 import { json, generateId, error } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
+import { requireCronAuth } from '@/lib/cron-auth';
 import { runAgent } from '@/lib/pi-agent';
 import {
   recordUsage,
@@ -257,22 +258,7 @@ async function computeScoreDelta(projectId: string): Promise<ScoreDelta> {
  * burning Sonnet tokens across every active project. Without a gate, any
  * public caller can trigger a full cost cycle on demand.
  */
-function requireCronAuth(request: NextRequest): { ok: true } | { ok: false; response: Response } {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) {
-    if (process.env.NODE_ENV === 'production') {
-      return { ok: false, response: error('CRON_SECRET not configured — cron disabled in production', 403) };
-    }
-    // Dev mode: no secret configured, allow all traffic.
-    return { ok: true };
-  }
-  const header = request.headers.get('authorization') || request.headers.get('Authorization');
-  const expectedHeader = `Bearer ${expected}`;
-  if (header !== expectedHeader) {
-    return { ok: false, response: error('Unauthorized cron invocation', 401) };
-  }
-  return { ok: true };
-}
+// requireCronAuth moved to @/lib/cron-auth (shared with /api/cron/run-monitor).
 
 /**
  * Returns true on the day the weekly intelligence pulse should fan out.
@@ -641,14 +627,17 @@ export async function GET(request: NextRequest) {
   try {
     const now = new Date().toISOString();
 
-    // Phase A. Find due monitors. The 5-min guard (last_run < fiveMinAgo) is what
-    // makes the scheduler's drain loop safe: a monitor processed in batch N has
-    // last_run≈now, so it drops out of the next iteration's due set while the
-    // not-yet-processed monitors stay due. Ordered oldest-due-first; only the
-    // first MONITOR_BATCH run this tick, the rest report as monitors_remaining.
+    // Phase A. Find due monitors and RETURN their IDs — do NOT run them here.
+    // A monitor's agent run takes 60–180s; Netlify's synchronous function
+    // budget is far shorter, so running them inline killed the function
+    // mid-run (0 completions). Instead the GitHub Actions scheduler (no time
+    // limit) drives each run through the STREAMING /api/cron/run-monitor
+    // endpoint — the same streamMonitorRun path that already completes 10/10
+    // as "Run now" on Netlify, because a consumed stream keeps the function
+    // alive. This endpoint stays fast (a SELECT) and never times out.
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    const due = await query<MonitorRow>(
-      `SELECT id, project_id, type, name, schedule, prompt FROM monitors WHERE status = 'active'
+    const due = await query<{ id: string }>(
+      `SELECT id FROM monitors WHERE status = 'active'
        AND schedule != 'manual'
        AND (last_run IS NULL OR last_run < ?)
        AND (
@@ -658,10 +647,11 @@ export async function GET(request: NextRequest) {
        ORDER BY next_run ASC NULLS FIRST`,
       fiveMinAgo, now,
     );
-
-    const monitorBatch = due.slice(0, MONITOR_BATCH);
-    const monitorsRemaining = due.length - monitorBatch.length;
-    const monitorResults = monitorBatch.length > 0 ? await processMonitors(monitorBatch) : [];
+    const dueMonitorIds = due.map((d) => d.id);
+    // Retained names for the pulse-defer + response shape below. Monitors no
+    // longer run inline, so nothing is "remaining" from this endpoint's view.
+    const monitorResults: unknown[] = [];
+    const monitorsRemaining = 0;
 
     // Phase B: Process due watch sources (URL-based change detection).
     // Up to 10 per cron tick to keep each batch manageable.
@@ -681,12 +671,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Weekly intelligence pulse — reflection + cross-signal correlation +
-    // Monday Brief email. Gated on PULSE_DAY (default Monday UTC) so the daily
-    // cron tick only fans this out once per week. Flip via WEEKLY_PULSE_DAY env
-    // (0=Sun…6=Sat) without redeploy. The pulse only starts once the monitor
-    // queue is drained for this tick, so a heavy monitor batch never stacks on
-    // top of pulse LLM calls in the same invocation.
-    const isPulse = isWeeklyPulseDay();
+    // Monday Brief email. Gated on PULSE_DAY (default Monday UTC) AND an
+    // explicit ?run_pulse=1 param. The scheduler's default (due-ID) call must
+    // return fast, so it never triggers the (still-synchronous, slow) pulse;
+    // the scheduler invokes it as a separate ?run_pulse=1 step on pulse day.
+    // NOTE: the pulse itself still runs inline and has the same 60s-per-LLM
+    // timeout risk as monitors did — a follow-up should move it to the same
+    // streaming/scheduler-driven pattern.
+    const runPulse = new URL(request.url).searchParams.get('run_pulse') === '1';
+    const isPulse = isWeeklyPulseDay() && runPulse;
 
     let correlationResults: CorrelationResult[] = [];
     let heartbeatResults: HeartbeatResult[] = [];
@@ -828,6 +821,9 @@ export async function GET(request: NextRequest) {
     return json({
       cron_run_id: cronRunId,
       swept_stale_runs: sweptStaleRuns,
+      // The scheduler runs each of these via the streaming /api/cron/run-monitor
+      // endpoint (Netlify can't complete a monitor agent run inline).
+      due_monitor_ids: dueMonitorIds,
       monitors_ran: monitorResults.length,
       monitors_remaining: monitorsRemaining,
       monitor_results: monitorResults,
