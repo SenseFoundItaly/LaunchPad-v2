@@ -223,6 +223,25 @@ export const en = {
   // Why a knowledge node / inbox item matters — shown so the founder knows what
   // merging it adds, not just what it says (nodeImportanceKey in node-importance.ts).
   'knowledge.section-why': 'Why this matters',
+  // Graph chrome + node detail drawer + legend (KnowledgeGraph / NodeDetailPanel
+  // / GraphLegend) — localized so the graph reads in the project's language.
+  'knowledge.graph-search': 'Search nodes…',
+  'knowledge.graph-expand': 'Expand',
+  'knowledge.graph-exit': 'Exit',
+  'knowledge.graph-will-populate': 'Knowledge graph will populate as you chat',
+  'knowledge.graph-pending-hint': 'Pending — click to review',
+  'knowledge.legend-show': 'Show {type}',
+  'knowledge.legend-hide': 'Hide {type}',
+  'knowledge.legend-stats': '{nodes} nodes | {edges} edges',
+  'knowledge.detail-pending-review': 'Pending review',
+  'knowledge.detail-summary': 'Summary',
+  'knowledge.detail-sources': 'Sources & links ({count})',
+  'knowledge.detail-attributes': 'Attributes',
+  'knowledge.detail-connections': 'Connections ({count})',
+  'knowledge.detail-empty': 'No further detail captured for this node yet. As the Co-pilot researches, attributes and sources will appear here.',
+  'knowledge.detail-captured': 'Captured {date}',
+  'knowledge.detail-apply': 'Apply',
+  'knowledge.detail-dismiss': 'Dismiss',
   'knowledge.why-market': 'Anchors your market opportunity (TAM/SAM/SOM). The co-pilot, Project Score and financial model all draw on this figure — merging it keeps them consistent.',
   'knowledge.why-competitor': 'Maps a player in your competitive landscape. Merging it sharpens your differentiation and feeds positioning and Go/No-Go.',
   'knowledge.why-benchmark': 'A metric to track. Merging it sets a baseline the weekly dashboard and Project Score measure progress against.',

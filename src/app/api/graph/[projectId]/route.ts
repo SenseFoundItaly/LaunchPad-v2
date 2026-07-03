@@ -3,6 +3,7 @@ import { query } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { nodeImportanceEnabled } from '@/lib/node-importance-flag';
+import { isDerivedAnalysisNode } from '@/types/graph';
 
 export async function GET(
   _request: NextRequest,
@@ -22,9 +23,15 @@ export async function GET(
   // Include PENDING proposals alongside applied knowledge — the founder
   // reviews/applies them right in the graph (dashed nodes), so they must be
   // visible here even before they're folded into intelligence.
-  const nodes = await query(
+  const allNodes = await query(
     "SELECT * FROM graph_nodes WHERE project_id = ? AND reviewed_state IN ('applied','pending') ORDER BY created_at",
     projectId,
+  );
+  // Drop chat-artifact scaffolding (scorecards/dashboards/comparison dumps) so
+  // the graph shows real ecosystem entities only — the "categorizzare meglio"
+  // ask from the 2026-06 sync. Same predicate as the unified list.
+  const nodes = allNodes.filter(
+    (n: Record<string, unknown>) => !isDerivedAnalysisNode(n.node_type as string),
   );
   const edges = await query('SELECT * FROM graph_edges WHERE project_id = ? ORDER BY created_at', projectId);
 

@@ -17,7 +17,6 @@ import { useT } from '@/components/providers/LocaleProvider';
 import { useSetChrome } from '@/components/design/chrome-context';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
-import EntityGridFallback from '@/components/knowledge/EntityGridFallback';
 import AllKnowledgePanel from '@/components/knowledge/AllKnowledgePanel';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import { CompetitorMatryoshka } from '@/components/knowledge/CompetitorMatryoshka';
@@ -76,7 +75,13 @@ export default function KnowledgePage({
   const graphError = graphErrObj instanceof Error ? graphErrObj.message : null;
 
   const nodeCount = graph.nodes.length;
-  const edgeCount = graph.edges.length;
+  // Real relationships only — the /api/graph route synthesizes a virtual
+  // root→node "belongs to" edge for every unconnected node so nothing floats,
+  // but those are a layout artefact, not knowledge. Counting them made the
+  // header claim edges a project doesn't have and forced a grid fallback.
+  const edgeCount = graph.edges.filter(
+    (e) => !(e as { virtual?: boolean }).virtual,
+  ).length;
   const pendingCount = graph.nodes.filter(
     (n) => (n as { reviewed_state?: string }).reviewed_state === 'pending',
   ).length;
@@ -223,11 +228,10 @@ export default function KnowledgePage({
             message={t('knowledge.empty')}
             action={{ label: t('knowledge.add-documents'), onClick: () => setShowAddDocs(true) }}
           />
-        ) : edgeCount === 0 ? (
-          // Nodes but zero relationships: the force viz would render
-          // disconnected floating dots. Show a labeled grid instead.
-          <EntityGridFallback nodes={graph.nodes} />
         ) : (
+          // The graph now groups nodes into tinted macro-category regions even
+          // with zero real edges, so the old "disconnected dots → grid" fallback
+          // is no longer needed — the grouped graph IS the good edgeless view.
           <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} />
         )}
         {view === 'graph' && pendingCount > 0 && (

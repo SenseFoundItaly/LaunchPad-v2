@@ -296,7 +296,7 @@ export default function NodeDetailPanel({
                 padding: '1px 7px',
               }}
             >
-              Pending review
+              {t('knowledge.detail-pending-review')}
             </span>
           )}
         </div>
@@ -319,7 +319,7 @@ export default function NodeDetailPanel({
         {/* Summary */}
         {node.summary && (
           <section>
-            <SectionLabel>Summary</SectionLabel>
+            <SectionLabel>{t('knowledge.detail-summary')}</SectionLabel>
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--ink-3)' }}>
               {node.summary}
             </p>
@@ -329,7 +329,7 @@ export default function NodeDetailPanel({
         {/* Provenance links / sources */}
         {sources.length > 0 && (
           <section>
-            <SectionLabel>Sources &amp; links ({sources.length})</SectionLabel>
+            <SectionLabel>{t('knowledge.detail-sources', { count: sources.length })}</SectionLabel>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {sources.map((src, i) => {
                 const { label, href, quote } = describeSource(src);
@@ -375,7 +375,7 @@ export default function NodeDetailPanel({
         {/* Attributes */}
         {attrEntries.length > 0 && (
           <section>
-            <SectionLabel>Attributes</SectionLabel>
+            <SectionLabel>{t('knowledge.detail-attributes')}</SectionLabel>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {attrEntries.map(([key, value]) => (
                 <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -392,7 +392,7 @@ export default function NodeDetailPanel({
         {/* Connected nodes */}
         {neighbors.length > 0 && (
           <section>
-            <SectionLabel>Connections ({neighbors.length})</SectionLabel>
+            <SectionLabel>{t('knowledge.detail-connections', { count: neighbors.length })}</SectionLabel>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {neighbors.map((nb, i) => (
                 <button
@@ -440,14 +440,13 @@ export default function NodeDetailPanel({
         {/* Empty-state hint when there is nothing but a name */}
         {!node.summary && sources.length === 0 && attrEntries.length === 0 && neighbors.length === 0 && (
           <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-5)', lineHeight: 1.5 }}>
-            No further detail captured for this node yet. As the Co-pilot researches,
-            attributes and sources will appear here.
+            {t('knowledge.detail-empty')}
           </p>
         )}
 
         {createdAt && (
           <div style={{ fontSize: 11, color: 'var(--ink-6)', marginTop: 'auto' }}>
-            Captured {createdAt}
+            {t('knowledge.detail-captured', { date: createdAt })}
           </div>
         )}
       </div>
@@ -470,7 +469,7 @@ export default function NodeDetailPanel({
                 cursor: 'pointer',
               }}
             >
-              Apply
+              {t('knowledge.detail-apply')}
             </button>
           )}
           {onDismiss && (
@@ -487,7 +486,7 @@ export default function NodeDetailPanel({
                 cursor: 'pointer',
               }}
             >
-              Dismiss
+              {t('knowledge.detail-dismiss')}
             </button>
           )}
         </div>

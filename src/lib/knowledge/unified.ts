@@ -20,6 +20,7 @@
  */
 
 import { query } from '@/lib/db';
+import { isDerivedAnalysisNode } from '@/types/graph';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -451,7 +452,12 @@ export async function getProjectKnowledge(
   // Normalize each store into KnowledgeItems.
   // -------------------------------------------------------------------------
 
-  const graphItems: KnowledgeItem[] = graphRows.map((n) => {
+  const graphItems: KnowledgeItem[] = graphRows
+    // Drop chat-artifact scaffolding (scorecards/dashboards/comparison dumps)
+    // so the "Entities" list shows real named entities only — see
+    // isDerivedAnalysisNode. These outnumbered real entities on some projects.
+    .filter((n) => !isDerivedAnalysisNode(n.node_type))
+    .map((n) => {
     const isCompetitor = (n.node_type ?? '').toLowerCase() === 'competitor';
     let tier = tierFromGraphNode(n.sources, n.attributes, n.summary);
     // Agent-authored escalation for the historical writer gap: nodes the

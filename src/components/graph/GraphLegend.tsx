@@ -1,6 +1,7 @@
 'use client';
 
-import { NODE_COLORS, type GraphNodeType } from '@/types/graph';
+import { NODE_COLORS, nodeTypeLabel, type GraphNodeType } from '@/types/graph';
+import { useLocale, useT } from '@/components/providers/LocaleProvider';
 
 interface GraphLegendProps {
   activeTypes?: GraphNodeType[];
@@ -14,11 +15,16 @@ const ALL_TYPES: GraphNodeType[] = [
   'your_startup', 'competitor', 'technology', 'market_segment', 'persona',
   'risk', 'trend', 'company', 'compliance', 'regulation',
   'partner', 'funding_source', 'feature', 'metric',
+  // Derived-analysis types — surfaced so they carry a colour swatch + can be
+  // toggled off, instead of appearing as unlabelled grey dots.
+  'metrics', 'benchmark', 'comparison', 'competitor_set', 'research_metric', 'market',
 ];
 
 export default function GraphLegend({ activeTypes, hiddenTypes, onToggleType, nodeCount, edgeCount }: GraphLegendProps) {
+  const locale = useLocale();
+  const t = useT();
   const types = activeTypes && activeTypes.length > 0
-    ? [...new Set(activeTypes)].filter(t => ALL_TYPES.includes(t))
+    ? [...new Set(activeTypes)].filter(ty => ALL_TYPES.includes(ty))
     : ALL_TYPES;
 
   return (
@@ -27,19 +33,20 @@ export default function GraphLegend({ activeTypes, hiddenTypes, onToggleType, no
       <div className="flex items-center gap-2 px-3 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg flex-wrap">
         {types.map((type) => {
           const hidden = hiddenTypes.has(type);
+          const label = nodeTypeLabel(type, locale);
           return (
             <button
               key={type}
               onClick={() => onToggleType(type)}
               className={`flex items-center gap-1.5 transition-opacity ${hidden ? 'opacity-30' : 'opacity-100'}`}
-              title={`${hidden ? 'Show' : 'Hide'} ${type.replace(/_/g, ' ')}`}
+              title={t(hidden ? 'knowledge.legend-show' : 'knowledge.legend-hide', { type: label })}
             >
               <span
                 className="inline-block w-2 h-2 rounded-full flex-shrink-0"
                 style={{ backgroundColor: NODE_COLORS[type] }}
               />
               <span className="text-[10px] text-ink-4 whitespace-nowrap">
-                {type.replace(/_/g, ' ')}
+                {label}
               </span>
             </button>
           );
@@ -48,7 +55,7 @@ export default function GraphLegend({ activeTypes, hiddenTypes, onToggleType, no
 
       {/* Stats */}
       <div className="px-2 py-1 bg-paper/80 backdrop-blur-sm border border-line rounded-lg ml-2 shrink-0">
-        <span className="text-[10px] text-ink-5">{nodeCount} nodes | {edgeCount} edges</span>
+        <span className="text-[10px] text-ink-5">{t('knowledge.legend-stats', { nodes: nodeCount, edges: edgeCount })}</span>
       </div>
     </div>
   );
