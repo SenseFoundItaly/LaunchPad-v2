@@ -24,7 +24,10 @@ export type SignalEventType =
   | 'classification_completed'
   | 'brief_generated'
   | 'signal_auto_created_from_chat'
-  | 'watcher_accepted';
+  | 'watcher_accepted'
+  // SIGNAL_AUTOFLOW (signal-autoflow.ts): ingest-time routing outcomes.
+  | 'signal_autoflowed'
+  | 'signal_auto_dropped';
 
 export type SignalEntityType =
   | 'ecosystem_alert'

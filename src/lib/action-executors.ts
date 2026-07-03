@@ -1073,12 +1073,22 @@ function nodeTypeForAlert(alertType: string): string {
 }
 
 /**
+ * The minimal shape acceptAlertIntoKnowledge actually needs. PendingAction
+ * satisfies it structurally (the inbox-apply path); signal-autoflow passes a
+ * synthetic literal (there IS no pending action when a signal auto-flows).
+ */
+export interface AlertKnowledgeSource {
+  project_id: string;
+  ecosystem_alert_id: string | null;
+}
+
+/**
  * Upsert the APPLIED graph_node that materializes an accepted alert in the
  * knowledge graph. Returns the node id, or null when the write failed
  * (non-fatal — accepting the alert must not fail on a knowledge-write error).
  */
 async function upsertAlertGraphNode(
-  action: PendingAction,
+  action: AlertKnowledgeSource,
   alert: EcosystemAlert,
 ): Promise<string | null> {
   // Build a provenance source stamped with the originating ecosystem_alert so
@@ -1216,9 +1226,9 @@ async function upsertAlertGraphNode(
  * after approval (observed: SpareSeat run — 3 alerts accepted, the one routed
  * as proposed_graph_update never was).
  */
-async function acceptAlertIntoKnowledge(
-  action: PendingAction,
-  opts?: { existingNodeId?: string },
+export async function acceptAlertIntoKnowledge(
+  action: AlertKnowledgeSource,
+  opts?: { existingNodeId?: string; founderAction?: string },
 ): Promise<string | null> {
   const alertId = action.ecosystem_alert_id;
   if (!alertId) return null;
@@ -1228,12 +1238,17 @@ async function acceptAlertIntoKnowledge(
   // and the finding never entered the knowledge graph (it was a dead-end ack).
   const alert = await getSourceAlert(alertId);
 
+  // founder_action_taken is the write-side provenance: 'inbox_apply' when a
+  // founder clicked Accept, 'autoflow' when SIGNAL_AUTOFLOW routed the signal
+  // straight into Knowledge at ingest — so auto-landed writes stay queryable
+  // and reversible as a class.
   await run(
     `UPDATE ecosystem_alerts
         SET reviewed_state = 'accepted',
             reviewed_at = CURRENT_TIMESTAMP,
-            founder_action_taken = 'inbox_apply'
+            founder_action_taken = ?
       WHERE id = ?`,
+    opts?.founderAction ?? 'inbox_apply',
     alertId,
   );
 
