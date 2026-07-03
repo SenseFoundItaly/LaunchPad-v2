@@ -51,8 +51,17 @@ interface ActiveMonitorRow {
   query: string | null;
 }
 
+/** Overlap details surfaced on a founder's approval card (the co-pilot flagged
+ *  a near-duplicate but the agent overrode with a public reason). */
+export interface DedupOverlap {
+  existing_monitor_id: string;
+  existing_name: string;
+  overlap_score: number;
+  reason: string;
+}
+
 export type DedupVerdict =
-  | { ok: true; dedup_hash: string; active_count: number }
+  | { ok: true; dedup_hash: string; active_count: number; overlap?: DedupOverlap }
   | { ok: false; error: 'cap_reached'; current: number; max: number; recommend_pause_candidates: Array<{ id: string; name: string }> }
   | { ok: false; error: 'duplicate_for_risk_kind'; existing_monitor_id: string; existing_name: string }
   | { ok: false; error: 'url_overlap'; existing_monitor_id: string; existing_name: string; overlapping_urls: string[] }
@@ -186,28 +195,38 @@ export async function checkDedup(
     return { ok: true, dedup_hash, active_count: active.length };
   }
 
-  // Override escape hatch — agent can bypass L2 with a public reason that
-  // shows on the approval card. Useful when two monitors legitimately
-  // cover adjacent signals at different frequencies (e.g., hourly price
-  // check + weekly feature-parity check on the same company). The override
-  // does NOT skip L1 — those rules are hard.
-  if (proposal.dedup_override === true) {
-    return { ok: true, dedup_hash, active_count: active.length };
-  }
-
+  // Run the L2 classifier for BOTH paths so we always know what (if anything)
+  // this proposal overlaps with. On the override path we still pass (ok:true)
+  // but attach the overlap so the founder's card can name the duplicate — the
+  // whole point of an override is a VISIBLE, justified near-duplicate, not a
+  // silent one. Useful when two monitors legitimately cover adjacent signals
+  // at different frequencies. Override never skips L1 — those rules are hard.
   const verdict = await runSemanticClassifier(proposal, active, projectId);
-  if (verdict && verdict.overlap_score >= 0.7) {
-    const match = active.find((m) => m.id === verdict.best_match_id);
-    if (match) {
-      return {
-        ok: false,
-        error: 'semantic_duplicate',
-        existing_monitor_id: match.id,
-        existing_name: match.name,
+  const overlapMatch = verdict && verdict.overlap_score >= 0.7
+    ? active.find((m) => m.id === verdict.best_match_id)
+    : undefined;
+  const overlap: DedupOverlap | undefined = overlapMatch && verdict
+    ? {
+        existing_monitor_id: overlapMatch.id,
+        existing_name: overlapMatch.name,
         overlap_score: verdict.overlap_score,
         reason: verdict.reason,
-      };
-    }
+      }
+    : undefined;
+
+  if (proposal.dedup_override === true) {
+    return { ok: true, dedup_hash, active_count: active.length, overlap };
+  }
+
+  if (overlap) {
+    return {
+      ok: false,
+      error: 'semantic_duplicate',
+      existing_monitor_id: overlap.existing_monitor_id,
+      existing_name: overlap.existing_name,
+      overlap_score: overlap.overlap_score,
+      reason: overlap.reason,
+    };
   }
 
   return { ok: true, dedup_hash, active_count: active.length };

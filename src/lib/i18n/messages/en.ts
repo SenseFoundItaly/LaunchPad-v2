@@ -729,6 +729,11 @@ export const en = {
   'monitors.alert-count-one': '{n} alert',
   'monitors.alert-count-other': '{n} alerts',
   'monitors.no-runs-yet-detail': 'No runs yet. The watcher fires on its next scheduled tick.',
+  // Founder-facing run verdicts (runSummaryDisplay) — replace the raw agent
+  // transcript so a 0-alert run reads as a clean check, not a model apology.
+  'monitors.run-all-clear': 'Checked — nothing material moved this run.',
+  'monitors.run-source-unavailable': 'Scan skipped — data source temporarily unavailable.',
+  'monitors.run-failed-line': 'Scan failed — it will retry on the next cycle.',
   'monitors.no-runs-yet': 'No runs yet.',
   'monitors.logs-count': 'Logs ({n})',
   'monitors.no-summary': 'No summary for this run.',
@@ -739,6 +744,9 @@ export const en = {
   'monitors.run-now': 'Run now',
   'monitors.resume': 'Resume',
   'monitors.pause': 'Pause',
+  'monitors.archive': 'Archive',
+  'monitors.archive-confirm': 'Confirm?',
+  'monitors.archive-hint': 'Remove this watcher from your list (its history is kept).',
   'monitors.url-watcher-note': 'URL watcher — diff-based. Findings land in your Intel.',
   'monitors.run-activity': 'Run activity',
   'monitors.run-running': 'running',

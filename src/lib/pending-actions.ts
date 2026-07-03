@@ -243,11 +243,16 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
     const sources = a.source_url
       ? [{ type: 'web', title: a.source, url: a.source_url }]
       : null;
+    // ON CONFLICT closes the check-then-insert race atomically: a concurrent
+    // materialize (two inbox reads at once) can't double-create the signal.
+    // Targets the partial unique index uq_pending_actions_ecosystem_alert.
     await run(
       `INSERT INTO pending_actions
          (id, project_id, ecosystem_alert_id, action_type, title, rationale,
           payload, status, priority, sources, created_at, updated_at)
-       VALUES (?, ?, ?, 'signal_alert', ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, 'signal_alert', ?, ?, ?, 'pending', ?, ?, ?, ?)
+       ON CONFLICT (ecosystem_alert_id) WHERE ecosystem_alert_id IS NOT NULL
+       DO NOTHING`,
       id, projectId, a.id,
       a.headline,
       a.body?.slice(0, 500) ?? null,

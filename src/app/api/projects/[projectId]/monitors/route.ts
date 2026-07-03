@@ -4,6 +4,7 @@ import { json, error, generateId } from '@/lib/api-helpers';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { calculateNextRun } from '@/lib/monitor-schedule';
+import { buildMonitorScanPrompt } from '@/lib/action-executors';
 
 type MonitorRow = {
   id: string;
@@ -246,6 +247,30 @@ export async function POST(
     if (urls.length > 0) urlsValue = urls;
   }
 
+  // Guarantee a runnable scan prompt. The "+ New watcher" form leaves prompt
+  // optional (only name is required), but an active monitor with a null prompt
+  // runs an EMPTY agent task and can never surface a signal — a silent no-op.
+  // Mirror the chat-apply path (configureMonitor): build a real scan prompt
+  // from name/objective/urls when the founder didn't write one.
+  let scanPrompt = prompt;
+  if (!scanPrompt) {
+    try {
+      scanPrompt = await buildMonitorScanPrompt(projectId, {
+        kind: kind ?? 'general',
+        name,
+        objective,
+        urls: urlsValue ?? [],
+        alertThreshold: 'medium',
+      });
+    } catch {
+      // Non-fatal: fall back to a minimal objective-derived prompt so the
+      // watcher is never created promptless.
+      scanPrompt = objective
+        ? `Monitor for material changes related to: ${objective}`
+        : `Monitor for material ecosystem changes relevant to "${name}".`;
+    }
+  }
+
   const id = generateId('mon');
   // next_run: by default cadence-relative (calculateNextRun). If a HH:MM
   // time-of-day was supplied, anchor the first tick to that clock time today,
@@ -264,7 +289,7 @@ export async function POST(
        (id, project_id, type, name, schedule, prompt, linked_quote, status,
         next_run, kind, urls_to_track, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, CURRENT_TIMESTAMP)`,
-    id, projectId, type, name, schedule, prompt, objective, nextRun, kind, urlsValue,
+    id, projectId, type, name, schedule, scanPrompt, objective, nextRun, kind, urlsValue,
   );
 
   const created = await get<MonitorRow>(

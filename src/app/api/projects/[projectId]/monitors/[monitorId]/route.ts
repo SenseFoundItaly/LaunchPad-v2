@@ -51,7 +51,10 @@ interface AlertRow {
 }
 
 const VALID_SCHEDULES = new Set(['daily', 'weekly', 'monthly', 'manual']);
-const VALID_STATUSES = new Set(['active', 'paused']);
+// 'archived' is a soft delete: listWatchers already filters it out, so an
+// archived watcher disappears from the founder's list but its runs/alerts stay
+// intact (no FK cascade). Reversible by PATCHing back to 'paused'/'active'.
+const VALID_STATUSES = new Set(['active', 'paused', 'archived']);
 
 /**
  * GET /api/projects/[projectId]/monitors/[monitorId]
@@ -289,10 +292,13 @@ export async function PATCH(
   const effectiveSchedule = body.schedule || existing[0].schedule;
   const effectiveStatus = body.status || existing[0].status;
 
-  if (effectiveStatus === 'paused') {
+  if (effectiveStatus === 'paused' || effectiveStatus === 'archived') {
+    // Null next_run for both paused AND archived so a later manual restore to
+    // 'active' doesn't fire immediately on a stale past-due next_run. The
+    // active branch below recomputes it when the watcher is un-paused.
     sets.push('next_run = ?');
     values.push(null);
-  } else if (body.schedule || (body.status === 'active' && existing[0].status === 'paused')) {
+  } else if (body.schedule || (body.status === 'active' && existing[0].status !== 'active')) {
     const nextRun = calculateNextRun(effectiveSchedule);
     sets.push('next_run = ?');
     values.push(nextRun);
