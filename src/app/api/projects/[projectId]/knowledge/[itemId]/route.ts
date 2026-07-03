@@ -76,10 +76,15 @@ export async function PATCH(
   // drawer shows) + the URL project.
   const editName = typeof body?.name === 'string' ? body.name.trim() : undefined;
   const editSummary = typeof body?.summary === 'string' ? body.summary.trim() : undefined;
-  const hasContentEdit = editName !== undefined || editSummary !== undefined;
+  // Timeline curation: remove the dated move whose alert_id matches (the founder
+  // pruning a wrong/misattributed auto-added entry from a node's dossier).
+  const removeTimelineAlertId = typeof body?.remove_timeline_alert_id === 'string'
+    ? body.remove_timeline_alert_id
+    : undefined;
+  const hasContentEdit = editName !== undefined || editSummary !== undefined || removeTimelineAlertId !== undefined;
 
   if (!state && !hasContentEdit) {
-    return error('state or content (name/summary) is required', 400);
+    return error('state or content (name/summary/remove_timeline_alert_id) is required', 400);
   }
 
   if (hasContentEdit) {
@@ -94,12 +99,31 @@ export async function PATCH(
       return error('Item does not belong to this project', 403);
     }
     // COALESCE keeps the existing value for any field the founder didn't send.
-    await run(
-      'UPDATE graph_nodes SET name = COALESCE(?, name), summary = COALESCE(?, summary) WHERE id = ?',
-      editName ?? null,
-      editSummary ?? null,
-      itemId,
-    );
+    if (editName !== undefined || editSummary !== undefined) {
+      await run(
+        'UPDATE graph_nodes SET name = COALESCE(?, name), summary = COALESCE(?, summary) WHERE id = ?',
+        editName ?? null,
+        editSummary ?? null,
+        itemId,
+      );
+    }
+    if (removeTimelineAlertId !== undefined) {
+      // Atomic rebuild: filter the matching alert_id out of attributes.timeline.
+      // No read-modify-write, so it can't clobber a concurrent enrich append.
+      await run(
+        `UPDATE graph_nodes
+            SET attributes = jsonb_set(
+              COALESCE(attributes, '{}'::jsonb), '{timeline}',
+              COALESCE((
+                SELECT jsonb_agg(elem)
+                FROM jsonb_array_elements(COALESCE(attributes -> 'timeline', '[]'::jsonb)) elem
+                WHERE elem ->> 'alert_id' IS DISTINCT FROM ?
+              ), '[]'::jsonb))
+          WHERE id = ?`,
+        removeTimelineAlertId,
+        itemId,
+      );
+    }
     // Content edit is terminal unless a state change was ALSO requested (the UI
     // never combines them, but be safe and fall through when state is present).
     if (!state) {

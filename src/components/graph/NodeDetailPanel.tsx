@@ -20,7 +20,12 @@ import type { Source } from '@/types/artifacts';
 import { coerceJson } from '@/lib/jsonb';
 import { NODE_COLORS } from '@/types/graph';
 import { nodeImportanceKey } from '@/lib/node-importance';
+import { coerceTimeline, type TimelineEntry } from '@/lib/timeline';
 import { useT } from '@/components/providers/LocaleProvider';
+
+// Re-exported so existing importers (KnowledgeGraph, knowledge/page) keep
+// resolving TimelineEntry from here; the canonical home is @/lib/timeline.
+export type { TimelineEntry };
 
 /** A node reachable from the selected node in one hop, plus how they relate. */
 export interface NodeNeighbor {
@@ -44,6 +49,10 @@ interface NodeDetailPanelProps {
   /** Persist an edited name/summary for this node. When provided, an Edit
    *  affordance appears so the founder can correct the node's context in place. */
   onSaveEdit?: (node: GraphNode, patch: { name?: string; summary?: string }) => Promise<void> | void;
+  /** Remove one dated move from the node's timeline (founder curating a wrong or
+   *  misattributed auto-added entry) without deleting the whole node. When
+   *  provided, each timeline row gets a small remove affordance. */
+  onDeleteTimelineEntry?: (node: GraphNode, entry: TimelineEntry) => Promise<void> | void;
 }
 
 /** snake_case / camelCase → "Title Case" for keys, relations, and type names. */
@@ -85,6 +94,14 @@ function coerceAttributes(raw: unknown): Record<string, unknown> {
     }
   }
   return {};
+}
+
+/** Short "Jun 12" style date for a timeline row; falls back to the raw string. */
+function formatMoveDate(iso?: string): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 /**
@@ -168,8 +185,13 @@ export default function NodeDetailPanel({
   onApply,
   onDismiss,
   onSaveEdit,
+  onDeleteTimelineEntry,
 }: NodeDetailPanelProps) {
   const t = useT();
+  // Timeline can be long (capped at 20 server-side); show a handful and expand.
+  const [showAllMoves, setShowAllMoves] = useState(false);
+  const [removingMove, setRemovingMove] = useState<string | null>(null);
+  useEffect(() => { setShowAllMoves(false); }, [node?.id]);
   // In-place edit of the node's name + summary (its "context"). Drafts are
   // seeded from the node on entering edit mode; a node switch resets them.
   const [editing, setEditing] = useState(false);
@@ -225,8 +247,14 @@ export default function NodeDetailPanel({
 
   const typeColor = NODE_COLORS[node.node_type] || 'var(--ink-5)';
   const isPending = node.reviewed_state === 'pending';
-  const attrEntries = Object.entries(coerceAttributes(node.attributes)).filter(
-    ([, v]) => v !== null && v !== undefined && v !== '',
+  const attrs = coerceAttributes(node.attributes);
+  // Timeline is rendered as its own dated section below — EXCLUDE it from the
+  // generic Attributes list, or formatAttrValue would print a junk "Timeline:
+  // N items" row alongside the real section.
+  const timeline = coerceTimeline(attrs.timeline);
+  const movesNewestFirst = timeline.slice().reverse();
+  const attrEntries = Object.entries(attrs).filter(
+    ([k, v]) => k !== 'timeline' && v !== null && v !== undefined && v !== '',
   );
   // coerceJson: sources may be a legacy double-encoded JSON string (jsonb string
   // scalar) → Array.isArray would be false and the Sources block render empty.
@@ -453,6 +481,73 @@ export default function NodeDetailPanel({
           </section>
         ) : null}
 
+        {/* Recent moves — the entity's dated timeline of signals. This is the
+            "richer, not longer" surface: each accepted signal APPENDS one entry
+            here instead of spawning a node. Newest first; ~5 shown then expand.
+            Rendered high (right under Summary) because recency is the reason to
+            open the node. Each row can be removed individually so a wrong or
+            misattributed move is curated out without deleting the whole node. */}
+        {!editing && timeline.length > 0 && (
+          <section>
+            <SectionLabel>{t('knowledge.detail-timeline')}</SectionLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {(showAllMoves ? movesNewestFirst : movesNewestFirst.slice(0, 5)).map((mv, i) => {
+                const when = formatMoveDate(mv.date);
+                const key = mv.alert_id || `${mv.date ?? ''}-${i}`;
+                const removing = removingMove === key;
+                return (
+                  <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <span aria-hidden style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, marginTop: 6, background: typeColor }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, lineHeight: 1.45, color: 'var(--ink-3)', wordBreak: 'break-word' }}>
+                        {when && <span style={{ color: 'var(--ink-5)', fontWeight: 600 }}>{when} · </span>}
+                        {mv.headline}
+                      </div>
+                      {mv.source_url && (
+                        <a
+                          href={mv.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ fontSize: 11, color: 'var(--sky)', textDecoration: 'none' }}
+                        >
+                          {hostOf(mv.source_url)} ↗
+                        </a>
+                      )}
+                    </div>
+                    {onDeleteTimelineEntry && (
+                      <button
+                        onClick={async () => {
+                          setRemovingMove(key);
+                          try { await onDeleteTimelineEntry(node, mv); } finally { setRemovingMove(null); }
+                        }}
+                        disabled={removing}
+                        aria-label={t('knowledge.timeline-remove')}
+                        title={t('knowledge.timeline-remove')}
+                        style={{ flexShrink: 0, background: 'none', border: 'none', color: 'var(--ink-6)', cursor: removing ? 'default' : 'pointer', padding: 2, lineHeight: 0, opacity: removing ? 0.4 : 1 }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                          <line x1="12" y1="4" x2="4" y2="12" />
+                          <line x1="4" y1="4" x2="12" y2="12" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {movesNewestFirst.length > 5 && (
+              <button
+                onClick={() => setShowAllMoves((v) => !v)}
+                style={{ marginTop: 8, background: 'none', border: 'none', color: 'var(--ink-5)', fontSize: 11.5, cursor: 'pointer', padding: 0 }}
+              >
+                {showAllMoves
+                  ? t('knowledge.timeline-show-less')
+                  : t('knowledge.timeline-show-more', { count: movesNewestFirst.length - 5 })}
+              </button>
+            )}
+          </section>
+        )}
+
         {/* Provenance links / sources */}
         {sources.length > 0 && (
           <section>
@@ -565,7 +660,7 @@ export default function NodeDetailPanel({
         )}
 
         {/* Empty-state hint when there is nothing but a name */}
-        {!node.summary && sources.length === 0 && attrEntries.length === 0 && neighbors.length === 0 && (
+        {!node.summary && sources.length === 0 && attrEntries.length === 0 && neighbors.length === 0 && timeline.length === 0 && (
           <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-5)', lineHeight: 1.5 }}>
             {t('knowledge.detail-empty')}
           </p>
