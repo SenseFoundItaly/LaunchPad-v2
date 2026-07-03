@@ -40,10 +40,13 @@ jobs:
             n=$((n + 1))
             if [ "$n" -gt 50 ]; then echo "hit 50-monitor cap; remaining resume next tick"; break; fi
             echo "--- monitor $n/${#IDS[@]}: $id"
-            curl -sN -H "$AUTH" "${SITE_URL}/api/cron/run-monitor?monitor_id=${id}" --max-time 240 \
-              | tail -c 300 \
-              || echo "monitor $id errored (continuing)"
-            echo
+            # Capture the SSE stream to a var (|| true) BEFORE piping, so that a
+            # non-zero curl exit on a cleanly-closed stream doesn't trip
+            # `set -o pipefail` and mislabel a SUCCESSFUL run as "errored". The
+            # last frame ({"done":true,...ecosystem_alerts_inserted}) is the real
+            # signal of completion.
+            out=$(curl -sN -H "$AUTH" "${SITE_URL}/api/cron/run-monitor?monitor_id=${id}" --max-time 240 2>/dev/null) || true
+            echo "${out}" | grep -o '"done":true[^}]*}' | tail -1 || echo "  (no done frame — run may have been cut short)"
           done
 
           # 3. Weekly pulse — the SERVER gates it on isWeeklyPulseDay(), so this
