@@ -25,6 +25,10 @@ export const en = {
   'nav.copilot': 'Co-pilot',
   'nav.copilot.tooltip': 'Co-pilot — chat + a single-scroll Canvas of everything it produces',
   'nav.settings': 'Settings',
+  // Theme toggle (ThemeToggle.tsx)
+  'theme.label': 'Theme',
+  'theme.to-light': 'Switch to light mode',
+  'theme.to-dark': 'Switch to dark mode',
 
   // ── First-login product tour (ProductTour.tsx) ──────────────
   'tour.next': 'Next',
