@@ -69,8 +69,42 @@ export async function PATCH(
 
   const body = await request.json().catch(() => null);
   const state = body?.state as string | undefined;
-  if (!state) {
-    return error('state is required', 400);
+
+  // Content edit (graph detail drawer): the founder can correct a node's name
+  // or summary in place. Independent of the reviewed_state machine and free —
+  // it's an edit, not an apply. Scoped to graph_nodes (the only thing the graph
+  // drawer shows) + the URL project.
+  const editName = typeof body?.name === 'string' ? body.name.trim() : undefined;
+  const editSummary = typeof body?.summary === 'string' ? body.summary.trim() : undefined;
+  const hasContentEdit = editName !== undefined || editSummary !== undefined;
+
+  if (!state && !hasContentEdit) {
+    return error('state or content (name/summary) is required', 400);
+  }
+
+  if (hasContentEdit) {
+    if (editName !== undefined && editName.length === 0) {
+      return error('name cannot be empty', 400);
+    }
+    const node = await get<{ project_id: string }>(
+      'SELECT project_id FROM graph_nodes WHERE id = ?', itemId,
+    );
+    if (!node) return error('Node not found', 404);
+    if (node.project_id !== projectId) {
+      return error('Item does not belong to this project', 403);
+    }
+    // COALESCE keeps the existing value for any field the founder didn't send.
+    await run(
+      'UPDATE graph_nodes SET name = COALESCE(?, name), summary = COALESCE(?, summary) WHERE id = ?',
+      editName ?? null,
+      editSummary ?? null,
+      itemId,
+    );
+    // Content edit is terminal unless a state change was ALSO requested (the UI
+    // never combines them, but be safe and fall through when state is present).
+    if (!state) {
+      return json({ id: itemId, edited: true });
+    }
   }
 
   // Probe tables to find which one contains this item. Knowledge tables also

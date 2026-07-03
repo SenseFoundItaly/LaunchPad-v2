@@ -41,6 +41,9 @@ interface NodeDetailPanelProps {
   onApply?: (node: GraphNode) => void;
   /** Pending-only: reject the proposal (free). */
   onDismiss?: (node: GraphNode) => void;
+  /** Persist an edited name/summary for this node. When provided, an Edit
+   *  affordance appears so the founder can correct the node's context in place. */
+  onSaveEdit?: (node: GraphNode, patch: { name?: string; summary?: string }) => Promise<void> | void;
 }
 
 /** snake_case / camelCase → "Title Case" for keys, relations, and type names. */
@@ -164,8 +167,39 @@ export default function NodeDetailPanel({
   onSelectNeighbor,
   onApply,
   onDismiss,
+  onSaveEdit,
 }: NodeDetailPanelProps) {
   const t = useT();
+  // In-place edit of the node's name + summary (its "context"). Drafts are
+  // seeded from the node on entering edit mode; a node switch resets them.
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [draftSummary, setDraftSummary] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editErr, setEditErr] = useState<string | null>(null);
+  useEffect(() => { setEditing(false); setEditErr(null); }, [node?.id]);
+  function startEdit() {
+    if (!node) return;
+    setDraftName(node.name ?? '');
+    setDraftSummary(node.summary ?? '');
+    setEditErr(null);
+    setEditing(true);
+  }
+  async function saveEdit() {
+    if (!node || !onSaveEdit) return;
+    const name = draftName.trim();
+    if (!name) { setEditErr(t('knowledge.edit-name-required')); return; }
+    setSavingEdit(true);
+    setEditErr(null);
+    try {
+      await onSaveEdit(node, { name, summary: draftSummary.trim() });
+      setEditing(false);
+    } catch (e) {
+      setEditErr((e as Error).message || t('knowledge.edit-failed'));
+    } finally {
+      setSavingEdit(false);
+    }
+  }
   // Lazy AI "why this matters" — generated once on first view, cached server-side.
   // Off by default (flag); the route returns null when disabled and we keep the
   // template. Cached node.importance shows instantly with no fetch.
@@ -241,19 +275,59 @@ export default function NodeDetailPanel({
               background: typeColor,
             }}
           />
-          <h3
-            style={{
-              flex: 1,
-              minWidth: 0,
-              margin: 0,
-              fontSize: 16,
-              fontWeight: 650,
-              lineHeight: 1.3,
-              color: 'var(--ink)',
-            }}
-          >
-            {node.name}
-          </h3>
+          {editing ? (
+            <input
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              aria-label={t('knowledge.edit-name-label')}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontSize: 16,
+                fontWeight: 650,
+                lineHeight: 1.3,
+                color: 'var(--ink)',
+                background: 'var(--paper-2, var(--surface))',
+                border: '1px solid var(--line)',
+                borderRadius: 6,
+                padding: '4px 7px',
+              }}
+            />
+          ) : (
+            <h3
+              style={{
+                flex: 1,
+                minWidth: 0,
+                margin: 0,
+                fontSize: 16,
+                fontWeight: 650,
+                lineHeight: 1.3,
+                color: 'var(--ink)',
+              }}
+            >
+              {node.name}
+            </h3>
+          )}
+          {onSaveEdit && !editing && (
+            <button
+              onClick={startEdit}
+              aria-label={t('knowledge.edit')}
+              title={t('knowledge.edit')}
+              style={{
+                flexShrink: 0,
+                background: 'none',
+                border: 'none',
+                color: 'var(--ink-5)',
+                cursor: 'pointer',
+                padding: 2,
+                lineHeight: 0,
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+                <path d="M11.5 2.5l2 2L6 12l-2.5.5.5-2.5 7.5-7.5z" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={onClose}
             aria-label="Close details"
@@ -316,15 +390,68 @@ export default function NodeDetailPanel({
           </section>
         )}
 
-        {/* Summary */}
-        {node.summary && (
+        {/* Summary — editable in edit mode. Shown even when empty while editing
+            so the founder can add a summary to a bare node. */}
+        {editing ? (
+          <section>
+            <SectionLabel>{t('knowledge.detail-summary')}</SectionLabel>
+            <textarea
+              value={draftSummary}
+              onChange={(e) => setDraftSummary(e.target.value)}
+              rows={5}
+              placeholder={t('knowledge.edit-summary-placeholder')}
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                fontSize: 13,
+                lineHeight: 1.55,
+                color: 'var(--ink-2)',
+                background: 'var(--paper-2, var(--surface))',
+                border: '1px solid var(--line)',
+                borderRadius: 6,
+                padding: '8px 10px',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+              }}
+            />
+            {editErr && (
+              <p style={{ margin: '6px 0 0', fontSize: 11.5, color: 'var(--clay)' }}>{editErr}</p>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button
+                onClick={saveEdit}
+                disabled={savingEdit}
+                style={{
+                  flex: 1, fontSize: 12.5, fontWeight: 600,
+                  color: 'var(--paper)', background: 'var(--ink)',
+                  border: '1px solid var(--ink)', borderRadius: 'var(--r-m)',
+                  padding: '7px 10px', cursor: savingEdit ? 'default' : 'pointer',
+                  opacity: savingEdit ? 0.6 : 1,
+                }}
+              >
+                {savingEdit ? t('knowledge.edit-saving') : t('knowledge.edit-save')}
+              </button>
+              <button
+                onClick={() => { setEditing(false); setEditErr(null); }}
+                disabled={savingEdit}
+                style={{
+                  fontSize: 12.5, fontWeight: 500, color: 'var(--ink-4)',
+                  background: 'var(--surface)', border: '1px solid var(--line)',
+                  borderRadius: 'var(--r-m)', padding: '7px 12px', cursor: 'pointer',
+                }}
+              >
+                {t('knowledge.edit-cancel')}
+              </button>
+            </div>
+          </section>
+        ) : node.summary ? (
           <section>
             <SectionLabel>{t('knowledge.detail-summary')}</SectionLabel>
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--ink-3)' }}>
               {node.summary}
             </p>
           </section>
-        )}
+        ) : null}
 
         {/* Provenance links / sources */}
         {sources.length > 0 && (
