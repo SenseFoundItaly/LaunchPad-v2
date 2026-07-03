@@ -29,6 +29,7 @@ import { Icon, I, type IconKey } from './icons';
 import { ShareButton } from '@/components/project/ShareButton';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { LanguageSwitch } from '@/components/design/LanguageSwitch';
+import { ThemeToggle } from '@/components/design/ThemeToggle';
 import { Logomark } from '@/components/design/Logomark';
 import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
 import { useT } from '@/components/providers/LocaleProvider';
@@ -238,6 +239,9 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
       ))}
       {/* flexShrink:0 so a short viewport collapses THIS spacer (not the chip). */}
       <div style={{ flex: 1, minHeight: 6 }} />
+      {/* Light/dark theme toggle — sits at the bottom of the rail, above the
+          account chip. Token-driven, so it re-themes the whole app instantly. */}
+      <ThemeToggle />
       {/* User chip — links to /settings for BYOK + model preferences.
           flexShrink:0 keeps the 28px chip from being squeezed to nothing on a
           short rail (item 3: the account/settings icon "sometimes disappears"). */}

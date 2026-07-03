@@ -7,6 +7,7 @@ import AppHeader from '@/components/layout/AppHeader';
 import QueryProvider from '@/components/providers/QueryProvider';
 import { LocaleProvider } from '@/components/providers/LocaleProvider';
 import { asLocale, LOCALE_COOKIE } from '@/lib/i18n/locales';
+import { THEME_COOKIE } from '@/lib/theme';
 
 // Design system fonts — tokens.css expects Inter + JetBrains Mono.
 // next/font injects proper preloads, self-hosts the files, no FOIT.
@@ -38,14 +39,17 @@ export default async function RootLayout({
   const cookieStore = await cookies();
   const locale = asLocale(cookieStore.get(LOCALE_COOKIE)?.value);
 
-  // theme-ink = dark variant of the paperclip-adjacent design tokens.
-  // Matches the existing dark aesthetic while exposing CSS vars like
-  // --paper, --ink, --accent so design-system components can style without
-  // Tailwind (the two coexist cleanly).
+  // theme-ink = dark variant of the design tokens (:root is the LIGHT palette).
+  // Read the theme from a cookie so SSR renders the SAME classes the client
+  // will have — no hydration mismatch, no FOUC, no boot script. Default is dark
+  // (the app's established look) when the cookie is absent. The NavRail
+  // ThemeToggle writes the cookie + flips the classes live.
+  const isLight = cookieStore.get(THEME_COOKIE)?.value === 'light';
+  const themeClass = isLight ? '' : 'theme-ink dark';
   return (
     <html
       lang={locale}
-      className={`${inter.variable} ${jetbrainsMono.variable} theme-ink h-full antialiased dark`}
+      className={`${inter.variable} ${jetbrainsMono.variable} ${themeClass} h-full antialiased`}
     >
       <body className="h-full flex flex-col bg-paper text-ink">
         <LocaleProvider initialLocale={locale}>

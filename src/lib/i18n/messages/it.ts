@@ -42,6 +42,9 @@ export const it: Partial<Record<MessageKey, string>> = {
   'reminder.canvas-watcher.body': 'La tua Idea Canvas è definita — ottimo. Attiva il primo osservatore settimanale per monitorare il tuo ecosistema, e continua a ottimizzare il grafo Knowledge per affinare ogni insight.',
   'reminder.canvas-watcher.cta': 'Crea un osservatore',
   'nav.settings': 'Impostazioni',
+  'theme.label': 'Tema',
+  'theme.to-light': 'Passa al tema chiaro',
+  'theme.to-dark': 'Passa al tema scuro',
 
   // ── Onboarding (src/components/onboarding/OnboardingCard.tsx) ──────────────
   'onboarding.title': 'Inizia da qui',
