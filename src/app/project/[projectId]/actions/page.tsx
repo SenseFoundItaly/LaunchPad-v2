@@ -350,7 +350,7 @@ export default function TicketsPage({
         // its own scroll, renders the "+ New watcher" form inline, and
         // expands rows in place (config + run logs). deepLinkWatcherId
         // pre-expands the row from ?watcher=<id>.
-        <div style={{ flex: 1, overflow: 'auto', background: 'var(--paper)' }}>
+        <div data-tour="watchers-list" style={{ flex: 1, overflow: 'auto', background: 'var(--paper)' }}>
           <MonitorListPanel
             projectId={projectId}
             initialExpandedWatcherId={deepLinkWatcherId ?? undefined}
@@ -467,6 +467,7 @@ function LaneTabs({
   const t = useT();
   return (
     <div
+      data-tour="inbox-tabs"
       style={{
         display: 'flex',
         alignItems: 'stretch',

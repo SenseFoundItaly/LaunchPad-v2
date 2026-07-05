@@ -1438,6 +1438,7 @@ export default function CopilotChatPage({
 
         {/* Canvas */}
         <div
+          data-tour="chat-canvas"
           style={{
             flex: 1,
             display: 'flex',
@@ -3138,7 +3139,7 @@ function ChatComposer({
   }
 
   return (
-    <div style={{ borderTop: '1px solid var(--line)', padding: 14, background: 'var(--surface)' }}>
+    <div data-tour="chat-composer" style={{ borderTop: '1px solid var(--line)', padding: 14, background: 'var(--surface)' }}>
       <div
         style={{
           border: '1px solid var(--line-2)',

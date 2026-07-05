@@ -131,7 +131,7 @@ export function ScorePanel({ projectId }: { projectId: string }) {
   const runHref = `/project/${projectId}/chat?prefill=${encodeURIComponent('Run my startup score and explain each dimension')}`;
 
   return (
-    <section style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-l)', overflow: 'hidden' }}>
+    <section data-tour="score-panel" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-l)', overflow: 'hidden' }}>
       <header style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
         <Icon d={I.bolt} size={13} stroke={1.4} style={{ color: 'var(--ink-3)' }} />
         <h2 style={{ margin: 0, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-3)' }}>

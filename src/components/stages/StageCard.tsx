@@ -74,7 +74,7 @@ export function StageCard({ projectId }: { projectId: string }) {
   const headline = active ?? data.evaluations[data.evaluations.length - 1];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div data-tour="stage-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* Past stages — compact strip */}
       {done.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

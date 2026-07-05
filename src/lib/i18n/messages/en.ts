@@ -30,10 +30,12 @@ export const en = {
   'theme.to-light': 'Switch to light mode',
   'theme.to-dark': 'Switch to dark mode',
 
-  // ── First-login product tour (ProductTour.tsx) ──────────────
+  // ── Onboarding walkthrough (onboarding/TourController.tsx) ──────────────
   'tour.next': 'Next',
   'tour.prev': 'Back',
   'tour.done-btn': 'Done',
+  // driver.js substitutes {{current}}/{{total}} itself — keep them verbatim.
+  'tour.progress': '{{current}} of {{total}}',
   'tour.welcome.title': 'Welcome to LaunchPad',
   'tour.welcome.desc': 'Two engines: Watchers + your Knowledge graph monitor and shape your startup’s ecosystem; the Co-pilot builds your Idea Canvas and guides venture-building. Here’s a 30-second tour.',
   'tour.home.title': 'Home',
@@ -41,13 +43,47 @@ export const en = {
   'tour.knowledge.title': 'Knowledge',
   'tour.knowledge.desc': 'Start here: upload a document or describe your idea. It seeds your Knowledge graph — the entities, competitors and facts that shape everything else.',
   'tour.watchers.title': 'Watchers & signals',
-  'tour.watchers.desc': 'Watchers monitor competitors, market and regulation, surfacing signals and proposals here. Create them from chat or this lane.',
+  'tour.watchers.desc': 'Watchers monitor competitors, market and regulation on a weekly schedule. Their signals flow straight into your Knowledge — only the few that need your judgment wait here.',
   'tour.financial.title': 'Financials',
   'tour.financial.desc': 'Editable financial projections — tweak the assumptions and the 36-month, 3-scenario model recomputes live, then download it.',
   'tour.copilot.title': 'Co-pilot',
   'tour.copilot.desc': 'Kick off the chat — the Co-pilot builds your Idea Canvas and guides you stage by stage through validation.',
   'tour.finish.title': 'You’re set',
   'tour.finish.desc': 'Start by adding knowledge or telling the Co-pilot your idea. Once your Idea Canvas is defined, activate your first weekly watchers to keep shaping the graph.',
+  // Walkthrough — dashboard chapter
+  'tour.dash.projects.title': 'Your projects',
+  'tour.dash.projects.desc': 'Every venture you’re validating lives here. Click a project to jump back into it.',
+  'tour.dash.create.title': 'Start a new project',
+  'tour.dash.create.desc': 'Create a project from scratch, or seed it with your existing documents — pitch decks, research, notes.',
+  'tour.dash.signals.title': 'Signals across projects',
+  'tour.dash.signals.desc': 'Watcher findings from all your projects roll up here each week.',
+  'tour.dash.empty.title': 'Create your first project',
+  'tour.dash.empty.desc': 'The tour continues inside a project. Create one to explore Home, Watchers, Knowledge, Financials and the Co-pilot — you can replay this tour anytime from Settings.',
+  // Walkthrough — project Home chapter
+  'tour.today.score.title': 'Project score',
+  'tour.today.score.desc': 'One number for how validated your idea is, plus Investment Readiness. It moves as evidence lands — not as opinions pile up.',
+  'tour.today.stage.title': 'Your validation journey',
+  'tour.today.stage.desc': 'The 7-stage venture-building workflow. Each stage lists the evidence checks left to validate — this is your “what’s next”.',
+  'tour.today.watchers.title': 'Watchers',
+  'tour.today.watchers.desc': 'Active watchers scan the market weekly — their signals flow straight into your Knowledge.',
+  // Walkthrough — Watchers chapter
+  'tour.actions.tabs.title': 'Watchers & Needs review',
+  'tour.actions.tabs.desc': 'Watchers is where you create and manage your market sensors. Needs review holds the few signals they couldn’t auto-attribute — those wait for your call.',
+  'tour.actions.list.title': 'Your market sensors',
+  'tour.actions.list.desc': 'Each watcher runs on schedule — expand a row to tune it or read its run log. Findings flow into Knowledge; nothing ambiguous is applied without your yes.',
+  // Walkthrough — Knowledge chapter
+  'tour.knowledge.graph.title': 'Your Knowledge graph',
+  'tour.knowledge.graph.desc': 'Entities, competitors and facts — applied knowledge renders solid, pending proposals dashed. Click a node to inspect or apply it.',
+  'tour.knowledge.add.title': 'Add documents',
+  'tour.knowledge.add.desc': 'Upload files and LaunchPad extracts entities straight into the graph.',
+  // Walkthrough — Financials chapter
+  'tour.financial.model.title': 'Live projections',
+  'tour.financial.model.desc': 'Edit any assumption and the 36-month, 3-scenario model recomputes instantly. Save it, or download it for Excel/Sheets.',
+  // Walkthrough — Co-pilot chapter
+  'tour.chat.composer.title': 'Talk to the Co-pilot',
+  'tour.chat.composer.desc': 'Describe your idea or ask anything — the Co-pilot builds your Idea Canvas and proposes the next validation steps.',
+  'tour.chat.canvas.title': 'Canvas',
+  'tour.chat.canvas.desc': 'Everything the Co-pilot produces — canvases, analyses, artifacts — lands here, grouped by department.',
   'reminder.canvas-watcher.title': 'Idea Canvas is taking shape',
   'reminder.canvas-watcher.body': 'Your Idea Canvas is defined — nice. Activate your first weekly watcher to monitor your ecosystem, and keep optimizing your Knowledge graph to sharpen every insight.',
   'reminder.canvas-watcher.cta': 'Set up a watcher',

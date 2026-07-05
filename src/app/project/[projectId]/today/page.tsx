@@ -131,6 +131,7 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
                 {/* Secondary — Watchers, Intel, Notes. */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                   <Panel
+                    dataTour="watchers-panel"
                     label={t('today.watchers')}
                     icon={I.signal}
                     href={`/project/${projectId}/actions?lane=monitor`}
@@ -250,6 +251,7 @@ function Panel({
   hrefLabel,
   empty,
   children,
+  dataTour,
 }: {
   label: string;
   icon: string;
@@ -257,9 +259,12 @@ function Panel({
   hrefLabel: string;
   empty: string | null;
   children: React.ReactNode;
+  /** Onboarding-walkthrough anchor (see tour-steps.ts). */
+  dataTour?: string;
 }) {
   return (
     <section
+      data-tour={dataTour}
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--line)',

@@ -20,10 +20,12 @@ export const it: Partial<Record<MessageKey, string>> = {
   'nav.copilot': 'Co-pilot',
   'nav.copilot.tooltip': 'Co-pilot — chat + un Canvas a scorrimento unico di tutto ciò che produce',
 
-  // ── Tour primo accesso (ProductTour.tsx) ──────────────
+  // ── Tour guidato (onboarding/TourController.tsx) ──────────────
   'tour.next': 'Avanti',
   'tour.prev': 'Indietro',
   'tour.done-btn': 'Fatto',
+  // driver.js sostituisce {{current}}/{{total}} da solo — lasciarli invariati.
+  'tour.progress': '{{current}} di {{total}}',
   'tour.welcome.title': 'Benvenuto in LaunchPad',
   'tour.welcome.desc': 'Due motori: gli Osservatori + il grafo Knowledge monitorano e danno forma all’ecosistema della tua startup; il Co-pilot costruisce la tua Idea Canvas e ti guida nel venture-building. Ecco un tour di 30 secondi.',
   'tour.home.title': 'Home',
@@ -31,13 +33,47 @@ export const it: Partial<Record<MessageKey, string>> = {
   'tour.knowledge.title': 'Knowledge',
   'tour.knowledge.desc': 'Parti da qui: carica un documento o descrivi la tua idea. Popola il grafo Knowledge — entità, competitor e fatti che danno forma a tutto il resto.',
   'tour.watchers.title': 'Osservatori e segnali',
-  'tour.watchers.desc': 'Gli Osservatori monitorano competitor, mercato e regolamentazione, facendo emergere segnali e proposte qui. Creali dalla chat o da questa corsia.',
+  'tour.watchers.desc': 'Gli Osservatori monitorano competitor, mercato e regolamentazione con cadenza settimanale. I loro segnali fluiscono direttamente nella tua Knowledge — solo i pochi che richiedono il tuo giudizio aspettano qui.',
   'tour.financial.title': 'Finanze',
   'tour.financial.desc': 'Proiezioni finanziarie editabili — modifica le assunzioni e il modello a 36 mesi su 3 scenari si ricalcola live, poi scaricalo.',
   'tour.copilot.title': 'Co-pilot',
   'tour.copilot.desc': 'Avvia la chat — il Co-pilot costruisce la tua Idea Canvas e ti guida fase per fase nella validazione.',
   'tour.finish.title': 'Tutto pronto',
   'tour.finish.desc': 'Inizia aggiungendo knowledge o raccontando la tua idea al Co-pilot. Una volta definita l’Idea Canvas, attiva i primi osservatori settimanali per continuare a dare forma al grafo.',
+  // Tour guidato — capitolo dashboard
+  'tour.dash.projects.title': 'I tuoi progetti',
+  'tour.dash.projects.desc': 'Ogni venture che stai validando vive qui. Clicca un progetto per rientrarci.',
+  'tour.dash.create.title': 'Avvia un nuovo progetto',
+  'tour.dash.create.desc': 'Crea un progetto da zero, oppure partendo dai tuoi documenti — pitch deck, ricerche, appunti.',
+  'tour.dash.signals.title': 'Segnali da tutti i progetti',
+  'tour.dash.signals.desc': 'Le scoperte settimanali degli osservatori di tutti i tuoi progetti si raccolgono qui.',
+  'tour.dash.empty.title': 'Crea il tuo primo progetto',
+  'tour.dash.empty.desc': 'Il tour continua dentro un progetto. Creane uno per esplorare Home, Osservatori, Knowledge, Finanze e il Co-pilot — puoi ripetere il tour in qualsiasi momento dalle Impostazioni.',
+  // Tour guidato — capitolo Home progetto
+  'tour.today.score.title': 'Score del progetto',
+  'tour.today.score.desc': 'Un numero per quanto la tua idea è validata, più l’Investment Readiness. Si muove quando arrivano evidenze — non quando si accumulano opinioni.',
+  'tour.today.stage.title': 'Il tuo percorso di validazione',
+  'tour.today.stage.desc': 'Il workflow di venture-building a 7 fasi. Ogni fase elenca i check di evidenza ancora da validare — è il tuo “cosa viene dopo”.',
+  'tour.today.watchers.title': 'Osservatori',
+  'tour.today.watchers.desc': 'Gli osservatori attivi scansionano il mercato ogni settimana — i loro segnali fluiscono direttamente nella tua Knowledge.',
+  // Tour guidato — capitolo Osservatori
+  'tour.actions.tabs.title': 'Osservatori e Da rivedere',
+  'tour.actions.tabs.desc': 'Osservatori è dove crei e gestisci i tuoi sensori di mercato. Da rivedere raccoglie i pochi segnali che non hanno potuto essere attribuiti in automatico — quelli aspettano la tua decisione.',
+  'tour.actions.list.title': 'I tuoi sensori di mercato',
+  'tour.actions.list.desc': 'Ogni osservatore gira secondo il suo programma — espandi una riga per regolarlo o leggere il log delle esecuzioni. Le scoperte fluiscono in Knowledge; niente di ambiguo viene applicato senza il tuo sì.',
+  // Tour guidato — capitolo Knowledge
+  'tour.knowledge.graph.title': 'Il tuo grafo Knowledge',
+  'tour.knowledge.graph.desc': 'Entità, competitor e fatti — la knowledge applicata è a tratto pieno, le proposte in attesa tratteggiate. Clicca un nodo per ispezionarlo o applicarlo.',
+  'tour.knowledge.add.title': 'Aggiungi documenti',
+  'tour.knowledge.add.desc': 'Carica file e LaunchPad estrae le entità direttamente nel grafo.',
+  // Tour guidato — capitolo Finanze
+  'tour.financial.model.title': 'Proiezioni live',
+  'tour.financial.model.desc': 'Modifica qualsiasi assunzione e il modello a 36 mesi su 3 scenari si ricalcola all’istante. Salvalo, o scaricalo per Excel/Fogli.',
+  // Tour guidato — capitolo Co-pilot
+  'tour.chat.composer.title': 'Parla con il Co-pilot',
+  'tour.chat.composer.desc': 'Descrivi la tua idea o chiedi qualsiasi cosa — il Co-pilot costruisce la tua Idea Canvas e propone i prossimi passi di validazione.',
+  'tour.chat.canvas.title': 'Canvas',
+  'tour.chat.canvas.desc': 'Tutto ciò che il Co-pilot produce — canvas, analisi, artefatti — atterra qui, raggruppato per dipartimento.',
   'reminder.canvas-watcher.title': 'L’Idea Canvas sta prendendo forma',
   'reminder.canvas-watcher.body': 'La tua Idea Canvas è definita — ottimo. Attiva il primo osservatore settimanale per monitorare il tuo ecosistema, e continua a ottimizzare il grafo Knowledge per affinare ogni insight.',
   'reminder.canvas-watcher.cta': 'Crea un osservatore',
