@@ -71,7 +71,12 @@ const TAB_LABEL_KEY: Record<DisplayTab, MessageKey> = {
 // alpha" and could simply be hidden — this flag does that without deleting code.
 const INTEL_HIDDEN = process.env.NEXT_PUBLIC_INTEL_HIDDEN === '1';
 
-const TAB_ORDER: DisplayTab[] = INTEL_HIDDEN ? ['monitor'] : ['inbox', 'monitor'];
+// Watchers FIRST: with SIGNAL_AUTOFLOW live, signals route straight into
+// Knowledge at ingest and this page's queue holds only the EXCEPTIONS the
+// router couldn't attribute ("Needs review"). The founder's primary object
+// here is their sensors, not a queue — "Intel" is retired as a concept
+// (nav + breadcrumb + tab all say Watchers / Needs review now).
+const TAB_ORDER: DisplayTab[] = INTEL_HIDDEN ? ['monitor'] : ['monitor', 'inbox'];
 
 // The "apply to intelligence" allow-list. ONLY these action_types render in
 // the Inbox tab. Anything not here is hidden from this surface (but still lives
@@ -140,7 +145,7 @@ export default function TicketsPage({
   // based on whichever tab has the most open rows (a founder with 0 inbox
   // rows and 4 pending signals lands on Signals first). Filters default to
   // 'any' so the list shows everything until the founder narrows.
-  const [tab, setTab] = useState<DisplayTab>(INTEL_HIDDEN ? 'monitor' : 'inbox');
+  const [tab, setTab] = useState<DisplayTab>('monitor');
   const [tabInitialized, setTabInitialized] = useState(false);
   // Deep-link preselection for the Watchers tab: ?lane=monitor&watcher=<id>
   // (old /project/:id/monitors/:monitorId links redirect here). Read once on
@@ -237,14 +242,11 @@ export default function TicketsPage({
     const validFromUrl = fromUrl ? LANE_PARAM_TO_TAB[fromUrl] ?? null : null;
     const watcherFromUrl = search?.get('watcher') ?? null;
     if (watcherFromUrl) setDeepLinkWatcherId(watcherFromUrl);
-    // When Intel is hidden, Watchers is the only tab — force it and ignore any
-    // ?lane=inbox deep link that would select a now-absent tab.
-    const winner = INTEL_HIDDEN
-      ? 'monitor'
-      : validFromUrl ?? TAB_ORDER.reduce<DisplayTab>(
-        (best, t) => (tabOpenCounts[t] > tabOpenCounts[best] ? t : best),
-        'inbox',
-      );
+    // Watchers is the default landing tab: the needs-review queue is the
+    // exception (autoflow routes attributable signals at ingest), so we only
+    // leave it for an explicit ?lane= deep link. When Intel is hidden it's
+    // also the ONLY tab.
+    const winner = INTEL_HIDDEN ? 'monitor' : validFromUrl ?? 'monitor';
     setTab(winner);
     setTabInitialized(true);
   }, [tabOpenCounts, tabInitialized, loading]);
