@@ -536,12 +536,17 @@ export async function POST(request: NextRequest) {
   let canvasContext = '';
   if (snapshot?.idea_canvas) {
     const c = snapshot.idea_canvas as Record<string, unknown>;
+    const join = (v: unknown) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()).join(' · ') : v);
     const fields: Array<[string, unknown]> = [
       ['Problem', c.problem],
       ['Solution', c.solution],
       ['Target market', c.target_market],
       ['Value proposition', c.value_proposition],
       ['Competitive advantage', c.competitive_advantage],
+      ['Channels', c.channels],
+      ['Business model', c.business_model],
+      ['Cost structure', join(c.cost_structure)],
+      ['Revenue streams', join(c.revenue_streams)],
     ];
     const filled = fields.filter(([, v]) => typeof v === 'string' && v.trim().length > 0);
     if (filled.length > 0) {

@@ -45,6 +45,7 @@ export interface MonitorPromptContext {
     solution?: string;
     target_market?: string;
     value_proposition?: string;
+    channels?: string;
   } | null;
   research: {
     competitors?: Array<{ name: string; description?: string }>;
@@ -200,6 +201,7 @@ export function projectContext(ctx: MonitorPromptContext): string {
   if (ctx.idea?.solution) lines.push(`Solution: ${ctx.idea.solution}`);
   if (ctx.idea?.target_market) lines.push(`Target market: ${ctx.idea.target_market}`);
   if (ctx.idea?.value_proposition) lines.push(`Value proposition: ${ctx.idea.value_proposition}`);
+  if (ctx.idea?.channels) lines.push(`Acquisition channels: ${ctx.idea.channels}`);
   return lines.join('\n');
 }
 
@@ -521,7 +523,7 @@ export async function loadMonitorContext(projectId: string): Promise<MonitorProm
   if (!project) throw new Error(`Project not found: ${projectId}`);
 
   const ideaRows = await query<Record<string, string | null>>(
-    'SELECT problem, solution, target_market, value_proposition FROM idea_canvas WHERE project_id = ?',
+    'SELECT problem, solution, target_market, value_proposition, channels FROM idea_canvas WHERE project_id = ?',
     projectId,
   );
   const idea = ideaRows[0] || null;
