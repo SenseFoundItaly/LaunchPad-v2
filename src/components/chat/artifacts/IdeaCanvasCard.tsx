@@ -60,9 +60,10 @@ export default function IdeaCanvasCard({ artifact }: IdeaCanvasCardProps) {
         <Block label="Target Market" text={artifact.target_market} />
 
         <Block label="Key Metrics" items={artifact.key_metrics} />
-        <Block label="Channels" text={artifact.competitive_advantage} />
+        <Block label="Channels" text={artifact.channels} />
         {/* Value Prop spans row from above */}
         <Block label="Business Model" text={artifact.business_model} />
+        <Block label="Competitive Edge" text={artifact.competitive_advantage} />
 
         <Block label="Cost Structure" items={artifact.cost_structure} className="col-span-2" />
         <Block label="Revenue Streams" items={artifact.revenue_streams} className="col-span-3" />

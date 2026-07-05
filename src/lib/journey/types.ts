@@ -85,6 +85,15 @@ export interface ProjectSnapshot {
     target_market: string | null;
     value_proposition: string | null;
     competitive_advantage: string | null;
+    /** Soft Lean Canvas blocks — read by the Stage-1 (L2 Phase 0) checks:
+     *  channels/cost/revenue presence + "Lean Canvas compiled". Arrays are
+     *  normalized in the snapshot builder (double-encode coercion). */
+    unfair_advantage: string | null;
+    business_model: string | null;
+    channels: string | null;
+    key_metrics: string[] | null;
+    revenue_streams: string[] | null;
+    cost_structure: string[] | null;
   } | null;
   competitors: Array<{
     id: string;
@@ -154,4 +163,11 @@ export interface ProjectSnapshot {
     pending_actions: number;
     knowledge_items: number;
   };
+  /** Startup Scoring baseline (scores table, written by the startup-scoring
+   *  skill). Stage-1's `startup_scoring_baseline` check gates on its presence
+   *  — the 0-10 score that anchors the whole L2 cycle. */
+  startup_score: {
+    overall_score: number;
+    scored_at: string | null;
+  } | null;
 }

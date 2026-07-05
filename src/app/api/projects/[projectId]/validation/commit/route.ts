@@ -71,12 +71,12 @@ export async function POST(
   // SILENTLY DROPPED downstream — the exact narrate-but-no-persist failure this
   // loop exists to prevent. Reject it loudly instead. (Canvas text should commit
   // via the free commit.canvas → /idea-canvas path; items is for paid knowledge.)
-  const CANVAS_COLS = new Set(['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage']);
+  const CANVAS_COLS = new Set(['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage', 'channels']);
   const badCanvas = items.find(
     (it) => it.kind === 'canvas_field' && !(typeof it.field === 'string' && CANVAS_COLS.has(it.field)),
   );
   if (badCanvas) {
-    return error('A canvas_field item must include a valid "field" (problem|solution|target_market|value_proposition|business_model|competitive_advantage) — or commit canvas text via commit.canvas instead', 400);
+    return error('A canvas_field item must include a valid "field" (problem|solution|target_market|value_proposition|business_model|competitive_advantage|channels) — or commit canvas text via commit.canvas instead', 400);
   }
 
   // Idempotency guard: this endpoint createPendingAction → apply → DEBITS on

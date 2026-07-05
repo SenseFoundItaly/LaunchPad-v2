@@ -25,7 +25,7 @@ import { chatJSONByTask } from '@/lib/llm';
 import { autoStageValidationFromArtifact } from '@/lib/auto-stage-validation';
 import type { IdeaCanvasArtifact, Source } from '@/types/artifacts';
 
-const CANVAS_FIELDS = ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage', 'business_model'] as const;
+const CANVAS_FIELDS = ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage', 'business_model', 'channels'] as const;
 type CanvasField = (typeof CANVAS_FIELDS)[number];
 
 // A description shorter than this is just a name echo / placeholder — not enough
@@ -38,7 +38,7 @@ const MIN_DESCRIPTION_CHARS = 50;
 // the user, seeing a "failed" creation, retries → duplicate projects). Degrade
 // to {seeded:false} fast instead — the chat agent's turn-1 steering is the
 // backstop when the seed is skipped. Tier stays balanced/Sonnet (router default
-// for the unmapped 'idea-canvas-seed' label): a single-shot 6-field JSON extract
+// for the unmapped 'idea-canvas-seed' label): a single-shot 7-field JSON extract
 // is reliable there; cheap/Haiku is a possible future cost lever, not assumed.
 const EXTRACT_TIMEOUT_MS = 8_000;
 const TIMEOUT = Symbol('idea-canvas-seed-timeout');
@@ -53,7 +53,7 @@ function langName(locale: string): string {
  *  against a stray duplicate card. */
 async function canvasIsEmpty(projectId: string): Promise<boolean> {
   const rows = await query<Record<string, string | null>>(
-    'SELECT problem, solution, target_market, value_proposition, competitive_advantage, business_model FROM idea_canvas WHERE project_id = ?',
+    'SELECT problem, solution, target_market, value_proposition, competitive_advantage, business_model, channels FROM idea_canvas WHERE project_id = ?',
     projectId,
   ).catch((e) => {
     console.warn(`[idea-canvas-seed] canvasIsEmpty query failed for ${projectId}:`, (e as Error).message);
@@ -98,7 +98,7 @@ export async function seedIdeaCanvasFromDescription(opts: {
     const system =
       "You extract Lean/Idea Canvas fields from a founder's startup description. "
       + 'Return STRICT JSON with exactly these keys: problem, solution, target_market, '
-      + 'value_proposition, competitive_advantage, business_model. For each key, write a '
+      + 'value_proposition, competitive_advantage, business_model, channels. For each key, write a '
       + 'concise (≤300 char) value ONLY if the description gives you confident signal for it; '
       + 'otherwise use an empty string "". Do NOT invent facts the description does not support '
       + `— an empty string is the correct answer when unknown. Write every value in ${lang}. `

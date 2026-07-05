@@ -16,7 +16,7 @@ const STEP_TABLES: Record<string, { table: string; jsonColumns: string[]; column
     jsonColumns: ['key_metrics', 'revenue_streams', 'cost_structure'],
     columns: [
       'problem', 'solution', 'target_market', 'business_model', 'competitive_advantage',
-      'value_proposition', 'unfair_advantage', 'key_metrics', 'revenue_streams', 'cost_structure',
+      'value_proposition', 'unfair_advantage', 'channels', 'key_metrics', 'revenue_streams', 'cost_structure',
     ],
   },
   scores: {

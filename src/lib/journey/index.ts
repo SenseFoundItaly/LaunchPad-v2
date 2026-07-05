@@ -57,8 +57,40 @@ export const STAGES: Stage[] = [
 function resolveProof(source: string, snapshot: ProjectSnapshot): string | undefined {
   const canvasMatch = source.match(/idea_canvas\.(\w+)/);
   if (canvasMatch && snapshot.idea_canvas) {
-    const v = (snapshot.idea_canvas as Record<string, unknown>)[canvasMatch[1]];
+    const field = canvasMatch[1];
+    const v = (snapshot.idea_canvas as Record<string, unknown>)[field];
     if (typeof v === 'string' && v.trim()) return v.trim();
+    // Array-backed blocks (cost_structure, revenue_streams, key_metrics).
+    // cost_revenue_defined points at cost_structure but proves BOTH lists.
+    if (Array.isArray(v) && v.length > 0) {
+      const items = v.filter((x): x is string => typeof x === 'string');
+      if (field === 'cost_structure' && snapshot.idea_canvas.revenue_streams?.length) {
+        return `Costs: ${items.join(' · ')} — Revenue: ${snapshot.idea_canvas.revenue_streams.join(' · ')}`;
+      }
+      return items.join(' · ');
+    }
+  }
+  // Whole-canvas source (lean_canvas_compiled) → summarize the filled blocks.
+  if (source === 'idea_canvas' && snapshot.idea_canvas) {
+    const c = snapshot.idea_canvas;
+    const parts = [
+      c.problem && `Problem: ${c.problem}`,
+      c.solution && `Solution: ${c.solution}`,
+      c.target_market && `Segments: ${c.target_market}`,
+      c.value_proposition && `Value prop: ${c.value_proposition}`,
+      (c.unfair_advantage || c.competitive_advantage) && `Unfair advantage: ${c.unfair_advantage || c.competitive_advantage}`,
+      c.channels && `Channels: ${c.channels}`,
+      c.key_metrics?.length && `Key metrics: ${c.key_metrics.join(' · ')}`,
+      c.cost_structure?.length && `Costs: ${c.cost_structure.join(' · ')}`,
+      c.revenue_streams?.length && `Revenue: ${c.revenue_streams.join(' · ')}`,
+    ].filter(Boolean);
+    return parts.length ? (parts as string[]).join('\n') : undefined;
+  }
+  if (source === 'scores.overall_score' && snapshot.startup_score) {
+    const raw = snapshot.startup_score.overall_score;
+    const score10 = raw > 10 ? raw / 10 : raw;
+    const when = snapshot.startup_score.scored_at ? ` (scored ${String(snapshot.startup_score.scored_at).slice(0, 10)})` : '';
+    return `Startup Scoring baseline: ${score10.toFixed(1)}/10${when}`;
   }
   if (/competitor/i.test(source) && snapshot.competitors.length > 0) {
     return snapshot.competitors.map((c) => c.name).filter(Boolean).join(', ');

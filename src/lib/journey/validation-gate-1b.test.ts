@@ -35,6 +35,7 @@ function mkSnapshot(
     fundraising_round: null,
     investors: [],
     counts: { published_assets: 0, pending_actions: 0, knowledge_items: 0 },
+    startup_score: null,
   };
 }
 

@@ -5,6 +5,10 @@
  *
  * Re-bucketing note (2026-06 taxonomy unification): all of legacy
  * "Segment"'s checks, unchanged ids and evaluator logic.
+ * 2026-07 (L2 Phase-0 alignment): the `target_market` presence check moved to
+ * Stage 1 as `target_icp_defined` — the spec puts the PRELIMINARY target/ICP
+ * in the Idea Canvas ("aggiornato post-Loop 1"). Stage 3 keeps the deeper
+ * fact-based ICP/channels validation.
  */
 
 import type { Stage } from './types';
@@ -15,17 +19,6 @@ export const stagePersona: Stage = {
   ...CANONICAL_BY_ID.persona,
   tagline: 'Beachhead picked, ICP described, acquisition path imagined.',
   checks: [
-    {
-      id: 'target_market',
-      label: 'Target market named',
-      source: 'idea_canvas.target_market',
-      evaluate: (s) => {
-        const ok = !!s.idea_canvas?.target_market?.trim();
-        return ok
-          ? { passed: true, evidence: "You've named your target market." }
-          : { passed: false, gap: 'Name the target market' };
-      },
-    },
     {
       id: 'icp_defined',
       label: 'ICP described',

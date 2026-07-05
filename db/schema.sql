@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS idea_canvas (
   competitive_advantage TEXT,
   value_proposition TEXT,
   unfair_advantage TEXT,
+  channels TEXT,
   key_metrics JSONB,
   revenue_streams JSONB,
   cost_structure JSONB,

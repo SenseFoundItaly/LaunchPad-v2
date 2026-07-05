@@ -2144,6 +2144,7 @@ const CANVAS_FIELD_LABELS: Record<string, string> = {
   value_proposition: 'Value proposition',
   business_model: 'Business model',
   competitive_advantage: 'Competitive edge',
+  channels: 'Channels',
 };
 
 function itemDisplayLabel(item: RawValidationItem): string {
@@ -2278,7 +2279,7 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
   name: 'update_idea_canvas',
   label: 'Update Idea Canvas',
   description:
-    'Propose one or more Idea Canvas fields (problem, solution, target market, value proposition, business model, competitive advantage) for the founder to approve onto their canvas. Call this whenever the founder has articulated — or you have synthesized — canvas content. It does NOT write directly: canvas fields turn Stage 1-3 substeps green, so they go through the founder approval gate (a validation_proposal card). Pass every field you have in ONE call so the founder sees a single card. If you are ALSO proposing competitors or market size this turn, prefer propose_validation to batch them together. Emit the returned artifact block VERBATIM so the approval card renders.',
+    'Propose one or more Idea Canvas fields (problem, solution, target market, value proposition, business model, competitive advantage, acquisition channels) for the founder to approve onto their canvas. Call this whenever the founder has articulated — or you have synthesized — canvas content. It does NOT write directly: canvas fields turn Stage 1-3 substeps green, so they go through the founder approval gate (a validation_proposal card). Pass every field you have in ONE call so the founder sees a single card. If you are ALSO proposing competitors or market size this turn, prefer propose_validation to batch them together. Emit the returned artifact block VERBATIM so the approval card renders.',
   parameters: Type.Object({
     problem: Type.Optional(Type.String({ description: 'The specific pain the target user experiences. Concrete, not generic. Quote the founder when possible.' })),
     solution: Type.Optional(Type.String({ description: 'What you build to solve it. The "what", not the "how" — keep tech details out.' })),
@@ -2286,14 +2287,15 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
     value_proposition: Type.Optional(Type.String({ description: 'Single-sentence "for X, we do Y unlike Z".' })),
     business_model: Type.Optional(Type.String({ description: 'How it makes money — subscription, transaction, freemium, etc., plus pricing logic.' })),
     competitive_advantage: Type.Optional(Type.String({ description: 'The moat: insight, data, distribution, network effects, regulatory lock-in. Be specific about which.' })),
+    channels: Type.Optional(Type.String({ description: 'Acquisition channels — how you reach customers: e.g. "founder-led LinkedIn outreach, SEO, accountant partnerships".' })),
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
     const p = params as Partial<Record<
-      'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model' | 'competitive_advantage',
+      'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model' | 'competitive_advantage' | 'channels',
       string
     >>;
     const clean = (v: string | undefined): string => (typeof v === 'string' ? v.trim().slice(0, 1200) : '');
-    const order = ['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage'] as const;
+    const order = ['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage', 'channels'] as const;
 
     // Build canvas_field items from the provided fields and route them through
     // the validation gate. The actual idea_canvas write + assumptions seeding
