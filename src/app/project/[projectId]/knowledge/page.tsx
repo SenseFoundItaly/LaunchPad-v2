@@ -42,7 +42,15 @@ export default function KnowledgePage({
   const [showAddDocs, setShowAddDocs] = useState(false);
   // Graph (D3 force viz) vs List (AllKnowledgePanel — every knowledge item
   // grouped by kind, each section gradient-tinted). Graph is the default.
-  const [view, setView] = useState<'graph' | 'list' | 'moves'>('graph');
+  // ?view= deep link (e.g. the watcher run-summary "View in Knowledge →" links
+  // to ?view=moves). Read once at mount; the toggle stays local state after.
+  const [view, setView] = useState<'graph' | 'list' | 'moves'>(() => {
+    if (typeof window !== 'undefined') {
+      const v = new URLSearchParams(window.location.search).get('view');
+      if (v === 'list' || v === 'moves' || v === 'graph') return v;
+    }
+    return 'graph';
+  });
 
   // After the popup applies extracted entities, refetch the graph and bump the
   // credits/knowledge listeners — same invalidation contract as applyNode below.

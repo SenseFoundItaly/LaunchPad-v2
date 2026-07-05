@@ -222,6 +222,12 @@ export interface PersistResult {
   alerts_skipped: number;
   pending_actions_created: number;
   pending_actions_skipped_cap: number;
+  /** SIGNAL_AUTOFLOW verdicts this run: signals filed straight into Knowledge
+   *  (enrich + new_entity). 0 when the flag is off. Surfaced in the run
+   *  summary so "Found N signals" doesn't point founders at an empty queue. */
+  routed_to_knowledge: number;
+  /** Signals soft-dropped by the router (junk floor / tombstone). */
+  auto_dropped: number;
 }
 
 export async function persistEcosystemAlerts(
@@ -236,6 +242,8 @@ export async function persistEcosystemAlerts(
     alerts_skipped: 0,
     pending_actions_created: 0,
     pending_actions_skipped_cap: 0,
+    routed_to_knowledge: 0,
+    auto_dropped: 0,
   };
 
   const persistedAlerts: Array<{ alert: ParsedEcosystemAlert; alertId: string | null }> = [];
@@ -354,6 +362,8 @@ export async function persistEcosystemAlerts(
       if (!p.alertId) continue;
       const verdict = await routeAlertAutoflow(opts.projectId, p.alertId);
       if (verdict !== 'inbox') autoflowRouted.add(p.alertId);
+      if (verdict === 'enrich' || verdict === 'new_entity') result.routed_to_knowledge++;
+      else if (verdict === 'drop') result.auto_dropped++;
     }
   }
 

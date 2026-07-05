@@ -434,6 +434,8 @@ async function runMonitor(
             alerts_skipped: 0,
             pending_actions_created: second.pending_actions_created,
             pending_actions_skipped_cap: 0,
+            routed_to_knowledge: second.routed_to_knowledge,
+            auto_dropped: 0,
           };
         }
       }
@@ -891,7 +893,30 @@ async function dismissStaleNotifications(): Promise<number> {
   if (changes > 0) {
     console.log(`[cron] auto-dismissed ${changes} stale notification(s) >7d`);
   }
-  return changes;
+
+  // Stale INTELLIGENCE_BRIEF tickets: the brief SOURCE rows expire after 7d
+  // (expireOldBriefs), but their queue tickets lived forever — founders saw
+  // "review this brief" items whose underlying brief was long dead. Sweep any
+  // pending brief ticket whose payload.brief_id resolves to a non-active brief
+  // (or whose brief row is gone).
+  const briefResult = await run(
+    `UPDATE pending_actions pa
+        SET status = 'rejected',
+            updated_at = ?,
+            execution_result = COALESCE(pa.execution_result, '{"auto_dismissed":true,"reason":"source brief expired"}')
+      WHERE pa.status IN ('pending', 'edited')
+        AND pa.action_type = 'intelligence_brief'
+        AND NOT EXISTS (
+          SELECT 1 FROM intelligence_briefs ib
+           WHERE ib.id = pa.payload ->> 'brief_id' AND ib.status = 'active'
+        )`,
+    now,
+  );
+  const briefChanges = (briefResult as unknown as { count: number }).count ?? 0;
+  if (briefChanges > 0) {
+    console.log(`[cron] auto-dismissed ${briefChanges} expired-brief ticket(s)`);
+  }
+  return changes + briefChanges;
 }
 
 interface HeartbeatResult {

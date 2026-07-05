@@ -14,6 +14,7 @@ import { pickModel } from '@/lib/llm/router';
 import { recordUsage, isProjectCapped } from '@/lib/cost-meter';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 import { computeDedupeHash } from '@/lib/ecosystem-monitors';
+import { isAutoflowEnabled, routeAlertAutoflow } from '@/lib/signal-autoflow';
 import {
   structuralDiff, formatDiffForLLM,
   parseMarkdownTable, extractJsonLd,
@@ -283,10 +284,20 @@ export async function processWatchSource(
       console.warn('[watch-source] ecosystem_alert insert failed:', (err as Error).message);
       alertId = null;
     }
-    // Phase 2 — producer dual-write. Land the signal in the unified inbox
-    // immediately. Uses ecosystem_alert_id as the dedupe key (NOT EXISTS check
-    // in materialize-on-read), so re-running this producer is idempotent.
-    if (alertId) {
+    // SIGNAL_AUTOFLOW: route the freshly-inserted alert exactly like the
+    // monitor-scan producer does (this path previously bypassed routing
+    // entirely — URL-watcher findings always landed as inbox tickets while
+    // topic-watcher findings flowed to Knowledge; incoherent). Non-inbox
+    // verdicts skip the dual-write below; routing errors return 'inbox' so
+    // the ticket path is the fail-safe, same as everywhere else.
+    let watchVerdict: 'inbox' | 'enrich' | 'new_entity' | 'drop' = 'inbox';
+    if (alertId && isAutoflowEnabled()) {
+      watchVerdict = await routeAlertAutoflow(ws.project_id, alertId);
+    }
+    // Producer dual-write. Land the signal in the unified inbox immediately.
+    // Uses ecosystem_alert_id as the dedupe key (NOT EXISTS check in
+    // materialize-on-read), so re-running this producer is idempotent.
+    if (alertId && watchVerdict === 'inbox') {
       try {
         const priority = classification.significance === 'high' ? 'high' : 'medium';
         const paId = generateId('pa');

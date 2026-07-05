@@ -27,7 +27,11 @@ export type GraphNodeType =
   | 'comparison'
   | 'competitor_set'
   | 'research_metric'
-  | 'market';
+  | 'market'
+  // Fallback type for watcher signals whose alert_type has no specific mapping
+  // (nodeTypeForAlert default). Must stay in every map below or these nodes
+  // render as anonymous grey dots outside the legend/regions.
+  | 'signal';
 
 /**
  * Macro-category grouping — the "matrioska" the founder asked for in the
@@ -51,6 +55,7 @@ export const MACRO_CATEGORY: Record<GraphNodeType, MacroCategory | null> = {
   funding_source: 'investitori',
   technology: 'contesto',
   trend: 'contesto',
+  signal: 'contesto',
   risk: 'contesto',
   compliance: 'contesto',
   regulation: 'contesto',
@@ -106,6 +111,7 @@ export const NODE_TYPE_LABEL: Record<GraphNodeType, { en: string; it: string }> 
   funding_source: { en: 'Investor', it: 'Investitore' },
   technology: { en: 'Technology', it: 'Tecnologia' },
   trend: { en: 'Trend', it: 'Trend' },
+  signal: { en: 'Signal', it: 'Segnale' },
   risk: { en: 'Risk', it: 'Rischio' },
   compliance: { en: 'Compliance', it: 'Compliance' },
   regulation: { en: 'Regulation', it: 'Normativa' },
@@ -191,6 +197,7 @@ export const NODE_COLORS: Record<string, string> = {
   persona: 'var(--cat-gold)',
   risk: 'var(--cat-rose)',
   trend: 'var(--plum)',
+  signal: 'var(--plum)',
   company: 'var(--sky)',
   compliance: 'var(--cat-rose)',
   regulation: 'var(--cat-rose)',
