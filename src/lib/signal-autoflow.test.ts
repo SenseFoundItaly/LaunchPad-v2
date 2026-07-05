@@ -21,12 +21,15 @@ describe('decideAutoflowRoute', () => {
     expect(d.reason).toMatch(/tombstone/);
   });
 
-  it('enriches an existing node at any relevance above the floor', () => {
+  it('enriches an existing APPLIED node at any relevance above the floor', () => {
     const d = decideAutoflowRoute({ relevance_score: 0.55, entity: 'Slack' }, applied);
     expect(d.verdict).toBe('enrich');
     expect(d.nodeId).toBe('gnode_1');
-    // pending proposals count as a match too (they become applied with a timeline)
-    expect(decideAutoflowRoute({ relevance_score: 0.6, entity: 'Slack' }, { id: 'g', reviewed_state: 'pending' }).verdict).toBe('enrich');
+  });
+
+  it('routes a PENDING-proposal match to the inbox (never auto-approves unreviewed knowledge)', () => {
+    const d = decideAutoflowRoute({ relevance_score: 0.9, entity: 'Slack' }, { id: 'g', reviewed_state: 'pending' });
+    expect(d.verdict).toBe('inbox');
   });
 
   it('auto-creates a new entity only at high relevance', () => {

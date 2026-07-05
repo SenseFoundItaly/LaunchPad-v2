@@ -13,6 +13,7 @@
 
 import { query, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
+import { isAutoflowEnabled, routeAlertAutoflow } from '@/lib/signal-autoflow';
 import type {
   PendingAction,
   PendingActionStatus,
@@ -228,6 +229,18 @@ async function materializeProposalsFromSources(projectId: string): Promise<void>
     projectId,
   );
   for (const a of newAlerts) {
+    // SIGNAL_AUTOFLOW: route BEFORE ticketing. Without this, materialize-on-read
+    // was a router bypass — every inbox/badge fetch turned still-pending alerts
+    // (old backlog, ghost-executor writes, any producer that skipped ingest
+    // routing) straight into "Needs review" tickets, silently refilling the
+    // queue with signals the router would have filed to Knowledge. Routing is
+    // pure SQL (never an LLM call); non-inbox verdicts leave 'pending' state so
+    // this loop's WHERE clause never sees them again. Fail-safe: routing errors
+    // return 'inbox' and the ticket is created exactly as before.
+    if (isAutoflowEnabled()) {
+      const verdict = await routeAlertAutoflow(projectId, a.id);
+      if (verdict !== 'inbox') continue;
+    }
     const id = generateId('pa');
     const now = new Date().toISOString();
     const priority = a.relevance_score >= 0.85 ? 'critical'

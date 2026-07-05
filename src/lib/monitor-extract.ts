@@ -75,6 +75,8 @@ export interface SecondPassOutcome {
   skipped_reason?: 'transcript_too_short' | 'extract_call_failed';
   alerts_inserted: number;
   pending_actions_created: number;
+  /** SIGNAL_AUTOFLOW verdicts among the recovered alerts (0 when flag off). */
+  routed_to_knowledge: number;
   /** The recovered alerts — callers reuse these for the founder-facing
    * alerts row + memory-fact mirroring, exactly like primary-parse output. */
   parsed: ParsedEcosystemAlert[];
@@ -84,6 +86,7 @@ export interface SecondPassOutcome {
 const NONE_OUTCOME: Omit<SecondPassOutcome, 'attempted' | 'skipped_reason'> = {
   alerts_inserted: 0,
   pending_actions_created: 0,
+  routed_to_knowledge: 0,
   parsed: [],
   parse_errors: 0,
 };
@@ -196,6 +199,7 @@ export async function extractAlertsSecondPass(input: SecondPassInput): Promise<S
     attempted: true,
     alerts_inserted: persist.alerts_inserted,
     pending_actions_created: persist.pending_actions_created,
+    routed_to_knowledge: persist.routed_to_knowledge,
     parsed,
     parse_errors: errors.length,
   };

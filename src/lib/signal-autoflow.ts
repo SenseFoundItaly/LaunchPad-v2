@@ -65,6 +65,12 @@ export function decideAutoflowRoute(
   if (match && match.reviewed_state === 'rejected') {
     return { verdict: 'drop', reason: `entity "${alert.entity}" was rejected by the founder (tombstone)` };
   }
+  if (match && match.reviewed_state === 'pending') {
+    // A PENDING node is an unreviewed proposal (usually chat-born). Enriching
+    // it would flip it to 'applied' without the founder ever approving it — a
+    // validation-gate bypass. Route to the inbox so a human decides both.
+    return { verdict: 'inbox', reason: `entity "${alert.entity}" matches a PENDING proposal — founder review first` };
+  }
   if (match) {
     return { verdict: 'enrich', reason: `entity "${alert.entity}" matches existing node`, nodeId: match.id };
   }
@@ -150,6 +156,21 @@ export async function routeAlertAutoflow(
         { project_id: projectId, ecosystem_alert_id: alertId },
         { founderAction: 'autoflow' },
       );
+      if (!nodeId) {
+        // The node write failed (accept marks the alert BEFORE the upsert, and
+        // upsert errors are non-fatal). Without this revert the signal would be
+        // 'accepted' yet appear NOWHERE — not in the graph, not in the feed,
+        // not in the inbox: a silent drop dressed as success. Compensate back
+        // to pending and let the inbox path pick it up.
+        const { run } = await import('@/lib/db');
+        await run(
+          `UPDATE ecosystem_alerts
+              SET reviewed_state = 'pending', reviewed_at = NULL, founder_action_taken = NULL
+            WHERE id = ? AND reviewed_state = 'accepted' AND graph_node_id IS NULL`,
+          alertId,
+        );
+        return 'inbox';
+      }
       logSignalActivity({
         project_id: projectId,
         event_type: 'signal_autoflowed',

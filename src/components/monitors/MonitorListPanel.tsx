@@ -531,7 +531,7 @@ function ExpandableWatcherRow({
   // Live-run state: the activity feed + streamed prose + final outcome.
   const [runSteps, setRunSteps] = useState<RunStep[]>([]);
   const [runText, setRunText] = useState('');
-  const [runDone, setRunDone] = useState<{ alerts: number } | null>(null);
+  const [runDone, setRunDone] = useState<{ alerts: number; routed: number; queued: number } | null>(null);
   const [runErr, setRunErr] = useState<string | null>(null);
 
   // Inline edit state for name / objective / cadence. The founder edits the
@@ -679,8 +679,13 @@ function ExpandableWatcherRow({
         typeof frame.ecosystem_alerts_inserted === 'number'
           ? frame.ecosystem_alerts_inserted
           : 0;
+      // With SIGNAL_AUTOFLOW live most signals file straight into Knowledge —
+      // the summary line + link must reflect where they actually WENT, not
+      // point at a queue autoflow empties by design.
+      const routed = typeof frame.routed_to_knowledge === 'number' ? frame.routed_to_knowledge : 0;
+      const queued = typeof frame.pending_actions_created === 'number' ? frame.pending_actions_created : 0;
       setRunSteps((s) => s.map((step) => (step.status === 'running' ? { ...step, status: 'done' } : step)));
-      setRunDone({ alerts });
+      setRunDone({ alerts, routed, queued });
     }
   }
 
@@ -1137,7 +1142,7 @@ function LiveRunPanel({
   running: boolean;
   steps: RunStep[];
   text: string;
-  done: { alerts: number } | null;
+  done: { alerts: number; routed: number; queued: number } | null;
   error: string | null;
   projectId: string;
 }) {
@@ -1198,12 +1203,23 @@ function LiveRunPanel({
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--ink-3)' }}>
           <span>
             {done.alerts > 0
-              ? done.alerts === 1
-                ? t('monitors.found-signals-one', { n: done.alerts })
-                : t('monitors.found-signals-other', { n: done.alerts })
+              ? done.routed > 0
+                ? t('monitors.found-signals-routed', { n: done.alerts, routed: done.routed })
+                : done.alerts === 1
+                  ? t('monitors.found-signals-one', { n: done.alerts })
+                  : t('monitors.found-signals-other', { n: done.alerts })
               : t('monitors.no-new-signals')}
           </span>
-          {done.alerts > 0 && (
+          {done.routed > 0 && (
+            <Link
+              href={`/project/${projectId}/knowledge?view=moves`}
+              onClick={(e) => e.stopPropagation()}
+              style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 11.5 }}
+            >
+              {t('monitors.view-in-knowledge')}
+            </Link>
+          )}
+          {done.queued > 0 && (
             <Link
               href={`/project/${projectId}/actions?lane=signal`}
               onClick={(e) => e.stopPropagation()}

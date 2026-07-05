@@ -143,6 +143,7 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
             // divergence between scheduled and manual behavior.
             let ecosystemAlertsInserted = 0;
             let pendingActionsCreated = 0;
+            let routedToKnowledge = 0;
             let parsedAlerts: ParsedEcosystemAlert[] = [];
             let alertLayer: 'primary' | 'second_pass' | null = null;
             if (monitorType.startsWith('ecosystem.')) {
@@ -161,6 +162,7 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
                 });
                 ecosystemAlertsInserted = persistResult.alerts_inserted;
                 pendingActionsCreated = persistResult.pending_actions_created;
+                routedToKnowledge = persistResult.routed_to_knowledge;
                 if (ecosystemAlertsInserted > 0) alertLayer = 'primary';
               } else {
                 // Second-pass safety net: the scan produced substantive prose
@@ -182,6 +184,7 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
                   parsedAlerts = second.parsed;
                   ecosystemAlertsInserted = second.alerts_inserted;
                   pendingActionsCreated = second.pending_actions_created;
+                  routedToKnowledge = second.routed_to_knowledge;
                 }
               }
               if (ecosystemAlertsInserted > 0) {
@@ -250,6 +253,7 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
               alert_id: alertId,
               ecosystem_alerts_inserted: ecosystemAlertsInserted,
               pending_actions_created: pendingActionsCreated,
+              routed_to_knowledge: routedToKnowledge,
               alert_layer: alertLayer,
             })}\n\n`));
           }

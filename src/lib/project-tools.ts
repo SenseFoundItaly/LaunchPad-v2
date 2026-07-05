@@ -150,8 +150,8 @@ const listEcosystemAlerts = (ctx: ToolContext): AgentTool => ({
 
 const listPendingActions = (ctx: ToolContext): AgentTool => ({
   name: 'list_pending_actions',
-  label: 'Approval Inbox',
-  description: 'List pending_actions in the founder\'s approval inbox — drafts the co-founder has queued for decision (emails, LinkedIn posts, growth hypotheses, graph updates). Use when asked about decisions waiting, the inbox, or what is queued.',
+  label: 'Needs review',
+  description: 'List items awaiting the founder\'s decision — watcher signals that could not be auto-attributed, proposed watchers, validation evidence, knowledge updates, briefs. Returns ONLY items the founder can actually see and act on (the "Needs review" queue + chat-addressable cards). Use when asked what is waiting for a decision.',
   parameters: Type.Object({
     status: Type.Optional(Type.String({ description: 'Filter by status: pending, edited, applied, sent, rejected, failed. Default: pending,edited (awaiting decision).' })),
     limit: Type.Optional(Type.Number({ description: 'Max rows. Default 20, max 50.' })),
@@ -161,14 +161,28 @@ const listPendingActions = (ctx: ToolContext): AgentTool => ({
     const statuses = (p.status || 'pending,edited').split(',').map(s => s.trim()).filter(Boolean);
     const limit = Math.max(1, Math.min(50, p.limit ?? 20));
 
+    // FOUNDER-VISIBLE types only. pending_actions still carries legacy rows
+    // (task, workflow_step, draft_*, …) with NO surface anywhere — returning
+    // them made the agent report items "awaiting decision" that no UI can show
+    // (the badge-lies pathology from PR #191, on the chat side: 150+ phantom
+    // rows). Allowlist = the UI queue types + chat-rendered decision cards.
+    const CHAT_VISIBLE_TYPES = [
+      'signal_alert', 'intelligence_brief',
+      'configure_monitor', 'configure_watch_source', 'propose_monitor',
+      'validation_proposal', 'proposed_graph_update', 'run_skill',
+      'propose_assumption_revision', 'propose_budget_change',
+    ];
+
     const placeholders = statuses.map(() => '?').join(',');
+    const typePlaceholders = CHAT_VISIBLE_TYPES.map(() => '?').join(',');
     const rows = await query<Record<string, unknown>>(
       `SELECT id, action_type, title, rationale, estimated_impact, status, created_at
        FROM pending_actions
        WHERE project_id = ? AND status IN (${placeholders})
+         AND action_type IN (${typePlaceholders})
        ORDER BY created_at DESC
        LIMIT ${limit}`,
-      ctx.projectId, ...statuses,
+      ctx.projectId, ...statuses, ...CHAT_VISIBLE_TYPES,
     );
 
     // Plain-language labels so the agent describes each row accurately.

@@ -1068,6 +1068,18 @@ function nodeTypeForAlert(alertType: string): string {
     case 'regulatory_change': return 'regulation';
     case 'funding_event': return 'funding_source';
     case 'ip_filing': return 'regulation';
+    // The types below were falling through to 'signal' — 40% of prod volume
+    // (product_launch alone) rendered as unclassified grey nodes. A watcher's
+    // product/pricing signal is about a market player the founder tracks, so
+    // 'competitor' is the honest default macro-bucket for those.
+    case 'product_launch': return 'competitor';
+    case 'pricing_change': return 'competitor';
+    case 'market': return 'market';
+    case 'social_signal': return 'trend';
+    case 'hiring_signal': return 'trend';
+    // Non-canonical variants the parser has emitted in prod:
+    case 'regulatory': return 'regulation';
+    case 'competitor': return 'competitor';
     default: return 'signal';
   }
 }
@@ -1133,8 +1145,12 @@ async function upsertAlertGraphNode(
   // a living DOSSIER: repeat signals about the same entity APPEND to the node's
   // attributes.timeline instead of overwriting its state, so the graph gets
   // richer, not longer. Kept small (headline + source + relevance + alert id).
+  // date = when the SIGNAL was observed (alert.created_at), NOT when it was
+  // accepted/routed — stamping accept-time misdated 27/32 backfilled entries
+  // and distorted the Moves feed's chronology.
+  const signalDate = alert.created_at ? new Date(alert.created_at) : new Date();
   const timelineEntry = {
-    date: new Date().toISOString(),
+    date: (Number.isNaN(signalDate.getTime()) ? new Date() : signalDate).toISOString(),
     headline: alert.headline,
     ...(alert.source_url ? { source_url: alert.source_url } : {}),
     relevance: alert.relevance_score,
@@ -1160,7 +1176,10 @@ async function upsertAlertGraphNode(
   //     in one run cannot clobber each other's entries (lost-update race). No
   //     stringify into a jsonb column, so no double-encode. The subquery re-sorts
   //     to chronological (append) order after keeping the newest 20.
-  //   - sources: append this signal's provenance; never overwrite prior sources.
+  //   - sources: append this signal's provenance, DEDUPED by url (repeat
+  //     enriches of the same story must not stack copies) and capped to the
+  //     newest 12 — timeline is the history surface; sources just needs the
+  //     recent provenance set.
   // The single statement also closes the pgbouncer duplicate-node race the old
   // SELECT-then-UPSERT had. RETURNING id surfaces the surviving node id.
   try {
@@ -1185,7 +1204,21 @@ async function upsertAlertGraphNode(
              ) recent
            )
          ),
-         sources = COALESCE(graph_nodes.sources, '[]'::jsonb) || EXCLUDED.sources,
+         sources = (
+           SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+           FROM (
+             SELECT elem, ord
+             FROM (
+               SELECT DISTINCT ON (COALESCE(elem ->> 'url', elem::text)) elem, ord
+               FROM jsonb_array_elements(
+                 COALESCE(graph_nodes.sources, '[]'::jsonb) || EXCLUDED.sources
+               ) WITH ORDINALITY AS t(elem, ord)
+               ORDER BY COALESCE(elem ->> 'url', elem::text), ord DESC
+             ) dedup
+             ORDER BY ord DESC
+             LIMIT 12
+           ) capped
+         ),
          reviewed_state = 'applied'
        RETURNING id`,
       generateId('gnode'),
@@ -1311,13 +1344,18 @@ export async function acceptAlertIntoKnowledge(
         arpu,
       );
       if (proposal) {
+        // NO ecosystem_alert_id here: migration 029's partial unique index
+        // allows ONE pending_action per alert, and the signal_alert ticket
+        // already owns that slot on the inbox path — carrying the FK made this
+        // INSERT a guaranteed unique_violation (silently swallowed below), so
+        // the ARPU-review feature was dead since 029 shipped. Provenance lives
+        // in payload.source instead.
         await createPendingAction({
           project_id: action.project_id,
           action_type: 'propose_assumption_revision',
           title: `Review ARPU assumption (${arpu} → ${proposal.value}?)`,
           rationale: proposal.rationale,
           payload: { field: proposal.field, value: proposal.value, source: { type: 'monitor', id: alert.id } },
-          ecosystem_alert_id: alert.id,
         });
       }
     } catch (err) {
