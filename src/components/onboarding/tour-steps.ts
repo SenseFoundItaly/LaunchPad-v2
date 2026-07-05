@@ -70,10 +70,12 @@ export function buildManifest({ hasProjects }: { hasProjects: boolean }): TourSt
     { id: 'score-panel', page: 'today', target: '[data-tour="score-panel"]', titleKey: 'tour.today.score.title', descKey: 'tour.today.score.desc', side: 'bottom', align: 'start', optional: true },
     { id: 'stage-card', page: 'today', target: '[data-tour="stage-card"]', titleKey: 'tour.today.stage.title', descKey: 'tour.today.stage.desc', side: 'right', align: 'start', optional: true },
     { id: 'watchers-panel', page: 'today', target: '[data-tour="watchers-panel"]', titleKey: 'tour.today.watchers.title', descKey: 'tour.today.watchers.desc', side: 'left', align: 'start', optional: true },
-    // ── Chapter: Intel inbox (/actions) ─────────────────────────────────────
+    // ── Chapter: Watchers (/actions) ────────────────────────────────────────
     nav('actions', 'inbox', 'tour.watchers.title', 'tour.watchers.desc'),
     { id: 'inbox-tabs', page: 'actions', target: '[data-tour="inbox-tabs"]', titleKey: 'tour.actions.tabs.title', descKey: 'tour.actions.tabs.desc', side: 'bottom', align: 'start', optional: true },
-    { id: 'inbox-list', page: 'actions', target: '[data-tour="inbox-list"]', titleKey: 'tour.actions.list.title', descKey: 'tour.actions.list.desc', optional: true },
+    // Watchers is the default landing tab (Intel retired, PR #202) — highlight
+    // the sensor list, not the needs-review queue that only shows on deep link.
+    { id: 'watchers-list', page: 'actions', target: '[data-tour="watchers-list"]', titleKey: 'tour.actions.list.title', descKey: 'tour.actions.list.desc', optional: true },
     // ── Chapter: Knowledge graph (/knowledge) ───────────────────────────────
     nav('knowledge', 'knowledge', 'tour.knowledge.title', 'tour.knowledge.desc'),
     { id: 'knowledge-graph', page: 'knowledge', target: '[data-tour="knowledge-graph"]', titleKey: 'tour.knowledge.graph.title', descKey: 'tour.knowledge.graph.desc', optional: true },

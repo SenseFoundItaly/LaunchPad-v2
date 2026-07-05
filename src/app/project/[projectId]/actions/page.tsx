@@ -350,7 +350,7 @@ export default function TicketsPage({
         // its own scroll, renders the "+ New watcher" form inline, and
         // expands rows in place (config + run logs). deepLinkWatcherId
         // pre-expands the row from ?watcher=<id>.
-        <div style={{ flex: 1, overflow: 'auto', background: 'var(--paper)' }}>
+        <div data-tour="watchers-list" style={{ flex: 1, overflow: 'auto', background: 'var(--paper)' }}>
           <MonitorListPanel
             projectId={projectId}
             initialExpandedWatcherId={deepLinkWatcherId ?? undefined}
@@ -361,7 +361,7 @@ export default function TicketsPage({
         // filters: a flat list where each row is title + brief + one
         // action pair (Apply · 0.5 credits / Dismiss). Selecting a row opens
         // the read-only inspector pane on the right.
-        <div data-tour="inbox-list" style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
           <InboxList
             rows={filteredActions}
             selectedId={selectedId}
