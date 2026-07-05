@@ -149,7 +149,7 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
 
   return (
     <div className="lp-rise flex-1 overflow-y-auto p-6">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-5xl mx-auto" data-tour="financial-model">
         <div className="flex items-center gap-3 mb-1">
           <h3 className="text-lg font-semibold text-ink">Financial projections</h3>
           <span className="text-[11px] text-ink-5">36-month · 3-scenario · recomputes live as you edit</span>

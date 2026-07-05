@@ -2,8 +2,10 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import api from '@/api';
 import { LanguageSelector } from '@/components/settings/LanguageSelector';
+import { relaunchTour } from '@/components/onboarding/tour-state';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -38,6 +40,8 @@ const PROVIDERS: { value: Provider; label: string; placeholder: string }[] = [
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const router = useRouter();
+
   // API Keys state
   const [keys, setKeys] = useState<StoredKey[]>([]);
   const [keysLoading, setKeysLoading] = useState(true);
@@ -352,6 +356,23 @@ export default function SettingsPage() {
               )}
             </div>
           )}
+        </section>
+
+        {/* ═══ Product Tour Section ═══ */}
+        <section className="mb-10">
+          <h2 className="text-sm font-medium text-ink mb-1">Product tour</h2>
+          <p className="text-xs text-ink-5 mb-4">
+            Walk through the workspace again — dashboard, Home, Intel, Knowledge, Financials and the Co-pilot.
+          </p>
+          <button
+            onClick={() => {
+              relaunchTour();
+              router.push('/');
+            }}
+            className="text-xs px-3 py-1.5 rounded-md bg-paper border border-line text-ink-2 hover:bg-paper-2 transition-colors"
+          >
+            Replay tour
+          </button>
         </section>
 
         {/* Footer */}

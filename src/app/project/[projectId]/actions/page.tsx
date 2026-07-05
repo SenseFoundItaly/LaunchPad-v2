@@ -359,7 +359,7 @@ export default function TicketsPage({
         // filters: a flat list where each row is title + brief + one
         // action pair (Apply · 0.5 credits / Dismiss). Selecting a row opens
         // the read-only inspector pane on the right.
-        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
+        <div data-tour="inbox-list" style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
           <InboxList
             rows={filteredActions}
             selectedId={selectedId}
@@ -465,6 +465,7 @@ function LaneTabs({
   const t = useT();
   return (
     <div
+      data-tour="inbox-tabs"
       style={{
         display: 'flex',
         alignItems: 'stretch',

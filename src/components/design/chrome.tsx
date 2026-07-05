@@ -278,6 +278,7 @@ function NavRailItem({ item, label, tooltip, projectId, active, badge, badgeTone
     <Link
       href={`/project/${projectId}/${item.route}`}
       title={tooltip ?? label}
+      data-tour={`nav-${item.id}`}
       style={{
         width: 42,
         padding: '8px 0',

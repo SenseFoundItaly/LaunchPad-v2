@@ -113,6 +113,7 @@ export default function KnowledgePage({
             </Pill>
           )}
           <button
+            data-tour="add-documents"
             onClick={() => setShowAddDocs(true)}
             title={t('knowledge.add-documents-tooltip')}
             style={{
@@ -233,7 +234,7 @@ export default function KnowledgePage({
       {/* Textual competitor matryoshka (item 14): startup → competitor → category
           → detail. Renders nothing when there are no competitors. */}
       <CompetitorMatryoshka projectId={projectId} />
-      <div style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
+      <div data-tour="knowledge-graph" style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
         {/* Graph ↔ List toggle (top-right; the graph's own search/expand sit top-left). */}
         <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 5, display: 'flex', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-m)', overflow: 'hidden' }}>
           {(['graph', 'list', 'moves'] as const).map((v) => (

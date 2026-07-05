@@ -288,6 +288,7 @@ export default function HomePage() {
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Left projects rail */}
         <div
+          data-tour="projects-rail"
           style={{
             width: 200,
             flexShrink: 0,
@@ -397,6 +398,7 @@ export default function HomePage() {
 
           <div style={{ padding: '8px 8px 0' }}>
             <button
+              data-tour="new-project"
               onClick={() => setShowCreate(true)}
               style={{
                 width: '100%',
@@ -452,6 +454,7 @@ export default function HomePage() {
             </span>
             <div ref={signalPanelRef} style={{ position: 'relative' }}>
               <button
+                data-tour="dash-signals"
                 onClick={() => setShowSignals((v) => !v)}
                 style={{
                   display: 'inline-flex',
@@ -1097,6 +1100,7 @@ export default function HomePage() {
                         {t('home.empty-desc')}
                       </p>
                       <button
+                        data-tour="new-project"
                         onClick={() => setShowCreate(true)}
                         style={{
                           marginTop: 4,

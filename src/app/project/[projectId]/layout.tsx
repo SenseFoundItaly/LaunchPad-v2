@@ -6,7 +6,6 @@ import { useProject } from '@/hooks/useProject';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { ChromeProvider, useChromeState } from '@/components/design/chrome-context';
 import { TopBar, NavRail } from '@/components/design/chrome';
-import ProductTour from '@/components/onboarding/ProductTour';
 
 /**
  * Project layout — owns the PERSISTENT chrome (TopBar + NavRail) plus the
@@ -99,8 +98,6 @@ function ProjectChrome({
           {children}
         </div>
       </div>
-      {/* First-login product tour — self-gates on users.onboarded, renders nothing otherwise. */}
-      <ProductTour projectId={projectId} />
     </div>
   );
 }
