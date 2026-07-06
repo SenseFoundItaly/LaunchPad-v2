@@ -25,9 +25,9 @@ import type { Artifact, IdeaCanvasArtifact, TamSamSomArtifact, Source } from '@/
 const CANVAS_FIELD_LABELS: Record<string, string> = {
   problem: 'Problem', solution: 'Solution', target_market: 'Target market',
   value_proposition: 'Value proposition', business_model: 'Business model',
-  competitive_advantage: 'Competitive edge',
+  competitive_advantage: 'Competitive edge', channels: 'Channels',
 };
-const CANVAS_FIELDS = ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage', 'business_model'] as const;
+const CANVAS_FIELDS = ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage', 'business_model', 'channels'] as const;
 
 interface RawItem { kind: ValidationItemKind; field?: string; name?: string; value: string; sources?: Source[]; }
 

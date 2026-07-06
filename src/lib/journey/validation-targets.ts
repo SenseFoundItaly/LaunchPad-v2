@@ -31,7 +31,8 @@ export type CanvasFieldName =
   | 'solution'
   | 'value_proposition'
   | 'competitive_advantage'
-  | 'target_market';
+  | 'target_market'
+  | 'channels';
 
 export interface ValidationTarget {
   stage_number: number;

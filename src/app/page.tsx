@@ -24,6 +24,7 @@ type ProposedCanvas = {
   value_proposition: string;
   business_model: string;
   competitive_advantage: string;
+  channels: string;
 };
 const CANVAS_FIELD_LABELS: Array<{ key: keyof ProposedCanvas; labelKey: MessageKey }> = [
   { key: 'problem', labelKey: 'home.canvas-field-problem' },
@@ -32,6 +33,7 @@ const CANVAS_FIELD_LABELS: Array<{ key: keyof ProposedCanvas; labelKey: MessageK
   { key: 'value_proposition', labelKey: 'home.canvas-field-value-proposition' },
   { key: 'competitive_advantage', labelKey: 'home.canvas-field-competitive-edge' },
   { key: 'business_model', labelKey: 'home.canvas-field-business-model' },
+  { key: 'channels', labelKey: 'home.canvas-field-channels' },
 ];
 
 interface DashboardProject {

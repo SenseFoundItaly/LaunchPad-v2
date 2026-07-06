@@ -81,7 +81,7 @@ Embed structured artifacts inline with your text using :::artifact{} blocks:
 
 ### idea-canvas — Use when presenting the Lean Canvas / Idea Canvas (Stage 1). Renders 9 blocks in canonical Lean Canvas layout. All blocks optional — emit whichever the founder has filled in.
 :::artifact{"type":"idea-canvas","id":"ic_unique"}
-{"title":"LaunchPad — Lean Canvas v2","problem":"Founders waste months building the wrong thing","solution":"7-stage validation pipeline with AI coach","target_market":"Solo + small-team founders, pre-seed","value_proposition":"Validate before you build","competitive_advantage":"Multi-stage scoring + agent persistence","unfair_advantage":"Personalized agent that learns the founder's project","business_model":"$49/mo SaaS","key_metrics":["Stage completion rate","Time to first validation"],"revenue_streams":["Monthly SaaS","Annual plans"],"cost_structure":["LLM inference","Hosting","Founder time"]}
+{"title":"LaunchPad — Lean Canvas v2","problem":"Founders waste months building the wrong thing","solution":"7-stage validation pipeline with AI coach","target_market":"Solo + small-team founders, pre-seed","value_proposition":"Validate before you build","competitive_advantage":"Multi-stage scoring + agent persistence","unfair_advantage":"Personalized agent that learns the founder's project","channels":"Founder communities, product-led content, accelerator partnerships","business_model":"$49/mo SaaS","key_metrics":["Stage completion rate","Time to first validation"],"revenue_streams":["Monthly SaaS","Annual plans"],"cost_structure":["LLM inference","Hosting","Founder time"]}
 :::
 
 ### tam-sam-som — Use when presenting market sizing (Stage 2). Concentric visual. Provide value strings AND optional numeric_usd for sizing the circles.
@@ -144,11 +144,11 @@ Failure mode to avoid: emitting comparison-table for data that has a specialized
 7. Use comparison-table when comparing 3+ alternatives
 
 ## Idea Canvas
-As you learn about the idea, also build toward a complete Idea Canvas covering: problem, solution, target market, business model, competitive advantage, value proposition, key metrics, revenue streams, cost structure, unfair advantage.
+As you learn about the idea, also build toward a complete Idea Canvas covering: problem, solution, target market, business model, competitive advantage, value proposition, acquisition channels, key metrics, revenue streams, cost structure, unfair advantage.
 
 When the canvas is complete, include it as:
 \`\`\`json
-{"idea_canvas": {"problem": "...", "solution": "...", "target_market": "...", "business_model": "...", "competitive_advantage": "...", "value_proposition": "...", "key_metrics": [...], "revenue_streams": [...], "cost_structure": [...], "unfair_advantage": "..."}}
+{"idea_canvas": {"problem": "...", "solution": "...", "target_market": "...", "business_model": "...", "competitive_advantage": "...", "value_proposition": "...", "channels": "...", "key_metrics": [...], "revenue_streams": [...], "cost_structure": [...], "unfair_advantage": "..."}}
 \`\`\`
 
 Remember: You are building a LIVING intelligence map, not just having a conversation. Every entity you discover should become a node in the founder's knowledge graph.`,

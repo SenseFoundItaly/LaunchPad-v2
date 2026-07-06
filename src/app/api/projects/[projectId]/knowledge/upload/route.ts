@@ -212,12 +212,13 @@ interface ProposedCanvas {
   value_proposition: string;
   business_model: string;
   competitive_advantage: string;
+  channels: string;
 }
 
 const CANVAS_PROMPT = `From the founder's document(s) below, draft a lean startup canvas. Use ONLY what the text actually supports — leave a field as "" when the document doesn't address it. NEVER invent.
 
 Return ONE JSON object with these string fields:
-{ "problem": "...", "solution": "...", "target_market": "...", "value_proposition": "...", "business_model": "...", "competitive_advantage": "..." }
+{ "problem": "...", "solution": "...", "target_market": "...", "value_proposition": "...", "business_model": "...", "competitive_advantage": "...", "channels": "..." }
 
 Each field: one or two concise sentences in the founder's voice. Output ONLY the JSON object — no markdown, no preamble.
 
@@ -253,6 +254,7 @@ async function extractCanvas(text: string, projectId: string): Promise<ProposedC
       value_proposition: str(parsed.value_proposition),
       business_model: str(parsed.business_model),
       competitive_advantage: str(parsed.competitive_advantage),
+      channels: str(parsed.channels),
     };
     return Object.values(canvas).some((v) => v.length > 0) ? canvas : null;
   } catch (err) {
@@ -606,7 +608,7 @@ export async function POST(
   const canvasValidates: Record<string, string> = {};
   if (proposedCanvas) {
     const canvasRow = proposedCanvas as unknown as Record<string, unknown>;
-    for (const f of ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage'] as const) {
+    for (const f of ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage', 'channels'] as const) {
       const v = canvasRow[f];
       if (typeof v === 'string' && v.trim()) {
         const label = validationLabel(validationTargetsFor('canvas_field', f));

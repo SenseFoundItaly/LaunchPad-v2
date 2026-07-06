@@ -32,6 +32,7 @@ interface CanvasRow {
   value_proposition: string | null;
   business_model: string | null;
   competitive_advantage: string | null;
+  channels: string | null;
 }
 
 export async function POST(
@@ -62,7 +63,7 @@ export async function POST(
   const snapshot = await buildProjectSnapshot(projectId);
   const evals = evaluateAllStages(snapshot);
   const canvas = await get<CanvasRow>(
-    `SELECT problem, solution, target_market, value_proposition, business_model, competitive_advantage
+    `SELECT problem, solution, target_market, value_proposition, business_model, competitive_advantage, channels
        FROM idea_canvas WHERE project_id = ?`,
     projectId,
   );
@@ -85,6 +86,7 @@ export async function POST(
         ['Value proposition', canvas.value_proposition],
         ['Business model', canvas.business_model],
         ['Competitive edge', canvas.competitive_advantage],
+        ['Channels', canvas.channels],
       ] as const)
         .filter(([, v]) => v && v.trim())
         .map(([k, v]) => `- ${k}: ${v}`)

@@ -429,7 +429,7 @@ export interface ValidationProposalItem {
   id: string;
   kind: 'canvas_field' | 'competitor' | 'market_size_fact';
   /** Present for canvas_field — which idea_canvas column this writes. */
-  field?: 'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model' | 'competitive_advantage';
+  field?: 'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model' | 'competitive_advantage' | 'channels';
   /** Present for competitor — the competitor's name (the node label). */
   name?: string;
   /** Human display label, e.g. "Problem", "Competitor", "Market size". */
@@ -684,6 +684,9 @@ export interface IdeaCanvasArtifact extends ArtifactBase {
   competitive_advantage?: string;
   unfair_advantage?: string;
   business_model?: string;
+  /** Lean Canvas "Channels" block — how the founder reaches customers.
+   *  Gated like the core fields (Stage-1 `channels_defined` check). */
+  channels?: string;
   key_metrics?: string[];
   revenue_streams?: string[];
   cost_structure?: string[];

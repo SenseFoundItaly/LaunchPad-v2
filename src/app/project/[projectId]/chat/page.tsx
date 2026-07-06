@@ -1185,7 +1185,7 @@ export default function CopilotChatPage({
         //                    credit debit, reusing applyValidationProposal)
         // Then forward a normal turn so the agent continues; the evidence is
         // already written, so any "committed" it then says is TRUE.
-        const CANVAS_FIELD_KEYS = ['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage'];
+        const CANVAS_FIELD_KEYS = ['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage', 'channels'];
         const raw = (payload.canvas && typeof payload.canvas === 'object') ? payload.canvas as Record<string, unknown> : {};
         const fields: Record<string, string> = {};
         for (const k of CANVAS_FIELD_KEYS) {

@@ -16,6 +16,10 @@ type TFn = (key: MessageKey, vars?: TranslateVars) => string;
 
 export function checkActionPrompt(label: string, t: TFn): string {
   const l = label.toLowerCase();
+  // Whole-canvas / scoring checks first — their labels would otherwise fall
+  // through to the broader problem/solution/advantage matches below.
+  if (/lean canvas/.test(l)) return t('journey-prompt.lean-canvas');
+  if (/scoring|baseline/.test(l)) return t('journey-prompt.scoring');
   // `/dependenc/` before feasibility: "Key technical dependencies named" matches both.
   if (/dependenc/.test(l)) return t('journey-prompt.dependencies');
   if (/feasibilit|technical/.test(l)) return t('journey-prompt.feasibility');

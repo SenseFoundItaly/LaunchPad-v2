@@ -69,6 +69,8 @@ export async function buildSkillProjectContext(projectId: string): Promise<strin
         ['Target market', canvas.target_market],
         ['Value proposition', canvas.value_proposition],
         ['Competitive advantage', canvas.competitive_advantage],
+        ['Channels', canvas.channels],
+        ['Business model', canvas.business_model],
       ]
     : [];
   const filledCanvas = canvasFields.filter(([, v]) => clip(v).length > 0);

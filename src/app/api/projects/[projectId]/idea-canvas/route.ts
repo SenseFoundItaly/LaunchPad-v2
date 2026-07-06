@@ -7,7 +7,7 @@ import { seedAssumptionsIfEmpty } from '@/lib/assumptions';
 import { persistCanvasDetails } from '@/lib/canvas-details';
 
 const CANVAS_FIELDS = [
-  'problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage',
+  'problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage', 'channels',
 ] as const;
 
 /**
@@ -26,6 +26,7 @@ interface IdeaCanvasRow {
   business_model: string | null;
   competitive_advantage: string | null;
   unfair_advantage: string | null;
+  channels: string | null;
   key_metrics: string[] | null;
   revenue_streams: string[] | null;
   cost_structure: string[] | null;
@@ -41,7 +42,7 @@ export async function GET(
 
   const row = await get<IdeaCanvasRow>(
     `SELECT problem, solution, target_market, value_proposition, business_model,
-            competitive_advantage, unfair_advantage, key_metrics, revenue_streams, cost_structure
+            competitive_advantage, unfair_advantage, channels, key_metrics, revenue_streams, cost_structure
      FROM idea_canvas
      WHERE project_id = ?`,
     projectId,
@@ -67,6 +68,7 @@ export async function GET(
       business_model: null,
       competitive_advantage: null,
       unfair_advantage: null,
+      channels: null,
       key_metrics: null,
       revenue_streams: null,
       cost_structure: null,
@@ -108,18 +110,19 @@ export async function POST(
   }
 
   await run(
-    `INSERT INTO idea_canvas (project_id, problem, solution, target_market, value_proposition, business_model, competitive_advantage)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO idea_canvas (project_id, problem, solution, target_market, value_proposition, business_model, competitive_advantage, channels)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (project_id) DO UPDATE SET
        problem               = COALESCE(NULLIF(EXCLUDED.problem, ''),               idea_canvas.problem),
        solution              = COALESCE(NULLIF(EXCLUDED.solution, ''),              idea_canvas.solution),
        target_market         = COALESCE(NULLIF(EXCLUDED.target_market, ''),         idea_canvas.target_market),
        value_proposition     = COALESCE(NULLIF(EXCLUDED.value_proposition, ''),     idea_canvas.value_proposition),
        business_model        = COALESCE(NULLIF(EXCLUDED.business_model, ''),        idea_canvas.business_model),
-       competitive_advantage = COALESCE(NULLIF(EXCLUDED.competitive_advantage, ''), idea_canvas.competitive_advantage)`,
+       competitive_advantage = COALESCE(NULLIF(EXCLUDED.competitive_advantage, ''), idea_canvas.competitive_advantage),
+       channels              = COALESCE(NULLIF(EXCLUDED.channels, ''),              idea_canvas.channels)`,
     projectId,
     fields.problem, fields.solution, fields.target_market,
-    fields.value_proposition, fields.business_model, fields.competitive_advantage,
+    fields.value_proposition, fields.business_model, fields.competitive_advantage, fields.channels,
   );
 
   // Seed the assumptions/premortem registry off the freshly-committed canvas —

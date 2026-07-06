@@ -29,8 +29,14 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     publishedCountRows,
     pendingCountRows,
     knowledgeCountRows,
+    scoreRows,
   ] = await Promise.all([
-    query('SELECT problem, solution, target_market, value_proposition, competitive_advantage FROM idea_canvas WHERE project_id = ?', projectId),
+    // Full Lean Canvas read — Stage 1 (L2 spec Phase 0) gates on the soft blocks
+    // (channels, cost_structure, revenue_streams, …) too, not just the core five.
+    query(
+      'SELECT problem, solution, target_market, value_proposition, competitive_advantage, unfair_advantage, business_model, channels, key_metrics, revenue_streams, cost_structure FROM idea_canvas WHERE project_id = ?',
+      projectId,
+    ).catch(() => []),
     query('SELECT id, name, total_signals FROM competitor_profiles WHERE project_id = ?', projectId),
     // Competitors captured in chat land in graph_nodes (node_type='competitor',
     // reviewed_state='applied' once the proposed_graph_update is approved) — they
@@ -67,6 +73,11 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     query<{ cnt: number }>('SELECT COUNT(*) as cnt FROM published_assets WHERE project_id = ?', projectId).catch(() => [{ cnt: 0 }]),
     query<{ cnt: number }>("SELECT COUNT(*) as cnt FROM pending_actions WHERE project_id = ? AND status IN ('pending','edited')", projectId).catch(() => [{ cnt: 0 }]),
     query<{ cnt: number }>('SELECT COUNT(*) as cnt FROM knowledge WHERE project_id = ?', projectId).catch(() => [{ cnt: 0 }]),
+    // Startup Scoring baseline (scores is written by the startup-scoring skill).
+    query<{ overall_score: number | null; scored_at: string | null }>(
+      'SELECT overall_score, scored_at FROM scores WHERE project_id = ?',
+      projectId,
+    ).catch(() => []),
   ]);
 
   // Merge competitor_profiles + applied graph_node competitors, deduplicated by
@@ -78,7 +89,7 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
   );
 
   return {
-    idea_canvas: canvasRows.length > 0 ? (canvasRows[0] as ProjectSnapshot['idea_canvas']) : null,
+    idea_canvas: canvasRows.length > 0 ? normalizeCanvasRow(canvasRows[0] as Record<string, unknown>) : null,
     competitors,
     research: researchRows.length > 0 ? (researchRows[0] as Record<string, unknown>) : null,
     monitors: monitorRows as ProjectSnapshot['monitors'],
@@ -97,7 +108,39 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
       pending_actions: Number(pendingCountRows[0]?.cnt ?? 0),
       knowledge_items: Number(knowledgeCountRows[0]?.cnt ?? 0),
     },
+    startup_score:
+      scoreRows.length > 0 && scoreRows[0].overall_score != null
+        ? { overall_score: Number(scoreRows[0].overall_score), scored_at: scoreRows[0].scored_at }
+        : null,
   };
+}
+
+/** Normalize an idea_canvas row for the snapshot: the JSONB array columns
+ *  (key_metrics, revenue_streams, cost_structure) may be legacy double-encoded
+ *  string scalars ('["a","b"]' stored as a JSON string) — coerce them back to
+ *  real arrays so evaluators never see a string where they expect string[].
+ *  Same defensive-read pattern as graph coerceAttributes. */
+function normalizeCanvasRow(row: Record<string, unknown>): ProjectSnapshot['idea_canvas'] {
+  return {
+    ...(row as NonNullable<ProjectSnapshot['idea_canvas']>),
+    key_metrics: coerceStringArray(row.key_metrics),
+    revenue_streams: coerceStringArray(row.revenue_streams),
+    cost_structure: coerceStringArray(row.cost_structure),
+  };
+}
+
+function coerceStringArray(v: unknown): string[] | null {
+  let val = v;
+  if (typeof val === 'string') {
+    try {
+      val = JSON.parse(val);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(val)) return null;
+  const out = val.filter((x): x is string => typeof x === 'string' && x.trim().length > 0);
+  return out.length ? out : null;
 }
 
 /** Union competitor_profiles rows with applied graph_node competitors, deduped
