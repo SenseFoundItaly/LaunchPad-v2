@@ -38,6 +38,27 @@ type Source =
 
 Produci una ricerca di mercato strutturata e un'analisi competitiva fondate sui dati disponibili. Questo skill aiuta i founder a passare da congetture a stime informate, e da "penso ci siano competitor" a una mappa competitiva dettagliata.
 
+## L2 Validation Gate · traccia 1A (come i finding chiudono il gate)
+
+Questa skill è il percorso strutturato della traccia **1A Mercato** del Validation Gate L2.
+Mantieni il contratto JSON qui sotto (alimenta `research.market_size`) e fai ANCHE atterrare
+i finding dove i check 1A del gate li leggono:
+
+- **Sizing di mercato → artifact `tam-sam-som`.** Emetti il sizing come artifact
+  `tam-sam-som` (mai numeri solo in prosa) — la sua card di approvazione mette in staging la
+  cifra per il sì del founder; l'approvazione marca `research.market_size` come approvato
+  dal founder — è ciò che il check `market_size` del gate richiede (una stima di
+  riferimento non approvata non lo accende mai).
+- **Competitor → 3-7 aziende NOMINATE.** Il check `competitors_mapped` conta le entità
+  competitor persistite — punta a 3-7 nomi reali con URL, mai "ci sono molti player".
+- **Differenziazione → insight-card con body ricco di keyword.** Il check
+  `differentiation_evidence` fa keyword-match sui fatti applicati: esprimi il vantaggio con
+  frasi comparative esplicite ("a differenza di X…", "meglio di Y perché…", "rispetto a Z…")
+  così la card applicata chiude davvero il check.
+
+Nessun check del gate diventa verde senza l'approvazione del founder — gli artifact qui
+sopra sono la superficie di approvazione, non un bypass.
+
 ## Quando Usarla
 
 - Dopo idea-shaping per validare le assunzioni di mercato

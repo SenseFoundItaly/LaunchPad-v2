@@ -34,6 +34,7 @@ export type EventType =
   | 'artifact_rejected_no_sources'
   | 'artifact_rescued_by_fallback_citations'
   | 'monitor_applied'
+  | 'phase1_watchers_proposed'
   | 'budget_changed'
   | 'task_expanded'
   | 'alert_acknowledged'

@@ -88,6 +88,9 @@ export const STAGES: StageDef[] = [
       // regulatory. Validates incrementally from chat (memory_facts) and closes
       // the 1B checks in stage-2-market-validation.ts.
       { id: 'technical-validation', label: 'Technical Validation', route: 'chat?skill=technical-validation', dataKey: 'technical_validation' },
+      // L2 Validation Gate · track 1C — PSF interview kit. Gated behind 1A+1B
+      // completion (GATE_1C_DEPENDENT_SKILLS in skill-prereqs.ts).
+      { id: 'customer-interviews', label: 'Customer Interviews', route: 'chat?skill=customer-interviews', dataKey: 'customer_interviews' },
       { id: 'simulation', label: 'Simulation', route: 'chat?skill=simulation', dataKey: 'simulation' },
     ],
   },
@@ -147,6 +150,7 @@ export const SKILL_KICKOFFS: Record<string, string> = {
   'startup-scoring': 'Score my startup idea across all 6 dimensions and give me specific ratings.',
   'market-research': 'Run a comprehensive market analysis — TAM/SAM/SOM, competitors, and trends.',
   'technical-validation': 'Validate the technical feasibility — build approach, key dependencies, and regulatory/compliance constraints.',
+  'customer-interviews': 'Build my Problem-Solution Fit interview kit — who to interview, the 5-question script with verbatim-pain and willingness-to-pay capture, and how to log each interview.',
   'scientific-validation': 'Generate detailed buyer personas and an empathy map for my startup.',
   'risk-scoring': 'Run a comprehensive risk audit across all dimensions — technical, market, regulatory, team, and financial.',
   'business-model': 'Help me evaluate and score business model options for my startup.',

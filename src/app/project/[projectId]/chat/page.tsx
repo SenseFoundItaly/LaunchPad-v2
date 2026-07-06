@@ -26,7 +26,7 @@ import { requestRecharge } from '@/components/credits/recharge-events';
 import { useProject } from '@/hooks/useProject';
 import { splitOptionLabel } from '@/components/chat/option-label';
 import { IdeaShapingQuickReplies } from '@/components/chat/IdeaShapingQuickReplies';
-import { parseMessageContent } from '@/lib/artifact-parser';
+import { parseMessageContent, normalizeCanvasJsonFences } from '@/lib/artifact-parser';
 import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
 import type { Artifact, ArtifactType, Department, ValidationProposalArtifact } from '@/types/artifacts';
 import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
@@ -1075,7 +1075,9 @@ export default function CopilotChatPage({
           // card) rather than letting the founder watch it fail.
           if (res.status === 422) {
             const body = await res.json().catch(() => null);
-            if (body?.error === 'missing_prerequisites' && body?.message) {
+            // missing_prerequisites = canvas gate; validation_gate_locked = 1C
+            // gate (customer-interviews before 1A+1B). Same graceful surface.
+            if ((body?.error === 'missing_prerequisites' || body?.error === 'validation_gate_locked') && body?.message) {
               setMessages((prev) => [
                 ...prev,
                 {
@@ -3374,5 +3376,7 @@ function ComposerMenu({
 // =============================================================================
 
 function stripArtifacts(content: string): string {
-  return content.replace(/:::artifact[\s\S]*?(?::::|$)/g, '').trim();
+  // Normalize first so a canvas leaked as a raw ```json fence becomes an
+  // artifact block and gets stripped too — no raw JSON in the prose column.
+  return normalizeCanvasJsonFences(content).replace(/:::artifact[\s\S]*?(?::::|$)/g, '').trim();
 }

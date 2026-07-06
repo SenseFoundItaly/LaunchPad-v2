@@ -1,4 +1,6 @@
 import { get, query } from '@/lib/db';
+import { buildProjectSnapshot } from '@/lib/journey';
+import { validationTracksABMissing } from '@/lib/journey/stage-2-market-validation';
 
 /**
  * Idea-canvas prerequisites for skills — the single source of truth shared by
@@ -173,4 +175,45 @@ export async function canvasRunPrereqs(projectId: string, skillId: string): Prom
 export async function canvasLacksCorePrereqs(projectId: string): Promise<boolean> {
   const states = await coreCanvasStates(projectId);
   return CORE_CANVAS_FIELDS.some((field) => states[field] === 'missing');
+}
+
+/**
+ * Skills that belong to Validation-Gate track 1C (Problem-Solution Fit) —
+ * locked until every 1A (Market) + 1B (Technical) check passes. Mirrors the
+ * canvas gate's 3-layer structure: proposal-time tool strip (chat route),
+ * availability list (GET /skills?availability=1), and run-time 422 (POST /skills).
+ */
+export const GATE_1C_DEPENDENT_SKILLS = new Set<string>(['customer-interviews']);
+
+export function isGate1CDependentSkill(skillId: string): boolean {
+  return GATE_1C_DEPENDENT_SKILLS.has(skillId);
+}
+
+/** What the 1C run-time gate needs: blocked + the unmet 1A/1B check labels. */
+export interface ValidationGatePrereqs {
+  blocked: boolean;
+  /** Labels of the 1A/1B checks still open (empty ⇒ 1C unlocked). */
+  missing: string[];
+}
+
+/** Project-level 1C lock state, independent of any specific skill. */
+export async function validationGatePrereqs(projectId: string): Promise<ValidationGatePrereqs> {
+  try {
+    const snapshot = await buildProjectSnapshot(projectId);
+    const missing = validationTracksABMissing(snapshot);
+    return { blocked: missing.length > 0, missing };
+  } catch {
+    // Snapshot failure (fresh project, schema drift) must never hard-block a
+    // founder-initiated run — fail open, matching the chat route's tolerance.
+    return { blocked: false, missing: [] };
+  }
+}
+
+/**
+ * Run-time 1C gate for a specific skill: non-1C skills are always runnable;
+ * a 1C skill is blocked while tracks 1A+1B have open checks.
+ */
+export async function validationGateRunPrereqs(projectId: string, skillId: string): Promise<ValidationGatePrereqs> {
+  if (!GATE_1C_DEPENDENT_SKILLS.has(skillId)) return { blocked: false, missing: [] };
+  return validationGatePrereqs(projectId);
 }

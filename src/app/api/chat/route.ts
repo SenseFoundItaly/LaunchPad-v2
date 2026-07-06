@@ -24,7 +24,9 @@ import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
 import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
 import { isProjectCapped } from '@/lib/cost-meter';
 import { assertCreditsAvailable, debitCredits } from '@/lib/credits';
-import { canvasLacksCorePrereqs, isCanvasDependentSkill } from '@/lib/skill-prereqs';
+import { canvasLacksCorePrereqs, isCanvasDependentSkill, GATE_1C_DEPENDENT_SKILLS } from '@/lib/skill-prereqs';
+import { validationTracksAB_done } from '@/lib/journey/stage-2-market-validation';
+import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { CACHE_PREFIX_SPLIT, buildSplitUserTurn } from '@/lib/chat-cache-split';
 import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
@@ -271,6 +273,7 @@ Example header with department: :::artifact{"type":"entity-card","id":"ent_ID","
 
 CARD ARTIFACTS:
 entity-card: :::artifact{"type":"entity-card","id":"ent_ID","department":"market"}\n{"name":"X","entity_type":"competitor","summary":"...","attributes":{},"sources":[...]}\n:::
+  entity_type vocabulary: competitor | company | technology | market_segment | partner | funding_source | supplier | hr_collaborator | brand_asset | gtm_strategy | business_essential | trend | regulation | risk — pick the specific role, it decides which ecosystem satellite the node lands in.
 option-set: :::artifact{"type":"option-set","id":"opt_ID"}\n{"prompt":"?","options":[{"id":"a","label":"A","description":"..."},{"id":"run_x","label":"Run market research","description":"...","skill_id":"market-research"},{"id":"commit","label":"Confirm — commit to canvas","description":"Lock in this problem statement and move to Solution","commit":{"canvas":{"problem":"<exact agreed text>"}}}]}\n:::  (sources optional)
   COMMIT OPTION — set "commit" on an option to PERSIST evidence deterministically when the founder clicks it (the click = approval; never narrate a save instead). Two channels, combinable in one commit: ALL canvas TEXT goes in "commit":{"canvas":{<field>:<value>, …}} (fields: problem | solution | target_market | value_proposition | business_model | competitive_advantage). Knowledge items go in "commit":{"items":[{"kind":"competitor"|"market_size_fact","name"?,"label","value","sources"}]} (competitor → graph, market size → fact). NEVER put a canvas field in items — canvas always goes in commit.canvas. Use the moment a value is settled.
   NO "credits" FIELD — never set "credits" on any option or commit item. Only the founder's own chat message costs a credit (1/message); analyses, applies, commits and watchers are free, and the founder sees the actual per-message cost after each turn. (See the CREDITS rule in TIER 0.)
@@ -311,14 +314,14 @@ USAGE RULES:
 6) comparison-table for GENERIC side-by-side comparison (pricing tiers, vendor selection, feature matrices). NOT for the specialized data shapes listed in rule 11.
 7) option-set is MANDATORY on every response. When conversational, options MUST be direct, committable answers to the question asked — closed choices that take effect on click, NEVER process/meta pickers ("start with X", "all at once") or "now you type it" prompts (see OPTION-SET DISCIPLINE / CLOSED CHOICES). If the answer can only be the founder's own free text and you have no candidate to draft, ask in prose — do not fake option buttons.
    Option labels MUST be ≤ 6 words and verb-first ("Run market research", "Log an interview"); ALL rationale, context, and qualifiers go in the option's "description" field — never in the label.
-8) entity-card for EVERY entity (competitor, technology, market segment) — but NOT for personas (use persona-card) or risks (use risk-matrix for 2+).
+8) entity-card for EVERY entity the founder names or you research — competitor, technology, market segment, plus the operational roles: supplier ("our roaster is Caffè Vergnano" → entity_type "supplier"), hire/collaborator ("we brought in Anna as CTO" → "hr_collaborator"), brand asset ("we bought getfoo.com", a tagline/logo → "brand_asset"), go-to-market channel/motion ("launch on Product Hunt", "outbound to pharmacies" → "gtm_strategy"). But NOT for personas (use persona-card) or risks (use risk-matrix for 2+).
 9) workflow-card for concrete multi-step action plans
 10) Be proactive — use tools to research, browse web, challenge assumptions
 11) SPECIALIZED CARDS — pick these over comparison-table/document/score-badges when the data shape matches:
     - 2+ risks with probability/impact → risk-matrix (NEVER comparison-table, even if the founder uses words like "matrix" or "table")
     - Personas (buyer or simulation) → persona-card (NEVER entity-card with entity_type="persona")
     - TAM/SAM/SOM or market sizing → tam-sam-som (NEVER three score-badges or a comparison-table). Whenever you state a sizing figure, carry it IN a tam-sam-som artifact — never prose-only numbers. The artifact is what persists the figure to the project (research.market_size) so it comes back in [RESEARCH CONTEXT] and you quote ONE consistent number next turn; a number mentioned only in prose is forgotten, and you will contradict yourself when asked again.
-    - Lean Canvas / Idea Canvas / 9-block business model → idea-canvas (NEVER a document)
+    - Lean Canvas / Idea Canvas / 9-block business model → idea-canvas (NEVER a document). This INCLUDES canvas RESHAPES: when the founder asks to reshape/rework/pivot/update their canvas, the reshaped canvas goes IN an idea-canvas artifact — NEVER a raw \`\`\`json fence and NEVER a bare {"idea_canvas":...} JSON object in prose. Raw JSON renders as broken text and persists nothing.
     - Fundraising pipeline / investors grouped by stage → investor-pipeline (NEVER comparison-table)
     - Weekly/period founder update with highlights/challenges/asks → weekly-update (ONLY when explicitly asked)
     The user has invested in custom visualizations for these specific data shapes. Using comparison-table for risk audits or market sizing is a routing miss.
@@ -343,6 +346,7 @@ In prose to the founder, ALWAYS call them "watchers" — never "monitors" or "wa
 VALIDATION GATE — NOTHING TURNS A SPINE STEP GREEN WITHOUT THE FOUNDER'S YES:
 The 7-stage spine is the founder's VALIDATED truth, so any evidence YOU produce that would satisfy a validation substep MUST be staged for approval — you can NEVER write it silently. (Watcher autoflow is the one channel that writes knowledge without a click — see TIER 2.25 — and its auto-filed entities can satisfy evidence checks like "competitors mapped"; if the founder asks why a step turned green without their action, explain it honestly: their watcher filed the evidence.) The gated writes and their tools:
   - Canvas fields (problem / solution / target market / value prop / competitive edge) → update_idea_canvas (it now PROPOSES a card, it does not write directly) OR propose_validation.
+  - Canvas RESHAPES go through the SAME gate: emit the reshaped canvas as an idea-canvas artifact (display) — the changed core fields are auto-staged for the founder's approval. NEVER dump a reshaped canvas as raw JSON in prose; core fields commit ONLY via the approved card.
   - Competitors mapped (Stage 2) → propose_validation, kind="competitor" (one item per competitor, with its name).
   - Market size / TAM established (Stage 2) → propose_validation, kind="market_size_fact".
 BATCH everything from THIS turn into ONE propose_validation call (one card): if you set canvas fields AND mapped competitors AND sized the market in the same turn, that is ONE card with all items — never three cards, and never split "free" canvas items from "paid" knowledge items into two cards (the card already shows per-item cost and a combined total). Give each item its sources[] (provenance powers the proof the founder sees when they later click the validated step). Emit the tool's returned artifact block VERBATIM so the inline approval card renders. The founder reviews, removes/edits items, and applies — only then does the substep go green.
@@ -516,6 +520,12 @@ export async function POST(request: NextRequest) {
   } catch {
     /* journey snapshot failed — chat still works, just without stage framing */
   }
+
+  // Phase-1 watcher activation — when Stage 1 just completed and the Validation
+  // Gate has zero active watchers, propose (never activate) L1 watchers into the
+  // inbox. Fire-and-forget: internally idempotent + non-throwing, never blocks
+  // the turn. Reuses the snapshot we just built.
+  if (snapshot) void maybeProposePhase1Watchers(project_id, snapshot);
 
   // Derive stage facts from the snapshot we ALREADY built — the single source of
   // truth, never the legacy projects.current_step column (a retired 5-stage
@@ -777,6 +787,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 1C GATE (proposal-time) — the deterministic twin of the 422 in /skills.
+    // Track-1C skills (customer-interviews) are locked until every 1A (Market)
+    // + 1B (Technical) Validation-Gate check passes: strip their tools so the
+    // agent can't propose an un-runnable interview kit, and steer it to close
+    // the open desk-validation gaps instead of pushing interviews early.
+    if (skillTools.length > 0 && snapshot && !validationTracksAB_done(snapshot)) {
+      const before = skillTools.length;
+      skillTools = skillTools.filter((t) => {
+        const id = t.name.replace(/^skill_/, '').replace(/_/g, '-');
+        return !GATE_1C_DEPENDENT_SKILLS.has(id);
+      });
+      if (skillTools.length < before) {
+        trailingSteer += `\n\n[PREREQUISITE GATE — 1C] Track 1C (customer interviews / Problem-Solution Fit) is LOCKED until every 1A (Market) and 1B (Technical) check of the Validation Gate passes. The customer-interviews skill is UNAVAILABLE this turn — do NOT propose it or put its skill_id in any option, and do NOT push the founder to run interviews yet. Steer them to close the open 1A/1B gaps first; interviews come after.`;
+      }
+    }
+
     // Iteration-3 WS-A — inject TIER 0.5 nudges based on PRIOR turn violations.
     // chat-followup (Haiku, skillTools = []) is exempt by construction; the
     // violations can't happen on a path that has no skill tools to misuse.
@@ -1009,6 +1035,11 @@ export async function POST(request: NextRequest) {
         // enrich client artifacts with server-assigned IDs for apply/reject.
         const persistedMap: Record<string, { persisted_id: string; reviewed_state: string }> = {};
 
+        // True when this turn persisted canvas evidence (idea-canvas /
+        // tam-sam-som) — those route through autoStageValidationFromArtifact,
+        // so a validation_proposal may now be waiting with no visible card.
+        let stagedCanvasEvidence = false;
+
         // Memory: chat_turn event + fact artifact extraction.
         // Wrapped in try so memory failures never break the stream response.
         try {
@@ -1125,6 +1156,9 @@ export async function POST(request: NextRequest) {
               if (!persistResult.persisted && persistResult.note === 'out of credits') {
                 console.warn(`[chat] dropped ${seg.artifact.type} artifact: out of credits`);
               }
+              if (seg.artifact.type === 'idea-canvas' || seg.artifact.type === 'tam-sam-som') {
+                stagedCanvasEvidence = true;
+              }
               // Collect persisted_id for the done-event artifact enrichment
               if (persistResult.persisted && persistResult.persisted_id && seg.artifact.id) {
                 persistedMap[seg.artifact.id] = {
@@ -1223,6 +1257,44 @@ export async function POST(request: NextRequest) {
           }
         } catch (err) {
           console.warn('[chat] watcher-card backstop failed (non-fatal):', (err as Error).message);
+        }
+
+        // Validation-card backstop — mirror of the watcher backstop above.
+        // persistArtifact auto-stages a validation_proposal from canvas
+        // evidence (idea-canvas / tam-sam-som), but the agent rarely emits the
+        // approval card itself — the reshape "lands" invisibly and the founder
+        // has nothing to approve. When this turn produced canvas evidence,
+        // inject a card for each OPEN proposal not already rendered. Querying
+        // open (not just this-turn) proposals also re-surfaces the ONE open
+        // card the auto-stage dedup kept when it refused to stage a new one.
+        // Live-only + fully defensive, like the watcher backstop.
+        try {
+          if (stagedCanvasEvidence) {
+            const openProposals = await query<{ id: string; payload: unknown }>(
+              `SELECT id, payload FROM pending_actions
+               WHERE project_id = ? AND action_type = 'validation_proposal'
+                 AND status IN ('pending','edited')
+               ORDER BY created_at DESC LIMIT 3`,
+              project_id,
+            );
+            let injectedProposals = 0;
+            for (const pa of openProposals) {
+              // Skip any the agent already rendered (its card carries this id).
+              if (fullResponse.includes(pa.id)) continue;
+              const pl = (typeof pa.payload === 'string' ? JSON.parse(pa.payload) : pa.payload) as Record<string, unknown> | null;
+              const items = Array.isArray(pl?.items) ? (pl?.items as Array<Record<string, unknown>>) : [];
+              if (items.length === 0) continue;
+              // Same body shape stageValidationProposal emits (project-tools.ts).
+              const combined_credits = items.reduce((s, it) => s + (typeof it.credits === 'number' ? it.credits : 0), 0);
+              const body = { pending_action_id: pa.id, origin: pl?.origin ?? 'auto', items, combined_credits };
+              const card = `\n\n:::artifact{"type":"validation-proposal","id":"valp_${pa.id.slice(-12)}"}\n${JSON.stringify(body)}\n:::`;
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: card })}\n\n`));
+              injectedProposals += 1;
+            }
+            console.info('[chat] validation-card backstop', { open: openProposals.length, injected: injectedProposals });
+          }
+        } catch (err) {
+          console.warn('[chat] validation-card backstop failed (non-fatal):', (err as Error).message);
         }
 
         // Emit done event with cost + credits so the client can show per-message credits

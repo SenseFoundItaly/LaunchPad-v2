@@ -14,7 +14,9 @@ import { SUPPORTED_LOCALES, LOCALE_NATIVE_NAME, type Locale } from '@/lib/i18n/l
 import type { MessageKey } from '@/lib/i18n/messages';
 
 // A watcher the upload extractor suggests from a founder's docs (opt-in).
-type ProposedMonitor = { name: string; aim: string; cadence: 'daily' | 'weekly' };
+// `pending_action_id` — the configure_monitor proposal the upload route
+// persisted; approving it runs the real executor (full scan prompt).
+type ProposedMonitor = { name: string; aim: string; cadence: 'daily' | 'weekly'; pending_action_id?: string };
 
 // Lean-canvas fields the upload extractor proposes from a founder's docs.
 type ProposedCanvas = {
@@ -1212,13 +1214,24 @@ function ExtractedKnowledgeView({
       }
       const chosen = monitors.filter((_, i) => checkedWatchers.has(i));
       if (chosen.length > 0) {
+        // Preferred path: approve the configure_monitor pending_action the
+        // upload persisted — the executor builds the REAL scan prompt.
+        // Unchecked ones stay pending ("Proposed" in the Watchers tab).
+        // Fallback (no pending_action_id): direct create WITHOUT a prompt so
+        // the monitors route/executor still builds the scan prompt itself.
         await Promise.allSettled(
           chosen.map((w) =>
-            fetch(`/api/projects/${projectId}/monitors`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: w.name, objective: w.aim, prompt: w.aim, schedule: w.cadence, type: 'ecosystem.custom' }),
-            }).catch(() => null),
+            w.pending_action_id
+              ? fetch(`/api/projects/${projectId}/actions/${w.pending_action_id}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ transition: 'apply' }),
+                }).catch(() => null)
+              : fetch(`/api/projects/${projectId}/monitors`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ name: w.name, objective: w.aim, schedule: w.cadence, type: 'ecosystem.custom' }),
+                }).catch(() => null),
           ),
         );
       }

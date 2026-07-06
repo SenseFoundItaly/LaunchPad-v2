@@ -1,11 +1,13 @@
 'use client';
 
 import { use } from 'react';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useProject } from '@/hooks/useProject';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { ChromeProvider, useChromeState } from '@/components/design/chrome-context';
 import { TopBar, NavRail } from '@/components/design/chrome';
+import { useT } from '@/components/providers/LocaleProvider';
 
 /**
  * Project layout — owns the PERSISTENT chrome (TopBar + NavRail) plus the
@@ -40,7 +42,8 @@ export default function ProjectLayout({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
-  const { project, loading, error } = useProject(projectId);
+  const { project, loading, error, refresh } = useProject(projectId);
+  const t = useT();
 
   if (loading) {
     return (
@@ -51,9 +54,38 @@ export default function ProjectLayout({
   }
 
   if (error || !project) {
+    // Recoverable gate: with staleTime: Infinity a failed project fetch would
+    // otherwise stick for the whole session — Retry refetches via
+    // invalidateQueries, and "All projects" is the escape hatch.
     return (
-      <div className="flex items-center justify-center h-full text-ink-5 text-sm">
-        {error || 'Project not found'}
+      <div
+        className="flex items-center justify-center h-full"
+        style={{ flexDirection: 'column', gap: 14 }}
+      >
+        <span className="text-ink-5 text-sm">{error || t('project-gate.not-found')}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={() => refresh()}
+            style={{
+              padding: '6px 14px',
+              background: 'var(--ink)',
+              color: 'var(--paper)',
+              border: 'none',
+              borderRadius: 6,
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: 'pointer',
+            }}
+          >
+            {t('common.retry')}
+          </button>
+          <Link
+            href="/"
+            style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline' }}
+          >
+            {t('project-gate.all-projects')}
+          </Link>
+        </div>
       </div>
     );
   }

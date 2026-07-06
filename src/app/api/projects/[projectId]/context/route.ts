@@ -3,6 +3,7 @@ import { run, get } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { extractAssumptions } from '@/lib/assumptions';
+import { syncBusinessEssentialNodes } from '@/lib/business-essentials-sync';
 
 /**
  * POST /api/projects/{projectId}/context
@@ -53,6 +54,9 @@ export async function POST(
          solution = COALESCE(NULLIF(EXCLUDED.solution, ''), idea_canvas.solution)`,
       projectId, problem || '', solution || '',
     );
+    // Mirror the business fields into the graph's BUSINESS ESSENTIALS satellite.
+    // Awaited: post-response async work is frozen on serverless (PR #182 class).
+    await syncBusinessEssentialNodes(projectId);
   }
 
   // research.competitors upsert — overwrites with the new list when given.

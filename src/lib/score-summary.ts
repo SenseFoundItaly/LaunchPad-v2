@@ -19,9 +19,13 @@ export interface ParsedScore {
   benchmark: string | null;
 }
 
+// Italian-locale projects run the skill with an Italian SKILL body, so the
+// scorecard prose arrives in Italian ("Punteggio Complessivo", "Verdetto",
+// "Voto: C+", accented dimension names like "Fattibilità") — every anchor
+// below accepts both languages. À-ÖØ-öø-ÿ = Latin-1 letters minus ×/÷.
 export function parseScoreSummary(summary: string): ParsedScore | null {
   const overallMatch =
-    summary.match(/overall\s+score[:*\s]*\**\s*(\d{1,3})\s*\/\s*100/i) ||
+    summary.match(/(?:overall\s+score|punteggio\s+complessivo)[:*\s]*\**\s*(\d{1,3})\s*\/\s*100/i) ||
     summary.match(/\b(\d{1,3})\s*\/\s*100\b/);
   if (!overallMatch) return null;
   const overall = Math.max(0, Math.min(100, parseInt(overallMatch[1], 10)));
@@ -29,10 +33,10 @@ export function parseScoreSummary(summary: string): ParsedScore | null {
   // Consume ANY leading non-letter run (#, list number, emoji, asterisks) before
   // the dimension name — robust to the numbered + emoji headers the skill emits.
   const dims: Record<string, number> = {};
-  const dimRe = /^[^A-Za-z\n]*\*{0,2}([A-Za-z][A-Za-z &/-]{2,40}?)\*{0,2}\s*[:—–-]+\s*\**\s*(\d{1,3})\s*\/\s*(10|100)\b/gim;
+  const dimRe = /^[^A-Za-zÀ-ÖØ-öø-ÿ\n]*\*{0,2}([A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ '&/-]{2,40}?)\*{0,2}\s*[:—–-]+\s*\**\s*(\d{1,3})\s*\/\s*(10|100)\b/gim;
   for (const dm of summary.matchAll(dimRe)) {
     const name = dm[1].trim();
-    if (/overall|grade/i.test(name)) continue;
+    if (/overall|grade|punteggio|voto/i.test(name)) continue;
     const raw = parseInt(dm[2], 10);
     const scaled = dm[3] === '10' ? raw * 10 : raw;
     dims[name] = Math.max(0, Math.min(100, scaled));
@@ -40,9 +44,9 @@ export function parseScoreSummary(summary: string): ParsedScore | null {
   const dimensions = Object.keys(dims).length > 0 ? dims : null;
 
   // Verdict/recommendation + letter grade (benchmark), when the prose carries them.
-  const recMatch = summary.match(/(?:verdict|recommendation)\b[:*\s>]*\**\s*([^\n]{5,400})/i);
+  const recMatch = summary.match(/(?:verdict|recommendation|verdetto|raccomandazione)\b[:*\s>]*\**\s*([^\n]{5,400})/i);
   const recommendation = recMatch ? recMatch[1].replace(/\*+/g, '').trim() : null;
-  const gradeMatch = summary.match(/grade[:*\s]*\**\s*([A-F][+\-]?)/i);
+  const gradeMatch = summary.match(/(?:grade|voto)[:*\s]*\**\s*([A-F][+\-]?)/i);
   const benchmark = gradeMatch ? `Grade ${gradeMatch[1]}` : null;
 
   return { overall, dimensions, recommendation, benchmark };

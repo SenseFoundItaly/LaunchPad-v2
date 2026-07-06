@@ -30,6 +30,11 @@ const TYPE_LABEL: Record<string, MessageKey> = {
   risk: 'eco.risks',
   feature: 'eco.features',
   metric: 'eco.metrics',
+  supplier: 'eco.suppliers',
+  hr_collaborator: 'eco.hr-collabs',
+  brand_asset: 'eco.branding',
+  gtm_strategy: 'eco.gtm',
+  business_essential: 'eco.business-essentials',
 };
 
 export function EcosystemPanel({ projectId }: { projectId: string }) {

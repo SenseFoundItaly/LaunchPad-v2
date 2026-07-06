@@ -34,6 +34,16 @@ export function nodeImportanceKey(kind: string | null | undefined): MessageKey {
     case 'partner':
     case 'partnership':
       return 'knowledge.why-partner';
+    case 'supplier':
+      return 'knowledge.why-supplier';
+    case 'hr_collaborator':
+      return 'knowledge.why-hr-collaborator';
+    case 'brand_asset':
+      return 'knowledge.why-brand-asset';
+    case 'gtm_strategy':
+      return 'knowledge.why-gtm';
+    case 'business_essential':
+      return 'knowledge.why-business-essential';
     default:
       return 'knowledge.why-default';
   }

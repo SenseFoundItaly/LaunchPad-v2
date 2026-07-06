@@ -72,6 +72,11 @@ export async function persistCanvasDetails(projectId: string, input: CanvasDetai
     d.revenue_streams ?? null,
     d.cost_structure ?? null,
   );
+  // NO business-essentials sync here: this function also runs UNGATED from the
+  // chat artifact path (persistArtifact 'idea-canvas'), and mirroring from that
+  // path would turn agent-emitted soft fields into applied graph nodes with no
+  // founder click. The founder-gated write sites (idea-canvas POST,
+  // applyValidationProposal) call syncBusinessEssentialNodes themselves.
   const applied: string[] = [];
   if (d.unfair_advantage != null) applied.push('unfair_advantage');
   if (d.key_metrics != null) applied.push('key_metrics');

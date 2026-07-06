@@ -38,6 +38,26 @@ type Source =
 
 Produce structured market research and competitive analysis grounded in available data. This skill helps founders move from guesses to informed estimates, and from "I think there are competitors" to a detailed competitive map.
 
+## L2 Validation Gate · track 1A (how findings close the gate)
+
+This skill is the structured path through the **1A Market** track of the L2 Validation Gate.
+Keep the JSON contract below (it feeds `research.market_size`), and ALSO make the findings
+land where the gate's 1A checks read them:
+
+- **Market sizing → `tam-sam-som` artifact.** Emit the sizing as a `tam-sam-som` artifact
+  (never prose-only numbers) — its approval card auto-stages the figure for the founder's
+  yes; the approval stamps `research.market_size` as founder-approved, which is what
+  the gate's `market_size` check requires (unapproved reference sizing never greens it).
+- **Competitors → 3-7 NAMED companies.** The `competitors_mapped` check counts persisted
+  competitor entities — aim for 3-7 real names with URLs, never "there are many players".
+- **Differentiation → insight-card with a keyword-bearing body.** The
+  `differentiation_evidence` check keyword-matches applied facts: state the edge with
+  explicit comparative phrasing ("unlike X…", "better than Y because…", "compared to Z…")
+  so the applied card actually closes the check.
+
+Nothing turns a gate check green without the founder's approval — the artifacts above are
+the approval surface, not a bypass.
+
 ## When to Use
 
 - After idea shaping to validate market assumptions

@@ -21,6 +21,7 @@ import { useSetChrome } from '@/components/design/chrome-context';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
 import { Pill, Icon, I } from '@/components/design/primitives';
+import { PanelBoundary } from '@/components/design/PanelBoundary';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { StageCard } from '@/components/stages/StageCard';
 import { OnboardingCard } from '@/components/onboarding/OnboardingCard';
@@ -117,16 +118,24 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
             <SkeletonRow />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-              {/* Full-width: adaptive onboarding nudge + the score strip (pinned top). */}
-              <OnboardingCard projectId={projectId} />
-              <ScorePanel projectId={projectId} />
+              {/* Full-width: adaptive onboarding nudge + the score strip (pinned top).
+                  Each panel is boundary-wrapped so one render throw degrades to a
+                  muted card instead of taking down the whole dashboard. */}
+              <PanelBoundary>
+                <OnboardingCard projectId={projectId} />
+              </PanelBoundary>
+              <PanelBoundary>
+                <ScorePanel projectId={projectId} />
+              </PanelBoundary>
 
               {/* Two-column dashboard: wide Journey column + narrow utility column.
                   Collapses to one column under ~900px (.lp-home-grid). */}
               <div className="lp-home-grid">
                 {/* Primary — the journey/validation card (its checks ARE the
                     "next to validate" list, so no separate panel duplicates it). */}
-                <StageCard projectId={projectId} />
+                <PanelBoundary>
+                  <StageCard projectId={projectId} />
+                </PanelBoundary>
 
                 {/* Secondary — Watchers, Intel, Notes. */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -164,7 +173,9 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
               </div>
 
               {/* Full-width: the ecosystem graph gets the whole width to breathe. */}
-              <EcosystemPanel projectId={projectId} />
+              <PanelBoundary>
+                <EcosystemPanel projectId={projectId} />
+              </PanelBoundary>
             </div>
           )}
     </div>

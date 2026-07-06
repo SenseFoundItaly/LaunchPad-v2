@@ -126,6 +126,11 @@ export const it: Partial<Record<MessageKey, string>> = {
   'eco.risks': 'Rischi',
   'eco.features': 'Funzionalità',
   'eco.metrics': 'Metriche',
+  'eco.suppliers': 'Fornitori',
+  'eco.hr-collabs': 'HR & Collaboratori',
+  'eco.branding': 'Branding',
+  'eco.gtm': 'Go-to-market',
+  'eco.business-essentials': 'Business essentials',
   'eco.other': 'Altro',
 
   // ── Competitor matryoshka (src/components/knowledge/CompetitorMatryoshka.tsx) ─
@@ -259,6 +264,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   'knowledge.graph-exit': 'Esci',
   'knowledge.graph-will-populate': 'Il grafo della conoscenza si popolerà mentre chatti',
   'knowledge.graph-pending-hint': 'In sospeso — clicca per rivedere',
+  'knowledge.graph-empty-category': 'Ancora niente qui — chat e osservatori popoleranno questa categoria man mano.',
+  'knowledge.graph-focus-back': 'Tutte le categorie',
   'knowledge.legend-show': 'Mostra {type}',
   'knowledge.legend-hide': 'Nascondi {type}',
   'knowledge.legend-stats': '{nodes} nodi | {edges} collegamenti',
@@ -291,6 +298,11 @@ export const it: Partial<Record<MessageKey, string>> = {
   'knowledge.why-segment': 'Un segmento di clienti target. Applicarlo affina il tuo ICP e il focus go-to-market.',
   'knowledge.why-regulation': 'Un vincolo normativo. Applicarlo mantiene il piano conforme e segnala l\'esposizione legale.',
   'knowledge.why-partner': 'Un potenziale canale o partner. Applicarlo alimenta il piano go-to-market.',
+  'knowledge.why-supplier': 'Un fornitore da cui la tua startup dipende. Applicarlo mappa la supply chain e segnala il rischio di dipendenza.',
+  'knowledge.why-hr-collaborator': 'Un\'assunzione, un collaboratore o un ruolo chiave. Applicarlo mantiene visibili team e piano di hiring nell\'ecosistema.',
+  'knowledge.why-brand-asset': 'Un asset di brand (nome, dominio, tagline, visual). Applicarlo traccia come prende forma la tua identità.',
+  'knowledge.why-gtm': 'Un canale o una leva go-to-market. Applicarlo alimenta il piano di acquisizione e distribuzione.',
+  'knowledge.why-business-essential': 'Un elemento fondante del business (modello, ricavi, costi, metriche). Applicarlo mantiene co-pilot e finanze allineati al canvas.',
   'knowledge.why-default': 'Evidenza verificata per il tuo grafo di Knowledge. Applicarla la rende disponibile a co-pilot, Project Score e finanze, mantenendo il progetto coerente.',
   'actions.schedule-weekly': 'settimanale',
   'actions.monitor-proposal': 'Proposta di osservatore',
@@ -535,6 +547,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'canvas.backed-by-facts': 'Supportato da {count} fatti',
   'canvas.jump-to-memory-tooltip': 'Vai alla conoscenza',
   'canvas.field-pending': 'in attesa di approvazione',
+  'canvas.field-pending-update': 'aggiornamento in attesa',
   'canvas.field-problem': 'Problema',
   'canvas.field-solution': 'Soluzione',
   'canvas.field-target': 'Mercato target',
@@ -578,6 +591,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'journey-prompt.regulatory': 'Aiutami a verificare i vincoli normativi e di conformità (es. GDPR).',
   'journey-prompt.lean-canvas': 'Aiutami a completare i blocchi mancanti del Lean Canvas.',
   'journey-prompt.scoring': "Esegui l'analisi Startup Scoring per fissare il mio punteggio di partenza.",
+  'journey-prompt.wtp': 'Aiutami a registrare un segnale di disponibilità a pagare — ti dico cosa hanno detto gli intervistati.',
   'journey-prompt.generic': 'Aiutami con: {label}',
   'canvas.view-in-canvas': 'Vedi nel canvas',
   'canvas.view-in-know': 'Vedi nella conoscenza',
@@ -586,6 +600,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   'canvas.track-1a': '1A · Mercato',
   'canvas.track-1b': '1B · Tecnica',
   'canvas.track-1c': '1C · Fit Problema-Soluzione',
+  'canvas.track-locked': 'Bloccato finché 1A + 1B non sono completi',
+  'skills.gate-1c-locked': 'Le interviste ai clienti si sbloccano quando le track 1A (Mercato) e 1B (Tecnica) sono complete. Ancora aperti: {missing}. Chiudiamo prima quelli — posso aiutarti su ciascuno.',
   // Knowledge / data-room / caricamento documenti (completamento i18n del WIP).
   'common.all': 'Tutti',
   'common.close': 'Chiudi',
@@ -727,6 +743,11 @@ export const it: Partial<Record<MessageKey, string>> = {
   'common.retry': 'Riprova',
   'common.copy': 'Copia',
   'common.edit': 'Modifica',
+  'common.panel-error': 'Impossibile caricare questo pannello.',
+
+  // ── Project layout load gate ──────────────────────────────────────────────
+  'project-gate.not-found': 'Progetto non trovato',
+  'project-gate.all-projects': 'Tutti i progetti',
 
   // ── Watchers / Monitors ───────────────────────────────────────────────────
   'monitors.title': 'Osservatori',

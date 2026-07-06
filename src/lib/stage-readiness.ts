@@ -17,6 +17,8 @@ import { query, get } from '@/lib/db';
 import { STAGES, SKILL_KICKOFFS, type SkillDef } from '@/lib/stages';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
 import { evaluateAllStages } from '@/lib/journey';
+import { validationTracksAB_done } from '@/lib/journey/stage-2-market-validation';
+import { GATE_1C_DEPENDENT_SKILLS } from '@/lib/skill-prereqs';
 import { countAssumptions, type AssumptionCounts } from '@/lib/assumptions';
 import { scoreOverall, scoreStage, type StageScore } from '@/lib/scoring';
 import { isClarificationOnly } from '@/lib/skill-output';
@@ -159,7 +161,7 @@ function verdictFromScore(score: number): StageReadiness['verdict'] {
  * via get_project_summary.
  */
 export async function getStageReadiness(projectId: string): Promise<ProjectReadiness> {
-  const [{ skillMap, sectionContext }, assumptions, journeyDone] = await Promise.all([
+  const [{ skillMap, sectionContext }, assumptions, journey] = await Promise.all([
     buildSkillMap(projectId),
     countAssumptions(projectId).catch(() => ({
       total: 0, open_high: 0, open_total: 0, validated: 0, invalidated: 0,
@@ -167,10 +169,17 @@ export async function getStageReadiness(projectId: string): Promise<ProjectReadi
     // Which stages the SPINE (journey) already considers done. Readiness is
     // skill-score based, but the spine greens on evidence without requiring
     // skills — so a journey-done stage must not keep recommending its skill.
+    // Also whether the Validation Gate's 1A+1B tracks are complete: 1C skills
+    // are locked until then, and recommending a skill the product refuses to
+    // run is the "copilot got lost" contradiction.
     buildProjectSnapshot(projectId)
-      .then((snap) => new Set(evaluateAllStages(snap).filter((e) => e.status === 'done').map((e) => e.stage.number)))
-      .catch(() => new Set<number>()),
+      .then((snap) => ({
+        done: new Set(evaluateAllStages(snap).filter((e) => e.status === 'done').map((e) => e.stage.number)),
+        gate1cOpen: validationTracksAB_done(snap),
+      }))
+      .catch(() => ({ done: new Set<number>(), gate1cOpen: false })),
   ]);
+  const journeyDone = journey.done;
   const overall = scoreOverall(skillMap);
 
   const stages: StageReadiness[] = STAGES.map((stage) => {
@@ -217,7 +226,12 @@ export async function getStageReadiness(projectId: string): Promise<ProjectReadi
     // lost" contradiction. Respect the journey verdict.
     if (journeyDone.has(stage.number)) continue;
     if (stage.score >= 6) continue; // already GO+
-    const candidate = stage.missing_skills[0];
+    // 1C-gated skills (customer-interviews) are locked until tracks 1A+1B
+    // pass — the chat strips their tool and POST /skills 422s them, so
+    // recommending one here would steer the founder into a refused door.
+    const candidate = stage.missing_skills.find(
+      (sk) => journey.gate1cOpen || !GATE_1C_DEPENDENT_SKILLS.has(sk.id),
+    );
     if (!candidate) continue;
     next = {
       ...candidate,

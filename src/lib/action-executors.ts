@@ -51,6 +51,8 @@ import { entityNameFromHeadline } from './ecosystem-alert-parser';
 import type { MonitorPromptContext } from './ecosystem-monitors';
 import { calculateNextRun } from './monitor-schedule';
 import { logSignalActivity } from './signal-activity-log';
+import { maybeProposePhase1Watchers } from './phase1-watchers';
+import { syncBusinessEssentialNodes } from './business-essentials-sync';
 import type {
   PendingAction,
   PendingActionType,
@@ -1056,8 +1058,9 @@ const configureWatchSource: ActionHandler = async (action) => {
 /**
  * Map an ecosystem_alert's alert_type to a graph_nodes.node_type. Where a
  * natural existing node_type exists (competitor, partner, trend, regulation,
- * funding_source) we reuse it so the finding lands in the same bucket as
- * manually-curated knowledge; everything else falls back to 'signal'.
+ * funding_source, hr_collaborator) we reuse it so the finding lands in the
+ * same bucket as manually-curated knowledge; everything else falls back to
+ * 'signal'.
  * graph_nodes has no CHECK on node_type, so 'signal' is a safe new value.
  */
 function nodeTypeForAlert(alertType: string): string {
@@ -1076,7 +1079,7 @@ function nodeTypeForAlert(alertType: string): string {
     case 'pricing_change': return 'competitor';
     case 'market': return 'market';
     case 'social_signal': return 'trend';
-    case 'hiring_signal': return 'trend';
+    case 'hiring_signal': return 'hr_collaborator';
     // Non-canonical variants the parser has emitted in prod:
     case 'regulatory': return 'regulation';
     case 'competitor': return 'competitor';
@@ -1618,6 +1621,16 @@ const applyValidationProposal: ActionHandler = async (action) => {
         kind: 'fact',
         sources: sources ?? undefined,
       });
+      // Stamp the founder's approval into research.market_size — the Stage-2
+      // `market_size` check trusts the structured column ONLY with this flag
+      // (the column is also written ungated as cross-turn reference data).
+      // Legacy double-encoded rows (string scalar) are skipped; the applied
+      // fact above covers them via the check's keyword fallback.
+      await run(
+        `UPDATE research SET market_size = market_size || '{"approved": true}'::jsonb
+          WHERE project_id = ? AND market_size IS NOT NULL AND jsonb_typeof(market_size) = 'object'`,
+        action.project_id,
+      ).catch((err) => console.warn('[applyValidationProposal] market_size approval stamp failed (non-fatal):', (err as Error).message));
       applied.push('Market size');
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'market_size_fact') {
@@ -1652,6 +1665,9 @@ const applyValidationProposal: ActionHandler = async (action) => {
     // from update_idea_canvas — seeding must follow the actual write).
     const seedContext = Object.entries(canvasFields).map(([k, v]) => `${k}: ${v}`).join('\n\n');
     void seedAssumptionsIfEmpty(action.project_id, seedContext);
+    // Mirror the business fields into the graph's BUSINESS ESSENTIALS satellite.
+    // Awaited: post-response async work is frozen on serverless (PR #182 class).
+    await syncBusinessEssentialNodes(action.project_id);
   }
 
   if (applied.length === 0) {
@@ -1672,6 +1688,14 @@ const applyValidationProposal: ActionHandler = async (action) => {
       console.warn('[applyValidationProposal] credit debit failed (non-fatal):', (err as Error).message);
     }
   }
+
+  // Phase-1 watcher activation — this approval may have just completed Stage 1
+  // and opened the Validation Gate. AWAITED: the actions route returns right
+  // after this executor and the serverless runtime freezes post-response work
+  // (PR #182 class) — fire-and-forget here would silently never propose. The
+  // added latency only occurs on the one approval that opens the gate
+  // (idempotent + non-throwing; every other call is a cheap predicate check).
+  await maybeProposePhase1Watchers(action.project_id);
 
   return {
     ok: true,

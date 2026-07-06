@@ -20,6 +20,10 @@ interface KnowledgeGraphProps {
   onSaveNode?: (node: GraphNode, patch: { name?: string; summary?: string }) => Promise<void> | void;
   /** Remove one dated move from a node's timeline (from the detail drawer). */
   onDeleteTimelineEntry?: (node: GraphNode, entry: TimelineEntry) => Promise<void> | void;
+  /** Draw dashed ghost hulls for categories with no nodes yet — true on the
+   *  /knowledge page (the founder should see all 12 satellites), false on the
+   *  compact Home EcosystemPanel. */
+  showEmptyCategories?: boolean;
 }
 
 interface SimNode extends d3.SimulationNodeDatum {
@@ -40,10 +44,12 @@ interface SimLink extends d3.SimulationLinkDatum<SimNode> {
   rawData: GraphEdge;
 }
 
-// Layout note: nodes cluster by MACRO-CATEGORY (the 2026-06 "matrioska"), one
-// tinted region per ecosystem role. The per-category ANGLE is computed inside
-// the effect from the categories actually present, so absent roles don't leave
-// the graph lopsided — see catAngleDeg below.
+// Layout note: nodes cluster by MACRO-CATEGORY into the FIXED 12-wedge
+// hub-and-spoke of the 2026-07 mockup — each category always owns the same
+// clock position (MACRO_CATEGORY_ORDER), so the graph reads identically across
+// projects. Empty categories render as dashed ghost circles at their wedge
+// anchor (when showEmptyCategories). Clicking a hull drills into that single
+// category; ESC / the breadcrumb chip goes back.
 
 /** Normalize an edge endpoint (string id, raw node, or sim node) to its id.
  * Module-scope + pure so it has a stable identity across renders. */
@@ -53,7 +59,7 @@ const getId = (ref: string | GraphNode | SimNode | undefined): string => {
   return (ref as { id: string }).id || '';
 };
 
-export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick, onApplyNode, onDismissNode, onSaveNode, onDeleteTimelineEntry }: KnowledgeGraphProps) {
+export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick, onApplyNode, onDismissNode, onSaveNode, onDeleteTimelineEntry, showEmptyCategories = false }: KnowledgeGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<d3.Simulation<SimNode, SimLink> | null>(null);
@@ -61,6 +67,9 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
   const [searchQuery, setSearchQuery] = useState('');
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Drill-down: when set, the graph shows ONLY this category's nodes as a
+  // single centered cluster. Set by clicking a hull; cleared by breadcrumb/ESC.
+  const [focusedCategory, setFocusedCategory] = useState<MacroCategory | null>(null);
   // The node whose detail drawer is open (ANY node — applied or pending). The
   // drawer replaced the old pending-only floating popover so there is a single
   // detail surface for the graph. Set on node click; cleared on background click.
@@ -79,24 +88,35 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
     });
   }, []);
 
-  // ESC to exit fullscreen
+  // ESC clears the drill-down FIRST, then (next press) exits fullscreen.
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsFullscreen(false); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (focusedCategory) setFocusedCategory(null);
+      else setIsFullscreen(false);
+    };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [focusedCategory]);
 
-  // Filter nodes/edges by hidden types. MEMOIZED so a re-render caused ONLY by
-  // selection/detail state (clicking a node sets selectedNodeId + detailNode)
-  // keeps the SAME array references. The heavy D3 effect below lists these in its
-  // deps; without memoization every click produced fresh arrays → the effect
-  // re-ran svg.selectAll('*').remove() and rebuilt the whole force simulation,
-  // flashing the graph and resetting node positions. Recomputes only when the
-  // data (nodes/edges) or the type filter actually changes — so a real refetch
-  // still rebuilds, but a click does not.
+  // Filter nodes/edges by drill-down focus + hidden types. MEMOIZED so a
+  // re-render caused ONLY by selection/detail state (clicking a node sets
+  // selectedNodeId + detailNode) keeps the SAME array references. The heavy D3
+  // effect below lists these in its deps; without memoization every click
+  // produced fresh arrays → the effect re-ran svg.selectAll('*').remove() and
+  // rebuilt the whole force simulation, flashing the graph and resetting node
+  // positions. Recomputes only when the data (nodes/edges), the focus, or the
+  // type filter actually changes — so a real refetch (or a drill-down, which
+  // NEEDS a sim rebuild) still rebuilds, but a click does not.
+  const categoryNodes = useMemo(
+    () => focusedCategory
+      ? nodes.filter(n => macroCategoryFor(n.node_type) === focusedCategory)
+      : nodes,
+    [nodes, focusedCategory],
+  );
   const visibleNodes = useMemo(
-    () => nodes.filter(n => !hiddenTypes.has(n.node_type)),
-    [nodes, hiddenTypes],
+    () => categoryNodes.filter(n => !hiddenTypes.has(n.node_type)),
+    [categoryNodes, hiddenTypes],
   );
   const visibleEdges = useMemo(() => {
     const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
@@ -115,7 +135,12 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return;
-    if (visibleNodes.length === 0) return;
+    if (visibleNodes.length === 0) {
+      // Drilling into an empty category (ghost click) leaves zero visible
+      // nodes — wipe the stale svg so the JSX empty-hint shows on clean paper.
+      d3.select(svgRef.current).selectAll('*').remove();
+      return;
+    }
 
     if (simulationRef.current) simulationRef.current.stop();
 
@@ -123,7 +148,8 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
     const width = container.clientWidth;
     const height = container.clientHeight;
     const cx = width / 2, cy = height / 2;
-    const clusterRadius = Math.min(width, height) * 0.3;
+    const clusterRadius = Math.min(width, height) * 0.38;
+    const focused = focusedCategory != null;
 
     const svg = d3.select(svgRef.current).attr('width', width).attr('height', height);
     svg.selectAll('*').remove();
@@ -164,46 +190,45 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
 
     const getColor = (type: string) => NODE_COLORS[type] || 'var(--ink-5)';
 
-    // Distribute the categories that ACTUALLY have nodes evenly around the
-    // circle (starting at the top, clockwise) instead of using fixed global
-    // wedges. With fixed wedges an absent category (e.g. no investors) left a
-    // gap and shoved the whole graph off-centre; even distribution keeps the
-    // startup root balanced in the middle whatever mix of categories exists.
-    const presentCats = MACRO_CATEGORY_ORDER.filter(cat =>
-      simNodes.some(n => n.node_type !== 'your_startup' && macroCategoryFor(n.node_type) === cat),
+    // FIXED 12-wedge angles from MACRO_CATEGORY_ORDER (mockup clockwise,
+    // starting at the top): every category always owns the same clock position
+    // so the graph reads identically across projects. Absent categories leave
+    // their wedge empty (a dashed ghost when showEmptyCategories) instead of
+    // redistributing the circle.
+    const catAngle = new Map<MacroCategory, number>(
+      MACRO_CATEGORY_ORDER.map((cat, i) => [cat, (-90 + (360 / MACRO_CATEGORY_ORDER.length) * i) * (Math.PI / 180)]),
     );
-    const catAngleDeg = new Map<MacroCategory, number>(
-      presentCats.map((cat, i) => [cat, -90 + (360 / Math.max(1, presentCats.length)) * i]),
-    );
+    const angleForCat = (cat: MacroCategory): number => catAngle.get(cat) ?? -Math.PI / 2;
     const angleForNodeType = (type: string): number => {
       const cat = macroCategoryFor(type);
-      return cat && catAngleDeg.has(cat) ? catAngleDeg.get(cat)! : -90;
+      return cat ? angleForCat(cat) : -Math.PI / 2;
     };
 
-    // Cluster targets — by macro-category (startup pinned at centre).
+    // Cluster targets — by macro-category wedge (startup pinned at centre).
+    // In drill-down every node targets the centre: one settled cluster.
     const clusterX = (type: string) => {
-      if (type === 'your_startup') return cx;
-      const angle = angleForNodeType(type) * (Math.PI / 180);
-      return cx + Math.cos(angle) * clusterRadius;
+      if (focused || type === 'your_startup') return cx;
+      return cx + Math.cos(angleForNodeType(type)) * clusterRadius;
     };
     const clusterY = (type: string) => {
-      if (type === 'your_startup') return cy;
-      const angle = angleForNodeType(type) * (Math.PI / 180);
-      return cy + Math.sin(angle) * clusterRadius;
+      if (focused || type === 'your_startup') return cy;
+      return cy + Math.sin(angleForNodeType(type)) * clusterRadius;
     };
 
-    // Simulation with STRONG clustering forces. The category pull (0.35) now
+    // Simulation with STRONG clustering forces. The category pull (0.5) now
     // dominates the (real-edge-only) link + charge forces, so same-category
-    // nodes sit together in their wedge and the graph reads as grouped regions
-    // rather than one radial scatter. Charge is softened and collide tightened
-    // so a category with many nodes spreads into a readable disk instead of a
-    // line. your_startup is pinned to the exact centre so it anchors the middle.
+    // nodes sit tight in their fixed wedge and 12 satellites stay legible.
+    // Charge is softened and collide tightened so a category with many nodes
+    // spreads into a readable disk instead of a line. your_startup is pinned to
+    // the exact centre so it anchors the middle. Drill-down flips to
+    // single-cluster params: weak centring, strong charge + looser links so one
+    // category breathes across the whole canvas.
     const simulation = d3.forceSimulation<SimNode>(simNodes)
-      .force('link', d3.forceLink<SimNode, SimLink>(simLinks).id(d => d.id).distance(90).strength(0.3))
-      .force('charge', d3.forceManyBody().strength(-160))
-      .force('collide', d3.forceCollide(30))
-      .force('clusterX', d3.forceX<SimNode>(d => clusterX(d.node_type)).strength(d => d.node_type === 'your_startup' ? 1 : 0.35))
-      .force('clusterY', d3.forceY<SimNode>(d => clusterY(d.node_type)).strength(d => d.node_type === 'your_startup' ? 1 : 0.35));
+      .force('link', d3.forceLink<SimNode, SimLink>(simLinks).id(d => d.id).distance(focused ? 110 : 90).strength(0.3))
+      .force('charge', d3.forceManyBody().strength(focused ? -240 : -110))
+      .force('collide', d3.forceCollide(focused ? 34 : 24))
+      .force('clusterX', d3.forceX<SimNode>(d => clusterX(d.node_type)).strength(d => d.node_type === 'your_startup' ? 1 : focused ? 0.15 : 0.5))
+      .force('clusterY', d3.forceY<SimNode>(d => clusterY(d.node_type)).strength(d => d.node_type === 'your_startup' ? 1 : focused ? 0.15 : 0.5));
 
     simulationRef.current = simulation;
 
@@ -214,20 +239,37 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
       .on('zoom', (event) => { g.attr('transform', event.transform); })
     );
 
-    // Macro-category REGIONS — a soft tinted background hull per ecosystem role
-    // (Concorrenza / Clienti / Partner / Investitori / Contesto), each in the
-    // category's colour at low opacity with its label floated above. This is the
-    // founder's "un colore chiaro per categoria" + "gruppi per categoria vicini":
-    // the wash makes the grouping legible even when a project has no real edges.
-    // Drawn FIRST so it sits behind links + nodes; positions recomputed on tick
-    // because the cluster force settles the node coordinates over time.
-    const hullGroup = g.append('g').attr('pointer-events', 'none');
-    // presentCats is computed above (drives the cluster angles too).
+    // Macro-category REGIONS — a soft tinted background hull per ecosystem
+    // role, each in the category's colour at low opacity with its label placed
+    // radially outward. This is the founder's "un colore chiaro per categoria"
+    // + "gruppi per categoria vicini": the wash makes the grouping legible even
+    // when a project has no real edges. Drawn FIRST so it sits behind links +
+    // nodes (nodes/links win hit-testing; a click on the wash itself drills
+    // into the category). Positions recomputed on tick because the cluster
+    // force settles the node coordinates over time.
+    const hullGroup = g.append('g');
+    const presentCats = MACRO_CATEGORY_ORDER.filter(cat =>
+      simNodes.some(n => n.node_type !== 'your_startup' && macroCategoryFor(n.node_type) === cat),
+    );
+    const hullCats = focusedCategory ? presentCats.filter(c => c === focusedCategory) : presentCats;
+    // Empty categories → dashed ghost circle at the wedge anchor, so the
+    // founder sees all 12 satellites of the map (opt-in: /knowledge only).
+    const ghostCats = !focused && showEmptyCategories
+      ? MACRO_CATEGORY_ORDER.filter(c => !presentCats.includes(c))
+      : [];
+    const catLabel = (cat: MacroCategory) => MACRO_CATEGORY_LABEL[cat][locale === 'it' ? 'it' : 'en'].toUpperCase();
+    // Only CALL the stable setters inside D3 closures — never read state there.
+    const drillInto = (event: Event, cat: MacroCategory) => {
+      event.stopPropagation();
+      setFocusedCategory(cat);
+      setSelectedNodeId(null);
+      setDetailNode(null);
+    };
 
     /** Rounded, padded blob path around a category's node points. 1 point → a
      *  circle; 2 → a capsule-ish circle; ≥3 → a Catmull-Rom-smoothed convex hull
      *  expanded outward from its centroid so nodes sit comfortably inside. */
-    const HULL_PAD = 34;
+    const HULL_PAD = 26;
     const smoothClosed = d3.line().curve(d3.curveCatmullRomClosed.alpha(0.6));
     const circlePath = (x: number, y: number, r: number) =>
       `M${x - r},${y}a${r},${r} 0 1,0 ${r * 2},0a${r},${r} 0 1,0 ${-r * 2},0`;
@@ -250,24 +292,69 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
     };
 
     const regions = hullGroup.selectAll<SVGGElement, MacroCategory>('g.region')
-      .data(presentCats).enter().append('g').attr('class', 'region');
-    regions.append('path')
+      .data(hullCats).enter().append('g').attr('class', 'region');
+    const regionPaths = regions.append('path')
       .attr('fill', d => MACRO_CATEGORY_COLOR[d])
       .attr('fill-opacity', 0.07)
       .attr('stroke', d => MACRO_CATEGORY_COLOR[d])
       .attr('stroke-opacity', 0.22)
       .attr('stroke-width', 1);
+    if (!focused) regionPaths.style('cursor', 'pointer').on('click', drillInto);
     regions.append('text')
-      .text(d => MACRO_CATEGORY_LABEL[d][locale === 'it' ? 'it' : 'en'].toUpperCase())
+      .text(d => catLabel(d))
       .attr('text-anchor', 'middle')
-      .attr('font-size', '10.5px')
+      .attr('font-size', '9.5px')
       .attr('font-weight', '700')
       .attr('letter-spacing', '0.09em')
       .attr('fill', d => MACRO_CATEGORY_COLOR[d])
       .attr('fill-opacity', 0.85)
+      .attr('pointer-events', 'none')
       .style('font-family', 'system-ui');
 
-    /** Recompute every region hull + label from the current node positions. */
+    // Ghost affordance for empty categories — dashed circle at the wedge
+    // anchor + label; clicking drills in (the drill-down shows the empty hint).
+    const GHOST_R = 24;
+    const ghosts = hullGroup.selectAll<SVGGElement, MacroCategory>('g.ghost')
+      .data(ghostCats).enter().append('g').attr('class', 'ghost')
+      .style('cursor', 'pointer')
+      .on('click', drillInto);
+    ghosts.append('circle')
+      .attr('cx', d => cx + Math.cos(angleForCat(d)) * clusterRadius)
+      .attr('cy', d => cy + Math.sin(angleForCat(d)) * clusterRadius)
+      .attr('r', GHOST_R)
+      .attr('fill', d => MACRO_CATEGORY_COLOR[d])
+      .attr('fill-opacity', 0.04)
+      .attr('stroke', d => MACRO_CATEGORY_COLOR[d])
+      .attr('stroke-opacity', 0.4)
+      .attr('stroke-width', 1)
+      .attr('stroke-dasharray', '4,4');
+    ghosts.append('title').text(() => t('knowledge.graph-empty-category'));
+
+    /** Quadrant-aware label anchoring so labels grow AWAY from their hull. */
+    const placeRadialLabel = (sel: d3.Selection<SVGTextElement, MacroCategory, SVGGElement | null, unknown>, cat: MacroCategory, x: number, y: number) => {
+      const cos = Math.cos(angleForCat(cat)), sin = Math.sin(angleForCat(cat));
+      sel.attr('x', x).attr('y', y)
+        .attr('text-anchor', cos > 0.35 ? 'start' : cos < -0.35 ? 'end' : 'middle')
+        .attr('dy', sin < -0.35 ? '-0.2em' : sin > 0.35 ? '0.8em' : '0.35em');
+    };
+    ghosts.append('text')
+      .text(d => catLabel(d))
+      .attr('font-size', '9.5px')
+      .attr('font-weight', '700')
+      .attr('letter-spacing', '0.09em')
+      .attr('fill', d => MACRO_CATEGORY_COLOR[d])
+      .attr('fill-opacity', 0.6)
+      .style('font-family', 'system-ui')
+      .each(function (cat) {
+        const r = clusterRadius + GHOST_R + 10;
+        placeRadialLabel(d3.select(this) as d3.Selection<SVGTextElement, MacroCategory, SVGGElement | null, unknown>, cat,
+          cx + Math.cos(angleForCat(cat)) * r, cy + Math.sin(angleForCat(cat)) * r);
+      });
+
+    /** Recompute every region hull + label from the current node positions.
+     *  Labels sit radially OUTWARD from the hull centroid along the wedge's
+     *  fixed angle, so they never overlap the nodes; in drill-down the single
+     *  centered cluster gets its label floated above instead. */
     const updateRegions = () => {
       regions.each(function (cat) {
         const pts = simNodes
@@ -275,11 +362,18 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
           .map(n => [n.x as number, n.y as number] as [number, number]);
         const sel = d3.select(this);
         sel.select('path').attr('d', regionPath(pts));
-        if (pts.length > 0) {
-          const lx = d3.mean(pts, p => p[0]) ?? 0;
+        if (pts.length === 0) return;
+        const mx = d3.mean(pts, p => p[0]) ?? 0;
+        const my = d3.mean(pts, p => p[1]) ?? 0;
+        const text = sel.select<SVGTextElement>('text');
+        if (focused) {
           const minY = d3.min(pts, p => p[1]) ?? 0;
-          sel.select('text').attr('x', lx).attr('y', minY - HULL_PAD - 4);
+          text.attr('x', mx).attr('y', minY - HULL_PAD - 6).attr('text-anchor', 'middle').attr('dy', null);
+          return;
         }
+        const maxR = (d3.max(pts, p => Math.hypot(p[0] - mx, p[1] - my)) ?? 0) + HULL_PAD + 12;
+        placeRadialLabel(text as d3.Selection<SVGTextElement, MacroCategory, SVGGElement | null, unknown>, cat,
+          mx + Math.cos(angleForCat(cat)) * maxR, my + Math.sin(angleForCat(cat)) * maxR);
       });
     };
 
@@ -449,7 +543,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
     });
 
     return () => { simulation.stop(); };
-  }, [visibleNodes, visibleEdges, onNodeClick, onEdgeClick, searchQuery, locale, t]);
+  }, [visibleNodes, visibleEdges, onNodeClick, onEdgeClick, searchQuery, locale, t, focusedCategory, showEmptyCategories]);
 
   // Import legend here to avoid circular — pass from parent instead
   const GraphLegend = require('./GraphLegend').default;
@@ -514,6 +608,22 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
           placeholder={t('knowledge.graph-search')}
           className="px-3 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-xs text-ink-3 placeholder-ink-6 outline-none focus:border-ink-6 w-44"
         />
+        {/* Drill-down breadcrumb — shows the focused satellite, click (or ESC) to go back. */}
+        {focusedCategory && (
+          <button
+            onClick={() => setFocusedCategory(null)}
+            title={t('knowledge.graph-focus-back')}
+            aria-label={t('knowledge.graph-focus-back')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-paper/80 backdrop-blur-sm border border-line rounded-lg text-xs text-ink-3 hover:text-ink-1 transition-colors whitespace-nowrap"
+          >
+            <span aria-hidden>←</span>
+            <span
+              className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+              style={{ backgroundColor: MACRO_CATEGORY_COLOR[focusedCategory] }}
+            />
+            {MACRO_CATEGORY_LABEL[focusedCategory][locale === 'it' ? 'it' : 'en']}
+          </button>
+        )}
         <button
           onClick={() => setIsFullscreen(!isFullscreen)}
           title={isFullscreen ? t('knowledge.graph-exit') : t('knowledge.graph-expand')}
@@ -533,7 +643,15 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
           {t('knowledge.graph-will-populate')}
         </div>
       ) : (
-        <svg ref={svgRef} className="w-full h-full" />
+        <>
+          <svg ref={svgRef} className="w-full h-full" />
+          {/* Drilled into a category with nothing in it yet (ghost click). */}
+          {focusedCategory && visibleNodes.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center text-ink-5 text-sm text-center px-8 pointer-events-none">
+              {t('knowledge.graph-empty-category')}
+            </div>
+          )}
+        </>
       )}
 
       {/* Node detail drawer for the clicked node (applied OR pending). Rendered
@@ -551,8 +669,11 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
         onDeleteTimelineEntry={onDeleteTimelineEntry}
       />
 
+      {/* Legend fed from the focus-filtered set (pre hidden-type filter, so a
+          toggled-off type keeps its chip and can be re-enabled): in drill-down
+          it shows only the focused category's types. */}
       <GraphLegend
-        activeTypes={nodes.map(n => n.node_type)}
+        activeTypes={categoryNodes.map(n => n.node_type)}
         hiddenTypes={hiddenTypes}
         onToggleType={toggleType}
         nodeCount={visibleNodes.length}
