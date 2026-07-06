@@ -177,11 +177,11 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
             lineHeight: 1.45,
           }}
         >
-          <Field label={t('canvas.field-problem')} value={data?.problem} pendingValue={pending.problem} pendingLabel={t('canvas.field-pending')} anchorId="canvasfield-problem" />
-          <Field label={t('canvas.field-solution')} value={data?.solution} pendingValue={pending.solution} pendingLabel={t('canvas.field-pending')} anchorId="canvasfield-solution" />
-          <Field label={t('canvas.field-target')} value={data?.target_market} pendingValue={pending.target_market} pendingLabel={t('canvas.field-pending')} anchorId="canvasfield-target_market" />
-          <Field label={t('canvas.field-value')} value={data?.value_proposition} pendingValue={pending.value_proposition} pendingLabel={t('canvas.field-pending')} anchorId="canvasfield-value_proposition" />
-          <Field label={t('canvas.field-business-model')} value={data?.business_model} pendingValue={pending.business_model} pendingLabel={t('canvas.field-pending')} anchorId="canvasfield-business_model" full />
+          <Field label={t('canvas.field-problem')} value={data?.problem} pendingValue={pending.problem} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-problem" />
+          <Field label={t('canvas.field-solution')} value={data?.solution} pendingValue={pending.solution} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-solution" />
+          <Field label={t('canvas.field-target')} value={data?.target_market} pendingValue={pending.target_market} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-target_market" />
+          <Field label={t('canvas.field-value')} value={data?.value_proposition} pendingValue={pending.value_proposition} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-value_proposition" />
+          <Field label={t('canvas.field-business-model')} value={data?.business_model} pendingValue={pending.business_model} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-business_model" full />
         </div>
       )}
     </div>
@@ -193,20 +193,25 @@ function Field({
   value,
   pendingValue,
   pendingLabel,
+  pendingUpdateLabel,
   full,
   anchorId,
 }: {
   label: string;
   value?: string | null;
   /** Staged-but-unapproved value, shown dimmed with a "pending" tag when there
-   *  is no applied value yet — the progressive "fills as you go" behaviour. */
+   *  is no applied value yet — the progressive "fills as you go" behaviour.
+   *  When an applied value exists too (a reshape awaiting approval), it renders
+   *  as a "pending update" line under the applied text instead. */
   pendingValue?: string;
   pendingLabel?: string;
+  pendingUpdateLabel?: string;
   full?: boolean;
   /** Scroll/flash target for the Spine "view in canvas" jump. */
   anchorId?: string;
 }) {
   const showPending = !value && !!pendingValue;
+  const showPendingUpdate = !!value && !!pendingValue;
   return (
     <div id={anchorId} style={{ gridColumn: full ? '1 / -1' : undefined, minWidth: 0, borderRadius: 4 }}>
       <div
@@ -238,6 +243,12 @@ function Field({
       >
         {value || pendingValue || '—'}
       </div>
+      {showPendingUpdate && (
+        <div style={{ marginTop: 2, fontSize: 11, lineHeight: 1.4, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+          <span style={{ color: 'var(--accent-ink, var(--accent))' }}>{pendingUpdateLabel} · </span>
+          {pendingValue}
+        </div>
+      )}
     </div>
   );
 }

@@ -7,7 +7,16 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { runSkill } from '@/lib/skill-executor';
 import { isClarificationOnly } from '@/lib/skill-output';
 import { assertCreditsAvailable } from '@/lib/credits';
-import { canvasRunPrereqs, canvasLacksCorePrereqs, CANVAS_DEPENDENT_SKILLS } from '@/lib/skill-prereqs';
+import {
+  canvasRunPrereqs,
+  canvasLacksCorePrereqs,
+  CANVAS_DEPENDENT_SKILLS,
+  GATE_1C_DEPENDENT_SKILLS,
+  validationGatePrereqs,
+  validationGateRunPrereqs,
+} from '@/lib/skill-prereqs';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { translate } from '@/lib/i18n/messages';
 
 /**
  * GET: list skill completions for a project.
@@ -29,8 +38,14 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   if (new URL(request.url).searchParams.get('availability') === '1') {
-    const incomplete = await canvasLacksCorePrereqs(projectId);
-    return json({ gated: incomplete ? [...CANVAS_DEPENDENT_SKILLS] : [] });
+    const [incomplete, gate1c] = await Promise.all([
+      canvasLacksCorePrereqs(projectId),
+      validationGatePrereqs(projectId),
+    ]);
+    const gated = incomplete ? [...CANVAS_DEPENDENT_SKILLS] : [];
+    // Track-1C skills (customer-interviews) stay gated until 1A+1B pass.
+    if (gate1c.blocked) gated.push(...GATE_1C_DEPENDENT_SKILLS);
+    return json({ gated });
   }
 
   const rows = await query(
@@ -109,6 +124,27 @@ export async function POST(
           missing: prereq.missing,
           pending: prereq.pending,
           message,
+        }),
+        { status: 422, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // 1C GATE (run-time) — track-1C skills (customer-interviews) are locked
+    // until every 1A (Market) + 1B (Technical) check passes. Same clean-422
+    // contract as the canvas gate; the message names the open checks.
+    const gate1c = await validationGateRunPrereqs(projectId, body.skill_id as string);
+    if (gate1c.blocked) {
+      console.info(
+        `[skills] ${body.skill_id} blocked — 1C locked, open 1A/1B checks: [${gate1c.missing.join(', ')}]`,
+      );
+      // Localized: chat renders this message verbatim as an assistant bubble.
+      const locale = await resolveLocale(ownerUserId, projectId);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'validation_gate_locked',
+          missing: gate1c.missing,
+          message: translate(locale, 'skills.gate-1c-locked', { missing: gate1c.missing.join(', ') }),
         }),
         { status: 422, headers: { 'Content-Type': 'application/json' } },
       );

@@ -21,6 +21,7 @@
  */
 
 import { STAGES } from './index';
+import { MARKET_SIZE_CHECK_SOURCE } from './stage-2-market-validation';
 
 export type ValidationItemKind = 'canvas_field' | 'competitor' | 'market_size_fact';
 
@@ -55,8 +56,9 @@ function sourceKeysFor(kind: ValidationItemKind, field?: string): string[] {
     case 'competitor':
       return ['competitor_profiles'];
     case 'market_size_fact':
-      // Stage-2 `market_size` check source is exactly "memory_facts (market sizing)".
-      return ['memory_facts (market sizing)'];
+      // Imported constant = the Stage-2 `market_size` check's source string,
+      // byte-identical by construction (it can't drift).
+      return [MARKET_SIZE_CHECK_SOURCE];
     default:
       return [];
   }

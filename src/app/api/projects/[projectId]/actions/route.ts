@@ -46,9 +46,17 @@ export async function GET(
   const limit = limitParam ? parseInt(limitParam, 10) : 50;
   if (Number.isNaN(limit)) return error('Invalid limit');
 
+  // Per-call fallbacks: one failing query shouldn't 500 the whole inbox
+  // (clients read summary with optional chaining, so null degrades cleanly).
   const [actions, summary] = await Promise.all([
-    listPendingActions({ project_id: projectId, status, limit }),
-    inboxSummary(projectId),
+    listPendingActions({ project_id: projectId, status, limit }).catch((err) => {
+      console.error('[actions] listPendingActions failed:', err);
+      return [];
+    }),
+    inboxSummary(projectId).catch((err) => {
+      console.error('[actions] inboxSummary failed:', err);
+      return null;
+    }),
   ]);
   return json({ actions, summary });
 }

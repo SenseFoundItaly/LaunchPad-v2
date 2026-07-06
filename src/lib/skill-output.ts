@@ -26,8 +26,12 @@
  */
 
 // Phrases a skill uses when it's asking for input rather than delivering output.
+// English + Italian (Italian-locale projects run skills off the Italian SKILL
+// body, so their clarification requests arrive in Italian). Italian alternatives
+// carry no trailing \b — JS treats accented chars ("più") as non-word, so a
+// boundary there would never match.
 const CLARIFICATION_RE =
-  /\b(i need|i'd love|i would love|could you (?:share|tell|provide|give|describe)|can you (?:share|tell|provide)|what(?:'s| is| are) your|tell me (?:more|about)|to (?:get|run) started|before i (?:can|begin|start)|please (?:share|provide|describe|tell|let me know))\b/i;
+  /\b(?:(?:i need|i'd love|i would love|could you (?:share|tell|provide|give|describe)|can you (?:share|tell|provide)|what(?:'s| is| are) your|tell me (?:more|about)|to (?:get|run) started|before i (?:can|begin|start)|please (?:share|provide|describe|tell|let me know))\b|ho bisogno|avrei bisogno|mi serv(?:e|ono|irebbe)|potresti (?:condividere|dirmi|fornire|descrivere|raccontarmi|spiegarmi)|puoi (?:condividere|dirmi|fornire|descrivere|raccontarmi)|qual (?:è|e) (?:la tua|il tuo)|quali sono (?:i tuoi|le tue)|dimmi di più|raccontami (?:di più|della tua|del tuo)|prima di (?:poter|iniziare|cominciare|procedere)|per (?:favore|cortesia),? (?:condividi|fornisci|descrivi|dimmi|fammi sapere))/i;
 
 // STRONG structure markers a real deliverable carries: JSON braces/brackets,
 // markdown headers, or markdown tables. Plain numbered/bulleted lists are

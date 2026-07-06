@@ -17,6 +17,16 @@ describe('isClarificationOnly', () => {
     expect(isClarificationOnly(text)).toBe(true);
   });
 
+  it('flags an Italian clarification request', () => {
+    const text = 'Ho bisogno di qualche dettaglio prima di iniziare. Qual è la tua idea? Chi è il cliente?';
+    expect(isClarificationOnly(text)).toBe(true);
+  });
+
+  it('does NOT flag an Italian deliverable with structure', () => {
+    const text = '## Analisi di Mercato\n\nIl TAM è di circa 5 miliardi di dollari (stima bottom-up). SAM ~ 400M.';
+    expect(isClarificationOnly(text)).toBe(false);
+  });
+
   it('does NOT flag a real deliverable with structure', () => {
     const text = '## Market Analysis\n\nTAM is roughly $5B based on bottoms-up sizing. SAM ~ $400M.';
     expect(isClarificationOnly(text)).toBe(false);

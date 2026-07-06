@@ -90,6 +90,7 @@ export const I = {
   edit: 'M11 2l3 3-8 8H3v-3z',
   grip: 'M5 4h.01M5 8h.01M5 12h.01M9 4h.01M9 8h.01M9 12h.01',
   package: 'M2 4l6-2 6 2v8l-6 2-6-2zm0 0l6 2 6-2M8 6v8',
+  lock: 'M5 7V5a3 3 0 0 1 6 0v2M4 7h8v6H4zm4 2.5v1.5',
 } as const;
 
 export type IconKey = keyof typeof I;

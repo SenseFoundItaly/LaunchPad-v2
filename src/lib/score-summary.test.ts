@@ -36,6 +36,42 @@ describe('parseScoreSummary', () => {
     expect(r.recommendation).toMatch(/NOT READY to scale/);
   });
 
+  it('parses an Italian scorecard (Punteggio Complessivo / Verdetto / Voto / accented dimensions)', () => {
+    const summary = [
+      '# 🏗️ FieldPulse — Scorecard della Startup',
+      '',
+      '## 📊 Punteggio Complessivo: **58 / 100 — Voto: C+**',
+      '',
+      '> **Verdetto: NON PRONTA a scalare.** Problema reale, ma domanda non ancora validata.',
+      '',
+      '## Punteggi per Dimensione',
+      '',
+      "### 1. 🌍 Opportunità di Mercato — **62 / 100** *(Peso: 20%)*",
+      'Motivazione.',
+      '### 2. ⚔️ Panorama Competitivo — **45 / 100**',
+      '### 3. 🛠️ Fattibilità — **60 / 100**',
+      '### 4. 💰 Sostenibilità del Modello di Business — **50 / 100**',
+    ].join('\n');
+
+    const r = parseScoreSummary(summary)!;
+    expect(r).not.toBeNull();
+    expect(r.overall).toBe(58);
+    expect(r.dimensions).toEqual({
+      'Opportunità di Mercato': 62,
+      'Panorama Competitivo': 45,
+      'Fattibilità': 60,
+      'Sostenibilità del Modello di Business': 50,
+    });
+    expect(r.benchmark).toBe('Grade C+');
+    expect(r.recommendation).toMatch(/NON PRONTA a scalare/);
+  });
+
+  it('parses "Raccomandazione:" as the recommendation anchor', () => {
+    const r = parseScoreSummary('Punteggio complessivo: 70/100\nRaccomandazione: valida la domanda prima di costruire.')!;
+    expect(r.overall).toBe(70);
+    expect(r.recommendation).toMatch(/valida la domanda/);
+  });
+
   it('parses plain "Name: 72/100" headers', () => {
     const r = parseScoreSummary('Overall Score: 70/100\nMarket Opportunity: 72/100\nTeam: 68/100')!;
     expect(r.overall).toBe(70);

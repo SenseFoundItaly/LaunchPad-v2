@@ -285,7 +285,7 @@ export default function KnowledgePage({
           // The graph now groups nodes into tinted macro-category regions even
           // with zero real edges, so the old "disconnected dots → grid" fallback
           // is no longer needed — the grouped graph IS the good edgeless view.
-          <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} onDeleteTimelineEntry={deleteTimelineEntry} />
+          <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} onDeleteTimelineEntry={deleteTimelineEntry} showEmptyCategories />
         )}
         {view === 'graph' && pendingCount > 0 && (
           <div

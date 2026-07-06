@@ -21,11 +21,12 @@ import { useStages } from '@/hooks/useStages';
 import { useRouter } from 'next/navigation';
 import { checkActionPrompt } from '@/lib/journey-prompts';
 import { useT } from '@/components/providers/LocaleProvider';
+import { Icon, I } from '@/components/design/icons';
 import type { MessageKey } from '@/lib/i18n/messages';
 
 interface CheckRow {
   check: { id: string; label: string; source?: string; track?: '1A' | '1B' | '1C' };
-  result: { passed: boolean; evidence?: string; gap?: string; proof?: string };
+  result: { passed: boolean; evidence?: string; gap?: string; proof?: string; locked?: boolean };
 }
 
 interface StageEval {
@@ -82,9 +83,9 @@ const STATE: Record<StageEval['status'], { color: string; labelKey: MessageKey }
 };
 
 // L2 Validation-Gate sub-tracks (walkthrough §2). Untracked checks render first;
-// tracked checks group under these headers (mirrors the Home StageCard). Only the
-// Validation Gate stage tags checks today (1A Market + 1B Technical); empty groups
-// (e.g. 1C until PSF is built) are skipped.
+// tracked checks group under these headers (mirrors the Home StageCard). The
+// Validation Gate tags 1A Market + 1B Technical + 1C Problem-Solution Fit (1C
+// rows render locked until 1A+1B pass); empty groups are skipped.
 const TRACK_LABEL: Record<'1A' | '1B' | '1C', MessageKey> = {
   '1A': 'canvas.track-1a',
   '1B': 'canvas.track-1b',
@@ -221,14 +222,16 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
             const renderRow = (r: CheckRow) => {
               const ok = r.result.passed;
               const isGap = !ok;
-              const detail = ok ? r.result.evidence : r.result.gap;
+              const locked = !!r.result.locked;
+              const detail = ok ? r.result.evidence : locked ? undefined : r.result.gap;
               const rowId = r.check.id;
               const hasProof = ok && !!r.result.proof;
               const proofOpen = openProof === rowId;
               const jt = hasProof ? jumpTarget(r.check.source) : null;
               // ○ unmet → pre-fill chat to work on it; ✓ with proof → toggle the
-              // inline proof. ✓ without proof = not clickable.
-              const canPrefill = isGap && !!onPickPrompt;
+              // inline proof. ✓ without proof = not clickable. LOCKED (1C while
+              // 1A+1B open) = never clickable — working on it now is premature.
+              const canPrefill = isGap && !locked && !!onPickPrompt;
               const clickable = canPrefill || hasProof;
               const onRowClick = canPrefill
                 ? () => onPickPrompt?.(checkActionPrompt(r.check.label, t))
@@ -241,7 +244,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                     onClick={onRowClick}
                     role={clickable ? 'button' : undefined}
                     title={canPrefill ? t('canvas.ask-copilot-tooltip') : undefined}
-                    style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5, lineHeight: 1.4, cursor: clickable ? 'pointer' : 'default' }}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5, lineHeight: 1.4, cursor: clickable ? 'pointer' : 'default', opacity: locked ? 0.6 : 1 }}
                   >
                     <span
                       aria-hidden
@@ -254,7 +257,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                         border: ok ? 'none' : '1.5px solid var(--line-2)',
                       }}
                     >
-                      {ok ? '✓' : ''}
+                      {ok ? '✓' : locked ? <Icon d={I.lock} size={9} stroke={1.5} style={{ color: 'var(--ink-5)' }} /> : ''}
                     </span>
                     <span style={{ color: ok ? 'var(--ink-2)' : 'var(--ink-3)', flex: 1, minWidth: 0 }}>
                       {r.check.label}
@@ -265,6 +268,11 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                     {hasProof && (
                       <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--accent)', flexShrink: 0, marginTop: 2 }}>
                         {proofOpen ? t('canvas.proof-hide') : t('canvas.proof-show')}
+                      </span>
+                    )}
+                    {locked && (
+                      <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-5)', flexShrink: 0, marginTop: 2, whiteSpace: 'nowrap' }}>
+                        {t('canvas.track-locked')}
                       </span>
                     )}
                     {canPrefill && (

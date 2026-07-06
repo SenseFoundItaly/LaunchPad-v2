@@ -20,7 +20,11 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
 
-const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+// DELETE is deliberately absent: bodyless DELETEs carry no Content-Type
+// (axios strips the default header when there's no data; fetch never sets
+// one), so requiring it 415s legitimate deletes — while HTML forms can't
+// emit DELETE at all, so the rule added no CSRF protection there.
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 
 export async function middleware(req: NextRequest) {
   // E2E bypass: same flag as require-user.ts. When set, an x-e2e-user cookie

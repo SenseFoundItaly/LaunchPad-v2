@@ -31,6 +31,9 @@ export function checkActionPrompt(label: string, t: TFn): string {
   if (/market size|\btam\b|\bsam\b|\bsom\b/.test(l)) return t('journey-prompt.market-size');
   if (/pain/.test(l)) return t('journey-prompt.pain-point');
   if (/channel|acquisition|reach|distribution/.test(l)) return t('journey-prompt.channels');
+  // Before business-model: "Willingness-to-pay signal captured" (1C) is an
+  // interview-evidence ask, not a pricing-design ask.
+  if (/willingness|wtp/.test(l)) return t('journey-prompt.wtp');
   if (/business model|revenue|pricing|unit econ|tier|willingness|anchor price/.test(l)) return t('journey-prompt.business-model');
   if (/differentiat|competitive|edge|advantage/.test(l)) return t('journey-prompt.differentiation');
   if (/value prop/.test(l)) return t('journey-prompt.value-prop');

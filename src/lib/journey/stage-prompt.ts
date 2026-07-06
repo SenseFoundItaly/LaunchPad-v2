@@ -31,8 +31,23 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot): string {
     ].join('\n');
   }
 
-  const doneLines = done.map((r) => `  ✓ ${r.check.label}${r.result.evidence ? ` — ${r.result.evidence}` : ''}`);
-  const gapLines = gaps.map((r) => `  ○ ${r.check.label}${r.result.gap ? ` — GAP: ${r.result.gap}` : ''} [source: ${r.check.source}]`);
+  // Group DONE/MISSING by Validation-Gate track (untracked first, then 1A/1B/1C
+  // — mirrors the StageCard/SpineSection render order) and tag each tracked
+  // line, so the agent sees the gate's parallel-track structure, not one flat list.
+  const trackRank: Record<string, number> = { '1A': 1, '1B': 2, '1C': 3 };
+  const byTrack = <T extends { check: { track?: string } }>(rows: T[]) =>
+    [...rows].sort((a, b) => (trackRank[a.check.track ?? ''] ?? 0) - (trackRank[b.check.track ?? ''] ?? 0));
+  const tag = (track?: string) => (track ? `[${track}] ` : '');
+
+  const doneLines = byTrack(done).map((r) => `  ✓ ${tag(r.check.track)}${r.check.label}${r.result.evidence ? ` — ${r.result.evidence}` : ''}`);
+  const gapLines = byTrack(gaps).map((r) =>
+    r.result.locked
+      ? `  ○ ${tag(r.check.track)}${r.check.label} — LOCKED until every 1A + 1B check passes`
+      : `  ○ ${tag(r.check.track)}${r.check.label}${r.result.gap ? ` — GAP: ${r.result.gap}` : ''} [source: ${r.check.source}]`,
+  );
+  const lockedGuidance = gaps.some((r) => r.result.locked)
+    ? [`- Track 1C (customer interviews / Problem-Solution Fit) is LOCKED until every 1A and 1B check passes. Do NOT push interviews or the customer-interviews skill yet — close the open 1A/1B gaps first; interviews come after the desk validation.`]
+    : [];
 
   return [
     '[JOURNEY STAGE]',
@@ -50,6 +65,7 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot): string {
     `- Open with progress framing ("you're ${passed}/${total} on ${stage.label}") rather than generic greeting.`,
     `- When the founder asks open-ended questions, anchor your answer to the missing checks above.`,
     `- Proactively surface 1-2 gaps when natural — but don't lecture or list all of them.`,
+    ...lockedGuidance,
     `- When writing to facet tables (idea_canvas, pricing_state, memory_facts, etc.),`,
     `  prefer fields that close an active gap over fields the founder is already complete on.`,
     '',

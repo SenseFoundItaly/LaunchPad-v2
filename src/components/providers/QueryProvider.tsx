@@ -26,6 +26,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { EVENT_TO_TOPICS } from '@/lib/query-events';
 
+// Status-aware retry: 4xx responses (auth, not-found, validation) are
+// deterministic — retrying just delays the error UI. Transient failures
+// (network, 5xx, timeouts) get 2 retries with the default backoff.
+// Axios errors carry `response.status`; plain fetch-based queryFns throw
+// bare Errors (no status) and are treated as transient.
+function retryUnlessClientError(failureCount: number, error: unknown): boolean {
+  const status = (error as { response?: { status?: number } })?.response?.status;
+  if (typeof status === 'number' && status >= 400 && status < 500) return false;
+  return failureCount < 2;
+}
+
 export default function QueryProvider({ children }: { children: React.ReactNode }) {
   const [client] = useState(
     () =>
@@ -39,7 +50,7 @@ export default function QueryProvider({ children }: { children: React.ReactNode 
             gcTime: 1000 * 60 * 30,
             refetchOnWindowFocus: false,
             refetchOnReconnect: false,
-            retry: 1,
+            retry: retryUnlessClientError,
           },
         },
       }),

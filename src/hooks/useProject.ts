@@ -12,6 +12,15 @@ export function useProject(projectId: string) {
     queryKey: ['project', projectId],
     queryFn: () => getProject(projectId),
     enabled: !!projectId,
+    // This query gates the whole project layout — with staleTime: Infinity a
+    // failed fetch would otherwise stick for the session, so retry harder
+    // than the default. 4xx still short-circuits via the provider's
+    // status-aware retry (a boolean here would override it).
+    retry: (failureCount, err) => {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (typeof status === 'number' && status >= 400 && status < 500) return false;
+      return failureCount < 3;
+    },
   });
 
   const refresh = useCallback(

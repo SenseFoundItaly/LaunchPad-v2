@@ -5,6 +5,7 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { readStagedCanvasFieldValues } from '@/lib/skill-prereqs';
 import { seedAssumptionsIfEmpty } from '@/lib/assumptions';
 import { persistCanvasDetails } from '@/lib/canvas-details';
+import { syncBusinessEssentialNodes } from '@/lib/business-essentials-sync';
 
 const CANVAS_FIELDS = [
   'problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage', 'channels',
@@ -50,13 +51,14 @@ export async function GET(
 
   // Staged-but-unapproved fields (open validation_proposals). Surfaced as
   // `pending` so the Canvas can paint them progressively while the founder is
-  // still reviewing (item 9) — distinct from applied, and only for fields the
-  // applied canvas doesn't already have.
+  // still reviewing (item 9) — distinct from applied. A staged value that
+  // DIFFERS from the applied one is included too (a reshape of an already-
+  // filled field), so the Canvas can show the awaiting-approval update.
   const staged = await readStagedCanvasFieldValues(projectId);
   const pending: Record<string, string> = {};
   for (const [field, value] of Object.entries(staged)) {
     const appliedVal = (row as Record<string, string | null> | undefined)?.[field];
-    if (!appliedVal || !appliedVal.trim()) pending[field] = value;
+    if (!appliedVal?.trim() || appliedVal.trim() !== value.trim()) pending[field] = value;
   }
 
   return json({
@@ -138,6 +140,10 @@ export async function POST(
   // Soft Lean Canvas fields (unfair_advantage + the array fields) persist directly
   // (ungated) — they carry no stage gate, unlike the 6 core fields above.
   const extras = await persistCanvasDetails(projectId, body).catch(() => [] as string[]);
+
+  // Mirror the business fields into the graph's BUSINESS ESSENTIALS satellite.
+  // Awaited: post-response async work is frozen on serverless (PR #182 class).
+  await syncBusinessEssentialNodes(projectId);
 
   return json({ applied: [...CANVAS_FIELDS.filter((k) => fields[k].length > 0), ...extras] }, 201);
 }

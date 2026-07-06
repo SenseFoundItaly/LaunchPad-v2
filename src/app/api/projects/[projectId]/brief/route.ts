@@ -7,6 +7,7 @@ import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
 import { buildProjectSnapshot, evaluateAllStages } from '@/lib/journey';
 import { checkActionPrompt } from '@/lib/journey-prompts';
+import { needsPhase0Scoring } from '@/lib/direction';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { translate } from '@/lib/i18n/messages';
 
@@ -76,7 +77,9 @@ export async function POST(
 
   const active = evals.find((e) => e.status === 'active');
   const doneStages = evals.filter((e) => e.status === 'done');
-  const openChecks = active ? active.results.filter((r) => !r.result.passed) : [];
+  // Locked checks (1C before 1A+1B complete) are excluded — a locked check
+  // must not become a clickable "help me with X" option the gate then refuses.
+  const openChecks = active ? active.results.filter((r) => !r.result.passed && !r.result.locked) : [];
 
   const canvasLines = canvas
     ? ([
@@ -135,15 +138,32 @@ ${ctx}`;
   // Append a DETERMINISTIC option-set of the open checks — clickable, reliable
   // next steps (the prose is the LLM's; the actions are code, so never wrong).
   let content = prose;
-  if (openChecks.length > 0) {
+  // L2 Phase 0 — canvas core landed (create-from-documents apply) but no
+  // baseline score yet: the first option is a one-click scoring run (skill_id
+  // → the click runs it), same condition as the direction-engine override.
+  const scoringFirst = await needsPhase0Scoring(projectId);
+  if (openChecks.length > 0 || scoringFirst) {
     const locale = await resolveLocale(userId, projectId);
     const t = (k: Parameters<typeof translate>[1], v?: Parameters<typeof translate>[2]) => translate(locale, k, v);
-    const options = openChecks.slice(0, 4).map((r, i) => ({
+    let options: Array<Record<string, unknown>> = openChecks.slice(0, 4).map((r, i) => ({
       id: `step_${i}`,
       label: checkActionPrompt(r.check.label, t),
       description: r.result.gap || r.check.label,
       credits: 1,
     }));
+    if (scoringFirst) {
+      const scoringLabel = t('journey-prompt.scoring');
+      // Drop the prefill twin of the same ask (the "Startup Scoring baseline"
+      // open check maps to the identical label) before prepending the runner.
+      options = options.filter((o) => o.label !== scoringLabel);
+      // NO credits field — per-action price quotes were deleted from every
+      // founder surface (PR #187); the click still runs the skill via skill_id.
+      options.unshift({
+        id: 'run_startup_scoring',
+        label: scoringLabel,
+        skill_id: 'startup-scoring',
+      });
+    }
     const optArtifact = `:::artifact{"type":"option-set","id":"opt_brief"}\n${JSON.stringify({ prompt: 'Where do you want to start?', options })}\n:::`;
     content = `${prose}\n\n${optArtifact}`;
   }

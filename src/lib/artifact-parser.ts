@@ -245,8 +245,65 @@ function stripCitationsBlock(text: string): string {
   return text.replace(/<CITATIONS>\s*[\s\S]*?\s*<\/CITATIONS>/, '').trim();
 }
 
-export function parseMessageContent(content: string): MessageSegment[] {
+// The core idea-canvas keys — a fenced JSON blob carrying ≥2 of these (or a
+// single top-level `idea_canvas` wrapper) is a canvas the model leaked as raw
+// ```json instead of an idea-canvas artifact (seen on reshape asks).
+const CANVAS_CORE_KEYS = [
+  'problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage',
+] as const;
+
+/** Stable non-crypto hash (djb2) so the normalized artifact keeps the SAME id
+ *  across re-parses of the same content — render + persistence reconcile. */
+function stableHash(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 33) + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+/**
+ * Pre-pass: rewrite COMPLETE ```json fences that carry an idea canvas into a
+ * proper `:::artifact{"type":"idea-canvas"}` block, so the shared parser fixes
+ * render + persistence + Canvas in one place. Unclosed fences are still
+ * streaming — left alone. Fenced JSON that is NOT a canvas is untouched.
+ */
+export function normalizeCanvasJsonFences(content: string): string {
+  if (!content.includes('```')) return content;
+  // Match EVERY complete fence (any info string) so opening/closing backticks
+  // pair correctly — a json-only pattern would pair an earlier ```ts block's
+  // closer with the canvas block's opener and silently skip it. Non-JSON
+  // fences match, then return unchanged.
+  return content.replace(/```([^\n]*)\r?\n([\s\S]*?)\r?\n[ \t]*```/g, (match, info: string, body: string) => {
+    const lang = info.trim().toLowerCase();
+    if (lang !== '' && lang !== 'json') return match;
+    const trimmed = body.trim();
+    if (!trimmed.startsWith('{')) return match;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return match;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return match;
+    let canvas = parsed as Record<string, unknown>;
+    const keys = Object.keys(canvas);
+    if (keys.length === 1 && keys[0] === 'idea_canvas') {
+      const inner = canvas.idea_canvas;
+      if (!inner || typeof inner !== 'object' || Array.isArray(inner)) return match;
+      canvas = inner as Record<string, unknown>;
+    } else if (CANVAS_CORE_KEYS.filter((k) => k in canvas).length < 2) {
+      return match;
+    }
+    const bodyStr = JSON.stringify(canvas);
+    return `:::artifact{"type":"idea-canvas","id":"ic_json_${stableHash(bodyStr)}"}\n${bodyStr}\n:::`;
+  });
+}
+
+export function parseMessageContent(rawContent: string): MessageSegment[] {
   const segments: MessageSegment[] = [];
+
+  // Rescue canvas JSON the model leaked as a raw fence BEFORE any splitting —
+  // downstream (render, persistence, Canvas) then sees a normal artifact.
+  const content = normalizeCanvasJsonFences(rawContent);
 
   // Extract prose-level citations before splitting on artifacts.
   const proseCitations = tryParseCitations(content);

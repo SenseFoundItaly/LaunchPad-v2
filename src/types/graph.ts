@@ -15,6 +15,14 @@ export type GraphNodeType =
   | 'funding_source'
   | 'feature'
   | 'metric'
+  // 12-satellite taxonomy (2026-07 mockup): named ecosystem roles that used to
+  // drown in "contesto". Minted by chat entity-cards, upload extraction, and
+  // the canvas → business-essentials sync.
+  | 'supplier'
+  | 'hr_collaborator'
+  | 'brand_asset'
+  | 'gtm_strategy'
+  | 'business_essential'
   // Derived-analysis node types minted by chat artifacts (metric-grid,
   // comparison-table). They were historically absent from the colour/category
   // maps → rendered as anonymous grey dots outside every legend/region. They
@@ -35,13 +43,27 @@ export type GraphNodeType =
 
 /**
  * Macro-category grouping — the "matrioska" the founder asked for in the
- * 2026-06 weekly sync: the graph was "disordinato" (a flat mix of competitors,
- * options nodes, market sizing). Node types collapse into a handful of
- * founder-legible buckets so the graph clusters by ecosystem role (concorrenza
- * / clienti / partner / investitori) with everything else under "contesto".
+ * 2026-06 weekly sync, expanded 2026-07 to the 12-satellite hub-and-spoke of
+ * the mockup: every node type collapses into one of 12 founder-legible
+ * ecosystem roles arranged clockwise around the startup root. The old
+ * catch-all "contesto" is gone — its former residents now have real homes
+ * (technology → trend_tech, trend/signal → trend_mercato, risk/compliance/
+ * regulation → business_essentials, product analysis types → prodotto).
  * your_startup is the root and has no macro-category (it sits at center).
  */
-export type MacroCategory = 'concorrenza' | 'clienti' | 'partner' | 'investitori' | 'contesto';
+export type MacroCategory =
+  | 'fornitori'
+  | 'clienti'
+  | 'hr_collabs'
+  | 'concorrenza'
+  | 'business_essentials'
+  | 'prodotto'
+  | 'branding'
+  | 'partner'
+  | 'trend_tech'
+  | 'investitori'
+  | 'gtm'
+  | 'trend_mercato';
 
 export const MACRO_CATEGORY: Record<GraphNodeType, MacroCategory | null> = {
   your_startup: null,
@@ -53,18 +75,35 @@ export const MACRO_CATEGORY: Record<GraphNodeType, MacroCategory | null> = {
   market: 'clienti',
   partner: 'partner',
   funding_source: 'investitori',
-  technology: 'contesto',
-  trend: 'contesto',
-  signal: 'contesto',
-  risk: 'contesto',
-  compliance: 'contesto',
-  regulation: 'contesto',
-  feature: 'contesto',
-  metric: 'contesto',
-  metrics: 'contesto',
-  benchmark: 'contesto',
-  comparison: 'contesto',
-  research_metric: 'contesto',
+  supplier: 'fornitori',
+  hr_collaborator: 'hr_collabs',
+  brand_asset: 'branding',
+  gtm_strategy: 'gtm',
+  business_essential: 'business_essentials',
+  technology: 'trend_tech',
+  trend: 'trend_mercato',
+  signal: 'trend_mercato',
+  risk: 'business_essentials',
+  compliance: 'business_essentials',
+  regulation: 'business_essentials',
+  feature: 'prodotto',
+  metric: 'prodotto',
+  metrics: 'prodotto',
+  benchmark: 'prodotto',
+  comparison: 'prodotto',
+  research_metric: 'prodotto',
+};
+
+/**
+ * Legacy node_type strings that live in prod rows but were never part of
+ * GraphNodeType (persistEntityCard's old 'entity' default, chat's loose
+ * 'customer'/'investor'). Mapped so old rows land in a real satellite instead
+ * of the fallback.
+ */
+export const LEGACY_TYPE_CATEGORY: Record<string, MacroCategory> = {
+  customer: 'clienti',
+  investor: 'investitori',
+  entity: 'business_essentials',
 };
 
 /**
@@ -74,28 +113,45 @@ export const MACRO_CATEGORY: Record<GraphNodeType, MacroCategory | null> = {
  * harmonises with the nodes sitting on it; applied at low fill-opacity.
  */
 export const MACRO_CATEGORY_COLOR: Record<MacroCategory, string> = {
-  concorrenza: 'var(--clay)',
+  fornitori: 'var(--cat-copper)',
   clienti: 'var(--cat-gold)',
+  hr_collabs: 'var(--cat-olive)',
+  concorrenza: 'var(--clay)',
+  business_essentials: 'var(--cat-slate)',
+  prodotto: 'var(--cat-indigo)',
+  branding: 'var(--cat-rose)',
   partner: 'var(--cat-teal)',
+  trend_tech: 'var(--sky)',
   investitori: 'var(--moss)',
-  contesto: 'var(--plum)',
+  gtm: 'var(--cat-violet)',
+  trend_mercato: 'var(--plum)',
 };
 
-/** Stable render order (clockwise from the right) + bilingual labels. */
+/** Fixed wedge order (mockup clockwise, starting at the top) + bilingual labels. */
 export const MACRO_CATEGORY_ORDER: MacroCategory[] = [
-  'concorrenza', 'clienti', 'partner', 'investitori', 'contesto',
+  'fornitori', 'clienti', 'hr_collabs', 'concorrenza', 'business_essentials', 'prodotto',
+  'branding', 'partner', 'trend_tech', 'investitori', 'gtm', 'trend_mercato',
 ];
 
 export const MACRO_CATEGORY_LABEL: Record<MacroCategory, { en: string; it: string }> = {
-  concorrenza: { en: 'Competition', it: 'Concorrenza' },
+  fornitori: { en: 'Suppliers', it: 'Fornitori' },
   clienti: { en: 'Customers', it: 'Clienti' },
+  hr_collabs: { en: 'HR & Collaborators', it: 'HR & Collaboratori' },
+  concorrenza: { en: 'Competition', it: 'Concorrenza' },
+  business_essentials: { en: 'Business essentials', it: 'Business essentials' },
+  prodotto: { en: 'Product', it: 'Prodotto' },
+  branding: { en: 'Branding', it: 'Branding' },
   partner: { en: 'Partners', it: 'Partner' },
+  trend_tech: { en: 'Tech trends', it: 'Trend tech' },
   investitori: { en: 'Investors', it: 'Investitori' },
-  contesto: { en: 'Context', it: 'Contesto' },
+  gtm: { en: 'Go-to-market', it: 'Go-to-market' },
+  trend_mercato: { en: 'Market trends', it: 'Trend di mercato' },
 };
 
 export function macroCategoryFor(type: string): MacroCategory | null {
-  return MACRO_CATEGORY[type as GraphNodeType] ?? 'contesto';
+  const direct = MACRO_CATEGORY[type as GraphNodeType];
+  if (direct !== undefined) return direct; // null for your_startup (root, no wedge)
+  return LEGACY_TYPE_CATEGORY[type] ?? 'business_essentials';
 }
 
 /** Bilingual node-type labels for the graph legend (in-project language). */
@@ -117,6 +173,11 @@ export const NODE_TYPE_LABEL: Record<GraphNodeType, { en: string; it: string }> 
   regulation: { en: 'Regulation', it: 'Normativa' },
   feature: { en: 'Feature', it: 'Funzionalità' },
   metric: { en: 'Metric', it: 'Metrica' },
+  supplier: { en: 'Supplier', it: 'Fornitore' },
+  hr_collaborator: { en: 'Collaborator', it: 'Collaboratore' },
+  brand_asset: { en: 'Brand asset', it: 'Asset di brand' },
+  gtm_strategy: { en: 'GTM strategy', it: 'Strategia GTM' },
+  business_essential: { en: 'Business essential', it: 'Business essential' },
   metrics: { en: 'Metrics', it: 'Metriche' },
   benchmark: { en: 'Benchmark', it: 'Benchmark' },
   comparison: { en: 'Comparison', it: 'Confronto' },
@@ -192,7 +253,9 @@ export interface KnowledgeGraphData {
 export const NODE_COLORS: Record<string, string> = {
   your_startup: 'var(--ink)',
   competitor: 'var(--clay)',
-  technology: 'var(--cat-teal)',
+  // sky (not cat-teal) so technology dots don't collide with partner in the
+  // legend — and match their trend_tech wedge.
+  technology: 'var(--sky)',
   market_segment: 'var(--moss)',
   persona: 'var(--cat-gold)',
   risk: 'var(--cat-rose)',
@@ -203,13 +266,18 @@ export const NODE_COLORS: Record<string, string> = {
   regulation: 'var(--cat-rose)',
   partner: 'var(--cat-teal)',
   funding_source: 'var(--moss)',
-  feature: 'var(--plum)',
-  metric: 'var(--sky)',
-  // Derived-analysis types (see GraphNodeType note) — no longer grey blobs.
-  metrics: 'var(--sky)',
-  benchmark: 'var(--sky)',
-  research_metric: 'var(--sky)',
-  comparison: 'var(--plum)',
+  supplier: 'var(--cat-copper)',
+  hr_collaborator: 'var(--cat-olive)',
+  brand_asset: 'var(--cat-rose)',
+  gtm_strategy: 'var(--cat-violet)',
+  business_essential: 'var(--cat-slate)',
+  // Product-analysis types — indigo, matching their prodotto wedge.
+  feature: 'var(--cat-indigo)',
+  metric: 'var(--cat-indigo)',
+  metrics: 'var(--cat-indigo)',
+  benchmark: 'var(--cat-indigo)',
+  research_metric: 'var(--cat-indigo)',
+  comparison: 'var(--cat-indigo)',
   competitor_set: 'var(--clay)',
   market: 'var(--moss)',
 };

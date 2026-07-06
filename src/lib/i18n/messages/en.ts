@@ -132,6 +132,11 @@ export const en = {
   'eco.risks': 'Risks',
   'eco.features': 'Features',
   'eco.metrics': 'Metrics',
+  'eco.suppliers': 'Suppliers',
+  'eco.hr-collabs': 'HR & Collaborators',
+  'eco.branding': 'Branding',
+  'eco.gtm': 'Go-to-market',
+  'eco.business-essentials': 'Business essentials',
   'eco.other': 'Other',
 
   // ── Competitor matryoshka (src/components/knowledge/CompetitorMatryoshka.tsx) ─
@@ -270,6 +275,8 @@ export const en = {
   'knowledge.graph-exit': 'Exit',
   'knowledge.graph-will-populate': 'Knowledge graph will populate as you chat',
   'knowledge.graph-pending-hint': 'Pending — click to review',
+  'knowledge.graph-empty-category': 'Nothing here yet — chat and watchers will fill this category as you go.',
+  'knowledge.graph-focus-back': 'All categories',
   'knowledge.legend-show': 'Show {type}',
   'knowledge.legend-hide': 'Hide {type}',
   'knowledge.legend-stats': '{nodes} nodes | {edges} edges',
@@ -303,6 +310,11 @@ export const en = {
   'knowledge.why-segment': 'A target customer segment. Merging it sharpens your ICP and go-to-market focus.',
   'knowledge.why-regulation': 'A regulatory constraint. Merging it keeps your plan compliant and flags legal exposure.',
   'knowledge.why-partner': 'A potential channel or partner. Merging it feeds your go-to-market plan.',
+  'knowledge.why-supplier': 'A supplier or vendor your startup depends on. Merging it maps your supply chain and flags dependency risk.',
+  'knowledge.why-hr-collaborator': 'A hire, collaborator or key role. Merging it keeps your team and hiring plan visible in the ecosystem.',
+  'knowledge.why-brand-asset': 'A brand asset (name, domain, tagline, visual). Merging it tracks how your identity takes shape.',
+  'knowledge.why-gtm': 'A go-to-market channel or motion. Merging it feeds your acquisition and distribution plan.',
+  'knowledge.why-business-essential': 'A core building block of your business (model, revenues, costs, metrics). Merging it keeps the co-pilot and financials aligned with your canvas.',
   'knowledge.why-default': 'Verified evidence for your Knowledge graph. Merging it makes it available to the co-pilot, Project Score and financials so your project stays consistent.',
   'actions.schedule-weekly': 'weekly',
   'actions.monitor-proposal': 'Monitor proposal',
@@ -548,6 +560,7 @@ export const en = {
   'canvas.backed-by-facts': 'Backed by {count} facts',
   'canvas.jump-to-memory-tooltip': 'Jump to knowledge',
   'canvas.field-pending': 'pending approval',
+  'canvas.field-pending-update': 'pending update',
   'canvas.field-problem': 'Problem',
   'canvas.field-solution': 'Solution',
   'canvas.field-target': 'Target market',
@@ -593,6 +606,7 @@ export const en = {
   'journey-prompt.regulatory': 'Help me check my regulatory and compliance constraints (e.g. GDPR).',
   'journey-prompt.lean-canvas': 'Help me complete the remaining Lean Canvas blocks.',
   'journey-prompt.scoring': 'Run the Startup Scoring analysis to set my baseline score.',
+  'journey-prompt.wtp': "Help me capture a willingness-to-pay signal — I'll tell you what interviewees said they'd pay.",
   'journey-prompt.generic': 'Help me with: {label}',
   'canvas.view-in-canvas': 'View in canvas',
   'canvas.view-in-know': 'View in knowledge',
@@ -601,6 +615,8 @@ export const en = {
   'canvas.track-1a': '1A · Market',
   'canvas.track-1b': '1B · Technical',
   'canvas.track-1c': '1C · Problem-Solution Fit',
+  'canvas.track-locked': 'Locked until 1A + 1B are complete',
+  'skills.gate-1c-locked': 'Customer interviews unlock after tracks 1A (Market) and 1B (Technical) are complete. Still open: {missing}. Close those first — I can help with each one.',
   // Knowledge / data-room / document-upload (i18n completion for the in-progress
   // knowledge-upload UI — the components referenced these keys but they weren't
   // in the catalog yet, breaking the typecheck). Best-effort copy; refine freely.
@@ -744,6 +760,12 @@ export const en = {
   'common.retry': 'Retry',
   'common.copy': 'Copy',
   'common.edit': 'Edit',
+  // PanelBoundary fallback (src/components/design/PanelBoundary.tsx)
+  'common.panel-error': 'This panel couldn’t load.',
+
+  // ── Project layout load gate (project/[projectId]/layout.tsx) ─────────────
+  'project-gate.not-found': 'Project not found',
+  'project-gate.all-projects': 'All projects',
 
   // ── Watchers / Monitors (src/components/monitors/*) ───────────────────────
   'monitors.title': 'Watchers',

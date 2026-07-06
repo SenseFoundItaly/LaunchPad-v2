@@ -17,6 +17,8 @@ import { query } from '@/lib/db';
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
 import type { ProjectSnapshot, StageEvaluation } from '@/lib/journey/types';
 import { getStageReadiness } from '@/lib/stage-readiness';
+import { canvasRunPrereqs } from '@/lib/skill-prereqs';
+import { SKILL_KICKOFFS } from '@/lib/stages';
 
 export interface FreshSignal {
   headline: string;
@@ -180,6 +182,28 @@ export function detectRiskOverrides(evaluations: StageEvaluation[]): RiskOverrid
   return [];
 }
 
+/**
+ * L2 Phase 0 — true when the canvas core (solution + value proposition) is
+ * applied but the project has NO baseline score yet. State-driven, so it's
+ * idempotent and covers both seed paths (chat commit + create-from-documents):
+ * the moment a `scores` row lands the override disappears. Shared by the
+ * direction engine and the project-brief option-set. Never throws — degrades
+ * to false so direction falls back to the readiness recommendation.
+ */
+export async function needsPhase0Scoring(projectId: string): Promise<boolean> {
+  try {
+    const scored = await query<{ project_id: string }>(
+      'SELECT project_id FROM scores WHERE project_id = ? LIMIT 1',
+      projectId,
+    );
+    if (scored.length > 0) return false;
+    const prereqs = await canvasRunPrereqs(projectId, 'startup-scoring');
+    return prereqs.blocking.length === 0;
+  } catch {
+    return false;
+  }
+}
+
 export interface ComputeOpts {
   /** Timestamp of the founder's previous chat message — drives fresh_signals. */
   lastChatAt?: string | Date | null;
@@ -206,15 +230,31 @@ export async function computeNextBestAction(projectId: string, opts: ComputeOpts
   const top_gap_source = firstGap?.check.source ?? null;
 
   const rec = readiness.next_recommended_skill;
-  const recommended_skill = rec
+  let recommended_skill = rec
     ? { id: rec.id, label: rec.label, kickoff: rec.kickoff, stage_number: rec.stage_number }
     : null;
+
+  // L2 Phase 0 — the readiness engine recommends missing_skills[0] and skips
+  // scoring once the spine greens, so a project with a completed canvas core
+  // but no baseline score never gets pointed at startup-scoring. Override it.
+  const phase0Scoring = !cold_start && await needsPhase0Scoring(projectId);
+  if (phase0Scoring) {
+    recommended_skill = {
+      id: 'startup-scoring',
+      label: 'Startup Score',
+      kickoff: SKILL_KICKOFFS['startup-scoring'],
+      stage_number: 1,
+    };
+  }
 
   let action: string;
   let rationale: string;
   if (cold_start) {
     action = 'Tell me about your idea so I can structure it into a canvas';
     rationale = 'New project — no idea captured yet. Start at Idea Canvas.';
+  } else if (phase0Scoring && recommended_skill) {
+    action = recommended_skill.kickoff;
+    rationale = 'Phase 0: get the initial score before validating.';
   } else if (recommended_skill) {
     action = recommended_skill.kickoff;
     rationale = `Stage ${active.stage.number} (${active.stage.label}) — ${active.passed}/${active.total} checks passed`

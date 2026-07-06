@@ -6,7 +6,9 @@ import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { debitCredits, DOCUMENT_AUDIT_CREDITS } from '@/lib/credits';
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
+import { createPendingAction } from '@/lib/pending-actions';
 import { validationTargetsFor, validationLabel } from '@/lib/journey/validation-targets';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
 
 const MAX_FILE_BYTES = 10_485_760; // 10 MiB per file — real PDFs/decks are bigger than a text note
 const MAX_FILES_PER_REQUEST = 10;
@@ -126,6 +128,7 @@ const ALLOWED_NODE_TYPES = new Set([
   'competitor', 'company', 'persona', 'market_segment', 'technology',
   'trend', 'regulation', 'compliance', 'partner', 'risk', 'feature', 'metric',
   'funding_source',
+  'supplier', 'hr_collaborator', 'brand_asset', 'gtm_strategy', 'business_essential',
 ]);
 
 interface ExtractedEntity {
@@ -134,11 +137,11 @@ interface ExtractedEntity {
   summary: string;
 }
 
-const EXTRACT_PROMPT = `From the text below, extract up to 12 distinct real-world entities (companies, products, regulations, market segments, personas, technologies, partners, risks, trends).
+const EXTRACT_PROMPT = `From the text below, extract up to 12 distinct real-world entities (companies, products, regulations, market segments, personas, technologies, partners, suppliers, hires/collaborators, brand assets, go-to-market channels, risks, trends).
 
 Return a JSON array. Each object: { "name": string, "node_type": string, "summary": one-sentence string }.
 
-node_type MUST be one of: competitor, company, persona, market_segment, technology, trend, regulation, compliance, partner, risk, feature, metric, funding_source.
+node_type MUST be one of: competitor, company, persona, market_segment, technology, trend, regulation, compliance, partner, risk, feature, metric, funding_source, supplier, hr_collaborator, brand_asset, gtm_strategy, business_essential.
 
 Skip generic concepts ("coffee", "the market"). Prefer named, specific entities ("Starbucks", "NYC DCWP"). If the text is too short, vague, or has no extractable entities, return [].
 
@@ -343,6 +346,11 @@ function relationForNodeType(t: string): string {
     case 'trend':                   return 'influenced_by';
     case 'company':                 return 'related_to';
     case 'feature': case 'metric':  return 'tracks';
+    case 'supplier':                return 'supplied_by';
+    case 'hr_collaborator':         return 'collaborates_with';
+    case 'brand_asset':             return 'expresses';
+    case 'gtm_strategy':            return 'executes';
+    case 'business_essential':      return 'requires';
     default:                        return 'related_to';
   }
 }
@@ -595,6 +603,57 @@ export async function POST(
         ])
       : [null, [] as ProposedMonitor[]];
 
+  // Persist each watcher suggestion as a configure_monitor pending_action so
+  // the founder's opt-in APPROVES it through the real executor — which builds
+  // the full scan prompt from this config (the payload deliberately carries NO
+  // prompt). Unchecked suggestions stay pending → visible as "Proposed" in the
+  // Watchers tab instead of vanishing. Dedup is ANY-status (like phase1_auto):
+  // an OPEN proposal is reused by id; a rejected/applied one means the founder
+  // already decided — don't re-ask on re-upload. Active same-name monitors
+  // also drop the suggestion. Best-effort — never fails the upload.
+  const monitorsWithActions: Array<ProposedMonitor & { pending_action_id?: string }> = [];
+  const uploadLocale = proposedMonitors.length > 0
+    ? await resolveLocale(userId, projectId).catch(() => 'en' as const)
+    : ('en' as const);
+  for (const m of proposedMonitors) {
+    try {
+      const dupeAction = await get<{ id: string; status: string }>(
+        `SELECT id, status FROM pending_actions
+          WHERE project_id = ? AND action_type = 'configure_monitor'
+            AND LOWER(payload->>'name') = LOWER(?)
+          ORDER BY (status IN ('pending','edited')) DESC
+          LIMIT 1`,
+        projectId, m.name,
+      );
+      if (dupeAction) {
+        // Open → reuse; decided (rejected/applied/…) → the founder's call sticks.
+        if (dupeAction.status === 'pending' || dupeAction.status === 'edited') {
+          monitorsWithActions.push({ ...m, pending_action_id: dupeAction.id });
+        }
+        continue;
+      }
+      const dupeMonitor = await get<{ id: string }>(
+        `SELECT id FROM monitors
+          WHERE project_id = ? AND LOWER(name) = LOWER(?) AND status = 'active' LIMIT 1`,
+        projectId, m.name,
+      );
+      if (dupeMonitor) continue; // already watching this — don't re-propose
+      const pa = await createPendingAction({
+        project_id: projectId,
+        action_type: 'configure_monitor',
+        title: uploadLocale === 'it' ? `Configura monitor: ${m.name}` : `Configure monitor: ${m.name}`,
+        rationale: m.aim,
+        // Mirrors what the configureMonitor executor reads.
+        payload: { name: m.name, objective: m.aim, kind: 'custom', schedule: m.cadence, origin: 'upload' },
+        estimated_impact: 'medium',
+      });
+      monitorsWithActions.push({ ...m, pending_action_id: pa.id });
+    } catch (err) {
+      console.warn('[upload/monitors] pending_action create failed (non-fatal):', (err as Error).message);
+      monitorsWithActions.push(m);
+    }
+  }
+
   // Spine framing (founder directive 2026-06-12): label each extracted item
   // with the validation substep it would turn green, computed from the REAL
   // check definitions. The upload draft frames approval around the spine
@@ -637,8 +696,10 @@ export async function POST(
     canvas_validates: canvasValidates,
     // How many distinct spine steps this document can validate.
     spine_steps: spineSteps,
-    // Suggested watchers (or []) for the founder to opt into.
-    proposed_monitors: proposedMonitors,
+    // Suggested watchers (or []) for the founder to opt into. Each carries the
+    // pending_action_id of its configure_monitor proposal (when persisted) —
+    // the client applies via the actions transition endpoint.
+    proposed_monitors: monitorsWithActions,
     // Flat audit fee actually charged (0 unless ?audit_charge=1). Per-document.
     audit_credits_debited: auditCreditsDebited,
     results,

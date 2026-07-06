@@ -48,6 +48,10 @@ export interface CheckResult {
   /** Short hint of what's missing or what to do to pass — only set when
    *  `passed === false`. */
   gap?: string;
+  /** True when the check belongs to a locked track (Validation Gate 1C while
+   *  1A+1B have open gaps): not actionable yet — the UI suppresses its CTA
+   *  and renders a lock instead of an open circle. */
+  locked?: boolean;
   /** The ACTUAL content that satisfied the check — the real canvas field text,
    *  competitor list, etc., resolved from the check's `source`. Lets the UI
    *  expand a passed substep to show the founder its concrete proof, not just

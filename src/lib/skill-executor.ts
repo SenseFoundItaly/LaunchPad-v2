@@ -35,6 +35,9 @@ import { parseMessageContent } from '@/lib/artifact-parser';
 import { linkSkillCompletionToAssumptions } from '@/lib/assumptions';
 import { SKILL_KICKOFFS } from '@/lib/stages';
 import { computeSectionScoresFromSummary } from '@/lib/section-scoring';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { DEFAULT_LOCALE, type Locale } from '@/lib/i18n/locales';
+import { languageDirective } from '@/lib/agent-prompt';
 
 /**
  * Whitelist — only analytical skills whose output is structured data
@@ -73,25 +76,36 @@ interface ParsedSkillBody {
 /**
  * Load a skill's SKILL.md, return its body (post-frontmatter) + frontmatter.
  * Mirror of skill-tools.ts loader, kept inline so this module has no import
- * cycle with the chat tool path.
+ * cycle with the chat tool path. For non-default locales, tries the curated
+ * SKILL.<locale>.md first (same convention as agent-prompt.ts) and falls back
+ * to the English SKILL.md — languageDirective covers the output language when
+ * only the English body is found.
  */
-function loadSkillBody(skillId: string): ParsedSkillBody | null {
-  const path = join(SKILLS_DIR, skillId, 'SKILL.md');
-  if (!existsSync(path)) return null;
-  const raw = readFileSync(path, 'utf-8');
-  const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!match) return null;
+function loadSkillBody(skillId: string, locale: Locale): ParsedSkillBody | null {
+  const skillDir = join(SKILLS_DIR, skillId);
+  const candidates =
+    locale !== DEFAULT_LOCALE
+      ? [join(skillDir, `SKILL.${locale}.md`), join(skillDir, 'SKILL.md')]
+      : [join(skillDir, 'SKILL.md')];
 
-  const [, fmRaw, body] = match;
-  const fm: Partial<SkillFrontmatter> = {};
-  for (const line of fmRaw.split('\n')) {
-    const kv = line.match(/^(\w[\w-]*):\s*(.+?)\s*$/);
-    if (!kv) continue;
-    const [, key, value] = kv;
-    (fm as Record<string, string>)[key] = value;
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    const raw = readFileSync(path, 'utf-8');
+    const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    if (!match) continue;
+
+    const [, fmRaw, body] = match;
+    const fm: Partial<SkillFrontmatter> = {};
+    for (const line of fmRaw.split('\n')) {
+      const kv = line.match(/^(\w[\w-]*):\s*(.+?)\s*$/);
+      if (!kv) continue;
+      const [, key, value] = kv;
+      (fm as Record<string, string>)[key] = value;
+    }
+    if (!fm.name || !fm.description) continue;
+    return { body: body.trim(), frontmatter: fm as SkillFrontmatter };
   }
-  if (!fm.name || !fm.description) return null;
-  return { body: body.trim(), frontmatter: fm as SkillFrontmatter };
+  return null;
 }
 
 export interface StaleSkill {
@@ -194,7 +208,11 @@ export async function runSkill(
   if (!opts.allowAnySkill && !SAFE_AUTO_RERUN_SKILL_IDS.includes(skillId)) {
     throw new Error(`runSkill: ${skillId} is not in the safe auto-rerun whitelist`);
   }
-  const loaded = loadSkillBody(skillId);
+  // Every skill execution funnels through here, and it used to be locale-blind:
+  // English SKILL.md, no directive → Italian projects got intermittently-English
+  // skill output. Project locale wins over user preference (see resolveLocale).
+  const locale = await resolveLocale(opts.ownerUserId, projectId).catch(() => DEFAULT_LOCALE);
+  const loaded = loadSkillBody(skillId, locale);
   if (!loaded) {
     throw new Error(`runSkill: SKILL.md not found or unparseable for ${skillId}`);
   }
@@ -220,6 +238,12 @@ export async function runSkill(
       "the founder's research and knowledge graph. Keep the json COMPACT (at most 2 sources per item, at most 6 competitors) so it " +
       "stays within length limits and closes properly; emit market_sizing and competitors FIRST.";
   }
+
+  // Language directive LAST (after the output contract) so recency keeps it
+  // salient. The contract stays English on purpose — JSON keys must stay
+  // English, and the directive itself exempts structured field keys.
+  const directive = languageDirective(locale);
+  if (directive) systemPrompt += `\n\n${directive}`;
 
   const startedAt = Date.now();
 

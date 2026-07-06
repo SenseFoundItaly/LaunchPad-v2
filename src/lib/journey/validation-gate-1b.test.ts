@@ -124,13 +124,16 @@ describe('L2 Validation Gate · 1B Technical (incremental)', () => {
     expect(keywordMatcher(['persona']).test('our personas')).toBe(true); // plural preserved
   });
 
-  it('1A market checks (pain / differentiation / market_size) close on ITALIAN prose', () => {
+  it('1A market checks (differentiation / market_size) close on ITALIAN prose', () => {
+    // pain_validated moved to track 1C (Phase-1 restructure) — it stays LOCKED
+    // on this bare snapshot; its Italian-prose behavior is covered in
+    // validation-gate-tracks.test.ts under unlocked conditions.
     const c = gateChecks(mkSnapshot([
       { content: 'Il problema principale dei dentisti è la gestione manuale dei richiami pazienti.' },
       { content: 'Ci distinguiamo dai gestionali desktop legacy perché siamo cloud e mobile-first.' },
       { content: 'Dimensione del mercato: circa 40.000 studi dentistici in Italia.' },
     ]));
-    expect(c.pain_validated).toBe(true);
+    expect(c.pain_validated).toBe(false); // locked (1C) — not closable from prose here
     expect(c.differentiation_evidence).toBe(true);
     expect(c.market_size).toBe(true);
   });

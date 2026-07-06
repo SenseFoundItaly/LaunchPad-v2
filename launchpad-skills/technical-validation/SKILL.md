@@ -12,14 +12,17 @@ talking to users you should already know whether the thing is *buildable*, what 
 
 It is designed to validate **incrementally, as the conversation goes** — you do NOT need
 a single big run. Whenever the founder discusses a technical aspect, capture it as a
-durable fact so the gate's 1B checks close progressively:
+durable fact so the gate's three 1B checks (`tech_feasibility`, `key_dependencies`,
+`regulatory_check`) close progressively:
 
-- **Feasibility** — is the core approach technically possible with today's tools? What is the
-  build approach / architecture at a high level? What is the single biggest technical risk?
-- **Key dependencies** — the critical external dependencies the product relies on: third-party
-  APIs, models, infrastructure, vendors, data sources, integrations.
-- **Regulatory / compliance** — any regulation, licensing, certification, or data-protection
-  constraint (e.g. GDPR, sector licenses) that affects whether/how this can be built or shipped.
+- **Feasibility (`tech_feasibility`)** — is the core approach technically possible with today's
+  tools? What is the build approach / architecture at a high level? What is the single biggest
+  technical risk?
+- **Key dependencies (`key_dependencies`)** — the critical external dependencies the product
+  relies on: third-party APIs, models, infrastructure, vendors, data sources, integrations.
+- **Regulatory / compliance (`regulatory_check`)** — any regulation, licensing, certification,
+  or data-protection constraint (e.g. GDPR, sector licenses) that affects whether/how this can
+  be built or shipped.
 
 ## How findings persist (so the gate validates "man mano")
 

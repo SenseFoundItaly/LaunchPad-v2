@@ -12,14 +12,17 @@ utenti devi già sapere se la cosa è *costruibile*, da cosa *dipende* e se un v
 
 È pensata per validare **in modo incrementale, man mano che la chat avanza** — non serve un'unica
 esecuzione. Ogni volta che il founder discute un aspetto tecnico, catturalo come fatto durevole
-così i check 1B del gate si chiudono progressivamente:
+così i tre check 1B del gate (`tech_feasibility`, `key_dependencies`, `regulatory_check`) si
+chiudono progressivamente:
 
-- **Fattibilità** — l'approccio è tecnicamente possibile con gli strumenti di oggi? Qual è
-  l'approccio di build / architettura ad alto livello? Qual è il singolo rischio tecnico maggiore?
-- **Dipendenze chiave** — le dipendenze esterne critiche: API di terzi, modelli, infrastruttura,
-  vendor, sorgenti dati, integrazioni.
-- **Regolatorio / compliance** — regolamenti, licenze, certificazioni o vincoli di protezione dati
-  (es. GDPR, licenze di settore) che incidono su se/come costruire e rilasciare.
+- **Fattibilità (`tech_feasibility`)** — l'approccio è tecnicamente possibile con gli strumenti di
+  oggi? Qual è l'approccio di build / architettura ad alto livello? Qual è il singolo rischio
+  tecnico maggiore?
+- **Dipendenze chiave (`key_dependencies`)** — le dipendenze esterne critiche: API di terzi,
+  modelli, infrastruttura, vendor, sorgenti dati, integrazioni.
+- **Regolatorio / compliance (`regulatory_check`)** — regolamenti, licenze, certificazioni o
+  vincoli di protezione dati (es. GDPR, licenze di settore) che incidono su se/come costruire e
+  rilasciare.
 
 ## Come persistono i finding (così il gate valida "man mano")
 

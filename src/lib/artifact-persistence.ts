@@ -285,6 +285,35 @@ function isJunkEntityName(name: string): boolean {
   return JUNK_NODE_NAME.some(re => re.test(n));
 }
 
+// entity_type variants the model emits → canonical GraphNodeType values, so
+// new nodes land in the right macro-category satellite instead of the
+// business_essentials fallback. Unknown types pass through unchanged (the
+// category mapper has its own fallback); an absent type defaults to
+// business_essential (was the legacy 'entity').
+const ENTITY_TYPE_ALIAS: Record<string, string> = {
+  customer: 'persona',
+  investor: 'funding_source',
+  funding: 'funding_source',
+  vendor: 'supplier',
+  hire: 'hr_collaborator',
+  hiring: 'hr_collaborator',
+  collaborator: 'hr_collaborator',
+  employee: 'hr_collaborator',
+  brand: 'brand_asset',
+  branding: 'brand_asset',
+  gtm: 'gtm_strategy',
+  go_to_market: 'gtm_strategy',
+  channel: 'gtm_strategy',
+  segment: 'market_segment',
+  entity: 'business_essential',
+};
+
+function normalizeEntityType(t: string | undefined): string {
+  const key = (t ?? '').trim().toLowerCase();
+  if (!key) return 'business_essential';
+  return ENTITY_TYPE_ALIAS[key] ?? key;
+}
+
 async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<PersistResult> {
   if (!a.name) return { type: a.type, persisted: false, note: 'missing name' };
 
@@ -327,6 +356,7 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
   // 'applied' — it passes reviewedState explicitly.
   const reviewedState: 'pending' = 'pending';
 
+  const nodeType = normalizeEntityType(a.entity_type);
   const id = `node_${crypto.randomUUID().slice(0, 12)}`;
   await run(
     `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
@@ -334,7 +364,7 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     id,
     ctx.projectId,
     a.name,
-    a.entity_type ?? 'entity',
+    nodeType,
     a.summary ?? '',
     // JSONB column — pass the object, not a stringified scalar (see pending-actions.ts:505).
     a.attributes ?? {},
@@ -351,7 +381,7 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     ctx.projectId,
   );
   if (root) {
-    const relation = relationForEntityType(a.entity_type);
+    const relation = relationForEntityType(nodeType);
     await run(
       `INSERT INTO graph_edges (id, project_id, source_node_id, target_node_id, relation, sources)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -367,15 +397,25 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
   return { type: a.type, persisted: true, target: 'graph_nodes (insert)', persisted_id: id };
 }
 
+// Takes the NORMALIZED entity type (normalizeEntityType) but keeps the legacy
+// raw cases (customer/market/investor) for defensive parity with old callers.
 function relationForEntityType(t: string | undefined): string {
   switch (t) {
-    case 'competitor': return 'competes_with';
-    case 'customer':   return 'serves';
-    case 'market':     return 'operates_in';
-    case 'investor':   return 'funded_by';
-    case 'technology': return 'uses';
-    case 'partner':    return 'partners_with';
-    default:           return 'related_to';
+    case 'competitor':         return 'competes_with';
+    case 'customer':           return 'serves';
+    case 'persona':            return 'targets';
+    case 'market':
+    case 'market_segment':     return 'operates_in';
+    case 'investor':
+    case 'funding_source':     return 'funded_by';
+    case 'technology':         return 'uses';
+    case 'partner':            return 'partners_with';
+    case 'supplier':           return 'supplied_by';
+    case 'hr_collaborator':    return 'collaborates_with';
+    case 'brand_asset':        return 'expresses';
+    case 'gtm_strategy':       return 'executes';
+    case 'business_essential': return 'requires';
+    default:                   return 'related_to';
   }
 }
 

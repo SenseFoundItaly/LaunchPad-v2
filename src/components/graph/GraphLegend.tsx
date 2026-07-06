@@ -15,6 +15,7 @@ const ALL_TYPES: GraphNodeType[] = [
   'your_startup', 'competitor', 'technology', 'market_segment', 'persona',
   'risk', 'trend', 'company', 'compliance', 'regulation',
   'partner', 'funding_source', 'feature', 'metric',
+  'supplier', 'hr_collaborator', 'brand_asset', 'gtm_strategy', 'business_essential',
   // Derived-analysis types — surfaced so they carry a colour swatch + can be
   // toggled off, instead of appearing as unlabelled grey dots.
   'metrics', 'benchmark', 'comparison', 'competitor_set', 'research_metric', 'market',

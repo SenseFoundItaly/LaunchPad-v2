@@ -68,8 +68,11 @@ function loadSkill(skillId: string, locale: Locale): string | null {
  * speak English). Worded to pin the failure modes we actually see: drifting
  * back to English mid-conversation, and over-translating proper nouns or the
  * structured keys inside :::artifact blocks.
+ *
+ * Exported for skill-executor.runSkill, which composes its own system prompt
+ * (SKILL.md + project context + output contract) outside buildSystemPrompt.
  */
-function languageDirective(locale: Locale): string | null {
+export function languageDirective(locale: Locale): string | null {
   if (locale === DEFAULT_LOCALE) return null;
   const language = LOCALE_ENGLISH_NAME[locale];
   return [

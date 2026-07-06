@@ -18,6 +18,8 @@ interface CheckResult {
   passed: boolean;
   evidence?: string;
   gap?: string;
+  /** Locked track (Validation Gate 1C while 1A+1B open) — not actionable yet. */
+  locked?: boolean;
 }
 interface CheckRow {
   check: { id: string; label: string; source: string; track?: '1A' | '1B' | '1C' };
@@ -62,7 +64,9 @@ export function StageCard({ projectId }: { projectId: string }) {
     },
   });
 
-  if (isLoading || !data) {
+  // Empty evaluations would make `headline` undefined below and throw the
+  // whole page into error.tsx — treat it like the loading state instead.
+  if (isLoading || !data || !data.evaluations?.length) {
     return <div className="lp-card" style={{ height: 220, opacity: 0.5 }} />;
   }
 
@@ -162,6 +166,9 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
   // Unmet checks get an actionable CTA that pre-fills the Co-pilot composer with
   // the prompt for THIS substep (cross-page via ?prefill — the chat page loads
   // it on mount). Passed checks keep their source tag (the proof's home key).
+  // LOCKED checks (Validation Gate 1C while 1A+1B open) get neither — a lock
+  // glyph + label instead, since working on them now would be premature.
+  const locked = !!result.locked;
   const prefillHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(checkActionPrompt(check.label, t))}`;
   return (
     <div style={{
@@ -170,6 +177,7 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
       display: 'flex',
       alignItems: 'center',
       gap: 10,
+      opacity: locked ? 0.6 : 1,
     }}>
       <span style={{
         width: 16,
@@ -185,12 +193,15 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
         {result.passed && (
           <Icon d={I.check} size={10} stroke={2} style={{ color: 'var(--paper)' }} />
         )}
+        {locked && (
+          <Icon d={I.lock} size={9} stroke={1.5} style={{ color: 'var(--ink-5)' }} />
+        )}
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, color: result.passed ? 'var(--ink)' : 'var(--ink-3)' }}>
           {check.label}
         </div>
-        {(result.evidence || result.gap) && (
+        {!locked && (result.evidence || result.gap) && (
           <div className="lp-mono" style={{
             fontSize: 10.5,
             color: result.passed ? 'var(--moss)' : 'var(--clay)',
@@ -209,6 +220,10 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
           flexShrink: 0,
         }}>
           {check.source}
+        </span>
+      ) : locked ? (
+        <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-5)', letterSpacing: 0.3, flexShrink: 0 }}>
+          {t('canvas.track-locked')}
         </span>
       ) : (
         <Link href={prefillHref} title={`${check.source} · ask the Co-pilot to validate this`} style={askCtaStyle}>
