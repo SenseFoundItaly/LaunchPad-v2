@@ -300,7 +300,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
       .attr('stroke-opacity', 0.22)
       .attr('stroke-width', 1);
     if (!focused) regionPaths.style('cursor', 'pointer').on('click', drillInto);
-    regions.append('text')
+    const regionLabels = regions.append('text')
       .text(d => catLabel(d))
       .attr('text-anchor', 'middle')
       .attr('font-size', '9.5px')
@@ -308,8 +308,11 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
       .attr('letter-spacing', '0.09em')
       .attr('fill', d => MACRO_CATEGORY_COLOR[d])
       .attr('fill-opacity', 0.85)
-      .attr('pointer-events', 'none')
       .style('font-family', 'system-ui');
+    // The label sits OUTSIDE the hull blob, so it needs its own click target —
+    // founders click the category NAME, not the wash (QA 2026-07-06).
+    if (!focused) regionLabels.attr('pointer-events', 'all').style('cursor', 'pointer').on('click', drillInto);
+    else regionLabels.attr('pointer-events', 'none');
 
     // Ghost affordance for empty categories — dashed circle at the wedge
     // anchor + label; clicking drills in (the drill-down shows the empty hint).
