@@ -68,8 +68,10 @@ describe('shouldTriggerLoop1', () => {
 describe('loop1Scope', () => {
   it('scopes exactly ICP + value proposition + problem (surgical, not a reset)', () => {
     const checks = loop1Scope().map((t) => t.check_id);
-    expect(checks).toContain('segment_named');       // ICP (target_market)
-    expect(checks).toContain('problem_defined');
+    // ICP maps to the Stage-1 target check (Stage-2 `segment_named` was removed
+    // in the Phase-0/Phase-1 dedup — the canvas fields are owned by Phase 0).
+    expect(checks).toContain('target_icp_defined');  // ICP (target_market)
+    expect(checks).toContain('problem_defined');     // problem (Stage 1)
     // A small delta set (ICP + value prop + problem across the stages those
     // canvas fields gate) — surgical, not a whole-stage reset.
     expect(checks.length).toBeLessThanOrEqual(6);

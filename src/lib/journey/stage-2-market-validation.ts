@@ -70,32 +70,17 @@ function structuredTam(research: Record<string, unknown> | null): string {
 }
 
 // ── Track 1A — Market ────────────────────────────────────────────────────────
+// Phase-0 vs Phase-1 separation (walkthrough §3): Phase 0 (Stage 1 — Idea
+// Canvas) is where the founder DEFINES the assumptions (problem, solution,
+// target/ICP, value prop, edge…) — the "internal contract". Phase 1 (this gate)
+// VALIDATES them with external EVIDENCE. So the old `problem_defined` and
+// `segment_named` checks were REMOVED from here (2026-07): they only re-verified
+// that `idea_canvas.problem` / `.target_market` are filled — which Stage 1's
+// `problem_defined` / `target_icp_defined` already own. The gate now validates
+// the market itself (competitors, sizing, differentiation); whether the problem
+// is REAL and the segment is right is proven by the 1C interviews, not by
+// re-reading the canvas field.
 export const VALIDATION_TRACK_1A: StageCheck[] = [
-  {
-    id: 'problem_defined',
-    label: 'Problem clearly defined',
-    source: 'idea_canvas.problem',
-    track: '1A',
-    evaluate: (s) => {
-      const p = s.idea_canvas?.problem?.trim() ?? '';
-      const ok = p.length >= 40;
-      return ok
-        ? { passed: true, evidence: 'Your problem statement is specific and well-formed.' }
-        : { passed: false, gap: 'Sharpen the problem to at least 40 chars' };
-    },
-  },
-  {
-    id: 'segment_named',
-    label: 'Target segment named',
-    source: 'idea_canvas.target_market',
-    track: '1A',
-    evaluate: (s) => {
-      const ok = !!s.idea_canvas?.target_market?.trim();
-      return ok
-        ? { passed: true, evidence: "You've named the customer segment you're targeting." }
-        : { passed: false, gap: 'Name a specific customer segment' };
-    },
-  },
   {
     id: 'competitors_mapped',
     label: '3+ competitors mapped',
