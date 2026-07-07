@@ -5,7 +5,7 @@
 // apply it → assert the three 1B checks go green.
 import fs from 'node:fs';
 import postgres from 'postgres';
-const BASE = 'http://localhost:3005';
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:3005';
 for (const raw of fs.readFileSync('/Users/mikececconello/code/mikececco/tech-bricks/LaunchPad-v2/.env.local', 'utf8').split('\n')) {
   const l = raw.trim(); if (!l || l.startsWith('#')) continue; const eq = l.indexOf('='); if (eq < 0) continue;
   const k = l.slice(0, eq).trim(); const v = l.slice(eq + 1).trim().replace(/^['"]|['"]$/g, ''); if (!(k in process.env)) process.env[k] = v;
