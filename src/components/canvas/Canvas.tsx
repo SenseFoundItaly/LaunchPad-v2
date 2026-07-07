@@ -28,6 +28,7 @@ import Link from 'next/link';
 import type { Artifact, Department, SolveProgressArtifact } from '@/types/artifacts';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import { Icon, I, Pill } from '@/components/design/primitives';
+import { PanelBoundary } from '@/components/design/PanelBoundary';
 import SolveProgressCard from '@/components/chat/artifacts/SolveProgressCard';
 import { BriefCard } from '@/components/signals/BriefCard';
 import { useIntelligenceBriefs, matchBriefs } from '@/hooks/useIntelligenceBriefs';
@@ -247,7 +248,12 @@ export function Canvas({
         onRelaunchIdeaShaping={() => handleArtifactAction('skill:run', { skill_id: 'idea-shaping' })}
       />
 
-      <SpineSection projectId={projectId} locale={locale} onSkillClick={onSkillClick} onPickPrompt={onPickPrompt} />
+      {/* Boundary-wrapped: a render throw in the validation spine (e.g. a
+          corrupted stages payload) degrades to a muted card instead of taking
+          down the whole Co-pilot tab via the route-level error.tsx. */}
+      <PanelBoundary>
+        <SpineSection projectId={projectId} locale={locale} onSkillClick={onSkillClick} onPickPrompt={onPickPrompt} />
+      </PanelBoundary>
 
       {hasSolveProgress && (
         <div style={{ marginBottom: 14 }}>

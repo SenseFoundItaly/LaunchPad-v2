@@ -15,7 +15,9 @@ import { useQuery } from '@tanstack/react-query';
 
 export interface StageCheckRow {
   check: { id: string; label: string; source?: string; track?: '1A' | '1B' | '1C' };
-  result: { passed: boolean; evidence?: string; gap?: string; proof?: string };
+  // `locked` marks a Validation-Gate 1C check that isn't actionable yet (1A+1B
+  // still open) — StageCard renders it with a lock glyph instead of a CTA.
+  result: { passed: boolean; evidence?: string; gap?: string; proof?: string; locked?: boolean };
 }
 
 export interface StageEvaluation {
@@ -28,6 +30,13 @@ export interface StageEvaluation {
 
 export function useStages(projectId: string) {
   return useQuery<StageEvaluation[]>({
+    // SINGLE source of truth for ['stages', projectId]. Every consumer
+    // (SpineSection, useCurrentSubtask, ScorePanel, StageCard) goes through
+    // THIS hook so the cache holds ONE shape — the sorted evaluations array.
+    // A past regression had StageCard/ScorePanel cache the raw payload OBJECT
+    // under the same key; whichever mounted first poisoned the other's cache
+    // (`.find is not a function`). Do NOT add a competing useQuery on this key
+    // with a different shape — reuse useStages instead.
     queryKey: ['stages', projectId],
     enabled: !!projectId,
     queryFn: async () => {
