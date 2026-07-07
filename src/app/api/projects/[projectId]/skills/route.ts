@@ -19,6 +19,8 @@ import {
 } from '@/lib/skill-prereqs';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { translate } from '@/lib/i18n/messages';
+import { maybeBuildScoreReviewOptionSet } from '@/lib/score-review';
+import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
 
 /**
  * GET: list skill completions for a project.
@@ -204,17 +206,36 @@ export async function POST(
           // 'incomplete', but RunSkillResult doesn't echo the persisted status —
           // recompute so the chat page can take the honest-failure path.
           const runStatus = isClarificationOnly(result.summary) ? 'incomplete' : 'completed';
+          // Road-1 weak-section review — after a completed scoring run, append
+          // the deterministic option-set (one option per weak dimension + a
+          // proceed-to-validation option) so the founder reviews before
+          // validating. Idempotent per scoring run (score_review_offered).
+          let summaryOut = result.summary;
+          if (skillId === 'startup-scoring' && runStatus === 'completed') {
+            const review = await maybeBuildScoreReviewOptionSet(projectId, ownerUserId);
+            if (review) summaryOut = `${result.summary}\n\n${review}`;
+          }
           safeEnqueue(`data: ${JSON.stringify({
             done: true,
             skill_id: result.skill_id,
             status: runStatus,
             latency_ms: result.latency_ms,
             artifacts_persisted: result.artifacts_persisted,
+            // Client artifact id → server row id, so the chat page can broadcast
+            // lp-persisted-artifacts and the Apply/Dismiss controls go live.
+            ...(Object.keys(result.persisted_artifacts).length > 0
+              ? { persisted_artifacts: result.persisted_artifacts }
+              : {}),
             // Full skill output so the chat page can inject it as an assistant
             // message (Canvas picks up any :::artifact blocks it emitted).
-            summary: result.summary,
+            summary: summaryOut,
             summary_preview: result.summary.slice(0, 300),
           })}\n\n`);
+          // Phase-1 watcher trigger — a completed skill run can close the last
+          // Stage-1 evidence. AFTER the done frame (the founder already has the
+          // result) and AWAITED (serverless freezes fire-and-forget work).
+          // Idempotent + non-throwing inside.
+          await maybeProposePhase1Watchers(projectId);
         } catch (err) {
           safeEnqueue(`data: ${JSON.stringify({ error: `skill run failed: ${(err as Error).message}` })}\n\n`);
         } finally {

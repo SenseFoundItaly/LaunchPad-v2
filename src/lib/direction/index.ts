@@ -192,8 +192,11 @@ export function detectRiskOverrides(evaluations: StageEvaluation[]): RiskOverrid
  */
 export async function needsPhase0Scoring(projectId: string): Promise<boolean> {
   try {
+    // overall_score > 0: chat radar-chart/score-card artifacts insert junk
+    // 0-score rows (3 in prod) — a zero row is NOT a baseline and must not
+    // suppress the scoring nudge.
     const scored = await query<{ project_id: string }>(
-      'SELECT project_id FROM scores WHERE project_id = ? LIMIT 1',
+      'SELECT project_id FROM scores WHERE project_id = ? AND overall_score > 0 LIMIT 1',
       projectId,
     );
     if (scored.length > 0) return false;

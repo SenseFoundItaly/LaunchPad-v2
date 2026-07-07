@@ -24,6 +24,10 @@ interface KnowledgeGraphProps {
    *  /knowledge page (the founder should see all 12 satellites), false on the
    *  compact Home EcosystemPanel. */
   showEmptyCategories?: boolean;
+  /** Open pre-drilled into this macro-category (the /knowledge?cat= deep link
+   *  from the Home legend chips). Initial value only — the founder navigates
+   *  freely after mount (breadcrumb/ESC go back to all categories). */
+  initialFocusedCategory?: MacroCategory | null;
 }
 
 interface SimNode extends d3.SimulationNodeDatum {
@@ -51,6 +55,12 @@ interface SimLink extends d3.SimulationLinkDatum<SimNode> {
 // anchor (when showEmptyCategories). Clicking a hull drills into that single
 // category; ESC / the breadcrumb chip goes back.
 
+/** Per-satellite empty-state i18n key — tells the founder the concrete action
+ *  that populates THAT category (WS5.6, replaces the generic hint). All 12
+ *  `knowledge.graph-empty-<cat>` keys exist in en/it so the template narrows
+ *  to a valid MessageKey union. */
+const emptyCategoryKey = (cat: MacroCategory) => `knowledge.graph-empty-${cat}` as const;
+
 /** Normalize an edge endpoint (string id, raw node, or sim node) to its id.
  * Module-scope + pure so it has a stable identity across renders. */
 const getId = (ref: string | GraphNode | SimNode | undefined): string => {
@@ -59,7 +69,7 @@ const getId = (ref: string | GraphNode | SimNode | undefined): string => {
   return (ref as { id: string }).id || '';
 };
 
-export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick, onApplyNode, onDismissNode, onSaveNode, onDeleteTimelineEntry, showEmptyCategories = false }: KnowledgeGraphProps) {
+export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick, onApplyNode, onDismissNode, onSaveNode, onDeleteTimelineEntry, showEmptyCategories = false, initialFocusedCategory = null }: KnowledgeGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<d3.Simulation<SimNode, SimLink> | null>(null);
@@ -68,8 +78,9 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   // Drill-down: when set, the graph shows ONLY this category's nodes as a
-  // single centered cluster. Set by clicking a hull; cleared by breadcrumb/ESC.
-  const [focusedCategory, setFocusedCategory] = useState<MacroCategory | null>(null);
+  // single centered cluster. Set by clicking a hull (or the ?cat= deep link);
+  // cleared by breadcrumb/ESC.
+  const [focusedCategory, setFocusedCategory] = useState<MacroCategory | null>(initialFocusedCategory);
   // The node whose detail drawer is open (ANY node — applied or pending). The
   // drawer replaced the old pending-only floating popover so there is a single
   // detail surface for the graph. Set on node click; cleared on background click.
@@ -331,7 +342,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
       .attr('stroke-opacity', 0.4)
       .attr('stroke-width', 1)
       .attr('stroke-dasharray', '4,4');
-    ghosts.append('title').text(() => t('knowledge.graph-empty-category'));
+    ghosts.append('title').text((d) => t(emptyCategoryKey(d)));
 
     /** Quadrant-aware label anchoring so labels grow AWAY from their hull. */
     const placeRadialLabel = (sel: d3.Selection<SVGTextElement, MacroCategory, SVGGElement | null, unknown>, cat: MacroCategory, x: number, y: number) => {
@@ -651,7 +662,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
           {/* Drilled into a category with nothing in it yet (ghost click). */}
           {focusedCategory && visibleNodes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center text-ink-5 text-sm text-center px-8 pointer-events-none">
-              {t('knowledge.graph-empty-category')}
+              {t(emptyCategoryKey(focusedCategory))}
             </div>
           )}
         </>

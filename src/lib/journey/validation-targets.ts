@@ -21,9 +21,13 @@
  */
 
 import { STAGES } from './index';
-import { MARKET_SIZE_CHECK_SOURCE } from './stage-2-market-validation';
+import { MARKET_SIZE_CHECK_SOURCE, TECH_1B_SOURCES } from './stage-2-market-validation';
 
-export type ValidationItemKind = 'canvas_field' | 'competitor' | 'market_size_fact';
+export type ValidationItemKind = 'canvas_field' | 'competitor' | 'market_size_fact' | 'tech_fact';
+
+/** The 1B finding a `tech_fact` item validates — maps to one of the three
+ *  technical checks (see TECH_1B_SOURCES). */
+export type TechFactField = 'feasibility' | 'dependencies' | 'regulatory';
 
 /** The canvas fields that map to a spine check. Others (e.g. business_model)
  *  are context, not gated — `validationTargetsFor` returns [] for them. */
@@ -59,6 +63,12 @@ function sourceKeysFor(kind: ValidationItemKind, field?: string): string[] {
       // Imported constant = the Stage-2 `market_size` check's source string,
       // byte-identical by construction (it can't drift).
       return [MARKET_SIZE_CHECK_SOURCE];
+    case 'tech_fact':
+      // The `field` discriminator selects which 1B check this finding closes
+      // (feasibility / dependencies / regulatory). Imported constants, drift-proof.
+      return field && field in TECH_1B_SOURCES
+        ? [TECH_1B_SOURCES[field as keyof typeof TECH_1B_SOURCES]]
+        : [];
     default:
       return [];
   }

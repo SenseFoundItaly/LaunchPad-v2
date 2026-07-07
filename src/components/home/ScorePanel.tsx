@@ -128,7 +128,7 @@ export function ScorePanel({ projectId }: { projectId: string }) {
   const total = evals.length || 7;
   const done = evals.filter((e) => e.status === 'done').length;
   const active = evals.find((e) => e.status === 'active');
-  const runHref = `/project/${projectId}/chat?prefill=${encodeURIComponent('Run my startup score and explain each dimension')}`;
+  const runHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(t('journey-prompt.scoring'))}`;
 
   return (
     <section data-tour="score-panel" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-l)', overflow: 'hidden' }}>

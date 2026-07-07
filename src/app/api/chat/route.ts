@@ -273,7 +273,7 @@ Example header with department: :::artifact{"type":"entity-card","id":"ent_ID","
 
 CARD ARTIFACTS:
 entity-card: :::artifact{"type":"entity-card","id":"ent_ID","department":"market"}\n{"name":"X","entity_type":"competitor","summary":"...","attributes":{},"sources":[...]}\n:::
-  entity_type vocabulary: competitor | company | technology | market_segment | partner | funding_source | supplier | hr_collaborator | brand_asset | gtm_strategy | business_essential | trend | regulation | risk — pick the specific role, it decides which ecosystem satellite the node lands in.
+  entity_type vocabulary: competitor | company | technology | market_segment | partner | funding_source | supplier | hr_collaborator | brand_asset | gtm_strategy | business_essential | feature | trend | regulation | risk — pick the specific role, it decides which ecosystem satellite the node lands in.
 option-set: :::artifact{"type":"option-set","id":"opt_ID"}\n{"prompt":"?","options":[{"id":"a","label":"A","description":"..."},{"id":"run_x","label":"Run market research","description":"...","skill_id":"market-research"},{"id":"commit","label":"Confirm — commit to canvas","description":"Lock in this problem statement and move to Solution","commit":{"canvas":{"problem":"<exact agreed text>"}}}]}\n:::  (sources optional)
   COMMIT OPTION — set "commit" on an option to PERSIST evidence deterministically when the founder clicks it (the click = approval; never narrate a save instead). Two channels, combinable in one commit: ALL canvas TEXT goes in "commit":{"canvas":{<field>:<value>, …}} (fields: problem | solution | target_market | value_proposition | business_model | competitive_advantage). Knowledge items go in "commit":{"items":[{"kind":"competitor"|"market_size_fact","name"?,"label","value","sources"}]} (competitor → graph, market size → fact). NEVER put a canvas field in items — canvas always goes in commit.canvas. Use the moment a value is settled.
   NO "credits" FIELD — never set "credits" on any option or commit item. Only the founder's own chat message costs a credit (1/message); analyses, applies, commits and watchers are free, and the founder sees the actual per-message cost after each turn. (See the CREDITS rule in TIER 0.)
@@ -314,7 +314,7 @@ USAGE RULES:
 6) comparison-table for GENERIC side-by-side comparison (pricing tiers, vendor selection, feature matrices). NOT for the specialized data shapes listed in rule 11.
 7) option-set is MANDATORY on every response. When conversational, options MUST be direct, committable answers to the question asked — closed choices that take effect on click, NEVER process/meta pickers ("start with X", "all at once") or "now you type it" prompts (see OPTION-SET DISCIPLINE / CLOSED CHOICES). If the answer can only be the founder's own free text and you have no candidate to draft, ask in prose — do not fake option buttons.
    Option labels MUST be ≤ 6 words and verb-first ("Run market research", "Log an interview"); ALL rationale, context, and qualifiers go in the option's "description" field — never in the label.
-8) entity-card for EVERY entity the founder names or you research — competitor, technology, market segment, plus the operational roles: supplier ("our roaster is Caffè Vergnano" → entity_type "supplier"), hire/collaborator ("we brought in Anna as CTO" → "hr_collaborator"), brand asset ("we bought getfoo.com", a tagline/logo → "brand_asset"), go-to-market channel/motion ("launch on Product Hunt", "outbound to pharmacies" → "gtm_strategy"). But NOT for personas (use persona-card) or risks (use risk-matrix for 2+).
+8) entity-card for EVERY entity the founder names or you research — competitor, technology, market segment, plus the operational roles: supplier ("our roaster is Caffè Vergnano" → entity_type "supplier"), hire/collaborator ("we brought in Anna as CTO" → "hr_collaborator"), brand asset ("we bought getfoo.com", a tagline/logo → "brand_asset"), go-to-market channel/motion ("launch on Product Hunt", "outbound to pharmacies" → "gtm_strategy"), product capabilities the founder names ("the app does barcode scanning", "our matching algorithm" → "feature"). But NOT for personas (use persona-card) or risks (use risk-matrix for 2+).
 9) workflow-card for concrete multi-step action plans
 10) Be proactive — use tools to research, browse web, challenge assumptions
 11) SPECIALIZED CARDS — pick these over comparison-table/document/score-badges when the data shape matches:
@@ -521,11 +521,10 @@ export async function POST(request: NextRequest) {
     /* journey snapshot failed — chat still works, just without stage framing */
   }
 
-  // Phase-1 watcher activation — when Stage 1 just completed and the Validation
-  // Gate has zero active watchers, propose (never activate) L1 watchers into the
-  // inbox. Fire-and-forget: internally idempotent + non-throwing, never blocks
-  // the turn. Reuses the snapshot we just built.
-  if (snapshot) void maybeProposePhase1Watchers(project_id, snapshot);
+  // Phase-1 watcher activation moved to the stream's flush hook (after the done
+  // frame): the old pre-turn fire-and-forget here evaluated a STALE snapshot —
+  // a turn whose artifact persistence completed Stage 1 couldn't propose until
+  // the NEXT turn — and serverless freezes un-awaited work mid-flight.
 
   // Derive stage facts from the snapshot we ALREADY built — the single source of
   // truth, never the legacy projects.current_step column (a retired 5-stage
@@ -1270,8 +1269,8 @@ export async function POST(request: NextRequest) {
         // Live-only + fully defensive, like the watcher backstop.
         try {
           if (stagedCanvasEvidence) {
-            const openProposals = await query<{ id: string; payload: unknown }>(
-              `SELECT id, payload FROM pending_actions
+            const openProposals = await query<{ id: string; payload: unknown; edited_payload: unknown }>(
+              `SELECT id, payload, edited_payload FROM pending_actions
                WHERE project_id = ? AND action_type = 'validation_proposal'
                  AND status IN ('pending','edited')
                ORDER BY created_at DESC LIMIT 3`,
@@ -1281,7 +1280,10 @@ export async function POST(request: NextRequest) {
             for (const pa of openProposals) {
               // Skip any the agent already rendered (its card carries this id).
               if (fullResponse.includes(pa.id)) continue;
-              const pl = (typeof pa.payload === 'string' ? JSON.parse(pa.payload) : pa.payload) as Record<string, unknown> | null;
+              // Effective payload — a founder-edited card renders its edited
+              // items; an auto-merged card's `payload` is already fresh.
+              const rawPl = pa.edited_payload ?? pa.payload;
+              const pl = (typeof rawPl === 'string' ? JSON.parse(rawPl) : rawPl) as Record<string, unknown> | null;
               const items = Array.isArray(pl?.items) ? (pl?.items as Array<Record<string, unknown>>) : [];
               if (items.length === 0) continue;
               // Same body shape stageValidationProposal emits (project-tools.ts).
@@ -1336,6 +1338,13 @@ export async function POST(request: NextRequest) {
           }
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(donePayload)}\n\n`));
         } catch { /* non-fatal */ }
+
+        // Phase-1 watcher activation — AFTER the done frame (the founder has
+        // their reply; the proposer's LLM call never delays the turn) and
+        // AWAITED (serverless freezes fire-and-forget work). Rebuilds the
+        // snapshot internally so THIS turn's persisted evidence counts — the
+        // old pre-turn call used a stale snapshot. Idempotent + non-throwing.
+        await maybeProposePhase1Watchers(project_id);
         } finally {
           // Clear the safety timer — flush completed before deadline.
           clearTimeout(flushDeadline);

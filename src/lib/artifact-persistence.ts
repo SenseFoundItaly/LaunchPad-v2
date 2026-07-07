@@ -14,7 +14,8 @@
  *   score-card        → scores.dimensions (single key)
  *   metric-grid       → research.market_size (if market-themed)
  *   comparison-table  → research.competitors (if competitor-themed)
- *                       + per-row applied competitor graph_nodes (if web-sourced)
+ *                       + per-row PENDING competitor graph_nodes
+ *   investor-pipeline → per-investor PENDING funding_source graph_nodes
  *   action-suggestion → pending_actions
  *   fact              → memory_facts (handled by chat route directly)
  *   workflow-card     → workflow_plans (handled by captureWorkflow; no Inbox fan-out)
@@ -44,6 +45,7 @@ import type {
   DocumentArtifact,
   TamSamSomArtifact,
   IdeaCanvasArtifact,
+  InvestorPipelineArtifact,
   Source,
 } from '@/types/artifacts';
 import { marketSizeFromTamSamSom } from './research-context';
@@ -65,19 +67,6 @@ import type { PendingActionType } from '@/types';
 // here stored a double-encoded string scalar → Array.isArray readers silently empty.
 function sourcesJson(sources: Source[] | undefined): Source[] | null {
   return Array.isArray(sources) && sources.length > 0 ? sources : null;
-}
-
-/**
- * True when the artifact carries at least one verifiable web source (a URL the
- * founder can click through). Gates provenance-based auto-apply: web-sourced
- * research the founder watched happen in-chat is evidence; skill/internal/user/
- * inference sources alone are not enough to bypass review.
- */
-function hasWebSource(sources: Source[] | undefined): boolean {
-  return (
-    Array.isArray(sources) &&
-    sources.some((s) => s?.type === 'web' && typeof s.url === 'string' && s.url.length > 0)
-  );
 }
 
 /**
@@ -224,8 +213,21 @@ export async function persistArtifact(ctx: PersistContext, artifact: Artifact): 
             ctx.projectId,
           );
           if (existing) {
+            // Full-replace, but CARRY the founder's approval stamp
+            // (approved/approved_at/approved_value) across — this ungated
+            // reference write must never wipe the founder-clicked evidence
+            // (approval durability, audit B3). approved_value keeps the
+            // approved tiers even when the incoming figures differ.
             await run(
-              'UPDATE research SET market_size = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+              `UPDATE research
+                  SET market_size = ?::jsonb || CASE WHEN jsonb_typeof(market_size) = 'object'
+                        THEN jsonb_strip_nulls(jsonb_build_object(
+                             'approved', market_size->'approved',
+                             'approved_at', market_size->'approved_at',
+                             'approved_value', market_size->'approved_value'))
+                        ELSE '{}'::jsonb END,
+                      sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP
+                WHERE project_id = ?`,
               sizing, srcJson, ctx.projectId,
             );
           } else {
@@ -243,13 +245,17 @@ export async function persistArtifact(ctx: PersistContext, artifact: Artifact): 
           ? { type: artifact.type, persisted: true, target: target || artifact.type, persisted_id: r.pendingActionId }
           : { type: artifact.type, persisted: false, note: 'view-only / already staged — no new proposal' };
       }
+      // Investor pipeline: the kanban stays a view over investors/rounds, but
+      // each named investor ALSO lands as a PENDING funding_source node so the
+      // INVESTITORI satellite is fed by its highest-volume source (audit B7).
+      case 'investor-pipeline':
+        return await persistInvestorPipeline(ctx, artifact as InvestorPipelineArtifact);
       // Remaining stage cards are pure VIEWS over canonical tables (persona-card
       // → simulation.personas; risk-matrix → simulation.risk_scenarios;
-      // investor-pipeline → investors/rounds; weekly-update → startup_updates).
+      // weekly-update → startup_updates).
       // For a canonical persona entity, use entity-card (graph_nodes + review).
       case 'persona-card':
       case 'risk-matrix':
-      case 'investor-pipeline':
       case 'weekly-update':
         return { type: artifact.type, persisted: false, note: 'view-only — data lives in its canonical table' };
       default:
@@ -414,9 +420,85 @@ function relationForEntityType(t: string | undefined): string {
     case 'hr_collaborator':    return 'collaborates_with';
     case 'brand_asset':        return 'expresses';
     case 'gtm_strategy':       return 'executes';
+    case 'feature':            return 'has_feature';
     case 'business_essential': return 'requires';
     default:                   return 'related_to';
   }
+}
+
+// ─── investor-pipeline → graph_nodes (INVESTITORI satellite) ─────────────────
+
+/**
+ * Each named investor in a pipeline card becomes a PENDING funding_source node
+ * (dedup on LOWER(name), like entity-cards). Pending = a proposal — the founder
+ * applies it from knowledge review; nothing enters intelligence without their
+ * click. The kanban itself remains a view (investors/rounds stay the canonical
+ * fundraising tables).
+ */
+async function persistInvestorPipeline(ctx: PersistContext, a: InvestorPipelineArtifact): Promise<PersistResult> {
+  const entries = Array.isArray(a.investors) ? a.investors : [];
+  if (entries.length === 0) return { type: a.type, persisted: false, note: 'no investors in pipeline' };
+
+  const srcJson = sourcesJson(a.sources);
+  const root = await get<{ id: string }>(
+    "SELECT id FROM graph_nodes WHERE project_id = ? AND node_type = 'your_startup' LIMIT 1",
+    ctx.projectId,
+  );
+
+  let upserted = 0;
+  let lastId: string | undefined;
+  for (const inv of entries) {
+    const name = typeof inv?.name === 'string' ? inv.name.trim() : '';
+    if (!name || isJunkEntityName(name)) continue;
+
+    const attributes: Record<string, unknown> = {};
+    if (inv.stage) attributes.stage = inv.stage;
+    if (inv.check_size != null) attributes.check_size = inv.check_size;
+    if (a.round_type) attributes.round = a.round_type;
+
+    const summary = [
+      inv.type,
+      inv.stage ? `pipeline: ${inv.stage}` : '',
+      inv.check_size != null ? `check ~$${inv.check_size.toLocaleString('en-US')}` : '',
+      a.round_type ? `round: ${a.round_type}` : '',
+    ].filter(Boolean).join(' · ');
+
+    // Dedup + pending insert via the shared upsert (UPDATE preserves an
+    // existing node's reviewed_state — a re-emitted pipeline never re-pends
+    // an applied investor).
+    const id = await upsertGraphNodeFromArtifact(ctx, {
+      name,
+      nodeType: 'funding_source',
+      summary,
+      attributes,
+      srcJson,
+    });
+    if (!id) continue;
+    upserted += 1;
+    lastId = id;
+
+    // root → investor 'funded_by' edge, idempotent. The graph API hides edges
+    // to pending nodes — the link materializes when the founder applies.
+    if (root) {
+      const existingEdge = await get<{ id: string }>(
+        `SELECT id FROM graph_edges
+          WHERE project_id = ? AND source_node_id = ? AND target_node_id = ? AND relation = 'funded_by'
+          LIMIT 1`,
+        ctx.projectId, root.id, id,
+      );
+      if (!existingEdge) {
+        await run(
+          `INSERT INTO graph_edges (id, project_id, source_node_id, target_node_id, relation, sources)
+           VALUES (?, ?, ?, ?, 'funded_by', ?)`,
+          `edge_${crypto.randomUUID().slice(0, 12)}`, ctx.projectId, root.id, id, srcJson,
+        );
+      }
+    }
+  }
+
+  return upserted > 0
+    ? { type: a.type, persisted: true, target: `graph_nodes (funding_source ×${upserted}, pending)`, persisted_id: lastId }
+    : { type: a.type, persisted: false, note: 'no named investors to persist' };
 }
 
 // ─── insight-card → memory_facts ─────────────────────────────────────────────
@@ -581,10 +663,12 @@ async function persistMetricGrid(ctx: PersistContext, a: MetricGrid): Promise<Pe
   }
 
   const titleText = `${a.title ?? ''}`.toLowerCase();
-  // Widened: market sizing AND operational/health/benchmark dashboards both
-  // need to round-trip. The narrow market-only regex used to silently drop
-  // "Weekly Health Dashboard" and similar Stage-7 metric grids.
-  const isMarket = /market|tam|sam|som|demand|size|fractional|executive/.test(titleText);
+  // isMarket routes into research.market_size (the TAM/SAM/SOM column) — keep
+  // it TIGHT: the previous broad regex (/market|…|size|executive/) landed
+  // operational dashboards in the sizing column 3/8 times in prod (audit B3),
+  // clobbering real TAM data. Everything else still round-trips as a
+  // graph_node below (isOperational / metrics).
+  const isMarket = /\b(tam|sam|som|market siz|addressable)/.test(titleText);
   const isOperational = /dashboard|health|kpi|metric|benchmark|funnel|cohort|retention|growth|economics|burn|runway/.test(titleText);
 
   const marketData = a.metrics.reduce<Record<string, { value: string; change?: string }>>((acc, m) => {
@@ -606,8 +690,18 @@ async function persistMetricGrid(ctx: PersistContext, a: MetricGrid): Promise<Pe
       ctx.projectId,
     );
     if (existing) {
+      // Full-replace, but CARRY the founder's approval stamp across (see the
+      // tam-sam-som writer above — approval durability, audit B3).
       await run(
-        'UPDATE research SET market_size = ?, sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+        `UPDATE research
+            SET market_size = ?::jsonb || CASE WHEN jsonb_typeof(market_size) = 'object'
+                  THEN jsonb_strip_nulls(jsonb_build_object(
+                       'approved', market_size->'approved',
+                       'approved_at', market_size->'approved_at',
+                       'approved_value', market_size->'approved_value'))
+                  ELSE '{}'::jsonb END,
+                sources = COALESCE(?, sources), researched_at = CURRENT_TIMESTAMP
+          WHERE project_id = ?`,
         { ...marketData, _title: a.title },
         srcJson,
         ctx.projectId,
@@ -711,15 +805,16 @@ async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): 
   // approval directive these rows persist as 'pending' PROPOSALS — they appear
   // in the founder's review surface but do NOT count toward the gate until the
   // founder approves them, so an agent-emitted table can't silently turn the
-  // spine green. Only fires when the table plausibly compares competitors AND
-  // carries web-source provenance; wrapped so a malformed table can never
-  // break the rest of the flush.
+  // spine green. Fires whenever the table plausibly compares competitors —
+  // sources-less tables stage too (rows stay pending; the founder's approval is
+  // the gate, not provenance); wrapped so a malformed table can never break the
+  // rest of the flush.
   let extracted = 0;
   const headerText = `${titleText} ${a.columns.join(' ').toLowerCase()}`;
   const isCompetitorTable =
     /competitor|alternative|rival|incumbent|player|landscape/.test(headerText) ||
     /\bvs\b/.test(titleText);
-  if (isCompetitorTable && hasWebSource(a.sources)) {
+  if (isCompetitorTable) {
     try {
       extracted = await extractCompetitorRows(ctx, a, srcJson);
     } catch (err) {
@@ -740,7 +835,7 @@ async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): 
 const MAX_COMPETITOR_ROWS_PER_TABLE = 6;
 
 /**
- * Upsert each row of a web-sourced competitor comparison-table as its own
+ * Upsert each row of a competitor comparison-table as its own
  * graph_node (node_type='competitor', reviewed_state='pending' on insert —
  * the upsert helper's UPDATE path preserves an existing node's state).
  * Founder-approval gate (2026-06-12 directive): nothing turns a journey-spine
@@ -972,12 +1067,14 @@ async function persistDocumentArtifact(ctx: PersistContext, a: DocumentArtifact)
  * gauge-chart artifact, so scores.overall_score stays null and the Home score
  * never appears — even on a successful run. Parses via parseScoreSummary and
  * persists, ONLY when a real gauge-chart score isn't already there this run.
+ * `force` skips that guard: a founder RE-scoring must refresh overall/dimensions
+ * (the >0-exists guard silently dropped every second run before).
  * Returns true if it wrote.
  */
-export async function persistScoreFromSummary(projectId: string, summary: string): Promise<boolean> {
+export async function persistScoreFromSummary(projectId: string, summary: string, opts: { force?: boolean } = {}): Promise<boolean> {
   const existing = await get<{ overall_score: number | null }>(
     'SELECT overall_score FROM scores WHERE project_id = ?', projectId);
-  if (existing && typeof existing.overall_score === 'number' && existing.overall_score > 0) return false;
+  if (!opts.force && existing && typeof existing.overall_score === 'number' && existing.overall_score > 0) return false;
 
   const parsed = parseScoreSummary(summary);
   if (!parsed) return false;

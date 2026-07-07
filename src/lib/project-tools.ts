@@ -31,6 +31,9 @@ import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
 import { coerceJson } from '@/lib/jsonb';
 import { maybeTriggerLoop1 } from '@/lib/loops/loop1-psf';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { translate, type MessageKey } from '@/lib/i18n/messages';
+import type { Locale } from '@/lib/i18n/locales';
 import { getCreditsRemaining, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import { ownerUserId } from '@/lib/cost-meter';
 import { USER_MONTHLY_LLM_USD, USER_MONTHLY_CREDITS } from '@/lib/credit-costs';
@@ -67,6 +70,18 @@ interface ToolContext {
    *  to cap watcher proposals at ONE per turn (anti-fan-out) WITHOUT blocking
    *  the founder from accumulating several DISTINCT watchers across turns. */
   turnState?: { monitorsProposed: number };
+  /** Lazily-resolved, per-turn-cached project locale — founder-facing
+   *  pending_action titles are written in the project language. */
+  _locale?: Locale;
+}
+
+/** Resolve the project locale once per turn (cached on ctx) for founder-facing
+ *  pending_action titles. Reuses the userId when present (project locale wins
+ *  regardless). Falls back to a fresh translate() on the resolved locale. */
+async function ctxT(ctx: ToolContext): Promise<(key: MessageKey, vars?: Record<string, string | number>) => string> {
+  if (!ctx._locale) ctx._locale = await resolveLocale(ctx.userId ?? '', ctx.projectId);
+  const locale = ctx._locale;
+  return (key, vars) => translate(locale, key, vars);
 }
 
 /**
@@ -934,12 +949,13 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
       estimated_per_run_credits: creditEstimate.per_run_credits,
     };
 
+    const t = await ctxT(ctx);
     let pendingAction;
     try {
       pendingAction = await createPendingAction({
         project_id: ctx.projectId,
         action_type: 'configure_monitor',
-        title: `Configure monitor: ${p.name}`,
+        title: t('pa.configure-monitor', { name: p.name }),
         rationale: p.linked_risk_id === 'ad_hoc'
           ? `Founder said in chat: "${p.linked_quote}"`
           : `Derisking ${p.linked_risk_id} — alert threshold: ${p.alert_threshold}`,
@@ -1062,10 +1078,11 @@ const editWatcherTool = (ctx: ToolContext): AgentTool => ({
     const summary = Object.entries(changes)
       .map(([k, v]) => (k === 'objective' ? `objective → "${String(v).slice(0, 60)}…"` : `${k} → ${v}`))
       .join(', ');
+    const t = await ctxT(ctx);
     const action = await createPendingAction({
       project_id: ctx.projectId,
       action_type: 'edit_monitor',
-      title: `Edit watcher "${monitor.name}"`,
+      title: t('pa.edit-watcher', { name: monitor.name }),
       rationale: `Proposed change: ${summary}. Approve to apply.`,
       payload: { monitor_id: monitor.id, monitor_name: monitor.name, changes },
     });
@@ -1099,10 +1116,11 @@ const deleteWatcherTool = (ctx: ToolContext): AgentTool => ({
       return { content: [{ type: 'text', text: `No watcher with id ${p.monitor_id} in this project. Call list_watchers to get a valid id.` }], details: { error: true } };
     }
     const verb = mode === 'delete' ? 'Delete' : 'Pause';
+    const t = await ctxT(ctx);
     const action = await createPendingAction({
       project_id: ctx.projectId,
       action_type: 'delete_monitor',
-      title: `${verb} watcher "${monitor.name}"`,
+      title: t(mode === 'delete' ? 'pa.delete-watcher' : 'pa.pause-watcher', { name: monitor.name }),
       rationale: mode === 'delete'
         ? 'Permanently remove this watcher and its run history. Approve to apply.'
         : 'Stop this watcher from running (reversible — you can re-activate it later). Approve to apply.',
@@ -1435,12 +1453,13 @@ const proposeWatchSourceTool = (ctx: ToolContext): AgentTool => ({
       sources: p.sources,
     };
 
+    const t = await ctxT(ctx);
     let pendingAction;
     try {
       pendingAction = await createPendingAction({
         project_id: ctx.projectId,
         action_type: 'configure_watch_source',
-        title: `Track URL: ${p.label}`,
+        title: t('pa.track-url', { label: p.label }),
         rationale: p.rationale,
         payload: pendingActionPayload,
         estimated_impact: 'medium',

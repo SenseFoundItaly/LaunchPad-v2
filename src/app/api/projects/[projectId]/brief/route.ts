@@ -70,10 +70,14 @@ export async function POST(
   );
   const entities = await query<{ name: string; node_type: string | null }>(
     `SELECT name, node_type FROM graph_nodes
-      WHERE project_id = ? AND node_type != 'your_startup'
+      WHERE project_id = ? AND node_type != 'your_startup' AND reviewed_state = 'applied'
       ORDER BY created_at DESC LIMIT 20`,
     projectId,
   );
+  // Resolve locale ONCE, up front: the opening prose must be in the project
+  // language (the model otherwise defaults to English on IT projects), and the
+  // deterministic option-set below reuses it.
+  const locale = await resolveLocale(userId, projectId);
 
   const active = evals.find((e) => e.status === 'active');
   const doneStages = evals.filter((e) => e.status === 'done');
@@ -111,7 +115,7 @@ export async function POST(
 1. Acknowledges in ONE line what you learned — reference THEIR actual idea (not generic).
 2. States where they stand: which validation stages are done and which is active.
 3. Recommends the 2-3 most important next moves, tailored to THEIR specific idea and the open checks — name their segment/competitors/market where relevant.
-Keep it conversational — no markdown headers, minimal bullets. Do NOT invent facts beyond the context. Do NOT emit any artifact blocks; just the prose.
+Keep it conversational — no markdown headers, minimal bullets. Do NOT invent facts beyond the context. Do NOT emit any artifact blocks; just the prose.${locale === 'it' ? '\n\nWrite the ENTIRE message in Italian.' : ''}
 
 CONTEXT:
 ${ctx}`;
@@ -143,7 +147,6 @@ ${ctx}`;
   // → the click runs it), same condition as the direction-engine override.
   const scoringFirst = await needsPhase0Scoring(projectId);
   if (openChecks.length > 0 || scoringFirst) {
-    const locale = await resolveLocale(userId, projectId);
     const t = (k: Parameters<typeof translate>[1], v?: Parameters<typeof translate>[2]) => translate(locale, k, v);
     let options: Array<Record<string, unknown>> = openChecks.slice(0, 4).map((r, i) => ({
       id: `step_${i}`,
@@ -164,7 +167,7 @@ ${ctx}`;
         skill_id: 'startup-scoring',
       });
     }
-    const optArtifact = `:::artifact{"type":"option-set","id":"opt_brief"}\n${JSON.stringify({ prompt: 'Where do you want to start?', options })}\n:::`;
+    const optArtifact = `:::artifact{"type":"option-set","id":"opt_brief"}\n${JSON.stringify({ prompt: t('brief.where-to-start'), options })}\n:::`;
     content = `${prose}\n\n${optArtifact}`;
   }
 

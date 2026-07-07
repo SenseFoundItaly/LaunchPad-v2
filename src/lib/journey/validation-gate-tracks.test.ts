@@ -186,6 +186,34 @@ describe('market_size — structured-first', () => {
     expect(results.find((x) => x.check.id === 'market_size')!.result.passed).toBe(false);
   });
 
+  it('prefers the approved_value snapshot over a later ungated tier overwrite (approval durability)', () => {
+    // A re-run / metric-grid replaced the top-level tiers AFTER the founder's
+    // click; the carried approved_value keeps the evidence pinned to what the
+    // founder actually approved.
+    const results = gateResults(mkSnapshot({
+      research: { market_size: {
+        tam: { value: '$99B' },
+        approved: true,
+        approved_at: '2026-07-07T00:00:00.000Z',
+        approved_value: { text: 'Market size — TAM $840M', tam: { value: '$840M' } },
+      } },
+    }));
+    const r = results.find((x) => x.check.id === 'market_size')!;
+    expect(r.result.passed).toBe(true);
+    expect(r.result.evidence).toContain('$840M');
+  });
+
+  it('passes when only the approved_value survives a full tier wipe (metric-grid shape)', () => {
+    const results = gateResults(mkSnapshot({
+      research: { market_size: {
+        'Weekly active': { value: '4k' },
+        approved: true,
+        approved_value: { tam: '$840M' },
+      } },
+    }));
+    expect(results.find((x) => x.check.id === 'market_size')!.result.passed).toBe(true);
+  });
+
   it('tolerates the legacy double-encoded market_size string (approved)', () => {
     const results = gateResults(mkSnapshot({
       research: { market_size: JSON.stringify({ tam: { estimate: '$2B' }, approved: true }) },
@@ -214,6 +242,43 @@ describe('market_size — structured-first', () => {
     expect(targets.length).toBeGreaterThan(0);
     expect(targets[0].check_id).toBe('market_size');
     expect(stageMarketValidation.checks.find((c) => c.id === 'market_size')!.source).toBe(MARKET_SIZE_CHECK_SOURCE);
+  });
+});
+
+describe('keyword honesty — SKILL.it.md-instructed phrasings close the checks', () => {
+  const checkWithFacts = (checkId: string, contents: string[]) => {
+    const results = gateResults(mkSnapshot({ memory_facts: facts(contents) }));
+    return results.find((x) => x.check.id === checkId)!.result.passed;
+  };
+
+  it('differentiation closes on "rispetto a" (market-research SKILL.it.md verbatim)', () => {
+    expect(checkWithFacts('differentiation_evidence', [
+      'Rispetto a Fatture in Cloud, il nostro onboarding richiede 5 minuti invece di 2 ore.',
+    ])).toBe(true);
+  });
+
+  it('differentiation closes on "ci differenziamo" via the differenz stem', () => {
+    expect(checkWithFacts('differentiation_evidence', [
+      'Ci differenziamo dagli incumbent per il modello mobile-first.',
+    ])).toBe(true);
+  });
+
+  it('differentiation does not false-positive on bare "rispetto" (non-comparative)', () => {
+    expect(checkWithFacts('differentiation_evidence', [
+      'Il team lavora con grande rispetto reciproco.',
+    ])).toBe(false);
+  });
+
+  it('key_dependencies closes on the English PLURAL "dependencies" (dependenc stem)', () => {
+    expect(checkWithFacts('key_dependencies', [
+      'Critical external dependencies: OpenAI and AWS.',
+    ])).toBe(true);
+  });
+
+  it('key_dependencies closes on Italian "Dipendenze chiave" (technical-validation SKILL.it.md verbatim)', () => {
+    expect(checkWithFacts('key_dependencies', [
+      'Dipendenze chiave: API di WhatsApp Business e Stripe per i pagamenti.',
+    ])).toBe(true);
   });
 });
 

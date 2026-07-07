@@ -6,6 +6,9 @@ import { readStagedCanvasFieldValues } from '@/lib/skill-prereqs';
 import { seedAssumptionsIfEmpty } from '@/lib/assumptions';
 import { persistCanvasDetails } from '@/lib/canvas-details';
 import { syncBusinessEssentialNodes } from '@/lib/business-essentials-sync';
+import { autoStageValidationFromArtifact, supersedeCoveredAutoProposals } from '@/lib/auto-stage-validation';
+import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
+import type { IdeaCanvasArtifact } from '@/types/artifacts';
 
 const CANVAS_FIELDS = [
   'problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage', 'channels',
@@ -111,6 +114,34 @@ export async function POST(
     return error('At least one non-empty canvas field is required', 400);
   }
 
+  // stage_only — the upload-Skip path: the founder declined to APPLY the
+  // drafted canvas now, but the draft is already paid for. Stage it as a
+  // PENDING validation_proposal (same founder-first path as chat artifacts)
+  // instead of discarding — an approve-later card, nothing greens without
+  // the founder's yes.
+  if (body.stage_only === true) {
+    const artifact: IdeaCanvasArtifact = {
+      type: 'idea-canvas',
+      id: `ic_upload_${projectId}`,
+      title: 'Canvas drafted from your documents',
+      sources: [{
+        type: 'inference',
+        title: 'Drafted from your uploaded documents',
+        based_on: [{ type: 'user', title: 'Founder — uploaded documents', quote: 'Content extracted from the documents uploaded at project creation.' }],
+        reasoning: 'Idea Canvas fields drafted from the documents you uploaded — review, refine, and approve.',
+      }],
+    };
+    for (const k of CANVAS_FIELDS) {
+      if (fields[k]) artifact[k] = fields[k];
+    }
+    const staged = await autoStageValidationFromArtifact(projectId, artifact);
+    return json({
+      staged: staged.staged,
+      pending_action_id: staged.pendingActionId ?? null,
+      item_count: staged.itemCount ?? 0,
+    }, 201);
+  }
+
   await run(
     `INSERT INTO idea_canvas (project_id, problem, solution, target_market, value_proposition, business_model, competitive_advantage, channels)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -144,6 +175,17 @@ export async function POST(
   // Mirror the business fields into the graph's BUSINESS ESSENTIALS satellite.
   // Awaited: post-response async work is frozen on serverless (PR #182 class).
   await syncBusinessEssentialNodes(projectId);
+
+  // The founder just committed fields directly — close any open UNTOUCHED auto
+  // proposal made moot by it (kills the stale "pending update" overlay).
+  // Founder-edited cards are never touched. Awaited (serverless freeze).
+  await supersedeCoveredAutoProposals(projectId);
+
+  // Phase-1 watcher activation — this direct commit may have just completed
+  // Stage 1 (same trigger class as applyValidationProposal, which was covered;
+  // this route wasn't). Awaited: serverless freezes post-response work.
+  // Idempotent + non-throwing inside.
+  await maybeProposePhase1Watchers(projectId);
 
   return json({ applied: [...CANVAS_FIELDS.filter((k) => fields[k].length > 0), ...extras] }, 201);
 }

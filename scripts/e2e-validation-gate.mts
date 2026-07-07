@@ -2,6 +2,7 @@
  * E2E proof of the L2 Phase-1 Validation Gate alignment (Batch 4):
  *
  *   1. seed a Stage-1-complete project      → stage 2 active + 1C LOCKED
+ *      (with a junk 0-score row first       → Stage-1 baseline stays RED)
  *   2. one chat turn                        → phase1_auto watcher proposals land
  *   3. second chat turn                     → NO new proposals (idempotent)
  *   4. apply one proposal                   → monitors_set green
@@ -92,10 +93,15 @@ async function phase1Proposals(projectId: string) {
 }
 
 async function pollPhase1(projectId: string, timeoutMs: number) {
+  // Wait for a STABLE count, not the first proposal: the proposer creates the
+  // whole set asynchronously, so returning on the first row races the rest in
+  // (a false idempotency failure when the next turn "finds" the stragglers).
   const until = Date.now() + timeoutMs;
+  let prev = -1;
   while (Date.now() < until) {
     const rows = await phase1Proposals(projectId);
-    if (rows.length > 0) return rows;
+    if (rows.length > 0 && rows.length === prev) return rows; // count settled
+    prev = rows.length;
     await new Promise((r) => setTimeout(r, 3000));
   }
   return phase1Proposals(projectId);
@@ -134,6 +140,17 @@ async function pollPhase1(projectId: string, timeoutMs: number) {
       business_model = EXCLUDED.business_model, channels = EXCLUDED.channels,
       key_metrics = EXCLUDED.key_metrics, revenue_streams = EXCLUDED.revenue_streams,
       cost_structure = EXCLUDED.cost_structure`;
+  // Zero-score guard first: a junk 0-score row (the chat radar-chart class,
+  // 3 in prod) must NOT green the Stage-1 baseline nor advance the spine.
+  await sql`
+    INSERT INTO scores (project_id, overall_score, scored_at) VALUES (${projectId}, 0, NOW())
+    ON CONFLICT (project_id) DO UPDATE SET overall_score = 0`;
+  const zeroStages = await api('GET', `/api/projects/${projectId}/stages`);
+  const s1 = (zeroStages.evaluations as StageEval[]).find((e) => e.stage.id === 'idea_validation');
+  const zeroBaseline = s1?.results.find((r) => r.check.id === 'startup_scoring_baseline');
+  check('0-score row does NOT green the Stage-1 baseline', zeroBaseline?.result.passed === false);
+  check('stage 1 still active on a 0-score row', zeroStages.active_stage_number === 1, `active=${zeroStages.active_stage_number}`);
+
   await sql`
     INSERT INTO scores (project_id, overall_score, scored_at) VALUES (${projectId}, 6.5, NOW())
     ON CONFLICT (project_id) DO UPDATE SET overall_score = 6.5`;
@@ -223,6 +240,44 @@ async function pollPhase1(projectId: string, timeoutMs: number) {
   check('pain_validated green (verbatim top_pain)', result(gate, 'pain_validated').passed === true);
   check('wtp_signal green (2 interviews with WTP)', result(gate, 'wtp_signal').passed === true);
   check('stage 2 (Validation Gate) is DONE', gate.status === 'done', `status=${gate.status}`);
+
+  // ── 7. scoring run → weak-section review option-set (road-1 middle step) ──
+  // Runs the REAL startup-scoring skill (~30-120s LLM run), so it's gated:
+  //   E2E_SCORE_REVIEW=1 npx tsx scripts/e2e-validation-gate.mts
+  if (process.env.E2E_SCORE_REVIEW === '1') {
+    const drain = async (body: unknown) => {
+      const res = await fetch(`${BASE}/api/projects/${projectId}/score`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-e2e-user': userId },
+        body: JSON.stringify(body),
+      });
+      const reader = res.body!.getReader();
+      while (true) { const { done } = await reader.read(); if (done) break; }
+    };
+    await drain({});
+    // The offer only fires when the fresh scorecard HAS a sub-60 dimension —
+    // normalize the mixed 0-10/0-100 dims scale before deciding what to expect.
+    const scoreRow = await sql`SELECT dimensions FROM scores WHERE project_id = ${projectId}`;
+    const rawDims = scoreRow[0]?.dimensions;
+    const dimVals = Object.values((typeof rawDims === 'string' ? JSON.parse(rawDims) : rawDims) ?? {})
+      .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+    const scale = dimVals.length > 0 && dimVals.every((v) => v <= 10) ? 10 : 1;
+    const hasWeak = dimVals.some((v) => v * scale < 60);
+    const reviewMsgs = await sql`
+      SELECT id FROM chat_messages WHERE project_id = ${projectId} AND content LIKE '%opt_score_review%'`;
+    check('weak-section review option-set persisted to chat', hasWeak ? reviewMsgs.length === 1 : reviewMsgs.length === 0,
+      `weakDims=${hasWeak} msgs=${reviewMsgs.length}`);
+    const marker = await sql`
+      SELECT id FROM memory_events WHERE project_id = ${projectId} AND event_type = 'score_review_offered'`;
+    check('score_review_offered marker matches the offer', marker.length === reviewMsgs.length);
+    // Idempotency: an auto re-score is debounced (already-fresh) → no duplicate offer.
+    await drain({ auto: true });
+    const reviewMsgs2 = await sql`
+      SELECT id FROM chat_messages WHERE project_id = ${projectId} AND content LIKE '%opt_score_review%'`;
+    check('no duplicate review offer on auto re-score', reviewMsgs2.length === reviewMsgs.length,
+      `before=${reviewMsgs.length} after=${reviewMsgs2.length}`);
+  } else {
+    console.log('· skipping score-review leg (set E2E_SCORE_REVIEW=1 to run the real scoring skill)');
+  }
 
   // cleanup the throwaway
   await sql`DELETE FROM projects WHERE id = ${projectId}`;

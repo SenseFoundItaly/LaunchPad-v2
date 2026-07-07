@@ -180,7 +180,7 @@ function safeParseStringArray(raw: string): string[] {
  *  a JSON string — handle both so the prompt rebuild reads real targeting. */
 function parseMonitorConfig(
   raw: unknown,
-): { alert_threshold?: string; query?: string; urls_to_track?: string[] } {
+): { alert_threshold?: string; query?: string; urls_to_track?: string[]; topic?: string } {
   if (!raw) return {};
   if (typeof raw === 'object') return raw as Record<string, never>;
   if (typeof raw === 'string') {
@@ -276,6 +276,7 @@ export async function PATCH(
           query: cfg.query,
           urls,
           alertThreshold: cfg.alert_threshold || '',
+          topic: cfg.topic,
         });
         sets.push('prompt = ?'); values.push(rebuilt);
       } catch (err) {

@@ -142,6 +142,12 @@ describe('Stage 1 — Idea Canvas (L2 Phase-0 step list)', () => {
     expect(baselineScore10(65)).toBe(6.5);
   });
 
+  it('a junk zero-score row does NOT green the baseline check', () => {
+    // Chat radar-chart/score-card artifacts insert overall_score=0 rows (3 in
+    // prod) — "Baseline score: 0.0/10" greened with no founder-run scoring.
+    expect(stage1(mkSnapshot({ score: 0 })).byId.startup_scoring_baseline).toBe(false);
+  });
+
   it('the legacy length-based checks are gone (spec 1:1)', () => {
     const ids = stageIdeaValidation.checks.map((c) => c.id);
     expect(ids).not.toContain('solution_detailed');

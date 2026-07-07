@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseScoreSummary } from './score-summary';
+import { parseScoreSummary, weakestDimensions } from './score-summary';
 
 describe('parseScoreSummary', () => {
   it('parses numbered + emoji-prefixed dimension headers (real startup-scoring format)', () => {
@@ -97,5 +97,43 @@ describe('parseScoreSummary', () => {
     const r = parseScoreSummary('## Overall Score: 51 / 100\n### Market: 62/100')!;
     expect(r.dimensions).toEqual({ Market: 62 });
     expect(Object.keys(r.dimensions!)).not.toContain('Overall Score');
+  });
+});
+
+describe('weakestDimensions', () => {
+  const dims = {
+    'Market Opportunity': 62,
+    'Competitive Landscape': 45,
+    Feasibility: 60,
+    'Business Model Viability': 50,
+    'Customer Demand': 38,
+    'Execution Risk': 55,
+  };
+
+  it('returns the worst dimensions below the threshold, ascending, capped at max', () => {
+    expect(weakestDimensions(dims, { max: 3, threshold: 60 })).toEqual([
+      { name: 'Customer Demand', score: 38 },
+      { name: 'Competitive Landscape', score: 45 },
+      { name: 'Business Model Viability', score: 50 },
+    ]);
+  });
+
+  it('excludes scores at or above the threshold (60 is not weak at threshold 60)', () => {
+    const names = weakestDimensions(dims, { max: 6, threshold: 60 }).map((w) => w.name);
+    expect(names).not.toContain('Feasibility');
+    expect(names).not.toContain('Market Opportunity');
+    expect(names).toHaveLength(4);
+  });
+
+  it('defaults to max 3 / threshold 60', () => {
+    expect(weakestDimensions(dims)).toHaveLength(3);
+  });
+
+  it('returns [] for null, empty, all-strong, or non-numeric maps', () => {
+    expect(weakestDimensions(null)).toEqual([]);
+    expect(weakestDimensions(undefined)).toEqual([]);
+    expect(weakestDimensions({})).toEqual([]);
+    expect(weakestDimensions({ Team: 80, Market: 92 })).toEqual([]);
+    expect(weakestDimensions({ Team: NaN, Market: 'high' as unknown as number })).toEqual([]);
   });
 });

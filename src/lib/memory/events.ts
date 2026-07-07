@@ -35,6 +35,7 @@ export type EventType =
   | 'artifact_rescued_by_fallback_citations'
   | 'monitor_applied'
   | 'phase1_watchers_proposed'
+  | 'score_review_offered'
   | 'budget_changed'
   | 'task_expanded'
   | 'alert_acknowledged'

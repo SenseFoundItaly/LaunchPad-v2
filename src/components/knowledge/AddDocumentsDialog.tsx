@@ -71,6 +71,9 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
   const [auditCredits, setAuditCredits] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [appliedCount, setAppliedCount] = useState(0);
+  // Watcher proposals the upload staged (configure_monitor pending_actions) —
+  // they wait as "Proposed" in the Watchers tab; the done phase points there.
+  const [watcherProposals, setWatcherProposals] = useState(0);
 
   // Esc closes the dialog, but not mid-flight (a stray Esc between charge and
   // apply could orphan the founder after they've paid).
@@ -120,6 +123,7 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
       setEntities(ext);
       setIngested(body.data?.ingested ?? 0);
       setAuditCredits(credits);
+      setWatcherProposals(Array.isArray(body.data?.proposed_monitors) ? body.data.proposed_monitors.length : 0);
       setSelected(initialSelection(ext));
       // The fee was charged server-side — refresh the credits badge now.
       if (credits > 0) window.dispatchEvent(new CustomEvent('lp-credits-changed'));
@@ -177,7 +181,7 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
 
   function reset() {
     setPhase('pick'); setFiles([]); setEntities([]); setSelected(new Set());
-    setIngested(0); setAuditCredits(0); setAppliedCount(0); setError(null);
+    setIngested(0); setAuditCredits(0); setAppliedCount(0); setWatcherProposals(0); setError(null);
   }
 
   // ── drag/drop (counter pattern: child boundaries fire dragleave) ──
@@ -308,6 +312,13 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
                 {auditCredits === 1 ? t('kb.charged-credits-one', { count: auditCredits }) : t('kb.charged-credits-many', { count: auditCredits })}
                 {appliedCount > 0 ? ` ${t('kb.done-applying-included')}` : ''}
               </div>
+              {watcherProposals > 0 && (
+                <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 8 }}>
+                  {watcherProposals === 1
+                    ? t('kb.done-watchers-one', { count: watcherProposals })
+                    : t('kb.done-watchers-many', { count: watcherProposals })}
+                </div>
+              )}
             </div>
           )}
         </div>

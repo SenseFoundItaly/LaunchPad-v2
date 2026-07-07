@@ -254,15 +254,22 @@ export async function processWatchSource(
       classification.headline,
     );
     try {
-      await run(
+      // RETURNING id: on conflict the SURVIVING row keeps its original id —
+      // everything downstream (source_changes.alert_id, the pending_actions
+      // FK dual-write, the activity log) must reference that id, not the
+      // discarded fresh one (mirrors persistEcosystemAlerts). The old
+      // `monitor_run_id = EXCLUDED.monitor_run_id` clause is gone: this
+      // INSERT never binds monitor_run_id, so on conflict it clobbered the
+      // surviving row's run linkage to NULL.
+      const alertRows = await query<{ id: string }>(
         `INSERT INTO ecosystem_alerts
            (id, project_id, monitor_id, alert_type, entity, source, source_url,
             headline, body, relevance_score, confidence, dedupe_hash,
             reviewed_state, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
          ON CONFLICT(project_id, dedupe_hash) DO UPDATE SET
-           relevance_score = GREATEST(ecosystem_alerts.relevance_score, EXCLUDED.relevance_score),
-           monitor_run_id = EXCLUDED.monitor_run_id`,
+           relevance_score = GREATEST(ecosystem_alerts.relevance_score, EXCLUDED.relevance_score)
+         RETURNING id`,
         alertId,
         ws.project_id,
         ws.monitor_id,
@@ -280,6 +287,7 @@ export async function processWatchSource(
         dedupeHash,
         now,
       );
+      alertId = alertRows[0]?.id ?? alertId;
     } catch (err) {
       console.warn('[watch-source] ecosystem_alert insert failed:', (err as Error).message);
       alertId = null;
@@ -298,31 +306,41 @@ export async function processWatchSource(
     // Uses ecosystem_alert_id as the dedupe key (NOT EXISTS check in
     // materialize-on-read), so re-running this producer is idempotent.
     if (alertId && watchVerdict === 'inbox') {
-      try {
-        const priority = classification.significance === 'high' ? 'high' : 'medium';
-        const paId = generateId('pa');
-        await run(
-          `INSERT INTO pending_actions
-             (id, project_id, ecosystem_alert_id, source_table, source_id,
-              action_type, title, rationale, payload, status, priority,
-              sources, created_at, updated_at)
-           VALUES (?, ?, ?, 'ecosystem_alerts', ?, 'signal_alert', ?, ?, ?, 'pending', ?, ?, ?, ?)`,
-          paId, ws.project_id, alertId, alertId,
-          classification.headline,
-          (classification.rationale ?? '').slice(0, 500),
-          {
-            alert_type: classification.alert_type,
-            entity: classification.entity || deriveEntityName(ws),
-            source: `watch:${ws.label}`,
-            source_url: ws.url,
-            relevance_score: classification.significance === 'high' ? 0.9 : 0.7,
-          },
-          priority,
-          [{ type: 'web', title: ws.label, url: ws.url }],
-          now, now,
-        );
-      } catch (err) {
-        console.warn('[watch-source] pending_action dual-write failed (will be picked up by materialize-on-read):', (err as Error).message);
+      // alertId may now be a pre-existing row (dedupe conflict above) — one
+      // alert must yield one ticket, ever (same FK dedupe as the parser).
+      // Non-fatal lookup: on failure fall through and insert (worst case a
+      // duplicate ticket, never a dropped signal).
+      const claimed = await query<{ id: string }>(
+        `SELECT id FROM pending_actions WHERE ecosystem_alert_id = ? LIMIT 1`,
+        alertId,
+      ).catch(() => []);
+      if (claimed.length === 0) {
+        try {
+          const priority = classification.significance === 'high' ? 'high' : 'medium';
+          const paId = generateId('pa');
+          await run(
+            `INSERT INTO pending_actions
+               (id, project_id, ecosystem_alert_id, source_table, source_id,
+                action_type, title, rationale, payload, status, priority,
+                sources, created_at, updated_at)
+             VALUES (?, ?, ?, 'ecosystem_alerts', ?, 'signal_alert', ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+            paId, ws.project_id, alertId, alertId,
+            classification.headline,
+            (classification.rationale ?? '').slice(0, 500),
+            {
+              alert_type: classification.alert_type,
+              entity: classification.entity || deriveEntityName(ws),
+              source: `watch:${ws.label}`,
+              source_url: ws.url,
+              relevance_score: classification.significance === 'high' ? 0.9 : 0.7,
+            },
+            priority,
+            [{ type: 'web', title: ws.label, url: ws.url }],
+            now, now,
+          );
+        } catch (err) {
+          console.warn('[watch-source] pending_action dual-write failed (will be picked up by materialize-on-read):', (err as Error).message);
+        }
       }
     }
   }

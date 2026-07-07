@@ -103,7 +103,8 @@ OUTPUT CONTRACT — do not deviate:
    }
    :::
 3. Field rules:
-   - alert_type: one of "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal" | "ad_activity" | "pricing_change" | "product_launch"
+   - alert_type: one of "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal" | "ad_activity" | "pricing_change" | "product_launch" | "supplier_move" | "gtm_signal"
+     ("supplier_move" = a supplier/vendor in the founder's chain changes terms, capacity, pricing or ownership; "gtm_signal" = a go-to-market motion — channel launch, distribution deal, campaign or positioning shift)
    - entity: the single company/product name the alert is about (1-4 words, e.g. "HelloFresh") — the NAME only, never the event sentence
    - headline: 1 line, <=120 chars
    - body: 2-4 sentences, factual
@@ -134,7 +135,8 @@ CONTRATTO DI OUTPUT — non deviare:
    }
    :::
 3. Regole dei campi:
-   - alert_type: uno tra "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal" | "ad_activity" | "pricing_change" | "product_launch"
+   - alert_type: uno tra "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal" | "ad_activity" | "pricing_change" | "product_launch" | "supplier_move" | "gtm_signal"
+     ("supplier_move" = un fornitore/vendor nella filiera del founder cambia condizioni, capacità, prezzi o proprietà; "gtm_signal" = una mossa go-to-market — lancio di canale, accordo di distribuzione, cambio di campagna o posizionamento)
    - entity: il nome della singola azienda/prodotto a cui si riferisce l'alert (1-4 parole, es. "HelloFresh") — SOLO il nome, mai la frase dell'evento
    - headline: 1 riga, <=120 caratteri
    - body: 2-4 frasi, fattuale

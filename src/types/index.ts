@@ -313,7 +313,9 @@ export type EcosystemAlertType =
   | 'social_signal'
   | 'ad_activity'
   | 'pricing_change'
-  | 'product_launch';
+  | 'product_launch'
+  | 'supplier_move'
+  | 'gtm_signal';
 
 export type EcosystemAlertState =
   | 'pending'

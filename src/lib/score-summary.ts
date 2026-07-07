@@ -51,3 +51,27 @@ export function parseScoreSummary(summary: string): ParsedScore | null {
 
   return { overall, dimensions, recommendation, benchmark };
 }
+
+export interface WeakDimension {
+  name: string;
+  score: number;
+}
+
+/**
+ * The lowest-scoring dimensions strictly below `threshold`, worst first,
+ * capped at `max`. Input is the scores.dimensions map on the 0-100 scale.
+ * Pure like the parser above — drives the road-1 post-scoring weak-section
+ * review offer (see src/lib/score-review.ts).
+ */
+export function weakestDimensions(
+  dims: Record<string, number> | null | undefined,
+  opts: { max?: number; threshold?: number } = {},
+): WeakDimension[] {
+  const { max = 3, threshold = 60 } = opts;
+  if (!dims) return [];
+  return Object.entries(dims)
+    .filter(([, v]) => typeof v === 'number' && Number.isFinite(v) && v < threshold)
+    .map(([name, score]) => ({ name, score }))
+    .sort((a, b) => a.score - b.score)
+    .slice(0, Math.max(0, max));
+}

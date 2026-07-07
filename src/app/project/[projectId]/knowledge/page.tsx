@@ -22,7 +22,8 @@ import AllKnowledgePanel from '@/components/knowledge/AllKnowledgePanel';
 import RecentMovesFeed from '@/components/knowledge/RecentMovesFeed';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import { CompetitorMatryoshka } from '@/components/knowledge/CompetitorMatryoshka';
-import type { GraphNode, GraphEdge } from '@/types/graph';
+import type { GraphNode, GraphEdge, MacroCategory } from '@/types/graph';
+import { MACRO_CATEGORY_ORDER } from '@/types/graph';
 
 interface GraphResponse {
   nodes: GraphNode[];
@@ -50,6 +51,15 @@ export default function KnowledgePage({
       if (v === 'list' || v === 'moves' || v === 'graph') return v;
     }
     return 'graph';
+  });
+  // ?cat= deep link (Home legend chips) — open the graph pre-drilled into that
+  // macro-category. Read once at mount, like ?view=; navigation is local after.
+  const [initialCat] = useState<MacroCategory | null>(() => {
+    if (typeof window !== 'undefined') {
+      const c = new URLSearchParams(window.location.search).get('cat');
+      if (c && (MACRO_CATEGORY_ORDER as string[]).includes(c)) return c as MacroCategory;
+    }
+    return null;
   });
 
   // After the popup applies extracted entities, refetch the graph and bump the
@@ -285,7 +295,7 @@ export default function KnowledgePage({
           // The graph now groups nodes into tinted macro-category regions even
           // with zero real edges, so the old "disconnected dots → grid" fallback
           // is no longer needed — the grouped graph IS the good edgeless view.
-          <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} onDeleteTimelineEntry={deleteTimelineEntry} showEmptyCategories />
+          <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} onDeleteTimelineEntry={deleteTimelineEntry} showEmptyCategories initialFocusedCategory={initialCat} />
         )}
         {view === 'graph' && pendingCount > 0 && (
           <div
