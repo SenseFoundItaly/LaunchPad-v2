@@ -363,40 +363,6 @@ function EmptyHint({ message }: { message: string }) {
 }
 
 // ─── presentation layer ──────────────────────────────────────────────────────
-//
-// TODO(you): write `presentItems` below.
-//
-// This is the "domain UX vocabulary" layer. Given the raw API items, decide
-// how each one looks in the list. The structural plumbing (fetching, click
-// handling, edit/save/print/delete) is done — this function controls what
-// the founder actually reads.
-//
-// Things you need to decide:
-//
-//   1. displayTitle — generated docs come in with names like the agent's
-//      first guess ("Pitch Deck", "Investor One-Pager v3"). Do you trim,
-//      Title-Case, prefix with doc_type? Uploaded files come in as raw
-//      filenames ("Brand-Guide-FINAL-v2.pdf") — keep as-is or strip?
-//
-//   2. sourceBadge — "Generated" vs "Uploaded"? Or "Built" vs "Source"?
-//      Or doc-type-as-badge for generated ("Deck", "One-pager") and
-//      "File" for uploaded? Pick the founder's mental model.
-//
-//   3. typeBadge — optional secondary tag (e.g. file extension for uploads,
-//      skill_id for generated). Return null to omit.
-//
-//   4. icon — pick from I.file / I.fileText / I.layers / I.image / I.book
-//      / I.megaphone (see src/components/design/icons.tsx). Generated
-//      pitch decks could use I.layers; one-pagers I.fileText; uploads I.file.
-//
-//   5. relativeDate — "Today" / "Yesterday" / "Mar 5" / ISO? Founders skim,
-//      so short relative dates usually beat absolute ones.
-//
-//   6. Sort order — newest-first is default, but you might want to group
-//      generated docs above uploads, or pin specific doc_types to the top.
-//      Return them in the order you want rendered.
-//
-// Keep it ~30 lines. The return type is below — just fill in `presentItems`.
 
 interface IndexBadge {
   /** i18n key for the badge label, resolved with `t` at render. */
@@ -410,7 +376,6 @@ interface IndexBadge {
 
 interface PresentedItem extends DataRoomItem {
   displayTitle: string;
-  sourceBadge: string;
   typeBadge: string | null;
   icon: string;
   relativeDate: string;
@@ -418,59 +383,37 @@ interface PresentedItem extends DataRoomItem {
   indexBadge: IndexBadge | null;
 }
 
+/** Short, locale-aware date — founders skim; year only when it differs. */
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+}
+
 function presentItems(items: DataRoomItem[]): PresentedItem[] {
-  // TODO: implement. For now a stub so the page renders — replace this.
-  return items.map((item) => ({
-    ...item,
-    displayTitle: item.title,
-    sourceBadge: item.source,
-    typeBadge: item.doc_type,
-    icon: I.file,
-    relativeDate: new Date(item.created_at).toLocaleDateString(),
-    indexBadge: indexBadgeFor(item),
-  }));
+  return items.map((item) => {
+    const uploaded = item.source === 'uploaded';
+    const dot = item.title.lastIndexOf('.');
+    const ext = uploaded && dot > 0 ? item.title.slice(dot + 1).toUpperCase() : null;
+    return {
+      ...item,
+      displayTitle: item.title,
+      // Uploads show their file extension; generated docs their doc type.
+      typeBadge: uploaded ? ext : (item.doc_type ?? item.kind),
+      icon: uploaded ? I.file : /deck|pitch/i.test(item.doc_type ?? '') ? I.layers : I.book,
+      relativeDate: shortDate(item.created_at),
+      indexBadge: indexBadgeFor(item),
+    };
+  });
 }
 
 // ─── index-status badge policy ───────────────────────────────────────────────
 //
-// TODO(you): write `indexBadgeFor` below. ~8 lines.
-//
-// This is the founder-facing definition of "indexed". The backend hands us
-// three counts per uploaded file:
-//
-//   extraction = { applied, pending, rejected }
-//
-//   applied  → entity proposals you APPROVED on the Review tab. These show up
-//              in the Graph and are part of the live knowledge graph.
-//   pending  → proposals the LLM made on upload, waiting for your review.
-//   rejected → proposals you explicitly said no to.
-//
-// `extraction` is null for generated docs — return null in that case so no
-// pill renders (deliverables don't have an "indexed" concept).
-//
-// You're picking a UX policy. Think about what's most useful at a glance:
-//
-//   • Treat "indexed" strictly: only `applied > 0` earns the green pill.
-//     Pending proposals get a yellow "N pending" nudge to push to Review.
-//     Zero entities = "Not indexed" — implies the file was uploaded but
-//     extraction was skipped (legacy upload, or `?extract=1` was off).
-//
-//   • Or treat the existence of pending proposals as "indexed but unreviewed".
-//
-//   • You may also want to count applied + pending together and call it
-//     "8 entities" with no review nuance — simpler, but hides the workflow.
-//
-// Return null to skip the pill entirely (e.g. if you don't want noise on
-// files with zero extraction activity).
-//
-// Tradeoffs:
-//   - A loud "Not indexed" badge on every legacy file may add visual noise
-//     for projects with lots of pre-extraction uploads. Returning null in
-//     that case keeps the list clean but hides that an action is possible.
-//   - A green "Indexed · 5" badge with no count of pendings can hide work
-//     the founder still has to do on Review.
-//
-// Pill kinds available: 'ok' (green), 'warn' (amber), 'n' (neutral grey).
+// The founder-facing definition of "indexed", from the per-upload extraction
+// counts {applied, pending, rejected}. Strict: only approved entities earn the
+// green pill; pendings get an amber nudge to Review; all-rejected stays quiet.
+// Generated deliverables (extraction === null) render no pill.
 
 function indexBadgeFor(item: DataRoomItem): IndexBadge | null {
   if (item.extraction === null) return null;
@@ -570,7 +513,7 @@ function InlineUpload({
           e.target.value = '';
         }}
         style={{ display: 'none' }}
-        accept=".md,.markdown,.txt,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.htm,.log,.ini,.conf,.env,.ts,.tsx,.js,.jsx,.mjs,.cjs,.py,.rb,.go,.rs,.java,.sh,.bash,.zsh,.sql,.css,.scss,.toml,text/*,application/json"
+        accept=".pdf,.docx,.md,.markdown,.txt,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.htm,.log,.ini,.conf,.env,.ts,.tsx,.js,.jsx,.mjs,.cjs,.py,.rb,.go,.rs,.java,.sh,.bash,.zsh,.sql,.css,.scss,.toml,text/*,application/json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       />
     </div>
   );

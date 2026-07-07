@@ -9,6 +9,7 @@ import { recordAgentUsage } from '@/lib/cost-meter';
 import { createPendingAction } from '@/lib/pending-actions';
 import { validationTargetsFor, validationLabel } from '@/lib/journey/validation-targets';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { canvasIsEmpty } from '@/lib/idea-canvas-seed';
 
 const MAX_FILE_BYTES = 10_485_760; // 10 MiB per file — real PDFs/decks are bigger than a text note
 const MAX_FILES_PER_REQUEST = 10;
@@ -345,7 +346,8 @@ function relationForNodeType(t: string): string {
     case 'risk':                    return 'exposed_to';
     case 'trend':                   return 'influenced_by';
     case 'company':                 return 'related_to';
-    case 'feature': case 'metric':  return 'tracks';
+    case 'feature':                 return 'has_feature';
+    case 'metric':                  return 'tracks';
     case 'supplier':                return 'supplied_by';
     case 'hr_collaborator':         return 'collaborates_with';
     case 'brand_asset':             return 'expresses';
@@ -594,11 +596,14 @@ export async function POST(
   // Canvas draft (Stage 1 evidence) + suggested watchers from the combined doc
   // text — PROPOSED, not written. The founder applies/opts-in on the populating
   // screen. Run both passes concurrently (independent, same input) so we add
-  // ~one Haiku call of wall-time, not two.
+  // ~one Haiku call of wall-time, not two. The canvas pass is skipped when the
+  // project already has canvas content — re-drafting over an existing canvas
+  // wastes the LLM call and the draft would be discarded anyway.
+  const wantCanvas = shouldExtract && ingestedTexts.length > 0 && (await canvasIsEmpty(projectId));
   const [proposedCanvas, proposedMonitors] =
     shouldExtract && ingestedTexts.length > 0
       ? await Promise.all([
-          extractCanvas(ingestedTexts.join('\n\n---\n\n'), projectId),
+          wantCanvas ? extractCanvas(ingestedTexts.join('\n\n---\n\n'), projectId) : Promise.resolve(null),
           extractMonitors(ingestedTexts.join('\n\n---\n\n'), projectId),
         ])
       : [null, [] as ProposedMonitor[]];

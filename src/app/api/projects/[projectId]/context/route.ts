@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { run, get } from '@/lib/db';
-import { json, error } from '@/lib/api-helpers';
+import { json, error, generateId } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { extractAssumptions } from '@/lib/assumptions';
 import { syncBusinessEssentialNodes } from '@/lib/business-essentials-sync';
+import { cleanEntityName } from '@/lib/ecosystem-alert-parser';
 
 /**
  * POST /api/projects/{projectId}/context
@@ -11,6 +12,7 @@ import { syncBusinessEssentialNodes } from '@/lib/business-essentials-sync';
  * Cold-start writer for the Today page's "tell me about you" card. Upserts:
  *   - idea_canvas.{problem, solution}    (the founder's stated moat)
  *   - research.competitors               (JSON array of {name})
+ *   - graph_nodes                        (one APPLIED competitor node per name)
  *
  * Both tables use project_id as PK, so a single ON CONFLICT clause is enough.
  * Keywords are intentionally NOT writable here — they come from the graph
@@ -71,6 +73,21 @@ export async function POST(
          competitors = EXCLUDED.competitors`,
       projectId, payload,
     );
+    // Also land each name as an APPLIED competitor graph_node — the founder
+    // TYPED these (an explicit yes), and the Stage-2 competitors_mapped gate
+    // reads applied competitor graph_nodes, never research.competitors.
+    // Mirrors applyValidationProposal's competitor upsert (atomic on
+    // (project_id, LOWER(name)) per migration 018).
+    for (const raw of competitors) {
+      const name = cleanEntityName(raw) || raw;
+      await run(
+        `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, reviewed_state)
+         VALUES (?, ?, ?, 'competitor', '', 'applied')
+         ON CONFLICT (project_id, LOWER(name)) DO UPDATE SET
+           reviewed_state = 'applied'`,
+        generateId('gnode'), projectId, name,
+      );
+    }
   }
 
   // Cold-start premortem trigger. When a project saves context and has zero

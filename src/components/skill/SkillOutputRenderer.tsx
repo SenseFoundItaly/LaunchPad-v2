@@ -7,12 +7,15 @@ import ArtifactRenderer from '@/components/chat/artifacts/ArtifactRenderer';
 const noop = () => {};
 const noopEntity = (_e: EntityCard) => {};
 
-/** Read-only artifact wrapper */
-function ReadOnlyArtifact({ artifact }: { artifact: Artifact }) {
+type ArtifactAction = (action: string, payload: Record<string, unknown>) => void | Promise<void>;
+
+/** Artifact wrapper — read-only unless the host passes a real onAction
+ *  (SkillDetailPanel wires knowledge:apply so Apply/Dismiss work here too). */
+function ReadOnlyArtifact({ artifact, onAction }: { artifact: Artifact; onAction?: ArtifactAction }) {
   return (
     <ArtifactRenderer
       artifact={artifact}
-      onAction={noop}
+      onAction={onAction ?? noop}
       onEntityDiscovered={noopEntity}
     />
   );
@@ -79,9 +82,10 @@ function renderInline(text: string): React.ReactNode {
 
 interface SkillOutputRendererProps {
   content: string;
+  onAction?: ArtifactAction;
 }
 
-export default function SkillOutputRenderer({ content }: SkillOutputRendererProps) {
+export default function SkillOutputRenderer({ content, onAction }: SkillOutputRendererProps) {
   const segments = parseMessageContent(content);
 
   return (
@@ -90,7 +94,7 @@ export default function SkillOutputRenderer({ content }: SkillOutputRendererProp
         if (segment.type === 'artifact') {
           // Skip action suggestions and option sets — the detail panel has its own next steps
           if (segment.artifact.type === 'option-set' || segment.artifact.type === 'action-suggestion') return null;
-          return <ReadOnlyArtifact key={i} artifact={segment.artifact} />;
+          return <ReadOnlyArtifact key={i} artifact={segment.artifact} onAction={onAction} />;
         }
         if (segment.type === 'text') {
           return <TextBlock key={i} content={segment.content} />;

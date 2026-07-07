@@ -1,11 +1,12 @@
 import { NextRequest } from 'next/server';
-import { get } from '@/lib/db';
-import { json } from '@/lib/api-helpers';
+import { get, run } from '@/lib/db';
+import { json, generateId } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { runSkill } from '@/lib/skill-executor';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
 import { activeStageFor } from '@/lib/journey';
 import { canvasRunPrereqs } from '@/lib/skill-prereqs';
+import { maybeBuildScoreReviewOptionSet } from '@/lib/score-review';
 
 /**
  * GET /api/projects/{projectId}/score
@@ -119,6 +120,24 @@ export async function POST(
         const res = await runSkill(projectId, 'startup-scoring', { ownerUserId, timeoutMs: 170_000 });
         const row = await get<{ overall_score: number | null }>(
           'SELECT overall_score FROM scores WHERE project_id = ?', projectId);
+        // Road-1 weak-section review — this route's caller (Home ScorePanel)
+        // drains the SSE without rendering, so the deterministic option-set is
+        // persisted as an assistant chat message (brief-route pattern): the
+        // founder finds it in chat. Idempotent per run (score_review_offered).
+        // ONLY on a founder-initiated score — a background/gate `auto` re-score
+        // must not nag the founder's chat with a fresh review offer.
+        try {
+          const review = auto ? null : await maybeBuildScoreReviewOptionSet(projectId, ownerUserId);
+          if (review) {
+            await run(
+              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
+               VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
+              generateId('msg'), projectId, review, new Date().toISOString(), ownerUserId,
+            );
+          }
+        } catch (err) {
+          console.warn('[score] review offer failed (non-fatal):', (err as Error).message);
+        }
         emit({ done: true, scored: true, overall_score: row?.overall_score ?? null, latency_ms: res.latency_ms });
       } catch (err) {
         emit({ error: `score run failed: ${(err as Error).message}` });

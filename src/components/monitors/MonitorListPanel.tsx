@@ -522,11 +522,14 @@ function ExpandableWatcherRow({
     },
   });
 
-  const [busy, setBusy] = useState<'run' | 'status' | 'save' | 'archive' | null>(null);
+  const [busy, setBusy] = useState<'run' | 'status' | 'save' | 'archive' | 'scrape' | null>(null);
   // Two-click archive guard: first click arms (turns the button red), second
   // confirms. Disarms on mouse-leave so a stray click can't remove a watcher.
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
+
+  // Manual-scrape outcome line for URL watchers (watch_source origin).
+  const [scrapeOutcome, setScrapeOutcome] = useState<string | null>(null);
 
   // Live-run state: the activity feed + streamed prose + final outcome.
   const [runSteps, setRunSteps] = useState<RunStep[]>([]);
@@ -686,6 +689,37 @@ function ExpandableWatcherRow({
       const queued = typeof frame.pending_actions_created === 'number' ? frame.pending_actions_created : 0;
       setRunSteps((s) => s.map((step) => (step.status === 'running' ? { ...step, status: 'done' } : step)));
       setRunDone({ alerts, routed, queued });
+    }
+  }
+
+  // Manual "Scrape now" for URL watchers — POST on the watch-source route
+  // itself (the old /scrape leaf 404s under two dynamic segments on the
+  // OpenNext adapter). Without this the first scan after approving a URL
+  // watcher waited ~24h for the cron tick ("approved but nothing happens").
+  async function scrapeNow() {
+    if (busy) return;
+    setBusy('scrape');
+    setActionErr(null);
+    setScrapeOutcome(null);
+    try {
+      // Content-Type required — CSRF middleware 415s mutating /api calls without it.
+      const res = await fetch(`/api/projects/${projectId}/watch-sources/${w._origin_id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.success === false) throw new Error(body?.error || `HTTP ${res.status}`);
+      const r = (body?.data ?? {}) as { status?: string; alert_created?: boolean; error?: string };
+      if (r.status === 'error') setScrapeOutcome(t('monitors.scrape-failed', { error: r.error || '—' }));
+      else if (r.status === 'unchanged') setScrapeOutcome(t('monitors.scrape-no-change'));
+      else if (r.status === 'classified') setScrapeOutcome(t(r.alert_created ? 'monitors.scrape-change-alert' : 'monitors.scrape-change-quiet'));
+      else setScrapeOutcome(t('monitors.scrape-done'));
+    } catch (e) {
+      setActionErr((e as Error).message || t('monitors.run-failed'));
+    } finally {
+      setBusy(null);
+      void invalidate();
     }
   }
 
@@ -1079,6 +1113,19 @@ function ExpandableWatcherRow({
               )}
               <div style={{ fontSize: 11, color: 'var(--ink-5)', fontStyle: 'italic' }}>
                 {t('monitors.url-watcher-note')}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  disabled={busy !== null || w.status === 'paused'}
+                  onClick={(e) => { e.stopPropagation(); void scrapeNow(); }}
+                  style={{ ...miniBtn, opacity: busy || w.status === 'paused' ? 0.55 : 1 }}
+                  title={t('monitors.scrape-now-hint')}
+                >
+                  {busy === 'scrape' ? t('monitors.scraping') : t('monitors.scrape-now')}
+                </button>
+                {scrapeOutcome && <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{scrapeOutcome}</span>}
+                {actionErr && <span style={{ fontSize: 11, color: 'var(--clay)' }}>{actionErr}</span>}
               </div>
             </>
           )}

@@ -18,6 +18,30 @@ interface SkillDetailPanelProps {
 export default function SkillDetailPanel({ skill, data, projectId, skillStatus, onClose }: SkillDetailPanelProps) {
   const nextSteps = SKILL_NEXT_STEPS[skill.id] || [];
 
+  // knowledge:apply — Apply/Dismiss on the skill's knowledge cards (insight /
+  // entity / comparison / metric). Same PATCH + broadcasts as the chat page's
+  // handler; other verbs stay inert (read-only panel otherwise).
+  async function handleArtifactAction(action: string, payload: Record<string, unknown>): Promise<void> {
+    if (action !== 'knowledge:apply') return;
+    const itemId = String(payload.item_id ?? '');
+    if (!itemId) return;
+    const state = payload.state === 'rejected' ? 'rejected' : 'applied';
+    const res = await fetch(`/api/projects/${projectId}/knowledge/${encodeURIComponent(itemId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(err.error || `Knowledge ${state} failed with status ${res.status}`);
+    }
+    window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+    window.dispatchEvent(new CustomEvent('lp-knowledge-changed', { detail: { projectId } }));
+    if (state === 'applied') {
+      window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
+    }
+  }
+
   // Resolve skill label from id
   function getSkillLabel(skillId: string): string {
     for (const stage of STAGES) {
@@ -73,7 +97,7 @@ export default function SkillDetailPanel({ skill, data, projectId, skillStatus, 
         <div className="flex-1 overflow-y-auto">
           {data.status === 'completed' && data.summary ? (
             <div className="p-5">
-              <SkillOutputRenderer content={data.summary} />
+              <SkillOutputRenderer content={data.summary} onAction={handleArtifactAction} />
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-center px-8">

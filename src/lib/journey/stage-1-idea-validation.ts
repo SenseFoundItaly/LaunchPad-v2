@@ -153,8 +153,10 @@ export const stageIdeaValidation: Stage = {
       label: 'Startup Scoring baseline (0-10)',
       source: 'scores.overall_score',
       evaluate: (s) => {
+        // > 0: chat radar-chart/score-card artifacts insert junk 0-score rows;
+        // a zero baseline must not green the check with no founder-run scoring.
         const overall = s.startup_score?.overall_score;
-        return overall != null
+        return overall != null && overall > 0
           ? { passed: true, evidence: `Baseline score: ${baselineScore10(overall).toFixed(1)}/10 — the reference for the whole cycle.` }
           : { passed: false, gap: 'Run the Startup Scoring analysis to set your baseline' };
       },

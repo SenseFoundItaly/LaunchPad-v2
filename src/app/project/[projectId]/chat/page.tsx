@@ -21,6 +21,7 @@ import api from '@/api';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
 import { useChat, chatStoreHydrated, markChatHydrated } from '@/hooks/useChat';
+import { broadcastPersistedArtifacts } from '@/hooks/usePersistedArtifact';
 import { useStages } from '@/hooks/useStages';
 import { requestRecharge } from '@/components/credits/recharge-events';
 import { useProject } from '@/hooks/useProject';
@@ -1105,7 +1106,12 @@ export default function CopilotChatPage({
         // timeout — a buffered response would 504 on long skills (idea-shaping).
         // Consume the SSE: skip ': keepalive' comment lines, parse the final
         // `data:` event for {status, summary, error}.
-        let runData: { status?: string; summary?: string; error?: string } | null = null;
+        let runData: {
+          status?: string;
+          summary?: string;
+          error?: string;
+          persisted_artifacts?: Record<string, { persisted_id: string; reviewed_state: 'pending' | 'applied' }>;
+        } | null = null;
         // Live streaming: the skill output now arrives as {delta} events (the
         // /skills SSE route forwards runAgent's text deltas). Render them into a
         // single GROWING assistant message so the founder watches the skill being
@@ -1166,6 +1172,13 @@ export default function CopilotChatPage({
             ...prev,
             { id: `msg_${Date.now()}`, role: 'assistant', content: finalContent, timestamp: new Date().toISOString() },
           ]);
+        }
+        // Wire the Apply/Dismiss controls on the skill's knowledge cards: the
+        // done event carries artifactId → server row id (chat-route parity).
+        // Registry-backed broadcast, so the cards mounting from finalContent in
+        // this same tick still resolve their persisted_id.
+        if (runData?.persisted_artifacts && Object.keys(runData.persisted_artifacts).length > 0) {
+          broadcastPersistedArtifacts(runData.persisted_artifacts);
         }
         if (typeof window !== 'undefined') {
           // Skill writes skill_completions + section_scores → spine, readiness,
@@ -1229,7 +1242,7 @@ export default function CopilotChatPage({
         // Continue the conversation so the agent moves to the next gap.
         const cLabel = typeof payload.label === 'string' ? payload.label : 'Confirm';
         const cDesc = typeof payload.description === 'string' ? payload.description.trim() : '';
-        sendMessage(`I choose: ${cLabel}${cDesc ? ` — ${cDesc}` : ''}`);
+        sendMessage(t('chat.i-choose', { choice: `${cLabel}${cDesc ? ` — ${cDesc}` : ''}` }));
         return;
       }
       if (action === 'select-option' && typeof payload.label === 'string') {
@@ -1238,7 +1251,7 @@ export default function CopilotChatPage({
         // bare label. Without it, "Use Example A — Legal radar" lost its
         // "commit this as your solution" intent and got misread as a watcher.
         const optDesc = typeof payload.description === 'string' ? payload.description.trim() : '';
-        sendMessage(`I choose: ${payload.label}${optDesc ? ` — ${optDesc}` : ''}`);
+        sendMessage(t('chat.i-choose', { choice: `${payload.label}${optDesc ? ` — ${optDesc}` : ''}` }));
       } else if (action === 'trigger-action' && typeof payload.title === 'string') {
         const desc = typeof payload.description === 'string' ? payload.description : '';
         sendMessage(`${payload.title}${desc ? ': ' + desc : ''}. Give me a detailed step-by-step plan.`);
@@ -1462,7 +1475,7 @@ export default function CopilotChatPage({
               // agent runs the skill the founder just clicked. See route.ts
               // TIER 3 PRIORITY RULES: "When the founder explicitly asks to run
               // a skill: route through 'I choose: <kickoff>' click path."
-              if (!isStreaming) sendMessage(`I choose: ${label}`);
+              if (!isStreaming) sendMessage(t('chat.i-choose', { choice: label }));
             }}
             onPickPrompt={(prompt) => {
               // A substep was clicked in the (right-pane) Canvas — load the
@@ -1567,7 +1580,7 @@ interface EmptyStateStage {
   status: 'done' | 'active' | 'pending';
   passed: number;
   total: number;
-  results: Array<{ check: { id: string; label: string }; result: { passed: boolean; gap?: string } }>;
+  results: Array<{ check: { id: string; label: string }; result: { passed: boolean; gap?: string; locked?: boolean } }>;
 }
 
 function ChatEmptyState({
@@ -1598,7 +1611,10 @@ function ChatEmptyState({
 
   const active = evals.find((e) => e.status === 'active');
   const doneStages = evals.filter((e) => e.status === 'done');
-  const openChecks = active ? active.results.filter((r) => !r.result.passed) : [];
+  // Locked checks (1C before 1A+1B complete) are not clickable next-steps —
+  // mirror the brief route's filter; they render below as locked rows instead.
+  const openChecks = active ? active.results.filter((r) => !r.result.passed && !r.result.locked) : [];
+  const lockedChecks = active ? active.results.filter((r) => !r.result.passed && r.result.locked) : [];
   // "Has the founder already added substance?" — any validated stage, any passed
   // check in the active stage, or knowledge entities (e.g. from a doc upload).
   const hasProgress =
@@ -1660,6 +1676,14 @@ function ChatEmptyState({
                     <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-5)', marginTop: 2 }}>{c.result.gap}</span>
                   )}
                 </button>
+              ))}
+              {lockedChecks.slice(0, Math.max(0, 4 - openChecks.length)).map((c) => (
+                <div key={c.check.id} style={{ ...btnStyle, cursor: 'default', opacity: 0.6 }}>
+                  <span style={{ fontWeight: 500, color: 'var(--ink)' }}>🔒 {c.check.label}</span>
+                  {c.result.gap && (
+                    <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-5)', marginTop: 2 }}>{c.result.gap}</span>
+                  )}
+                </div>
               ))}
             </div>
           </>
