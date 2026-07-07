@@ -155,24 +155,13 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
         : { passed: false, gap: 'Pin what makes you different in chat' };
     },
   },
-  {
-    id: 'monitors_set',
-    label: 'L1 watchers active',
-    source: 'monitors + watch_sources',
-    track: '1A',
-    evaluate: (s) => {
-      // ANY active signal-watching counts: topic monitors AND URL watchers
-      // (watch_sources). Both are "watchers" to the founder — a project
-      // with only URL watchers was wrongly failing this gate before.
-      const activeMonitors = s.monitors.filter((m) => m.status === 'active').length;
-      const activeWatchSources = s.watch_sources.filter((w) => w.status === 'active').length;
-      const active = activeMonitors + activeWatchSources;
-      const ok = active >= 1;
-      return ok
-        ? { passed: true, evidence: `You have ${active} L1 watcher${active === 1 ? '' : 's'} tracking this market.` }
-        : { passed: false, gap: 'Activate at least one L1 watcher on competitors or trends' };
-    },
-  },
+  // NOTE (2026-07 founder decision): the old `monitors_set` ("L1 watchers
+  // active") check was REMOVED from the gate. Watchers are now a POST-Stage-2
+  // concern — the system auto-proposes them only once the Validation Gate is
+  // COMPLETE (so the proposals are informed by the validated market/competitors
+  // and are more accurate; see phase1-watchers.ts). Requiring an active watcher
+  // to COMPLETE the gate contradicted that ("after Stage 2"), so it's gone. The
+  // founder can still configure a watcher directly via chat at any time.
 ];
 
 // ── Track 1B — Technical Validation ──────────────────────────────────────────

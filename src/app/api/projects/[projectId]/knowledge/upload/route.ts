@@ -6,9 +6,7 @@ import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { debitCredits, DOCUMENT_AUDIT_CREDITS } from '@/lib/credits';
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
-import { createPendingAction } from '@/lib/pending-actions';
 import { validationTargetsFor, validationLabel } from '@/lib/journey/validation-targets';
-import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { canvasIsEmpty } from '@/lib/idea-canvas-seed';
 
 const MAX_FILE_BYTES = 10_485_760; // 10 MiB per file — real PDFs/decks are bigger than a text note
@@ -274,61 +272,11 @@ async function extractCanvas(text: string, projectId: string): Promise<ProposedC
 // founder opts in on the populating screen, and the chosen ones are created via
 // POST /monitors. Mirrors extractEntities/extractCanvas (Haiku, best-effort).
 
-interface ProposedMonitor {
-  name: string;
-  aim: string;
-  cadence: 'daily' | 'weekly';
-}
-
-const MONITORS_PROMPT = `From the founder's document(s) below, suggest up to 4 recurring "watchers" — background scans worth running on a schedule to catch external moves that matter to THIS startup (e.g. a named competitor's launches, a specific regulation, a pricing page, a market trend).
-
-Return a JSON array. Each object: { "name": one short label (<=60 chars), "aim": one sentence describing what it watches for and why (<=160 chars), "cadence": "daily" | "weekly" }.
-
-Rules: only suggest watchers grounded in what the document ACTUALLY mentions — NEVER invent a competitor, regulation, or trend the founder didn't write. Use "daily" only for genuinely fast-moving things; default "weekly". If the text is thin or has nothing worth watching, return [].
-
-Output ONLY the JSON array — no markdown, no preamble.
-
-DOCUMENT:
-"""
-{TEXT}
-"""`;
-
-async function extractMonitors(text: string, projectId: string): Promise<ProposedMonitor[]> {
-  const truncated = text.length > 16000 ? text.slice(0, 16000) : text;
-  try {
-    const startedAt = Date.now();
-    const { text: raw, usage } = await runAgent(MONITORS_PROMPT.replace('{TEXT}', truncated), {
-      task: 'classify',
-      tools: false,
-      timeout: 25_000,
-    });
-    await recordAgentUsage({
-      project_id: projectId,
-      step: 'knowledge-upload-monitors',
-      task: 'classify',
-      usage,
-      latency_ms: Date.now() - startedAt,
-    });
-    const m = raw.match(/\[[\s\S]*\]/);
-    if (!m) return [];
-    const parsed = JSON.parse(m[0]) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const out: ProposedMonitor[] = [];
-    for (const item of parsed) {
-      if (!item || typeof item !== 'object') continue;
-      const e = item as Record<string, unknown>;
-      const name = typeof e.name === 'string' ? e.name.trim().slice(0, 60) : '';
-      const aim = typeof e.aim === 'string' ? e.aim.trim().slice(0, 160) : '';
-      if (!name || !aim) continue;
-      out.push({ name, aim, cadence: e.cadence === 'daily' ? 'daily' : 'weekly' });
-      if (out.length >= 4) break;
-    }
-    return out;
-  } catch (err) {
-    console.warn('[upload/monitors] monitor extraction failed:', (err as Error).message);
-    return [];
-  }
-}
+// NOTE (2026-07 founder decision): watcher extraction/suggestion at upload time
+// was removed. Watchers are auto-proposed only AFTER the Validation Gate is
+// complete (phase1-watchers.ts) so they're informed by validated data, and the
+// founder can always configure one directly via chat. Upload extracts CANVAS +
+// ENTITIES only; the old extractMonitors/MONITORS_PROMPT lived here.
 
 // Map a node_type to the relation verb used on the edge from your_startup
 // to that entity. Mirrors src/lib/artifact-persistence.ts:relationForEntityType
@@ -600,64 +548,15 @@ export async function POST(
   // project already has canvas content — re-drafting over an existing canvas
   // wastes the LLM call and the draft would be discarded anyway.
   const wantCanvas = shouldExtract && ingestedTexts.length > 0 && (await canvasIsEmpty(projectId));
-  const [proposedCanvas, proposedMonitors] =
-    shouldExtract && ingestedTexts.length > 0
-      ? await Promise.all([
-          wantCanvas ? extractCanvas(ingestedTexts.join('\n\n---\n\n'), projectId) : Promise.resolve(null),
-          extractMonitors(ingestedTexts.join('\n\n---\n\n'), projectId),
-        ])
-      : [null, [] as ProposedMonitor[]];
+  const proposedCanvas = wantCanvas
+    ? await extractCanvas(ingestedTexts.join('\n\n---\n\n'), projectId)
+    : null;
 
-  // Persist each watcher suggestion as a configure_monitor pending_action so
-  // the founder's opt-in APPROVES it through the real executor — which builds
-  // the full scan prompt from this config (the payload deliberately carries NO
-  // prompt). Unchecked suggestions stay pending → visible as "Proposed" in the
-  // Watchers tab instead of vanishing. Dedup is ANY-status (like phase1_auto):
-  // an OPEN proposal is reused by id; a rejected/applied one means the founder
-  // already decided — don't re-ask on re-upload. Active same-name monitors
-  // also drop the suggestion. Best-effort — never fails the upload.
-  const monitorsWithActions: Array<ProposedMonitor & { pending_action_id?: string }> = [];
-  const uploadLocale = proposedMonitors.length > 0
-    ? await resolveLocale(userId, projectId).catch(() => 'en' as const)
-    : ('en' as const);
-  for (const m of proposedMonitors) {
-    try {
-      const dupeAction = await get<{ id: string; status: string }>(
-        `SELECT id, status FROM pending_actions
-          WHERE project_id = ? AND action_type = 'configure_monitor'
-            AND LOWER(payload->>'name') = LOWER(?)
-          ORDER BY (status IN ('pending','edited')) DESC
-          LIMIT 1`,
-        projectId, m.name,
-      );
-      if (dupeAction) {
-        // Open → reuse; decided (rejected/applied/…) → the founder's call sticks.
-        if (dupeAction.status === 'pending' || dupeAction.status === 'edited') {
-          monitorsWithActions.push({ ...m, pending_action_id: dupeAction.id });
-        }
-        continue;
-      }
-      const dupeMonitor = await get<{ id: string }>(
-        `SELECT id FROM monitors
-          WHERE project_id = ? AND LOWER(name) = LOWER(?) AND status = 'active' LIMIT 1`,
-        projectId, m.name,
-      );
-      if (dupeMonitor) continue; // already watching this — don't re-propose
-      const pa = await createPendingAction({
-        project_id: projectId,
-        action_type: 'configure_monitor',
-        title: uploadLocale === 'it' ? `Configura monitor: ${m.name}` : `Configure monitor: ${m.name}`,
-        rationale: m.aim,
-        // Mirrors what the configureMonitor executor reads.
-        payload: { name: m.name, objective: m.aim, kind: 'custom', schedule: m.cadence, origin: 'upload' },
-        estimated_impact: 'medium',
-      });
-      monitorsWithActions.push({ ...m, pending_action_id: pa.id });
-    } catch (err) {
-      console.warn('[upload/monitors] pending_action create failed (non-fatal):', (err as Error).message);
-      monitorsWithActions.push(m);
-    }
-  }
+  // Watcher SUGGESTIONS at upload time were removed (2026-07 founder decision):
+  // watchers are a POST-Stage-2 concern (auto-proposed once the Validation Gate
+  // is complete, so they're informed by the validated market — see
+  // phase1-watchers.ts). The founder can always configure a watcher directly via
+  // chat before then. Upload now extracts CANVAS + ENTITIES only.
 
   // Spine framing (founder directive 2026-06-12): label each extracted item
   // with the validation substep it would turn green, computed from the REAL
@@ -701,10 +600,10 @@ export async function POST(
     canvas_validates: canvasValidates,
     // How many distinct spine steps this document can validate.
     spine_steps: spineSteps,
-    // Suggested watchers (or []) for the founder to opt into. Each carries the
-    // pending_action_id of its configure_monitor proposal (when persisted) —
-    // the client applies via the actions transition endpoint.
-    proposed_monitors: monitorsWithActions,
+    // Watcher suggestions removed at upload time (founder decision) — watchers
+    // are auto-proposed after the Validation Gate completes. Kept as [] so any
+    // older client that reads this field degrades cleanly.
+    proposed_monitors: [],
     // Flat audit fee actually charged (0 unless ?audit_charge=1). Per-document.
     audit_credits_debited: auditCreditsDebited,
     results,

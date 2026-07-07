@@ -71,7 +71,7 @@ function snapshotWithABDone(over: Partial<ProjectSnapshot> = {}): ProjectSnapsho
     },
     competitors: competitors3,
     research: { market_size: { tam: { value: '$840M', confidence: 'medium' }, approved: true } },
-    monitors: [{ id: 'm1', status: 'active' }],
+    // No active monitor needed — `monitors_set` was removed from the gate (2026-07).
     memory_facts: facts([
       'Unlike legacy desktop tools we are cloud and mobile-first.',
       'Feasibility: the recall engine is feasible with existing calendar APIs; main technical risk is EHR integration.',
@@ -90,8 +90,10 @@ function gateResults(snapshot: ProjectSnapshot) {
 
 describe('track membership', () => {
   it('1A / 1B / 1C carry the expected check ids, in order', () => {
+    // `monitors_set` was removed (2026-07): watchers are a post-Stage-2 concern,
+    // not a gate requirement (they'd deadlock "watchers only after Stage 2").
     expect(VALIDATION_TRACK_1A.map((c) => c.id)).toEqual([
-      'problem_defined', 'segment_named', 'competitors_mapped', 'market_size', 'differentiation_evidence', 'monitors_set',
+      'problem_defined', 'segment_named', 'competitors_mapped', 'market_size', 'differentiation_evidence',
     ]);
     expect(VALIDATION_TRACK_1B.map((c) => c.id)).toEqual([
       'tech_feasibility', 'key_dependencies', 'regulatory_check',
@@ -307,51 +309,32 @@ describe('wtp_signal', () => {
 });
 
 describe('shouldProposePhase1Watchers — truth table', () => {
-  // Stage-1-complete canvas (all 9 Phase-0 checks) + startup score.
-  const stage1Done: Partial<ProjectSnapshot> = {
-    idea_canvas: {
-      problem: 'Small dental practices lose hours every week to manual patient recall management.',
-      solution: 'A cloud recall tool',
-      target_market: 'Italian dental practices',
-      value_proposition: 'Save 5 hours/week',
-      competitive_advantage: 'Mobile-first',
-      unfair_advantage: 'Proprietary recall dataset',
-      business_model: 'SaaS subscription',
-      channels: 'Dental associations',
-      key_metrics: ['recalls booked'],
-      revenue_streams: ['subscriptions'],
-      cost_structure: ['infra'],
-    },
-    startup_score: { overall_score: 6.5, scored_at: '2026-07-01' },
-  };
-
-  it('TRUE: stage 1 done, gate active, zero active watchers', () => {
-    expect(shouldProposePhase1Watchers(mkSnapshot(stage1Done))).toBe(true);
+  // Founder decision 2026-07: propose watchers ONLY once the Validation Gate
+  // (Stage 2) is COMPLETE — so proposals are informed by validated data. The
+  // fixture completes 1A+1B+1C (5 interviews with pain + WTP close 1C).
+  const gateDone = (over: Partial<ProjectSnapshot> = {}) => snapshotWithABDone({
+    interviews: Array.from({ length: 5 }, (_, i) => ({
+      id: `iv${i}`, person_name: `P${i}`, top_pain: 'manual recall work is painful', wtp_amount: 30, urgency: 'high',
+    })),
+    ...over,
   });
 
-  it('FALSE: stage 1 incomplete', () => {
-    expect(shouldProposePhase1Watchers(mkSnapshot({ ...stage1Done, startup_score: null }))).toBe(false);
+  it('TRUE: Stage 2 complete, zero active watchers', () => {
+    expect(shouldProposePhase1Watchers(gateDone())).toBe(true);
+  });
+
+  it('FALSE: Stage 2 NOT complete yet (still mid-gate)', () => {
+    // 1A+1B done but no interviews → 1C open → gate not done → don't propose early.
+    expect(shouldProposePhase1Watchers(snapshotWithABDone())).toBe(false);
     expect(shouldProposePhase1Watchers(mkSnapshot())).toBe(false);
   });
 
-  it('FALSE: an active watcher already exists (monitor OR watch_source)', () => {
-    expect(shouldProposePhase1Watchers(mkSnapshot({ ...stage1Done, monitors: [{ id: 'm1', status: 'active' }] }))).toBe(false);
-    expect(shouldProposePhase1Watchers(mkSnapshot({ ...stage1Done, watch_sources: [{ id: 'w1', status: 'active' }] }))).toBe(false);
+  it('FALSE: gate done but an active watcher already exists (monitor OR watch_source)', () => {
+    expect(shouldProposePhase1Watchers(gateDone({ monitors: [{ id: 'm1', status: 'active' }] }))).toBe(false);
+    expect(shouldProposePhase1Watchers(gateDone({ watch_sources: [{ id: 'w1', status: 'active' }] }))).toBe(false);
   });
 
   it('TRUE: paused watchers do not count as coverage', () => {
-    expect(shouldProposePhase1Watchers(mkSnapshot({ ...stage1Done, monitors: [{ id: 'm1', status: 'paused' }] }))).toBe(true);
-  });
-
-  it('FALSE: gate already complete (stage 2 done → stage 3 active)', () => {
-    const snap = snapshotWithABDone({
-      ...stage1Done,
-      interviews: Array.from({ length: 5 }, (_, i) => ({
-        id: `iv${i}`, person_name: `P${i}`, top_pain: 'manual work', wtp_amount: 30, urgency: null,
-      })),
-    });
-    // monitors_set needs an active watcher for stage 2 to be done — which also
-    // falsifies the zero-watchers condition; both reasons say "don't propose".
-    expect(shouldProposePhase1Watchers(snap)).toBe(false);
+    expect(shouldProposePhase1Watchers(gateDone({ monitors: [{ id: 'm1', status: 'paused' }] }))).toBe(true);
   });
 });
