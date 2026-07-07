@@ -3,6 +3,7 @@ import { query, run } from '@/lib/db';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { maybeTriggerLoop1 } from '@/lib/loops/loop1-psf';
+import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
 
 /**
  * GET /api/projects/{projectId}/interviews
@@ -84,6 +85,9 @@ export async function POST(
   // Awaited (idempotent, non-throwing, cheap below the interview floor) so the
   // trigger survives the serverless response freeze.
   await maybeTriggerLoop1(projectId);
+  // Logging the interview that closes 1C completes the Validation Gate — the
+  // moment we auto-propose L1 watchers (now gated on Stage-2-done). Idempotent.
+  await maybeProposePhase1Watchers(projectId);
 
   const [row] = await query('SELECT * FROM interviews WHERE id = ?', id);
   return json(row);

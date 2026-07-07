@@ -18,7 +18,7 @@
  */
 
 import { query } from '@/lib/db';
-import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
+import { buildProjectSnapshot, evaluateAllStages } from '@/lib/journey';
 import type { ProjectSnapshot } from '@/lib/journey';
 import { proposeWatchers, type ProposedWatcher } from '@/lib/watcher-proposer';
 import { createPendingAction } from '@/lib/pending-actions';
@@ -31,18 +31,22 @@ import type { WatchSourceCategory } from '@/types';
 export const PHASE1_WATCHER_ORIGIN = 'phase1_auto';
 
 /**
- * Pure predicate: propose exactly when the founder has just entered the
- * Validation Gate with no signal coverage — Stage 1 done, Stage 2 active,
- * zero active watchers (monitors + watch_sources).
+ * Pure predicate: propose exactly when the founder has just COMPLETED the
+ * Validation Gate (Stage 2 done) with no signal coverage yet.
+ *
+ * Founder decision (2026-07): watchers are proposed AFTER Stage 2 completes,
+ * not at its start — by then the market, competitors and technical validation
+ * are done, so the auto-proposed watchers are far more accurate. (The founder
+ * can always configure a watcher directly via chat before then; that path is
+ * ungated.) This replaces the old "Stage 2 active" trigger.
  */
 export function shouldProposePhase1Watchers(snapshot: ProjectSnapshot): boolean {
   const evals = evaluateAllStages(snapshot);
-  const stage1Done = evals.find((e) => e.stage.id === 'idea_validation')?.status === 'done';
-  const gateActive = activeStage(evals).stage.id === 'market_validation';
+  const gateDone = evals.find((e) => e.stage.id === 'market_validation')?.status === 'done';
   const activeWatchers =
     snapshot.monitors.filter((m) => m.status === 'active').length +
     snapshot.watch_sources.filter((w) => w.status === 'active').length;
-  return !!stage1Done && gateActive && activeWatchers === 0;
+  return !!gateDone && activeWatchers === 0;
 }
 
 // Watcher-proposer topics → monitor `kind` (VALID_MONITOR_KINDS taxonomy).

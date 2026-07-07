@@ -162,31 +162,9 @@ async function pollPhase1(projectId: string, timeoutMs: number) {
   check('1C wtp_signal is LOCKED', result(gate, 'wtp_signal').locked === true);
   check('1B tech_feasibility is open (not locked)', !result(gate, 'tech_feasibility').locked);
 
-  // ── 2. chat turn → phase1_auto proposals (fire-and-forget, so poll) ────────
-  await chat(projectId, 'Where do we stand? What should I validate next?');
-  const proposals = await pollPhase1(projectId, 90_000);
-  check('phase1_auto watcher proposals created', proposals.length > 0, `count=${proposals.length}`);
-  check('proposals are pending (approve-first, nothing auto-activated)', proposals.every((p) => p.status === 'pending'));
-  const activeBefore = await sql`
-    SELECT (SELECT COUNT(*) FROM monitors WHERE project_id = ${projectId} AND status = 'active')::int
-         + (SELECT COUNT(*) FROM watch_sources WHERE project_id = ${projectId} AND status = 'active')::int AS n`;
-  check('zero ACTIVE watchers before approval', Number(activeBefore[0].n) === 0);
-
-  // ── 3. second chat turn → idempotent (no new proposals) ────────────────────
-  await chat(projectId, 'Thanks. Anything else on the market side?');
-  await new Promise((r) => setTimeout(r, 20_000)); // give a would-be duplicate run time to land
-  const after2 = await phase1Proposals(projectId);
-  check('2nd turn creates NO new proposals (idempotent)', after2.length === proposals.length, `before=${proposals.length} after=${after2.length}`);
-
-  // ── 4. approve one proposal → active watcher → monitors_set green ─────────
-  const target = after2[0];
-  await api('POST', `/api/projects/${projectId}/actions/${target.id}`, { transition: 'apply' });
-  const activeAfter = await sql`
-    SELECT (SELECT COUNT(*) FROM monitors WHERE project_id = ${projectId} AND status = 'active')::int
-         + (SELECT COUNT(*) FROM watch_sources WHERE project_id = ${projectId} AND status = 'active')::int AS n`;
-  check('applying the proposal activated a watcher', Number(activeAfter[0].n) >= 1);
-  gate = await gateEval(projectId);
-  check('monitors_set is green after approval', result(gate, 'monitors_set').passed === true);
+  // NOTE (2026-07 founder decision): watchers are NO LONGER proposed at Stage-2
+  // START, and `monitors_set` was removed from the gate. Watchers are auto-
+  // proposed only AFTER the Validation Gate completes — see section 6b below.
 
   // ── 5. seed the remaining 1A + 1B evidence → 1C unlocks ────────────────────
   for (const name of ['Dentrix', 'CareStack', 'RecallMax']) {
@@ -240,6 +218,21 @@ async function pollPhase1(projectId: string, timeoutMs: number) {
   check('pain_validated green (verbatim top_pain)', result(gate, 'pain_validated').passed === true);
   check('wtp_signal green (2 interviews with WTP)', result(gate, 'wtp_signal').passed === true);
   check('stage 2 (Validation Gate) is DONE', gate.status === 'done', `status=${gate.status}`);
+
+  // ── 6b. NOW that the gate is complete, watchers auto-propose (new timing) ───
+  // The interviews above were seeded via SQL (no API trigger), so nudge one
+  // chat turn — the chat route fires maybeProposePhase1Watchers post-turn.
+  await chat(projectId, 'Great, the validation gate is done. What now?');
+  const proposals = await pollPhase1(projectId, 90_000);
+  check('phase1_auto watchers proposed AFTER the gate completes', proposals.length > 0, `count=${proposals.length}`);
+  check('proposals are pending (approve-first)', proposals.every((p) => p.status === 'pending'));
+  const target = proposals[0];
+  await api('POST', `/api/projects/${projectId}/actions/${target.id}`, { transition: 'apply' });
+  await new Promise((r) => setTimeout(r, 800));
+  const activeAfter = await sql`
+    SELECT (SELECT COUNT(*) FROM monitors WHERE project_id = ${projectId} AND status = 'active')::int
+         + (SELECT COUNT(*) FROM watch_sources WHERE project_id = ${projectId} AND status = 'active')::int AS n`;
+  check('approving a proposed watcher activates it', Number(activeAfter[0].n) >= 1);
 
   // ── 7. scoring run → weak-section review option-set (road-1 middle step) ──
   // Runs the REAL startup-scoring skill (~30-120s LLM run), so it's gated:
