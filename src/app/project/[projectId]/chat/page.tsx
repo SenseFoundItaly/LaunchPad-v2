@@ -1209,6 +1209,15 @@ export default function CopilotChatPage({
           const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
           throw new Error(err.error || `Recording the verdict failed with status ${res.status}`);
         }
+        // The route echoes the EFFECTIVE verdict (recordLoop1Verdict is
+        // idempotent) — so a re-submit on a reloaded card returns the verdict
+        // already on record. Confirm THAT, never the clicked one, so the message
+        // can never contradict what's stored.
+        const respBody = await res.json().catch(() => null);
+        const recorded: 'GO' | 'PIVOT' | 'STOP' =
+          respBody?.data?.verdict === 'GO' || respBody?.data?.verdict === 'PIVOT' || respBody?.data?.verdict === 'STOP'
+            ? respBody.data.verdict
+            : verdict;
         // Closing the loop lifts the Phase-2 pricing/business-model gate and
         // clears the review from the inbox — refetch spine / skills / actions.
         if (typeof window !== 'undefined') {
@@ -1217,9 +1226,9 @@ export default function CopilotChatPage({
         }
         // Confirm inline — the verdict is already recorded, so no model turn is
         // needed. Each verdict gets its own next-step guidance.
-        const confirmKey = verdict === 'GO'
+        const confirmKey = recorded === 'GO'
           ? 'loop1.verdict-recorded-go'
-          : verdict === 'PIVOT'
+          : recorded === 'PIVOT'
             ? 'loop1.verdict-recorded-pivot'
             : 'loop1.verdict-recorded-stop';
         setMessages((prev) => [

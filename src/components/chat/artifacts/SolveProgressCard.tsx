@@ -91,6 +91,11 @@ export default function SolveProgressCard({ artifact }: { artifact: SolveProgres
                       textDecoration: stage.status === 'skipped' ? 'line-through' : 'none',
                     }}
                   >
+                    {/* NOT localized on purpose: these are model-generated
+                        'solve-progress' stage labels with their own ad-hoc id
+                        space — they do NOT map to the canonical journey ids, so
+                        stageLabel() would only fall back to this same raw label.
+                        Do not wire the spine i18n helpers here. */}
                     {stage.label}
                   </span>
                   {stage.status === 'completed' && (

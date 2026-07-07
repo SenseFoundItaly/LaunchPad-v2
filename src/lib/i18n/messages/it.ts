@@ -613,7 +613,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   // Conferma inline dopo che il founder sceglie un verdetto (il click lo ha già
   // registrato tramite la route dei loop — non segue alcun turno del modello).
   'loop1.verdict-recorded-go': 'Verdetto registrato: **GO**. Il segnale PSF è abbastanza forte — questa review è chiusa e la Fase 2 (pricing e modello di business) è sbloccata.',
-  'loop1.verdict-recorded-pivot': 'Verdetto registrato: **PIVOT**. Rivedi il tuo ICP, la value proposition o la definizione del problema, poi rifai un giro di interviste. Questa review è ora chiusa.',
+  'loop1.verdict-recorded-pivot': 'Verdetto registrato: **PIVOT**. Rivedi il tuo ICP, la value proposition o il problem statement, poi rifai un giro di interviste. Questa review è ora chiusa.',
   'loop1.verdict-recorded-stop': "Verdetto registrato: **STOP**. L'evidenza dice di accantonare questa idea. Questa review è chiusa — non serve altro.",
   'journey-prompt.wtp': 'Aiutami a registrare un segnale di disponibilità a pagare — ti dico cosa hanno detto gli intervistati.',
   'journey-prompt.generic': 'Aiutami con: {label}',
@@ -644,7 +644,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'journey-check.tiers_defined': 'Fasce (tier) definite',
   'journey-check.wtp_researched': 'Disponibilità a pagare analizzata',
   'journey-check.model_chosen': 'Modello di pricing scelto',
-  'journey-check.unit_econ_viable': 'Unit economics sostenibile (LTV ≥ CAC)',
+  'journey-check.unit_econ_viable': 'Unit economics sostenibili (LTV ≥ CAC)',
   'journey-check.workflow_active': 'Workflow attivo',
   'journey-check.scope_defined': "Scope dell'MVP definito",
   'journey-check.something_shipped': 'Qualcosa rilasciato',
@@ -663,7 +663,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'journey-tagline.idea_validation': "L'idea strutturata — Lean Canvas compilato, punteggio di riferimento impostato.",
   'journey-tagline.market_validation': 'Valida la domanda di mercato e la fattibilità tecnica prima di costruire.',
   'journey-tagline.persona': 'Beachhead scelto, ICP descritto, percorso di acquisizione immaginato.',
-  'journey-tagline.business_model': 'Àncora, fasce, disponibilità a pagare, unit economics sensata.',
+  'journey-tagline.business_model': 'Àncora, fasce, disponibilità a pagare, unit economics sensate.',
   'journey-tagline.build_launch': 'Costruisci, rilascia, primi utenti.',
   'journey-tagline.fundraise': 'Runway chiaro, piano di raccolta capitale in moto.',
   'journey-tagline.operate': 'Loop che si compongono, metriche in movimento.',

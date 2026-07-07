@@ -13,13 +13,16 @@ import { Panel, Pill, Icon, I } from '@/components/design/primitives';
 import { checkActionPrompt, checkLabel, stageLabel, stageTagline } from '@/lib/journey-prompts';
 import { useT } from '@/components/providers/LocaleProvider';
 import { useStages, type StageCheckRow } from '@/hooks/useStages';
+import type { MessageKey } from '@/lib/i18n/messages';
 
 // L2 Validation Gate sub-track headers (walkthrough §2). Only the validation
 // stage tags its checks; everywhere else `track` is undefined → flat render.
-const TRACK_LABEL: Record<'1A' | '1B' | '1C', string> = {
-  '1A': '1A · Market',
-  '1B': '1B · Technical',
-  '1C': '1C · Problem-Solution Fit',
+// i18n-keyed (mirrors SpineSection) so the headers localize on IT projects —
+// a plain-string map here leaked English while the Canvas spine rendered Italian.
+const TRACK_LABEL: Record<'1A' | '1B' | '1C', MessageKey> = {
+  '1A': 'canvas.track-1a',
+  '1B': 'canvas.track-1b',
+  '1C': 'canvas.track-1c',
 };
 const TRACK_ORDER: Array<'1A' | '1B' | '1C'> = ['1A', '1B', '1C'];
 
@@ -86,7 +89,7 @@ export function StageCard({ projectId }: { projectId: string }) {
               <div key={tk}>
                 <div style={{ padding: '8px 14px 2px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'baseline', gap: 8 }}>
                   <span className="lp-mono" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5, color: 'var(--ink-5)', textTransform: 'uppercase' }}>
-                    {TRACK_LABEL[tk]}
+                    {t(TRACK_LABEL[tk])}
                   </span>
                   <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-6, var(--ink-5))' }}>{done}/{rows.length}</span>
                 </div>
