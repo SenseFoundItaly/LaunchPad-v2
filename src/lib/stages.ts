@@ -151,6 +151,7 @@ export const SKILL_KICKOFFS: Record<string, string> = {
   'market-research': 'Run a comprehensive market analysis — TAM/SAM/SOM, competitors, and trends.',
   'technical-validation': 'Validate the technical feasibility — build approach, key dependencies, and regulatory/compliance constraints.',
   'customer-interviews': 'Build my Problem-Solution Fit interview kit — who to interview, the 5-question script with verbatim-pain and willingness-to-pay capture, and how to log each interview.',
+  'psf-review': 'Run the PSF review — diagnose why willingness-to-pay is low and propose a surgical revision to my ICP, value proposition and problem statement.',
   'scientific-validation': 'Generate detailed buyer personas and an empathy map for my startup.',
   'risk-scoring': 'Run a comprehensive risk audit across all dimensions — technical, market, regulatory, team, and financial.',
   'business-model': 'Help me evaluate and score business model options for my startup.',

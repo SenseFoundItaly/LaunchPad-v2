@@ -1,6 +1,7 @@
 import { get, query } from '@/lib/db';
 import { buildProjectSnapshot } from '@/lib/journey';
 import { validationTracksABMissing } from '@/lib/journey/stage-2-market-validation';
+import { hasOpenLoop1 } from '@/lib/loops/loop1-psf';
 
 /**
  * Idea-canvas prerequisites for skills — the single source of truth shared by
@@ -216,4 +217,27 @@ export async function validationGatePrereqs(projectId: string): Promise<Validati
 export async function validationGateRunPrereqs(projectId: string, skillId: string): Promise<ValidationGatePrereqs> {
   if (!GATE_1C_DEPENDENT_SKILLS.has(skillId)) return { blocked: false, missing: [] };
   return validationGatePrereqs(projectId);
+}
+
+// ── Loop-1 (PSF Review) gate on Phase-2 ──────────────────────────────────────
+// The spec (§5) is emphatic that pricing/business-model comes AFTER a confirmed
+// PSF — "definire il pricing prima di aver capito se qualcuno vuole davvero il
+// prodotto" is the classic mistake. So while an OPEN Loop-1 (weak WTP) is
+// awaiting the founder, the Phase-2 pricing/business skills are gated. The
+// founder can still resolve or override the loop to proceed (founder-first).
+export const LOOP1_GATED_SKILLS = new Set<string>(['business-model', 'financial-model']);
+
+export function isLoop1GatedSkill(skillId: string): boolean {
+  return LOOP1_GATED_SKILLS.has(skillId);
+}
+
+/** True when `skillId` is a Phase-2 skill AND an open Loop-1 blocks it. Fails
+ *  open on error — never hard-block a founder run on a lookup hiccup. */
+export async function loop1RunBlocked(projectId: string, skillId: string): Promise<boolean> {
+  if (!LOOP1_GATED_SKILLS.has(skillId)) return false;
+  try {
+    return await hasOpenLoop1(projectId);
+  } catch {
+    return false;
+  }
 }

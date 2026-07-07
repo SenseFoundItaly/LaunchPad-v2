@@ -14,6 +14,8 @@ import {
   GATE_1C_DEPENDENT_SKILLS,
   validationGatePrereqs,
   validationGateRunPrereqs,
+  loop1RunBlocked,
+  LOOP1_GATED_SKILLS,
 } from '@/lib/skill-prereqs';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { translate } from '@/lib/i18n/messages';
@@ -40,13 +42,16 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   if (new URL(request.url).searchParams.get('availability') === '1') {
-    const [incomplete, gate1c] = await Promise.all([
+    const [incomplete, gate1c, loop1Open] = await Promise.all([
       canvasLacksCorePrereqs(projectId),
       validationGatePrereqs(projectId),
+      loop1RunBlocked(projectId, 'business-model'), // any gated skill probes the open-loop state
     ]);
     const gated = incomplete ? [...CANVAS_DEPENDENT_SKILLS] : [];
     // Track-1C skills (customer-interviews) stay gated until 1A+1B pass.
     if (gate1c.blocked) gated.push(...GATE_1C_DEPENDENT_SKILLS);
+    // Phase-2 pricing/business skills stay gated while a PSF Review is open.
+    if (loop1Open) gated.push(...LOOP1_GATED_SKILLS);
     return json({ gated });
   }
 
@@ -147,6 +152,22 @@ export async function POST(
           error: 'validation_gate_locked',
           missing: gate1c.missing,
           message: translate(locale, 'skills.gate-1c-locked', { missing: gate1c.missing.join(', ') }),
+        }),
+        { status: 422, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // LOOP-1 GATE (run-time) — Phase-2 pricing/business skills are blocked while
+    // an open PSF Review (weak WTP) is awaiting the founder: don't build pricing
+    // on an invalidated PSF (§5). Resolving or overriding the loop unblocks.
+    if (await loop1RunBlocked(projectId, body.skill_id as string)) {
+      console.info(`[skills] ${body.skill_id} blocked — open Loop-1 (PSF review) pending`);
+      const locale = await resolveLocale(ownerUserId, projectId);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'loop1_gate_open',
+          message: translate(locale, 'skills.loop1-gated'),
         }),
         { status: 422, headers: { 'Content-Type': 'application/json' } },
       );

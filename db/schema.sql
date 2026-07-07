@@ -202,6 +202,32 @@ CREATE INDEX IF NOT EXISTS idx_interviews_project_conducted
   ON interviews(project_id, conducted_at DESC);
 
 -- =============================================================================
+-- Validation loops (L2 loop layer — Loop 1 PSF Review; migration 031)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS validation_loops (
+  id TEXT PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  loop_number INT NOT NULL CHECK (loop_number BETWEEN 1 AND 4),
+  iteration INT NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'proposed'
+    CHECK (status IN ('proposed', 'active', 'in_review', 'closed')),
+  trigger TEXT NOT NULL DEFAULT 'auto' CHECK (trigger IN ('auto', 'manual')),
+  loop_score JSONB DEFAULT '[]'::jsonb,
+  scope JSONB DEFAULT '[]'::jsonb,
+  verdict TEXT CHECK (verdict IN ('GO', 'PIVOT', 'STOP')),
+  verdict_evidence JSONB,
+  override_motivation TEXT,
+  pending_action_id TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  closed_at TIMESTAMP
+);
+
+-- One lookup pattern dominates: "is there an OPEN loop N for this project?"
+CREATE INDEX IF NOT EXISTS idx_validation_loops_project_open
+  ON validation_loops(project_id, loop_number, status);
+
+
+-- =============================================================================
 -- Alerts
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS alerts (

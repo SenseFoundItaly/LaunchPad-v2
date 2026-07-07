@@ -30,6 +30,7 @@ import { recordFact } from '@/lib/memory/facts';
 import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
 import { coerceJson } from '@/lib/jsonb';
+import { maybeTriggerLoop1 } from '@/lib/loops/loop1-psf';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { translate, type MessageKey } from '@/lib/i18n/messages';
 import type { Locale } from '@/lib/i18n/locales';
@@ -2620,6 +2621,11 @@ const logInterviewTool = (ctx: ToolContext): AgentTool => ({
       now,
       now,
     );
+
+    // Loop 1 (PSF Review): a fresh interview may push the WTP signal below the
+    // 30% block. Awaited (idempotent, non-throwing, and cheap below 5 interviews
+    // via an internal count guard) so it isn't lost to the serverless freeze.
+    await maybeTriggerLoop1(ctx.projectId);
 
     return {
       content: [{ type: 'text', text: `Logged interview with ${person_name}. Stage 2 will recount evidence on next refresh.` }],

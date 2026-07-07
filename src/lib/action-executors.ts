@@ -1608,6 +1608,14 @@ const runSkillExecutor: ActionHandler = async (action) => {
     timeoutMs: 170_000,
     allowAnySkill: true,
   });
+  // Loop 1: approving the PSF-review kickoff moves the loop to 'active' so the
+  // NEXT round of interviews escalates (iteration++) or forces a verdict.
+  if (skillId === 'psf-review' && payload.loop_id) {
+    await run(
+      `UPDATE validation_loops SET status = 'active' WHERE id = ? AND project_id = ? AND status = 'proposed'`,
+      String(payload.loop_id), action.project_id,
+    ).catch((err) => console.warn('[run_skill] loop1 activate failed (non-fatal):', (err as Error).message));
+  }
 
   // Phase-1 watcher activation — a skill run can close the last Stage-1
   // evidence (mirrors applyValidationProposal below; awaited for the

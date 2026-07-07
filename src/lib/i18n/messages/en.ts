@@ -616,6 +616,15 @@ export const en = {
   'journey-prompt.regulatory': 'Help me check my regulatory and compliance constraints (e.g. GDPR).',
   'journey-prompt.lean-canvas': 'Help me complete the remaining Lean Canvas blocks.',
   'journey-prompt.scoring': 'Run the Startup Scoring analysis to set my baseline score.',
+  // Loop 1 — PSF Review (L2 loop layer).
+  'loop1.card-title': 'PSF Review — willingness-to-pay is only {pct}%',
+  'loop1.card-rationale': 'Only {pct}% of your interviewees would pay (below the {threshold}% bar). Review your ICP, value proposition and problem statement before building pricing. Approve to run the PSF review.',
+  'loop1.card-title-manual': 'PSF Review',
+  'loop1.card-rationale-manual': 'Review your Problem-Solution Fit — ICP, value proposition and problem statement — against your interviews. Approve to run the PSF review.',
+  'loop1.verdict-prompt': "You've iterated on PSF twice and willingness-to-pay is still below the bar. Time for a decision:",
+  'loop1.verdict-go': 'GO — the signal is strong enough to proceed',
+  'loop1.verdict-pivot': 'PIVOT — revise the target or value proposition',
+  'loop1.verdict-stop': 'STOP — the evidence says this idea should be shelved',
   'journey-prompt.wtp': "Help me capture a willingness-to-pay signal — I'll tell you what interviewees said they'd pay.",
   'journey-prompt.generic': 'Help me with: {label}',
   'canvas.view-in-canvas': 'View in canvas',
@@ -627,6 +636,7 @@ export const en = {
   'canvas.track-1c': '1C · Problem-Solution Fit',
   'canvas.track-locked': 'Locked until 1A + 1B are complete',
   'skills.gate-1c-locked': 'Customer interviews unlock after tracks 1A (Market) and 1B (Technical) are complete. Still open: {missing}. Close those first — I can help with each one.',
+  'skills.loop1-gated': 'Pricing and business-model work is on hold while your PSF Review is open — willingness-to-pay came back weak. Resolve the review (or dismiss it with a reason) first, so you build pricing on a confirmed fit.',
   // Road-1 post-scoring weak-section review (deterministic option-set).
   'score-review.prompt': 'Your baseline score has weak areas. Where do you want to dig in before validating?',
   'score-review.option-label': "Let's review {dim} ({score}/100)",
