@@ -223,6 +223,9 @@ async function persistProposal(
         urls_to_track: p.inputs.urls ?? [],
         alert_threshold: p.rationale || `Material change relevant to ${p.name}`,
         linked_risk_id: 'ad_hoc',
+        // Carried into the scan prompt on apply (buildMonitorScanPrompt topic
+        // steering) so the monitor emits the alert_types that feed its category.
+        topic: p.topic,
         origin: PHASE1_WATCHER_ORIGIN,
       },
       estimated_impact: 'medium',

@@ -50,8 +50,9 @@ function langName(locale: string): string {
 /** True when the project has no canvas content yet (no row, or all fields blank).
  *  On query error we treat it as empty (logged) — the downstream auto-stage is
  *  itself a no-op if there's nothing to add, and the open-proposal dedup guards
- *  against a stray duplicate card. */
-async function canvasIsEmpty(projectId: string): Promise<boolean> {
+ *  against a stray duplicate card. Exported: the knowledge-upload route uses it
+ *  to skip the canvas-draft LLM pass when the founder already has a canvas. */
+export async function canvasIsEmpty(projectId: string): Promise<boolean> {
   const rows = await query<Record<string, string | null>>(
     'SELECT problem, solution, target_market, value_proposition, competitive_advantage, business_model, channels FROM idea_canvas WHERE project_id = ?',
     projectId,

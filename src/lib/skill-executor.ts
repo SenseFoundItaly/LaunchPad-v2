@@ -181,6 +181,11 @@ export interface RunSkillResult {
   latency_ms: number;
   completed_at: string;
   artifacts_persisted: number;
+  /** Client artifact id → server row id, mirroring the chat route's done-event
+   *  map. The /skills SSE forwards it so usePersistedArtifact resolves and the
+   *  Apply/Dismiss controls on skill-emitted knowledge cards go live (they
+   *  rendered permanently disabled — "Saving proposal…" — without it). */
+  persisted_artifacts: Record<string, { persisted_id: string; reviewed_state: 'pending' | 'applied' }>;
 }
 
 /**
@@ -304,12 +309,19 @@ export async function runSkill(
   // scores, comparison-table → research.competitors, etc.). Non-fatal — the
   // skill_completions row writes either way.
   let artifactsPersisted = 0;
+  const persistedArtifacts: RunSkillResult['persisted_artifacts'] = {};
   try {
     const segments = parseMessageContent(text);
     for (const seg of segments) {
       if (seg.type !== 'artifact') continue;
       const result = await persistArtifact({ userId: opts.ownerUserId, projectId }, seg.artifact);
-      if (result.persisted) artifactsPersisted++;
+      if (result.persisted) {
+        artifactsPersisted++;
+        // Collect the id map for the done-event enrichment (chat route parity).
+        if (result.persisted_id && seg.artifact.id) {
+          persistedArtifacts[seg.artifact.id] = { persisted_id: result.persisted_id, reviewed_state: 'pending' };
+        }
+      }
     }
   } catch (err) {
     console.warn(`[skill-executor] artifact persist failed for ${skillId}:`, (err as Error).message);
@@ -340,7 +352,8 @@ export async function runSkill(
   // the score landing for auto-scoring, manual runs, and cron alike.
   if (skillId === 'startup-scoring' && !incomplete) {
     try {
-      if (await persistScoreFromSummary(projectId, text)) artifactsPersisted++;
+      // force: a deliberate re-score must refresh the stored overall/dimensions.
+      if (await persistScoreFromSummary(projectId, text, { force: true })) artifactsPersisted++;
     } catch (err) {
       console.warn(`[skill-executor] score fallback failed for ${skillId}:`, (err as Error).message);
     }
@@ -435,5 +448,6 @@ export async function runSkill(
     latency_ms: latencyMs,
     completed_at: completedAt,
     artifacts_persisted: artifactsPersisted,
+    persisted_artifacts: persistedArtifacts,
   };
 }

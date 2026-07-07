@@ -298,6 +298,7 @@ const proposedHypothesis: ActionHandler = async (action) => {
 
 const proposedGraphUpdate: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
+  const locale = await localeFor(action);
 
   // Chat-knowledge proposal (materialized by materializeProposalsFromSources):
   // the graph_node / memory_fact ALREADY exists as 'pending'. Applying just
@@ -331,7 +332,9 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
       deliverable: {
         mode: 'direct',
         created_row_id: ks.id,
-        narrative: `Applied to project intelligence${creditsNote}.`,
+        narrative: locale === 'it'
+          ? `Applicato all'intelligence del progetto${creditsNote}.`
+          : `Applied to project intelligence${creditsNote}.`,
       },
     };
   }
@@ -348,7 +351,6 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
   const sources = Array.isArray(payload.sources) && payload.sources.length > 0
     ? payload.sources
     : null;
-  const locale = await localeFor(action);
 
   const nodeId = generateId('gnode');
   // reviewed_state='applied': the founder just APPROVED this proposed_graph_update,
@@ -511,6 +513,51 @@ const MONITOR_KIND_HEADERS: Record<string, { en: string; it: string }> = {
 };
 
 /**
+ * One steering line per watcher-proposer topic (phase-1 payloads carry it).
+ * Nudges the scan toward the alert_types that feed that topic's knowledge
+ * category — e.g. "partnerships" also covers supplier_move so FORNITORI has a
+ * recurring feeder. Chat-proposed monitors have no topic and skip the line.
+ */
+const TOPIC_STEERING: Record<string, { en: string; it: string }> = {
+  competitors: {
+    en: 'Topic focus: competitors — prefer alert_type "competitor_activity", "product_launch" or "pricing_change".',
+    it: 'Focus del topic: competitor — preferisci alert_type "competitor_activity", "product_launch" o "pricing_change".',
+  },
+  ip: {
+    en: 'Topic focus: intellectual property — prefer alert_type "ip_filing".',
+    it: 'Focus del topic: proprietà intellettuale — preferisci alert_type "ip_filing".',
+  },
+  trends: {
+    en: 'Topic focus: market trends — prefer alert_type "trend_signal"; use "gtm_signal" for go-to-market moves (channels, distribution, campaigns).',
+    it: 'Focus del topic: trend di mercato — preferisci alert_type "trend_signal"; usa "gtm_signal" per mosse go-to-market (canali, distribuzione, campagne).',
+  },
+  partnerships: {
+    en: 'Topic focus: partnerships — prefer alert_type "partnership_opportunity"; use "supplier_move" when the finding is about a supplier or vendor in the chain.',
+    it: 'Focus del topic: partnership — preferisci alert_type "partnership_opportunity"; usa "supplier_move" quando il finding riguarda un fornitore o vendor della filiera.',
+  },
+  hiring: {
+    en: 'Topic focus: hiring — prefer alert_type "hiring_signal".',
+    it: 'Focus del topic: assunzioni — preferisci alert_type "hiring_signal".',
+  },
+  sentiment: {
+    en: 'Topic focus: customer sentiment — prefer alert_type "customer_sentiment".',
+    it: 'Focus del topic: sentiment dei clienti — preferisci alert_type "customer_sentiment".',
+  },
+  funding: {
+    en: 'Topic focus: funding — prefer alert_type "funding_event".',
+    it: 'Focus del topic: finanziamenti — preferisci alert_type "funding_event".',
+  },
+  regulatory: {
+    en: 'Topic focus: regulation — prefer alert_type "regulatory_change".',
+    it: 'Focus del topic: normativa — preferisci alert_type "regulatory_change".',
+  },
+  pricing: {
+    en: 'Topic focus: pricing — prefer alert_type "pricing_change".',
+    it: 'Focus del topic: pricing — preferisci alert_type "pricing_change".',
+  },
+};
+
+/**
  * Build a runnable scan prompt for a chat-proposed monitor.
  *
  * The chat `propose_monitor` → `configureMonitor` path stores a rich `config`
@@ -532,6 +579,8 @@ export async function buildMonitorScanPrompt(
     query?: string;
     urls: string[];
     alertThreshold: string;
+    /** Watcher-proposer topic (phase-1 payloads) — adds one steering line. */
+    topic?: string;
   },
 ): Promise<string> {
   // Lean context: project name/description/locale is enough for a runnable
@@ -557,6 +606,8 @@ export async function buildMonitorScanPrompt(
 
   const header = (MONITOR_KIND_HEADERS[spec.kind] ?? MONITOR_KIND_HEADERS.custom)[locale];
 
+  const steering = spec.topic ? TOPIC_STEERING[spec.topic] : undefined;
+
   // Founder's specific targets — the "what to watch" the founder defined in chat.
   const targetLines: string[] = [];
   if (locale === 'it') {
@@ -564,6 +615,7 @@ export async function buildMonitorScanPrompt(
     if (spec.urls.length > 0) targetLines.push(`Sorgenti da monitorare: ${spec.urls.join(', ')}`);
     if (spec.query) targetLines.push(`Focus di ricerca: ${spec.query}`);
     if (spec.alertThreshold) targetLines.push(`Genera un alert quando: ${spec.alertThreshold}`);
+    if (steering) targetLines.push(steering.it);
     targetLines.push(
       `Per ogni cambiamento materiale che soddisfa la soglia sopra, emetti un ecosystem_alert. ` +
       `Scegli alert_type in base alla natura del finding. Non riportare rumore di routine.`,
@@ -573,6 +625,7 @@ export async function buildMonitorScanPrompt(
     if (spec.urls.length > 0) targetLines.push(`Watch these sources: ${spec.urls.join(', ')}`);
     if (spec.query) targetLines.push(`Search focus: ${spec.query}`);
     if (spec.alertThreshold) targetLines.push(`Alert when: ${spec.alertThreshold}`);
+    if (steering) targetLines.push(steering.en);
     targetLines.push(
       `For each material change that meets the threshold above, emit one ecosystem_alert. ` +
       `Pick alert_type by the nature of the finding. Do not report routine noise.`,
@@ -607,6 +660,9 @@ const configureMonitor: ActionHandler = async (action) => {
     ? payload.urls_to_track.filter((u): u is string => typeof u === 'string')
     : [];
   const alertThreshold = String(payload.alert_threshold ?? '');
+  // Phase-1 proposals carry the watcher-proposer topic — steers alert_type
+  // choice in the built scan prompt. Absent on chat-proposed monitors.
+  const topic = typeof payload.topic === 'string' ? payload.topic : undefined;
   const linkedRiskId = String(payload.linked_risk_id ?? 'ad_hoc');
   const linkedQuote = typeof payload.linked_quote === 'string' ? payload.linked_quote : null;
   const dedupOverrideReason = typeof payload.dedup_override_reason === 'string'
@@ -634,6 +690,7 @@ const configureMonitor: ActionHandler = async (action) => {
         query: q,
         urls,
         alertThreshold,
+        topic,
       });
 
   // Race-guard: re-run L1 dedup. L2 semantic check is skipped here because
@@ -690,6 +747,8 @@ const configureMonitor: ActionHandler = async (action) => {
       urls_to_track: urls,
       query: q,
       linked_risk_id: linkedRiskId,
+      // Kept so objective-edit prompt rebuilds preserve the steering line.
+      ...(topic ? { topic } : {}),
     },
     prompt,
     nextRun,
@@ -886,6 +945,7 @@ const deleteMonitor: ActionHandler = async (action) => {
 
 const configureBudget: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
+  const locale = await localeFor(action);
 
   const proposedCapRaw = payload.proposed_cap_usd;
   const proposedCap = typeof proposedCapRaw === 'number' ? proposedCapRaw : Number(proposedCapRaw);
@@ -971,8 +1031,12 @@ const configureBudget: ActionHandler = async (action) => {
     deliverable: {
       mode: 'direct',
       narrative: prevCap != null
-        ? `Monthly LLM cap updated: $${prevCap.toFixed(2)} → $${proposedCap.toFixed(2)} for ${periodMonth}.`
-        : `Monthly LLM cap set to $${proposedCap.toFixed(2)} for ${periodMonth}.`,
+        ? (locale === 'it'
+            ? `Tetto LLM mensile aggiornato: $${prevCap.toFixed(2)} → $${proposedCap.toFixed(2)} per ${periodMonth}.`
+            : `Monthly LLM cap updated: $${prevCap.toFixed(2)} → $${proposedCap.toFixed(2)} for ${periodMonth}.`)
+        : (locale === 'it'
+            ? `Tetto LLM mensile impostato a $${proposedCap.toFixed(2)} per ${periodMonth}.`
+            : `Monthly LLM cap set to $${proposedCap.toFixed(2)} for ${periodMonth}.`),
     },
   };
 };
@@ -985,6 +1049,7 @@ const configureBudget: ActionHandler = async (action) => {
  */
 const configureWatchSource: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
+  const locale = await localeFor(action);
 
   const url = String(payload.url ?? '');
   const label = String(payload.label ?? action.title);
@@ -1043,7 +1108,9 @@ const configureWatchSource: ActionHandler = async (action) => {
     deliverable: {
       mode: 'direct',
       created_row_id: wsId,
-      narrative: `Watch source "${label}" created. Schedule: ${schedule}. URL: ${url}`,
+      narrative: locale === 'it'
+        ? `Fonte di monitoraggio "${label}" creata. Frequenza: ${schedule}. URL: ${url}`
+        : `Watch source "${label}" created. Schedule: ${schedule}. URL: ${url}`,
     },
   };
 };
@@ -1080,6 +1147,12 @@ function nodeTypeForAlert(alertType: string): string {
     case 'market': return 'market';
     case 'social_signal': return 'trend';
     case 'hiring_signal': return 'hr_collaborator';
+    // 12-satellite taxonomy feeders — supplier/GTM/branding/persona signals
+    // land in their macro category instead of the unclassified 'signal' bucket.
+    case 'supplier_move': return 'supplier';
+    case 'gtm_signal': return 'gtm_strategy';
+    case 'ad_activity': return 'brand_asset';
+    case 'customer_sentiment': return 'persona';
     // Non-canonical variants the parser has emitted in prod:
     case 'regulatory': return 'regulation';
     case 'competitor': return 'competitor';
@@ -1431,6 +1504,7 @@ export async function dismissAlertSource(action: PendingAction): Promise<void> {
 
 const signalAlert: ActionHandler = async (action) => {
   const graphNodeId = await acceptAlertIntoKnowledge(action);
+  const locale = await localeFor(action);
 
   return {
     ok: true,
@@ -1438,8 +1512,12 @@ const signalAlert: ActionHandler = async (action) => {
       mode: 'direct',
       created_row_id: graphNodeId ?? undefined,
       narrative: graphNodeId
-        ? `Signal accepted and folded into project knowledge (graph node ${graphNodeId}).`
-        : `Signal acknowledged. Marked source ecosystem_alert as accepted.`,
+        ? (locale === 'it'
+            ? `Segnale accettato e integrato nella knowledge del progetto (nodo ${graphNodeId}).`
+            : `Signal accepted and folded into project knowledge (graph node ${graphNodeId}).`)
+        : (locale === 'it'
+            ? `Segnale preso in carico. Alert dell'ecosistema segnato come accettato.`
+            : `Signal acknowledged. Marked source ecosystem_alert as accepted.`),
     },
   };
 };
@@ -1452,11 +1530,14 @@ const intelligenceBrief: ActionHandler = async (action) => {
       briefId,
     );
   }
+  const locale = await localeFor(action);
   return {
     ok: true,
     deliverable: {
       mode: 'direct',
-      narrative: `Brief reviewed. Recommended actions (if any) remain available in the chat for follow-up.`,
+      narrative: locale === 'it'
+        ? `Brief esaminato. Le azioni consigliate (se presenti) restano disponibili in chat per il follow-up.`
+        : `Brief reviewed. Recommended actions (if any) remain available in the chat for follow-up.`,
     },
   };
 };
@@ -1478,11 +1559,12 @@ const assumptionReview: ActionHandler = async (action) => {
       console.warn('[assumptionReview] update skipped:', (err as Error).message);
     }
   }
+  const locale = await localeFor(action);
   return {
     ok: true,
     deliverable: {
       mode: 'direct',
-      narrative: `Assumption marked validated.`,
+      narrative: locale === 'it' ? `Assunzione segnata come validata.` : `Assumption marked validated.`,
     },
   };
 };
@@ -1526,6 +1608,12 @@ const runSkillExecutor: ActionHandler = async (action) => {
     timeoutMs: 170_000,
     allowAnySkill: true,
   });
+
+  // Phase-1 watcher activation — a skill run can close the last Stage-1
+  // evidence (mirrors applyValidationProposal below; awaited for the
+  // serverless freeze, idempotent + non-throwing inside).
+  await maybeProposePhase1Watchers(action.project_id);
+
   return {
     ok: true,
     deliverable: {
@@ -1624,11 +1712,24 @@ const applyValidationProposal: ActionHandler = async (action) => {
       // Stamp the founder's approval into research.market_size — the Stage-2
       // `market_size` check trusts the structured column ONLY with this flag
       // (the column is also written ungated as cross-turn reference data).
-      // Legacy double-encoded rows (string scalar) are skipped; the applied
-      // fact above covers them via the check's keyword fallback.
+      // approved_value snapshots WHAT the founder approved (the item text +
+      // the tiers in the column at click time) so the evidence survives later
+      // ungated full-replace writes — the three writers carry these keys
+      // across and structuredTam prefers approved_value.tam. Legacy
+      // double-encoded rows (string scalar) are skipped; the applied fact
+      // above covers them via the check's keyword fallback.
       await run(
-        `UPDATE research SET market_size = market_size || '{"approved": true}'::jsonb
+        `UPDATE research SET market_size = market_size || jsonb_build_object(
+             'approved', true,
+             'approved_at', ?::text,
+             'approved_value', jsonb_strip_nulls(jsonb_build_object(
+               'text', ?::text,
+               'tam', market_size->'tam',
+               'sam', market_size->'sam',
+               'som', market_size->'som')))
           WHERE project_id = ? AND market_size IS NOT NULL AND jsonb_typeof(market_size) = 'object'`,
+        new Date().toISOString(),
+        value,
         action.project_id,
       ).catch((err) => console.warn('[applyValidationProposal] market_size approval stamp failed (non-fatal):', (err as Error).message));
       applied.push('Market size');
@@ -1738,6 +1839,7 @@ async function effectiveArpu(projectId: string): Promise<number> {
  */
 const proposeAssumptionRevision: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
+  const locale = await localeFor(action);
   const field = payload.field;
   if (!isRevisableField(field)) {
     return { ok: false, error: `propose_assumption_revision: unknown or non-revisable field "${String(field)}"` };
@@ -1762,7 +1864,9 @@ const proposeAssumptionRevision: ActionHandler = async (action) => {
     ok: true,
     deliverable: {
       mode: 'direct' as const,
-      narrative: `Updated ${field} to ${updated[field]} and recomputed the 36-month projection.`,
+      narrative: locale === 'it'
+        ? `Aggiornato ${field} a ${updated[field]} e ricalcolata la proiezione a 36 mesi.`
+        : `Updated ${field} to ${updated[field]} and recomputed the 36-month projection.`,
     },
   };
 };
@@ -1791,13 +1895,18 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   // workflow-card fan-out into per-step pending_actions was removed (2026-06),
   // so this rarely materializes today; when it does, be honest rather than
   // fake-acknowledging. Keep the mapping (don't 500 on an unknown type).
-  workflow_step: async (_pa) => ({
-    ok: true,
-    deliverable: {
-      mode: 'direct' as const,
-      narrative: 'One-click workflow execution is coming soon — track this step manually for now.',
-    },
-  }),
+  workflow_step: async (pa) => {
+    const locale = await localeFor(pa);
+    return {
+      ok: true,
+      deliverable: {
+        mode: 'direct' as const,
+        narrative: locale === 'it'
+          ? 'L’esecuzione dei workflow con un clic sta arrivando — per ora traccia questo passo manualmente.'
+          : 'One-click workflow execution is coming soon — track this step manually for now.',
+      },
+    };
+  },
 };
 
 export async function executeAppliedAction(action: PendingAction): Promise<ExecutorResult> {

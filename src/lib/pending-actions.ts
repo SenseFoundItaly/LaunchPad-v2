@@ -535,6 +535,33 @@ export async function editPendingAction(id: string, editedPayload: Record<string
   ]);
 }
 
+/**
+ * Refresh the payload of an OPEN, never-founder-touched proposal in place —
+ * status stays 'pending'. Used by the auto-stage reshape merge: a re-emitted
+ * evidence artifact updates the ONE open auto card instead of stacking a new
+ * card per turn (or being silently dropped). Deliberately NOT a state
+ * transition: pinning `WHERE status = 'pending'` means a founder decision
+ * racing in (apply / edit / reject) wins and this refresh is dropped —
+ * a founder-edited card (status 'edited') is never touched by this path.
+ * Returns false when the row was no longer pending.
+ */
+export async function updateOpenProposalPayload(
+  id: string,
+  payload: Record<string, unknown>,
+  opts: { title?: string; rationale?: string } = {},
+): Promise<boolean> {
+  const sets = ['payload = ?', 'updated_at = ?'];
+  // Raw object bind — payload is JSONB (see createPendingAction).
+  const params: unknown[] = [payload, new Date().toISOString()];
+  if (opts.title) { sets.push('title = ?'); params.push(opts.title); }
+  if (opts.rationale) { sets.push('rationale = ?'); params.push(opts.rationale); }
+  const res = await run(
+    `UPDATE pending_actions SET ${sets.join(', ')} WHERE id = ? AND status = 'pending'`,
+    ...params, id,
+  );
+  return (res.count ?? 0) > 0;
+}
+
 export async function rejectPendingAction(id: string, reason?: string): Promise<PendingAction> {
   const extras: { key: string; value: unknown }[] = [];
   if (reason) {

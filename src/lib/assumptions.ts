@@ -24,6 +24,7 @@ import { query, run, get } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
 
 export type AssumptionCategory =
   | 'market'
@@ -116,7 +117,14 @@ export async function extractAssumptions(
 ): Promise<ExtractAssumptionsResult> {
   const result: ExtractAssumptionsResult = { inserted: 0, skipped: 0, errors: [] };
 
-  const prompt = `Project context:\n\n${context}\n\nExtract assumptions. Return JSON only.`;
+  // Founders read these in the Inbox — write the human-readable `text` in the
+  // project language. JSON keys and the `category`/`criticality` enums stay
+  // English (they're matched against VALID_CATEGORIES/VALID_CRITICALITIES).
+  const locale = await resolveLocale('', projectId);
+  const langLine = locale === 'it'
+    ? '\n\nWrite each assumption\'s "text" value in Italian. Keep the JSON keys and the category/criticality enum values in English.'
+    : '';
+  const prompt = `Project context:\n\n${context}\n\nExtract assumptions. Return JSON only.${langLine}`;
 
   const startedAt = Date.now();
   const agentResult = await runAgent(prompt, {

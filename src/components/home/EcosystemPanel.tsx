@@ -12,44 +12,31 @@
 
 import Link from 'next/link';
 import { Icon, I } from '@/components/design/primitives';
-import { useT } from '@/components/providers/LocaleProvider';
-import type { MessageKey } from '@/lib/i18n/messages';
+import { useLocale, useT } from '@/components/providers/LocaleProvider';
 import { useKnowledgeGraph } from '@/hooks/useKnowledgeGraph';
 import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
-
-// node_type → a founder-facing group label key. Unknown types fall back to "Other".
-const TYPE_LABEL: Record<string, MessageKey> = {
-  competitor: 'eco.competitors',
-  market: 'eco.markets',
-  persona: 'eco.personas',
-  customer: 'eco.personas',
-  partner: 'eco.partners',
-  investor: 'eco.investors',
-  funding: 'eco.investors',
-  technology: 'eco.tech',
-  risk: 'eco.risks',
-  feature: 'eco.features',
-  metric: 'eco.metrics',
-  supplier: 'eco.suppliers',
-  hr_collaborator: 'eco.hr-collabs',
-  brand_asset: 'eco.branding',
-  gtm_strategy: 'eco.gtm',
-  business_essential: 'eco.business-essentials',
-};
+import type { MacroCategory } from '@/types/graph';
+import { macroCategoryFor, MACRO_CATEGORY_ORDER, MACRO_CATEGORY_LABEL, MACRO_CATEGORY_COLOR } from '@/types/graph';
 
 export function EcosystemPanel({ projectId }: { projectId: string }) {
   const t = useT();
+  const locale = useLocale();
   const { graph } = useKnowledgeGraph(projectId);
 
   // `your_startup` is the implicit hub — every other node hangs off it, so it
-  // doesn't earn a legend chip. Counts drive the legend under the graph.
-  const ecoNodes = graph.nodes.filter((n) => n.node_type && n.node_type !== 'your_startup');
-  const counts = new Map<MessageKey, number>();
-  for (const n of ecoNodes) {
-    const key = TYPE_LABEL[n.node_type as string] ?? 'eco.other';
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+  // doesn't earn a legend chip. Counts collapse into the same 12-satellite
+  // macro-categories the graph draws (macroCategoryFor), so the legend under
+  // the graph names the SAME wedges the founder sees above it; chips deep-link
+  // into /knowledge?cat= (the graph opens drilled into that satellite).
+  const counts = new Map<MacroCategory, number>();
+  for (const n of graph.nodes) {
+    if (!n.node_type || n.node_type === 'your_startup') continue;
+    const cat = macroCategoryFor(n.node_type);
+    if (cat) counts.set(cat, (counts.get(cat) ?? 0) + 1);
   }
-  const groups = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  // Fixed wedge order (same clock positions as the graph), present categories only.
+  const groups = MACRO_CATEGORY_ORDER.filter((cat) => counts.has(cat))
+    .map((cat) => [cat, counts.get(cat) as number] as const);
   const hasGraph = graph.nodes.length > 0;
 
   return (
@@ -80,21 +67,23 @@ export function EcosystemPanel({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {/* Compact legend — type counts double as quick links into /knowledge. */}
+      {/* Compact legend — macro-category counts double as deep links into the
+          /knowledge graph, pre-drilled into that satellite (?cat=). */}
       {groups.length > 0 && (
         <div style={{ padding: 12, borderTop: '1px solid var(--line)', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {groups.map(([key, n]) => (
+          {groups.map(([cat, n]) => (
             <Link
-              key={key}
-              href={`/project/${projectId}/knowledge`}
+              key={cat}
+              href={`/project/${projectId}/knowledge?cat=${cat}`}
               style={{
-                display: 'inline-flex', alignItems: 'baseline', gap: 6,
+                display: 'inline-flex', alignItems: 'center', gap: 6,
                 padding: '6px 10px', borderRadius: 999,
                 background: 'var(--paper-2)', border: '1px solid var(--line)',
                 textDecoration: 'none', color: 'var(--ink-2)', fontSize: 12,
               }}
             >
-              <span>{t(key)}</span>
+              <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: MACRO_CATEGORY_COLOR[cat], flexShrink: 0 }} />
+              <span>{MACRO_CATEGORY_LABEL[cat][locale === 'it' ? 'it' : 'en']}</span>
               <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>{n}</span>
             </Link>
           ))}

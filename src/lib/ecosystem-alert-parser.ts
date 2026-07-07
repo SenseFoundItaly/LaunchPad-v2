@@ -107,6 +107,8 @@ const VALID_ALERT_TYPES: ReadonlySet<string> = new Set<EcosystemAlertType>([
   'ad_activity',
   'pricing_change',
   'product_launch',
+  'supplier_move',
+  'gtm_signal',
 ]);
 
 export function extractEcosystemAlerts(text: string): {

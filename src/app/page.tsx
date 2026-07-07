@@ -1250,6 +1250,21 @@ function ExtractedKnowledgeView({
     }
   }
 
+  // Skip ≠ discard: the canvas draft is already extracted (paid) — stage it as
+  // a pending approval card (stage_only) so the founder can pick it up later
+  // from chat/Inbox. Founder-first: staging only proposes, nothing applies.
+  async function skipAndContinue() {
+    if (projectId && canvas && canvasFields.length > 0) {
+      setApplying(true);
+      await fetch(`/api/projects/${projectId}/idea-canvas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...canvas, stage_only: true }),
+      }).catch(() => null);
+    }
+    onContinue();
+  }
+
   // Compose the primary button label: list the actions, then ONE upfront credit
   // total (entities exact + AI brief estimate; ~ signals the brief is metered).
   // Watcher cost is weekly (shown per-row), never folded into this number.
@@ -1396,7 +1411,7 @@ function ExtractedKnowledgeView({
         </button>
         {(canvasFields.length > 0 || applicableIds.length > 0 || monitors.length > 0) && (
           <button
-            onClick={onContinue}
+            onClick={skipAndContinue}
             disabled={applying}
             style={{ padding: '8px 10px', background: 'transparent', color: 'var(--ink-4)', border: 'none', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline', textUnderlineOffset: 3 }}
           >

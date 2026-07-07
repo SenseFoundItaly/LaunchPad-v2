@@ -34,8 +34,10 @@ export const MARKET_SIZE_CHECK_SOURCE = 'research.market_size + memory_facts (ma
  *  (the cross-turn reference write in artifact-persistence.ts, plus market
  *  metric-grids); counting those would green the check with no founder yes —
  *  the exact finding_validation_gate_bypasses class. applyValidationProposal
- *  stamps `approved: true` into the JSONB when the market_size item is
- *  applied; that stamp is what makes the structured read authoritative.
+ *  stamps `{approved, approved_at, approved_value}` into the JSONB when the
+ *  market_size item is applied; approved_value snapshots the approved tiers,
+ *  so it is preferred over the top-level tam (which ungated writers may have
+ *  since replaced — the stamp is carried across but the tiers move).
  *  Tolerates the legacy double-encoded shape and both {value}/{estimate}
  *  tier keys. */
 function structuredTam(research: Record<string, unknown> | null): string {
@@ -43,14 +45,18 @@ function structuredTam(research: Record<string, unknown> | null): string {
   const ms = coerceJson<Record<string, unknown>>(research.market_size);
   if (!ms || typeof ms !== 'object') return '';
   if ((ms as { approved?: unknown }).approved !== true) return '';
-  const tam = (ms as { tam?: unknown }).tam;
-  if (typeof tam === 'string') return tam.trim();
-  if (tam && typeof tam === 'object') {
-    const t = tam as { value?: unknown; estimate?: unknown };
-    if (typeof t.value === 'string' && t.value.trim()) return t.value.trim();
-    if (typeof t.estimate === 'string' && t.estimate.trim()) return t.estimate.trim();
-  }
-  return '';
+  const tierText = (tam: unknown): string => {
+    if (typeof tam === 'string') return tam.trim();
+    if (tam && typeof tam === 'object') {
+      const t = tam as { value?: unknown; estimate?: unknown };
+      if (typeof t.value === 'string' && t.value.trim()) return t.value.trim();
+      if (typeof t.estimate === 'string' && t.estimate.trim()) return t.estimate.trim();
+    }
+    return '';
+  };
+  const av = (ms as { approved_value?: unknown }).approved_value;
+  const approvedTam = av && typeof av === 'object' ? tierText((av as { tam?: unknown }).tam) : '';
+  return approvedTam || tierText((ms as { tam?: unknown }).tam);
 }
 
 // ── Track 1A — Market ────────────────────────────────────────────────────────
@@ -127,10 +133,11 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
       // comparison ("email vs calls"), letting unrelated facts falsely green
       // this check. The remaining phrases are specific differentiation signals.
       // Bilingual (EN + IT). 'differenz' stem catches differenza/differenziamo/
-      // differenziazione; "a differenza di" / "ci distinguiamo" are the IT prose forms.
+      // differenziazione; "a differenza di" / "ci distinguiamo" / "rispetto a"
+      // are the IT prose forms (all three phrasings SKILL.it.md instructs).
       const n = countMemoryFactsMatching(s, [
         'unlike', 'better than', 'differentiator', 'compared to',
-        'a differenza di', 'differenz', 'meglio di', 'ci distinguiamo',
+        'a differenza di', 'differenz', 'meglio di', 'ci distinguiamo', 'rispetto a',
       ]);
       const ok = n > 0;
       return ok
@@ -189,10 +196,11 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
     track: '1B',
     evaluate: (s) => {
       // Bilingual (EN + IT): "Dipendenze chiave", "si affida a", "terze parti".
-      // 'dipendenz' stem matches dipendenza/dipendenze but NOT "dipendenti"
-      // (employees — ends -t, not -z), so no false positive.
+      // 'dependenc' stem matches dependency AND dependencies (the plural never
+      // matched before); 'dipendenz' stem matches dipendenza/dipendenze but NOT
+      // "dipendenti" (employees — ends -t, not -z), so no false positive.
       const n = countMemoryFactsMatching(s, [
-        'dependency', 'depends on', 'third-party', 'integration', 'infrastructure', 'vendor', 'relies on',
+        'dependenc', 'depends on', 'third-party', 'integration', 'infrastructure', 'vendor', 'relies on',
         'dipendenz', 'dipende da', 'terze parti', 'integrazion', 'infrastruttur', 'fornitor', 'si affida', 'si basa su',
       ]);
       return n > 0

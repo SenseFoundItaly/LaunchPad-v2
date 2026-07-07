@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { ChatMessage, ToolActivity } from '@/types';
 import { requestRecharge, RECHARGED_EVENT } from '@/components/credits/recharge-events';
+import { broadcastPersistedArtifacts } from '@/hooks/usePersistedArtifact';
 
 // ---------------------------------------------------------------------------
 // Module-level chat store, keyed by `${projectId}::${step}`.
@@ -220,11 +221,10 @@ export function useChat(projectId: string, step: string = 'chat') {
               setLast((m) => ({ ...m, content: fullContent, tools: [...toolsList] }));
             }
 
-            // Broadcast persisted artifact IDs so cards can wire apply/reject.
+            // Broadcast persisted artifact IDs so cards can wire apply/reject
+            // (registry-backed, so late-mounting cards resolve too).
             if (parsed.done && parsed.persisted_artifacts && typeof window !== 'undefined') {
-              window.dispatchEvent(
-                new CustomEvent('lp-persisted-artifacts', { detail: parsed.persisted_artifacts }),
-              );
+              broadcastPersistedArtifacts(parsed.persisted_artifacts);
             }
 
             // The agent mutated the inbox this turn (dismissed/proposed a watcher,

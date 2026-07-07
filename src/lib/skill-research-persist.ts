@@ -22,6 +22,8 @@ import { run, get } from '@/lib/db';
 import { coerceJson } from '@/lib/jsonb';
 import { marketSizeDrift, fmtAmount } from '@/lib/market-size-coherence';
 import { persistCompetitorCategories } from '@/lib/competitor-categories';
+import { stageMarketSizeProposal } from '@/lib/auto-stage-validation';
+import type { Source } from '@/types/artifacts';
 
 // JSONB bind: pass the RAW value (postgres.js single-encodes). JSON.stringify here
 // double-encoded into a string scalar; the ecosystem-monitors readers JSON.parse'd it back.
@@ -246,11 +248,21 @@ export async function persistResearchFromSkillOutput(
       // complete yet yield 0 competitors); keep the prior value per-column
       // whenever the incoming field is json-null or an empty array/object.
       // jsonb_typeof — not IS NULL — because jb(null) serializes to JSON null.
+      // The market_size replace CARRIES the founder's approval stamp
+      // (approved/approved_at/approved_value) from the prior row — this
+      // ungated re-run write must never wipe founder-clicked evidence
+      // (approval durability, audit B3).
       `INSERT INTO research (project_id, market_size, competitors, trends, sources, researched_at)
        VALUES (?, ?, ?, ?, ?, now())
        ON CONFLICT (project_id) DO UPDATE SET
          market_size = CASE WHEN jsonb_typeof(EXCLUDED.market_size) = 'object' AND EXCLUDED.market_size <> '{}'::jsonb
-                            THEN EXCLUDED.market_size ELSE COALESCE(research.market_size, EXCLUDED.market_size) END,
+                            THEN EXCLUDED.market_size || CASE WHEN jsonb_typeof(research.market_size) = 'object'
+                                 THEN jsonb_strip_nulls(jsonb_build_object(
+                                      'approved', research.market_size->'approved',
+                                      'approved_at', research.market_size->'approved_at',
+                                      'approved_value', research.market_size->'approved_value'))
+                                 ELSE '{}'::jsonb END
+                            ELSE COALESCE(research.market_size, EXCLUDED.market_size) END,
          competitors = CASE WHEN jsonb_typeof(EXCLUDED.competitors) = 'array' AND jsonb_array_length(EXCLUDED.competitors) > 0
                             THEN EXCLUDED.competitors ELSE COALESCE(research.competitors, EXCLUDED.competitors) END,
          trends = CASE WHEN jsonb_typeof(EXCLUDED.trends) = 'array' AND jsonb_array_length(EXCLUDED.trends) > 0
@@ -266,6 +278,24 @@ export async function persistResearchFromSkillOutput(
     );
   } catch (err) {
     console.warn('[skill-research-persist] research upsert failed (non-fatal):', (err as Error).message);
+  }
+
+  // Approve-to-green card for the sizing (audit B4) — without it the skill
+  // path leaves the Stage-2 market_size check red with no affordance (the
+  // pending graph node below is context, not a gate). Founder-first: this only
+  // PROPOSES; merge/dedup lives in stageMarketSizeProposal. Non-fatal.
+  if (marketSizing && typeof marketSizing === 'object') {
+    const ms = marketSizing as ResearchObj;
+    const tierStr = (k: string): string => {
+      const t = ms[k];
+      if (t && typeof t === 'object') return str((t as ResearchObj).estimate ?? (t as ResearchObj).value);
+      return str(t);
+    };
+    await stageMarketSizeProposal(
+      projectId,
+      { tam: tierStr('tam'), sam: tierStr('sam'), som: tierStr('som') },
+      Array.isArray(sources) ? (sources as Source[]) : [],
+    ).catch((err) => console.warn('[skill-research-persist] market-size proposal failed (non-fatal):', (err as Error).message));
   }
 
   // pending competitor nodes + their matryoshka categories (item 14)
