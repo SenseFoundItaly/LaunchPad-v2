@@ -93,10 +93,15 @@ async function phase1Proposals(projectId: string) {
 }
 
 async function pollPhase1(projectId: string, timeoutMs: number) {
+  // Wait for a STABLE count, not the first proposal: the proposer creates the
+  // whole set asynchronously, so returning on the first row races the rest in
+  // (a false idempotency failure when the next turn "finds" the stragglers).
   const until = Date.now() + timeoutMs;
+  let prev = -1;
   while (Date.now() < until) {
     const rows = await phase1Proposals(projectId);
-    if (rows.length > 0) return rows;
+    if (rows.length > 0 && rows.length === prev) return rows; // count settled
+    prev = rows.length;
     await new Promise((r) => setTimeout(r, 3000));
   }
   return phase1Proposals(projectId);

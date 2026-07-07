@@ -124,8 +124,10 @@ export async function POST(
         // drains the SSE without rendering, so the deterministic option-set is
         // persisted as an assistant chat message (brief-route pattern): the
         // founder finds it in chat. Idempotent per run (score_review_offered).
+        // ONLY on a founder-initiated score — a background/gate `auto` re-score
+        // must not nag the founder's chat with a fresh review offer.
         try {
-          const review = await maybeBuildScoreReviewOptionSet(projectId, ownerUserId);
+          const review = auto ? null : await maybeBuildScoreReviewOptionSet(projectId, ownerUserId);
           if (review) {
             await run(
               `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
