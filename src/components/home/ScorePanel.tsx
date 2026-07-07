@@ -20,6 +20,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import { useStages } from '@/hooks/useStages';
+import { stageLabel } from '@/lib/journey-prompts';
 import type { MessageKey } from '@/lib/i18n/messages';
 
 interface ScoreDimensionLite { name: string; score: number }
@@ -186,7 +187,7 @@ export function ScorePanel({ projectId }: { projectId: string }) {
           </div>
           {active && (
             <p style={{ margin: '10px 0 0', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.45 }}>
-              {t('score.irl-current', { stage: active.stage.label })}
+              {t('score.irl-current', { stage: stageLabel(active.stage.id, active.stage.label, t) })}
             </p>
           )}
           <p style={{ margin: '8px 0 0', fontSize: 10.5, color: 'var(--ink-5)', lineHeight: 1.4, fontStyle: 'italic' }}>
