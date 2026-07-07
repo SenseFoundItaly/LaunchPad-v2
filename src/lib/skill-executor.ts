@@ -28,6 +28,7 @@ import { estimateCost } from '@/lib/telemetry';
 import { pickModel } from '@/lib/llm/router';
 import { recordEvent } from '@/lib/memory/events';
 import { persistArtifact, persistScoreFromSummary } from '@/lib/artifact-persistence';
+import { stageTechnicalValidationProposal } from '@/lib/auto-stage-validation';
 import { isClarificationOnly } from '@/lib/skill-output';
 import { buildSkillProjectContext } from '@/lib/skill-context';
 import { persistResearchFromSkillOutput } from '@/lib/skill-research-persist';
@@ -356,6 +357,20 @@ export async function runSkill(
       if (await persistScoreFromSummary(projectId, text, { force: true })) artifactsPersisted++;
     } catch (err) {
       console.warn(`[skill-executor] score fallback failed for ${skillId}:`, (err as Error).message);
+    }
+  }
+
+  // technical-validation deterministic fallback (cert 2026-07-07): when the run
+  // emitted NO parseable insight-cards (artifactsPersisted === 0), the three 1B
+  // checks would stay red with nothing for the founder to apply. Stage the three
+  // findings from the summary as ONE approve-to-green card — mirrors the
+  // market-research → stageMarketSizeProposal fallback. Founder-first (pending).
+  if (skillId === 'technical-validation' && !incomplete && artifactsPersisted === 0) {
+    try {
+      const r = await stageTechnicalValidationProposal(projectId, text);
+      if (r.staged) artifactsPersisted++;
+    } catch (err) {
+      console.warn(`[skill-executor] technical-validation stage failed:`, (err as Error).message);
     }
   }
 

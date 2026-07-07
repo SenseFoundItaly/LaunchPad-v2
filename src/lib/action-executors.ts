@@ -1737,6 +1737,22 @@ const applyValidationProposal: ActionHandler = async (action) => {
     } else if (it.kind === 'market_size_fact') {
       // market_size_fact present but no project owner to scope the fact to.
       skippedNoOwner = true;
+    } else if (it.kind === 'tech_fact' && ownerUserId) {
+      // Technical-validation finding (feasibility / dependencies / regulatory) —
+      // record as an applied memory_fact so the matching 1B check greens. The
+      // fact text is keyword-bearing (the check reads memory_facts). Mirrors the
+      // market_size_fact branch; founder-first (only on approval).
+      await recordFact({
+        userId: ownerUserId,
+        projectId: action.project_id,
+        fact: value,
+        kind: 'observation',
+        sources: sources ?? undefined,
+      });
+      applied.push(it.label || 'Technical finding');
+      creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+    } else if (it.kind === 'tech_fact') {
+      skippedNoOwner = true;
     }
   }
 

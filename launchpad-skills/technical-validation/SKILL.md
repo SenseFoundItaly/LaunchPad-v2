@@ -42,6 +42,12 @@ one source:
 :::
 ```
 
+> **Safety net:** if you write a substantive assessment but emit no parseable
+> insight-cards, the runtime deterministically stages the three findings from
+> your summary as one approve-to-green card (so the 1B gate can never be left
+> red after a real run). Emitting the cards above is still preferred — it gives
+> the founder cleaner per-finding provenance.
+
 The founder can also validate these **incrementally in normal chat** — the chat co-pilot captures
 technical facts as the conversation goes; this skill is the structured, in-bulk path. Do NOT invent
 specifics: if a dependency isn't decided or a constraint can't be assessed, say so plainly and ask

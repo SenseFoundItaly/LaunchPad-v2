@@ -30,6 +30,9 @@ const CANVAS_FIELD_LABELS: Record<string, string> = {
   competitive_advantage: 'Competitive edge', channels: 'Channels',
 };
 const CANVAS_FIELDS = ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage', 'business_model', 'channels'] as const;
+const TECH_FACT_LABELS: Record<string, string> = {
+  feasibility: 'Technical feasibility', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance',
+};
 
 interface RawItem { kind: ValidationItemKind; field?: string; name?: string; value: string; sources?: Source[]; }
 
@@ -44,7 +47,10 @@ function buildItems(raw: RawItem[]) {
         kind: r.kind,
         field: r.field,
         name: r.name,
-        label: r.kind === 'canvas_field' ? (CANVAS_FIELD_LABELS[r.field ?? ''] ?? 'Idea Canvas') : r.kind === 'competitor' ? 'Competitor' : 'Market size',
+        label: r.kind === 'canvas_field' ? (CANVAS_FIELD_LABELS[r.field ?? ''] ?? 'Idea Canvas')
+          : r.kind === 'competitor' ? 'Competitor'
+          : r.kind === 'tech_fact' ? (TECH_FACT_LABELS[r.field ?? ''] ?? 'Technical finding')
+          : 'Market size',
         value: r.value,
         validates: validationLabel(targets),
         targets,
@@ -106,6 +112,10 @@ function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
     return typeof a.name === 'string' && typeof b.name === 'string'
       && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
   }
+  // tech_fact: one slot PER finding (feasibility / dependencies / regulatory) —
+  // without the field guard all three collapse into one and only the last
+  // survives (cert 2026-07-07).
+  if (b.kind === 'tech_fact') return a.field === b.field;
   return true; // market_size_fact — one sizing slot per proposal
 }
 
@@ -229,6 +239,87 @@ export async function stageMarketSizeProposal(
     if (items.length === 0) return { staged: false };
 
     return await stageOrMergeItems(projectId, items, 'market-research skill');
+  } catch {
+    return { staged: false };
+  }
+}
+
+/** Split a technical-validation summary into its three 1B findings. Each finding
+ *  is prefixed with its label — so (a) the fact carries the check's own keyword
+ *  even when the model's section text doesn't, and (b) the three facts are
+ *  DISTINCT text (recordFact dedups by exact fact, so three identical
+ *  full-summary facts would collapse to one). A section is used only when it's
+ *  substantial and on-topic; otherwise the whole summary is the body (it's
+ *  keyword-bearing across all three). Returns null when the text is too thin to
+ *  be a real assessment. */
+/** Label prefixes per finding — each contains its check's keyword (bilingual
+ *  checks, so either language closes the gate), and keeps the fact text in the
+ *  project language. */
+const TECH_FINDING_PREFIX = {
+  en: { feasibility: 'Technical feasibility', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance' },
+  it: { feasibility: 'Fattibilità tecnica', dependencies: 'Dipendenze chiave', regulatory: 'Vincoli normativi / compliance' },
+} as const;
+
+export function extractTechnicalFindings(
+  text: string,
+  locale: 'en' | 'it' = 'it',
+): { feasibility: string; dependencies: string; regulatory: string } | null {
+  const clean = (text ?? '').trim();
+  if (clean.length < 80) return null;
+  const px = TECH_FINDING_PREFIX[locale] ?? TECH_FINDING_PREFIX.it;
+  const full = clean.replace(/\s+/g, ' ').trim().slice(0, 1000);
+  // Capture the body under a header matching the finding, up to the NEXT
+  // markdown header (## / ###) — NOT a `---` divider (the skill uses those
+  // between sections). Keep the section only if it's substantial AND actually
+  // mentions the topic; else fall back to the full summary.
+  const section = (headerRe: RegExp, topicRe: RegExp): string => {
+    const m = clean.match(headerRe);
+    if (!m) return full;
+    const body = m[1].replace(/^[-\s#]+/, '').replace(/\s+/g, ' ').trim().slice(0, 900);
+    return body.length >= 40 && topicRe.test(body) ? body : full;
+  };
+  const feasibility = section(
+    /(?:feasibilit|fattibilit|technically|tecnicamente)[^\n]*\n+([\s\S]*?)(?:\n#{2,4}\s|$)/i,
+    /fattibil|feasib|tecnic|architett|stack|rischio|build/i);
+  const dependencies = section(
+    /(?:dependenc|dipendenz)[^\n]*\n+([\s\S]*?)(?:\n#{2,4}\s|$)/i,
+    /dipendenz|dependenc|API|infrastrutt|fornitor|terze parti|vendor|integrazion/i);
+  const regulatory = section(
+    /(?:regulat|normativ|compliance|conformit)[^\n]*\n+([\s\S]*?)(?:\n#{2,4}\s|$)/i,
+    /normativ|regulat|GDPR|privacy|conformit|licen|garante|compliance/i);
+  return {
+    feasibility: `${px.feasibility} — ${feasibility}`.slice(0, 1000),
+    dependencies: `${px.dependencies} — ${dependencies}`.slice(0, 1000),
+    regulatory: `${px.regulatory} — ${regulatory}`.slice(0, 1000),
+  };
+}
+
+/**
+ * Deterministic approve-to-green card for the three 1B technical checks
+ * (cert 2026-07-07: the technical-validation skill produced a rich prose
+ * summary but `artifacts_persisted: 0` — no insight-cards parsed, so nothing
+ * staged and the 1B gate could never close). Mirror of stageMarketSizeProposal:
+ * parse the run's summary into feasibility/dependencies/regulatory findings and
+ * stage ONE approve-to-green card carrying all three. Founder-first (pending
+ * until approved). Called from skill-executor after a technical-validation run
+ * only when the model emitted no parseable insight-cards.
+ */
+export async function stageTechnicalValidationProposal(
+  projectId: string,
+  summary: string,
+  sources: Source[] = [],
+): Promise<{ staged: boolean; pendingActionId?: string; merged?: boolean }> {
+  try {
+    const locale = await resolveLocale('', projectId);
+    const findings = extractTechnicalFindings(summary, locale);
+    if (!findings) return { staged: false };
+    const items = buildItems([
+      { kind: 'tech_fact', field: 'feasibility', value: findings.feasibility, sources },
+      { kind: 'tech_fact', field: 'dependencies', value: findings.dependencies, sources },
+      { kind: 'tech_fact', field: 'regulatory', value: findings.regulatory, sources },
+    ]).filter((it) => it.targets.length > 0);
+    if (items.length === 0) return { staged: false };
+    return await stageOrMergeItems(projectId, items, 'technical-validation skill');
   } catch {
     return { staged: false };
   }
