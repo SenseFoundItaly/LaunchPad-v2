@@ -591,6 +591,15 @@ export const it: Partial<Record<MessageKey, string>> = {
   'journey-prompt.regulatory': 'Aiutami a verificare i vincoli normativi e di conformità (es. GDPR).',
   'journey-prompt.lean-canvas': 'Aiutami a completare i blocchi mancanti del Lean Canvas.',
   'journey-prompt.scoring': "Esegui l'analisi Startup Scoring per fissare il mio punteggio di partenza.",
+  // Loop 1 — PSF Review (layer dei loop L2).
+  'loop1.card-title': 'PSF Review — la disponibilità a pagare è solo {pct}%',
+  'loop1.card-rationale': 'Solo il {pct}% degli intervistati pagherebbe (sotto la soglia del {threshold}%). Rivedi ICP, value proposition e problem statement prima di costruire il pricing. Approva per lanciare la PSF review.',
+  'loop1.card-title-manual': 'PSF Review',
+  'loop1.card-rationale-manual': 'Rivedi il Problem-Solution Fit — ICP, value proposition e problem statement — rispetto alle tue interviste. Approva per lanciare la PSF review.',
+  'loop1.verdict-prompt': 'Hai iterato due volte sul PSF e la disponibilità a pagare è ancora sotto la soglia. È il momento di decidere:',
+  'loop1.verdict-go': 'GO — il segnale è abbastanza forte per procedere',
+  'loop1.verdict-pivot': 'PIVOT — rivedi il target o la value proposition',
+  'loop1.verdict-stop': "STOP — l'evidenza dice di accantonare questa idea",
   'journey-prompt.wtp': 'Aiutami a registrare un segnale di disponibilità a pagare — ti dico cosa hanno detto gli intervistati.',
   'journey-prompt.generic': 'Aiutami con: {label}',
   'canvas.view-in-canvas': 'Vedi nel canvas',
@@ -602,6 +611,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'canvas.track-1c': '1C · Fit Problema-Soluzione',
   'canvas.track-locked': 'Bloccato finché 1A + 1B non sono completi',
   'skills.gate-1c-locked': 'Le interviste ai clienti si sbloccano quando le track 1A (Mercato) e 1B (Tecnica) sono complete. Ancora aperti: {missing}. Chiudiamo prima quelli — posso aiutarti su ciascuno.',
+  'skills.loop1-gated': 'Il lavoro su pricing e business model è in pausa finché la PSF Review è aperta — la disponibilità a pagare è risultata debole. Risolvi la review (o archiviala con una motivazione) prima, così costruisci il pricing su un fit confermato.',
   // Knowledge / data-room / caricamento documenti (completamento i18n del WIP).
   'common.all': 'Tutti',
   'common.close': 'Chiudi',

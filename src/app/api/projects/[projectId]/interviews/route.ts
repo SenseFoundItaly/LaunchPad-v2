@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
+import { maybeTriggerLoop1 } from '@/lib/loops/loop1-psf';
 
 /**
  * GET /api/projects/{projectId}/interviews
@@ -78,6 +79,11 @@ export async function POST(
     now,
     now,
   );
+
+  // Loop 1 (PSF Review): this interview may push WTP below the 30% block.
+  // Awaited (idempotent, non-throwing, cheap below the interview floor) so the
+  // trigger survives the serverless response freeze.
+  await maybeTriggerLoop1(projectId);
 
   const [row] = await query('SELECT * FROM interviews WHERE id = ?', id);
   return json(row);
