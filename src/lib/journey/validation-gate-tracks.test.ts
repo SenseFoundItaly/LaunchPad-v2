@@ -92,8 +92,11 @@ describe('track membership', () => {
   it('1A / 1B / 1C carry the expected check ids, in order', () => {
     // `monitors_set` was removed (2026-07): watchers are a post-Stage-2 concern,
     // not a gate requirement (they'd deadlock "watchers only after Stage 2").
+    // Phase-0 vs Phase-1 dedup (2026-07): `problem_defined` + `segment_named`
+    // were removed — they only re-checked canvas fields Stage 1 already owns.
+    // The gate now validates the MARKET (evidence), not canvas existence.
     expect(VALIDATION_TRACK_1A.map((c) => c.id)).toEqual([
-      'problem_defined', 'segment_named', 'competitors_mapped', 'market_size', 'differentiation_evidence',
+      'competitors_mapped', 'market_size', 'differentiation_evidence',
     ]);
     expect(VALIDATION_TRACK_1B.map((c) => c.id)).toEqual([
       'tech_feasibility', 'key_dependencies', 'regulatory_check',
@@ -163,8 +166,8 @@ describe('1C lock / unlock', () => {
 
   it('validationTracksABMissing names the open 1A/1B labels', () => {
     const missing = validationTracksABMissing(mkSnapshot());
-    expect(missing).toContain('Problem clearly defined');
-    expect(missing).toContain('Technical feasibility assessed');
+    expect(missing).toContain('3+ competitors mapped');           // 1A (evidence, not canvas existence)
+    expect(missing).toContain('Technical feasibility assessed');  // 1B
     expect(missing).not.toContain('5+ customer interviews logged'); // 1C is not part of the unlock condition
   });
 });
