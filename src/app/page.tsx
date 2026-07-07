@@ -8,15 +8,10 @@ import api from '@/api';
 import { TopBar } from '@/components/design/chrome';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import { NODE_COLORS } from '@/types/graph';
-import { watcherWeeklyLabel } from '@/lib/watcher-cost';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
 import { SUPPORTED_LOCALES, LOCALE_NATIVE_NAME, type Locale } from '@/lib/i18n/locales';
 import type { MessageKey } from '@/lib/i18n/messages';
 
-// A watcher the upload extractor suggests from a founder's docs (opt-in).
-// `pending_action_id` — the configure_monitor proposal the upload route
-// persisted; approving it runs the real executor (full scan prompt).
-type ProposedMonitor = { name: string; aim: string; cadence: 'daily' | 'weekly'; pending_action_id?: string };
 
 // Lean-canvas fields the upload extractor proposes from a founder's docs.
 type ProposedCanvas = {
@@ -111,7 +106,6 @@ export default function HomePage() {
     canvas: ProposedCanvas | null;
     canvasValidates: Record<string, string>;
     spineSteps: number;
-    monitors: ProposedMonitor[];
   } | null>(null);
   const [expandedSignals, setExpandedSignals] = useState<Set<string>>(new Set());
   const [showSignals, setShowSignals] = useState(false);
@@ -205,7 +199,6 @@ export default function HomePage() {
               proposed_canvas?: ProposedCanvas | null;
               canvas_validates?: Record<string, string>;
               spine_steps?: number;
-              proposed_monitors?: ProposedMonitor[];
             };
             setExtractResult({
               ingested: d.ingested ?? 0,
@@ -214,7 +207,6 @@ export default function HomePage() {
               canvas: d.proposed_canvas ?? null,
               canvasValidates: d.canvas_validates ?? {},
               spineSteps: d.spine_steps ?? 0,
-              monitors: Array.isArray(d.proposed_monitors) ? d.proposed_monitors : [],
             });
             setCreating(false);
             return; // show the results view; route to chat on "Continue"
@@ -1168,16 +1160,13 @@ function ExtractedKnowledgeView({
   projectId,
   onContinue,
 }: {
-  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string; validates?: string | null }>; canvas: ProposedCanvas | null; canvasValidates: Record<string, string>; spineSteps: number; monitors: ProposedMonitor[] };
+  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string; validates?: string | null }>; canvas: ProposedCanvas | null; canvasValidates: Record<string, string>; spineSteps: number };
   projectId: string | null;
   onContinue: () => void;
 }) {
   const t = useT();
-  const { ingested, skipped, entities, canvas, canvasValidates, spineSteps, monitors } = result;
+  const { ingested, skipped, entities, canvas, canvasValidates, spineSteps } = result;
   const [applying, setApplying] = useState(false);
-  // Watchers default UNCHECKED — they carry recurring weekly cost, so opting
-  // into ongoing spend is a deliberate choice, not a default (approve-first).
-  const [checkedWatchers, setCheckedWatchers] = useState<Set<number>>(() => new Set());
 
   const canvasFields = canvas
     ? CANVAS_FIELD_LABELS.filter((f) => canvas[f.key]?.trim())
@@ -1186,17 +1175,8 @@ function ExtractedKnowledgeView({
   // Applying is free (only a founder chat message costs a credit), so no cost
   // estimate is computed or shown on the home apply action.
   const applicableIds = entities.map((e) => e.node_id).filter((x): x is string => !!x);
-  const checkedCount = checkedWatchers.size;
 
-  function toggleWatcher(i: number) {
-    setCheckedWatchers((prev) => {
-      const next = new Set(prev);
-      if (next.has(i)) next.delete(i); else next.add(i);
-      return next;
-    });
-  }
-
-  // ONE commit: canvas → entity batch-apply → checked watchers → into chat.
+  // ONE commit: canvas → entity batch-apply → into chat.
   // Every sub-action is best-effort/non-fatal — the founder always routes on.
   async function applyAndContinue() {
     if (!projectId) { onContinue(); return; }
@@ -1212,29 +1192,9 @@ function ExtractedKnowledgeView({
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_ids: applicableIds }),
         }).catch(() => null);
       }
-      const chosen = monitors.filter((_, i) => checkedWatchers.has(i));
-      if (chosen.length > 0) {
-        // Preferred path: approve the configure_monitor pending_action the
-        // upload persisted — the executor builds the REAL scan prompt.
-        // Unchecked ones stay pending ("Proposed" in the Watchers tab).
-        // Fallback (no pending_action_id): direct create WITHOUT a prompt so
-        // the monitors route/executor still builds the scan prompt itself.
-        await Promise.allSettled(
-          chosen.map((w) =>
-            w.pending_action_id
-              ? fetch(`/api/projects/${projectId}/actions/${w.pending_action_id}`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ transition: 'apply' }),
-                }).catch(() => null)
-              : fetch(`/api/projects/${projectId}/monitors`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ name: w.name, objective: w.aim, schedule: w.cadence, type: 'ecosystem.custom' }),
-                }).catch(() => null),
-          ),
-        );
-      }
+      // (Watcher suggestions at upload time were removed — 2026-07 founder
+      // decision: watchers are auto-proposed only after the Validation Gate
+      // completes. Upload commits canvas + entities only.)
       // Generate the personalized opening brief LAST (so it reads the just-applied
       // canvas/entities) and AWAIT it — it persists as the first chat message, so
       // it must exist before we route into chat. Best-effort: on failure the chat
@@ -1269,11 +1229,9 @@ function ExtractedKnowledgeView({
   // total (entities exact + AI brief estimate; ~ signals the brief is metered).
   // Watcher cost is weekly (shown per-row), never folded into this number.
   const N = applicableIds.length;
-  const W = checkedCount;
   const actionBits = [
     canvasFields.length > 0 ? t('home.action-bit-canvas') : null,
     N > 0 ? (N === 1 ? t('home.action-bit-entity-one', { count: N }) : t('home.action-bit-entity-many', { count: N })) : null,
-    W > 0 ? (W === 1 ? t('home.action-bit-watcher-one', { count: W }) : t('home.action-bit-watcher-many', { count: W })) : null,
   ].filter(Boolean);
   const primaryLabel = applying
     ? t('home.applying')
@@ -1374,42 +1332,14 @@ function ExtractedKnowledgeView({
         </>
       )}
 
-      {/* Suggested watchers — recurring scans, opt-in (each priced per week). */}
-      {monitors.length > 0 && (
-        <div style={{ marginBottom: 14, padding: 12, background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
-          <div style={{ fontSize: 11, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, fontFamily: 'var(--f-mono)', marginBottom: 8 }}>
-            {t('home.suggested-watchers-heading')}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {monitors.map((w, i) => (
-              <label key={`${w.name}-${i}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={checkedWatchers.has(i)}
-                  onChange={() => toggleWatcher(i)}
-                  style={{ marginTop: 3, flexShrink: 0 }}
-                />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>{w.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.4 }}>{w.aim}</div>
-                  <div className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', marginTop: 1 }}>
-                    {w.cadence} · {watcherWeeklyLabel(w.cadence)}
-                  </div>
-                </div>
-              </label>
-            ))}
-          </div>
-          <div style={{ fontSize: 10.5, color: 'var(--ink-6)', marginTop: 8, lineHeight: 1.4 }}>
-            {t('home.watchers-footnote')}
-          </div>
-        </div>
-      )}
+      {/* Watcher suggestions at upload time were removed (2026-07 founder
+          decision) — watchers are auto-proposed after the Validation Gate. */}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <button onClick={applyAndContinue} disabled={applying} style={primaryBtnStyle}>
           {primaryLabel}
         </button>
-        {(canvasFields.length > 0 || applicableIds.length > 0 || monitors.length > 0) && (
+        {(canvasFields.length > 0 || applicableIds.length > 0) && (
           <button
             onClick={skipAndContinue}
             disabled={applying}
