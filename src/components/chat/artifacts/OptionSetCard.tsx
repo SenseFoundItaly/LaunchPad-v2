@@ -82,6 +82,20 @@ function OptionButton({
       }
       return;
     }
+    // Loop-1 verdict option (GO/PIVOT/STOP): the click IS the decision, so
+    // record it via the loops route (closes the loop, unblocks Phase 2) instead
+    // of sending "I choose: GO" for the model to narrate.
+    if (option.loop_verdict && option.loop_id) {
+      if (state === 'running' || state === 'done') return;
+      setState('running');
+      try {
+        await onAction('verdict:record', { loop_id: option.loop_id, verdict: option.loop_verdict });
+        setState('done');
+      } catch {
+        setState('error');
+      }
+      return;
+    }
     // Normal option: forward label + DESCRIPTION (its stated intent) so the agent
     // EXECUTES the option rather than re-reasoning a bare label (which made
     // "Use Example A — Legal radar" get misread as a competitor watcher).

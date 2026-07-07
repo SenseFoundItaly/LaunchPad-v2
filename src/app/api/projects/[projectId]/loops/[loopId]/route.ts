@@ -26,8 +26,10 @@ export async function POST(
   if (body.action === 'verdict') {
     const v = body.verdict;
     if (v !== 'GO' && v !== 'PIVOT' && v !== 'STOP') return error('verdict must be GO, PIVOT or STOP', 400);
-    await recordLoop1Verdict(projectId, loopId, auth.session.userId, v);
-    return json({ loop_id: loopId, verdict: v });
+    // recordLoop1Verdict is idempotent — on a re-submit (reloaded card) it
+    // returns the verdict ALREADY on record, so we echo the effective verdict.
+    const recorded = await recordLoop1Verdict(projectId, loopId, auth.session.userId, v);
+    return json({ loop_id: loopId, verdict: recorded });
   }
 
   if (body.action === 'override') {

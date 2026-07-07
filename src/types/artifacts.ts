@@ -120,12 +120,20 @@ export interface OptionSet extends ArtifactBase {
   //     allowed too) applied via POST /validation/commit → applyValidationProposal
   //     (graph_nodes / memory_facts + credit debit). Use this when the commit
   //     includes anything that costs credits.
+  // `loop_verdict` — when set (paired with `loop_id`), picking this option
+  // RECORDS the founder's Loop-1 escalation verdict via POST
+  // /loops/{loop_id} { action:'verdict' } (closing the loop + unblocking the
+  // Phase-2 pricing/business-model skills) INSTEAD of round-tripping "I choose:
+  // GO" as a chat message the model would only narrate. Staged by
+  // stageLoop1Verdict at the escalation cap (loop1-psf.ts §4).
   options: {
     id: string;
     label: string;
     description: string;
     credits?: number;
     skill_id?: string;
+    loop_verdict?: 'GO' | 'PIVOT' | 'STOP';
+    loop_id?: string;
     commit?: {
       canvas?: Record<string, string>;
       // PAID knowledge only — canvas text always goes in `canvas` above, never

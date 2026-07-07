@@ -19,7 +19,7 @@
 import { useMemo, useState } from 'react';
 import { useStages } from '@/hooks/useStages';
 import { useRouter } from 'next/navigation';
-import { checkActionPrompt } from '@/lib/journey-prompts';
+import { checkActionPrompt, checkLabel, stageLabel, stageTagline } from '@/lib/journey-prompts';
 import { useT } from '@/components/providers/LocaleProvider';
 import { Icon, I } from '@/components/design/icons';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -152,7 +152,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
               onClick={() => { setUserPicked(true); setOpenStage(isOpen ? null : e.stage.id); }}
               className="lp-card"
               aria-expanded={isOpen}
-              title={e.stage.label}
+              title={stageLabel(e.stage.id, e.stage.label, t)}
               style={{
                 padding: '8px 8px 6px',
                 background: isOpen ? 'var(--paper-2)' : 'var(--paper)',
@@ -189,7 +189,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                   minHeight: 28,
                 }}
               >
-                {e.stage.label}
+                {stageLabel(e.stage.id, e.stage.label, t)}
               </div>
               <span className="lp-mono" style={{ fontSize: 9, color: st.color, letterSpacing: 0.3 }}>
                 {t(st.labelKey)}
@@ -208,14 +208,14 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
       {openEval && (
         <div className="lp-card" style={{ marginTop: 8, padding: 12, background: 'var(--paper-2)', borderColor: STATE[openEval.status].color }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
-            <span className="lp-serif" style={{ fontSize: 13, color: 'var(--ink)' }}>{openEval.stage.label}</span>
+            <span className="lp-serif" style={{ fontSize: 13, color: 'var(--ink)' }}>{stageLabel(openEval.stage.id, openEval.stage.label, t)}</span>
             <span className="lp-mono" style={{ fontSize: 10, color: STATE[openEval.status].color, letterSpacing: 0.3 }}>
               {t(STATE[openEval.status].labelKey)}
             </span>
           </div>
-          {openEval.stage.tagline && (
+          {stageTagline(openEval.stage.id, openEval.stage.tagline, t) && (
             <div style={{ fontSize: 11, color: 'var(--ink-5)', marginBottom: 8, lineHeight: 1.4 }}>
-              {openEval.stage.tagline}
+              {stageTagline(openEval.stage.id, openEval.stage.tagline, t)}
             </div>
           )}
           {(() => {
@@ -260,7 +260,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                       {ok ? '✓' : locked ? <Icon d={I.lock} size={9} stroke={1.5} style={{ color: 'var(--ink-5)' }} /> : ''}
                     </span>
                     <span style={{ color: ok ? 'var(--ink-2)' : 'var(--ink-3)', flex: 1, minWidth: 0 }}>
-                      {r.check.label}
+                      {checkLabel(r.check.id, r.check.label, t)}
                       {detail && (
                         <span style={{ color: 'var(--ink-5)' }}> — {detail}</span>
                       )}

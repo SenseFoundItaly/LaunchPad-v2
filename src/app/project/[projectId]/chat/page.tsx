@@ -40,7 +40,7 @@ import { TopBar, NavRail } from '@/components/design/chrome';
 // chat-specific controls (model picker, context export).
 import { useSetChrome } from '@/components/design/chrome-context';
 import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
-import { checkActionPrompt } from '@/lib/journey-prompts';
+import { checkActionPrompt, checkLabel, stageLabel } from '@/lib/journey-prompts';
 import { buildContextMarkdown } from '@/lib/context-export';
 import { buildFinancialExport } from '@/lib/financial-export';
 import type { ContextExportData } from '@/lib/context-export';
@@ -1188,6 +1188,60 @@ export default function CopilotChatPage({
         }
         return;
       }
+      // verdict:record — the founder picked GO / PIVOT / STOP on the Loop-1
+      // escalation card (staged by stageLoop1Verdict once the iteration cap is
+      // hit). The click IS the decision, so POST it straight to the loops route
+      // — which records the verdict, closes the loop, and lifts the Phase-2
+      // skill gate — instead of round-tripping "I choose: GO" as a chat message
+      // the model would only narrate (never actually closing the loop).
+      if (action === 'verdict:record') {
+        const loopId = String(payload.loop_id ?? '');
+        const verdict = String(payload.verdict ?? '');
+        if (!loopId || (verdict !== 'GO' && verdict !== 'PIVOT' && verdict !== 'STOP')) {
+          throw new Error('verdict:record needs a loop_id and a GO/PIVOT/STOP verdict');
+        }
+        const res = await fetch(`/api/projects/${projectId}/loops/${encodeURIComponent(loopId)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'verdict', verdict }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `Recording the verdict failed with status ${res.status}`);
+        }
+        // The route echoes the EFFECTIVE verdict (recordLoop1Verdict is
+        // idempotent) — so a re-submit on a reloaded card returns the verdict
+        // already on record. Confirm THAT, never the clicked one, so the message
+        // can never contradict what's stored.
+        const respBody = await res.json().catch(() => null);
+        const recorded: 'GO' | 'PIVOT' | 'STOP' =
+          respBody?.data?.verdict === 'GO' || respBody?.data?.verdict === 'PIVOT' || respBody?.data?.verdict === 'STOP'
+            ? respBody.data.verdict
+            : verdict;
+        // Closing the loop lifts the Phase-2 pricing/business-model gate and
+        // clears the review from the inbox — refetch spine / skills / actions.
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+          window.dispatchEvent(new CustomEvent('lp-skills-changed', { detail: { projectId } }));
+        }
+        // Confirm inline — the verdict is already recorded, so no model turn is
+        // needed. Each verdict gets its own next-step guidance.
+        const confirmKey = recorded === 'GO'
+          ? 'loop1.verdict-recorded-go'
+          : recorded === 'PIVOT'
+            ? 'loop1.verdict-recorded-pivot'
+            : 'loop1.verdict-recorded-stop';
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `msg_${Date.now()}`,
+            role: 'assistant',
+            content: t(confirmKey),
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        return;
+      }
       // Fallback for other artifact actions — re-send as chat so the agent
       // can react. Matches legacy OptionSetCard / ActionSuggestionCard usage.
       if (action === 'commit:apply') {
@@ -1569,14 +1623,14 @@ function useCurrentSubtask(projectId: string): string | null {
     }
     const openCheck = active.results.find((r) => !r.result.passed);
     return openCheck
-      ? t('chat.subtask-validating', { label: openCheck.check.label })
+      ? t('chat.subtask-validating', { label: checkLabel(openCheck.check.id, openCheck.check.label, t) })
       // Active stage with every substep passed — about to advance.
-      : t('chat.subtask-ready-to-advance', { label: active.stage.label });
+      : t('chat.subtask-ready-to-advance', { label: stageLabel(active.stage.id, active.stage.label, t) });
   }, [evals, t]);
 }
 
 interface EmptyStateStage {
-  stage: { number: number; label: string };
+  stage: { id: string; number: number; label: string };
   status: 'done' | 'active' | 'pending';
   passed: number;
   total: number;
@@ -1644,7 +1698,7 @@ function ChatEmptyState({
           : t('chat.brief-stages-validated-other', { count: doneStages.length }),
       );
     }
-    if (active) briefParts.push(t('chat.brief-stage-in-progress', { label: active.stage.label, passed: active.passed, total: active.total }));
+    if (active) briefParts.push(t('chat.brief-stage-in-progress', { label: stageLabel(active.stage.id, active.stage.label, t), passed: active.passed, total: active.total }));
     if (knowledgeCount > 0) {
       briefParts.push(
         knowledgeCount === 1
@@ -1671,7 +1725,7 @@ function ChatEmptyState({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {openChecks.slice(0, 4).map((c) => (
                 <button key={c.check.id} onClick={() => onPick(checkActionPrompt(c.check.label, t))} style={btnStyle}>
-                  <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{c.check.label}</span>
+                  <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{checkLabel(c.check.id, c.check.label, t)}</span>
                   {c.result.gap && (
                     <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-5)', marginTop: 2 }}>{c.result.gap}</span>
                   )}
@@ -1679,7 +1733,7 @@ function ChatEmptyState({
               ))}
               {lockedChecks.slice(0, Math.max(0, 4 - openChecks.length)).map((c) => (
                 <div key={c.check.id} style={{ ...btnStyle, cursor: 'default', opacity: 0.6 }}>
-                  <span style={{ fontWeight: 500, color: 'var(--ink)' }}>🔒 {c.check.label}</span>
+                  <span style={{ fontWeight: 500, color: 'var(--ink)' }}>🔒 {checkLabel(c.check.id, c.check.label, t)}</span>
                   {c.result.gap && (
                     <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-5)', marginTop: 2 }}>{c.result.gap}</span>
                   )}
@@ -2138,7 +2192,7 @@ function InlineOption({
   onUnchoose,
   onAction,
 }: {
-  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; commit?: { canvas?: Record<string, string>; items?: Array<Record<string, unknown>> } };
+  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; commit?: { canvas?: Record<string, string>; items?: Array<Record<string, unknown>> } };
   index: number;
   /** The whole option-set is locked (a choice was made, or a response is streaming). */
   setLocked?: boolean;
@@ -2199,6 +2253,23 @@ function InlineOption({
         await onAction?.('skill:run', { skill_id: option.skill_id });
         setState('done');
       } catch {
+        setState('error');
+      }
+      return;
+    }
+    // Loop-1 verdict option (GO/PIVOT/STOP): the click IS the founder's
+    // decision, so record it via the loops route (closes the loop, unblocks
+    // Phase 2) instead of sending "I choose: GO" for the model to narrate.
+    // Mirrors the commit branch: optimistic lock, await, revert the lock on a
+    // failed write so the founder can retry.
+    if (option.loop_verdict && option.loop_id) {
+      onChoose?.();
+      setState('running');
+      try {
+        await onAction?.('verdict:record', { loop_id: option.loop_id, verdict: option.loop_verdict });
+        setState('done');
+      } catch {
+        onUnchoose?.();
         setState('error');
       }
       return;
@@ -2326,7 +2397,7 @@ function InlineArtifact({
   const a = artifact as unknown as Record<string, unknown>;
 
   if (artifact.type === 'option-set' && Array.isArray(a.options)) {
-    const allOptions = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number; skill_id?: string }>;
+    const allOptions = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number; skill_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string }>;
     // Strip the idea-shaping kickoff: it re-runs from scratch and the prompt's
     // "always offer next_recommended_skill" rule made it reappear every turn
     // (the loop Luca hit). Relaunch now lives only on the Canvas button; the

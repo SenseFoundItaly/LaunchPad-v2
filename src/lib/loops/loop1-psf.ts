@@ -304,13 +304,27 @@ export function buildEvidenceMatrix(interviews: Interview[], iterations: number)
   };
 }
 
-/** Record the founder's verdict pick (GO/PIVOT/STOP) and close the loop. */
-export async function recordLoop1Verdict(projectId: string, loopId: string, ownerUserId: string, verdict: 'GO' | 'PIVOT' | 'STOP'): Promise<void> {
+/**
+ * Record the founder's verdict pick (GO/PIVOT/STOP) and close the loop.
+ * Idempotent: only the FIRST verdict on an open loop is recorded. The verdict
+ * card is a PERSISTED chat_messages option-set, but its "consumed" lock is
+ * client useState — so after a page reload the card re-renders clickable. A
+ * second click must NOT silently overwrite the decision or re-emit the event;
+ * it returns the verdict already on record. Callers use the RETURNED verdict
+ * for the founder-facing confirmation, so it can never contradict what's stored.
+ */
+export async function recordLoop1Verdict(projectId: string, loopId: string, ownerUserId: string, verdict: 'GO' | 'PIVOT' | 'STOP'): Promise<'GO' | 'PIVOT' | 'STOP'> {
+  const cur = await get<{ status: string; verdict: 'GO' | 'PIVOT' | 'STOP' | null }>(
+    `SELECT status, verdict FROM validation_loops WHERE id = ? AND project_id = ?`, loopId, projectId,
+  );
+  if (cur?.status === 'closed' && cur.verdict) return cur.verdict; // already decided — idempotent no-op
   await run(
-    `UPDATE validation_loops SET verdict = ?, status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ? AND project_id = ?`,
+    `UPDATE validation_loops SET verdict = ?, status = 'closed', closed_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND project_id = ? AND status <> 'closed'`,
     verdict, loopId, projectId,
   );
   await recordEvent({ userId: ownerUserId, projectId, eventType: 'loop1_verdict', payload: { loop_id: loopId, verdict } });
+  return verdict;
 }
 
 /** True while an open Loop 1 gates Phase 2 — the pricing/business-model skills

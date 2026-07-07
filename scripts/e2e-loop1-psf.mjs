@@ -92,6 +92,15 @@ const openLoop = (pid) => sql`SELECT id, status, iteration, trigger FROM validat
   const closed = (await sql`SELECT status, verdict FROM validation_loops WHERE id=${loop.id}`)[0];
   ok('loop closed with the verdict', closed.status === 'closed' && closed.verdict === 'PIVOT');
 
+  // Idempotency: the verdict card is a PERSISTED chat message whose "consumed"
+  // lock is client-only, so it re-renders clickable after a reload. A second
+  // (different) click must NOT overwrite the recorded decision — the route
+  // echoes the verdict already on record, and the DB stays PIVOT.
+  const vres2 = await api('POST', `/api/projects/${pid}/loops/${loop.id}`, { action: 'verdict', verdict: 'GO' });
+  ok('re-submit is idempotent (echoes recorded PIVOT, not GO)', vres2.status === 200 && vres2.json?.data?.verdict === 'PIVOT');
+  const still = (await sql`SELECT verdict FROM validation_loops WHERE id=${loop.id}`)[0];
+  ok('recorded verdict unchanged after re-submit', still.verdict === 'PIVOT');
+
   // Phase-2 gate lifts once the loop is closed.
   const gate2 = await api('GET', `/api/projects/${pid}/skills?availability=1`);
   ok('Phase-2 gate lifts after verdict', !(gate2.json?.data?.gated || gate2.json?.gated || []).includes('business-model'));
