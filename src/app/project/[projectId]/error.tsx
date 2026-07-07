@@ -17,10 +17,11 @@ export default function ProjectError({
     <div className="flex h-full items-center justify-center px-6">
       <div className="max-w-md text-center">
         <h2 className="text-lg font-semibold text-ink mb-2">
-          Failed to load project
+          This view hit an error
         </h2>
         <p className="text-sm text-ink-4 mb-6">
-          Something went wrong loading this project. Try again or return to your projects list.
+          Something went wrong rendering this section — the rest of your project is fine.
+          Retry, switch tabs, or return to your projects list.
         </p>
         <div className="flex gap-3 justify-center">
           <button

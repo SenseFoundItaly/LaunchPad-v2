@@ -19,6 +19,7 @@ import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
+import { useStages } from '@/hooks/useStages';
 import type { MessageKey } from '@/lib/i18n/messages';
 
 interface ScoreDimensionLite { name: string; score: number }
@@ -56,9 +57,6 @@ function normalizeDimensions(raw: unknown): ScoreDimensionLite[] {
   }
   return [];
 }
-interface StagesResp {
-  evaluations: Array<{ stage: { number: number; label: string }; status: 'done' | 'active' | 'pending' }>;
-}
 
 // Qualitative band — aligned with the anti-sycophancy scoring guardrails
 // (70+ = strong/verified, 40-or-below = serious warning). Colors mirror the spine.
@@ -82,17 +80,12 @@ export function ScorePanel({ projectId }: { projectId: string }) {
     },
   });
 
-  // Cached: NextToValidate already fetches ['stages', projectId].
-  const { data: stages } = useQuery<StagesResp>({
-    queryKey: ['stages', projectId],
-    enabled: !!projectId,
-    queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/stages`);
-      const body = await res.json();
-      if (!body.success) throw new Error(body.error || 'Stages fetch failed');
-      return body.data as StagesResp;
-    },
-  });
+  // IRL is derived from how many journey stages are validated. Consume the
+  // canonical useStages hook (shared ['stages', projectId] cache, ONE shape —
+  // the sorted evaluations array) rather than a bespoke object-shaped query,
+  // which used to poison the cache by mount order. See useStages.ts.
+  const { data: stageEvals, isLoading: stagesLoading } = useStages(projectId);
+  const evals = stageEvals ?? [];
 
   // Auto-score on stage advance (Option A): when the founder lands on Home past
   // Stage 2 with no score yet, fire the gated POST /score (auto) so the score
@@ -101,11 +94,11 @@ export function ScorePanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const autoScoreFired = useRef(false);
   const scoreLoaded = score !== undefined;
-  const stagesDone = (stages?.evaluations ?? []).filter((e) => e.status === 'done').length;
+  const stagesDone = evals.filter((e) => e.status === 'done').length;
   const needsScore = typeof score?.overall_score !== 'number';
   useEffect(() => {
     if (autoScoreFired.current) return;
-    if (!scoreLoaded || !stages) return;        // wait for both queries
+    if (!scoreLoaded || stagesLoading) return;  // wait for both queries
     if (!needsScore || stagesDone < 2) return;  // only when unscored + past Stage 2
     autoScoreFired.current = true;
     (async () => {
@@ -120,11 +113,10 @@ export function ScorePanel({ projectId }: { projectId: string }) {
         queryClient.invalidateQueries({ queryKey: ['score', projectId] });
       } catch { /* best-effort */ }
     })();
-  }, [scoreLoaded, stages, needsScore, stagesDone, projectId, queryClient]);
+  }, [scoreLoaded, stagesLoading, needsScore, stagesDone, projectId, queryClient]);
 
   const overall = typeof score?.overall_score === 'number' ? Math.round(score.overall_score) : null;
   const dims = normalizeDimensions(score?.dimensions);
-  const evals = stages?.evaluations ?? [];
   const total = evals.length || 7;
   const done = evals.filter((e) => e.status === 'done').length;
   const active = evals.find((e) => e.status === 'active');

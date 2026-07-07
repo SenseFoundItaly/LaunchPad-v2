@@ -8,23 +8,11 @@
  * Reads from GET /api/projects/[id]/stages via react-query.
  */
 
-import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Panel, Pill, Icon, I } from '@/components/design/primitives';
 import { checkActionPrompt } from '@/lib/journey-prompts';
 import { useT } from '@/components/providers/LocaleProvider';
-
-interface CheckResult {
-  passed: boolean;
-  evidence?: string;
-  gap?: string;
-  /** Locked track (Validation Gate 1C while 1A+1B open) — not actionable yet. */
-  locked?: boolean;
-}
-interface CheckRow {
-  check: { id: string; label: string; source: string; track?: '1A' | '1B' | '1C' };
-  result: CheckResult;
-}
+import { useStages, type StageCheckRow } from '@/hooks/useStages';
 
 // L2 Validation Gate sub-track headers (walkthrough §2). Only the validation
 // stage tags its checks; everywhere else `track` is undefined → flat render.
@@ -34,48 +22,26 @@ const TRACK_LABEL: Record<'1A' | '1B' | '1C', string> = {
   '1C': '1C · Problem-Solution Fit',
 };
 const TRACK_ORDER: Array<'1A' | '1B' | '1C'> = ['1A', '1B', '1C'];
-interface StageEvaluation {
-  stage: {
-    id: string;
-    number: number;
-    label: string;
-    tagline: string;
-  };
-  passed: number;
-  total: number;
-  status: 'done' | 'active' | 'pending';
-  results: CheckRow[];
-}
-interface StagesPayload {
-  active_stage_id: string;
-  active_stage_number: number;
-  evaluations: StageEvaluation[];
-}
 
 export function StageCard({ projectId }: { projectId: string }) {
-  const { data, isLoading } = useQuery<StagesPayload>({
-    queryKey: ['stages', projectId],
-    enabled: !!projectId,
-    queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/stages`);
-      const body = await res.json();
-      if (!body.success) throw new Error(body.error || 'Stages fetch failed');
-      return body.data as StagesPayload;
-    },
-  });
+  // Canonical shared cache: useStages returns the sorted evaluations ARRAY
+  // under ['stages', projectId]. See useStages.ts — do NOT reintroduce a
+  // bespoke object-shaped query on this key (it poisons the cache by mount
+  // order → `.find is not a function`).
+  const { data: evals = [], isLoading } = useStages(projectId);
 
   // Empty evaluations would make `headline` undefined below and throw the
   // whole page into error.tsx — treat it like the loading state instead.
-  if (isLoading || !data || !data.evaluations?.length) {
+  if (isLoading || evals.length === 0) {
     return <div className="lp-card" style={{ height: 220, opacity: 0.5 }} />;
   }
 
-  const active = data.evaluations.find((e) => e.status === 'active');
-  const done = data.evaluations.filter((e) => e.status === 'done');
-  const pending = data.evaluations.filter((e) => e.status === 'pending');
+  const active = evals.find((e) => e.status === 'active');
+  const done = evals.filter((e) => e.status === 'done');
+  const pending = evals.filter((e) => e.status === 'pending');
 
   // Edge case: everything done → show the last stage as a "all clear" card.
-  const headline = active ?? data.evaluations[data.evaluations.length - 1];
+  const headline = active ?? evals[evals.length - 1];
 
   return (
     <div data-tour="stage-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -161,7 +127,7 @@ export function StageCard({ projectId }: { projectId: string }) {
   );
 }
 
-function CheckRowView({ projectId, check, result }: { projectId: string; check: CheckRow['check']; result: CheckResult }) {
+function CheckRowView({ projectId, check, result }: { projectId: string; check: StageCheckRow['check']; result: StageCheckRow['result'] }) {
   const t = useT();
   // Unmet checks get an actionable CTA that pre-fills the Co-pilot composer with
   // the prompt for THIS substep (cross-page via ?prefill — the chat page loads
@@ -226,7 +192,7 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
           {t('canvas.track-locked')}
         </span>
       ) : (
-        <Link href={prefillHref} title={`${check.source} · ask the Co-pilot to validate this`} style={askCtaStyle}>
+        <Link href={prefillHref} title={`${check.source ?? ''} · ask the Co-pilot to validate this`} style={askCtaStyle}>
           Ask Co-pilot →
         </Link>
       )}
