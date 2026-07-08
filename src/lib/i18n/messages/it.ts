@@ -607,7 +607,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'journey-prompt.scoring': "Esegui l'analisi Startup Scoring per fissare il mio punteggio di partenza.",
   // Loop 1 — PSF Review (layer dei loop L2).
   'loop1.card-title': 'PSF Review — la disponibilità a pagare è solo {pct}%',
-  'loop1.card-rationale': 'Solo il {pct}% degli intervistati pagherebbe (sotto la soglia del {threshold}%). Rivedi ICP, value proposition e problem statement prima di costruire il pricing. Approva per lanciare la PSF review.',
+  'loop1.card-rationale': 'Solo il {pct}% degli intervistati pagherebbe (sotto la soglia del {threshold}%). Rivedi ICP, value proposition e problem statement prima di costruire il pricing. Approva per lanciare la PSF review — oppure ignorala per procedere al pricing senza.',
   'loop1.card-title-manual': 'PSF Review',
   'loop1.card-rationale-manual': 'Rivedi il Problem-Solution Fit — ICP, value proposition e problem statement — rispetto alle tue interviste. Approva per lanciare la PSF review.',
   'loop1.verdict-prompt': 'Hai iterato due volte sul PSF e la disponibilità a pagare è ancora sotto la soglia. È il momento di decidere:',

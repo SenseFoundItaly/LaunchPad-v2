@@ -622,7 +622,7 @@ export const en = {
   'journey-prompt.scoring': 'Run the Startup Scoring analysis to set my baseline score.',
   // Loop 1 — PSF Review (L2 loop layer).
   'loop1.card-title': 'PSF Review — willingness-to-pay is only {pct}%',
-  'loop1.card-rationale': 'Only {pct}% of your interviewees would pay (below the {threshold}% bar). Review your ICP, value proposition and problem statement before building pricing. Approve to run the PSF review.',
+  'loop1.card-rationale': 'Only {pct}% of your interviewees would pay (below the {threshold}% bar). Review your ICP, value proposition and problem statement before building pricing. Approve to run the PSF review — or dismiss it to proceed to pricing without it.',
   'loop1.card-title-manual': 'PSF Review',
   'loop1.card-rationale-manual': 'Review your Problem-Solution Fit — ICP, value proposition and problem statement — against your interviews. Approve to run the PSF review.',
   'loop1.verdict-prompt': "You've iterated on PSF twice and willingness-to-pay is still below the bar. Time for a decision:",

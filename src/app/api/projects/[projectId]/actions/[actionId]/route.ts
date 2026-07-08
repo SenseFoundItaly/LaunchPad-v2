@@ -14,6 +14,7 @@ import {
 import { executeAppliedAction, dismissAlertSource } from '@/lib/action-executors';
 import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
+import { overrideLoop1 } from '@/lib/loops/loop1-psf';
 
 /**
  * GET /api/projects/{projectId}/actions/{actionId}
@@ -121,6 +122,29 @@ export async function POST(
         // keeps surfacing on every NON-inbox reader (Intelligence panel, Today,
         // /assumptions). Non-fatal; the reject already succeeded.
         await dismissAlertSource(existing);
+        // Loop 1 Founder-first escape (linee guida §4: "il sistema non può
+        // bloccare il founder"). The PSF-review proposal is founder-gated;
+        // dismissing it IS the founder choosing to ignore the loop. Release it
+        // (ignore-with-motivation) so an open Loop 1 doesn't gate Phase 2
+        // (business-model / financial-model) indefinitely — the exact dead-end
+        // the audit found. Mirrors the approve→'active' branch in
+        // executeAppliedAction. The reject `reason` becomes the motivation
+        // (§4/§8 "con motivazione registrata"); non-fatal.
+        if (existing.action_type === 'run_skill') {
+          const p = (existing.payload && typeof existing.payload === 'object'
+            ? existing.payload
+            : (() => { try { return JSON.parse(String(existing.payload ?? '{}')); } catch { return {}; } })()) as Record<string, unknown>;
+          if (p.skill_id === 'psf-review' && typeof p.loop_id === 'string') {
+            const ownerRow = (await query<{ owner_user_id: string | null }>(
+              'SELECT owner_user_id FROM projects WHERE id = ?', projectId,
+            ))[0];
+            const motivation = (typeof body.reason === 'string' && body.reason.trim())
+              ? body.reason.trim()
+              : 'Founder dismissed the PSF review and chose to proceed.';
+            await overrideLoop1(projectId, p.loop_id, ownerRow?.owner_user_id || '', motivation)
+              .catch((err) => console.warn('[reject] loop1 override failed (non-fatal):', (err as Error).message));
+          }
+        }
         // Preference learning: the agent proposed something the founder
         // didn't want. Record a low-confidence 'preference' fact so future
         // buildMemoryContext calls include "user rejected X" in the prompt,
