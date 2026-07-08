@@ -69,6 +69,7 @@ export const ACTION_LANE: Record<PendingActionType, ActionLane> = {
   signal_alert: 'signal',
   intelligence_brief: 'approval',
   assumption_review: 'approval',
+  mvp_build_iteration: 'approval',
 };
 
 export function laneFor(type: PendingActionType): ActionLane {
@@ -108,6 +109,11 @@ export const WATCHER_PROPOSAL_TYPES: readonly PendingActionType[] = [
   'configure_watch_source',
 ];
 
+/** Build Hub proposals — cron-drafted next-iteration proposals surfaced for approval. */
+export const BUILD_PROPOSAL_TYPES: readonly PendingActionType[] = [
+  'mvp_build_iteration',
+];
+
 /**
  * Every action_type with a founder-reachable accept path somewhere in the UI:
  * the Intel inbox (INTEL_INBOX_TYPES — the alpha "watcher repository" surface)
@@ -122,4 +128,5 @@ export const WATCHER_PROPOSAL_TYPES: readonly PendingActionType[] = [
 export const SURFACED_ACTION_TYPES: readonly PendingActionType[] = [
   ...INTEL_INBOX_TYPES,
   ...WATCHER_PROPOSAL_TYPES,
+  ...BUILD_PROPOSAL_TYPES,
 ];

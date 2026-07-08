@@ -9,11 +9,16 @@
 
 import type { BuilderAdapter, BuilderId } from './types';
 import { stubAdapter } from './stub';
+import { v0Adapter } from './v0';
+import { e2bAdapter } from './e2b-agent';
 
-// Drivers registered on this branch. v0/e2b/lovable/replit/ploy adapters are
-// added on their own branches (register them here when they land).
+// Registered drivers. Selection is by BUILD_DRIVER env (default 'stub'); v0/e2b
+// only actually run when their API key is set (isConfigured()). Importing them is
+// cheap — the SDK clients/sandboxes are constructed lazily inside their methods.
 const REGISTRY: Partial<Record<BuilderId, BuilderAdapter>> = {
   stub: stubAdapter,
+  v0: v0Adapter,
+  e2b: e2bAdapter,
 };
 
 /** The configured default driver id (env-overridable; 'stub' when unset). */
