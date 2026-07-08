@@ -1,26 +1,8 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
-import {
-  getBuild,
-  createBuild,
-  updateBuild,
-  supersedeOtherBuilds,
-  addFeedback,
-  markFeedbackIncorporated,
-} from '@/lib/mvp/mvp-builds';
-import { getBuilder, getActiveBuilder } from '@/lib/builders';
-import type { BuilderAdapter, BuilderId } from '@/lib/builders/types';
-
-function resolveBuilder(id: string): BuilderAdapter {
-  try {
-    return getBuilder(id as BuilderId);
-  } catch {
-    // The recorded driver isn't registered on this branch — fall back so the
-    // build stays operable (e.g. an 'e2b' row viewed on the shared-core branch).
-    return getActiveBuilder();
-  }
-}
+import { getBuild, updateBuild } from '@/lib/mvp/mvp-builds';
+import { applyIteration } from '@/lib/mvp/run-iteration';
 
 /**
  * GET /api/projects/{projectId}/builds/{buildId}
@@ -64,41 +46,12 @@ export async function PATCH(
   if (body.action === 'iterate') {
     const message = String(body.message ?? '').trim();
     if (!message) return error('message is required to iterate');
-
-    const builder = resolveBuilder(build.builder);
-    if (!builder.supportsIteration) {
-      return error(`Builder "${builder.id}" does not support in-place iteration`, 409);
-    }
-
-    let result;
     try {
-      result = await builder.iterate(
-        { projectId, buildId: build.id, ownerUserId: auth.session.userId },
-        build.builder_ref ?? '',
-        message,
-      );
+      const next = await applyIteration(build, message, auth.session.userId);
+      return json(next);
     } catch (e) {
       return error(`Iteration failed: ${(e as Error).message}`, 502);
     }
-
-    const next = await createBuild({
-      projectId,
-      builder: build.builder,
-      substrate: result.substrate ?? build.substrate,
-      builderRef: result.builderRef,
-      previewUrl: result.previewUrl ?? null,
-      liveAppUrl: result.liveUrl ?? null,
-      status: result.status === 'failed' ? 'failed' : 'live',
-      specPrompt: message,
-      parentBuildId: build.id,
-      iteration: build.iteration + 1,
-      metadata: result.diff ? { diff: result.diff, logs: result.logs ?? null } : undefined,
-    });
-    await supersedeOtherBuilds(projectId, next.id);
-    // Record the change request and mark accumulated feedback as folded in.
-    await addFeedback({ projectId, buildId: build.id, source: 'founder', body: message });
-    await markFeedbackIncorporated(projectId, next.iteration);
-    return json(next);
   }
 
   // ── Field update ──────────────────────────────────────────────────────────
@@ -107,7 +60,7 @@ export async function PATCH(
   if (typeof body.status === 'string') patch.status = body.status;
   if (Object.keys(patch).length === 0) return error('No supported fields to update');
 
-  // TODO(Phase 2): when live_app_url is set, register a watch_source for Firecrawl
+  // TODO(Phase 2+): when live_app_url is set, register a watch_source for Firecrawl
   // monitoring and store watch_source_id on the build.
   const updated = await updateBuild(buildId, patch);
   return json(updated);

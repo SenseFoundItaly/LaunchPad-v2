@@ -58,6 +58,8 @@ import type {
   PendingActionType,
   EcosystemAlert,
 } from '@/types';
+import { getBuild, getCurrentBuild } from './mvp/mvp-builds';
+import { generateAndApplyIteration } from './mvp/run-iteration';
 
 export interface ExecutionDeliverable {
   mode: 'click-to-send' | 'direct' | 'outbox' | 'autopilot-stub';
@@ -1895,6 +1897,30 @@ const proposeAssumptionRevision: ActionHandler = async (action) => {
   };
 };
 
+/**
+ * `mvp_build_iteration` executor (Build Hub) — on approve, draft the next
+ * iteration's build prompt from accumulated feedback (mvp-build-spec skill) and
+ * run the builder driver's in-place iterate, recording a new iteration row.
+ * Payload: { build_id? } (defaults to the project's current build).
+ */
+const mvpBuildIteration: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const buildId = typeof payload.build_id === 'string' ? payload.build_id : undefined;
+  const build = buildId ? await getBuild(buildId) : await getCurrentBuild(action.project_id);
+  if (!build || build.project_id !== action.project_id) {
+    return { ok: false, error: 'mvp_build_iteration: target build not found' };
+  }
+  const next = await generateAndApplyIteration(build);
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct' as const,
+      narrative: `Iterated the MVP to build v${next.iteration}.`,
+      url: next.preview_url ?? null,
+    },
+  };
+};
+
 const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   draft_email: draftEmail,
   draft_linkedin_post: draftLinkedInPost,
@@ -1915,6 +1941,7 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   run_skill: runSkillExecutor,
   validation_proposal: applyValidationProposal,
   propose_assumption_revision: proposeAssumptionRevision,
+  mvp_build_iteration: mvpBuildIteration,
   // Placeholder until the Phase-2 workflows execution layer ships. The
   // workflow-card fan-out into per-step pending_actions was removed (2026-06),
   // so this rarely materializes today; when it does, be honest rather than

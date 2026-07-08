@@ -370,6 +370,7 @@ export const en = {
   'actions.type-brief': 'Brief',
   'actions.type-assumption': 'Assumption',
   'actions.type-assumption-revision': 'Assumption revision',
+  'actions.type-mvp-build-iteration': 'Build iteration',
 
   // ── Knowledge (src/app/project/[projectId]/knowledge/page.tsx) ────────────
   'knowledge.breadcrumb-project': 'Project',

@@ -358,6 +358,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'actions.type-brief': 'Brief',
   'actions.type-assumption': 'Assunzione',
   'actions.type-assumption-revision': 'Revisione assunzione',
+  'actions.type-mvp-build-iteration': 'Iterazione build',
 
   // ── Knowledge ─────────────────────────────────────────────────────────────
   'knowledge.breadcrumb-project': 'Progetto',
