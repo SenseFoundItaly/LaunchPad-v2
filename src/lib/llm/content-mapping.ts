@@ -73,6 +73,11 @@ export const CONTENT_MAPPING: ContentMappingEntry[] = [
     topic: 'Financial projections, runway, burn',
     triggers: ['financial projection', 'runway', 'burn rate', 'cash flow'],
   },
+  {
+    skill_id: 'mvp-build-spec',
+    topic: 'Build the MVP/app, generate a build prompt, iterate or preview the product',
+    triggers: ['build my mvp', 'build the app', 'build my app', 'mvp build', 'iterate the app', 'iterate the mvp', 'lovable', 'replit', 'ploy', 'prototype the app'],
+  },
 ];
 
 /** Render the mapping as the prompt-facing bullet list. Output shape matches
