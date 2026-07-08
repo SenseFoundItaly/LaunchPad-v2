@@ -1,0 +1,28 @@
+name: Deploy staging
+
+# Push to the `staging` branch → build + deploy to the launchpad-staging Netlify
+# site (separate site + separate Supabase DB, so it can never touch prod).
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build + deploy to Netlify staging
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        run: npx netlify-cli deploy --build --prod --site ${{ secrets.NETLIFY_STAGING_SITE_ID }}
