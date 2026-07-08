@@ -7,19 +7,22 @@ import { useProject } from '@/hooks/useProject';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { ChromeProvider, useChromeState } from '@/components/design/chrome-context';
 import { TopBar, NavRail } from '@/components/design/chrome';
-import { useT } from '@/components/providers/LocaleProvider';
+import { LocaleProvider, useT } from '@/components/providers/LocaleProvider';
+import { asLocale } from '@/lib/i18n/locales';
 
 /**
  * Project layout — owns the PERSISTENT chrome (TopBar + NavRail) plus the
  * project-loading gate.
  *
- * Locale note: the UI language is ACCOUNT-wide — it's governed by the
- * cookie-seeded LocaleProvider in the ROOT layout (src/app/layout.tsx), which
- * the language switch updates. This layout deliberately does NOT mount its own
- * provider: an inner one seeded from `project.locale` used to shadow the
- * account locale, so the switch appeared to do nothing on project pages.
- * `project.locale` is still the AGENT's per-project output language, resolved
- * server-side (resolveProjectLocale) — independent of the UI.
+ * Locale note: INSIDE a project the UI language is FROZEN to `project.locale`
+ * (set at creation) — an Italian project renders Italian even for a founder
+ * whose account language is English, and vice-versa. This layout mounts a
+ * LocaleProvider seeded from `project.locale` that shadows the account-wide
+ * (root-layout, cookie-seeded) provider for all project pages. The header
+ * language switch is already read-only in-project (LanguageSwitch
+ * `readOnly={!!projectId}`), so the frozen locale and the switch don't fight.
+ * (A prior revision dropped this provider, which regressed project pages to the
+ * ACCOUNT locale — the exact "all stages in English on an IT project" bug.)
  *
  * The chrome lives here (not in each page) so it survives tab navigation: only
  * the content slot re-mounts (keyed on pathname) and crossfades via lp-rise,
@@ -91,11 +94,13 @@ export default function ProjectLayout({
   }
 
   return (
-    <ChromeProvider>
-      <ProjectChrome projectId={projectId} projectName={project.name}>
-        {children}
-      </ProjectChrome>
-    </ChromeProvider>
+    <LocaleProvider initialLocale={asLocale(project.locale)}>
+      <ChromeProvider>
+        <ProjectChrome projectId={projectId} projectName={project.name}>
+          {children}
+        </ProjectChrome>
+      </ChromeProvider>
+    </LocaleProvider>
   );
 }
 
