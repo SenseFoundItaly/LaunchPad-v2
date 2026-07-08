@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkLabel, stageLabel, stageTagline, checkGap } from './journey-prompts';
+import { checkLabel, stageLabel, stageTagline, checkGap, checkEvidence } from './journey-prompts';
 import { STAGES } from '@/lib/journey';
 import { translate, type MessageKey, type TranslateVars } from '@/lib/i18n/messages';
 
@@ -85,5 +85,30 @@ describe('spine gap hint i18n (checkGap)', () => {
 
   it('an unmapped id falls back to the English gap — never a raw key', () => {
     expect(checkGap('totally_unknown_check', 'English gap', tIt, 'it')).toBe('English gap');
+  });
+});
+
+describe('spine evidence i18n (checkEvidence)', () => {
+  const SENTINEL = '<<ENGLISH EVIDENCE>>';
+
+  it('every canonical check has a localized IT evidence string (no English leak)', () => {
+    for (const stage of STAGES) {
+      for (const check of stage.checks) {
+        expect(checkEvidence(check.id, SENTINEL, tIt, 'it'), `evidence ${check.id}`).not.toBe(SENTINEL);
+      }
+    }
+  });
+
+  it('EN keeps the evaluator evidence verbatim (runtime "3 competitors" intact)', () => {
+    expect(checkEvidence('competitors_mapped', "You've mapped 3 competitors in your space.", tEn, 'en'))
+      .toBe("You've mapped 3 competitors in your space.");
+  });
+
+  it('undefined evidence → undefined (failed rows show a gap, not evidence)', () => {
+    expect(checkEvidence('problem_defined', undefined, tIt, 'it')).toBeUndefined();
+  });
+
+  it('an unmapped id falls back to the English evidence — never a raw key', () => {
+    expect(checkEvidence('totally_unknown_check', 'English evidence', tIt, 'it')).toBe('English evidence');
   });
 });

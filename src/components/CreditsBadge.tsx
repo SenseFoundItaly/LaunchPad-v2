@@ -261,10 +261,8 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
       >
         <span className="lp-dot" style={{ background: dot }} />
         {snap.remaining}/{snap.total} credits
-        <span style={{ opacity: 0.7 }}>·</span>
-        <span style={{ opacity: 0.7 }}>
-          {snap.used_today} today
-        </span>
+        {/* "· N today" removed — the balance is the signal; the daily delta was
+            header noise the founder asked to drop. */}
         {/* Micro progress bar */}
         <span
           style={{

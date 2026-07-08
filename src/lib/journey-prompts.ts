@@ -217,3 +217,70 @@ export function checkGap(
   }
   return gap;
 }
+
+/**
+ * Founder-facing EVIDENCE strings (the confirmation under a PASSED check) are
+ * also generated English server-side. Same treatment as gaps: EN keeps the
+ * evaluator's verbatim `result.evidence` (its runtime specifics — "3
+ * competitors", "7.2/10" — intact), IT renders a localized confirmation keyed
+ * by check id (multi-branch evidence collapses to one; runtime count dropped on
+ * IT only). Unmapped id → the English evidence, never a raw key.
+ */
+const EVIDENCE_LABEL_KEY: Record<string, MessageKey> = {
+  // Stage 1
+  problem_defined: 'journey-evidence.problem_defined',
+  solution_sketched: 'journey-evidence.solution_sketched',
+  target_icp_defined: 'journey-evidence.target_icp_defined',
+  value_prop: 'journey-evidence.value_prop',
+  edge_articulated: 'journey-evidence.edge_articulated',
+  channels_defined: 'journey-evidence.channels_defined',
+  cost_revenue_defined: 'journey-evidence.cost_revenue_defined',
+  lean_canvas_compiled: 'journey-evidence.lean_canvas_compiled',
+  startup_scoring_baseline: 'journey-evidence.startup_scoring_baseline',
+  // Stage 2
+  competitors_mapped: 'journey-evidence.competitors_mapped',
+  market_size: 'journey-evidence.market_size',
+  differentiation_evidence: 'journey-evidence.differentiation_evidence',
+  tech_feasibility: 'journey-evidence.tech_feasibility',
+  key_dependencies: 'journey-evidence.key_dependencies',
+  regulatory_check: 'journey-evidence.regulatory_check',
+  interviews_logged: 'journey-evidence.interviews_logged',
+  pain_validated: 'journey-evidence.pain_validated',
+  wtp_signal: 'journey-evidence.wtp_signal',
+  // Stage 3
+  icp_defined: 'journey-evidence.icp_defined',
+  channels_identified: 'journey-evidence.channels_identified',
+  // Stage 4
+  anchor_set: 'journey-evidence.anchor_set',
+  tiers_defined: 'journey-evidence.tiers_defined',
+  wtp_researched: 'journey-evidence.wtp_researched',
+  model_chosen: 'journey-evidence.model_chosen',
+  unit_econ_viable: 'journey-evidence.unit_econ_viable',
+  // Stage 5
+  workflow_active: 'journey-evidence.workflow_active',
+  scope_defined: 'journey-evidence.scope_defined',
+  something_shipped: 'journey-evidence.something_shipped',
+  early_users: 'journey-evidence.early_users',
+  // Stage 6
+  runway_clear: 'journey-evidence.runway_clear',
+  capital_plan: 'journey-evidence.capital_plan',
+  // Stage 7
+  loop_active: 'journey-evidence.loop_active',
+  metrics_tracked: 'journey-evidence.metrics_tracked',
+};
+
+/** Localized evidence string for a PASSED spine check. EN keeps the evaluator's
+ *  verbatim evidence; non-EN gets the localized confirmation keyed by check id. */
+export function checkEvidence(
+  checkId: string,
+  evidence: string | undefined,
+  t: TFn,
+  locale: Locale,
+): string | undefined {
+  if (evidence == null) return undefined;
+  if (locale !== 'en') {
+    const key = EVIDENCE_LABEL_KEY[checkId];
+    if (key) return t(key);
+  }
+  return evidence;
+}

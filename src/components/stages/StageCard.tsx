@@ -10,7 +10,7 @@
 
 import Link from 'next/link';
 import { Panel, Pill, Icon, I } from '@/components/design/primitives';
-import { checkActionPrompt, checkLabel, stageLabel, stageTagline, checkGap } from '@/lib/journey-prompts';
+import { checkActionPrompt, checkLabel, stageLabel, stageTagline, checkGap, checkEvidence } from '@/lib/journey-prompts';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
 import { useStages, type StageCheckRow } from '@/hooks/useStages';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -179,7 +179,7 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
             marginTop: 2,
             letterSpacing: 0.2,
           }}>
-            {result.evidence ?? checkGap(check.id, result.gap, t, locale)}
+            {checkEvidence(check.id, result.evidence, t, locale) ?? checkGap(check.id, result.gap, t, locale)}
           </div>
         )}
       </div>

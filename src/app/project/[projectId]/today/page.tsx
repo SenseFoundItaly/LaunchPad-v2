@@ -20,7 +20,7 @@ import Link from 'next/link';
 import { useSetChrome } from '@/components/design/chrome-context';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
-import { Pill, Icon, I } from '@/components/design/primitives';
+import { Icon, I } from '@/components/design/primitives';
 import { PanelBoundary } from '@/components/design/PanelBoundary';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { StageCard } from '@/components/stages/StageCard';
@@ -75,14 +75,12 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
   // right pill, StatusBar). No invented runtime state here — this page only knows
   // pending actions (incl. signal rows), so the bar reports exactly that plus the
   // watchers' documented weekly scan cadence.
+  // No TopBar `right` pill: the pending count is redundant with the Inbox
+  // nav-rail badge, and its zero-state ("0 pending") was header noise the
+  // founder asked to drop.
   useSetChrome(
     {
       breadcrumb: [t('today.breadcrumb-project'), t('today.breadcrumb-home')],
-      right: (
-        <Pill kind={inboxBadge > 0 ? 'ok' : 'n'} dot={inboxBadge > 0}>
-          {t('today.pending-count', { count: inboxBadge })}
-        </Pill>
-      ),
       status: {
         heartbeatLabel: t('today.watchers-cadence'),
         ctxLabel: t('today.signals-to-review', { count: signalCount }),
