@@ -626,6 +626,7 @@ export const en = {
   'loop1.card-title-manual': 'PSF Review',
   'loop1.card-rationale-manual': 'Review your Problem-Solution Fit — ICP, value proposition and problem statement — against your interviews. Approve to run the PSF review.',
   'loop1.verdict-prompt': "You've iterated on PSF twice and willingness-to-pay is still below the bar. Time for a decision:",
+  'loop1.verdict-evidence': 'Evidence — after {iterations} PSF iteration(s) across {interviews} interviews: willingness-to-pay {wtp}% (below the 30% bar), pain confirmed by {pain}%.',
   'loop1.verdict-go': 'GO — the signal is strong enough to proceed',
   'loop1.verdict-pivot': 'PIVOT — revise the target or value proposition',
   'loop1.verdict-stop': 'STOP — the evidence says this idea should be shelved',

@@ -83,8 +83,10 @@ const openLoop = (pid) => sql`SELECT id, status, iteration, trigger FROM validat
   await new Promise((r) => setTimeout(r, 1200));
   loop = (await sql`SELECT id, status, iteration, verdict_evidence FROM validation_loops WHERE project_id=${pid} ORDER BY created_at DESC LIMIT 1`)[0];
   ok('at cap → verdict staged (status in_review + evidence)', loop?.status === 'in_review' && !!loop?.verdict_evidence, `status=${loop?.status}`);
-  const verdictMsg = await sql`SELECT id FROM chat_messages WHERE project_id=${pid} AND content LIKE '%opt_loop1_verdict%'`;
+  const verdictMsg = await sql`SELECT id, content FROM chat_messages WHERE project_id=${pid} AND content LIKE '%opt_loop1_verdict%'`;
   ok('GO/PIVOT/STOP verdict card posted to chat', verdictMsg.length === 1);
+  // §4/§8: the verdict is accompanied by the Evidence Matrix (localized IT here).
+  ok('verdict card carries the Evidence Matrix summary', (verdictMsg[0]?.content || '').includes('Evidenza'), 'no evidence line');
 
   // Record the verdict via the API → loop closed.
   const vres = await api('POST', `/api/projects/${pid}/loops/${loop.id}`, { action: 'verdict', verdict: 'PIVOT' });

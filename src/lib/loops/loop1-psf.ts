@@ -168,7 +168,7 @@ export async function maybeTriggerLoop1(projectId: string, snapshot?: ProjectSna
       }
       const esc = await escalateLoop1(projectId);
       if (esc?.atCap) {
-        await stageLoop1Verdict(projectId, ownerUserId, loop.id, locale);
+        await stageLoop1Verdict(projectId, ownerUserId, loop.id, locale, esc.evidence);
       } else if (esc) {
         const pa = await proposeReview(projectId, ownerUserId, loop.id, pct, locale);
         await run(`UPDATE validation_loops SET status = 'proposed', pending_action_id = ? WHERE id = ?`, pa, loop.id);
@@ -204,7 +204,7 @@ export async function maybeTriggerLoop1(projectId: string, snapshot?: ProjectSna
  * POST /api/projects/[id]/loops/[loopId]/verdict. Non-throwing.
  */
 export async function stageLoop1Verdict(
-  projectId: string, ownerUserId: string, loopId: string, locale: 'en' | 'it',
+  projectId: string, ownerUserId: string, loopId: string, locale: 'en' | 'it', evidence?: EvidenceMatrix,
 ): Promise<void> {
   try {
     const options = [
@@ -212,7 +212,18 @@ export async function stageLoop1Verdict(
       { id: `verdict_PIVOT_${loopId}`, label: translate(locale, 'loop1.verdict-pivot'), loop_verdict: 'PIVOT', loop_id: loopId },
       { id: `verdict_STOP_${loopId}`, label: translate(locale, 'loop1.verdict-stop'), loop_verdict: 'STOP', loop_id: loopId },
     ];
-    const body = { prompt: translate(locale, 'loop1.verdict-prompt'), options };
+    // §4/§8: "il verdict è sempre accompagnato da un evidence summary". Prepend
+    // the deterministic Evidence Matrix (localized) so the founder decides
+    // GO/PIVOT/STOP WITH the structured evidence in view, not blind.
+    const evidenceLine = evidence
+      ? translate(locale, 'loop1.verdict-evidence', {
+          iterations: evidence.iterations,
+          interviews: evidence.interviews,
+          wtp: Math.round(evidence.wtp_rate * 100),
+          pain: Math.round(evidence.pain_rate * 100),
+        }) + '\n\n'
+      : '';
+    const body = { prompt: evidenceLine + translate(locale, 'loop1.verdict-prompt'), options };
     const content = `:::artifact{"type":"option-set","id":"opt_loop1_verdict_${loopId.slice(-8)}"}\n${JSON.stringify(body)}\n:::`;
     await run(
       `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)

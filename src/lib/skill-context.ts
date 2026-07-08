@@ -33,7 +33,7 @@ function clip(v: unknown, cap = FIELD_CAP): string {
  * Returns an authoritative `=== PROJECT CONTEXT ===` block for injection into a
  * skill agent's system prompt, or '' when the project has no usable context yet.
  */
-export async function buildSkillProjectContext(projectId: string): Promise<string> {
+export async function buildSkillProjectContext(projectId: string, skillId?: string): Promise<string> {
   let project: { name?: string; description?: string } | null = null;
   try {
     project = (await get<{ name: string; description: string }>(
@@ -92,6 +92,26 @@ export async function buildSkillProjectContext(projectId: string): Promise<strin
   if (facts.length > 0) {
     lines.push('', 'Founder-asserted facts:');
     for (const f of facts) lines.push(`- ${clip(f, 240)}`);
+  }
+
+  // PSF Review (Loop 1) diagnoses Problem-Solution Fit FROM the interviews, and
+  // its SKILL prose promises "you are given the interview evidence (pain,
+  // urgency, WTP)". The generic context above carries canvas/research/facts but
+  // NOT the interview rows — so inject them here for psf-review, or the loop's
+  // most critical skill would run blind against the very data it's told it has.
+  if (skillId === 'psf-review') {
+    const ivs = snap.interviews ?? [];
+    if (ivs.length > 0) {
+      const withWtp = ivs.filter((i) => typeof i.wtp_amount === 'number' && i.wtp_amount > 0).length;
+      lines.push('', `PSF interview evidence (${ivs.length} logged, ${withWtp} with a willingness-to-pay amount — WTP rate ${Math.round((withWtp / ivs.length) * 100)}%):`);
+      for (const iv of ivs.slice(0, 12)) {
+        const parts: string[] = [];
+        if (iv.top_pain) parts.push(`pain: ${clip(iv.top_pain, 160)}`);
+        if (iv.urgency) parts.push(`urgency: ${clip(iv.urgency, 40)}`);
+        if (typeof iv.wtp_amount === 'number' && iv.wtp_amount > 0) parts.push(`WTP: ${iv.wtp_amount}`);
+        lines.push(`- ${clip(iv.person_name, 60) || 'Interviewee'}: ${parts.join(' · ') || '(no details)'}`);
+      }
+    }
   }
 
   // Nothing to go on — let the skill legitimately ask.

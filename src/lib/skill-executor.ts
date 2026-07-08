@@ -228,7 +228,7 @@ export async function runSkill(
   // Inject authoritative project context (idea_canvas, research, competitors,
   // memory) so the skill agent doesn't run blind and ask "what's your startup?"
   // even when the canvas is filled. '' for a brand-new project → skill may ask.
-  const projectContext = await buildSkillProjectContext(projectId).catch(() => '');
+  const projectContext = await buildSkillProjectContext(projectId, skillId).catch(() => '');
   let systemPrompt = projectContext ? `${loaded.body}\n\n${projectContext}` : loaded.body;
 
   // Research skills persist downstream from a structured json payload. The model

@@ -611,6 +611,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'loop1.card-title-manual': 'PSF Review',
   'loop1.card-rationale-manual': 'Rivedi il Problem-Solution Fit — ICP, value proposition e problem statement — rispetto alle tue interviste. Approva per lanciare la PSF review.',
   'loop1.verdict-prompt': 'Hai iterato due volte sul PSF e la disponibilità a pagare è ancora sotto la soglia. È il momento di decidere:',
+  'loop1.verdict-evidence': 'Evidenza — dopo {iterations} iterazioni PSF su {interviews} interviste: disponibilità a pagare {wtp}% (sotto la soglia del 30%), pain confermato dal {pain}%.',
   'loop1.verdict-go': 'GO — il segnale è abbastanza forte per procedere',
   'loop1.verdict-pivot': 'PIVOT — rivedi il target o la value proposition',
   'loop1.verdict-stop': "STOP — l'evidenza dice di accantonare questa idea",
