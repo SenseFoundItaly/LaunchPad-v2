@@ -10,8 +10,8 @@
 
 import Link from 'next/link';
 import { Panel, Pill, Icon, I } from '@/components/design/primitives';
-import { checkActionPrompt, checkLabel, stageLabel, stageTagline } from '@/lib/journey-prompts';
-import { useT } from '@/components/providers/LocaleProvider';
+import { checkActionPrompt, checkLabel, stageLabel, stageTagline, checkGap } from '@/lib/journey-prompts';
+import { useT, useLocale } from '@/components/providers/LocaleProvider';
 import { useStages, type StageCheckRow } from '@/hooks/useStages';
 import type { MessageKey } from '@/lib/i18n/messages';
 
@@ -71,7 +71,7 @@ export function StageCard({ projectId }: { projectId: string }) {
         subtitle={stageTagline(headline.stage.id, headline.stage.tagline, t)}
         right={
           <Pill kind={headline.status === 'done' ? 'ok' : 'live'} dot={headline.status === 'active'}>
-            Evidence: {headline.passed} of {headline.total} checks
+            {t('canvas.evidence-count', { passed: headline.passed, total: headline.total })}
           </Pill>
         }
       >
@@ -110,10 +110,10 @@ export function StageCard({ projectId }: { projectId: string }) {
             gap: 10,
           }}>
             <span style={{ fontSize: 12, color: 'var(--ink-3)', flex: 1 }}>
-              Next: address the gaps above with the Co-pilot.
+              {t('canvas.next-gaps')}
             </span>
             <Link href={`/project/${projectId}/chat`} style={ctaStyle}>
-              Open Co-pilot →
+              {t('canvas.open-copilot')} →
             </Link>
           </div>
         )}
@@ -133,6 +133,7 @@ export function StageCard({ projectId }: { projectId: string }) {
 
 function CheckRowView({ projectId, check, result }: { projectId: string; check: StageCheckRow['check']; result: StageCheckRow['result'] }) {
   const t = useT();
+  const locale = useLocale();
   // Unmet checks get an actionable CTA that pre-fills the Co-pilot composer with
   // the prompt for THIS substep (cross-page via ?prefill — the chat page loads
   // it on mount). Passed checks keep their source tag (the proof's home key).
@@ -178,7 +179,7 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
             marginTop: 2,
             letterSpacing: 0.2,
           }}>
-            {result.evidence ?? result.gap}
+            {result.evidence ?? checkGap(check.id, result.gap, t, locale)}
           </div>
         )}
       </div>
@@ -197,7 +198,7 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
         </span>
       ) : (
         <Link href={prefillHref} title={`${check.source ?? ''} · ask the Co-pilot to validate this`} style={askCtaStyle}>
-          Ask Co-pilot →
+          {t('canvas.ask-copilot-cta')} →
         </Link>
       )}
     </div>

@@ -11,6 +11,7 @@
  * on the (always-English) check label, so category routing is locale-independent.
  */
 import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
+import type { Locale } from '@/lib/i18n/locales';
 
 type TFn = (key: MessageKey, vars?: TranslateVars) => string;
 
@@ -143,4 +144,76 @@ export function stageLabel(id: string, fallback: string, t: TFn): string {
 export function stageTagline(id: string, fallback: string | undefined, t: TFn): string | undefined {
   const key = STAGE_TAGLINE_KEY[id];
   return key ? t(key) : fallback;
+}
+
+/**
+ * Founder-facing GAP hints (the "what's missing" sub-line under an unmet check)
+ * are generated ENGLISH server-side in the journey evaluators — so they leaked
+ * English on IT projects. Keyed by check id here for IT display; EN keeps the
+ * evaluator's `result.gap` verbatim (preserving its runtime specifics — "2 of
+ * 3", "8.5mo", "LTV:CAC = 0.7x"), while IT renders a clean localized hint. A
+ * check with two gap branches (empty vs partial) collapses to one sensible IT
+ * hint; the runtime count is only dropped on IT. An unmapped id falls back to
+ * the English gap, never a raw key.
+ */
+const GAP_LABEL_KEY: Record<string, MessageKey> = {
+  // Stage 1 — Idea Canvas
+  problem_defined: 'journey-gap.problem_defined',
+  solution_sketched: 'journey-gap.solution_sketched',
+  target_icp_defined: 'journey-gap.target_icp_defined',
+  value_prop: 'journey-gap.value_prop',
+  edge_articulated: 'journey-gap.edge_articulated',
+  channels_defined: 'journey-gap.channels_defined',
+  cost_revenue_defined: 'journey-gap.cost_revenue_defined',
+  lean_canvas_compiled: 'journey-gap.lean_canvas_compiled',
+  startup_scoring_baseline: 'journey-gap.startup_scoring_baseline',
+  // Stage 2 — Validation Gate
+  competitors_mapped: 'journey-gap.competitors_mapped',
+  market_size: 'journey-gap.market_size',
+  differentiation_evidence: 'journey-gap.differentiation_evidence',
+  tech_feasibility: 'journey-gap.tech_feasibility',
+  key_dependencies: 'journey-gap.key_dependencies',
+  regulatory_check: 'journey-gap.regulatory_check',
+  interviews_logged: 'journey-gap.interviews_logged',
+  pain_validated: 'journey-gap.pain_validated',
+  wtp_signal: 'journey-gap.wtp_signal',
+  // Stage 3 — Persona
+  icp_defined: 'journey-gap.icp_defined',
+  channels_identified: 'journey-gap.channels_identified',
+  // Stage 4 — Business Model
+  anchor_set: 'journey-gap.anchor_set',
+  tiers_defined: 'journey-gap.tiers_defined',
+  wtp_researched: 'journey-gap.wtp_researched',
+  model_chosen: 'journey-gap.model_chosen',
+  unit_econ_viable: 'journey-gap.unit_econ_viable',
+  // Stage 5 — Build & Launch
+  workflow_active: 'journey-gap.workflow_active',
+  scope_defined: 'journey-gap.scope_defined',
+  something_shipped: 'journey-gap.something_shipped',
+  early_users: 'journey-gap.early_users',
+  // Stage 6 — Fundraise
+  runway_clear: 'journey-gap.runway_clear',
+  capital_plan: 'journey-gap.capital_plan',
+  // Stage 7 — Operate
+  loop_active: 'journey-gap.loop_active',
+  metrics_tracked: 'journey-gap.metrics_tracked',
+};
+
+/**
+ * Localized gap hint for a spine check row. EN keeps the evaluator's verbatim
+ * `gap` (its runtime specifics intact); non-EN locales get the localized hint
+ * keyed by check id, falling back to the English gap for any unmapped id.
+ */
+export function checkGap(
+  checkId: string,
+  gap: string | undefined,
+  t: TFn,
+  locale: Locale,
+): string | undefined {
+  if (gap == null) return undefined;
+  if (locale !== 'en') {
+    const key = GAP_LABEL_KEY[checkId];
+    if (key) return t(key);
+  }
+  return gap;
 }

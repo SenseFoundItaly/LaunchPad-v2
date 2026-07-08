@@ -19,8 +19,8 @@
 import { useMemo, useState } from 'react';
 import { useStages } from '@/hooks/useStages';
 import { useRouter } from 'next/navigation';
-import { checkActionPrompt, checkLabel, stageLabel, stageTagline } from '@/lib/journey-prompts';
-import { useT } from '@/components/providers/LocaleProvider';
+import { checkActionPrompt, checkLabel, stageLabel, stageTagline, checkGap } from '@/lib/journey-prompts';
+import { useT, useLocale } from '@/components/providers/LocaleProvider';
 import { Icon, I } from '@/components/design/icons';
 import type { MessageKey } from '@/lib/i18n/messages';
 
@@ -95,6 +95,7 @@ const TRACK_ORDER: Array<'1A' | '1B' | '1C'> = ['1A', '1B', '1C'];
 
 export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
   const t = useT();
+  const locale = useLocale();
   const router = useRouter();
   const [openStage, setOpenStage] = useState<string | null>(null);
   const [userPicked, setUserPicked] = useState(false);
@@ -223,7 +224,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
               const ok = r.result.passed;
               const isGap = !ok;
               const locked = !!r.result.locked;
-              const detail = ok ? r.result.evidence : locked ? undefined : r.result.gap;
+              const detail = ok ? r.result.evidence : locked ? undefined : checkGap(r.check.id, r.result.gap, t, locale);
               const rowId = r.check.id;
               const hasProof = ok && !!r.result.proof;
               const proofOpen = openProof === rowId;

@@ -18,7 +18,7 @@
 import { use, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, createContext, useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/api';
-import { useT } from '@/components/providers/LocaleProvider';
+import { useT, useLocale } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
 import { useChat, chatStoreHydrated, markChatHydrated } from '@/hooks/useChat';
 import { broadcastPersistedArtifacts } from '@/hooks/usePersistedArtifact';
@@ -40,7 +40,7 @@ import { TopBar, NavRail } from '@/components/design/chrome';
 // chat-specific controls (model picker, context export).
 import { useSetChrome } from '@/components/design/chrome-context';
 import { useKnowledgeCount } from '@/hooks/useKnowledgeCount';
-import { checkActionPrompt, checkLabel, stageLabel } from '@/lib/journey-prompts';
+import { checkActionPrompt, checkLabel, stageLabel, checkGap } from '@/lib/journey-prompts';
 import { buildContextMarkdown } from '@/lib/context-export';
 import { buildFinancialExport } from '@/lib/financial-export';
 import type { ContextExportData } from '@/lib/context-export';
@@ -1645,6 +1645,7 @@ function ChatEmptyState({
   onPick: (s: string) => void;
 }) {
   const t = useT();
+  const locale = useLocale();
   const [evals, setEvals] = useState<EmptyStateStage[]>([]);
   const [loaded, setLoaded] = useState(false);
   const { count: knowledgeCount } = useKnowledgeCount(projectId);
@@ -1727,16 +1728,17 @@ function ChatEmptyState({
                 <button key={c.check.id} onClick={() => onPick(checkActionPrompt(c.check.label, t))} style={btnStyle}>
                   <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{checkLabel(c.check.id, c.check.label, t)}</span>
                   {c.result.gap && (
-                    <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-5)', marginTop: 2 }}>{c.result.gap}</span>
+                    <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-5)', marginTop: 2 }}>{checkGap(c.check.id, c.result.gap, t, locale)}</span>
                   )}
                 </button>
               ))}
               {lockedChecks.slice(0, Math.max(0, 4 - openChecks.length)).map((c) => (
                 <div key={c.check.id} style={{ ...btnStyle, cursor: 'default', opacity: 0.6 }}>
                   <span style={{ fontWeight: 500, color: 'var(--ink)' }}>🔒 {checkLabel(c.check.id, c.check.label, t)}</span>
-                  {c.result.gap && (
-                    <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-5)', marginTop: 2 }}>{c.result.gap}</span>
-                  )}
+                  {/* Locked 1C rows carry the evaluator's English "Locked — …"
+                      gap; the check id maps to the UNLOCKED hint, so show the
+                      localized lock message instead. */}
+                  <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-5)', marginTop: 2 }}>{t('canvas.track-locked')}</span>
                 </div>
               ))}
             </div>
