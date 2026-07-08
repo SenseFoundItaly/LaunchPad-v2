@@ -147,6 +147,8 @@ interface NavItem {
 const PRIMARY_ITEMS: NavItem[] = [
   { id: 'dashboard', iconKey: 'home', labelKey: 'nav.home', route: 'today',
     tooltipKey: 'nav.home.tooltip' },
+  { id: 'build', iconKey: 'bolt', labelKey: 'nav.build', route: 'build',
+    tooltipKey: 'nav.build.tooltip' },
 ];
 
 // Channels — cross-cutting activity surfaces shown below the divider.
