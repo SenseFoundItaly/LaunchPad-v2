@@ -837,6 +837,49 @@ CREATE INDEX IF NOT EXISTS idx_ba_project
   ON build_artifacts(project_id);
 
 -- =============================================================================
+-- MVP Builds (Build & Launch Hub — pluggable builder driver: e2b | v0 | ...)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS mvp_builds (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  lane VARCHAR NOT NULL DEFAULT 'product',          -- product | growth
+  builder VARCHAR NOT NULL DEFAULT 'e2b',           -- e2b | v0 | lovable | replit | ploy
+  substrate VARCHAR,                                -- webcontainer | e2b (build-your-own driver)
+  builder_ref VARCHAR,                              -- driver handle (v0 chat/project id, E2B sandbox id)
+  iteration INTEGER NOT NULL DEFAULT 1,
+  status VARCHAR NOT NULL DEFAULT 'draft',          -- draft | building | live | superseded | failed
+  spec_prompt TEXT,
+  spec_artifact_id VARCHAR,                         -- optional pointer into build_artifacts(id)
+  preview_url TEXT,                                 -- iframe target (sandbox port / chat.demo)
+  live_app_url TEXT,                                -- deployed/persisted app URL
+  watch_source_id VARCHAR,                          -- logical link to watch_sources(id)
+  parent_build_id VARCHAR REFERENCES mvp_builds(id) ON DELETE SET NULL,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_mvp_builds_project_iter
+  ON mvp_builds(project_id, iteration DESC);
+
+CREATE TABLE IF NOT EXISTS mvp_build_feedback (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  build_id VARCHAR REFERENCES mvp_builds(id) ON DELETE SET NULL,
+  source VARCHAR NOT NULL DEFAULT 'founder',        -- founder | interview | watcher | memory_fact | live_monitor | brief | ploy
+  source_ref_id VARCHAR,
+  body TEXT NOT NULL,
+  severity VARCHAR,
+  incorporated_in_iteration INTEGER,               -- NULL = pending
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_mvp_build_feedback_project_time
+  ON mvp_build_feedback(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mvp_build_feedback_pending
+  ON mvp_build_feedback(project_id, incorporated_in_iteration);
+
+-- =============================================================================
 -- Signal Activity Logs (audit trail for signal pipeline events)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS signal_activity_logs (
