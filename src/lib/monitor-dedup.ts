@@ -32,7 +32,8 @@ export const MAX_ACTIVE_MONITORS_PER_PROJECT = 10;
 export interface MonitorProposalInput {
   name: string;
   kind: string;
-  schedule: 'daily' | 'weekly';
+  /** 'monthly' rides only black-swan scenario watchers (long-horizon signals). */
+  schedule: 'daily' | 'weekly' | 'monthly';
   query?: string;
   urls_to_track?: string[];
   alert_threshold: string;

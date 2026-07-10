@@ -17,6 +17,9 @@ import { stageFundraise } from './stage-6-fundraise';
 import { stageOperate } from './stage-7-operate';
 
 export { buildProjectSnapshot, countMemoryFactsMatching, keywordMatcher } from './snapshot';
+// Shared with the save_memory_fact spine-moving gate (project-tools.ts) — one
+// list, so the gate and the market_size check can never drift again.
+export { MARKET_SIZE_KEYWORDS } from './stage-2-market-validation';
 // Canonical id/number/label source of truth — import from here (or from
 // './canonical' directly in client code) instead of hardcoding stage names.
 export {

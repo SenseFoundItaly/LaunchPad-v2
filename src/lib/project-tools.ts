@@ -38,7 +38,7 @@ import { getCreditsRemaining, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import { ownerUserId } from '@/lib/cost-meter';
 import { USER_MONTHLY_LLM_USD, USER_MONTHLY_CREDITS } from '@/lib/credit-costs';
 import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readiness';
-import { getActiveStage, keywordMatcher } from '@/lib/journey';
+import { getActiveStage, keywordMatcher, MARKET_SIZE_KEYWORDS } from '@/lib/journey';
 import {
   validationTargetsFor,
   validationLabel,
@@ -2126,10 +2126,10 @@ const huntBlackSwansTool = (ctx: ToolContext): AgentTool => ({
 
     try {
       const result = await runPremortemPass(ctx.projectId, p.context, BLACK_SWAN_CONFIG);
-      const monitorsCreated = (result.side_effects.monitors_created as number | undefined) ?? 0;
+      const monitorsProposed = (result.side_effects.monitors_proposed as number | undefined) ?? 0;
       return {
         content: [{ type: 'text', text:
-          `Black Swan catalog created: ${result.item_count} scenarios + ${monitorsCreated} monitors. Brief ${result.brief_id} is now polling early signals monthly. Each scenario links back to the assumption numbers it would invalidate.` }],
+          `Black Swan catalog created: ${result.item_count} scenarios in brief ${result.brief_id} + ${monitorsProposed} watcher proposals staged for the founder's approval (Inbox / Watchers tab — approve-first, none are polling yet). Each scenario links back to the assumption numbers it would invalidate.` }],
         details: result,
       };
     } catch (err) {
@@ -2497,21 +2497,20 @@ const saveMemoryFactTool = (ctx: ToolContext): AgentTool => ({
       };
     }
 
-    // Spine-moving detection. This keyword set MIRRORS the canonical Stage-2
-    // `market_size` check in src/lib/journey/stage-2-market-validation.ts
-    // (countMemoryFactsMatching(s, [...])). A market-sizing fact, if persisted
+    // Spine-moving detection. MARKET_SIZE_KEYWORDS is the SAME constant the
+    // canonical Stage-2 `market_size` check counts (imported from
+    // stage-2-market-validation.ts) — a market-sizing fact, if persisted
     // 'applied', would silently turn the "Market size estimated" substep GREEN
-    // with no founder approval — violating the 2026-06-12 invariant. Keep this
-    // list in lockstep with that check; it is a mirror, not a divergent copy.
+    // with no founder approval, violating the 2026-06-12 invariant. A local
+    // English-only copy of the list drifted from the check's bilingual one
+    // (Italian prose slipped past the gate), hence the shared import.
     // Matched via the SHARED keywordMatcher (whole-word/phrase, length-tuned
     // boundaries) — NOT a bare substring. A substring `.includes('tam')` gated
     // the acronym INSIDE unrelated words: Italian "trat·tam·ento" (= "processing",
     // common in GDPR/regulatory facts) was wrongly flagged spine-moving and
     // persisted PENDING, so the founder's regulatory/technical facts silently
-    // never counted toward the Stage-2 1B checks. Mirror of the Stage-2
-    // `market_size` check — both now share keywordMatcher().
-    const MARKET_SIZE_KEYWORDS = ['market size', 'TAM', 'SAM', 'SOM', 'addressable'];
-    const isSpineMoving = keywordMatcher(MARKET_SIZE_KEYWORDS).test(content);
+    // never counted toward the Stage-2 1B checks.
+    const isSpineMoving = keywordMatcher([...MARKET_SIZE_KEYWORDS]).test(content);
 
     // Delegate to recordFact (handles dedup, source persistence, memory_event
     // emission). Reviewed-state split honours BOTH live decisions:

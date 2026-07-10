@@ -226,6 +226,12 @@ CREATE TABLE IF NOT EXISTS validation_loops (
 CREATE INDEX IF NOT EXISTS idx_validation_loops_project_open
   ON validation_loops(project_id, loop_number, status);
 
+-- 034: at most ONE open loop N per project — the DB-level gate that makes the
+-- trigger's check-then-insert race-safe (the loser gets a constraint error).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_validation_loops_one_open
+  ON validation_loops(project_id, loop_number)
+  WHERE status IN ('proposed', 'active', 'in_review');
+
 
 -- =============================================================================
 -- Alerts
