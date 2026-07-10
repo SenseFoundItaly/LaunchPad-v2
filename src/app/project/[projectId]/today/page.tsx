@@ -135,38 +135,47 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
                   <StageCard projectId={projectId} />
                 </PanelBoundary>
 
-                {/* Secondary — Watchers, Intel, Notes. */}
+                {/* Secondary — Watchers, Intel, Notes. Boundary-wrapped like the
+                    primary column: MonitorListPanel is network-driven (a plausible
+                    thrower), and an unwrapped throw here bubbles to the route
+                    error.tsx and takes down the whole Home page. */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                  <Panel
-                    dataTour="watchers-panel"
-                    label={t('today.watchers')}
-                    icon={I.signal}
-                    href={`/project/${projectId}/actions?lane=monitor`}
-                    hrefLabel={t('today.open-inbox')}
-                    empty={null}
-                  >
-                    <MonitorListPanel projectId={projectId} compact limit={4} title="" />
-                    {signalCount > 0 && (
-                      <Link
-                        href={`/project/${projectId}/actions?lane=signal`}
-                        style={{
-                          display: 'block',
-                          padding: '6px 12px',
-                          fontSize: 11,
-                          color: 'var(--ink-4)',
-                          textDecoration: 'none',
-                          fontFamily: 'var(--f-mono)',
-                          borderTop: '1px solid var(--line)',
-                        }}
-                      >
-                        {t('today.signals-awaiting-review', { count: signalCount })}
-                      </Link>
-                    )}
-                  </Panel>
+                  <PanelBoundary>
+                    <Panel
+                      dataTour="watchers-panel"
+                      label={t('today.watchers')}
+                      icon={I.signal}
+                      href={`/project/${projectId}/actions?lane=monitor`}
+                      hrefLabel={t('today.open-inbox')}
+                      empty={null}
+                    >
+                      <MonitorListPanel projectId={projectId} compact limit={4} title="" />
+                      {signalCount > 0 && (
+                        <Link
+                          href={`/project/${projectId}/actions?lane=signal`}
+                          style={{
+                            display: 'block',
+                            padding: '6px 12px',
+                            fontSize: 11,
+                            color: 'var(--ink-4)',
+                            textDecoration: 'none',
+                            fontFamily: 'var(--f-mono)',
+                            borderTop: '1px solid var(--line)',
+                          }}
+                        >
+                          {t('today.signals-awaiting-review', { count: signalCount })}
+                        </Link>
+                      )}
+                    </Panel>
+                  </PanelBoundary>
                   {!INTEL_HIDDEN && (
-                    <InboxPanel projectId={projectId} actions={actions} totalCount={intelPending.length} />
+                    <PanelBoundary>
+                      <InboxPanel projectId={projectId} actions={actions} totalCount={intelPending.length} />
+                    </PanelBoundary>
                   )}
-                  <NotesCard projectId={projectId} />
+                  <PanelBoundary>
+                    <NotesCard projectId={projectId} />
+                  </PanelBoundary>
                 </div>
               </div>
 

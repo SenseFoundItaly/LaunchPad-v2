@@ -182,12 +182,26 @@ export async function maybeTriggerLoop1(projectId: string, snapshot?: ProjectSna
     if (await lastEventOfType(ownerUserId, projectId, 'loop1_verdict')) return;
 
     const loopId = generateId('loop');
-    const pa = await proposeReview(projectId, ownerUserId, loopId, pct, locale);
+    // INSERT FIRST — with 032's partial unique index (one open loop N per
+    // project) this is the atomic gate: a concurrent trigger loses HERE with a
+    // constraint error (absorbed by the catch below) before any founder-facing
+    // pending action exists, so the race can't leave an orphan proposal card.
     await run(
-      `INSERT INTO validation_loops (id, project_id, loop_number, iteration, status, trigger, loop_score, scope, pending_action_id)
-       VALUES (?, ?, 1, 1, 'proposed', 'auto', ?, ?, ?)`,
-      loopId, projectId, signals, loop1Scope(), pa, // JSONB bound RAW (double-encode rule)
+      `INSERT INTO validation_loops (id, project_id, loop_number, iteration, status, trigger, loop_score, scope)
+       VALUES (?, ?, 1, 1, 'proposed', 'auto', ?, ?)`,
+      loopId, projectId, signals, loop1Scope(), // JSONB bound RAW (double-encode rule)
     );
+    let pa: string;
+    try {
+      pa = await proposeReview(projectId, ownerUserId, loopId, pct, locale);
+      await run(`UPDATE validation_loops SET pending_action_id = ? WHERE id = ?`, pa, loopId);
+    } catch (err) {
+      // Compensate: an open loop with NO card would gate Phase 2 with nothing
+      // for the founder to act on — the §4 dead-end. Remove our claim and let
+      // the next interview write re-trigger cleanly.
+      await run(`DELETE FROM validation_loops WHERE id = ? AND status = 'proposed'`, loopId);
+      throw err;
+    }
     await recordEvent({
       userId: ownerUserId, projectId, eventType: 'loop1_review_proposed',
       payload: { loop_id: loopId, wtp_rate: wtpRate, pending_action_id: pa },
@@ -247,18 +261,35 @@ export async function triggerLoop1Manual(projectId: string, ownerUserId: string)
   const { signals } = computeLoop1Score(snap.interviews);
   const locale = await resolveLocale(ownerUserId, projectId);
   const loopId = generateId('loop');
-  const pa = await createPendingAction({
-    project_id: projectId, action_type: 'run_skill',
-    title: translate(locale, 'loop1.card-title-manual'),
-    rationale: translate(locale, 'loop1.card-rationale-manual'),
-    payload: { skill_id: 'psf-review', owner_user_id: ownerUserId, loop_id: loopId, origin: 'loop1_manual' },
-    estimated_impact: 'high',
-  });
-  await run(
-    `INSERT INTO validation_loops (id, project_id, loop_number, iteration, status, trigger, loop_score, scope, pending_action_id)
-     VALUES (?, ?, 1, 1, 'proposed', 'manual', ?, ?, ?)`,
-    loopId, projectId, signals, loop1Scope(), pa.id,
-  );
+  // INSERT FIRST (mirror of maybeTriggerLoop1): 032's partial unique index is
+  // the atomic gate. Losing the race (the auto-trigger fired between our
+  // openLoop1 read and this write) resolves to the winner's loop id instead
+  // of a duplicate open loop, an orphan proposal card, or a 500.
+  try {
+    await run(
+      `INSERT INTO validation_loops (id, project_id, loop_number, iteration, status, trigger, loop_score, scope)
+       VALUES (?, ?, 1, 1, 'proposed', 'manual', ?, ?)`,
+      loopId, projectId, signals, loop1Scope(),
+    );
+  } catch (err) {
+    const winner = await openLoop1(projectId);
+    if (winner) return winner.id;
+    throw err;
+  }
+  try {
+    const pa = await createPendingAction({
+      project_id: projectId, action_type: 'run_skill',
+      title: translate(locale, 'loop1.card-title-manual'),
+      rationale: translate(locale, 'loop1.card-rationale-manual'),
+      payload: { skill_id: 'psf-review', owner_user_id: ownerUserId, loop_id: loopId, origin: 'loop1_manual' },
+      estimated_impact: 'high',
+    });
+    await run(`UPDATE validation_loops SET pending_action_id = ? WHERE id = ?`, pa.id, loopId);
+  } catch (err) {
+    // Compensate (§4 dead-end guard): never leave an open loop without a card.
+    await run(`DELETE FROM validation_loops WHERE id = ? AND status = 'proposed'`, loopId);
+    throw err;
+  }
   return loopId;
 }
 
@@ -329,11 +360,24 @@ export async function recordLoop1Verdict(projectId: string, loopId: string, owne
     `SELECT status, verdict FROM validation_loops WHERE id = ? AND project_id = ?`, loopId, projectId,
   );
   if (cur?.status === 'closed' && cur.verdict) return cur.verdict; // already decided — idempotent no-op
-  await run(
+  const updated = await run(
     `UPDATE validation_loops SET verdict = ?, status = 'closed', closed_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND project_id = ? AND status <> 'closed'`,
+      WHERE id = ? AND project_id = ? AND status <> 'closed'
+      RETURNING verdict`,
     verdict, loopId, projectId,
   );
+  if (updated.length === 0) {
+    // The UPDATE didn't land: either a concurrent submit won the race between
+    // our read and write, or the loop was closed WITHOUT a verdict (override /
+    // WTP-recovery). Emit NO loop1_verdict event — the write didn't happen —
+    // and return what's actually stored so the confirmation can't contradict
+    // the record. (Override-closed rows have verdict NULL; echo the pick
+    // unrecorded — the card is stale, the loop stays overridden.)
+    const stored = await get<{ verdict: 'GO' | 'PIVOT' | 'STOP' | null }>(
+      `SELECT verdict FROM validation_loops WHERE id = ? AND project_id = ?`, loopId, projectId,
+    );
+    return stored?.verdict ?? verdict;
+  }
   await recordEvent({ userId: ownerUserId, projectId, eventType: 'loop1_verdict', payload: { loop_id: loopId, verdict } });
   return verdict;
 }

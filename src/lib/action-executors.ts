@@ -654,7 +654,7 @@ const configureMonitor: ActionHandler = async (action) => {
   const linkedQuoteRaw = typeof payload.linked_quote === 'string' ? payload.linked_quote.trim() : '';
   const objective = objectiveRaw || linkedQuoteRaw || null;
   const kind = String(payload.kind ?? 'custom');
-  const schedule = String(payload.schedule ?? 'weekly') as 'daily' | 'weekly';
+  const schedule = String(payload.schedule ?? 'weekly') as 'daily' | 'weekly' | 'monthly';
   const q = typeof payload.query === 'string' ? payload.query : undefined;
   const urls = Array.isArray(payload.urls_to_track)
     ? payload.urls_to_track.filter((u): u is string => typeof u === 'string')
@@ -668,6 +668,12 @@ const configureMonitor: ActionHandler = async (action) => {
   const dedupOverrideReason = typeof payload.dedup_override_reason === 'string'
     ? payload.dedup_override_reason
     : null;
+  // Proposer-supplied config extras (e.g. black-swan scenario metadata:
+  // source_brief_id, early_signals, …) — merged under the canonical keys so
+  // a payload can never shadow alert_threshold/urls_to_track/query.
+  const extraConfig = payload.config && typeof payload.config === 'object' && !Array.isArray(payload.config)
+    ? payload.config as Record<string, unknown>
+    : {};
   // JSONB columns (config, urls_to_track, sources) get RAW objects/arrays — the
   // run() helper auto-serializes; JSON.stringify here double-encodes, storing a
   // jsonb STRING that config->>'...'/array ops can't read (same bug class as
@@ -743,6 +749,7 @@ const configureMonitor: ActionHandler = async (action) => {
     objective,
     schedule,
     {
+      ...extraConfig,
       alert_threshold: alertThreshold,
       urls_to_track: urls,
       query: q,

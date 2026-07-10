@@ -15,17 +15,15 @@
  *   1. One intelligence_briefs row (brief_type='black_swan_catalog') with
  *      narrative summarizing the catalog + recommended_actions array
  *      (one entry per scenario)
- *   2. N monitors rows (one per scenario) tied to the brief via
+ *   2. N configure_monitor pending actions (one per scenario) — approve-first;
+ *      the founder's apply creates the monitors row, tied to the brief via
  *      monitors.config.source_brief_id
- *   3. signal_activity_logs row for the brief + one per monitor created
  *
  * Trigger: chat tool `hunt_black_swans` (rare, founder-initiated). Future:
  * heartbeat re-trigger every 90 days since the Black Swan landscape shifts.
  */
 
-import { generateId } from '@/lib/api-helpers';
-import { run } from '@/lib/db';
-import { calculateNextRun } from '@/lib/monitor-schedule';
+import { createPendingAction } from '@/lib/pending-actions';
 import {
   type PremortemAgentConfig,
   type PremortemBriefShape,
@@ -230,25 +228,26 @@ function toBrief(parsed: BlackSwanOutput): PremortemBriefShape {
 }
 
 /**
- * For each scenario, create one `monitors` row that the cron loop polls
- * monthly looking for early signals. The monitor stores the scenario via
- * linked_quote + a structured prompt; the founder sees them under
- * /project/:id/signals as `kind='black_swan'` watchers next to their
- * competitor monitors.
+ * For each scenario, STAGE one `configure_monitor` pending action — the same
+ * approval lane every other watcher rides (phase1-watchers, chat proposals).
+ * Approving in the Inbox runs the configureMonitor executor, which creates
+ * the live `kind='black_swan'` monitor the cron loop polls monthly; unchecked
+ * ones stay visible as "Proposed" in the Watchers tab.
+ *
+ * This used to INSERT monitors directly with status='active' — up to 5
+ * watchers polling with no founder yes, the one bypass of the "watchers are
+ * approve-first, never auto-activated" invariant (2026-07-10 audit INV6).
  */
 async function postInsert(
   parsed: BlackSwanOutput,
   briefId: string,
   projectId: string,
 ): Promise<Record<string, unknown>> {
-  const created: string[] = [];
+  const proposed: string[] = [];
   const failed: string[] = [];
-  const nextRun = calculateNextRun('monthly');
-  const now = new Date().toISOString();
 
   for (let i = 0; i < parsed.scenarios.length; i++) {
     const scenario = parsed.scenarios[i];
-    const monitorId = generateId('mon');
 
     const monitorPrompt =
       `Watch for evidence that the following Black Swan is materializing:\n\n` +
@@ -259,42 +258,46 @@ async function postInsert(
       `If nothing is detected, return a single line: "no Black Swan signals this cycle".`;
 
     try {
-      await run(
-        `INSERT INTO monitors
-           (id, project_id, type, name, schedule, config, prompt, status,
-            next_run, created_at, linked_quote, kind, urls_to_track, sources)
-         VALUES (?, ?, ?, ?, 'monthly', ?, ?, 'active', ?, ?, ?, 'black_swan', ?, ?)`,
-        monitorId,
-        projectId,
-        'ecosystem.black_swan',
-        `Black Swan: ${scenario.scenario}`.slice(0, 200),
-        // JSONB: bind the raw object/array — JSON.stringify double-encodes into
-        // a string scalar (see src/lib/jsonb.ts); monitor-dedup + the cron
-        // config reader then can't parse config/urls_to_track/sources.
-        {
-          source_brief_id: briefId,
-          scenario_index: i,
-          category: scenario.category,
-          probability_pct: scenario.probability_pct,
-          linked_assumptions: scenario.linked_assumptions,
-          early_signals: scenario.early_signals,
-          alert_trigger: scenario.alert_trigger,
+      const action = await createPendingAction({
+        project_id: projectId,
+        action_type: 'configure_monitor',
+        title: `Black Swan watcher: ${scenario.scenario}`.slice(0, 200),
+        rationale: `${scenario.impact} (${scenario.probability_pct}% est. — systematically underweighted: ${scenario.underestimation_reason})`,
+        payload: {
+          name: `Black Swan: ${scenario.scenario}`.slice(0, 200),
+          objective: scenario.description,
+          kind: 'black_swan',
+          schedule: 'monthly',
+          // Full scan prompt supplied here — configureMonitor uses a payload
+          // prompt verbatim instead of building a generic one.
+          prompt: monitorPrompt,
+          linked_quote: scenario.description,
+          alert_threshold: scenario.alert_trigger,
+          // 'ad_hoc' = the sentinel bucket exempt from one-per-(risk,kind)
+          // dedup, so sibling scenario watchers can all be applied.
+          linked_risk_id: 'ad_hoc',
+          // Black Swan monitors are signal-pattern watchers, not URL pollers —
+          // the cron loop's web_search step handles detection.
+          urls_to_track: [],
+          // Scenario metadata the cron/config reader needs — merged into
+          // monitors.config by the executor's config passthrough.
+          config: {
+            source_brief_id: briefId,
+            scenario_index: i,
+            category: scenario.category,
+            probability_pct: scenario.probability_pct,
+            linked_assumptions: scenario.linked_assumptions,
+            early_signals: scenario.early_signals,
+            alert_trigger: scenario.alert_trigger,
+          },
+          origin: 'black_swan_catalog',
         },
-        monitorPrompt,
-        nextRun,
-        now,
-        scenario.description,
-        // Black Swan monitors are signal-pattern watchers, not URL pollers.
-        // urls_to_track is empty until the founder (or a future enrichment
-        // pass) suggests specific sources. The cron loop's web_search step
-        // handles general-purpose detection.
-        [],
-        [],
-      );
-      created.push(monitorId);
+        estimated_impact: 'high',
+      });
+      proposed.push(action.id);
     } catch (err) {
       console.warn(
-        `[black-swan] monitor insert failed for scenario ${i}:`,
+        `[black-swan] monitor proposal failed for scenario ${i}:`,
         (err as Error).message,
       );
       failed.push(scenario.scenario);
@@ -302,8 +305,8 @@ async function postInsert(
   }
 
   return {
-    monitors_created: created.length,
-    monitor_ids: created,
+    monitors_proposed: proposed.length,
+    proposal_ids: proposed,
     monitors_failed: failed.length,
     ...(failed.length > 0 ? { failures: failed } : {}),
   };

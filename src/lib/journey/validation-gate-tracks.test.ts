@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateAllStages } from '@/lib/journey';
+import { evaluateAllStages, keywordMatcher } from '@/lib/journey';
 import type { ProjectSnapshot } from '@/lib/journey/types';
 import {
   VALIDATION_TRACK_1A,
@@ -8,6 +8,7 @@ import {
   validationTracksAB_done,
   validationTracksABMissing,
   MARKET_SIZE_CHECK_SOURCE,
+  MARKET_SIZE_KEYWORDS,
   stageMarketValidation,
 } from '@/lib/journey/stage-2-market-validation';
 import { validationTargetsFor } from '@/lib/journey/validation-targets';
@@ -231,6 +232,22 @@ describe('market_size — structured-first', () => {
       memory_facts: facts(['Dimensione del mercato: circa 40.000 studi dentistici in Italia.']),
     }));
     expect(results.find((x) => x.check.id === 'market_size')!.result.passed).toBe(true);
+  });
+
+  it('gate ↔ check lockstep: every phrase the fallback greens on also trips the spine-moving gate', () => {
+    // 2026-07-10 audit INV5: the save_memory_fact gate kept an English-only
+    // copy of this list, so 'Il mercato totale è circa 30 miliardi' auto-applied
+    // and greened the check with no founder yes. Both sides now import
+    // MARKET_SIZE_KEYWORDS; this proves the coupling keyword-by-keyword.
+    const gate = keywordMatcher([...MARKET_SIZE_KEYWORDS]);
+    for (const kw of MARKET_SIZE_KEYWORDS) {
+      const prose = `Analisi: ${kw} stimato in 30 miliardi di euro.`;
+      expect(gate.test(prose), `gate must flag "${kw}"`).toBe(true);
+      const results = gateResults(mkSnapshot({ memory_facts: facts([prose]) }));
+      expect(results.find((x) => x.check.id === 'market_size')!.result.passed, `check must count "${kw}"`).toBe(true);
+    }
+    // The exact INV5 counterexample that slipped past the English-only gate.
+    expect(gate.test('Il mercato totale è circa 30 miliardi di euro.')).toBe(true);
   });
 
   it('fails with neither structured sizing nor keyword facts (incl. non-sizing metric-grid pollution)', () => {
