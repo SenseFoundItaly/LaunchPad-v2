@@ -182,7 +182,7 @@ export async function maybeTriggerLoop1(projectId: string, snapshot?: ProjectSna
     if (await lastEventOfType(ownerUserId, projectId, 'loop1_verdict')) return;
 
     const loopId = generateId('loop');
-    // INSERT FIRST — with 032's partial unique index (one open loop N per
+    // INSERT FIRST — with 034's partial unique index (one open loop N per
     // project) this is the atomic gate: a concurrent trigger loses HERE with a
     // constraint error (absorbed by the catch below) before any founder-facing
     // pending action exists, so the race can't leave an orphan proposal card.
@@ -261,7 +261,7 @@ export async function triggerLoop1Manual(projectId: string, ownerUserId: string)
   const { signals } = computeLoop1Score(snap.interviews);
   const locale = await resolveLocale(ownerUserId, projectId);
   const loopId = generateId('loop');
-  // INSERT FIRST (mirror of maybeTriggerLoop1): 032's partial unique index is
+  // INSERT FIRST (mirror of maybeTriggerLoop1): 034's partial unique index is
   // the atomic gate. Losing the race (the auto-trigger fired between our
   // openLoop1 read and this write) resolves to the winner's loop id instead
   // of a duplicate open loop, an orphan proposal card, or a 500.

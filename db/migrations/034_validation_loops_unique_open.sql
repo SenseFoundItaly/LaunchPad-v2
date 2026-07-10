@@ -1,4 +1,9 @@
--- 032: one OPEN loop N per project — enforced by the database.
+-- 034: one OPEN loop N per project — enforced by the database.
+--
+-- Numbered 034 (not 032): the shared prod DB already has 032_mvp_builds.sql +
+-- 033_allow_mvp_build_iteration_action_type.sql applied from the Build-Hub
+-- work (PR #218, unmerged). Those files aren't on this branch, so 032/033 are
+-- a deliberate gap here — they slot in when #218 merges, this follows.
 --
 -- 2026-07-10 audit (INV2): openLoop1() → INSERT in maybeTriggerLoop1 is a
 -- check-then-insert with no transaction, and 031's idx is NON-unique — two
