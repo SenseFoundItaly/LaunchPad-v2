@@ -23,7 +23,10 @@
  * heartbeat re-trigger every 90 days since the Black Swan landscape shifts.
  */
 
+import { query } from '@/lib/db';
 import { createPendingAction } from '@/lib/pending-actions';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { translate } from '@/lib/i18n/messages';
 import {
   type PremortemAgentConfig,
   type PremortemBriefShape,
@@ -246,6 +249,33 @@ async function postInsert(
   const proposed: string[] = [];
   const failed: string[] = [];
 
+  // Idempotency (mirror of phase1-watchers): a re-run — force:true fresh
+  // catalog, the future 90-day heartbeat, a double-fired chat tool — must not
+  // stack a second set of 5 cards on top of ones the founder hasn't decided
+  // yet. Pending/edited only: once the old catalog's cards are resolved
+  // (approved or dismissed), an explicitly requested fresh catalog may stage
+  // new proposals.
+  const prior = await query<{ id: string }>(
+    `SELECT id FROM pending_actions
+      WHERE project_id = ? AND status IN ('pending','edited')
+        AND payload->>'origin' = 'black_swan_catalog'
+      LIMIT 1`,
+    projectId,
+  );
+  if (prior.length > 0) {
+    console.info(`[black-swan] skipping monitor proposals for ${projectId} — a pending catalog set already awaits the founder`);
+    return { monitors_proposed: 0, proposal_ids: [], monitors_failed: 0, skipped: 'pending_catalog_exists' };
+  }
+
+  // Card chrome follows the project locale (the scenario CONTENT is already
+  // generated in the project language by the premortem runner) — English
+  // titles wrapping Italian scenarios broke the "project.locale drives all
+  // in-project UI" rule.
+  const owner = (await query<{ owner_user_id: string | null }>(
+    'SELECT owner_user_id FROM projects WHERE id = ?', projectId,
+  ))[0];
+  const locale = await resolveLocale(owner?.owner_user_id ?? null, projectId);
+
   for (let i = 0; i < parsed.scenarios.length; i++) {
     const scenario = parsed.scenarios[i];
 
@@ -261,10 +291,14 @@ async function postInsert(
       const action = await createPendingAction({
         project_id: projectId,
         action_type: 'configure_monitor',
-        title: `Black Swan watcher: ${scenario.scenario}`.slice(0, 200),
-        rationale: `${scenario.impact} (${scenario.probability_pct}% est. — systematically underweighted: ${scenario.underestimation_reason})`,
+        title: translate(locale, 'blackswan.card-title', { name: scenario.scenario }).slice(0, 200),
+        rationale: translate(locale, 'blackswan.card-rationale', {
+          impact: scenario.impact,
+          pct: scenario.probability_pct,
+          reason: scenario.underestimation_reason,
+        }),
         payload: {
-          name: `Black Swan: ${scenario.scenario}`.slice(0, 200),
+          name: translate(locale, 'blackswan.monitor-name', { name: scenario.scenario }).slice(0, 200),
           objective: scenario.description,
           kind: 'black_swan',
           schedule: 'monthly',
@@ -277,7 +311,12 @@ async function postInsert(
           // dedup, so sibling scenario watchers can all be applied.
           linked_risk_id: 'ad_hoc',
           // Black Swan monitors are signal-pattern watchers, not URL pollers —
-          // the cron loop's web_search step handles detection.
+          // the cron loop's web_search step handles detection. The scenario
+          // title doubles as the search query AND as the dedup-hash input:
+          // with empty urls + no query all 5 siblings hashed identically
+          // (H("#")), so only the FIRST approval survived the apply-time
+          // exact-hash dedup — scenarios 2-5 failed forever (audit H2).
+          query: scenario.scenario,
           urls_to_track: [],
           // Scenario metadata the cron/config reader needs — merged into
           // monitors.config by the executor's config passthrough.

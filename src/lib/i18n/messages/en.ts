@@ -630,6 +630,11 @@ export const en = {
   'loop1.verdict-go': 'GO — the signal is strong enough to proceed',
   'loop1.verdict-pivot': 'PIVOT — revise the target or value proposition',
   'loop1.verdict-stop': 'STOP — the evidence says this idea should be shelved',
+  // Black Swan watcher proposal cards (premortem agent). Scenario CONTENT is
+  // generated in the project language; these are the founder-facing chrome.
+  'blackswan.card-title': 'Black Swan watcher: {name}',
+  'blackswan.card-rationale': '{impact} ({pct}% est. — systematically underweighted: {reason})',
+  'blackswan.monitor-name': 'Black Swan: {name}',
   // Inline confirmation after the founder picks a verdict (the click already
   // recorded it via the loops route — no model turn follows).
   'loop1.verdict-recorded-go': 'Verdict recorded: **GO**. The PSF signal is strong enough — this review is closed and Phase 2 (pricing & business model) is unblocked.',

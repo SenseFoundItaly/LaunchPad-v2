@@ -119,10 +119,10 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
               {/* Full-width: adaptive onboarding nudge + the score strip (pinned top).
                   Each panel is boundary-wrapped so one render throw degrades to a
                   muted card instead of taking down the whole dashboard. */}
-              <PanelBoundary>
+              <PanelBoundary resetKey={projectId}>
                 <OnboardingCard projectId={projectId} />
               </PanelBoundary>
-              <PanelBoundary>
+              <PanelBoundary resetKey={projectId}>
                 <ScorePanel projectId={projectId} />
               </PanelBoundary>
 
@@ -131,7 +131,7 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
               <div className="lp-home-grid">
                 {/* Primary — the journey/validation card (its checks ARE the
                     "next to validate" list, so no separate panel duplicates it). */}
-                <PanelBoundary>
+                <PanelBoundary resetKey={projectId}>
                   <StageCard projectId={projectId} />
                 </PanelBoundary>
 
@@ -140,7 +140,7 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
                     thrower), and an unwrapped throw here bubbles to the route
                     error.tsx and takes down the whole Home page. */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                  <PanelBoundary>
+                  <PanelBoundary resetKey={projectId}>
                     <Panel
                       dataTour="watchers-panel"
                       label={t('today.watchers')}
@@ -169,18 +169,18 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
                     </Panel>
                   </PanelBoundary>
                   {!INTEL_HIDDEN && (
-                    <PanelBoundary>
+                    <PanelBoundary resetKey={projectId}>
                       <InboxPanel projectId={projectId} actions={actions} totalCount={intelPending.length} />
                     </PanelBoundary>
                   )}
-                  <PanelBoundary>
+                  <PanelBoundary resetKey={projectId}>
                     <NotesCard projectId={projectId} />
                   </PanelBoundary>
                 </div>
               </div>
 
               {/* Full-width: the ecosystem graph gets the whole width to breathe. */}
-              <PanelBoundary>
+              <PanelBoundary resetKey={projectId}>
                 <EcosystemPanel projectId={projectId} />
               </PanelBoundary>
             </div>

@@ -250,6 +250,40 @@ describe('market_size — structured-first', () => {
     expect(gate.test('Il mercato totale è circa 30 miliardi di euro.')).toBe(true);
   });
 
+  it('rejection traces and workflow traces never green a keyword check (audit H3/H4)', () => {
+    // H3: the preference-learning fact written on EVERY Inbox reject quotes
+    // the rejected proposal's title + the founder's reason verbatim. It is a
+    // founder NO — counting it greened market_size FROM a rejection.
+    const rejected = gateResults(mkSnapshot({
+      memory_facts: [{
+        id: 'r1',
+        content: 'User rejected agent-proposed action "Estimate market size (TAM/SAM/SOM)" (type: run_skill). Reason: non credo alla dimensione del mercato proposta',
+        source_type: 'approval_inbox',
+        kind: 'preference',
+      }],
+    }));
+    expect(rejected.find((x) => x.check.id === 'market_size')!.result.passed).toBe(false);
+
+    // H4: the workflow-capture trace is agent-authored with zero founder
+    // action behind it (its two sibling chat writers persist as 'pending';
+    // this one stays applied but carries the non-counting 'workflow' source).
+    const workflow = gateResults(mkSnapshot({
+      memory_facts: [{
+        id: 'w1',
+        content: 'Agent proposed workflow "TAM/SAM/SOM market sizing plan" (4 steps, category: research)',
+        source_type: 'workflow',
+        kind: 'decision',
+      }],
+    }));
+    expect(workflow.find((x) => x.check.id === 'market_size')!.result.passed).toBe(false);
+
+    // Control: the same keyword content as a founder-asserted chat fact DOES count.
+    const asserted = gateResults(mkSnapshot({
+      memory_facts: facts(['Il mercato totale è circa 30 miliardi di euro.']),
+    }));
+    expect(asserted.find((x) => x.check.id === 'market_size')!.result.passed).toBe(true);
+  });
+
   it('fails with neither structured sizing nor keyword facts (incl. non-sizing metric-grid pollution)', () => {
     const empty = gateResults(mkSnapshot());
     expect(empty.find((x) => x.check.id === 'market_size')!.result.passed).toBe(false);

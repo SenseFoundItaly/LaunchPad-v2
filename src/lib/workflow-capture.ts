@@ -79,12 +79,17 @@ export async function captureWorkflow(input: {
   // proposal, not a guess. Fires outside the try so a failed persistence
   // above still traces.
   try {
+    // sourceType 'workflow', NOT 'chat': this is an agent-authored trace with
+    // no founder action behind it, and countMemoryFactsMatching excludes
+    // 'workflow' from the journey keyword counter — an applied 'chat' fact
+    // titled "TAM/SAM/SOM market sizing plan" greened market_size with zero
+    // founder interaction (2026-07-10 gap audit H4).
     await recordFact({
       userId,
       projectId,
       fact: `Agent proposed workflow "${artifact.title}" (${artifact.steps.length} steps, category: ${artifact.category ?? 'general'})`,
       kind: 'decision',
-      sourceType: 'chat',
+      sourceType: 'workflow',
       sourceId: planId,
       confidence: 0.85,
     });

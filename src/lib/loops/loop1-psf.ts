@@ -129,6 +129,65 @@ async function proposeReview(
   return pa.id;
 }
 
+/** Best-effort compensation half: retire a card created for a loop that is
+ *  being rolled back. Direct status flip (not the state machine) — the card
+ *  was never surfaced as decidable, and this must not throw mid-compensation. */
+async function retireOrphanCard(pendingActionId: string | undefined): Promise<void> {
+  if (!pendingActionId) return;
+  await run(
+    `UPDATE pending_actions SET status = 'rejected' WHERE id = ? AND status IN ('pending','edited')`,
+    pendingActionId,
+  ).catch((e) => console.warn('[loop1-psf] orphan-card retire failed:', (e as Error).message));
+}
+
+/**
+ * §4 self-heal for a 'proposed' loop: it gates Phase 2, so it must always have
+ * a LIVE founder card. When the linked card is missing or already decided
+ * (partial failure, pre-034 duplicate cleanup, historical tool-drift rejects),
+ * repair by what the card's state says the founder already did:
+ *   pending/edited → healthy, nothing to do
+ *   applied/sent   → the review ran; move the loop on to 'active' (mirror of
+ *                    the run_skill executor's approve transition)
+ *   rejected       → the founder already dismissed; release the loop (mirror
+ *                    of the reject side-effects), reusing the stored reason
+ *   missing/failed → re-stage a fresh review card
+ * Racing a founder click is harmless: every branch is guarded on the loop
+ * still being 'proposed', and a duplicate card's approve no-ops in the
+ * executor ("AND status='proposed'").
+ */
+async function selfHealProposedLoop(
+  loop: ValidationLoopRow, projectId: string, ownerUserId: string, pct: number, locale: 'en' | 'it',
+): Promise<void> {
+  const card = loop.pending_action_id
+    ? await get<{ status: string; execution_result: unknown }>(
+        `SELECT status, execution_result FROM pending_actions WHERE id = ?`, loop.pending_action_id,
+      )
+    : undefined;
+  if (card?.status === 'pending' || card?.status === 'edited') return;
+
+  if (card?.status === 'applied' || card?.status === 'sent') {
+    await run(`UPDATE validation_loops SET status = 'active' WHERE id = ? AND status = 'proposed'`, loop.id);
+    console.info(`[loop1-psf] self-heal: loop ${loop.id} card already ${card.status} → loop set active`);
+    return;
+  }
+  if (card?.status === 'rejected') {
+    const res = (card.execution_result && typeof card.execution_result === 'object'
+      ? card.execution_result
+      : {}) as { rejected_reason?: string };
+    const motivation = typeof res.rejected_reason === 'string' && res.rejected_reason.trim()
+      ? res.rejected_reason.trim()
+      : 'Founder dismissed the PSF review and chose to proceed.';
+    await overrideLoop1(projectId, loop.id, ownerUserId, motivation);
+    console.info(`[loop1-psf] self-heal: loop ${loop.id} card was rejected → loop released`);
+    return;
+  }
+  // No card at all (link-back lost / compensation half-done) or a terminal
+  // state with no decision behind it ('failed'): give the founder a fresh card.
+  const pa = await proposeReview(projectId, ownerUserId, loop.id, pct, locale);
+  await run(`UPDATE validation_loops SET pending_action_id = ? WHERE id = ? AND status = 'proposed'`, pa, loop.id);
+  console.info(`[loop1-psf] self-heal: loop ${loop.id} had no live card → re-staged ${pa}`);
+}
+
 /**
  * Auto-trigger + iteration state machine — never throws, never blocks the caller
  * (both interview writers fire-and-forget it). The `validation_loops` row is the
@@ -158,8 +217,18 @@ export async function maybeTriggerLoop1(projectId: string, snapshot?: ProjectSna
 
     const loop = await openLoop1(projectId);
     if (loop) {
-      // Awaiting the founder on a proposed review or a pending verdict — leave it.
-      if (loop.status === 'proposed' || loop.status === 'in_review') return;
+      // Awaiting the founder's GO/PIVOT/STOP pick (the verdict card lives in
+      // chat, not in pending_actions) — leave it.
+      if (loop.status === 'in_review') return;
+      // 'proposed' gates Phase 2, so it must ALWAYS have a live founder card.
+      // Verify + repair instead of returning blind: partial failures (card
+      // created but the link-back UPDATE lost, a failed compensation DELETE)
+      // and the pre-034 prod duplicates left 'proposed' loops whose card is
+      // missing or already decided — the §4 dead-end with nothing to act on.
+      if (loop.status === 'proposed') {
+        await selfHealProposedLoop(loop, projectId, ownerUserId, pct, locale);
+        return;
+      }
       // status 'active': a review ran and new interviews have landed.
       if (wtpRate >= LOOP1_WTP_THRESHOLD) {
         await run(`UPDATE validation_loops SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ?`, loop.id);
@@ -191,15 +260,21 @@ export async function maybeTriggerLoop1(projectId: string, snapshot?: ProjectSna
        VALUES (?, ?, 1, 1, 'proposed', 'auto', ?, ?)`,
       loopId, projectId, signals, loop1Scope(), // JSONB bound RAW (double-encode rule)
     );
-    let pa: string;
+    let pa: string | undefined;
     try {
       pa = await proposeReview(projectId, ownerUserId, loopId, pct, locale);
       await run(`UPDATE validation_loops SET pending_action_id = ? WHERE id = ?`, pa, loopId);
     } catch (err) {
       // Compensate: an open loop with NO card would gate Phase 2 with nothing
       // for the founder to act on — the §4 dead-end. Remove our claim and let
-      // the next interview write re-trigger cleanly.
-      await run(`DELETE FROM validation_loops WHERE id = ? AND status = 'proposed'`, loopId);
+      // the next interview write re-trigger cleanly. If the card WAS created
+      // and only the link-back failed, retire the card too — a live card
+      // pointing at a deleted loop is a trap (rejecting it would look like an
+      // override of a loop that never gated anything). Both best-effort: the
+      // 'proposed' self-heal above repairs whatever survives a partial cleanup.
+      await retireOrphanCard(pa);
+      await run(`DELETE FROM validation_loops WHERE id = ? AND status = 'proposed'`, loopId)
+        .catch((e) => console.warn('[loop1-psf] compensation DELETE failed:', (e as Error).message));
       throw err;
     }
     await recordEvent({
@@ -276,6 +351,7 @@ export async function triggerLoop1Manual(projectId: string, ownerUserId: string)
     if (winner) return winner.id;
     throw err;
   }
+  let paId: string | undefined;
   try {
     const pa = await createPendingAction({
       project_id: projectId, action_type: 'run_skill',
@@ -284,10 +360,14 @@ export async function triggerLoop1Manual(projectId: string, ownerUserId: string)
       payload: { skill_id: 'psf-review', owner_user_id: ownerUserId, loop_id: loopId, origin: 'loop1_manual' },
       estimated_impact: 'high',
     });
+    paId = pa.id;
     await run(`UPDATE validation_loops SET pending_action_id = ? WHERE id = ?`, pa.id, loopId);
   } catch (err) {
-    // Compensate (§4 dead-end guard): never leave an open loop without a card.
-    await run(`DELETE FROM validation_loops WHERE id = ? AND status = 'proposed'`, loopId);
+    // Compensate (§4 dead-end guard): never leave an open loop without a card,
+    // nor a live card pointing at a deleted loop (see maybeTriggerLoop1).
+    await retireOrphanCard(paId);
+    await run(`DELETE FROM validation_loops WHERE id = ? AND status = 'proposed'`, loopId)
+      .catch((e) => console.warn('[loop1-psf] compensation DELETE failed:', (e as Error).message));
     throw err;
   }
   return loopId;
@@ -299,11 +379,19 @@ export async function triggerLoop1Manual(projectId: string, ownerUserId: string)
  * records the reason so the auto-trigger doesn't re-nag.
  */
 export async function overrideLoop1(projectId: string, loopId: string, ownerUserId: string, motivation: string): Promise<void> {
-  await run(
+  const updated = await run(
     `UPDATE validation_loops SET status = 'closed', override_motivation = ?, closed_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND project_id = ?`,
+      WHERE id = ? AND project_id = ? AND status <> 'closed'
+      RETURNING id`,
     motivation.slice(0, 1000), loopId, projectId,
   );
+  // Only a LANDED update earns the loop1_override event. The event is the
+  // permanent "no re-nag" guard on the auto-trigger, so recording it for a
+  // no-op — an already-closed loop, an orphan card pointing at a deleted
+  // loop, a hand-crafted id — would disable Loop 1 for the whole project
+  // without any loop actually having been released. (It also protected
+  // verdict-closed rows from being re-stamped with an override motivation.)
+  if (updated.length === 0) return;
   await recordEvent({
     userId: ownerUserId, projectId, eventType: 'loop1_override',
     payload: { loop_id: loopId, motivation: motivation.slice(0, 500) },
@@ -319,14 +407,27 @@ export async function overrideLoop1(projectId: string, loopId: string, ownerUser
 export async function escalateLoop1(projectId: string): Promise<{ atCap: boolean; iteration: number; evidence?: EvidenceMatrix } | null> {
   const loop = await openLoop1(projectId);
   if (!loop) return null;
-  const next = loop.iteration + 1;
+  // Atomic claim — the read iteration is the optimistic lock. Two concurrent
+  // interview writes both land here with the same stale read; only the first
+  // UPDATE matches (iteration = ?) and escalates this round, the loser hits 0
+  // rows and no-ops. Without the guard both bumped a stale read (1→2 twice
+  // behaves, but interleaved reads chain 1→2→3), leaping the cap to a forced
+  // GO/PIVOT/STOP after a single review round — or staging duplicate
+  // re-proposal cards for the same loop.
+  const claimed = await run(
+    `UPDATE validation_loops SET iteration = iteration + 1, status = 'active'
+      WHERE id = ? AND iteration = ? AND status <> 'closed'
+      RETURNING iteration`,
+    loop.id, loop.iteration,
+  );
+  if (claimed.length === 0) return null; // a concurrent caller claimed this round
+  const next = Number((claimed[0] as { iteration: number }).iteration);
   if (next <= LOOP1_ITERATION_CAP) {
-    await run(`UPDATE validation_loops SET iteration = ?, status = 'active' WHERE id = ?`, next, loop.id);
     return { atCap: false, iteration: next };
   }
   const snap = await buildProjectSnapshot(projectId);
   const evidence = buildEvidenceMatrix(snap.interviews, next);
-  await run(`UPDATE validation_loops SET status = 'in_review', iteration = ?, verdict_evidence = ? WHERE id = ?`, next, evidence, loop.id);
+  await run(`UPDATE validation_loops SET status = 'in_review', verdict_evidence = ? WHERE id = ?`, evidence, loop.id);
   return { atCap: true, iteration: next, evidence };
 }
 
