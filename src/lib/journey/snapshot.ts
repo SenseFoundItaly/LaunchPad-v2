@@ -185,15 +185,32 @@ function mergeCompetitors(
  *  kind='observation' intel from the watch pipeline (cron auto-capture +
  *  acceptAlertIntoKnowledge), NOT founder-ASSERTED validation evidence. Configuring
  *  a monitor is a yes to watching, not a yes to "this fact validates my spine."
- *  Both file dumps and monitor intel stay as general knowledge/context; they just
- *  don't count toward a gated check. */
+ *
+ *  Rejection traces (source_type='approval_inbox') are excluded too: the
+ *  preference-learning fact written on every Inbox reject quotes the rejected
+ *  proposal's TITLE and the founder's reason verbatim — a founder NO. Counting
+ *  it let a rejected "Estimate market size (TAM/SAM/SOM)" card green
+ *  market_size (2026-07-10 gap audit H3).
+ *
+ *  Workflow traces (source_type='workflow') are excluded for the same reason:
+ *  "Agent proposed workflow …" is an agent-authored breadcrumb with zero
+ *  founder action behind it (audit H4).
+ *
+ *  All four stay as general knowledge/context; they just don't count toward a
+ *  gated check. */
 export function countMemoryFactsMatching(
   snapshot: ProjectSnapshot,
   keywords: string[],
 ): number {
   const re = keywordMatcher(keywords);
   return snapshot.memory_facts.filter(
-    (f) => f.source_type !== 'file' && f.kind !== 'file_upload' && f.source_type !== 'monitor' && re.test(f.content),
+    (f) =>
+      f.source_type !== 'file' &&
+      f.kind !== 'file_upload' &&
+      f.source_type !== 'monitor' &&
+      f.source_type !== 'approval_inbox' &&
+      f.source_type !== 'workflow' &&
+      re.test(f.content),
   ).length;
 }
 

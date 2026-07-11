@@ -1,20 +1,16 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
-import { query } from '@/lib/db';
 import {
   getPendingAction,
   applyPendingAction,
   editPendingAction,
-  rejectPendingAction,
   markActionSent,
   markActionFailed,
   InvalidTransitionError,
 } from '@/lib/pending-actions';
-import { executeAppliedAction, dismissAlertSource } from '@/lib/action-executors';
-import { recordEvent } from '@/lib/memory/events';
-import { recordFact } from '@/lib/memory/facts';
-import { overrideLoop1 } from '@/lib/loops/loop1-psf';
+import { executeAppliedAction } from '@/lib/action-executors';
+import { rejectActionWithSideEffects } from '@/lib/reject-action';
 
 /**
  * GET /api/projects/{projectId}/actions/{actionId}
@@ -115,71 +111,15 @@ export async function POST(
         updated = await editPendingAction(actionId, body.edited_payload);
         break;
       case 'reject': {
-        updated = await rejectPendingAction(actionId, typeof body.reason === 'string' ? body.reason.slice(0, 500) : body.reason);
-        // Propagate the dismissal to the source row (ecosystem_alert / brief /
-        // assumption) — the mirror of accept's knowledge write. Without it a
-        // dismissed signal/brief/assumption stays 'pending'/'active'/'open' and
-        // keeps surfacing on every NON-inbox reader (Intelligence panel, Today,
-        // /assumptions). Non-fatal; the reject already succeeded.
-        await dismissAlertSource(existing);
-        // Loop 1 Founder-first escape (linee guida §4: "il sistema non può
-        // bloccare il founder"). The PSF-review proposal is founder-gated;
-        // dismissing it IS the founder choosing to ignore the loop. Release it
-        // (ignore-with-motivation) so an open Loop 1 doesn't gate Phase 2
-        // (business-model / financial-model) indefinitely — the exact dead-end
-        // the audit found. Mirrors the approve→'active' branch in
-        // executeAppliedAction. The reject `reason` becomes the motivation
-        // (§4/§8 "con motivazione registrata"); non-fatal.
-        if (existing.action_type === 'run_skill') {
-          const p = (existing.payload && typeof existing.payload === 'object'
-            ? existing.payload
-            : (() => { try { return JSON.parse(String(existing.payload ?? '{}')); } catch { return {}; } })()) as Record<string, unknown>;
-          if (p.skill_id === 'psf-review' && typeof p.loop_id === 'string') {
-            const ownerRow = (await query<{ owner_user_id: string | null }>(
-              'SELECT owner_user_id FROM projects WHERE id = ?', projectId,
-            ))[0];
-            const motivation = (typeof body.reason === 'string' && body.reason.trim())
-              ? body.reason.trim()
-              : 'Founder dismissed the PSF review and chose to proceed.';
-            await overrideLoop1(projectId, p.loop_id, ownerRow?.owner_user_id || '', motivation)
-              .catch((err) => console.warn('[reject] loop1 override failed (non-fatal):', (err as Error).message));
-          }
-        }
-        // Preference learning: the agent proposed something the founder
-        // didn't want. Record a low-confidence 'preference' fact so future
-        // buildMemoryContext calls include "user rejected X" in the prompt,
-        // steering the agent away from similar proposals. Non-fatal.
-        try {
-          const owner = (await query<{ owner_user_id: string | null }>(
-            'SELECT owner_user_id FROM projects WHERE id = ?', projectId,
-          ))[0];
-          if (owner?.owner_user_id) {
-            const reasonSuffix = body.reason ? `. Reason: ${String(body.reason).slice(0, 200)}` : '';
-            const factText = `User rejected agent-proposed action "${existing.title}" (type: ${existing.action_type})${reasonSuffix}`;
-            await recordFact({
-              userId: owner.owner_user_id,
-              projectId,
-              fact: factText,
-              kind: 'preference',
-              sourceType: 'approval_inbox',
-              sourceId: actionId,
-              confidence: 0.6,
-            });
-            await recordEvent({
-              userId: owner.owner_user_id,
-              projectId,
-              eventType: 'action_rejected',
-              payload: {
-                action_id: actionId,
-                title: existing.title,
-                action_type: existing.action_type,
-                reason: body.reason ?? null,
-              },
-            });
-          }
-        } catch (err) {
-          console.warn('[actions] preference-learning hook failed (non-fatal):', err);
-        }
+        // All rejection side-effects (source-row propagation, the Loop-1
+        // founder-first release, preference learning) live in ONE shared
+        // helper so this route and the chat agent's dismiss_pending_actions
+        // tool cannot drift — the tool once skipped the Loop-1 release and
+        // re-opened the §4 dead-end.
+        updated = await rejectActionWithSideEffects(
+          existing,
+          typeof body.reason === 'string' ? body.reason : undefined,
+        );
         break;
       }
       case 'mark_sent':

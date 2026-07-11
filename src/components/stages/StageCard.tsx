@@ -32,7 +32,27 @@ export function StageCard({ projectId }: { projectId: string }) {
   // under ['stages', projectId]. See useStages.ts — do NOT reintroduce a
   // bespoke object-shaped query on this key (it poisons the cache by mount
   // order → `.find is not a function`).
-  const { data: evals = [], isLoading } = useStages(projectId);
+  const { data: evals = [], isLoading, isError } = useStages(projectId);
+
+  // A failed /stages fetch is an ERROR state, not an empty journey — without
+  // this branch the card sat on the dim skeleton forever (error boundaries
+  // can't catch async failures, so each panel owns its fetch-error UX).
+  if (isError) {
+    return (
+      <div
+        className="lp-card"
+        style={{
+          padding: '18px 16px',
+          fontSize: 12,
+          color: 'var(--ink-5)',
+          textAlign: 'center',
+          fontStyle: 'italic',
+        }}
+      >
+        {t('common.panel-error')}
+      </div>
+    );
+  }
 
   // Empty evaluations would make `headline` undefined below and throw the
   // whole page into error.tsx — treat it like the loading state instead.

@@ -38,14 +38,24 @@ class Boundary extends Component<
 export function PanelBoundary({
   children,
   fallback,
+  resetKey,
 }: {
   children: ReactNode;
   /** Optional custom fallback; defaults to a muted "couldn't load" card. */
   fallback?: ReactNode;
+  /**
+   * Remounts the boundary — clearing a caught failure — when this changes.
+   * Pass the projectId on project dashboards: the App Router preserves
+   * component state when only the dynamic segment changes, so without a key a
+   * panel that crashed on project A keeps rendering its dead fallback on
+   * project B until a full reload.
+   */
+  resetKey?: string;
 }) {
   const t = useT();
   return (
     <Boundary
+      key={resetKey}
       fallback={
         fallback ?? (
           <div

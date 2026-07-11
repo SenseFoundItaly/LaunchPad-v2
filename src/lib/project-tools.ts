@@ -23,8 +23,8 @@
 import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import { query, get, run } from '@/lib/db';
-import { createPendingAction, getPendingAction, rejectPendingAction } from '@/lib/pending-actions';
-import { dismissAlertSource } from '@/lib/action-executors';
+import { createPendingAction, getPendingAction } from '@/lib/pending-actions';
+import { rejectActionWithSideEffects } from '@/lib/reject-action';
 import { persistCompetitorAnalysis, COMPETITOR_CATEGORIES } from '@/lib/competitor-categories';
 import { recordFact } from '@/lib/memory/facts';
 import { generateId } from '@/lib/api-helpers';
@@ -265,10 +265,11 @@ const dismissPendingActions = (ctx: ToolContext): AgentTool => ({
       if (!action || action.project_id !== ctx.projectId) { skipped.push(`${id} (not found in this project)`); continue; }
       if (action.status !== 'pending' && action.status !== 'edited') { skipped.push(`${id} (already ${action.status})`); continue; }
       try {
-        await rejectPendingAction(id, p.reason);
-        // Propagate to any source row (alert/brief/assumption). No-op for monitor
-        // proposals, which have no external source until applied.
-        await dismissAlertSource(action);
+        // Shared with the Inbox route's reject transition: source-row
+        // propagation, the Loop-1 founder-first release (a dismissed
+        // psf-review card MUST release its loop or Phase 2 stays gated with
+        // nothing to act on), and preference learning.
+        await rejectActionWithSideEffects(action, p.reason);
         dismissed.push(`${action.title} (${id})`);
       } catch (err) {
         skipped.push(`${id} (error: ${(err as Error).message})`);
@@ -2089,7 +2090,7 @@ const markAssumptionTool = (ctx: ToolContext): AgentTool => ({
 const huntBlackSwansTool = (ctx: ToolContext): AgentTool => ({
   name: 'hunt_black_swans',
   label: 'Hunt Black Swans',
-  description: 'Run a Black Swan Hunter pass — identifies 5 low-probability / high-impact / IRREVERSIBLE scenarios the founder is systematically not considering, then creates one persistent monitor per scenario that polls for early signals. Use sparingly: this is a high-value, ~$0.02 LLM call that also creates 5 long-running monitors. Right triggers: founder explicitly asks for premortem / "what could kill us?" / before any irreversible commitment (fundraise close, public launch, scale step-change). Skip if a Black Swan brief already exists in the last 90 days.',
+  description: 'Run a Black Swan Hunter pass — identifies 5 low-probability / high-impact / IRREVERSIBLE scenarios the founder is systematically not considering, then STAGES one watcher proposal per scenario in the approval Inbox (approve-first: no monitor polls until the founder approves its card). Use sparingly: this is a high-value, ~$0.02 LLM call that also stages 5 proposals. Right triggers: founder explicitly asks for premortem / "what could kill us?" / before any irreversible commitment (fundraise close, public launch, scale step-change). Skip if a Black Swan brief already exists in the last 90 days.',
   parameters: Type.Object({
     context: Type.String({ description: 'Project context to feed the agent: idea, GTM, key decisions, recent skill outputs. Minimum 80 chars — sparse context produces generic scenarios.' }),
     force: Type.Optional(Type.Boolean({ description: 'Default false — skip the stale-check that suppresses a re-run when a Black Swan brief is < 90 days old. Set true only if the founder explicitly requests a fresh catalog.' })),

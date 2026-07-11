@@ -615,6 +615,11 @@ export const it: Partial<Record<MessageKey, string>> = {
   'loop1.verdict-go': 'GO — il segnale è abbastanza forte per procedere',
   'loop1.verdict-pivot': 'PIVOT — rivedi il target o la value proposition',
   'loop1.verdict-stop': "STOP — l'evidenza dice di accantonare questa idea",
+  // Card di proposta watcher Cigno Nero (agente premortem). Il CONTENUTO dello
+  // scenario è generato nella lingua del progetto; questo è il chrome della card.
+  'blackswan.card-title': 'Watcher Cigno Nero: {name}',
+  'blackswan.card-rationale': '{impact} (stima {pct}% — sistematicamente sottovalutato: {reason})',
+  'blackswan.monitor-name': 'Cigno Nero: {name}',
   // Conferma inline dopo che il founder sceglie un verdetto (il click lo ha già
   // registrato tramite la route dei loop — non segue alcun turno del modello).
   'loop1.verdict-recorded-go': 'Verdetto registrato: **GO**. Il segnale PSF è abbastanza forte — questa review è chiusa e la Fase 2 (pricing e modello di business) è sbloccata.',

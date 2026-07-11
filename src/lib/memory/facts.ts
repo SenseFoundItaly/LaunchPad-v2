@@ -10,7 +10,7 @@ import type { Source, ReviewedState } from '@/types/artifacts';
  */
 
 export type FactKind = 'fact' | 'decision' | 'observation' | 'note' | 'preference';
-export type FactSourceType = 'chat' | 'skill' | 'monitor' | 'manual' | 'approval_inbox' | 'heartbeat';
+export type FactSourceType = 'chat' | 'skill' | 'monitor' | 'manual' | 'approval_inbox' | 'heartbeat' | 'workflow';
 
 export interface MemoryFact {
   id: string;
