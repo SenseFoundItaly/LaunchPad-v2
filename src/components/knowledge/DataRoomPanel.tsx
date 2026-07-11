@@ -19,7 +19,7 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Icon, I, IconBtn, Pill } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
-import { openPrintPreview } from '@/lib/print-utils';
+import { openPrintPreview, downloadMarkdownFile, downloadWordFile } from '@/lib/print-utils';
 
 interface ExtractionCounts {
   applied: number;
@@ -27,7 +27,7 @@ interface ExtractionCounts {
   rejected: number;
 }
 
-interface DataRoomItem {
+export interface DataRoomItem {
   id: string;
   source: 'uploaded' | 'generated';
   kind: string;
@@ -159,6 +159,11 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
                     {item.typeBadge && (
                       <span className="lp-mono" style={{ background: 'var(--paper-2)', padding: '1px 5px', borderRadius: 3 }}>
                         {item.typeBadge}
+                      </span>
+                    )}
+                    {item.versionBadge && (
+                      <span className="lp-mono" style={{ background: 'var(--paper-2)', padding: '1px 5px', borderRadius: 3, color: 'var(--ink-3)' }}>
+                        {item.versionBadge}
                       </span>
                     )}
                     <span style={{ marginLeft: 'auto' }}>{item.relativeDate}</span>
@@ -297,6 +302,20 @@ function DataRoomDetailView({
             {t('common.cancel')}
           </button>
         )}
+        {detail.source === 'generated' && (
+          <>
+            <IconBtn
+              d={I.download}
+              title={t('kb.download-md')}
+              onClick={() => downloadMarkdownFile(detail.title, content)}
+            />
+            <IconBtn
+              d={I.file}
+              title={t('kb.download-doc')}
+              onClick={() => downloadWordFile(detail.title, content)}
+            />
+          </>
+        )}
         <IconBtn
           d={I.printer}
           title={t('kb.print-pdf')}
@@ -381,6 +400,8 @@ interface PresentedItem extends DataRoomItem {
   relativeDate: string;
   /** null = don't render a badge at all (e.g. generated deliverables). */
   indexBadge: IndexBadge | null;
+  /** "v2" when the same doc has been regenerated; null for one-offs/uploads. */
+  versionBadge: string | null;
 }
 
 /** Short, locale-aware date — founders skim; year only when it differs. */
@@ -391,7 +412,8 @@ function shortDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
 }
 
-function presentItems(items: DataRoomItem[]): PresentedItem[] {
+export function presentItems(items: DataRoomItem[]): PresentedItem[] {
+  const versions = assignVersions(items);
   return items.map((item) => {
     const uploaded = item.source === 'uploaded';
     const dot = item.title.lastIndexOf('.');
@@ -404,8 +426,34 @@ function presentItems(items: DataRoomItem[]): PresentedItem[] {
       icon: uploaded ? I.file : /deck|pitch/i.test(item.doc_type ?? '') ? I.layers : I.book,
       relativeDate: shortDate(item.created_at),
       indexBadge: indexBadgeFor(item),
+      versionBadge: versions.get(item.id) ?? null,
     };
   });
+}
+
+/**
+ * Implicit versioning: every regeneration of a document is a fresh
+ * build_artifacts INSERT, so rows sharing a doc type + (normalized) title ARE
+ * the version history. Number them v1..vN by creation order, oldest = v1.
+ * Singletons get no badge — "v1" on a doc with no siblings is just noise.
+ */
+function assignVersions(items: DataRoomItem[]): Map<string, string> {
+  const groups = new Map<string, DataRoomItem[]>();
+  for (const item of items) {
+    if (item.source !== 'generated') continue;
+    const key = `${item.doc_type ?? item.kind}::${item.title.trim().toLowerCase()}`;
+    const group = groups.get(key);
+    if (group) group.push(item);
+    else groups.set(key, [item]);
+  }
+  const out = new Map<string, string>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    [...group]
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .forEach((item, i) => out.set(item.id, `v${i + 1}`));
+  }
+  return out;
 }
 
 // ─── index-status badge policy ───────────────────────────────────────────────

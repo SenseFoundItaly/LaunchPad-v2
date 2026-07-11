@@ -27,6 +27,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icon, I, type IconKey } from './icons';
 import { ShareButton } from '@/components/project/ShareButton';
+import { DocsButton } from '@/components/project/DocsButton';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { LanguageSwitch } from '@/components/design/LanguageSwitch';
 import { ThemeToggle } from '@/components/design/ThemeToggle';
@@ -106,6 +107,9 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)' }}>
+        {/* Docs drawer — every generated deliverable + upload for the project.
+            Sits before Share so the two per-project icons read docs → people. */}
+        {projectId && <DocsButton projectId={projectId} />}
         {projectId && <ShareButton projectId={projectId} />}
         {right}
         <LanguageSwitch readOnly={!!projectId} />
