@@ -52,13 +52,17 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
   // pending-signals count (signal_alert rows live in pending_actions too).
   // Invalidates via the event bridge (lp-actions-changed → actions topic,
   // see src/lib/query-events.ts).
-  const { data: actionsList, isLoading: actionsLoading } = useQuery<PendingAction[]>({
+  const { data: actionsList, isLoading: actionsLoading, isError: actionsError } = useQuery<PendingAction[]>({
     queryKey: ['actions', projectId, 'preview'],
     enabled: !!projectId,
     queryFn: async () => {
+      // Throw on failure instead of returning [] — a swallowed error made the
+      // header claim "Nothing pending right now" during an API outage (the
+      // founder was told the inbox is clear when nothing had loaded at all).
       const res = await fetch(`/api/projects/${projectId}/actions?status=pending,edited&limit=50`);
+      if (!res.ok) throw new Error(`actions fetch failed: ${res.status}`);
       const body = await res.json();
-      if (!body.success || !Array.isArray(body.data?.actions)) return [];
+      if (!body.success || !Array.isArray(body.data?.actions)) throw new Error('actions fetch failed: bad payload');
       return body.data.actions as PendingAction[];
     },
   });
@@ -108,7 +112,9 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
               {greeting(t)}.
             </h1>
             <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--ink-4)' }}>
-              {summarize(t, inboxBadge, signalCount)}
+              {/* Never render the "nothing pending" all-clear off a FAILED
+                  fetch — during an outage that line is a lie. */}
+              {actionsError ? t('today.status-unavailable') : summarize(t, inboxBadge, signalCount)}
             </p>
           </header>
 
@@ -170,7 +176,7 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
                   </PanelBoundary>
                   {!INTEL_HIDDEN && (
                     <PanelBoundary resetKey={projectId}>
-                      <InboxPanel projectId={projectId} actions={actions} totalCount={intelPending.length} />
+                      <InboxPanel projectId={projectId} actions={actions} totalCount={intelPending.length} errored={actionsError} />
                     </PanelBoundary>
                   )}
                   <PanelBoundary resetKey={projectId}>
@@ -197,10 +203,13 @@ function InboxPanel({
   projectId,
   actions,
   totalCount,
+  errored = false,
 }: {
   projectId: string;
   actions: PendingAction[];
   totalCount: number;
+  /** The actions fetch failed — show an error line, NOT the empty state. */
+  errored?: boolean;
 }) {
   const t = useT();
   const extra = Math.max(0, totalCount - actions.length);
@@ -210,7 +219,7 @@ function InboxPanel({
       icon={I.tickets}
       href={`/project/${projectId}/actions`}
       hrefLabel={totalCount > 0 ? t('today.view-all', { count: totalCount }) : t('today.open-inbox-lower')}
-      empty={actions.length === 0 ? t('today.inbox-empty') : null}
+      empty={errored ? t('common.panel-error') : actions.length === 0 ? t('today.inbox-empty') : null}
     >
       {actions.map((a) => (
         <Link

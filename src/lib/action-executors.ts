@@ -663,6 +663,9 @@ const configureMonitor: ActionHandler = async (action) => {
   // Phase-1 proposals carry the watcher-proposer topic — steers alert_type
   // choice in the built scan prompt. Absent on chat-proposed monitors.
   const topic = typeof payload.topic === 'string' ? payload.topic : undefined;
+  // Provenance marker (e.g. 'black_swan_catalog') — persisted into config so
+  // monitor-side queries can trace which pipeline staged the proposal.
+  const origin = typeof payload.origin === 'string' ? payload.origin : undefined;
   const linkedRiskId = String(payload.linked_risk_id ?? 'ad_hoc');
   const linkedQuote = typeof payload.linked_quote === 'string' ? payload.linked_quote : null;
   const dedupOverrideReason = typeof payload.dedup_override_reason === 'string'
@@ -756,6 +759,7 @@ const configureMonitor: ActionHandler = async (action) => {
       linked_risk_id: linkedRiskId,
       // Kept so objective-edit prompt rebuilds preserve the steering line.
       ...(topic ? { topic } : {}),
+      ...(origin ? { origin } : {}),
     },
     prompt,
     nextRun,

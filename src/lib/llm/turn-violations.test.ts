@@ -36,6 +36,27 @@ describe('analyzeTurnViolations — prose_fabrication', () => {
     const v = analyzeTurnViolations([], "Let's define the problem first.", 'hi');
     expect(v).toEqual({ skill_first_violation: false, prose_fabrication: false });
   });
+
+  it('flags Italian fabricated outcome claims (bilingual guard)', () => {
+    for (const prose of [
+      'La ricerca mostra che il TAM è di 5 miliardi.',
+      'La dimensione del mercato è 40 milioni di euro.',
+      'Abbiamo scoperto che i club pagherebbero il doppio.',
+      'I risultati indicano una forte domanda.',
+    ]) {
+      const v = analyzeTurnViolations([{ name: 'skill_market_research' }], prose, 'fai la ricerca di mercato');
+      expect(v.prose_fabrication, `must flag: "${prose}"`).toBe(true);
+    }
+  });
+
+  it('does NOT flag honest Italian "queued, not run" prose', () => {
+    const v = analyzeTurnViolations(
+      [{ name: 'skill_market_research' }],
+      'Ho messo in coda la ricerca di mercato (~30 crediti). Vuoi lanciarla?',
+      'fai la ricerca di mercato',
+    );
+    expect(v.prose_fabrication).toBe(false);
+  });
 });
 
 describe('renderNudgeForNextTurn', () => {

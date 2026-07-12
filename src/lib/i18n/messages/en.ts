@@ -188,6 +188,7 @@ export const en = {
   'today.greeting-evening': 'Good evening',
   'today.pending-actions': '{count} pending actions',
   'today.nothing-pending': 'Nothing pending right now.',
+  'today.status-unavailable': 'Inbox status unavailable — retrying.',
 
   // ── Usage (src/app/project/[projectId]/usage/page.tsx) ────────────────────
   'usage.breadcrumb-project': 'Project',
@@ -934,6 +935,12 @@ export const en = {
   'common.edit': 'Edit',
   // PanelBoundary fallback (src/components/design/PanelBoundary.tsx)
   'common.panel-error': 'This panel couldn’t load.',
+  // Route-level error boundary (project/[projectId]/error.tsx)
+  'error.view-title': 'This view hit an error',
+  'error.view-body': 'Something went wrong rendering this section — the rest of your project is fine. Retry, switch tabs, or return to your projects list.',
+  'error.retry': 'Retry',
+  'error.all-projects': 'All projects',
+  'error.error-id': 'Error ID: {digest}',
 
   // ── Project layout load gate (project/[projectId]/layout.tsx) ─────────────
   'project-gate.not-found': 'Project not found',

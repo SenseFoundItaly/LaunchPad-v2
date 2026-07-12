@@ -180,6 +180,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'today.greeting-evening': 'Buonasera',
   'today.pending-actions': '{count} azioni in sospeso',
   'today.nothing-pending': 'Niente in sospeso al momento.',
+  'today.status-unavailable': 'Stato inbox non disponibile — nuovo tentativo in corso.',
 
   // ── Usage ─────────────────────────────────────────────────────────────────
   'usage.breadcrumb-project': 'Progetto',
@@ -913,6 +914,12 @@ export const it: Partial<Record<MessageKey, string>> = {
   'common.copy': 'Copia',
   'common.edit': 'Modifica',
   'common.panel-error': 'Impossibile caricare questo pannello.',
+  // Error boundary di route (project/[projectId]/error.tsx)
+  'error.view-title': 'Questa vista ha incontrato un errore',
+  'error.view-body': 'Qualcosa è andato storto nel rendering di questa sezione — il resto del progetto è integro. Riprova, cambia scheda o torna alla lista dei progetti.',
+  'error.retry': 'Riprova',
+  'error.all-projects': 'Tutti i progetti',
+  'error.error-id': 'ID errore: {digest}',
 
   // ── Project layout load gate ──────────────────────────────────────────────
   'project-gate.not-found': 'Progetto non trovato',

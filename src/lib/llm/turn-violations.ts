@@ -54,6 +54,16 @@ export const OUTCOME_CLAIM_PATTERNS: ReadonlyArray<RegExp> = [
   /\bresults? (indicate|show)\b/i,
   /\b(market size|market value) (is|=)\b/i,
   /\b(the skill|skill_\w+) (found|returned|identified)\b/i,
+  // Italian mirrors — the agent answers in project.locale, so an IT founder's
+  // fabricated turn was invisible to an EN-only guard. NOTE: no trailing \b
+  // after accented words ("è" is a non-word char to JS regex, so `è\b` before
+  // a space can never match).
+  /\b(la ricerca|l'analisi|lo studio) (mostra|dimostra|indica)/i,
+  /\bi dati (mostrano|dimostrano|indicano)/i,
+  /\bTAM (è|=)/i,
+  /\b(dimensione del mercato|valore del mercato|mercato totale) (è|=)/i,
+  /\babbiamo (scoperto|rilevato|riscontrato) che\b/i,
+  /\bi risultati (indicano|mostrano)/i,
 ];
 
 /** Same heuristic the e2e scorer uses at `scripts/e2e-agent-flow.mjs:746`

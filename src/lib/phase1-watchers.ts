@@ -60,6 +60,9 @@ const TOPIC_TO_MONITOR_KIND: Record<WatcherTopic, string> = {
   funding: 'funding',
   regulatory: 'regulation',
   pricing: 'competitor',
+  // 'risk' rides the black-swan taxonomy (kind='black_swan' monitors); the
+  // phase-1 proposer doesn't emit it, but the topic union requires totality.
+  risk: 'black_swan',
   custom: 'custom',
 };
 
@@ -74,6 +77,7 @@ const TOPIC_TO_WS_CATEGORY: Record<WatcherTopic, WatchSourceCategory> = {
   funding: 'news',
   regulatory: 'regulatory',
   pricing: 'competitor_pricing',
+  risk: 'news',
   custom: 'custom',
 };
 

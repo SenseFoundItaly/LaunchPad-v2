@@ -28,7 +28,8 @@ vi.mock('@/lib/i18n/resolve-locale', () => ({ resolveLocale: vi.fn(async () => '
 vi.mock('@/lib/i18n/messages', () => ({ translate: vi.fn((_l: string, k: string) => k) }));
 vi.mock('@/lib/api-helpers', () => ({ generateId: vi.fn(() => 'loop_gen') }));
 
-import { escalateLoop1, overrideLoop1 } from '@/lib/loops/loop1-psf';
+import { escalateLoop1, overrideLoop1, maybeTriggerLoop1, recordLoop1Verdict, LoopNotFoundError } from '@/lib/loops/loop1-psf';
+import { evaluateAllStages } from '@/lib/journey';
 
 const activeLoop = (iteration: number) => ({
   id: 'loop_1', project_id: 'proj_1', loop_number: 1, iteration,
@@ -78,6 +79,51 @@ describe('escalateLoop1 atomic claim (audit M1)', () => {
     getMock.mockResolvedValueOnce(undefined);
     expect(await escalateLoop1('proj_1')).toBeNull();
     expect(runMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('maybeTriggerLoop1 decided-guard reads the loop ROW, not the event (lost-STOP re-nag)', () => {
+  // The loop1_verdict event write is not transactional with the verdict
+  // UPDATE. A recorded STOP whose event was lost must STILL suppress the
+  // auto-trigger — the decision on validation_loops is the source of truth.
+  const weakSnapshot = {
+    interviews: Array.from({ length: 6 }, (_, i) => ({
+      id: `iv${i}`, person_name: `P${i}`, top_pain: 'they lose hours',
+      urgency: 'high', wtp_amount: i === 0 ? 50 : null,
+    })),
+  } as never;
+
+  it('does not re-propose when a closed loop carries a verdict (event missing)', async () => {
+    queryMock.mockResolvedValueOnce([{ owner_user_id: 'user_1' }]); // owner lookup
+    vi.mocked(evaluateAllStages).mockReturnValue([
+      { stage: { id: 'market_validation' }, status: 'done' },
+    ] as never);
+    getMock.mockResolvedValueOnce(undefined);            // openLoop1 → none
+    getMock.mockResolvedValueOnce({ id: 'loop_closed' }); // decided check → STOP row exists
+    await maybeTriggerLoop1('proj_1', weakSnapshot);
+    expect(runMock).not.toHaveBeenCalled(); // no INSERT — decision honored
+  });
+
+  it('proposes when no prior decision exists on any loop row', async () => {
+    queryMock.mockResolvedValueOnce([{ owner_user_id: 'user_1' }]);
+    vi.mocked(evaluateAllStages).mockReturnValue([
+      { stage: { id: 'market_validation' }, status: 'done' },
+    ] as never);
+    getMock.mockResolvedValueOnce(undefined); // openLoop1 → none
+    getMock.mockResolvedValueOnce(undefined); // decided check → no verdict/override rows
+    runMock.mockResolvedValue([]);
+    await maybeTriggerLoop1('proj_1', weakSnapshot);
+    expect(String(runMock.mock.calls[0][0])).toContain('INSERT INTO validation_loops');
+  });
+});
+
+describe('recordLoop1Verdict on a nonexistent loop', () => {
+  it('throws LoopNotFoundError instead of echoing an unstored verdict as success', async () => {
+    getMock.mockResolvedValueOnce(undefined); // initial read → no such loop
+    await expect(recordLoop1Verdict('proj_1', 'loop_bogus', 'user_1', 'STOP'))
+      .rejects.toBeInstanceOf(LoopNotFoundError);
+    expect(runMock).not.toHaveBeenCalled();
+    expect(eventMock).not.toHaveBeenCalled();
   });
 });
 
