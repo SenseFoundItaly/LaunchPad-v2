@@ -107,13 +107,16 @@ export async function GET(
   const factIds = uploaded.map((u) => u.id);
   const extractionStats = await loadExtractionStats(projectId, factIds);
 
+  // postgres.js hands timestamptz back as a Date (the row type says string) —
+  // normalize to ISO here so the newest-first localeCompare sort below and the
+  // client's version grouping both get comparable strings.
   const generatedItems: DataRoomItem[] = generated.map((row) => ({
     id: row.id,
     source: 'generated',
     kind: row.artifact_type,
     title: row.title,
     doc_type: row.doc_type,
-    created_at: row.created_at,
+    created_at: new Date(row.created_at).toISOString(),
     size_bytes: null,
     mime: null,
     has_editable_content: true,
@@ -129,7 +132,7 @@ export async function GET(
       kind: 'file_upload',
       title: meta?.filename ?? extractFilenameFromFact(row.fact) ?? 'Untitled file',
       doc_type: null,
-      created_at: row.created_at,
+      created_at: new Date(row.created_at).toISOString(),
       size_bytes: meta?.size ?? null,
       mime: meta?.mime ?? null,
       has_editable_content: false,
@@ -144,7 +147,9 @@ export async function GET(
   const items = [...generatedItems, ...uploadedItems]
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
-  return json({ success: true, data: { items } });
+  // json() already wraps in { success, data } — passing a pre-wrapped payload
+  // double-nests and the panel's `body.data.items` comes back undefined.
+  return json({ items });
 }
 
 /**

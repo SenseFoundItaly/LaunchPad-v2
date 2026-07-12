@@ -66,20 +66,18 @@ export async function GET(
       itemId, projectId,
     );
     if (!row) return error('Not found', 404);
+    // json() already wraps in { success, data } — no manual envelope here.
     return json({
-      success: true,
-      data: {
-        id: row.id,
-        source: 'generated',
-        title: row.title,
-        content: row.content,
-        kind: row.artifact_type,
-        doc_type: row.doc_type,
-        metadata: row.metadata ?? {},
-        sources: Array.isArray(row.sources) ? row.sources : [],
-        created_at: row.created_at,
-        editable: true,
-      },
+      id: row.id,
+      source: 'generated',
+      title: row.title,
+      content: row.content,
+      kind: row.artifact_type,
+      doc_type: row.doc_type,
+      metadata: row.metadata ?? {},
+      sources: Array.isArray(row.sources) ? row.sources : [],
+      created_at: row.created_at,
+      editable: true,
     });
   }
 
@@ -96,19 +94,16 @@ export async function GET(
   );
   if (!row) return error('Not found', 404);
   return json({
-    success: true,
-    data: {
-      id: row.id,
-      source: 'uploaded',
-      title: extractFilenameFromFact(row.fact) ?? 'Uploaded file',
-      content: stripUploadedFilePrefix(row.fact),
-      kind: 'file_upload',
-      doc_type: null,
-      metadata: {},
-      sources: Array.isArray(row.sources) ? row.sources : [],
-      created_at: row.created_at,
-      editable: false,
-    },
+    id: row.id,
+    source: 'uploaded',
+    title: extractFilenameFromFact(row.fact) ?? 'Uploaded file',
+    content: stripUploadedFilePrefix(row.fact),
+    kind: 'file_upload',
+    doc_type: null,
+    metadata: {},
+    sources: Array.isArray(row.sources) ? row.sources : [],
+    created_at: row.created_at,
+    editable: false,
   });
 }
 
@@ -163,7 +158,7 @@ export async function PATCH(
   // map to 404 from the caller's perspective.
   if (result.count === 0) return error('Not found', 404);
 
-  return json({ success: true, data: { id: itemId } });
+  return json({ id: itemId });
 }
 
 export async function DELETE(
@@ -194,7 +189,7 @@ export async function DELETE(
       );
   if (result.count === 0) return error('Not found', 404);
 
-  return json({ success: true, data: { id: itemId } });
+  return json({ id: itemId });
 }
 
 function extractFilenameFromFact(fact: string): string | null {
