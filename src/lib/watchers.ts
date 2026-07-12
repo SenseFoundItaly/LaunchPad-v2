@@ -38,6 +38,7 @@ export type WatcherTopic =
   | 'funding'
   | 'regulatory'
   | 'pricing'
+  | 'risk'
   | 'custom';
 
 export interface Watcher {
@@ -93,6 +94,9 @@ const MONITOR_TYPE_TO_TOPIC: Record<string, WatcherTopic> = {
   'ecosystem.customer_sentiment': 'sentiment',
   'ecosystem.social': 'sentiment',
   'ecosystem.ads': 'pricing',
+  // Black-swan scenario watchers are risk sensors — filing them under
+  // 'custom' hid them among ad-hoc founder watchers.
+  'ecosystem.black_swan': 'risk',
 };
 
 const WATCH_SOURCE_CATEGORY_TO_TOPIC: Record<string, WatcherTopic> = {
@@ -126,6 +130,8 @@ const MONITOR_KIND_TO_TOPIC: Record<string, WatcherTopic> = {
   sentiment: 'sentiment',
   funding: 'funding',
   pricing: 'pricing',
+  black_swan: 'risk',
+  risk: 'risk',
 };
 
 function topicFromMonitorType(type: string): WatcherTopic {

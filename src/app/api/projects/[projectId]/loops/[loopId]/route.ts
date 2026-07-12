@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
-import { recordLoop1Verdict, overrideLoop1 } from '@/lib/loops/loop1-psf';
+import { recordLoop1Verdict, overrideLoop1, LoopNotFoundError } from '@/lib/loops/loop1-psf';
 
 /**
  * POST /api/projects/{projectId}/loops/{loopId}
@@ -28,8 +28,13 @@ export async function POST(
     if (v !== 'GO' && v !== 'PIVOT' && v !== 'STOP') return error('verdict must be GO, PIVOT or STOP', 400);
     // recordLoop1Verdict is idempotent — on a re-submit (reloaded card) it
     // returns the verdict ALREADY on record, so we echo the effective verdict.
-    const recorded = await recordLoop1Verdict(projectId, loopId, auth.session.userId, v);
-    return json({ loop_id: loopId, verdict: recorded });
+    try {
+      const recorded = await recordLoop1Verdict(projectId, loopId, auth.session.userId, v);
+      return json({ loop_id: loopId, verdict: recorded });
+    } catch (err) {
+      if (err instanceof LoopNotFoundError) return error('loop not found', 404);
+      throw err;
+    }
   }
 
   if (body.action === 'override') {

@@ -101,6 +101,17 @@ export function loop1Scope(): ValidationTarget[] {
   ];
 }
 
+/** Postgres unique_violation. The insert-first race gate must only treat THIS
+ *  as "lost the one-open-loop race" — inferring a race from any error hid real
+ *  failures (FK, CHECK, connection) behind race-resolution semantics. */
+function isUniqueViolation(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === '23505';
+}
+
+/** Thrown when a verdict targets a loop that doesn't exist in the project —
+ *  the route maps it to a 404 instead of echoing an unstored verdict as 200. */
+export class LoopNotFoundError extends Error {}
+
 /** The open (proposed/active/in_review) Loop-1 row, if any. */
 export async function openLoop1(projectId: string): Promise<ValidationLoopRow | undefined> {
   return get<ValidationLoopRow>(
@@ -263,14 +274,22 @@ export async function maybeTriggerLoop1(projectId: string, snapshot?: ProjectSna
 
     const loopId = generateId('loop');
     // INSERT FIRST — with 034's partial unique index (one open loop N per
-    // project) this is the atomic gate: a concurrent trigger loses HERE with a
-    // constraint error (absorbed by the catch below) before any founder-facing
-    // pending action exists, so the race can't leave an orphan proposal card.
-    await run(
-      `INSERT INTO validation_loops (id, project_id, loop_number, iteration, status, trigger, loop_score, scope)
-       VALUES (?, ?, 1, 1, 'proposed', 'auto', ?, ?)`,
-      loopId, projectId, signals, loop1Scope(), // JSONB bound RAW (double-encode rule)
-    );
+    // project) this is the atomic gate: a concurrent trigger loses HERE
+    // before any founder-facing pending action exists, so the race can't
+    // leave an orphan proposal card.
+    try {
+      await run(
+        `INSERT INTO validation_loops (id, project_id, loop_number, iteration, status, trigger, loop_score, scope)
+         VALUES (?, ?, 1, 1, 'proposed', 'auto', ?, ?)`,
+        loopId, projectId, signals, loop1Scope(), // JSONB bound RAW (double-encode rule)
+      );
+    } catch (err) {
+      // Only a unique violation is the expected race (the winner's card
+      // exists; nothing to do). Anything else is a real failure — rethrow so
+      // the outer catch logs it as one instead of passing as race noise.
+      if (isUniqueViolation(err)) return;
+      throw err;
+    }
     let pa: string | undefined;
     try {
       pa = await proposeReview(projectId, ownerUserId, loopId, pct, locale);
@@ -358,6 +377,10 @@ export async function triggerLoop1Manual(projectId: string, ownerUserId: string)
       loopId, projectId, signals, loop1Scope(),
     );
   } catch (err) {
+    // Resolve-to-winner ONLY on the unique violation the race gate produces.
+    // Other failures (FK, connection) must surface — returning a coincidental
+    // open loop for them would silently misreport what happened.
+    if (!isUniqueViolation(err)) throw err;
     const winner = await openLoop1(projectId);
     if (winner) return winner.id;
     throw err;
@@ -471,7 +494,10 @@ export async function recordLoop1Verdict(projectId: string, loopId: string, owne
   const cur = await get<{ status: string; verdict: 'GO' | 'PIVOT' | 'STOP' | null }>(
     `SELECT status, verdict FROM validation_loops WHERE id = ? AND project_id = ?`, loopId, projectId,
   );
-  if (cur?.status === 'closed' && cur.verdict) return cur.verdict; // already decided — idempotent no-op
+  // A verdict for a loop that doesn't exist in this project (hand-crafted or
+  // stale id) must be a 404, not a 200 echoing an unstored verdict.
+  if (!cur) throw new LoopNotFoundError(`loop ${loopId} not found in project ${projectId}`);
+  if (cur.status === 'closed' && cur.verdict) return cur.verdict; // already decided — idempotent no-op
   const updated = await run(
     `UPDATE validation_loops SET verdict = ?, status = 'closed', closed_at = CURRENT_TIMESTAMP
       WHERE id = ? AND project_id = ? AND status <> 'closed'

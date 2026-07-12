@@ -278,7 +278,7 @@ export async function persistArtifact(ctx: PersistContext, artifact: Artifact): 
 const JUNK_NODE_NAME = [
   /^opzion[ei]\b/i,          // "opzione/opzioni …" (Italian option-set labels)
   /^option[s]?\b/i,           // "option/options …"
-  /^(market sizing|market size|dimensione di mercato|dimensionamento)\b/i,
+  /^(market sizing|market size|dimensione (di|del) mercato|dimensionamento|mercato (totale|indirizzabile|obiettivo))\b/i,
   /^(tam|sam|som)\b/i,
   /^(vantaggio competitivo|competitive advantage)$/i,
   /^(target|target market|mercato target|segmento target)$/i,

@@ -28,7 +28,7 @@ vi.mock('@/lib/i18n/resolve-locale', () => ({ resolveLocale: vi.fn(async () => '
 vi.mock('@/lib/i18n/messages', () => ({ translate: vi.fn((_l: string, k: string) => k) }));
 vi.mock('@/lib/api-helpers', () => ({ generateId: vi.fn(() => 'loop_gen') }));
 
-import { escalateLoop1, overrideLoop1, maybeTriggerLoop1 } from '@/lib/loops/loop1-psf';
+import { escalateLoop1, overrideLoop1, maybeTriggerLoop1, recordLoop1Verdict, LoopNotFoundError } from '@/lib/loops/loop1-psf';
 import { evaluateAllStages } from '@/lib/journey';
 
 const activeLoop = (iteration: number) => ({
@@ -114,6 +114,16 @@ describe('maybeTriggerLoop1 decided-guard reads the loop ROW, not the event (los
     runMock.mockResolvedValue([]);
     await maybeTriggerLoop1('proj_1', weakSnapshot);
     expect(String(runMock.mock.calls[0][0])).toContain('INSERT INTO validation_loops');
+  });
+});
+
+describe('recordLoop1Verdict on a nonexistent loop', () => {
+  it('throws LoopNotFoundError instead of echoing an unstored verdict as success', async () => {
+    getMock.mockResolvedValueOnce(undefined); // initial read → no such loop
+    await expect(recordLoop1Verdict('proj_1', 'loop_bogus', 'user_1', 'STOP'))
+      .rejects.toBeInstanceOf(LoopNotFoundError);
+    expect(runMock).not.toHaveBeenCalled();
+    expect(eventMock).not.toHaveBeenCalled();
   });
 });
 

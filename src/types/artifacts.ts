@@ -346,7 +346,10 @@ export interface MonitorProposalArtifact extends ArtifactBase {
    *  the field (executor / reader derives a fallback from linked_quote). */
   objective?: string;
   kind: 'competitor' | 'regulation' | 'market' | 'partner' | 'technology' | 'funding' | 'custom';
-  schedule: 'daily' | 'weekly';
+  /** 'monthly' rides the long-horizon black-swan scenario watchers — keep in
+   *  lockstep with MonitorProposalInput.schedule (monitor-dedup.ts) so an
+   *  artifact Edit UI can never silently rewrite monthly→weekly. */
+  schedule: 'daily' | 'weekly' | 'monthly';
   query?: string;
   urls_to_track?: string[];
   alert_threshold: string;
