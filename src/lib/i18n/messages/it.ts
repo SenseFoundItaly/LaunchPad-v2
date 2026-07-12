@@ -180,6 +180,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'today.greeting-evening': 'Buonasera',
   'today.pending-actions': '{count} azioni in sospeso',
   'today.nothing-pending': 'Niente in sospeso al momento.',
+  'today.status-unavailable': 'Stato inbox non disponibile — nuovo tentativo in corso.',
 
   // ── Usage ─────────────────────────────────────────────────────────────────
   'usage.breadcrumb-project': 'Progetto',

@@ -21,7 +21,7 @@ import { macroCategoryFor, MACRO_CATEGORY_ORDER, MACRO_CATEGORY_LABEL, MACRO_CAT
 export function EcosystemPanel({ projectId }: { projectId: string }) {
   const t = useT();
   const locale = useLocale();
-  const { graph } = useKnowledgeGraph(projectId);
+  const { graph, errored } = useKnowledgeGraph(projectId);
 
   // `your_startup` is the implicit hub — every other node hangs off it, so it
   // doesn't earn a legend chip. Counts collapse into the same 12-satellite
@@ -57,7 +57,13 @@ export function EcosystemPanel({ projectId }: { projectId: string }) {
       {/* The visual graph — read-only on Home (no apply/dismiss handlers → the
           detail drawer renders without the Apply/Dismiss actions). Mounts only
           when there are nodes so an empty project doesn't spin up a d3 sim. */}
-      {hasGraph ? (
+      {errored ? (
+        // A failed graph fetch is an ERROR, not an empty ecosystem — the
+        // empty state here claimed "no ecosystem yet" during an API outage.
+        <div style={{ padding: '14px 16px', fontSize: 12, color: 'var(--ink-5)', fontStyle: 'italic', textAlign: 'center' }}>
+          {t('common.panel-error')}
+        </div>
+      ) : hasGraph ? (
         <div style={{ position: 'relative', height: 340, width: '100%' }}>
           <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} />
         </div>

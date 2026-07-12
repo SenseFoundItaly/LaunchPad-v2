@@ -22,7 +22,7 @@
 import { query, get, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { createPendingAction } from '@/lib/pending-actions';
-import { recordEvent, lastEventOfType } from '@/lib/memory/events';
+import { recordEvent } from '@/lib/memory/events';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { translate } from '@/lib/i18n/messages';
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
@@ -246,9 +246,20 @@ export async function maybeTriggerLoop1(projectId: string, snapshot?: ProjectSna
     }
 
     // No open loop. Don't re-nag if the founder already overrode or decided.
+    // Read the DECISION — the closed loop rows — not the memory_events
+    // timeline: the loop1_verdict/loop1_override event write is not
+    // transactional with the row UPDATE, so a lost event after a recorded
+    // STOP would resurrect an idea the founder explicitly shelved. The row
+    // is the source of truth; the event is timeline decoration.
     if (!shouldTriggerLoop1(snap)) return;
-    if (await lastEventOfType(ownerUserId, projectId, 'loop1_override')) return;
-    if (await lastEventOfType(ownerUserId, projectId, 'loop1_verdict')) return;
+    const decided = await get<{ id: string }>(
+      `SELECT id FROM validation_loops
+        WHERE project_id = ? AND loop_number = 1
+          AND (verdict IS NOT NULL OR override_motivation IS NOT NULL)
+        LIMIT 1`,
+      projectId,
+    );
+    if (decided) return;
 
     const loopId = generateId('loop');
     // INSERT FIRST — with 034's partial unique index (one open loop N per

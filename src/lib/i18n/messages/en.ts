@@ -188,6 +188,7 @@ export const en = {
   'today.greeting-evening': 'Good evening',
   'today.pending-actions': '{count} pending actions',
   'today.nothing-pending': 'Nothing pending right now.',
+  'today.status-unavailable': 'Inbox status unavailable — retrying.',
 
   // ── Usage (src/app/project/[projectId]/usage/page.tsx) ────────────────────
   'usage.breadcrumb-project': 'Project',
