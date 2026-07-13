@@ -31,7 +31,10 @@ function toResult(chat: ChatLike): BuildResult {
   return {
     builderRef: chat.id,
     previewUrl: chat.latestVersion?.demoUrl,
-    liveUrl: chat.webUrl,
+    // NOTE: chat.webUrl is the v0 *editor* page ("view this chat in the browser"),
+    // NOT a hosted app — surfacing it would drop the founder into v0's branded UI.
+    // A white-label live URL only exists after deploy() (POST /v1/deployments).
+    liveUrl: undefined,
     versionRef: chat.latestVersion?.id,
     status: status === 'failed' ? 'failed' : status === 'completed' ? 'live' : 'building',
   };
@@ -48,7 +51,7 @@ export const v0Adapter: BuilderAdapter = {
   specSkillId: 'mvp-build-spec',
   supportsIteration: true,
   supportsAsync: true,
-  notes: 'v0 Platform API — creates + iterates a chat; embed the demo, self-host chat.files for full white-label.',
+  notes: 'v0 Platform API — creates + iterates a chat; embed demoUrl for preview, POST /v1/deployments (+ a custom domain in the v0/Vercel dashboard) for a white-label hosted app.',
   isConfigured: () => !!process.env.V0_API_KEY,
 
   // ── SYNC (local / executor) ───────────────────────────────────────────────

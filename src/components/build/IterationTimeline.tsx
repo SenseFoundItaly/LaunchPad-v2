@@ -33,11 +33,9 @@ export default function IterationTimeline({ builds }: { builds: ClientBuild[] })
                   {b.status === 'building' ? t('build.thread.building') : b.status}
                 </div>
               </div>
-              {b.preview_url && (
-                <a href={b.preview_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--sky, #6aa7ff)', whiteSpace: 'nowrap' }}>
-                  {t('build.preview')} ↗
-                </a>
-              )}
+              {/* No external preview link per turn — older preview URLs are
+                  builder-hosted (vendor origin) and their tokens expire anyway.
+                  The live preview lives in CurrentBuildCard's iframe. */}
             </li>
           );
         })}

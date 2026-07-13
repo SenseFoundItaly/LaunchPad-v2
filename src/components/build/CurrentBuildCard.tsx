@@ -51,7 +51,7 @@ export default function CurrentBuildCard({
           {t('build.iteration')} {build.iteration}
         </span>
         <span style={statusBadge(build.status)}>{building ? t('build.building.title').replace('…', '') : build.status}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-4)' }}>{build.builder}</span>
+        {/* White-label: never surface the underlying builder (v0/e2b/…) to the founder. */}
       </div>
 
       <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--ink-4)' }}>{t('build.preview')}</div>
@@ -63,7 +63,7 @@ export default function CurrentBuildCard({
             {t('build.building.title')} {dots}
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6 }}>
-            {elapsed}s · {build.builder}
+            {elapsed}s
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 12, maxWidth: 380, textAlign: 'center', lineHeight: 1.5 }}>
             {t('build.building.hint')}
@@ -88,9 +88,9 @@ export default function CurrentBuildCard({
             <button style={linkBtn} onClick={() => { setNonce((n) => n + 1); setFrameErr(false); }}>
               ↻ {t('build.preview.reload')}
             </button>
-            <a href={build.preview_url} target="_blank" rel="noreferrer" style={linkA}>
-              {t('build.preview.newtab')} ↗
-            </a>
+            {/* No "open in new tab" for the preview — the builder's preview URL is
+                the one v0/e2b-branded surface, so we keep it inside our iframe only.
+                The shareable link is the deployed live app (deploy()), not the preview. */}
             {frameErr && <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>{t('build.preview.blocked')}</span>}
           </div>
         </div>
@@ -103,8 +103,9 @@ export default function CurrentBuildCard({
       )}
 
       {build.live_app_url && (
-        <a href={build.live_app_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 6, fontSize: 12, color: 'var(--sky, #6aa7ff)' }}>
-          {build.live_app_url} ↗
+        // Neutral label — never print the raw host (could be *.vercel.app / vendor).
+        <a href={build.live_app_url} target="_blank" rel="noreferrer" style={{ ...linkA, display: 'inline-block', marginTop: 6 }}>
+          {t('build.liveApp.open')} ↗
         </a>
       )}
 
