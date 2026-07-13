@@ -53,6 +53,10 @@ export interface BuildResult {
   error?: string;
   /** Substrate actually used (build-your-own drivers pick webcontainer vs e2b). */
   substrate?: BuildSubstrate;
+  /** Driver-specific version handle (e.g. v0 latestVersion.id). On iterateAsync it
+   *  carries the PRIOR version to wait past; on getStatus it carries the CURRENT
+   *  version — the poller marks an iteration done when they differ + status is live. */
+  versionRef?: string;
 }
 
 export interface BuilderAdapter {
@@ -67,10 +71,20 @@ export interface BuilderAdapter {
   notes: string;
   /** True when the driver has the env/keys it needs. The stub is always ready. */
   isConfigured(): boolean;
-  /** Create a new build from a spec. */
+  /** Create a new build from a spec (SYNC — blocks to completion; used by the
+   *  executor / local). Serverless callers prefer createAsync + getStatus. */
   create(ref: BuildContextRef, spec: BuildSpec): Promise<BuildResult>;
-  /** Iterate an existing build with a natural-language change message. */
+  /** Iterate an existing build with a natural-language change message (SYNC). */
   iterate(ref: BuildContextRef, builderRef: string, message: string): Promise<BuildResult>;
+  /** True when create/iterate can be kicked off fast and polled via getStatus
+   *  (v0, stub). False/absent → the sync create/iterate block (e2b). */
+  supportsAsync?: boolean;
+  /** Kick off a build and return FAST (status 'building', or 'live' for instant drivers). */
+  createAsync?(ref: BuildContextRef, spec: BuildSpec): Promise<BuildResult>;
+  /** Kick off an iteration and return FAST (status 'building'). */
+  iterateAsync?(ref: BuildContextRef, builderRef: string, message: string): Promise<BuildResult>;
+  /** Poll the current status + preview URL for an in-flight (or live) build. */
+  getStatus?(ref: BuildContextRef, builderRef: string): Promise<BuildResult>;
   /** Optional: persist/deploy the current build to a shareable live URL. */
   deploy?(ref: BuildContextRef, builderRef: string): Promise<BuildResult>;
   /** Optional: fetch the current preview URL for embedding. */

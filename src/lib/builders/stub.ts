@@ -38,6 +38,7 @@ export const stubAdapter: BuilderAdapter = {
   supportsIteration: true,
   notes: 'Local stub driver — renders a self-contained preview, makes no external calls.',
   isConfigured: () => true,
+  supportsAsync: true,
 
   async create(ref: BuildContextRef, spec: BuildSpec): Promise<BuildResult> {
     return {
@@ -71,5 +72,16 @@ export const stubAdapter: BuilderAdapter = {
       status: 'live',
       logs: 'stub: deployed',
     };
+  },
+
+  // Async surface — the stub is instant, so it just returns 'live' immediately.
+  async createAsync(ref: BuildContextRef, spec: BuildSpec): Promise<BuildResult> {
+    return this.create(ref, spec);
+  },
+  async iterateAsync(ref: BuildContextRef, builderRef: string, message: string): Promise<BuildResult> {
+    return this.iterate(ref, builderRef, message);
+  },
+  async getStatus(_ref: BuildContextRef, builderRef: string): Promise<BuildResult> {
+    return { builderRef, status: 'live' };
   },
 };
