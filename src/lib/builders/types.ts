@@ -87,6 +87,4 @@ export interface BuilderAdapter {
   getStatus?(ref: BuildContextRef, builderRef: string): Promise<BuildResult>;
   /** Optional: persist/deploy the current build to a shareable live URL. */
   deploy?(ref: BuildContextRef, builderRef: string): Promise<BuildResult>;
-  /** Optional: fetch the current preview URL for embedding. */
-  getPreviewUrl?(ref: BuildContextRef, builderRef: string): Promise<string | undefined>;
 }

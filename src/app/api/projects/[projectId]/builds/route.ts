@@ -35,8 +35,8 @@ export async function GET(
  * Kick off a build ASYNC: assemble intelligence → hand the prose to the active
  * driver (async when supported) → return a 'building' row FAST. The client polls
  * GET /builds/[buildId] to completion. (No blocking LLM skill on the critical
- * path — the builder's own agent does the building.)
- * TODO(Phase C): isProjectCapped gate before paid drivers.
+ * path — the builder's own agent does the building.) Paid-driver credit gating +
+ * the serverless-sync guard run up-front in startBuild → assertBuildAllowed.
  */
 export async function POST(
   _request: NextRequest,
@@ -56,6 +56,7 @@ export async function POST(
   } catch (e) {
     const msg = (e as Error).message;
     if (msg.startsWith('BUILD_CAPPED:')) return error(msg.replace('BUILD_CAPPED: ', ''), 402);
+    if (msg.startsWith('BUILD_UNSUPPORTED:')) return error(msg.replace('BUILD_UNSUPPORTED: ', ''), 400);
     return error(`Failed to start build: ${msg}`, 502);
   }
 }

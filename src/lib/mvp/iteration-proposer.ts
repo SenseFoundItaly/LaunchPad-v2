@@ -10,13 +10,14 @@
 
 import { get, query } from '@/lib/db';
 import { createPendingAction } from '@/lib/pending-actions';
-import { getCurrentBuild, listPendingFeedback } from './mvp-builds';
+import { getLatestLiveBuild, listPendingFeedback } from './mvp-builds';
 
 export async function maybeProposeMvpIteration(projectId: string): Promise<boolean> {
-  const build = await getCurrentBuild(projectId);
-  // Any LIVE build (v0/E2B set preview_url, not necessarily a founder-pasted
-  // live_app_url) with pending feedback is iterable.
-  if (!build || build.status !== 'live') return false;
+  // Iterate the latest LIVE build — NOT the highest-iteration row. A failed newest
+  // iteration must not dead-end the loop: we keep proposing against the last good
+  // version while the feedback that motivated the failed attempt stays pending.
+  const build = await getLatestLiveBuild(projectId);
+  if (!build) return false;
 
   const pending = await listPendingFeedback(projectId);
   if (pending.length === 0) return false;

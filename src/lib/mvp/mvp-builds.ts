@@ -46,6 +46,19 @@ export async function getCurrentBuild(projectId: string): Promise<MvpBuild | und
   );
 }
 
+/**
+ * Latest LIVE build — the correct base for the next iteration. Unlike
+ * getCurrentBuild (highest iteration, whatever its status), this skips a
+ * failed/superseded newest row so the auto-loop keeps iterating the last good
+ * version instead of dead-ending on a failed attempt.
+ */
+export async function getLatestLiveBuild(projectId: string): Promise<MvpBuild | undefined> {
+  return get<MvpBuild>(
+    "SELECT * FROM mvp_builds WHERE project_id = ? AND status = 'live' ORDER BY iteration DESC LIMIT 1",
+    projectId,
+  );
+}
+
 export async function getBuild(buildId: string): Promise<MvpBuild | undefined> {
   return get<MvpBuild>('SELECT * FROM mvp_builds WHERE id = ?', buildId);
 }
@@ -147,11 +160,16 @@ export async function updateBuild(buildId: string, patch: UpdateBuildPatch): Pro
   return rows[0] as unknown as MvpBuild | undefined;
 }
 
-/** Mark every other build for the project as superseded (after a new iteration lands). */
+/**
+ * Mark prior SETTLED builds superseded after a new iteration lands live. Never
+ * touches in-flight 'building' rows — a concurrently-building iteration must stay
+ * pollable (refreshBuild only advances 'building'/'live'); superseding it here
+ * would strand its driver work.
+ */
 export async function supersedeOtherBuilds(projectId: string, keepBuildId: string): Promise<void> {
   await run(
     `UPDATE mvp_builds SET status = 'superseded', updated_at = CURRENT_TIMESTAMP
-       WHERE project_id = ? AND id != ? AND status != 'superseded'`,
+       WHERE project_id = ? AND id != ? AND status NOT IN ('superseded', 'building')`,
     projectId,
     keepBuildId,
   );
@@ -193,12 +211,24 @@ export async function listPendingFeedback(projectId: string): Promise<MvpBuildFe
   );
 }
 
-/** Stamp all currently-pending feedback as folded into the given iteration. */
-export async function markFeedbackIncorporated(projectId: string, iteration: number): Promise<void> {
+/**
+ * Stamp pending feedback as folded into the given iteration. `before` caps it to
+ * feedback that PREDATES the iteration (feedback that arrived mid-build stays
+ * pending for the next round, so a build never "steals" feedback it never saw).
+ * Omit `before` to stamp all pending feedback.
+ */
+export async function markFeedbackIncorporated(
+  projectId: string,
+  iteration: number,
+  before?: string | null,
+): Promise<void> {
   await run(
     `UPDATE mvp_build_feedback SET incorporated_in_iteration = ?
-       WHERE project_id = ? AND incorporated_in_iteration IS NULL`,
+       WHERE project_id = ? AND incorporated_in_iteration IS NULL
+         AND (?::timestamptz IS NULL OR created_at <= ?::timestamptz)`,
     iteration,
     projectId,
+    before ?? null,
+    before ?? null,
   );
 }
