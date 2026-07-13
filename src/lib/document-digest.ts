@@ -36,9 +36,10 @@ const DIGEST_PROMPT = `You are digesting a startup founder's existing document s
  "market_size": [{"claim": string}],
  "tech_facts": [{"aspect": "feasibility"|"dependencies"|"regulatory", "finding": string}],
  "watch_suggestions": [{"name": string, "topic": "competitor"|"regulation", "rationale": string}],
- "interviews": [{"person": string, "role": string|null, "segment": string|null, "summary": string, "top_pain": string|null, "urgency": "high"|"medium"|"low"|null, "wtp_amount": number|null, "wtp_currency": string|null}]
+ "interviews": [{"person": string, "role": string|null, "segment": string|null, "summary": string, "top_pain": string|null, "urgency": "high"|"medium"|"low"|null, "wtp_amount": number|null, "wtp_currency": string|null}],
+ "pricing": {"model": string|null, "anchor_price": number|null, "currency": string|null, "tiers": [string]|null, "wtp_note": string|null}
 }
-Rules: canvas values are 1-3 sentences verbatim-faithful to the document (null when absent). market_size claims must contain the number AND its scope as stated. watch_suggestions only for named competitors/regulations material enough to monitor. interviews ONLY for actual customer/user interviews the founder recorded (one entry per interviewee; top_pain verbatim when quoted; wtp_amount only when a price/willingness figure is stated) — never for hypothetical personas. Empty arrays when nothing qualifies.
+Rules: canvas values are 1-3 sentences verbatim-faithful to the document (null when absent). market_size claims must contain the number AND its scope as stated. watch_suggestions only for named competitors/regulations material enough to monitor. interviews ONLY for actual customer/user interviews the founder recorded (one entry per interviewee; top_pain verbatim when quoted; wtp_amount only when a price/willingness figure is stated) — never for hypothetical personas. pricing: model = the revenue model as stated (subscription / commission / one-time / freemium…); anchor_price = the headline number only when a price is stated; tiers = named plans if any; wtp_note = any stated willingness-to-pay evidence. Null every pricing field the document doesn't state. Empty arrays when nothing qualifies.
 
 DOCUMENT (part {PART}):
 {TEXT}`;
@@ -55,10 +56,11 @@ interface DigestFindings {
   tech_facts: Array<{ aspect: string; finding: string }>;
   watch_suggestions: Array<{ name: string; topic: string; rationale: string }>;
   interviews: DigestInterview[];
+  pricing: { model?: string | null; anchor_price?: number | null; currency?: string | null; tiers?: string[] | null; wtp_note?: string | null };
 }
 
 function emptyFindings(): DigestFindings {
-  return { canvas: {}, competitors: [], market_size: [], tech_facts: [], watch_suggestions: [], interviews: [] };
+  return { canvas: {}, competitors: [], market_size: [], tech_facts: [], watch_suggestions: [], interviews: [], pricing: {} };
 }
 
 function parseFindings(raw: string): DigestFindings {
@@ -73,6 +75,7 @@ function parseFindings(raw: string): DigestFindings {
       tech_facts: Array.isArray(j.tech_facts) ? j.tech_facts.filter((x) => x && typeof x.finding === 'string') : [],
       watch_suggestions: Array.isArray(j.watch_suggestions) ? j.watch_suggestions.filter((w) => w && typeof w.name === 'string') : [],
       interviews: Array.isArray(j.interviews) ? j.interviews.filter((iv) => iv && typeof iv.person === 'string' && typeof iv.summary === 'string') : [],
+      pricing: j.pricing && typeof j.pricing === 'object' ? j.pricing : {},
     };
   } catch {
     return emptyFindings();
@@ -93,6 +96,13 @@ function mergeFindings(parts: DigestFindings[]): DigestFindings {
     for (const t of p.tech_facts) { const k = `${t.aspect}:${t.finding}`.toLowerCase(); if (!seen.tech.has(k)) { seen.tech.add(k); out.tech_facts.push(t); } }
     for (const w of p.watch_suggestions) { const k = w.name.toLowerCase().trim(); if (!seen.watch.has(k)) { seen.watch.add(k); out.watch_suggestions.push(w); } }
     for (const iv of p.interviews) { const k = iv.person.toLowerCase().trim(); if (!seen.iv.has(k)) { seen.iv.add(k); out.interviews.push(iv); } }
+    // Pricing: first non-null value per field wins (document order).
+    for (const key of ['model', 'anchor_price', 'currency', 'tiers', 'wtp_note'] as const) {
+      const v = (p.pricing as Record<string, unknown>)[key];
+      if (v !== undefined && v !== null && (out.pricing as Record<string, unknown>)[key] == null) {
+        (out.pricing as Record<string, unknown>)[key] = v;
+      }
+    }
   }
   return out;
 }
@@ -166,6 +176,31 @@ export async function digestDocument(input: DigestInput): Promise<DigestResult> 
   }
   for (const t of findings.tech_facts) {
     raw.push({ kind: 'tech_fact', field: t.aspect, value: t.finding, sources: [docSource] });
+  }
+  // Stage-3 prefill: the ICP / channels the digest put in the canvas ALSO need
+  // to land as memory_facts (the persona/channels checks read facts, not the
+  // canvas). Derive them from the already-extracted canvas content — no extra
+  // LLM pass. Founder Apply writes both the canvas field and the fact.
+  if (typeof findings.canvas.target_market === 'string' && findings.canvas.target_market.trim()) {
+    raw.push({ kind: 'persona_fact', value: findings.canvas.target_market, sources: [docSource] });
+  }
+  if (typeof findings.canvas.channels === 'string' && findings.canvas.channels.trim()) {
+    raw.push({ kind: 'channel_fact', value: findings.canvas.channels, sources: [docSource] });
+  }
+  // Stage-4 prefill: one pricing item per stated field → its pricing_state column.
+  const pr = findings.pricing;
+  if (typeof pr.model === 'string' && pr.model.trim()) {
+    raw.push({ kind: 'pricing', field: 'model', value: pr.model, sources: [docSource], extra: { model: pr.model } });
+  }
+  if (typeof pr.anchor_price === 'number' && Number.isFinite(pr.anchor_price)) {
+    const cur = typeof pr.currency === 'string' && pr.currency.length === 3 ? pr.currency : undefined;
+    raw.push({ kind: 'pricing', field: 'anchor_price', value: `${cur ?? ''}${pr.anchor_price}`, sources: [docSource], extra: { anchor_price: pr.anchor_price, ...(cur ? { currency: cur } : {}) } });
+  }
+  if (Array.isArray(pr.tiers) && pr.tiers.length > 0) {
+    raw.push({ kind: 'pricing', field: 'tiers', value: pr.tiers.join(', '), sources: [docSource], extra: { tiers: pr.tiers } });
+  }
+  if (typeof pr.wtp_note === 'string' && pr.wtp_note.trim()) {
+    raw.push({ kind: 'pricing', field: 'wtp', value: pr.wtp_note, sources: [docSource], extra: { wtp: { note: pr.wtp_note } } });
   }
   // 1C prefill (linee guida: 5+ interviews, verbatim pain, WTP signal): each
   // interview the founder's notes record → one staged interview row. Their

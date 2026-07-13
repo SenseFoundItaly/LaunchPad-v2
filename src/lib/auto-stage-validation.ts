@@ -33,6 +33,10 @@ const CANVAS_FIELDS = ['problem', 'solution', 'target_market', 'value_propositio
 const TECH_FACT_LABELS: Record<string, string> = {
   feasibility: 'Technical feasibility', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance',
 };
+const PRICING_LABELS: Record<string, string> = {
+  anchor_price: 'Anchor price', tiers: 'Pricing tiers', wtp: 'Willingness to pay',
+  model: 'Revenue model', unit_econ: 'Unit economics',
+};
 
 interface RawItem {
   kind: ValidationItemKind;
@@ -61,6 +65,9 @@ function buildItems(raw: RawItem[]) {
           : r.kind === 'competitor' ? 'Competitor'
           : r.kind === 'tech_fact' ? (TECH_FACT_LABELS[r.field ?? ''] ?? 'Technical finding')
           : r.kind === 'interview' ? `Interview — ${r.name ?? 'logged'}`
+          : r.kind === 'persona_fact' ? 'Ideal customer'
+          : r.kind === 'channel_fact' ? 'Acquisition channel'
+          : r.kind === 'pricing' ? (PRICING_LABELS[r.field ?? ''] ?? 'Pricing')
           : 'Market size',
         value: r.value,
         validates: validationLabel(targets),

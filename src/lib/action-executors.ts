@@ -1806,6 +1806,50 @@ const applyValidationProposal: ActionHandler = async (action) => {
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'interview') {
       skippedNoOwner = true;
+    } else if ((it.kind === 'persona_fact' || it.kind === 'channel_fact') && ownerUserId) {
+      // Stage-3 prefill: write a keyword-bearing applied memory_fact so the
+      // icp_defined / channels_identified checks (which match memory_facts on
+      // ICP/channel keywords) green. Prefix guarantees the match regardless of
+      // the founder's phrasing. Founder-first (only on Apply).
+      const prefix = it.kind === 'persona_fact' ? 'Ideal customer profile — ' : 'Acquisition channel — ';
+      await recordFact({
+        userId: ownerUserId,
+        projectId: action.project_id,
+        fact: `${prefix}${value}`.slice(0, 1600),
+        kind: 'observation',
+        sources: sources ?? undefined,
+      });
+      applied.push(it.label || (it.kind === 'persona_fact' ? 'Ideal customer' : 'Acquisition channel'));
+      creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+    } else if (it.kind === 'persona_fact' || it.kind === 'channel_fact') {
+      skippedNoOwner = true;
+    } else if (it.kind === 'pricing' && it.field) {
+      // Stage-4 prefill: upsert one pricing_state column from the item's typed
+      // `extra`. tiers/wtp/unit_econ are JSONB (bind RAW — postgres.js serializes;
+      // pre-stringifying double-encodes and the unit_econ gate reads a string).
+      const col = it.field;
+      const PRICING_COLS = new Set(['anchor_price', 'tiers', 'wtp', 'unit_econ', 'model', 'currency']);
+      if (PRICING_COLS.has(col)) {
+        const x = (it.extra ?? {}) as Record<string, unknown>;
+        const raw = col in x ? x[col] : undefined;
+        if (raw !== undefined && raw !== null) {
+          await run(
+            `INSERT INTO pricing_state (project_id, ${col}, updated_at)
+             VALUES (?, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT (project_id) DO UPDATE SET ${col} = EXCLUDED.${col}, updated_at = CURRENT_TIMESTAMP`,
+            action.project_id, raw,
+          );
+          // Carry currency alongside an anchor_price when the doc stated one.
+          if (col === 'anchor_price' && typeof x.currency === 'string' && x.currency.length === 3) {
+            await run(
+              `UPDATE pricing_state SET currency = ? WHERE project_id = ?`,
+              x.currency, action.project_id,
+            );
+          }
+          applied.push(it.label || 'Pricing');
+          creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+        }
+      }
     }
   }
 

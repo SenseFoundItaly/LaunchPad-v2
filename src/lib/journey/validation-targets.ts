@@ -23,7 +23,12 @@
 import { STAGES } from './index';
 import { MARKET_SIZE_CHECK_SOURCE, TECH_1B_SOURCES } from './stage-2-market-validation';
 
-export type ValidationItemKind = 'canvas_field' | 'competitor' | 'market_size_fact' | 'tech_fact' | 'interview';
+export type ValidationItemKind =
+  | 'canvas_field' | 'competitor' | 'market_size_fact' | 'tech_fact' | 'interview'
+  | 'persona_fact' | 'channel_fact' | 'pricing';
+
+/** The pricing_state column a `pricing` item fills (Stage-4 Business Model). */
+export type PricingField = 'anchor_price' | 'tiers' | 'wtp' | 'model' | 'unit_econ';
 
 /** The 1B finding a `tech_fact` item validates — maps to one of the three
  *  technical checks (see TECH_1B_SOURCES). */
@@ -75,6 +80,15 @@ function sourceKeysFor(kind: ValidationItemKind, field?: string): string[] {
       // interviews-logged check; the verbatim-pain / WTP checks read the same
       // rows once 1A+1B unlock 1C (the lock is on the check, not the data).
       return ['interviews'];
+    case 'persona_fact':
+      // Stage 3 icp_defined reads memory_facts matching ICP keywords.
+      return ['memory_facts (ICP)'];
+    case 'channel_fact':
+      // Stage 3 channels_identified reads memory_facts matching channel keywords.
+      return ['memory_facts (channels)'];
+    case 'pricing':
+      // Stage 4 Business Model checks each read one pricing_state column.
+      return field ? [`pricing_state.${field}`] : [];
     default:
       return [];
   }

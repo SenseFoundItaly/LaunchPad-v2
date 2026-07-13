@@ -105,6 +105,26 @@ describe('digestDocument', () => {
     expect(ivs[1].extra.wtp_amount).toBeUndefined(); // null WTP stays absent
   });
 
+  it('stages stage-3 persona/channel facts + stage-4 pricing (batch 1)', async () => {
+    const withStage34 = JSON.stringify({
+      canvas: { target_market: 'Artisan pasta labs in Lombardia', channels: 'Instagram creators + food fairs' },
+      competitors: [], market_size: [], tech_facts: [], watch_suggestions: [], interviews: [],
+      pricing: { model: 'subscription', anchor_price: 89, currency: 'EUR', tiers: ['Starter', 'Pro'], wtp_note: '5 labs quoted €80-90/mo' },
+    });
+    runAgentMock.mockResolvedValue({ text: withStage34, usage: {} });
+    await digestDocument({ projectId: 'p1', factId: 'f1', filename: 'deck.pdf', text: 'doc' });
+    const raw = stageMock.mock.calls[0][1];
+    const kinds = raw.map((x: { kind: string }) => x.kind);
+    expect(kinds).toContain('persona_fact');   // stage 3 icp_defined
+    expect(kinds).toContain('channel_fact');   // stage 3 channels_identified
+    // stage 4: one pricing item per stated field
+    const pricing = raw.filter((x: { kind: string }) => x.kind === 'pricing');
+    const fields = pricing.map((p: { field: string }) => p.field).sort();
+    expect(fields).toEqual(['anchor_price', 'model', 'tiers', 'wtp']);
+    const anchor = pricing.find((p: { field: string }) => p.field === 'anchor_price');
+    expect(anchor.extra).toEqual({ anchor_price: 89, currency: 'EUR' });
+  });
+
   it('records a document_digested timeline event', async () => {
     runAgentMock.mockResolvedValue({ text: FINDINGS, usage: {} });
     await digestDocument({ projectId: 'p1', factId: 'f1', filename: 'deck.pdf', text: 'doc' });
