@@ -35,20 +35,31 @@ function resolveBuilder(id?: string | null): BuilderAdapter {
   return getActiveBuilder();
 }
 
-/** Build the driver message straight from assembled intelligence (fast — no LLM skill). */
-export async function buildSpecFromContext(projectId: string): Promise<{ prompt: string; isDelta: boolean }> {
+/**
+ * Build the driver message straight from assembled intelligence (fast — no LLM skill).
+ * A driver "create" spins up a FRESH build (new v0 chat / new sandbox), so it must
+ * always be an INITIAL prompt even if the project has prior builds — pass
+ * forceInitial. Iterations go through startIteration with the founder's message.
+ */
+export async function buildSpecFromContext(
+  projectId: string,
+  opts?: { forceInitial?: boolean },
+): Promise<{ prompt: string; isDelta: boolean }> {
   const ctx = await assembleMvpContext(projectId);
-  const prose = renderMvpContextProse(ctx);
-  const directive = ctx.isDelta
+  const delta = ctx.isDelta && !opts?.forceInitial;
+  const prose = renderMvpContextProse(ctx, { initialOnly: !delta });
+  const directive = delta
     ? '\n\n---\nApply the accumulated feedback above as concrete changes to the existing app. Keep everything that works.'
     : '\n\n---\nBuild a working, modern, responsive MVP web app that implements the product described above. Ship a real, usable first version — not a mockup.';
-  return { prompt: (prose + directive).slice(0, MAX_PROMPT_CHARS), isDelta: ctx.isDelta };
+  return { prompt: (prose + directive).slice(0, MAX_PROMPT_CHARS), isDelta: delta };
 }
 
 /** Start a new build: create a 'building' row + kick off the driver (async when supported). */
 export async function startBuild(projectId: string, ownerUserId?: string): Promise<MvpBuild> {
   const builder = getActiveBuilder();
-  const { prompt } = await buildSpecFromContext(projectId);
+  // A create is always a fresh build → force an INITIAL prompt (never a delta,
+  // even if the project has prior builds — a new v0 chat has nothing to iterate on).
+  const { prompt } = await buildSpecFromContext(projectId, { forceInitial: true });
   const build = await createBuild({ projectId, builder: builder.id, specPrompt: prompt, status: 'building' });
   const ref = { projectId, buildId: build.id, ownerUserId };
   try {
