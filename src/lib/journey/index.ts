@@ -132,6 +132,17 @@ export function evaluateAllStages(snapshot: ProjectSnapshot): StageEvaluation[] 
     } else {
       status = 'pending';
     }
+    // Gap B: the execution stages (Build & Launch 5, Fundraise 6, Operate 7)
+    // are SEQUENCE-LOCKED until earlier stages are done — which is exactly when
+    // they're 'pending'. Mark their checks locked so the spine renders the 🔒
+    // affordance (matching the run-gate in stage-lock.ts) instead of dangling
+    // actionable gaps a founder can't act on yet. Threshold inlined (5) to avoid
+    // an index↔stage-lock import cycle; kept in sync with LOCK_FROM_STAGE.
+    if (status === 'pending' && stage.number >= 5) {
+      for (const r of results) {
+        if (!r.result.passed) r.result.locked = true;
+      }
+    }
     return { stage, passed, total, status, results };
   });
 }

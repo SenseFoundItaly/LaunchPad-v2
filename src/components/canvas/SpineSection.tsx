@@ -146,6 +146,10 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
         {evals.map((e) => {
           const st = STATE[e.status];
           const isOpen = open === e.stage.id;
+          // Gap B: Build/Fundraise/Operate (5-7) are sequence-locked while
+          // pending — surface a 🔒 so the founder sees WHY they can't start yet
+          // (matches the run-gate + the localized "stage_locked" message).
+          const isSeqLocked = e.status === 'pending' && e.stage.number >= 5;
           return (
             <button
               key={e.stage.id}
@@ -171,10 +175,14 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                 <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
                   {String(e.stage.number).padStart(2, '0')}
                 </span>
-                <span
-                  style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0, background: e.status === 'done' ? st.color : 'transparent', border: e.status === 'done' ? 'none' : `1.5px solid ${st.color}` }}
-                  title={t(st.labelKey)}
-                />
+                {isSeqLocked ? (
+                  <Icon d={I.lock} size={9} stroke={1.5} style={{ color: 'var(--ink-5)', flexShrink: 0 }} />
+                ) : (
+                  <span
+                    style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0, background: e.status === 'done' ? st.color : 'transparent', border: e.status === 'done' ? 'none' : `1.5px solid ${st.color}` }}
+                    title={t(st.labelKey)}
+                  />
+                )}
               </div>
               <div
                 className="lp-serif"
@@ -193,7 +201,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                 {stageLabel(e.stage.id, e.stage.label, t)}
               </div>
               <span className="lp-mono" style={{ fontSize: 9, color: st.color, letterSpacing: 0.3 }}>
-                {t(st.labelKey)}
+                {isSeqLocked ? t('canvas.stage-locked-short') : t(st.labelKey)}
               </span>
             </button>
           );

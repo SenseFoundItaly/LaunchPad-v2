@@ -756,6 +756,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'canvas.track-1b': '1B · Tecnica',
   'canvas.track-1c': '1C · Fit Problema-Soluzione',
   'canvas.track-locked': 'Bloccato finché 1A + 1B non sono completi',
+  'canvas.stage-locked-short': 'Bloccato',
   'skills.gate-1c-locked': 'Le interviste ai clienti si sbloccano quando le track 1A (Mercato) e 1B (Tecnica) sono complete. Ancora aperti: {missing}. Chiudiamo prima quelli — posso aiutarti su ciascuno.',
   'skills.stage-locked': '{skillStage} è bloccato finché non completi tutte le fasi precedenti. Sei alla Fase {blockingStage} — {blockingName} ({passed}/{total} check completati). Completala e finisci le fasi rimanenti, poi si sblocca. Non perdi nulla — completa il lavoro precedente e torna qui.',
   'skills.loop1-gated': 'Il lavoro su pricing e business model è in pausa finché la PSF Review è aperta — la disponibilità a pagare è risultata debole. Risolvi la review (o archiviala con una motivazione) prima, così costruisci il pricing su un fit confermato.',

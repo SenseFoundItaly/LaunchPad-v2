@@ -73,6 +73,22 @@ const STALE_RUN_MINUTES = 15;
  * sweep the 'running' count grows without bound (observed: 51 orphans). Runs at
  * the very top of every tick so the table self-reconciles even if a run dies.
  */
+/**
+ * Gap A: evict expired research_cache rows so the cache (gap-2) doesn't grow
+ * unbounded. Cheap DELETE keyed on the expiry index; runs every cron tick.
+ */
+async function sweepExpiredResearchCache(): Promise<number> {
+  try {
+    const result = await run('DELETE FROM research_cache WHERE expires_at < CURRENT_TIMESTAMP');
+    const n = (result as unknown as { count: number }).count ?? 0;
+    if (n > 0) console.log(`[cron] evicted ${n} expired research_cache row(s)`);
+    return n;
+  } catch (err) {
+    console.warn('[cron] research_cache eviction failed (non-fatal):', (err as Error).message);
+    return 0;
+  }
+}
+
 async function sweepStaleRuns(): Promise<number> {
   const cutoff = new Date(Date.now() - STALE_RUN_MINUTES * 60 * 1000).toISOString();
   const result = await run(
@@ -612,6 +628,7 @@ export async function GET(request: NextRequest) {
   // Self-heal first: flip any run killed mid-flight on a previous tick to
   // 'failed' so the 'running' count can't grow without bound.
   const sweptStaleRuns = await sweepStaleRuns();
+  const evictedResearchCache = await sweepExpiredResearchCache();
 
   // Concurrency guard: if a fresh run is still in flight (duplicate trigger or
   // scheduler-loop re-entry), bail out rather than race it.
@@ -823,6 +840,7 @@ export async function GET(request: NextRequest) {
     return json({
       cron_run_id: cronRunId,
       swept_stale_runs: sweptStaleRuns,
+      research_cache_evicted: evictedResearchCache,
       // The scheduler runs each of these via the streaming /api/cron/run-monitor
       // endpoint (Netlify can't complete a monitor agent run inline).
       due_monitor_ids: dueMonitorIds,
