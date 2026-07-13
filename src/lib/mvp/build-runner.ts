@@ -14,6 +14,7 @@
 import { assembleMvpContext, renderBuildBrief } from './assemble-context';
 import { getActiveBuilder, getBuilder } from '@/lib/builders';
 import type { BuilderAdapter, BuilderId } from '@/lib/builders/types';
+import { isProjectCapped } from '@/lib/cost-meter';
 import {
   type MvpBuild,
   createBuild,
@@ -36,6 +37,25 @@ function resolveBuilder(id?: string | null): BuilderAdapter {
 }
 
 /**
+ * Gate a PAID build/iteration before it runs (v0 credits, E2B compute, Opus
+ * tokens all bill to us). The stub is free → always allowed. Throws a
+ * `BUILD_CAPPED:`-prefixed error (routes map it to 402) when the project owner is
+ * over their credit cap, or a global kill-switch is set. Cheap (one SELECT).
+ */
+export async function assertBuildAllowed(projectId: string, builder: BuilderAdapter): Promise<void> {
+  if (builder.id === 'stub') return;
+  if (process.env.BUILD_KILL_SWITCH === '1') {
+    throw new Error('BUILD_CAPPED: Builds are temporarily paused.');
+  }
+  const cap = await isProjectCapped(projectId);
+  if (cap.capped) {
+    throw new Error(
+      `BUILD_CAPPED: Credit cap reached ($${cap.currentUsd.toFixed(2)} of $${cap.capUsd.toFixed(2)} this month) — builds are paused until it resets or the cap is raised.`,
+    );
+  }
+}
+
+/**
  * Build the driver message straight from assembled intelligence (fast — no LLM skill).
  * A driver "create" spins up a FRESH build (new v0 chat / new sandbox), so it must
  * always be an INITIAL prompt even if the project has prior builds — pass
@@ -52,6 +72,7 @@ export async function buildSpecFromContext(projectId: string): Promise<{ prompt:
 /** Start a new build: create a 'building' row + kick off the driver (async when supported). */
 export async function startBuild(projectId: string, ownerUserId?: string): Promise<MvpBuild> {
   const builder = getActiveBuilder();
+  await assertBuildAllowed(projectId, builder);
   const { prompt } = await buildSpecFromContext(projectId);
   const build = await createBuild({ projectId, builder: builder.id, specPrompt: prompt, status: 'building' });
   const ref = { projectId, buildId: build.id, ownerUserId };
@@ -80,6 +101,7 @@ export async function startBuild(projectId: string, ownerUserId?: string): Promi
 export async function startIteration(build: MvpBuild, message: string, ownerUserId?: string): Promise<MvpBuild> {
   const builder = resolveBuilder(build.builder);
   if (!builder.supportsIteration) throw new Error(`Builder "${builder.id}" does not support iteration`);
+  await assertBuildAllowed(build.project_id, builder);
   const ref = { projectId: build.project_id, buildId: build.id, ownerUserId };
   const next = await createBuild({
     projectId: build.project_id,

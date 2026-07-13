@@ -14,7 +14,9 @@ import { getCurrentBuild, listPendingFeedback } from './mvp-builds';
 
 export async function maybeProposeMvpIteration(projectId: string): Promise<boolean> {
   const build = await getCurrentBuild(projectId);
-  if (!build || build.status !== 'live' || !build.live_app_url) return false;
+  // Any LIVE build (v0/E2B set preview_url, not necessarily a founder-pasted
+  // live_app_url) with pending feedback is iterable.
+  if (!build || build.status !== 'live') return false;
 
   const pending = await listPendingFeedback(projectId);
   if (pending.length === 0) return false;
@@ -50,7 +52,7 @@ export async function proposeMvpIterationsCron(limit = 20): Promise<number> {
        FROM mvp_builds b
        JOIN mvp_build_feedback f
          ON f.project_id = b.project_id AND f.incorporated_in_iteration IS NULL
-      WHERE b.status = 'live' AND b.live_app_url IS NOT NULL
+      WHERE b.status = 'live'
       LIMIT ?`,
     limit,
   );

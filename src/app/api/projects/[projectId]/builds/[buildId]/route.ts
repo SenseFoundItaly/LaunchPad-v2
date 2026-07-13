@@ -56,7 +56,9 @@ export async function PATCH(
       }
       return json(next);
     } catch (e) {
-      return error(`Iteration failed: ${(e as Error).message}`, 502);
+      const msg = (e as Error).message;
+      if (msg.startsWith('BUILD_CAPPED:')) return error(msg.replace('BUILD_CAPPED: ', ''), 402);
+      return error(`Iteration failed: ${msg}`, 502);
     }
   }
 
