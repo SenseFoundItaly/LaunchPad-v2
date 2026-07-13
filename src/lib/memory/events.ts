@@ -33,6 +33,7 @@ export type EventType =
   | 'task_proposed'
   | 'knowledge_proposed'      // gap 1: a knowledge-suggestion was emitted in chat (proposal trace)
   | 'option_selected'         // gap 3: founder clicked a non-skill option-set choice (decision trace)
+  | 'document_digested'       // brownfield digest: an upload was digested into staged prefill
   | 'artifact_rejected_no_sources'
   | 'artifact_rescued_by_fallback_citations'
   | 'monitor_applied'

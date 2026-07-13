@@ -8,6 +8,7 @@ import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
 import { validationTargetsFor, validationLabel } from '@/lib/journey/validation-targets';
 import { canvasIsEmpty } from '@/lib/idea-canvas-seed';
+import { digestDocument } from '@/lib/document-digest';
 
 const MAX_FILE_BYTES = 10_485_760; // 10 MiB per file — real PDFs/decks are bigger than a text note
 const MAX_FILES_PER_REQUEST = 10;
@@ -368,6 +369,9 @@ interface IngestResult {
    *  Undefined when extraction wasn't requested. 0 when nothing parseable. */
   entities_proposed?: number;
   bytes?: number;
+  /** Digest & Prefill (?digest=1): validation items staged / watchers proposed. */
+  digest_staged_items?: number;
+  digest_watchers?: number;
 }
 
 /**
@@ -403,6 +407,7 @@ export async function POST(
   // ?extract=1 so user uploads auto-propose graph entities.
   const url = new URL(request.url);
   const shouldExtract = url.searchParams.get('extract') === '1';
+  const shouldDigest = url.searchParams.get('digest') === '1';
   // ?audit_charge=1 → bill a flat DOCUMENT_AUDIT_CREDITS per INGESTED document
   // (founder decision 2026-06-14). Off by default so onboarding's first-run
   // upload stays free; the Knowledge-page "Add documents" popup opts in. When
@@ -506,6 +511,20 @@ export async function POST(
         }
       } else {
         result.entities_proposed = 0;
+      }
+    }
+
+    // Digest & Prefill (brownfield founders, ?digest=1): route the document's
+    // canvas/competitor/market-size/tech content + watch-worthy names onto the
+    // journey's approval rails — staged proposals only, nothing auto-greens.
+    // Full stored text (chunked), not just the 16k head. Non-fatal.
+    if (shouldDigest) {
+      try {
+        const digest = await digestDocument({ projectId, factId: id, filename: file.name, text });
+        result.digest_staged_items = digest.staged_items;
+        result.digest_watchers = digest.watcher_proposals;
+      } catch (e) {
+        console.warn('[knowledge/upload] digest failed (non-fatal):', (e as Error).message);
       }
     }
 

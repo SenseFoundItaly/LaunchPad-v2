@@ -196,6 +196,28 @@ async function stageOrMergeItems(
  * for unsupported artifacts, empty evidence, items that map to no gate, or when
  * every value is already staged. Never throws.
  */
+/**
+ * Digest & Prefill (brownfield founders): stage arbitrary RawItems from a
+ * NON-artifact origin (document digestion) through the SAME founder-approval
+ * gate as artifact auto-staging — nothing greens without the founder's Apply.
+ * Thin exported wrapper over buildItems + stageOrMergeItems.
+ */
+export type RawValidationItem = RawItem;
+export async function stageValidationItemsFromRaw(
+  projectId: string,
+  raw: RawItem[],
+  originNote: string,
+): Promise<{ staged: boolean; pendingActionId?: string; itemCount?: number; merged?: boolean }> {
+  try {
+    const items = buildItems(raw);
+    if (items.length === 0) return { staged: false };
+    return await stageOrMergeItems(projectId, items, originNote);
+  } catch (err) {
+    console.warn('[auto-stage] stageValidationItemsFromRaw failed (non-fatal):', (err as Error).message);
+    return { staged: false };
+  }
+}
+
 export async function autoStageValidationFromArtifact(
   projectId: string,
   artifact: Artifact,

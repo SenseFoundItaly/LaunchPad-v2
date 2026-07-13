@@ -108,7 +108,7 @@ export default function AddDocumentsDialog({ projectId, onClose, onApplied }: Ad
       const form = new FormData();
       for (const f of files) form.append('file', f);
       // extract=1 → propose entities · audit_charge=1 → bill the flat per-doc fee.
-      const res = await fetch(`/api/projects/${projectId}/knowledge/upload?extract=1&audit_charge=1`, {
+      const res = await fetch(`/api/projects/${projectId}/knowledge/upload?extract=1&digest=1&audit_charge=1`, {
         method: 'POST',
         body: form,
       });

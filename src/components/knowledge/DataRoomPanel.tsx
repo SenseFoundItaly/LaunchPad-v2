@@ -617,7 +617,7 @@ function InlineUpload({
     try {
       const form = new FormData();
       for (const f of list) form.append('file', f);
-      const res = await fetch(`/api/projects/${projectId}/knowledge/upload?extract=1`, {
+      const res = await fetch(`/api/projects/${projectId}/knowledge/upload?extract=1&digest=1`, {
         method: 'POST',
         body: form,
       });
