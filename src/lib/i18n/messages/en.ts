@@ -43,6 +43,7 @@ export const en = {
   'build.changes': 'Changes',
   'build.liveUrl.label': 'Live app URL',
   'build.liveUrl.save': 'Save',
+  'build.liveApp.open': 'Open live app',
   'build.feedback.title': 'Feedback for the next iteration',
   'build.feedback.placeholder': 'Add a note, observation, or user comment…',
   'build.feedback.add': 'Add feedback',

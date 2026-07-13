@@ -37,6 +37,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'build.changes': 'Modifiche',
   'build.liveUrl.label': 'URL app live',
   'build.liveUrl.save': 'Salva',
+  'build.liveApp.open': "Apri l'app live",
   'build.feedback.title': 'Feedback per la prossima iterazione',
   'build.feedback.placeholder': 'Aggiungi una nota, osservazione o commento utente…',
   'build.feedback.add': 'Aggiungi feedback',
