@@ -27,10 +27,11 @@ const FINDINGS = JSON.stringify({
 });
 
 describe('chunkText (fix F3)', () => {
-  it('splits long text into 16k chunks, max 4', () => {
+  it('splits long text into 16k chunks, capped', () => {
     expect(chunkText('x'.repeat(10_000))).toHaveLength(1);
     expect(chunkText('x'.repeat(33_000))).toHaveLength(3);
-    expect(chunkText('x'.repeat(200_000))).toHaveLength(4); // capped
+    expect(chunkText('x'.repeat(200_000))).toHaveLength(3); // global cap (MAX_CHUNKS)
+    expect(chunkText('x'.repeat(200_000), 2)).toHaveLength(2); // caller cap (upload path)
   });
 });
 

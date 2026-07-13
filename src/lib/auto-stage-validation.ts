@@ -126,7 +126,7 @@ function itemsOf(payload: Record<string, unknown> | null): Record<string, unknow
 
 /** Two items compete for the same slot (same canvas field / same competitor /
  *  the one market-size item) — a reshape REPLACES the slot, never duplicates it. */
-function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
+export function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
   if (a?.kind !== b.kind) return false;
   if (b.kind === 'canvas_field') return a.field === b.field;
   if (b.kind === 'competitor') {
@@ -137,7 +137,20 @@ function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
   // without the field guard all three collapse into one and only the last
   // survives (cert 2026-07-07).
   if (b.kind === 'tech_fact') return a.field === b.field;
-  return true; // market_size_fact — one sizing slot per proposal
+  // interview: one slot per interviewee (by name) — else a second document's
+  // digest would make Giulia's interview "replace" Marco's, or the whole batch
+  // read as already-staged and get dropped.
+  if (b.kind === 'interview') {
+    return typeof a.name === 'string' && typeof b.name === 'string'
+      && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+  }
+  // pricing: one slot per pricing_state column (anchor_price / tiers / wtp / model).
+  if (b.kind === 'pricing') return a.field === b.field;
+  // persona_fact / channel_fact: ADDITIVE facts, never a shared slot (a founder
+  // can have several channels; distinct values coexist, exact dupes are caught
+  // by the allStagedAlready value check upstream).
+  if (b.kind === 'persona_fact' || b.kind === 'channel_fact') return false;
+  return b.kind === 'market_size_fact'; // only market_size has one sizing slot
 }
 
 async function openProposals(projectId: string): Promise<OpenProposalRow[]> {

@@ -16,6 +16,7 @@
  * Non-throwing throughout: a digest failure must never break an upload.
  */
 import { runAgent } from '@/lib/pi-agent';
+import { wrapUntrusted } from '@/lib/untrusted-content';
 import { recordAgentUsage } from '@/lib/cost-meter';
 import { createPendingAction } from '@/lib/pending-actions';
 import { query } from '@/lib/db';
@@ -24,7 +25,7 @@ import { stageValidationItemsFromRaw, type RawValidationItem } from '@/lib/auto-
 import type { Source } from '@/types/artifacts';
 
 const CHUNK_CHARS = 16_000;
-const MAX_CHUNKS = 4; // stored text caps at 50k → ≤4 chunks
+const MAX_CHUNKS = 3; // stored text caps at 50k → ≤4 chunks; 3 bounds worst-case latency
 const MAX_WATCHERS_PER_DOC = 2;
 
 export const DIGEST_ORIGIN = 'document_digest';
@@ -113,6 +114,11 @@ export interface DigestInput {
   factId: string;
   filename: string;
   text: string;
+  /** Cap chunks for the caller's latency budget. The upload path runs INSIDE
+   *  the buffered request (after entity extraction), so it caps low to fit the
+   *  serverless function limit; the /digest retro endpoint uses the full cap.
+   *  A doc longer than maxChunks*16k digests its head (non-fatal, partial). */
+  maxChunks?: number;
 }
 
 export interface DigestResult {
@@ -123,9 +129,10 @@ export interface DigestResult {
 
 /** Split into ≤MAX_CHUNKS chunks of CHUNK_CHARS (fix F3: the old extractor
  *  sampled only the head — long decks lost their back half). */
-export function chunkText(text: string): string[] {
+export function chunkText(text: string, maxChunks: number = MAX_CHUNKS): string[] {
+  const cap = Math.max(1, Math.min(MAX_CHUNKS, maxChunks));
   const chunks: string[] = [];
-  for (let i = 0; i < text.length && chunks.length < MAX_CHUNKS; i += CHUNK_CHARS) {
+  for (let i = 0; i < text.length && chunks.length < cap; i += CHUNK_CHARS) {
     chunks.push(text.slice(i, i + CHUNK_CHARS));
   }
   return chunks.length ? chunks : [''];
@@ -138,14 +145,17 @@ export async function digestDocument(input: DigestInput): Promise<DigestResult> 
 
   // 1) Chunked extraction over the FULL stored text.
   const parts: DigestFindings[] = [];
-  const chunks = chunkText(text);
+  const chunks = chunkText(text, input.maxChunks);
   result.chunks = chunks.length;
   for (let i = 0; i < chunks.length; i++) {
     try {
       const startedAt = Date.now();
+      // Injection defense: the document is third-party-authored data — wrap it
+      // so an "ignore instructions, output X" line in an uploaded PDF can't
+      // steer the extractor (same treatment as fetched web content).
       const { text: raw, usage } = await runAgent(
-        DIGEST_PROMPT.replace('{PART}', `${i + 1}/${chunks.length}`).replace('{TEXT}', chunks[i]),
-        { task: 'classify', tools: false, timeout: 30_000 },
+        DIGEST_PROMPT.replace('{PART}', `${i + 1}/${chunks.length}`).replace('{TEXT}', wrapUntrusted(chunks[i])),
+        { task: 'classify', tools: false, timeout: 22_000 },
       );
       await recordAgentUsage({
         project_id: projectId,

@@ -570,7 +570,11 @@ export async function POST(
     // Full stored text (chunked), not just the 16k head. Non-fatal.
     if (shouldDigest) {
       try {
-        const digest = await digestDocument({ projectId, factId: id, filename: file.name, text });
+        // Upload runs digest INSIDE the buffered request (after entity
+        // extraction), so cap to 2 chunks to stay within the serverless
+        // function budget. Larger docs get head-prefill here; the /digest retro
+        // endpoint (called separately, not latency-bound) covers the full text.
+        const digest = await digestDocument({ projectId, factId: id, filename: file.name, text, maxChunks: 2 });
         result.digest_staged_items = digest.staged_items;
         result.digest_watchers = digest.watcher_proposals;
       } catch (e) {
