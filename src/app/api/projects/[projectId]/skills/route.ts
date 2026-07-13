@@ -19,6 +19,9 @@ import {
 } from '@/lib/skill-prereqs';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { stageSequenceLock } from '@/lib/journey/stage-lock';
+import crypto from 'crypto';
+import { parseMessageContent } from '@/lib/artifact-parser';
+import { captureChatArtifact } from '@/lib/chat-artifacts';
 import { translate } from '@/lib/i18n/messages';
 import { maybeBuildScoreReviewOptionSet } from '@/lib/score-review';
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
@@ -267,6 +270,39 @@ export async function POST(
             summary: summaryOut,
             summary_preview: result.summary.slice(0, 300),
           })}\n\n`);
+          // Gap D: persist the skill's answer as an assistant chat_messages row.
+          // The chat page only INJECTS it into React state; GET /api/chat/history
+          // reads chat_messages, so without this the founder's thread showed a
+          // hole where the skill answered after any refresh. Founder-initiated
+          // runs only (heartbeat/cron never reach this route). Non-fatal.
+          let skillMsgId: string | null = null;
+          try {
+            if (runStatus === 'completed' && summaryOut.trim()) {
+              skillMsgId = `msg_${crypto.randomUUID().slice(0, 12)}`;
+              await run(
+                `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
+                 VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
+                skillMsgId, projectId, summaryOut, new Date().toISOString(), ownerUserId,
+              );
+            }
+          } catch (err) {
+            console.warn('[skills] chat_messages persist failed (non-fatal):', (err as Error).message);
+          }
+          // Gap E: capture the skill's cards as retrievable chat_artifacts —
+          // runSkill's persistArtifact loop writes DOMAIN data only, so skill-
+          // produced score-cards / research tables / personas were invisible to
+          // the Data Room (gap C only covered the chat-turn path). Non-fatal.
+          try {
+            for (const seg of parseMessageContent(summaryOut)) {
+              if (seg.type !== 'artifact') continue;
+              await captureChatArtifact(
+                { projectId, chatMessageId: skillMsgId, turnPreview: `skill: ${skillId}` },
+                seg.artifact,
+              );
+            }
+          } catch (err) {
+            console.warn('[skills] chat-artifact capture failed (non-fatal):', (err as Error).message);
+          }
           // Phase-1 watcher trigger — a completed skill run can close the last
           // Stage-1 evidence. AFTER the done frame (the founder already has the
           // result) and AWAITED (serverless freezes fire-and-forget work).
