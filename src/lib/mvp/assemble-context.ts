@@ -134,6 +134,41 @@ function line(label: string, value: string | null | undefined): string | null {
 }
 
 /**
+ * A CLEAN, IMPERATIVE build brief for an app builder (v0/E2B). App builders build
+ * reliably from a direct "Build X that does Y, with features …" instruction, and
+ * NOT from a "[PROJECT INTELLIGENCE]" context dump (v0 returns an empty response
+ * and no version). This distills the accumulated intelligence into that brief —
+ * deterministically, no LLM (so it's fast enough for serverless).
+ */
+export function renderBuildBrief(ctx: MvpContext): string {
+  const ic = ctx.snapshot.idea_canvas;
+  const name = ctx.project?.name?.trim() || 'the product';
+  const what =
+    (ic?.solution && ic?.problem && `${ic.solution.trim()} — solving: ${ic.problem.trim()}`) ||
+    ic?.value_proposition?.trim() ||
+    ic?.solution?.trim() ||
+    ctx.project?.description?.trim() ||
+    'a useful, focused web app';
+  const users = ic?.target_market?.trim() || (ctx.personas.length ? ctx.personas.slice(0, 4).join(', ') : '');
+  const pains = (ctx.snapshot.interviews ?? [])
+    .map((i) => (i.top_pain || '').trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const out: string[] = [`Build a modern, responsive web app called "${name}".`, '', `What it does: ${what}.`];
+  if (users) out.push(`Target users: ${users}.`);
+  if (ic?.value_proposition && ic.value_proposition.trim() !== what) out.push(`Value proposition: ${ic.value_proposition.trim()}.`);
+  if (pains.length) out.push(`Make sure it addresses these real user pain points: ${pains.join('; ')}.`);
+  if (ic?.business_model?.trim()) out.push(`Business model context: ${ic.business_model.trim()}.`);
+  out.push(
+    '',
+    'Design: clean, modern, thoughtful UI, mobile-responsive.',
+    'Ship a real, working first version — a usable MVP with real interactions and sensible sample data, not a static mockup.',
+  );
+  return out.join('\n');
+}
+
+/**
  * Compact prompt block injected into the mvp-build-spec skill. Prioritizes the
  * load-bearing "what to build / for whom" data first; delta sections last.
  */
