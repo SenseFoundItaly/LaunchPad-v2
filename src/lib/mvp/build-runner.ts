@@ -38,16 +38,33 @@ function resolveBuilder(id?: string | null): BuilderAdapter {
   return getActiveBuilder();
 }
 
+/** True in a serverless runtime with a hard function time limit (Netlify/Lambda/Vercel). */
+function isServerlessRuntime(): boolean {
+  return !!(
+    process.env.NETLIFY ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.VERCEL
+  );
+}
+
 /**
  * Gate a PAID build/iteration before it runs (v0 credits, E2B compute, Opus
  * tokens all bill to us). The stub is free → always allowed. Throws a
  * `BUILD_CAPPED:`-prefixed error (routes map it to 402) when the project owner is
- * over their credit cap, or a global kill-switch is set. Cheap (one SELECT).
+ * over their credit cap, or a global kill-switch is set. Also fails fast with
+ * `BUILD_UNSUPPORTED:` when a SYNC-only driver (no async surface) is selected on a
+ * serverless runtime — a blocking create would exceed the function limit and orphan
+ * a 'building' row / leak the sandbox, so refuse cleanly instead. Cheap (one SELECT).
  */
 export async function assertBuildAllowed(projectId: string, builder: BuilderAdapter): Promise<void> {
   if (builder.id === 'stub') return;
   if (process.env.BUILD_KILL_SWITCH === '1') {
     throw new Error('BUILD_CAPPED: Builds are temporarily paused.');
+  }
+  if (!builder.supportsAsync && isServerlessRuntime() && process.env.BUILD_ALLOW_SYNC !== '1') {
+    throw new Error(
+      `BUILD_UNSUPPORTED: The "${builder.id}" builder is sync-only and cannot run on this serverless host (a build would exceed the function time limit). Use the v0 driver, run this driver where long tasks are allowed, or set BUILD_ALLOW_SYNC=1 to override.`,
+    );
   }
   const cap = await isProjectCapped(projectId);
   if (cap.capped) {
@@ -63,19 +80,19 @@ export async function assertBuildAllowed(projectId: string, builder: BuilderAdap
  * always be an INITIAL prompt even if the project has prior builds — pass
  * forceInitial. Iterations go through startIteration with the founder's message.
  */
-export async function buildSpecFromContext(projectId: string): Promise<{ prompt: string; isDelta: boolean }> {
+export async function buildSpecFromContext(projectId: string): Promise<string> {
   const ctx = await assembleMvpContext(projectId);
   // A create is always a fresh build → a clean imperative brief. App builders
   // (v0/E2B) build reliably from a direct "Build X that does Y…" instruction and
   // NOT from a context dump. Iterations use the founder message via startIteration.
-  return { prompt: renderBuildBrief(ctx).slice(0, MAX_PROMPT_CHARS), isDelta: false };
+  return renderBuildBrief(ctx).slice(0, MAX_PROMPT_CHARS);
 }
 
 /** Start a new build: create a 'building' row + kick off the driver (async when supported). */
 export async function startBuild(projectId: string, ownerUserId?: string): Promise<MvpBuild> {
   const builder = getActiveBuilder();
   await assertBuildAllowed(projectId, builder);
-  const { prompt } = await buildSpecFromContext(projectId);
+  const prompt = await buildSpecFromContext(projectId);
   const build = await createBuild({ projectId, builder: builder.id, specPrompt: prompt, status: 'building' });
   const ref = { projectId, buildId: build.id, ownerUserId };
   try {
@@ -130,7 +147,7 @@ export async function startIteration(build: MvpBuild, message: string, ownerUser
     });
     if (res.status === 'live') {
       await supersedeOtherBuilds(build.project_id, next.id);
-      await markFeedbackIncorporated(build.project_id, next.iteration);
+      await markFeedbackIncorporated(build.project_id, next.iteration, next.created_at);
     }
     return updated ?? next;
   } catch (e) {
@@ -182,7 +199,13 @@ export async function refreshBuild(build: MvpBuild): Promise<MvpBuild> {
   });
   if (done) {
     await supersedeOtherBuilds(build.project_id, build.id);
-    await markFeedbackIncorporated(build.project_id, build.iteration);
+    // Only ITERATIONS consume feedback — an initial create is driven by assembled
+    // intelligence, not the feedback list. parent_build_id is the reliable signal
+    // (a 2nd fresh build has iteration>1 but no parent). Cap to feedback predating
+    // this build so mid-build feedback carries to the next round.
+    if (build.parent_build_id) {
+      await markFeedbackIncorporated(build.project_id, build.iteration, build.created_at);
+    }
   }
   return updated ?? build;
 }

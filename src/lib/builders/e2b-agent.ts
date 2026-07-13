@@ -6,16 +6,21 @@
 // the live preview we embed. White-label by construction (our code, our sandbox).
 //
 // FIRST CUT (static-first): runAgent emits a small self-contained static site;
-// the sandbox serves it. Follow-ups (flagged): (1) iterate should READ the prior
-// files from the sandbox and patch them rather than regenerate from the message
-// alone; (2) full-stack apps (dev server + DB) instead of static; (3) a real
-// plan→build→run→read-errors→self-correct loop; (4) persist/snapshot for a
-// durable live URL. Key-gated on E2B_API_KEY.
+// the sandbox serves it. iterate READS the prior files from the sandbox and
+// patches them (not a blind regen). Follow-ups (flagged): (1) full-stack apps
+// (dev server + DB) instead of static; (2) a real plan→build→run→read-errors→
+// self-correct loop; (3) persist/snapshot for a durable live URL; (4) an async
+// surface (createAsync/getStatus + a background worker) so E2B is serverless-safe
+// like v0 — today it is sync and must run where a long function is allowed.
+// Key-gated on E2B_API_KEY.
 // ============================================================================
 
 import { runAgent } from '@/lib/pi-agent';
 import type { BuilderAdapter, BuildContextRef, BuildResult, BuildSpec } from './types';
-import { createSiteSandbox, updateSiteSandbox, type GenFile } from './sandbox';
+import { createSiteSandbox, updateSiteSandbox, readSiteFiles, type GenFile } from './sandbox';
+
+/** Cap the current-files context injected into an iteration prompt (chars). */
+const MAX_PRIOR_CONTEXT = 60_000;
 
 const GEN_SYSTEM = `You are a senior web engineer. Build a small, self-contained static web app (HTML/CSS/vanilla JS — NO build step, NO frameworks that need bundling) that implements the given product spec as closely as possible.
 
@@ -86,19 +91,33 @@ export const e2bAdapter: BuilderAdapter = {
 
   async iterate(ref: BuildContextRef, builderRef: string, message: string): Promise<BuildResult> {
     if (!builderRef) throw new Error('e2b iterate: missing sandbox id (builder_ref)');
-    // FOLLOW-UP: read the existing files from the sandbox and patch them; this
-    // first cut regenerates from the change message alone.
-    const files = await generateFiles(`Apply this change to the app: ${message}`, ref.projectId);
+    // PATCH-based iteration: read the current files back from the sandbox and give
+    // them to the agent so it EDITS the app rather than regenerating blind. Falls
+    // back to a clean regen if the files can't be read or are too large to inject.
+    const prior = await readSiteFiles(builderRef).catch(() => [] as GenFile[]);
+    const priorText = prior.map((f) => `--- ${f.path} ---\n${f.content}`).join('\n\n');
+    const priorBlock =
+      prior.length && priorText.length <= MAX_PRIOR_CONTEXT
+        ? `Here are the CURRENT files of the app:\n\n${priorText}\n\n`
+        : '';
+    const instruction = `${priorBlock}Apply this change to the app: ${message}\n\nReturn the COMPLETE updated file set (every file the app needs to run, with the change applied) in the same JSON shape — not just a diff.`;
+    const files = await generateFiles(instruction, ref.projectId);
     if (files.length === 0) {
       return { builderRef, status: 'failed', error: 'The build agent produced no files.' };
     }
+    const priorPaths = new Set(prior.map((f) => f.path));
     const h = await updateSiteSandbox(builderRef, files);
     return {
       builderRef: h.sandboxId,
       previewUrl: h.previewUrl,
       status: 'live',
       substrate: 'e2b',
-      diff: { files: files.map((f) => ({ path: f.path, change: 'modified' as const })) },
+      diff: {
+        files: files.map((f) => ({
+          path: f.path,
+          change: priorPaths.has(f.path) ? ('modified' as const) : ('added' as const),
+        })),
+      },
     };
   },
 };

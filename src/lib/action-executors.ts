@@ -58,7 +58,7 @@ import type {
   PendingActionType,
   EcosystemAlert,
 } from '@/types';
-import { getBuild, getCurrentBuild } from './mvp/mvp-builds';
+import { getBuild, getCurrentBuild, getLatestLiveBuild } from './mvp/mvp-builds';
 import { generateAndApplyIteration } from './mvp/run-iteration';
 
 export interface ExecutionDeliverable {
@@ -1906,9 +1906,14 @@ const proposeAssumptionRevision: ActionHandler = async (action) => {
 const mvpBuildIteration: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
   const buildId = typeof payload.build_id === 'string' ? payload.build_id : undefined;
-  const build = buildId ? await getBuild(buildId) : await getCurrentBuild(action.project_id);
+  // Iterate the latest LIVE build. A failed/superseded newest row must not become
+  // the parent, so latest-live wins over the (possibly stale) payload build_id.
+  const build =
+    (await getLatestLiveBuild(action.project_id)) ??
+    (buildId ? await getBuild(buildId) : undefined) ??
+    (await getCurrentBuild(action.project_id));
   if (!build || build.project_id !== action.project_id) {
-    return { ok: false, error: 'mvp_build_iteration: target build not found' };
+    return { ok: false, error: 'mvp_build_iteration: no live build to iterate' };
   }
   const next = await generateAndApplyIteration(build);
   return {

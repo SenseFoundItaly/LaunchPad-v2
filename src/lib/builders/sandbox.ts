@@ -59,3 +59,28 @@ export async function updateSiteSandbox(sandboxId: string, files: GenFile[]): Pr
   await serveApp(sandbox);
   return { sandboxId, previewUrl: `https://${sandbox.getHost(PORT)}` };
 }
+
+/**
+ * Read the current app files back out of a sandbox so an iteration can PATCH them
+ * rather than regenerate blind. One level under APP_DIR (the generator emits flat
+ * sibling files); bounded to keep the follow-up prompt sane.
+ */
+export async function readSiteFiles(sandboxId: string, maxFiles = 20): Promise<GenFile[]> {
+  const sandbox = await Sandbox.connect(sandboxId, { apiKey: apiKey() });
+  const listed = await sandbox.files.list(APP_DIR).catch(() => [] as Array<{ name?: string; path?: string; type?: string }>);
+  const out: GenFile[] = [];
+  for (const entry of listed) {
+    if (entry.type && entry.type !== 'file') continue;
+    const p = entry.path ?? `${APP_DIR}/${entry.name ?? ''}`;
+    try {
+      const content = await sandbox.files.read(p);
+      if (typeof content === 'string') {
+        out.push({ path: p.replace(`${APP_DIR}/`, '').replace(/^\/+/, ''), content });
+      }
+    } catch {
+      /* skip unreadable entry */
+    }
+    if (out.length >= maxFiles) break;
+  }
+  return out;
+}
