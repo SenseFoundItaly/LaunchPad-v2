@@ -19,6 +19,7 @@ import {
   markFeedbackIncorporated,
 } from './mvp-builds';
 import { assembleMvpContext, renderMvpContextProse } from './assemble-context';
+import { assertBuildAllowed } from './build-runner';
 
 const MAX_PROMPT_CHARS = 50_000;
 
@@ -40,6 +41,7 @@ export async function applyIteration(
   if (!builder.supportsIteration) {
     throw new Error(`Builder "${builder.id}" does not support in-place iteration`);
   }
+  await assertBuildAllowed(build.project_id, builder);
   const result = await builder.iterate(
     { projectId: build.project_id, buildId: build.id, ownerUserId },
     build.builder_ref ?? '',
