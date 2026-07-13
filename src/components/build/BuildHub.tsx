@@ -65,6 +65,36 @@ export default function BuildHub({ projectId }: { projectId: string }) {
     [refresh],
   );
 
+  // Update a single build in place (used by the poll loop).
+  const updateBuild = useCallback((b: ClientBuild) => {
+    setBuilds((prev) => prev.map((x) => (x.id === b.id ? b : x)));
+  }, []);
+
+  // Poll the latest build to completion while it's 'building' (async drivers like
+  // v0 build for 1–2 min). Each poll hits GET /builds/[id] → refreshBuild → driver
+  // getStatus, advancing building → live/failed and refreshing the preview URL.
+  const curId = builds[0]?.id;
+  const curStatus = builds[0]?.status;
+  useEffect(() => {
+    if (!curId || curStatus !== 'building') return;
+    let stop = false;
+    const tick = async () => {
+      try {
+        const b = await api<ClientBuild>(`/api/projects/${projectId}/builds/${curId}`);
+        if (stop) return;
+        updateBuild(b);
+        if (b.status !== 'building') void refresh(); // sync supersede + feedback state
+      } catch {
+        /* transient poll error (e.g. v0 propagation) — retry next tick */
+      }
+    };
+    const iv = setInterval(tick, 4000);
+    return () => {
+      stop = true;
+      clearInterval(iv);
+    };
+  }, [curId, curStatus, projectId, updateBuild, refresh]);
+
   const current = builds[0] ?? null; // listed iteration DESC → [0] is latest
 
   const generate = () =>
