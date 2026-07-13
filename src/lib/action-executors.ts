@@ -1915,7 +1915,10 @@ const mvpBuildIteration: ActionHandler = async (action) => {
     ok: true,
     deliverable: {
       mode: 'direct' as const,
-      narrative: `Iterated the MVP to build v${next.iteration}.`,
+      narrative:
+        next.status === 'live'
+          ? `Iterated the MVP to build v${next.iteration}.`
+          : `Started iteration v${next.iteration} — building now; it will appear in the Build section shortly.`,
       url: next.preview_url ?? null,
     },
   };
