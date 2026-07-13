@@ -11,6 +11,7 @@
 // the building. The skill remains available for other surfaces.
 // ============================================================================
 
+import { run, query } from '@/lib/db';
 import { assembleMvpContext, renderBuildBrief } from './assemble-context';
 import { getActiveBuilder, getBuilder } from '@/lib/builders';
 import type { BuilderAdapter, BuilderId } from '@/lib/builders/types';
@@ -18,6 +19,7 @@ import { isProjectCapped } from '@/lib/cost-meter';
 import {
   type MvpBuild,
   createBuild,
+  getBuild,
   updateBuild,
   supersedeOtherBuilds,
   markFeedbackIncorporated,
@@ -183,4 +185,46 @@ export async function refreshBuild(build: MvpBuild): Promise<MvpBuild> {
     await markFeedbackIncorporated(build.project_id, build.iteration);
   }
   return updated ?? build;
+}
+
+/**
+ * Cron sweep for in-flight builds. Runs every tick:
+ *  (1) REAP — mark builds stuck 'building' past maxAgeMinutes as 'failed' (a
+ *      killed serverless function, a driver crash, or a v0 phantom version can
+ *      otherwise orphan a row in 'building' forever).
+ *  (2) ADVANCE — poll the driver for still-'building' rows (settles the auto-
+ *      iteration executor path and any build no client is polling).
+ */
+export async function sweepBuildingBuilds(opts?: {
+  maxAgeMinutes?: number;
+  limit?: number;
+}): Promise<{ advanced: number; reaped: number }> {
+  const maxAge = opts?.maxAgeMinutes ?? 12;
+  const limit = opts?.limit ?? 20;
+
+  const reaped = await run(
+    `UPDATE mvp_builds
+        SET status = 'failed', updated_at = CURRENT_TIMESTAMP,
+            metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('error', ?)
+      WHERE status = 'building' AND created_at < now() - make_interval(mins => ?)`,
+    `Timed out — no completion after ${maxAge} minutes.`,
+    maxAge,
+  );
+
+  const rows = await query<{ id: string }>(
+    `SELECT id FROM mvp_builds WHERE status = 'building' ORDER BY created_at ASC LIMIT ?`,
+    limit,
+  );
+  let advanced = 0;
+  for (const r of rows) {
+    try {
+      const b = await getBuild(r.id);
+      if (!b) continue;
+      const nb = await refreshBuild(b);
+      if (nb.status !== 'building') advanced++;
+    } catch {
+      /* transient driver error — next sweep */
+    }
+  }
+  return { advanced, reaped: reaped.count };
 }
