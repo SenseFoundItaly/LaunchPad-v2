@@ -1779,6 +1779,19 @@ const applyValidationProposal: ActionHandler = async (action) => {
       // real interviews row so the 1C checks + Loop-1 WTP machinery read it
       // exactly like a chat-logged interview. Structured fields ride it.extra.
       const x = (it.extra ?? {}) as Record<string, unknown>;
+      const personName = String(it.name || x.person_name || 'Interviewee').slice(0, 200);
+      // IDEMPOTENCY (data-integrity): re-digesting a doc (retro-sweep or
+      // re-upload) must NOT create duplicate interview rows — Loop-1's WTP%
+      // denominator and the 1C "5+ interviews" check both read COUNT(*), so a
+      // dup would silently corrupt the validation math. Dedup by (project, name).
+      const dupIv = await query<{ id: string }>(
+        `SELECT id FROM interviews WHERE project_id = ? AND LOWER(person_name) = LOWER(?) LIMIT 1`,
+        action.project_id, personName,
+      );
+      if (dupIv.length > 0) {
+        applied.push(it.label || `Interview: ${personName} (already logged)`);
+        continue;
+      }
       const wtpAmount = typeof x.wtp_amount === 'number' && Number.isFinite(x.wtp_amount) ? x.wtp_amount : null;
       await run(
         `INSERT INTO interviews
@@ -1789,7 +1802,7 @@ const applyValidationProposal: ActionHandler = async (action) => {
         generateId('iv'),
         action.project_id,
         ownerUserId,
-        String(it.name || x.person_name || 'Interviewee').slice(0, 200),
+        personName,
         typeof x.person_role === 'string' ? x.person_role.slice(0, 200) : null,
         typeof x.person_segment === 'string' ? x.person_segment.slice(0, 200) : null,
         typeof x.conducted_at === 'string' ? x.conducted_at : new Date().toISOString(),
