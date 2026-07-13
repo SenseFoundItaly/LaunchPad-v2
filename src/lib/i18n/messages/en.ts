@@ -92,7 +92,7 @@ export const en = {
   'onboarding.title': 'Start here',
   'onboarding.dismiss': 'Got it',
   'onboarding.intro': 'LaunchPad runs on two engines: Watchers + the Knowledge graph track and shape your startup’s ecosystem, and the Co-pilot builds your Idea Canvas and walks you through validation.',
-  'onboarding.step-knowledge': 'Add documents or a short idea description to seed your Knowledge',
+  'onboarding.step-knowledge': 'Already have a deck, notes or research? Add your documents — we digest them to pre-fill your canvas, competitors, market size and interviews',
   'onboarding.step-canvas': 'Open the Co-pilot to shape your Idea Canvas',
   'onboarding.step-watcher': 'Create a watcher to monitor competitors, market, or risks',
 

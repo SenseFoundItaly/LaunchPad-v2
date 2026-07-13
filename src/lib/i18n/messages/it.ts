@@ -86,7 +86,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'onboarding.title': 'Inizia da qui',
   'onboarding.dismiss': 'Ho capito',
   'onboarding.intro': 'LaunchPad ha due motori: Watchers + il grafo Knowledge monitorano e danno forma all’ecosistema della tua startup, e il Co-pilot costruisce la tua Idea Canvas e ti guida nella validazione.',
-  'onboarding.step-knowledge': 'Aggiungi documenti o una breve descrizione dell’idea per popolare Knowledge',
+  'onboarding.step-knowledge': 'Hai già un deck, appunti o ricerche? Aggiungi i tuoi documenti — li analizziamo per pre-compilare canvas, concorrenti, dimensione di mercato e interviste',
   'onboarding.step-canvas': 'Apri il Co-pilot per definire la tua Idea Canvas',
   'onboarding.step-watcher': 'Crea un osservatore per monitorare concorrenti, mercato o rischi',
 
