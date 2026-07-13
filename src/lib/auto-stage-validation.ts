@@ -34,7 +34,17 @@ const TECH_FACT_LABELS: Record<string, string> = {
   feasibility: 'Technical feasibility', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance',
 };
 
-interface RawItem { kind: ValidationItemKind; field?: string; name?: string; value: string; sources?: Source[]; }
+interface RawItem {
+  kind: ValidationItemKind;
+  field?: string;
+  name?: string;
+  value: string;
+  sources?: Source[];
+  /** Structured payload for kinds that write typed rows (e.g. 'interview':
+   *  person_role, top_pain, urgency, wtp_amount…). Flows through buildItems'
+   *  spread into the stored proposal item; the apply executor reads it. */
+  extra?: Record<string, unknown>;
+}
 
 function buildItems(raw: RawItem[]) {
   return raw
@@ -50,12 +60,16 @@ function buildItems(raw: RawItem[]) {
         label: r.kind === 'canvas_field' ? (CANVAS_FIELD_LABELS[r.field ?? ''] ?? 'Idea Canvas')
           : r.kind === 'competitor' ? 'Competitor'
           : r.kind === 'tech_fact' ? (TECH_FACT_LABELS[r.field ?? ''] ?? 'Technical finding')
+          : r.kind === 'interview' ? `Interview — ${r.name ?? 'logged'}`
           : 'Market size',
         value: r.value,
         validates: validationLabel(targets),
         targets,
         credits: r.kind === 'canvas_field' ? 0 : KNOWLEDGE_APPLY_CREDITS,
         sources: Array.isArray(r.sources) ? r.sources : [],
+        // Structured payload for typed-row kinds (interview: pain/WTP/urgency…)
+        // — the apply executor reads it; absent for plain-value kinds.
+        ...(r.extra ? { extra: r.extra } : {}),
       };
     });
 }

@@ -1691,6 +1691,7 @@ const applyValidationProposal: ActionHandler = async (action) => {
     const it = raw as {
       kind?: string; field?: string; name?: string; value?: string;
       credits?: number; sources?: Source[]; label?: string;
+      extra?: Record<string, unknown>;
     };
     const value = typeof it.value === 'string' ? it.value.trim() : '';
     if (!value) continue;
@@ -1771,6 +1772,39 @@ const applyValidationProposal: ActionHandler = async (action) => {
       applied.push(it.label || 'Technical finding');
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'tech_fact') {
+      skippedNoOwner = true;
+    } else if (it.kind === 'interview' && ownerUserId) {
+      // Brownfield digest: an interview the founder ALREADY conducted, staged
+      // from their uploaded notes — this Apply is their attestation. Writes a
+      // real interviews row so the 1C checks + Loop-1 WTP machinery read it
+      // exactly like a chat-logged interview. Structured fields ride it.extra.
+      const x = (it.extra ?? {}) as Record<string, unknown>;
+      const wtpAmount = typeof x.wtp_amount === 'number' && Number.isFinite(x.wtp_amount) ? x.wtp_amount : null;
+      await run(
+        `INSERT INTO interviews
+           (id, project_id, user_id, person_name, person_role, person_segment,
+            conducted_at, channel, summary, top_pain, urgency,
+            wtp_amount, wtp_currency, meta, sources, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        generateId('iv'),
+        action.project_id,
+        ownerUserId,
+        String(it.name || x.person_name || 'Interviewee').slice(0, 200),
+        typeof x.person_role === 'string' ? x.person_role.slice(0, 200) : null,
+        typeof x.person_segment === 'string' ? x.person_segment.slice(0, 200) : null,
+        typeof x.conducted_at === 'string' ? x.conducted_at : new Date().toISOString(),
+        'document',
+        value.slice(0, 2000),
+        typeof x.top_pain === 'string' ? x.top_pain.slice(0, 800) : null,
+        typeof x.urgency === 'string' ? x.urgency.slice(0, 40) : null,
+        wtpAmount,
+        typeof x.wtp_currency === 'string' && x.wtp_currency.length === 3 ? x.wtp_currency : 'EUR',
+        { origin: 'document_digest' },
+        sources ?? [],
+      );
+      applied.push(it.label || `Interview: ${it.name || 'logged'}`);
+      creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+    } else if (it.kind === 'interview') {
       skippedNoOwner = true;
     }
   }

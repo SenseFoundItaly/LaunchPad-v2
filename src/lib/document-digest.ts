@@ -35,12 +35,18 @@ const DIGEST_PROMPT = `You are digesting a startup founder's existing document s
  "competitors": [{"name": string, "note": string}],
  "market_size": [{"claim": string}],
  "tech_facts": [{"aspect": "feasibility"|"dependencies"|"regulatory", "finding": string}],
- "watch_suggestions": [{"name": string, "topic": "competitor"|"regulation", "rationale": string}]
+ "watch_suggestions": [{"name": string, "topic": "competitor"|"regulation", "rationale": string}],
+ "interviews": [{"person": string, "role": string|null, "segment": string|null, "summary": string, "top_pain": string|null, "urgency": "high"|"medium"|"low"|null, "wtp_amount": number|null, "wtp_currency": string|null}]
 }
-Rules: canvas values are 1-3 sentences verbatim-faithful to the document (null when absent). market_size claims must contain the number AND its scope as stated. watch_suggestions only for named competitors/regulations material enough to monitor. Empty arrays when nothing qualifies.
+Rules: canvas values are 1-3 sentences verbatim-faithful to the document (null when absent). market_size claims must contain the number AND its scope as stated. watch_suggestions only for named competitors/regulations material enough to monitor. interviews ONLY for actual customer/user interviews the founder recorded (one entry per interviewee; top_pain verbatim when quoted; wtp_amount only when a price/willingness figure is stated) — never for hypothetical personas. Empty arrays when nothing qualifies.
 
 DOCUMENT (part {PART}):
 {TEXT}`;
+
+interface DigestInterview {
+  person: string; role?: string | null; segment?: string | null; summary: string;
+  top_pain?: string | null; urgency?: string | null; wtp_amount?: number | null; wtp_currency?: string | null;
+}
 
 interface DigestFindings {
   canvas: Record<string, string | null>;
@@ -48,10 +54,11 @@ interface DigestFindings {
   market_size: Array<{ claim: string }>;
   tech_facts: Array<{ aspect: string; finding: string }>;
   watch_suggestions: Array<{ name: string; topic: string; rationale: string }>;
+  interviews: DigestInterview[];
 }
 
 function emptyFindings(): DigestFindings {
-  return { canvas: {}, competitors: [], market_size: [], tech_facts: [], watch_suggestions: [] };
+  return { canvas: {}, competitors: [], market_size: [], tech_facts: [], watch_suggestions: [], interviews: [] };
 }
 
 function parseFindings(raw: string): DigestFindings {
@@ -65,6 +72,7 @@ function parseFindings(raw: string): DigestFindings {
       market_size: Array.isArray(j.market_size) ? j.market_size.filter((x) => x && typeof x.claim === 'string') : [],
       tech_facts: Array.isArray(j.tech_facts) ? j.tech_facts.filter((x) => x && typeof x.finding === 'string') : [],
       watch_suggestions: Array.isArray(j.watch_suggestions) ? j.watch_suggestions.filter((w) => w && typeof w.name === 'string') : [],
+      interviews: Array.isArray(j.interviews) ? j.interviews.filter((iv) => iv && typeof iv.person === 'string' && typeof iv.summary === 'string') : [],
     };
   } catch {
     return emptyFindings();
@@ -75,7 +83,7 @@ function parseFindings(raw: string): DigestFindings {
  *  lists dedup case-insensitively by name/claim. */
 function mergeFindings(parts: DigestFindings[]): DigestFindings {
   const out = emptyFindings();
-  const seen = { comp: new Set<string>(), mkt: new Set<string>(), tech: new Set<string>(), watch: new Set<string>() };
+  const seen = { comp: new Set<string>(), mkt: new Set<string>(), tech: new Set<string>(), watch: new Set<string>(), iv: new Set<string>() };
   for (const p of parts) {
     for (const [k, v] of Object.entries(p.canvas)) {
       if (typeof v === 'string' && v.trim() && !out.canvas[k]) out.canvas[k] = v.trim();
@@ -84,6 +92,7 @@ function mergeFindings(parts: DigestFindings[]): DigestFindings {
     for (const m of p.market_size) { const k = m.claim.toLowerCase().trim(); if (!seen.mkt.has(k)) { seen.mkt.add(k); out.market_size.push(m); } }
     for (const t of p.tech_facts) { const k = `${t.aspect}:${t.finding}`.toLowerCase(); if (!seen.tech.has(k)) { seen.tech.add(k); out.tech_facts.push(t); } }
     for (const w of p.watch_suggestions) { const k = w.name.toLowerCase().trim(); if (!seen.watch.has(k)) { seen.watch.add(k); out.watch_suggestions.push(w); } }
+    for (const iv of p.interviews) { const k = iv.person.toLowerCase().trim(); if (!seen.iv.has(k)) { seen.iv.add(k); out.interviews.push(iv); } }
   }
   return out;
 }
@@ -157,6 +166,25 @@ export async function digestDocument(input: DigestInput): Promise<DigestResult> 
   }
   for (const t of findings.tech_facts) {
     raw.push({ kind: 'tech_fact', field: t.aspect, value: t.finding, sources: [docSource] });
+  }
+  // 1C prefill (linee guida: 5+ interviews, verbatim pain, WTP signal): each
+  // interview the founder's notes record → one staged interview row. Their
+  // Apply is the attestation; Loop-1 WTP machinery reads the same rows.
+  for (const iv of findings.interviews) {
+    raw.push({
+      kind: 'interview',
+      name: iv.person,
+      value: iv.summary,
+      sources: [docSource],
+      extra: {
+        person_role: iv.role ?? undefined,
+        person_segment: iv.segment ?? undefined,
+        top_pain: iv.top_pain ?? undefined,
+        urgency: iv.urgency ?? undefined,
+        wtp_amount: typeof iv.wtp_amount === 'number' ? iv.wtp_amount : undefined,
+        wtp_currency: iv.wtp_currency ?? undefined,
+      },
+    });
   }
   if (raw.length > 0) {
     const staged = await stageValidationItemsFromRaw(projectId, raw, `document "${filename}"`);

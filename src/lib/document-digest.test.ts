@@ -86,6 +86,25 @@ describe('digestDocument', () => {
     expect(raw.filter((x: { kind: string }) => x.kind === 'competitor')).toHaveLength(1);
   });
 
+  it('stages interviews from notes with structured extra fields (1C prefill)', async () => {
+    const withInterviews = JSON.stringify({
+      canvas: {}, competitors: [], market_size: [], tech_facts: [], watch_suggestions: [],
+      interviews: [
+        { person: 'Giulia R.', role: 'pasta lab owner', segment: 'artisan', summary: 'Sells only at markets; wants online channel.', top_pain: 'no legal way to ship fresh', urgency: 'high', wtp_amount: 89, wtp_currency: 'EUR' },
+        { person: 'Marco B.', role: null, segment: null, summary: 'Skeptical of D2C margins.', top_pain: null, urgency: 'low', wtp_amount: null, wtp_currency: null },
+      ],
+    });
+    runAgentMock.mockResolvedValue({ text: withInterviews, usage: {} });
+    await digestDocument({ projectId: 'p1', factId: 'f1', filename: 'interviews.md', text: 'notes' });
+    const raw = stageMock.mock.calls[0][1];
+    const ivs = raw.filter((x: { kind: string }) => x.kind === 'interview');
+    expect(ivs).toHaveLength(2);
+    expect(ivs[0].name).toBe('Giulia R.');
+    expect(ivs[0].extra.wtp_amount).toBe(89);
+    expect(ivs[0].extra.top_pain).toContain('no legal way');
+    expect(ivs[1].extra.wtp_amount).toBeUndefined(); // null WTP stays absent
+  });
+
   it('records a document_digested timeline event', async () => {
     runAgentMock.mockResolvedValue({ text: FINDINGS, usage: {} });
     await digestDocument({ projectId: 'p1', factId: 'f1', filename: 'deck.pdf', text: 'doc' });

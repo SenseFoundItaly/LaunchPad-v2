@@ -23,7 +23,7 @@
 import { STAGES } from './index';
 import { MARKET_SIZE_CHECK_SOURCE, TECH_1B_SOURCES } from './stage-2-market-validation';
 
-export type ValidationItemKind = 'canvas_field' | 'competitor' | 'market_size_fact' | 'tech_fact';
+export type ValidationItemKind = 'canvas_field' | 'competitor' | 'market_size_fact' | 'tech_fact' | 'interview';
 
 /** The 1B finding a `tech_fact` item validates — maps to one of the three
  *  technical checks (see TECH_1B_SOURCES). */
@@ -69,6 +69,12 @@ function sourceKeysFor(kind: ValidationItemKind, field?: string): string[] {
       return field && field in TECH_1B_SOURCES
         ? [TECH_1B_SOURCES[field as keyof typeof TECH_1B_SOURCES]]
         : [];
+    case 'interview':
+      // Brownfield digest: an interview the founder ALREADY conducted, recorded
+      // in their uploaded notes — Apply is their attestation. Targets the 1C
+      // interviews-logged check; the verbatim-pain / WTP checks read the same
+      // rows once 1A+1B unlock 1C (the lock is on the check, not the data).
+      return ['interviews'];
     default:
       return [];
   }
