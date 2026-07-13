@@ -1,13 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { runMock, queryMock } = vi.hoisted(() => ({ runMock: vi.fn(), queryMock: vi.fn() }));
-vi.mock('@/lib/db', () => ({ run: runMock, query: queryMock, get: vi.fn() }));
+const { runMock, queryMock, getMock } = vi.hoisted(() => ({ runMock: vi.fn(), queryMock: vi.fn(), getMock: vi.fn() }));
+vi.mock('@/lib/db', () => ({ run: runMock, query: queryMock, get: getMock }));
 vi.mock('@/lib/api-helpers', () => ({ generateId: (p: string) => `${p}_x` }));
 
 import { recordScoreHistory, getScoreHistory } from '@/lib/score-history';
 
 describe('recordScoreHistory', () => {
-  beforeEach(() => runMock.mockReset());
+  beforeEach(() => { runMock.mockReset(); getMock.mockReset(); getMock.mockResolvedValue(undefined); });
+
+  it('skips a no-change point (same value as the last, 2dp) — sparkline noise guard', async () => {
+    getMock.mockResolvedValueOnce({ overall_score: 7.10 });
+    await recordScoreHistory('p1', 7.104, 'gauge-chart');
+    expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it('appends when the score actually moved', async () => {
+    getMock.mockResolvedValueOnce({ overall_score: 7.1 });
+    await recordScoreHistory('p1', 7.4, 'gauge-chart');
+    expect(runMock).toHaveBeenCalledOnce();
+  });
 
   it('appends a real (>0) scoring', async () => {
     await recordScoreHistory('p1', 7.1, 'startup-scoring', 'Focus on WTP');

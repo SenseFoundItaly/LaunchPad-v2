@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { query, run } from '@/lib/db';
+import { query, run, get } from '@/lib/db';
 import { json, error, generateId } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 
@@ -34,6 +34,22 @@ export async function POST(request: NextRequest) {
   if (!authPost.ok) return authPost.response;
 
   const { project_id, step = 'chat', messages = [] } = body;
+
+  // SAFETY GUARD (2026-07-13): this is a destructive DELETE-then-reinsert that
+  // rebuilds history from the CLIENT's copy — it strips tools_json/citations/
+  // meta and mints new ids (breaking chat_artifacts back-links). No app path
+  // calls it (the client only GETs history; sends go to /api/chat), but as a
+  // live authenticated endpoint it must never TRUNCATE: if the incoming set is
+  // smaller than what's stored, refuse rather than silently drop messages
+  // (e.g. server-injected skill answers the client never had). This turns the
+  // dormant footgun into a no-op-on-danger instead of data loss.
+  const existing = await get<{ n: number }>(
+    'SELECT COUNT(*)::int AS n FROM chat_messages WHERE project_id = ? AND step = ?',
+    project_id, step,
+  );
+  if ((existing?.n ?? 0) > messages.length) {
+    return error(`refusing to replace ${existing?.n} stored messages with ${messages.length} — would drop history`, 409);
+  }
 
   // Replace: delete existing then insert current set
   await run('DELETE FROM chat_messages WHERE project_id = ? AND step = ?', project_id, step);
