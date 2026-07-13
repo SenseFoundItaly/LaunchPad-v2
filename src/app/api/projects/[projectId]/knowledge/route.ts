@@ -4,7 +4,7 @@ import { query, run, get } from '@/lib/db';
 import { AuthError } from '@/lib/auth/require-user';
 import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
-import { recordEvent } from '@/lib/memory/events';
+import { recordEvent, factHash } from '@/lib/memory/events';
 
 interface KnowledgeItem {
   id: string;
@@ -185,7 +185,9 @@ export async function POST(
       console.warn('[knowledge POST] inline-apply credit debit failed (non-fatal):', (err as Error).message);
     }
     try {
-      await recordEvent({ userId, projectId, eventType: 'knowledge_applied', payload: { itemId: id, table: 'fact', state: 'applied', inline: true } });
+      // Gap 1: stamp fact_hash so this apply correlates back to the chat
+      // knowledge_proposed event (the suggestion's `fact` == this `title`).
+      await recordEvent({ userId, projectId, eventType: 'knowledge_applied', payload: { itemId: id, table: 'fact', state: 'applied', inline: true, fact_hash: factHash(title) } });
     } catch { /* non-fatal */ }
   }
 

@@ -3,6 +3,7 @@ import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import type { Source } from '@/types/artifacts';
 import { wrapUntrusted } from '@/lib/untrusted-content';
 import { recordToolSpend, type ToolSpendCtx, type ToolKind } from '@/lib/tool-spend';
+import { getCachedResearch, putCachedResearch, normalizeResearchKey } from '@/lib/research-cache';
 
 /**
  * Web search + URL read tools.
@@ -256,6 +257,30 @@ async function jinaSearch(query: string): Promise<
   };
 }
 
+/**
+ * Decode a DuckDuckGo HTML-endpoint result href into its real target URL.
+ * html.duckduckgo.com returns anchors like
+ *   //duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fx&rut=…
+ * i.e. a protocol-relative provider REDIRECT whose real destination is the
+ * url-encoded `uddg` param. Persisting that redirect verbatim (gap 7) leaks
+ * the provider, breaks on redirector changes, and dedups poorly. Decode it to
+ * the target; fall back to a protocol-normalized original if anything is off.
+ */
+export function canonicalizeDdgHref(href: string): string {
+  try {
+    const normalized = href.startsWith('//') ? `https:${href}` : href;
+    const u = new URL(normalized);
+    if (/(^|\.)duckduckgo\.com$/.test(u.hostname) && u.pathname === '/l/') {
+      const target = u.searchParams.get('uddg');
+      if (target) return decodeURIComponent(target);
+    }
+    return normalized;
+  } catch {
+    // Malformed href — return a best-effort protocol-normalized string.
+    return href.startsWith('//') ? `https:${href}` : href;
+  }
+}
+
 async function ddgSearchFallback(query: string, reason: string): Promise<AgentToolResult<unknown>> {
   try {
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -269,7 +294,9 @@ async function ddgSearchFallback(query: string, reason: string): Promise<AgentTo
     let match;
     while ((match = resultRegex.exec(html)) !== null && results.length < 4) {
       results.push({
-        url: match[1].replace(/&amp;/g, '&'),
+        // Decode the DDG redirect to the real target URL (gap 7) BEFORE it
+        // flows into buildWebSources → artifact sources[] → research.sources.
+        url: canonicalizeDdgHref(match[1].replace(/&amp;/g, '&')),
         title: match[2].replace(/<[^>]+>/g, '').trim(),
         snippet: match[3].replace(/<[^>]+>/g, '').trim(),
       });
@@ -310,27 +337,39 @@ const webSearchTool: AgentTool = {
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
     const query = (params as { query: string }).query;
-    const providerErrors: string[] = [];
-    // Provider chain. Exa first when keyed (best coverage incl. blocked sites);
-    // Jina second (cheap, keyless-capable); DDG last. A link that throws or
-    // returns !ok falls through with its reason captured for the final fallback.
-    if (PREFER_EXA) {
-      try {
-        const r = await exaSearch(query);
-        if (r.ok) return r.out;
-        providerErrors.push(`Exa: ${r.error}`);
-      } catch (err) {
-        providerErrors.push(`Exa: ${err instanceof Error ? err.message : String(err)}`);
+    // Gap 2: serve an identical recent query from cache — skips the provider
+    // call (cost + latency) and reuses the durable sources.
+    const cacheKey = normalizeResearchKey(query);
+    const cached = await getCachedResearch('web_search', cacheKey);
+    if (cached) return cached;
+
+    const result = await (async (): Promise<AgentToolResult<unknown>> => {
+      const providerErrors: string[] = [];
+      // Provider chain. Exa first when keyed (best coverage incl. blocked sites);
+      // Jina second (cheap, keyless-capable); DDG last. A link that throws or
+      // returns !ok falls through with its reason captured for the final fallback.
+      if (PREFER_EXA) {
+        try {
+          const r = await exaSearch(query);
+          if (r.ok) return r.out;
+          providerErrors.push(`Exa: ${r.error}`);
+        } catch (err) {
+          providerErrors.push(`Exa: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
-    }
-    try {
-      const r = await jinaSearch(query);
-      if (r.ok) return r.out;
-      providerErrors.push(`Jina: ${r.error}`);
-    } catch (err) {
-      providerErrors.push(`Jina: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    return await ddgSearchFallback(query, providerErrors.join(' | ') || 'no primary provider');
+      try {
+        const r = await jinaSearch(query);
+        if (r.ok) return r.out;
+        providerErrors.push(`Jina: ${r.error}`);
+      } catch (err) {
+        providerErrors.push(`Jina: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return await ddgSearchFallback(query, providerErrors.join(' | ') || 'no primary provider');
+    })();
+
+    // Cache only successful, sourced results (putCachedResearch no-ops otherwise).
+    await putCachedResearch('web_search', cacheKey, result);
+    return result;
   },
 };
 
@@ -460,25 +499,35 @@ const urlFetchTool: AgentTool = {
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
     const target = (params as { url: string }).url;
-    const providerErrors: string[] = [];
-    // Same chain as web_search: Exa contents → Jina reader → naked fetch.
-    if (PREFER_EXA) {
-      try {
-        const r = await exaRead(target);
-        if (r.ok) return r.out;
-        providerErrors.push(`Exa: ${r.error}`);
-      } catch (err) {
-        providerErrors.push(`Exa: ${err instanceof Error ? err.message : String(err)}`);
+    // Gap 2: a URL's cleaned content is stable enough to cache within the TTL.
+    const cacheKey = normalizeResearchKey(target);
+    const cached = await getCachedResearch('read_url', cacheKey);
+    if (cached) return cached;
+
+    const result = await (async (): Promise<AgentToolResult<unknown>> => {
+      const providerErrors: string[] = [];
+      // Same chain as web_search: Exa contents → Jina reader → naked fetch.
+      if (PREFER_EXA) {
+        try {
+          const r = await exaRead(target);
+          if (r.ok) return r.out;
+          providerErrors.push(`Exa: ${r.error}`);
+        } catch (err) {
+          providerErrors.push(`Exa: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
-    }
-    try {
-      const r = await jinaRead(target);
-      if (r.ok) return r.out;
-      providerErrors.push(`Jina: ${r.error}`);
-    } catch (err) {
-      providerErrors.push(`Jina: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    return await rawFetchFallback(target, providerErrors.join(' | ') || 'no primary provider');
+      try {
+        const r = await jinaRead(target);
+        if (r.ok) return r.out;
+        providerErrors.push(`Jina: ${r.error}`);
+      } catch (err) {
+        providerErrors.push(`Jina: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return await rawFetchFallback(target, providerErrors.join(' | ') || 'no primary provider');
+    })();
+
+    await putCachedResearch('read_url', cacheKey, result);
+    return result;
   },
 };
 

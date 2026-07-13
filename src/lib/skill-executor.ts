@@ -160,6 +160,10 @@ export interface RunSkillOptions {
   prompt?: string;
   /** Cap on agent wall-clock time. Defaults to 120s. */
   timeoutMs?: number;
+  /** PR-A: memory_events id of the skill_invoked proposal this run fulfils, if
+   *  the run was launched from an agent-proposed option. Recorded on the
+   *  emitted skill_completed event so proposals can be marked acted-on. */
+  proposalId?: string;
   /** Streaming mirror — forwarded to runAgent so the skill's output streams live
    *  to the caller (the /skills SSE route) instead of dumping at the end. The
    *  buffered run + persistence + usage accounting are unchanged. */
@@ -451,6 +455,9 @@ export async function runSkill(
         summary_preview: text.slice(0, 300),
         source: 'heartbeat-executor',
         artifacts_persisted: artifactsPersisted,
+        // PR-A: links this completion back to the proposal that suggested it
+        // (undefined for heartbeat/cron auto-runs, which have no proposal).
+        ...(opts.proposalId ? { proposal_id: opts.proposalId } : {}),
       },
     });
   } catch (err) {

@@ -1054,6 +1054,11 @@ export default function CopilotChatPage({
         if (typeof payload.context === 'string' && payload.context) {
           reqBody.context = payload.context;
         }
+        // PR-A: correlate this run back to the proposal that suggested it, so
+        // the skill_completed event records which proposal was acted on.
+        if (typeof payload.proposal_id === 'string' && payload.proposal_id) {
+          reqBody.proposal_id = payload.proposal_id;
+        }
         const res = await fetch(`/api/projects/${projectId}/skills`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

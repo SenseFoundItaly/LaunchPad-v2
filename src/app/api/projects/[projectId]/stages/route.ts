@@ -4,6 +4,7 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 // Note: `@/lib/stages` is the legacy pipeline-skill module — for the
 // founder-journey evaluator we use `@/lib/journey`.
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
+import { recordStageTransitions } from '@/lib/journey/stage-history';
 
 /**
  * GET /api/projects/{projectId}/stages
@@ -23,6 +24,11 @@ export async function GET(
   const snapshot = await buildProjectSnapshot(projectId);
   const evaluations = evaluateAllStages(snapshot);
   const active = activeStage(evaluations);
+
+  // Gap 5: append a stage_events row for any check/stage verdict that changed
+  // since the last recompute. Idempotent + non-throwing — a no-change GET writes
+  // nothing. Keeps the evaluator pure (the write lives here, not in evaluate).
+  void recordStageTransitions(projectId, evaluations);
 
   return json({
     active_stage_id: active.stage.id,

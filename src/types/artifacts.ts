@@ -132,6 +132,11 @@ export interface OptionSet extends ArtifactBase {
     description: string;
     credits?: number;
     skill_id?: string;
+    // `proposal_id` — the memory_events id of the skill_invoked proposal that
+    // suggested this skill (PR-A). Threaded through the run POST so the eventual
+    // skill_completed can be correlated back to the proposal (open/acted/lapsed
+    // in the agent's context). Only present on agent-proposed skill options.
+    proposal_id?: string;
     loop_verdict?: 'GO' | 'PIVOT' | 'STOP';
     loop_id?: string;
     commit?: {

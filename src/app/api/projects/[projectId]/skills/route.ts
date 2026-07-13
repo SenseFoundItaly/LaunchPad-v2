@@ -197,6 +197,9 @@ export async function POST(
             ownerUserId,
             timeoutMs: 170_000,
             allowAnySkill: true,
+            // PR-A: correlate the run back to the agent proposal that suggested
+            // this skill (threaded proposal_id → skill_completed payload).
+            proposalId: typeof body.proposal_id === 'string' ? body.proposal_id : undefined,
             // Stream the skill's output to the client live (founder sees it being
             // written, not a frozen "Running…"). Each delta is an SSE data event;
             // the buffered run + persistence below are unchanged.

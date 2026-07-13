@@ -139,8 +139,12 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
       const context = (params as { context?: string }).context || '';
 
       // Record invocation event BEFORE the call — if the skill throws, we
-      // still have the trace entry for preference learning.
-      await recordEvent({
+      // still have the trace entry for preference learning. The returned id is
+      // the PROPOSAL id: we thread it through the option → run POST →
+      // skill_completed payload so a run can be correlated back to the proposal
+      // that suggested it (open vs. acted-on vs. lapsed). PR-A. recordEvent
+      // returns '' on write failure — we simply omit proposal_id in that case.
+      const proposalId = await recordEvent({
         userId: opts.userId,
         projectId: opts.projectId,
         eventType: 'skill_invoked',
@@ -195,9 +199,13 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
       // options[]. `skill_id` makes the click RUN the skill; `credits` shows the
       // cost before the click. label is verb-first ≤6 words; description is the
       // one-line "what this will do".
+      // `proposal_id` correlates the eventual run back to THIS proposal (PR-A).
+      // Only emitted when the skill_invoked write succeeded (non-empty id) — a
+      // valid crypto.randomUUID needs no escaping.
+      const proposalIdField = proposalId ? `,"proposal_id":"${proposalId}"` : '';
       const optionSnippet =
         `{"id":"${optionId}","label":"Run ${safe(skill.frontmatter.name)}",` +
-        `"description":"${safe(rationale)}","credits":${estCredits},"skill_id":"${safe(skill.id)}"}`;
+        `"description":"${safe(rationale)}","credits":${estCredits},"skill_id":"${safe(skill.id)}"${proposalIdField}}`;
       return {
         content: [{
           type: 'text',
@@ -206,7 +214,8 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
             `no Inbox row, nothing persists unless the founder runs it. Surface it as ONE OPTION in ` +
             `your turn's trailing option-set (do NOT emit a separate card). Add this option object to ` +
             `your option-set's options[] array (tweak the label/description wording to fit, but KEEP ` +
-            `"skill_id" and "credits" exactly — "skill_id" is what makes the click run the skill):\n\n` +
+            `"skill_id", "credits"${proposalId ? ' and "proposal_id"' : ''} exactly — "skill_id" is what makes the click run the skill` +
+            `${proposalId ? ', "proposal_id" links the run back to this suggestion' : ''}):\n\n` +
             `${optionSnippet}\n\n` +
             `Do NOT claim or invent the skill's findings — it has not run yet. One coherent option-set: ` +
             `the skill is just one of the choices, never a duplicate Run card plus a "run it now" option.`,

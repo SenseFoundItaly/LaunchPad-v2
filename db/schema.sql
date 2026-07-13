@@ -996,3 +996,37 @@ CREATE INDEX IF NOT EXISTS idx_assumptions_project_status
 CREATE INDEX IF NOT EXISTS idx_assumptions_project_criticality
   ON assumptions(project_id, criticality, status);
 
+
+-- =============================================================================
+-- Research cache (gap 2, 2026-07-12) — durable TTL'd home for web_search /
+-- read_url results so repeated queries are served from cache (cost) and sources
+-- survive. GLOBAL (project-agnostic), keyed by sha1(tool:normalized_key).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS research_cache (
+  id           VARCHAR PRIMARY KEY,
+  tool         VARCHAR NOT NULL,
+  cache_key    VARCHAR NOT NULL,
+  result_text  TEXT NOT NULL,
+  sources      JSONB NOT NULL DEFAULT '[]',
+  created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at   TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_cache_expiry ON research_cache(expires_at);
+
+-- =============================================================================
+-- Stage transition history (gap 5, 2026-07-12) — append-only log of journey
+-- check/stage verdict changes (the evaluator stays pure; the write lives in
+-- recordStageTransitions). Answers "when did Stage N close?" / week-over-week.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS stage_events (
+  id            VARCHAR PRIMARY KEY,
+  project_id    VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  stage_id      VARCHAR NOT NULL,
+  stage_number  INTEGER,
+  check_id      VARCHAR,
+  from_status   VARCHAR,
+  to_status     VARCHAR NOT NULL,
+  occurred_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_stage_events_project_time ON stage_events(project_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stage_events_project_check ON stage_events(project_id, check_id);
