@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { getBuild, updateBuild } from '@/lib/mvp/mvp-builds';
-import { startIteration, refreshBuild } from '@/lib/mvp/build-runner';
+import { startIteration, refreshBuild, publishBuild } from '@/lib/mvp/build-runner';
 import { ensureLiveAppWatch } from '@/lib/mvp/live-app-watch';
 
 /**
@@ -61,6 +61,19 @@ export async function PATCH(
       if (msg.startsWith('BUILD_CAPPED:')) return error(msg.replace('BUILD_CAPPED: ', ''), 402);
       if (msg.startsWith('BUILD_UNSUPPORTED:')) return error(msg.replace('BUILD_UNSUPPORTED: ', ''), 400);
       return error(`Iteration failed: ${msg}`, 502);
+    }
+  }
+
+  // ── Publish verb (white-label): deploy the live build to a hosted URL ──────
+  if (body.action === 'publish') {
+    try {
+      const published = await publishBuild(build);
+      return json(published);
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg.startsWith('BUILD_CAPPED:')) return error(msg.replace('BUILD_CAPPED: ', ''), 402);
+      if (msg.startsWith('BUILD_UNSUPPORTED:')) return error(msg.replace('BUILD_UNSUPPORTED: ', ''), 400);
+      return error(`Publish failed: ${msg}`, 502);
     }
   }
 
