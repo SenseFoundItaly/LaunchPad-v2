@@ -30,6 +30,7 @@ import { get, run } from '@/lib/db';
 import { coerceJson } from '@/lib/jsonb';
 import { parseScoreSummary } from '@/lib/score-summary';
 import { generateId } from '@/lib/api-helpers';
+import { recordScoreHistory } from '@/lib/score-history';
 import type {
   Artifact,
   EntityCard,
@@ -569,6 +570,7 @@ async function persistGaugeChart(ctx: PersistContext, a: GaugeChartArtifact): Pr
     );
   }
 
+  await recordScoreHistory(ctx.projectId, normalizedScore, 'gauge-chart');
   return { type: a.type, persisted: true, target: 'scores (overall_score)' };
 }
 
@@ -1091,5 +1093,7 @@ export async function persistScoreFromSummary(projectId: string, summary: string
       projectId, overall, dimsArg ?? {}, benchmark, recommendation,
     );
   }
+  // Append to the trajectory (score-history) so the score-over-time is durable.
+  await recordScoreHistory(projectId, overall, 'startup-scoring', recommendation);
   return true;
 }

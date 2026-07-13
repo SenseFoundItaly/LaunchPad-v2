@@ -1030,3 +1030,17 @@ CREATE TABLE IF NOT EXISTS stage_events (
 );
 CREATE INDEX IF NOT EXISTS idx_stage_events_project_time ON stage_events(project_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_stage_events_project_check ON stage_events(project_id, check_id);
+
+-- =============================================================================
+-- Score history (2026-07-13) — append-only startup-score trajectory over the
+-- single-row `scores` snapshot.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS score_history (
+  id             VARCHAR PRIMARY KEY,
+  project_id     VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  overall_score  DOUBLE PRECISION NOT NULL,
+  recommendation TEXT,
+  source         VARCHAR,
+  created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_score_history_project_time ON score_history(project_id, created_at DESC);
