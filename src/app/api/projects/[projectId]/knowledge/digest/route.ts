@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
-import { json, error } from '@/lib/api-helpers';
-import { query } from '@/lib/db';
+import { json, error, generateId } from '@/lib/api-helpers';
+import { query, run } from '@/lib/db';
 import { AuthError } from '@/lib/auth/require-user';
 import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { digestDocument } from '@/lib/document-digest';
+import { fetchUrlAsText } from '@/lib/pi-tools';
 
 /**
  * POST /api/projects/{projectId}/knowledge/digest
@@ -19,8 +20,9 @@ export async function POST(
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
+  let userId: string;
   try {
-    await requireProjectAccess(projectId);
+    ({ userId } = await requireProjectAccess(projectId));
   } catch (e) {
     if (e instanceof AuthError) return error(e.message, e.status);
     throw e;
@@ -28,6 +30,23 @@ export async function POST(
 
   const body = await request.json().catch(() => ({} as Record<string, unknown>));
   const factId = typeof body?.fact_id === 'string' ? body.fact_id : null;
+  const url = typeof body?.url === 'string' && /^https?:\/\//.test(body.url) ? body.url : null;
+
+  // URL mode: fetch a live site/landing page, store it as a document (so it's in
+  // the Data Room + re-readable), then digest it into staged prefill.
+  if (url) {
+    const text = await fetchUrlAsText(url);
+    if (!text) return error('Could not read that URL', 422);
+    const id = generateId('fact');
+    const fact = `Uploaded file: ${url}\n\n${text.slice(0, 50_000)}`;
+    await run(
+      `INSERT INTO memory_facts (id, project_id, user_id, fact, kind, source_type, reviewed_state, sources, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'file_upload', 'file', 'applied', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      id, projectId, userId, fact, [{ type: 'web', url, title: url }],
+    );
+    const digest = await digestDocument({ projectId, factId: id, filename: url, text: fact });
+    return json({ digested: 1, results: [{ fact_id: id, filename: url, ...digest }] });
+  }
 
   const rows = factId
     ? await query<{ id: string; fact: string }>(

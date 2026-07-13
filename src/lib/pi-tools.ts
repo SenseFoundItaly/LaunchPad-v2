@@ -266,6 +266,36 @@ async function jinaSearch(query: string): Promise<
  * the provider, breaks on redirector changes, and dedups poorly. Decode it to
  * the target; fall back to a protocol-normalized original if anything is off.
  */
+/**
+ * Fetch a URL's readable text via the same provider chain as read_url
+ * (Exa → Jina → raw fetch), for server-side callers (e.g. digesting a founder's
+ * live website/landing page as a brownfield asset). Returns null on total
+ * failure. Cache-aware via the read_url research cache.
+ */
+export async function fetchUrlAsText(url: string): Promise<string | null> {
+  try {
+    const cacheKey = normalizeResearchKey(url);
+    const cached = await getCachedResearch('read_url', cacheKey);
+    let out: AgentToolResult<unknown>;
+    if (cached) {
+      out = cached;
+    } else {
+      const errs: string[] = [];
+      let res: AgentToolResult<unknown> | null = null;
+      if (PREFER_EXA) { try { const r = await exaRead(url); if (r.ok) res = r.out; else errs.push(r.error); } catch (e) { errs.push(String(e)); } }
+      if (!res) { try { const r = await jinaRead(url); if (r.ok) res = r.out; else errs.push(r.error); } catch (e) { errs.push(String(e)); } }
+      if (!res) res = await rawFetchFallback(url, errs.join(' | ') || 'no provider');
+      await putCachedResearch('read_url', cacheKey, res);
+      out = res;
+    }
+    const text = (out?.content?.[0] as { text?: string } | undefined)?.text ?? '';
+    return text.trim() || null;
+  } catch (err) {
+    console.warn('[pi-tools] fetchUrlAsText failed:', (err as Error).message);
+    return null;
+  }
+}
+
 export function canonicalizeDdgHref(href: string): string {
   try {
     const normalized = href.startsWith('//') ? `https:${href}` : href;
