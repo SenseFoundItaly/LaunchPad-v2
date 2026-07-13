@@ -137,7 +137,7 @@ function line(label: string, value: string | null | undefined): string | null {
  * Compact prompt block injected into the mvp-build-spec skill. Prioritizes the
  * load-bearing "what to build / for whom" data first; delta sections last.
  */
-export function renderMvpContextProse(ctx: MvpContext): string {
+export function renderMvpContextProse(ctx: MvpContext, opts?: { initialOnly?: boolean }): string {
   const ic = ctx.snapshot.idea_canvas;
   const out: string[] = ['[PROJECT INTELLIGENCE — build this MVP]'];
 
@@ -192,8 +192,9 @@ export function renderMvpContextProse(ctx: MvpContext): string {
     out.push('', `## Recent intelligence: ${ctx.briefs.join('; ')}`);
   }
 
-  // Delta mode — only when there is a prior build to iterate on.
-  if (ctx.isDelta) {
+  // Delta mode — only when there is a prior build to iterate on AND we're not
+  // forcing an initial build (a fresh driver "create" has no prior app to delta).
+  if (ctx.isDelta && !opts?.initialOnly) {
     if (ctx.priorSpec) {
       out.push(
         '',
