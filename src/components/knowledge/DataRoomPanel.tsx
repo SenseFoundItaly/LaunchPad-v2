@@ -20,6 +20,12 @@ import { Icon, I, IconBtn, Pill } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
 import { openPrintPreview, downloadMarkdownFile, downloadWordFile } from '@/lib/print-utils';
+import ArtifactRenderer from '@/components/chat/artifacts/ArtifactRenderer';
+import type { Artifact } from '@/types/artifacts';
+import { isGenericTitle } from '@/lib/chat-artifact-meta';
+
+/** Read-only handlers for the Data Room artifact re-render (no chat actions). */
+const noop = () => {};
 
 interface ExtractionCounts {
   applied: number;
@@ -29,7 +35,7 @@ interface ExtractionCounts {
 
 export interface DataRoomItem {
   id: string;
-  source: 'uploaded' | 'generated';
+  source: 'uploaded' | 'generated' | 'chat_artifact';
   kind: string;
   title: string;
   doc_type: string | null;
@@ -39,6 +45,9 @@ export interface DataRoomItem {
   has_editable_content: boolean;
   /** null for generated docs; counts (possibly all zero) for uploads. */
   extraction: ExtractionCounts | null;
+  /** Gap C: for a chat_artifact, the full artifact object to re-render inline. */
+  payload?: unknown;
+  sources?: unknown;
 }
 
 interface DataRoomDetail {
@@ -64,6 +73,8 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
   // get out of sync with the selection. setState-in-effect was banned for
   // exactly this kind of mirror-and-sync pattern.
   const [clickedId, setClickedId] = useState<string | null>(null);
+  // Gap C: which re-emitted chat-artifact groups are expanded (×N clicked).
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
 
   const { data: list, isLoading } = useQuery<DataRoomListResponse>({
     queryKey: ['data-room', projectId, 'list'],
@@ -77,8 +88,8 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
   });
 
   const presented = useMemo(
-    () => presentItems(list?.items ?? []),
-    [list?.items],
+    () => presentItems(list?.items ?? [], expandedGroups),
+    [list?.items, expandedGroups],
   );
 
   // Effective selection: explicit click wins, otherwise first item if any.
@@ -148,8 +159,8 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: 'var(--ink-5)', flexWrap: 'wrap' }}>
-                    <Pill kind={item.source === 'generated' ? 'info' : 'n'}>
-                      {item.source === 'generated' ? t('kb.source-generated') : t('kb.source-uploaded')}
+                    <Pill kind={item.source === 'generated' ? 'info' : item.source === 'chat_artifact' ? 'info' : 'n'}>
+                      {item.source === 'generated' ? t('kb.source-generated') : item.source === 'chat_artifact' ? t('kb.source-analysis') : t('kb.source-uploaded')}
                     </Pill>
                     {item.indexBadge && (
                       <Pill kind={item.indexBadge.kind} dot={item.indexBadge.kind === 'ok'}>
@@ -162,7 +173,22 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
                       </span>
                     )}
                     {item.versionBadge && (
-                      <span className="lp-mono" style={{ background: 'var(--paper-2)', padding: '1px 5px', borderRadius: 3, color: 'var(--ink-3)' }}>
+                      <span
+                        className="lp-mono"
+                        title={item.chatGroupKey ? t('kb.toggle-versions') : undefined}
+                        onClick={item.chatGroupKey ? (e) => {
+                          // Gap C: ×N / vN badge toggles the re-emission group
+                          // open/closed without selecting the row.
+                          e.stopPropagation();
+                          const key = item.chatGroupKey!;
+                          setExpandedGroups((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(key)) next.delete(key); else next.add(key);
+                            return next;
+                          });
+                        } : undefined}
+                        style={{ background: 'var(--paper-2)', padding: '1px 5px', borderRadius: 3, color: 'var(--ink-3)', cursor: item.chatGroupKey ? 'pointer' : undefined, textDecoration: item.chatGroupKey ? 'underline dotted' : undefined }}
+                      >
                         {item.versionBadge}
                       </span>
                     )}
@@ -177,18 +203,51 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
 
       {/* Detail column */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        {effectiveId ? (
-          <DataRoomDetailView
-            projectId={projectId}
-            itemId={effectiveId}
-            onDeleted={() => {
-              setClickedId(null);
-              void qc.invalidateQueries({ queryKey: ['data-room', projectId] });
-            }}
-          />
-        ) : (
-          <EmptyHint message={t('kb.select-item')} />
-        )}
+        {(() => {
+          if (!effectiveId) return <EmptyHint message={t('kb.select-item')} />;
+          const selected = presented.find((p) => p.id === effectiveId);
+          // Gap C: a chat artifact re-renders inline from its stored payload
+          // (read-only) — no download/detail fetch, just the card as the founder
+          // first saw it in chat.
+          if (selected?.source === 'chat_artifact' && selected.payload) {
+            return (
+              <div style={{ padding: '18px 20px', overflow: 'auto' }}>
+                {/* Gap C fix #3: chat artifacts are deletable like docs/uploads —
+                    removes the retrievable card only, never the chat transcript. */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+                  <IconBtn
+                    d={I.trash}
+                    title={t('kb.delete-analysis')}
+                    onClick={async () => {
+                      if (!confirm(t('kb.delete-confirm', { title: selected.title }))) return;
+                      const res = await fetch(`/api/projects/${projectId}/data-room/${selected.id}`, { method: 'DELETE' });
+                      if (res.ok) {
+                        setClickedId(null);
+                        void qc.invalidateQueries({ queryKey: ['data-room', projectId] });
+                      }
+                    }}
+                  />
+                </div>
+                <ArtifactRenderer
+                  artifact={selected.payload as Artifact}
+                  onAction={noop}
+                  onEntityDiscovered={noop}
+                  onWorkflowDiscovered={noop}
+                />
+              </div>
+            );
+          }
+          return (
+            <DataRoomDetailView
+              projectId={projectId}
+              itemId={effectiveId}
+              onDeleted={() => {
+                setClickedId(null);
+                void qc.invalidateQueries({ queryKey: ['data-room', projectId] });
+              }}
+            />
+          );
+        })()}
       </div>
     </div>
   );
@@ -400,8 +459,12 @@ interface PresentedItem extends DataRoomItem {
   relativeDate: string;
   /** null = don't render a badge at all (e.g. generated deliverables). */
   indexBadge: IndexBadge | null;
-  /** "v2" when the same doc has been regenerated; null for one-offs/uploads. */
+  /** "v2" when the same doc has been regenerated; null for one-offs/uploads.
+   *  For chat artifacts: "×N" on the collapsed newest, "v1".."vN" when expanded. */
   versionBadge: string | null;
+  /** Gap C: (kind, title) group key for a re-emitted chat artifact — set only
+   *  when the group has >1 rows, so the ×N badge can toggle expansion. */
+  chatGroupKey?: string;
 }
 
 /** Short, locale-aware date — founders skim; year only when it differs. */
@@ -412,23 +475,78 @@ function shortDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
 }
 
-export function presentItems(items: DataRoomItem[]): PresentedItem[] {
+export function presentItems(
+  items: DataRoomItem[],
+  expandedChatGroups: ReadonlySet<string> = new Set(),
+): PresentedItem[] {
   const versions = assignVersions(items);
-  return items.map((item) => {
-    const uploaded = item.source === 'uploaded';
-    const dot = item.title.lastIndexOf('.');
-    const ext = uploaded && dot > 0 ? item.title.slice(dot + 1).toUpperCase() : null;
-    return {
-      ...item,
-      displayTitle: item.title,
-      // Uploads show their file extension; generated docs their doc type.
-      typeBadge: uploaded ? ext : (item.doc_type ?? item.kind),
-      icon: uploaded ? I.file : /deck|pitch/i.test(item.doc_type ?? '') ? I.layers : I.book,
-      relativeDate: shortDate(item.created_at),
-      indexBadge: indexBadgeFor(item),
-      versionBadge: versions.get(item.id) ?? null,
-    };
-  });
+
+  // Grouping fix (gap C): the agent re-emits the same analysis card
+  // (comparison-table "Competitors", risk-matrix "Launch risks", …) across
+  // MANY turns — incidental, not a deliberate regeneration. Left ungrouped they
+  // pile up as duplicate rows. Collapse each (kind, title) to its NEWEST row and
+  // badge the count (×N); clicking the badge expands the group to show older
+  // rows badged v1..vN. Generated docs keep their full v1..vN history (those
+  // ARE deliberate version history). Uploads are never grouped.
+  //
+  // Generic-title guard (gap C fix #5): a card that carried no real title got
+  // the per-type fallback ("Comparison"); two DIFFERENT untitled comparisons
+  // must not merge under it — generic-titled rows never group.
+  const chatGroups = new Map<string, { rows: DataRoomItem[]; newest: DataRoomItem }>();
+  for (const item of items) {
+    if (item.source !== 'chat_artifact') continue;
+    if (isGenericTitle(item.kind, item.title)) continue;
+    const key = `${item.kind}::${item.title.trim().toLowerCase()}`;
+    const g = chatGroups.get(key);
+    if (!g) chatGroups.set(key, { rows: [item], newest: item });
+    else {
+      g.rows.push(item);
+      if (item.created_at.localeCompare(g.newest.created_at) > 0) g.newest = item;
+    }
+  }
+  // Per-row presentation decisions for grouped chat artifacts.
+  const hiddenIds = new Set<string>();
+  const chatBadges = new Map<string, string>();
+  const chatKeys = new Map<string, string>();
+  for (const [key, g] of chatGroups) {
+    if (g.rows.length < 2) continue;
+    const chrono = [...g.rows].sort((a, b) => a.created_at.localeCompare(b.created_at));
+    if (expandedChatGroups.has(key)) {
+      // Expanded: show every row, versioned v1..vN (oldest = v1); each keeps the
+      // group key so any badge click collapses again.
+      chrono.forEach((row, i) => {
+        chatBadges.set(row.id, `v${i + 1}`);
+        chatKeys.set(row.id, key);
+      });
+    } else {
+      // Collapsed: newest only, with the ×N count as the expand affordance.
+      for (const row of g.rows) if (row.id !== g.newest.id) hiddenIds.add(row.id);
+      chatBadges.set(g.newest.id, `×${g.rows.length}`);
+      chatKeys.set(g.newest.id, key);
+    }
+  }
+
+  return items
+    .filter((item) => !hiddenIds.has(item.id))
+    .map((item) => {
+      const uploaded = item.source === 'uploaded';
+      const isChatArtifact = item.source === 'chat_artifact';
+      const dot = item.title.lastIndexOf('.');
+      const ext = uploaded && dot > 0 ? item.title.slice(dot + 1).toUpperCase() : null;
+      return {
+        ...item,
+        displayTitle: item.title,
+        // Uploads show their file extension; generated docs their doc type;
+        // chat artifacts their card kind (comparison-table, risk-matrix, …).
+        typeBadge: uploaded ? ext : (item.doc_type ?? item.kind),
+        icon: uploaded ? I.file : isChatArtifact ? I.layers : /deck|pitch/i.test(item.doc_type ?? '') ? I.layers : I.book,
+        relativeDate: shortDate(item.created_at),
+        indexBadge: indexBadgeFor(item),
+        // Chat artifacts: ×N collapsed / v1..vN expanded; generated docs: v1..vN.
+        versionBadge: isChatArtifact ? (chatBadges.get(item.id) ?? null) : (versions.get(item.id) ?? null),
+        chatGroupKey: chatKeys.get(item.id),
+      };
+    });
 }
 
 /**

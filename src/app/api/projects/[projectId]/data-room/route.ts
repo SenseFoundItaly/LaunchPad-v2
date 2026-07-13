@@ -2,10 +2,11 @@ import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { query, get } from '@/lib/db';
 import { requireUser, AuthError } from '@/lib/auth/require-user';
+import { listChatArtifacts } from '@/lib/chat-artifacts';
 
 export interface DataRoomItem {
   id: string;
-  source: 'uploaded' | 'generated';
+  source: 'uploaded' | 'generated' | 'chat_artifact';
   kind: string;
   title: string;
   doc_type: string | null;
@@ -13,6 +14,10 @@ export interface DataRoomItem {
   size_bytes: number | null;
   mime: string | null;
   has_editable_content: boolean;
+  /** Gap C: for a chat_artifact, the full artifact object so the panel can
+   *  re-render the card inline (null for generated docs / uploads). */
+  payload?: unknown;
+  sources?: unknown;
   /**
    * Knowledge-extraction state for uploaded files. `null` for generated
    * artifacts — extraction is a concept that only applies to source material.
@@ -144,7 +149,25 @@ export async function GET(
     };
   });
 
-  const items = [...generatedItems, ...uploadedItems]
+  // Gap C: chat artifacts — the analysis/deliverable cards rendered inline in
+  // chat, now retrievable. Carries the payload so the panel can re-render them.
+  const chatArtifacts = await listChatArtifacts(projectId);
+  const chatArtifactItems: DataRoomItem[] = chatArtifacts.map((row) => ({
+    id: row.id,
+    source: 'chat_artifact',
+    kind: row.artifact_type,
+    title: row.title ?? row.artifact_type,
+    doc_type: null,
+    created_at: new Date(row.created_at).toISOString(),
+    size_bytes: null,
+    mime: null,
+    has_editable_content: false,
+    payload: row.payload,
+    sources: row.sources,
+    extraction: null,
+  }));
+
+  const items = [...generatedItems, ...uploadedItems, ...chatArtifactItems]
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
   // json() already wraps in { success, data } — passing a pre-wrapped payload

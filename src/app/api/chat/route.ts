@@ -34,6 +34,7 @@ import { captureWorkflow } from '@/lib/workflow-capture';
 import { pickModel, type TaskLabel } from '@/lib/llm/router';
 import { rankSkillsForQuery } from '@/lib/skill-relevance';
 import { persistArtifact } from '@/lib/artifact-persistence';
+import { captureChatArtifact } from '@/lib/chat-artifacts';
 import { renderContentMappingForPrompt, findMatchingSkill } from '@/lib/llm/content-mapping';
 import { analyzeTurnViolations, renderNudgeForNextTurn, type TurnViolations } from '@/lib/llm/turn-violations';
 
@@ -994,6 +995,10 @@ export async function POST(request: NextRequest) {
         // text from fullResponse — artifact blocks stay in fullResponse
         // for the parser downstream, but the UI's copy/paste + rehydrate
         // works on the visible prose too. Non-fatal on failure.
+        // Gap C back-link: hoisted so the artifact-capture loop below can stamp
+        // each retrievable card with the assistant message it came from. Stays
+        // null when the message persist failed/was skipped — capture still runs.
+        let assistantMessageId: string | null = null;
         try {
           // Two rows per turn: the assistant MUST sort after its user prompt.
           // Give them distinct, ordered timestamps (user `now`, assistant +1ms)
@@ -1028,15 +1033,17 @@ export async function POST(request: NextRequest) {
             } catch (err) {
               console.warn('[chat] turn-violation analysis failed (non-fatal):', err);
             }
+            const msgId = `msg_${crypto.randomUUID().slice(0, 12)}`;
             await run(
               `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, tools_json, citations, langfuse_trace_id, meta)
                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?)`,
-              `msg_${crypto.randomUUID().slice(0, 12)}`,
+              msgId,
               project_id, step, fullResponse, assistantTs, userId, toolsJson,
               citationsJson ?? null,
               langfuseTraceId,
               metaJson,
             );
+            assistantMessageId = msgId;
           }
         } catch (err) {
           console.warn('[chat] chat_messages persist failed (non-fatal):', err);
@@ -1214,6 +1221,15 @@ export async function POST(request: NextRequest) {
               if (!persistResult.persisted && persistResult.note === 'out of credits') {
                 console.warn(`[chat] dropped ${seg.artifact.type} artifact: out of credits`);
               }
+              // Gap C: also capture the RENDERED card as a retrievable row so it
+              // survives the chat scroll and surfaces in the Data Room. The
+              // domain persist above stores the DATA (competitors→graph, …); this
+              // stores the artifact object for re-render. No-op for ephemeral /
+              // proposal / already-in-build_artifacts types (blocklist inside).
+              await captureChatArtifact(
+                { projectId: project_id, chatMessageId: assistantMessageId, turnPreview: lastMessage },
+                seg.artifact,
+              );
               if (seg.artifact.type === 'idea-canvas' || seg.artifact.type === 'tam-sam-som') {
                 stagedCanvasEvidence = true;
               }
