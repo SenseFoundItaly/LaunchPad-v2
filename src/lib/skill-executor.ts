@@ -35,6 +35,7 @@ import { persistResearchFromSkillOutput } from '@/lib/skill-research-persist';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import { linkSkillCompletionToAssumptions } from '@/lib/assumptions';
 import { SKILL_KICKOFFS } from '@/lib/stages';
+import { stageSequenceLock } from '@/lib/journey/stage-lock';
 import { computeSectionScoresFromSummary } from '@/lib/section-scoring';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { DEFAULT_LOCALE, type Locale } from '@/lib/i18n/locales';
@@ -164,6 +165,10 @@ export interface RunSkillOptions {
    *  the run was launched from an agent-proposed option. Recorded on the
    *  emitted skill_completed event so proposals can be marked acted-on. */
   proposalId?: string;
+  /** Skip the internal stage-sequence lock check (the POST route already ran it
+   *  and returned a localized 422, so re-checking would just rebuild the
+   *  snapshot). Other callers omit this and get the guard. */
+  bypassStageLock?: boolean;
   /** Streaming mirror — forwarded to runAgent so the skill's output streams live
    *  to the caller (the /skills SSE route) instead of dumping at the end. The
    *  buffered run + persistence + usage accounting are unchanged. */
@@ -217,6 +222,17 @@ export async function runSkill(
 ): Promise<RunSkillResult> {
   if (!opts.allowAnySkill && !SAFE_AUTO_RERUN_SKILL_IDS.includes(skillId)) {
     throw new Error(`runSkill: ${skillId} is not in the safe auto-rerun whitelist`);
+  }
+  // STAGE-SEQUENCE LOCK (defense-in-depth): Build/Fundraise/Operate skills can't
+  // run until earlier stages are done. The POST route returns a clean localized
+  // 422 before this and passes bypassStageLock; this guard covers EVERY OTHER
+  // caller (the legacy Inbox run_skill executor, future callers) so the lock
+  // can't be bypassed. Free for stage 1-4 skills (returns without a snapshot).
+  if (!opts.bypassStageLock) {
+    const lock = await stageSequenceLock(projectId, skillId);
+    if (lock.locked) {
+      throw new Error(`runSkill: ${skillId} is stage-locked — ${lock.message}`);
+    }
   }
   // Every skill execution funnels through here, and it used to be locale-blind:
   // English SKILL.md, no directive → Italian projects got intermittently-English

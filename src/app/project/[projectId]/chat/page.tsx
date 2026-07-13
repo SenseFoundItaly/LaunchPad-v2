@@ -1082,8 +1082,9 @@ export default function CopilotChatPage({
           if (res.status === 422) {
             const body = await res.json().catch(() => null);
             // missing_prerequisites = canvas gate; validation_gate_locked = 1C
-            // gate (customer-interviews before 1A+1B). Same graceful surface.
-            if ((body?.error === 'missing_prerequisites' || body?.error === 'validation_gate_locked') && body?.message) {
+            // gate (customer-interviews before 1A+1B); stage_locked = Build/
+            // Fundraise/Operate (5-7) before earlier stages done. Same surface.
+            if ((body?.error === 'missing_prerequisites' || body?.error === 'validation_gate_locked' || body?.error === 'stage_locked') && body?.message) {
               setMessages((prev) => [
                 ...prev,
                 {

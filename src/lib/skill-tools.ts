@@ -5,6 +5,7 @@ import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import { recordEvent } from './memory/events';
 import { run } from './db';
 import { estimateSkillCredits } from '@/lib/credits';
+import { stageSequenceLock } from '@/lib/journey/stage-lock';
 
 /**
  * Skills-as-tools — converts every launchpad-skills/<skill>/SKILL.md into an
@@ -137,6 +138,25 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
     }),
     async execute(_id, params): Promise<AgentToolResult<unknown>> {
       const context = (params as { context?: string }).context || '';
+
+      // STAGE-SEQUENCE LOCK (2026-07-13): Build & Launch / Fundraise / Operate
+      // skills are locked until earlier stages are done. Tell the agent up front
+      // so it EXPLAINS the lock and steers to the open stage, rather than
+      // proposing a runnable option the run gate would then 422. No skill_invoked
+      // event — nothing was really proposed.
+      const lock = await stageSequenceLock(opts.projectId, skill.id);
+      if (lock.locked) {
+        return {
+          content: [{
+            type: 'text',
+            text:
+              `"${skill.frontmatter.name}" is LOCKED. ${lock.message} ` +
+              `Do NOT offer it as a runnable option. Instead, briefly tell the founder it unlocks ` +
+              `once the earlier stages are complete, and steer them to the current open stage's work.`,
+          }],
+          details: { skill_id: skill.id, locked: true, blocking_stage: lock.blockingStage },
+        };
+      }
 
       // Record invocation event BEFORE the call — if the skill throws, we
       // still have the trace entry for preference learning. The returned id is

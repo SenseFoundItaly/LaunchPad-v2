@@ -18,6 +18,7 @@ import {
   LOOP1_GATED_SKILLS,
 } from '@/lib/skill-prereqs';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { stageSequenceLock } from '@/lib/journey/stage-lock';
 import { translate } from '@/lib/i18n/messages';
 import { maybeBuildScoreReviewOptionSet } from '@/lib/score-review';
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
@@ -157,6 +158,35 @@ export async function POST(
       );
     }
 
+    // STAGE-SEQUENCE LOCK (founder directive 2026-07-13) — Build & Launch (5),
+    // Fundraise (6), Operate (7) skills are locked until every earlier stage is
+    // 'done'. Same clean-422 contract; the message names the stage to finish.
+    const stageLock = await stageSequenceLock(projectId, body.skill_id as string);
+    if (stageLock.locked) {
+      console.info(
+        `[skills] ${body.skill_id} blocked — stage ${stageLock.skillStage} locked behind open stage ${stageLock.blockingStage}`,
+      );
+      // Localized founder-facing message (chat renders it verbatim as a bubble).
+      const locale = await resolveLocale(ownerUserId, projectId);
+      const message = translate(locale, 'skills.stage-locked', {
+        skillStage: stageLock.skillStageName ?? `Stage ${stageLock.skillStage}`,
+        blockingStage: String(stageLock.blockingStage ?? ''),
+        blockingName: stageLock.blockingStageName ?? '',
+        passed: String(stageLock.blockingPassed ?? 0),
+        total: String(stageLock.blockingTotal ?? 0),
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'stage_locked',
+          skill_stage: stageLock.skillStage,
+          blocking_stage: stageLock.blockingStage,
+          message,
+        }),
+        { status: 422, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
     // LOOP-1 GATE (run-time) — Phase-2 pricing/business skills are blocked while
     // an open PSF Review (weak WTP) is awaiting the founder: don't build pricing
     // on an invalidated PSF (§5). Resolving or overriding the loop unblocks.
@@ -197,6 +227,9 @@ export async function POST(
             ownerUserId,
             timeoutMs: 170_000,
             allowAnySkill: true,
+            // The route already ran stageSequenceLock above (returning a clean
+            // localized 422 if locked), so skip the redundant internal re-check.
+            bypassStageLock: true,
             // PR-A: correlate the run back to the agent proposal that suggested
             // this skill (threaded proposal_id → skill_completed payload).
             proposalId: typeof body.proposal_id === 'string' ? body.proposal_id : undefined,
