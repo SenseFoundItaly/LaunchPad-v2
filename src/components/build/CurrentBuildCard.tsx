@@ -12,6 +12,7 @@ export default function CurrentBuildCard({
   onIterate,
   onSetLiveUrl,
   onRegenerate,
+  onPublish,
 }: {
   build: ClientBuild;
   activeBuilder: ActiveBuilder | null;
@@ -19,6 +20,7 @@ export default function CurrentBuildCard({
   onIterate: (message: string) => void;
   onSetLiveUrl: (url: string) => void;
   onRegenerate: () => void;
+  onPublish: () => void;
 }) {
   const t = useT();
   const [message, setMessage] = useState('');
@@ -149,6 +151,16 @@ export default function CurrentBuildCard({
       {building && (
         <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-4)' }}>
           {t('build.building.title')} {dots}
+        </div>
+      )}
+
+      {/* Publish — deploy a shareable, hosted (white-label) version via the driver. */}
+      {build.status === 'live' && !build.live_app_url && (activeBuilder?.supports_deploy ?? false) && (
+        <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button style={primaryBtn} disabled={busy} onClick={onPublish}>
+            {busy ? t('build.publishing') : t('build.publish')}
+          </button>
+          <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>{t('build.publish.hint')}</span>
         </div>
       )}
 

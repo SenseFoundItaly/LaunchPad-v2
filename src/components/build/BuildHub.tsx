@@ -116,6 +116,14 @@ export default function BuildHub({ projectId }: { projectId: string }) {
       }),
     );
 
+  const publish = () =>
+    withBusy(() =>
+      api(`/api/projects/${projectId}/builds/${current!.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ action: 'publish' }),
+      }),
+    );
+
   const addFeedback = (text: string) =>
     withBusy(() =>
       api(`/api/projects/${projectId}/build-feedback`, {
@@ -181,6 +189,7 @@ export default function BuildHub({ projectId }: { projectId: string }) {
             onIterate={iterate}
             onSetLiveUrl={setLiveUrl}
             onRegenerate={generate}
+            onPublish={publish}
           />
           <BuildFeedback feedback={feedback} busy={busy} onAdd={addFeedback} />
           <IterationTimeline builds={builds} />

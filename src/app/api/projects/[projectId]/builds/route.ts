@@ -26,6 +26,7 @@ export async function GET(
       label: builder.label,
       supports_iteration: builder.supportsIteration,
       supports_async: !!builder.supportsAsync,
+      supports_deploy: !!builder.deploy,
     },
   });
 }

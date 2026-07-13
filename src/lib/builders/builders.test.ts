@@ -55,4 +55,10 @@ describe('stub driver contract', () => {
     expect(r.status).toBe('live');
     expect(r.diff?.files?.length ?? 0).toBeGreaterThan(0);
   });
+
+  it('deploy (white-label publish) returns a hosted live URL', async () => {
+    const r = await stubAdapter.deploy!(ref, 'chat-1');
+    expect(r.status).toBe('live');
+    expect(r.liveUrl).toMatch(/^https?:\/\//);
+  });
 });

@@ -12,6 +12,7 @@
 // ============================================================================
 
 import { run, query } from '@/lib/db';
+import { ensureLiveAppWatch } from './live-app-watch';
 import { assembleMvpContext, renderBuildBrief } from './assemble-context';
 import { getActiveBuilder, getBuilder } from '@/lib/builders';
 import type { BuilderAdapter, BuilderId } from '@/lib/builders/types';
@@ -153,6 +154,27 @@ export async function startIteration(build: MvpBuild, message: string, ownerUser
   } catch (e) {
     return (await updateBuild(next.id, { status: 'failed', metadata: { error: (e as Error).message } })) ?? next;
   }
+}
+
+/**
+ * Publish a LIVE build to a hosted, shareable URL via the driver's deploy verb
+ * (v0's documented white-label path: deploy the version → hosted webUrl). Sets
+ * live_app_url and registers it for monitoring. Cost-gated like any paid op.
+ */
+export async function publishBuild(build: MvpBuild): Promise<MvpBuild> {
+  const builder = resolveBuilder(build.builder);
+  if (!builder.deploy) throw new Error(`Builder "${builder.id}" does not support publishing`);
+  if (build.status !== 'live') throw new Error('Only a live build can be published');
+  await assertBuildAllowed(build.project_id, builder);
+  const res = await builder.deploy({ projectId: build.project_id, buildId: build.id }, build.builder_ref ?? '');
+  const liveUrl = res.liveUrl ?? null;
+  if (!liveUrl) throw new Error('Publish returned no live URL');
+  const wsId = await ensureLiveAppWatch(build.project_id, liveUrl).catch(() => null);
+  const updated = await updateBuild(build.id, {
+    liveAppUrl: liveUrl,
+    ...(wsId ? { watchSourceId: wsId } : {}),
+  });
+  return updated ?? build;
 }
 
 /**

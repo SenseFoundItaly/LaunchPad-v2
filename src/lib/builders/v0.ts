@@ -82,4 +82,26 @@ export const v0Adapter: BuilderAdapter = {
     const res = await client().chats.getById({ chatId: builderRef });
     return toResult(res as unknown as ChatLike);
   },
+
+  // ── DEPLOY (white-label) ──────────────────────────────────────────────────
+  // v0's documented white-label path: deploy the current version to Vercel and
+  // return the hosted app URL (deployment.webUrl). A custom domain is then bound
+  // in the v0/Vercel dashboard (no domain field on the deploy response).
+  //
+  // A v0 deployment belongs to a PROJECT, so we create one lazily and deploy the
+  // version into it. NOTE: unverified against a live key — if v0 requires the chat
+  // to have been CREATED inside the project (rather than associated at deploy time),
+  // move projects.create into create()/createAsync and pass projectId to chats.create
+  // (which accepts it); this method then reads the stored projectId instead.
+  async deploy(_ref: BuildContextRef, builderRef: string): Promise<BuildResult> {
+    if (!builderRef) throw new Error('v0 deploy: missing chat id (builder_ref)');
+    const chat = (await client().chats.getById({ chatId: builderRef })) as unknown as ChatLike;
+    const versionId = chat.latestVersion?.id;
+    if (!versionId) throw new Error('v0 deploy: no completed version to deploy yet');
+    const project = (await client().projects.create({
+      name: `launchpad-${builderRef.slice(0, 16)}`,
+    })) as unknown as { id: string };
+    const dep = await client().deployments.create({ projectId: project.id, chatId: builderRef, versionId });
+    return { builderRef, status: 'live', liveUrl: dep.webUrl };
+  },
 };
