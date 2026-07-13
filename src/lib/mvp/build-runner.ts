@@ -11,7 +11,7 @@
 // the building. The skill remains available for other surfaces.
 // ============================================================================
 
-import { assembleMvpContext, renderMvpContextProse } from './assemble-context';
+import { assembleMvpContext, renderBuildBrief } from './assemble-context';
 import { getActiveBuilder, getBuilder } from '@/lib/builders';
 import type { BuilderAdapter, BuilderId } from '@/lib/builders/types';
 import {
@@ -41,25 +41,18 @@ function resolveBuilder(id?: string | null): BuilderAdapter {
  * always be an INITIAL prompt even if the project has prior builds — pass
  * forceInitial. Iterations go through startIteration with the founder's message.
  */
-export async function buildSpecFromContext(
-  projectId: string,
-  opts?: { forceInitial?: boolean },
-): Promise<{ prompt: string; isDelta: boolean }> {
+export async function buildSpecFromContext(projectId: string): Promise<{ prompt: string; isDelta: boolean }> {
   const ctx = await assembleMvpContext(projectId);
-  const delta = ctx.isDelta && !opts?.forceInitial;
-  const prose = renderMvpContextProse(ctx, { initialOnly: !delta });
-  const directive = delta
-    ? '\n\n---\nApply the accumulated feedback above as concrete changes to the existing app. Keep everything that works.'
-    : '\n\n---\nBuild a working, modern, responsive MVP web app that implements the product described above. Ship a real, usable first version — not a mockup.';
-  return { prompt: (prose + directive).slice(0, MAX_PROMPT_CHARS), isDelta: delta };
+  // A create is always a fresh build → a clean imperative brief. App builders
+  // (v0/E2B) build reliably from a direct "Build X that does Y…" instruction and
+  // NOT from a context dump. Iterations use the founder message via startIteration.
+  return { prompt: renderBuildBrief(ctx).slice(0, MAX_PROMPT_CHARS), isDelta: false };
 }
 
 /** Start a new build: create a 'building' row + kick off the driver (async when supported). */
 export async function startBuild(projectId: string, ownerUserId?: string): Promise<MvpBuild> {
   const builder = getActiveBuilder();
-  // A create is always a fresh build → force an INITIAL prompt (never a delta,
-  // even if the project has prior builds — a new v0 chat has nothing to iterate on).
-  const { prompt } = await buildSpecFromContext(projectId, { forceInitial: true });
+  const { prompt } = await buildSpecFromContext(projectId);
   const build = await createBuild({ projectId, builder: builder.id, specPrompt: prompt, status: 'building' });
   const ref = { projectId, buildId: build.id, ownerUserId };
   try {
