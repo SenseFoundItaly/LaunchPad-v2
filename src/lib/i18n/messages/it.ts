@@ -44,6 +44,14 @@ export const it: Partial<Record<MessageKey, string>> = {
   'build.lane.product': 'Prodotto',
   'build.lane.growth': 'Growth',
   'build.lane.growth.soon': 'Lane Growth (Ploy) — in arrivo',
+  'build.building.title': 'Sto costruendo la tua app…',
+  'build.building.hint': 'Il builder sta lavorando — di solito richiede un minuto o due. Si aggiorna qui appena è pronto.',
+  'build.preview.reload': 'Ricarica anteprima',
+  'build.preview.newtab': 'Apri in una nuova scheda',
+  'build.preview.blocked': 'Se l’anteprima appare vuota, aprila in una nuova scheda.',
+  'build.thread.title': 'Conversazione',
+  'build.thread.initial': 'Build iniziale',
+  'build.thread.building': 'in costruzione…',
 
   // ── Tour guidato (onboarding/TourController.tsx) ──────────────
   'tour.next': 'Avanti',

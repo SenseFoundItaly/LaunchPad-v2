@@ -28,6 +28,7 @@ export interface ActiveBuilder {
   id: string;
   label: string;
   supports_iteration: boolean;
+  supports_async?: boolean;
 }
 
 export interface BuildDiffShape {
