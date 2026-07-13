@@ -54,6 +54,8 @@ export async function POST(
     }
     return json(build);
   } catch (e) {
-    return error(`Failed to start build: ${(e as Error).message}`, 502);
+    const msg = (e as Error).message;
+    if (msg.startsWith('BUILD_CAPPED:')) return error(msg.replace('BUILD_CAPPED: ', ''), 402);
+    return error(`Failed to start build: ${msg}`, 502);
   }
 }
