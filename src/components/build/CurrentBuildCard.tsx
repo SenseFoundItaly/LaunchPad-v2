@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { ActiveBuilder, BuildDiffShape, ClientBuild } from './types';
 import { primaryBtn, secondaryBtn } from './BuildHub';
@@ -23,9 +23,26 @@ export default function CurrentBuildCard({
   const t = useT();
   const [message, setMessage] = useState('');
   const [liveUrl, setLiveUrl] = useState(build.live_app_url ?? '');
+  const [nonce, setNonce] = useState(0); // bump to force-reload the iframe
+  const [frameErr, setFrameErr] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
 
+  const building = build.status === 'building';
+  const failed = build.status === 'failed';
+  const canIterate = (activeBuilder?.supports_iteration ?? false) && !building;
   const diff = (build.metadata?.diff ?? undefined) as BuildDiffShape | undefined;
-  const canIterate = activeBuilder?.supports_iteration ?? false;
+
+  // Tick an elapsed counter while building so the wait feels active, not frozen.
+  useEffect(() => {
+    if (!building) return;
+    const iv = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(iv);
+  }, [building]);
+  const elapsed = Math.max(0, Math.floor((now - new Date(build.created_at).getTime()) / 1000));
+  const dots = '.'.repeat((elapsed % 3) + 1);
+
+  // A fresh preview URL means the token/version changed — clear any prior frame error.
+  useEffect(() => setFrameErr(false), [build.preview_url]);
 
   return (
     <section style={card}>
@@ -33,37 +50,64 @@ export default function CurrentBuildCard({
         <span style={badge}>
           {t('build.iteration')} {build.iteration}
         </span>
-        <span style={statusBadge(build.status)}>{build.status}</span>
+        <span style={statusBadge(build.status)}>{building ? t('build.building.title').replace('…', '') : build.status}</span>
         <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-4)' }}>{build.builder}</span>
       </div>
 
-      {/* Live preview — the founder watches the built app without leaving LaunchPad.
-          sandbox scopes the embedded app; real app URLs may set frame-ancestors,
-          in which case we fall back to an "open in new tab" link. */}
       <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--ink-4)' }}>{t('build.preview')}</div>
-      {build.preview_url ? (
-        <iframe
-          title="MVP preview"
-          src={build.preview_url}
-          sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
-          style={{
-            width: '100%',
-            height: 440,
-            border: '1px solid var(--line)',
-            borderRadius: 10,
-            background: 'var(--paper)',
-          }}
-        />
+
+      {building && !build.preview_url ? (
+        // Building, no preview yet → live progress panel (v0 builds ~1–2 min).
+        <div style={progressPanel}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>
+            {t('build.building.title')} {dots}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6 }}>
+            {elapsed}s · {build.builder}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 12, maxWidth: 380, textAlign: 'center', lineHeight: 1.5 }}>
+            {t('build.building.hint')}
+          </div>
+        </div>
+      ) : build.preview_url ? (
+        <div>
+          {building && (
+            <div style={buildingBanner}>
+              {t('build.building.title')} {dots} ({elapsed}s)
+            </div>
+          )}
+          <iframe
+            key={`${build.preview_url}-${nonce}`}
+            title={t('build.preview')}
+            src={build.preview_url}
+            sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+            onError={() => setFrameErr(true)}
+            style={iframeStyle}
+          />
+          <div style={{ display: 'flex', gap: 14, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button style={linkBtn} onClick={() => { setNonce((n) => n + 1); setFrameErr(false); }}>
+              ↻ {t('build.preview.reload')}
+            </button>
+            <a href={build.preview_url} target="_blank" rel="noreferrer" style={linkA}>
+              {t('build.preview.newtab')} ↗
+            </a>
+            {frameErr && <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>{t('build.preview.blocked')}</span>}
+          </div>
+        </div>
       ) : (
-        <div style={{ ...previewEmpty }}>{t('build.preview.none')}</div>
+        <div style={previewEmpty}>
+          {failed
+            ? String((build.metadata as Record<string, unknown> | null)?.error ?? 'Build failed')
+            : t('build.preview.none')}
+        </div>
       )}
+
       {build.live_app_url && (
-        <a href={build.live_app_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--sky, #6aa7ff)' }}>
+        <a href={build.live_app_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 6, fontSize: 12, color: 'var(--sky, #6aa7ff)' }}>
           {build.live_app_url} ↗
         </a>
       )}
 
-      {/* Change list from the last iteration's diff. */}
       {diff?.files?.length ? (
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 6 }}>{t('build.changes')}</div>
@@ -77,7 +121,7 @@ export default function CurrentBuildCard({
         </div>
       ) : null}
 
-      {/* Iterate box — the two-way loop: describe a change, the driver applies it. */}
+      {/* Iterate box — the two-way loop; disabled while a build is in flight. */}
       {canIterate && (
         <div style={{ marginTop: 16 }}>
           <textarea
@@ -91,10 +135,7 @@ export default function CurrentBuildCard({
             <button
               style={primaryBtn}
               disabled={busy || !message.trim()}
-              onClick={() => {
-                onIterate(message.trim());
-                setMessage('');
-              }}
+              onClick={() => { onIterate(message.trim()); setMessage(''); }}
             >
               {busy ? t('build.iterating') : t('build.iterate.button')}
             </button>
@@ -102,6 +143,11 @@ export default function CurrentBuildCard({
               {t('build.generate')}
             </button>
           </div>
+        </div>
+      )}
+      {building && (
+        <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-4)' }}>
+          {t('build.building.title')} {dots}
         </div>
       )}
 
@@ -141,21 +187,63 @@ const badge: React.CSSProperties = {
 
 function statusBadge(status: string): React.CSSProperties {
   const live = status === 'live';
+  const failed = status === 'failed';
   return {
     fontSize: 11,
     padding: '2px 8px',
     borderRadius: 999,
     background: 'transparent',
     border: '1px solid var(--line)',
-    color: live ? 'var(--moss, #6bbf7b)' : 'var(--ink-4)',
+    color: live ? 'var(--moss, #6bbf7b)' : failed ? 'var(--cat-rose, #d98a95)' : 'var(--ink-4)',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   };
 }
 
+const iframeStyle: React.CSSProperties = {
+  width: '100%',
+  height: 440,
+  border: '1px solid var(--line)',
+  borderRadius: 10,
+  background: 'var(--paper)',
+};
+
+const progressPanel: React.CSSProperties = {
+  width: '100%',
+  height: 300,
+  border: '1px solid var(--line)',
+  borderRadius: 10,
+  background: 'var(--paper)',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+
+const buildingBanner: React.CSSProperties = {
+  fontSize: 12,
+  color: 'var(--ink-4)',
+  padding: '6px 10px',
+  marginBottom: 6,
+  borderRadius: 8,
+  border: '1px solid var(--line)',
+  background: 'var(--surface, rgba(255,255,255,0.04))',
+};
+
+const linkBtn: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  color: 'var(--sky, #6aa7ff)',
+  fontSize: 12,
+  cursor: 'pointer',
+  padding: 0,
+};
+
+const linkA: React.CSSProperties = { fontSize: 12, color: 'var(--sky, #6aa7ff)' };
+
 const previewEmpty: React.CSSProperties = {
   width: '100%',
-  height: 200,
+  minHeight: 120,
   border: '1px dashed var(--line)',
   borderRadius: 10,
   display: 'flex',
@@ -163,6 +251,8 @@ const previewEmpty: React.CSSProperties = {
   justifyContent: 'center',
   color: 'var(--ink-4)',
   fontSize: 13,
+  padding: 16,
+  textAlign: 'center',
 };
 
 const textarea: React.CSSProperties = {
