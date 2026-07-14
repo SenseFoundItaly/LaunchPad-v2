@@ -37,6 +37,9 @@ const PRICING_LABELS: Record<string, string> = {
   anchor_price: 'Anchor price', tiers: 'Pricing tiers', wtp: 'Willingness to pay',
   model: 'Revenue model', unit_econ: 'Unit economics',
 };
+const FINANCIAL_LABELS: Record<string, string> = {
+  burn: 'Monthly burn', cash: 'Cash on hand', revenue: 'Revenue (MRR)',
+};
 
 interface RawItem {
   kind: ValidationItemKind;
@@ -68,6 +71,9 @@ function buildItems(raw: RawItem[]) {
           : r.kind === 'persona_fact' ? 'Ideal customer'
           : r.kind === 'channel_fact' ? 'Acquisition channel'
           : r.kind === 'pricing' ? (PRICING_LABELS[r.field ?? ''] ?? 'Pricing')
+          : r.kind === 'metric' ? `Metric — ${r.name ?? 'tracked'}`
+          : r.kind === 'financial_fact' ? (FINANCIAL_LABELS[r.field ?? ''] ?? 'Financial figure')
+          : r.kind === 'brand_fact' ? `Brand — ${r.field ?? 'statement'}`
           : 'Market size',
         value: r.value,
         validates: validationLabel(targets),
@@ -146,6 +152,16 @@ export function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
   }
   // pricing: one slot per pricing_state column (anchor_price / tiers / wtp / model).
   if (b.kind === 'pricing') return a.field === b.field;
+  // metric: one slot per metric name — a re-digest updates the value in place,
+  // it never duplicates the metric row on the card.
+  if (b.kind === 'metric') {
+    return typeof a.name === 'string' && typeof b.name === 'string'
+      && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+  }
+  // financial_fact: one slot per figure (burn / cash / revenue).
+  if (b.kind === 'financial_fact') return a.field === b.field;
+  // brand_fact: one slot per aspect (positioning / voice / visual…).
+  if (b.kind === 'brand_fact') return a.field === b.field;
   // persona_fact / channel_fact: ADDITIVE facts, never a shared slot (a founder
   // can have several channels; distinct values coexist, exact dupes are caught
   // by the allStagedAlready value check upstream).

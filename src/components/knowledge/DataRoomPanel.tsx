@@ -45,6 +45,9 @@ export interface DataRoomItem {
   has_editable_content: boolean;
   /** null for generated docs; counts (possibly all zero) for uploads. */
   extraction: ExtractionCounts | null;
+  /** Digest state for uploads (latest digest event) — absent/null when never
+   *  digested or not an upload. partial → offer re-digest; failed → offer retry. */
+  digest?: { chunks: number; total_chunks: number; partial: boolean; failed: boolean } | null;
   /** Gap C: for a chat_artifact, the full artifact object to re-render inline. */
   payload?: unknown;
   sources?: unknown;
@@ -75,6 +78,25 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
   const [clickedId, setClickedId] = useState<string | null>(null);
   // Gap C: which re-emitted chat-artifact groups are expanded (×N clicked).
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
+  // Long-doc integrity: id of the upload currently being re-digested (the
+  // retro /digest run covers the tail the upload-time 2-chunk cap skipped).
+  const [redigestingId, setRedigestingId] = useState<string | null>(null);
+
+  const redigest = async (factId: string) => {
+    if (redigestingId) return;
+    setRedigestingId(factId);
+    try {
+      await fetch(`/api/projects/${projectId}/knowledge/digest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fact_id: factId }),
+      });
+      void qc.invalidateQueries({ queryKey: ['data-room', projectId] });
+      window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+    } finally {
+      setRedigestingId(null);
+    }
+  };
 
   const { data: list, isLoading } = useQuery<DataRoomListResponse>({
     queryKey: ['data-room', projectId, 'list'],
@@ -166,6 +188,28 @@ export default function DataRoomPanel({ projectId }: { projectId: string }) {
                       <Pill kind={item.indexBadge.kind} dot={item.indexBadge.kind === 'ok'}>
                         {t(item.indexBadge.labelKey as MessageKey, item.indexBadge.count !== undefined ? { count: item.indexBadge.count } : undefined)}
                       </Pill>
+                    )}
+                    {item.digest && (item.digest.partial || item.digest.failed) && (
+                      <span
+                        role="button"
+                        title={item.digest.failed ? t('kb.digest-retry-title') : t('kb.digest-partial-title')}
+                        onClick={(e) => {
+                          // Runs the retro digest over the FULL stored text —
+                          // covers the tail the upload-time cap skipped (or
+                          // retries a failed digest). Doesn't select the row.
+                          e.stopPropagation();
+                          void redigest(item.id);
+                        }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: redigestingId ? 'progress' : 'pointer' }}
+                      >
+                        <Pill kind="warn">
+                          {redigestingId === item.id
+                            ? t('kb.digest-running')
+                            : item.digest.failed
+                              ? t('kb.digest-failed')
+                              : t('kb.digest-partial', { digested: item.digest.chunks, total: item.digest.total_chunks })}
+                        </Pill>
+                      </span>
                     )}
                     {item.typeBadge && (
                       <span className="lp-mono" style={{ background: 'var(--paper-2)', padding: '1px 5px', borderRadius: 3 }}>
