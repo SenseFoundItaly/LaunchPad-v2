@@ -24,6 +24,7 @@ import { Icon, I } from '@/components/design/primitives';
 import { PanelBoundary } from '@/components/design/PanelBoundary';
 import { useOpenActionCount } from '@/hooks/useOpenActionCount';
 import { StageCard } from '@/components/stages/StageCard';
+import { LoopHistoryCard } from '@/components/journey/LoopHistoryCard';
 import { OnboardingCard } from '@/components/onboarding/OnboardingCard';
 import { NotesCard } from '@/components/onboarding/NotesCard';
 import { ScorePanel } from '@/components/home/ScorePanel';
@@ -136,10 +137,17 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
                   Collapses to one column under ~900px (.lp-home-grid). */}
               <div className="lp-home-grid">
                 {/* Primary — the journey/validation card (its checks ARE the
-                    "next to validate" list, so no separate panel duplicates it). */}
-                <PanelBoundary resetKey={projectId}>
-                  <StageCard projectId={projectId} />
-                </PanelBoundary>
+                    "next to validate" list, so no separate panel duplicates it),
+                    plus the loop-verdict history (Evidence Matrix read surface —
+                    self-hides while the project has no resolved loops). */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
+                  <PanelBoundary resetKey={projectId}>
+                    <StageCard projectId={projectId} />
+                  </PanelBoundary>
+                  <PanelBoundary resetKey={projectId}>
+                    <LoopHistoryCard projectId={projectId} />
+                  </PanelBoundary>
+                </div>
 
                 {/* Secondary — Watchers, Intel, Notes. Boundary-wrapped like the
                     primary column: MonitorListPanel is network-driven (a plausible

@@ -68,6 +68,37 @@ function band(score: number): { key: MessageKey; color: string } {
   return { key: 'score.band-weak', color: 'var(--clay)' };
 }
 
+interface ScoreHistoryResp {
+  points: Array<{ overall_score: number; created_at: string }>;
+  count: number;
+  delta: number | null;
+}
+
+/** score_history rows carry mixed scales (gauge-chart writes 0-10, the prose
+ *  scorer 0-100 — same duality stage-1's baselineScore10 handles). Normalize
+ *  to 0-100 so the sparkline shape and the delta are scale-consistent. */
+const to100 = (v: number) => (v <= 10 ? v * 10 : v);
+
+/** Inline score-trajectory sparkline — the durable score_history series
+ *  (commit 4a37fdd) finally surfaced; it was DB+API only. */
+function ScoreSparkline({ points }: { points: Array<{ overall_score: number }> }) {
+  const W = 120, H = 24, PAD = 2;
+  const vals = points.map((p) => to100(p.overall_score));
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = max - min || 1;
+  const x = (i: number) => PAD + (i * (W - PAD * 2)) / Math.max(1, vals.length - 1);
+  const y = (v: number) => H - PAD - ((v - min) * (H - PAD * 2)) / span;
+  const d = vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const rising = vals[vals.length - 1] >= vals[0];
+  const color = rising ? 'var(--moss)' : 'var(--clay)';
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden style={{ display: 'block' }}>
+      <path d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={x(vals.length - 1)} cy={y(vals[vals.length - 1])} r={2} fill={color} />
+    </svg>
+  );
+}
+
 export function ScorePanel({ projectId }: { projectId: string }) {
   const t = useT();
 
@@ -78,6 +109,16 @@ export function ScorePanel({ projectId }: { projectId: string }) {
       const res = await fetch(`/api/projects/${projectId}/score`);
       const body = await res.json();
       return (body?.data ?? body) as ScoreResp;
+    },
+  });
+
+  const { data: history } = useQuery<ScoreHistoryResp>({
+    queryKey: ['score-history', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/score-history`);
+      const body = await res.json();
+      return (body?.data ?? body) as ScoreHistoryResp;
     },
   });
 
@@ -166,6 +207,20 @@ export function ScorePanel({ projectId }: { projectId: string }) {
                       <span className="lp-mono" style={{ width: 20, textAlign: 'right', fontSize: 10, color: 'var(--ink-4)', flexShrink: 0 }}>{Math.round(d.score)}</span>
                     </div>
                   ))}
+                </div>
+              )}
+              {(history?.points?.length ?? 0) >= 2 && (
+                <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <ScoreSparkline points={history!.points} />
+                  {(() => {
+                    const vals = history!.points.map((p) => to100(p.overall_score));
+                    const delta = Math.round((vals[vals.length - 1] - vals[0]) * 10) / 10;
+                    return (
+                      <span className="lp-mono" style={{ fontSize: 10, color: delta >= 0 ? 'var(--moss)' : 'var(--clay)', letterSpacing: 0.3 }}>
+                        {delta >= 0 ? '+' : ''}{delta} · {t('score.trend', { count: history!.points.length })}
+                      </span>
+                    );
+                  })()}
                 </div>
               )}
               {score?.recommendation && (

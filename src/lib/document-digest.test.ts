@@ -30,7 +30,9 @@ describe('chunkText (fix F3)', () => {
   it('splits long text into 16k chunks, capped', () => {
     expect(chunkText('x'.repeat(10_000))).toHaveLength(1);
     expect(chunkText('x'.repeat(33_000))).toHaveLength(3);
-    expect(chunkText('x'.repeat(200_000))).toHaveLength(3); // global cap (MAX_CHUNKS)
+    // Global cap = 4: the 50k stored-text cap splits into ceil(50/16) = 4
+    // chunks, so a full retro digest covers the entire stored text.
+    expect(chunkText('x'.repeat(200_000))).toHaveLength(4);
     expect(chunkText('x'.repeat(200_000), 2)).toHaveLength(2); // caller cap (upload path)
   });
 });
@@ -137,5 +139,80 @@ describe('digestDocument', () => {
     const r = await digestDocument({ projectId: 'p1', factId: 'f1', filename: 'deck.pdf', text: 'doc' });
     expect(r.staged_items).toBe(0);
     expect(stageMock).not.toHaveBeenCalled();
+  });
+
+  it('stages operate-stage findings: metrics + financials + gtm + brand (plan happy-beacon B1)', async () => {
+    const operate = JSON.stringify({
+      canvas: {}, competitors: [], market_size: [], tech_facts: [], watch_suggestions: [], interviews: [], pricing: {},
+      metrics: [
+        { name: 'MRR', value: 9200, unit: 'EUR', as_of: '2026-06' },
+        { name: 'Active users', value: 1240, unit: null, as_of: null },
+        { name: 'Monthly churn', value: 4.1, unit: '%', as_of: null },
+      ],
+      financials: { monthly_burn: 18500, cash_on_hand: 310000, mrr: 9200, currency: 'EUR' },
+      gtm: [{ channel: 'Federation partnerships', detail: 'Bundle into coach-education programs.' }],
+      brand: [{ aspect: 'positioning', statement: 'Precision without the price tag' }],
+    });
+    runAgentMock.mockResolvedValue({ text: operate, usage: {} });
+    await digestDocument({ projectId: 'p1', factId: 'f1', filename: 'actuals.md', text: 'doc' });
+    const raw = stageMock.mock.calls[0][1];
+    const metrics = raw.filter((x: { kind: string }) => x.kind === 'metric');
+    expect(metrics).toHaveLength(3);
+    expect(metrics[0].extra).toEqual({ name: 'MRR', current_value: 9200 });
+    const fins = raw.filter((x: { kind: string }) => x.kind === 'financial_fact');
+    const finFields = fins.map((f: { field: string }) => f.field).sort();
+    expect(finFields).toEqual(['burn', 'cash', 'revenue']);
+    expect(fins.find((f: { field: string }) => f.field === 'burn').extra).toEqual({ monthly_burn: 18500 });
+    expect(fins.find((f: { field: string }) => f.field === 'cash').extra).toEqual({ cash_on_hand: 310000 });
+    expect(fins.find((f: { field: string }) => f.field === 'revenue').extra).toEqual({ mrr: 9200 });
+    // GTM channels ride the existing channel_fact rail; brand stays a STAGED
+    // item (never auto-written — a doc fact could keyword-green a gated check).
+    const gtm = raw.filter((x: { kind: string }) => x.kind === 'channel_fact');
+    expect(gtm.some((g: { value: string }) => g.value.includes('Federation partnerships'))).toBe(true);
+    const brand = raw.filter((x: { kind: string }) => x.kind === 'brand_fact');
+    expect(brand).toHaveLength(1);
+    expect(brand[0].field).toBe('positioning');
+  });
+
+  it('merges operate findings across chunks (metrics dedup by name, financials first-non-null)', async () => {
+    const c1 = JSON.stringify({
+      canvas: {}, competitors: [], market_size: [], tech_facts: [], watch_suggestions: [], interviews: [], pricing: {},
+      metrics: [{ name: 'MRR', value: 9200 }], financials: { monthly_burn: 18500 }, gtm: [], brand: [],
+    });
+    const c2 = JSON.stringify({
+      canvas: {}, competitors: [], market_size: [], tech_facts: [], watch_suggestions: [], interviews: [], pricing: {},
+      metrics: [{ name: 'mrr', value: 9999 }], financials: { monthly_burn: 99999, cash_on_hand: 310000 }, gtm: [], brand: [],
+    });
+    runAgentMock
+      .mockResolvedValueOnce({ text: c1, usage: {} })
+      .mockResolvedValueOnce({ text: c2, usage: {} });
+    await digestDocument({ projectId: 'p1', factId: 'f1', filename: 'long.md', text: 'x'.repeat(20_000) });
+    const raw = stageMock.mock.calls[0][1];
+    const metrics = raw.filter((x: { kind: string }) => x.kind === 'metric');
+    expect(metrics).toHaveLength(1); // 'mrr' deduped case-insensitively; chunk 1 wins
+    expect(metrics[0].extra.current_value).toBe(9200);
+    const burn = raw.find((x: { kind: string; field?: string }) => x.kind === 'financial_fact' && x.field === 'burn');
+    expect(burn.extra.monthly_burn).toBe(18500); // first non-null wins
+    const cash = raw.find((x: { kind: string; field?: string }) => x.kind === 'financial_fact' && x.field === 'cash');
+    expect(cash.extra.cash_on_hand).toBe(310000); // filled by chunk 2
+  });
+
+  it('reports partial digests (chunks < total_chunks) — B2 long-doc integrity', async () => {
+    runAgentMock.mockResolvedValue({ text: FINDINGS, usage: {} });
+    const r = await digestDocument({ projectId: 'p1', factId: 'f1', filename: 'long.md', text: 'x'.repeat(50_000), maxChunks: 2 });
+    expect(r.chunks).toBe(2);
+    expect(r.total_chunks).toBe(4);
+    expect(r.partial).toBe(true);
+    expect(recordEventMock).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'document_digested',
+      payload: expect.objectContaining({ chunks: 2, total_chunks: 4, partial: true }),
+    }));
+  });
+
+  it('records document_digest_failed when every chunk errors — retryable, not silent', async () => {
+    runAgentMock.mockRejectedValue(new Error('llm down'));
+    const r = await digestDocument({ projectId: 'p1', factId: 'f1', filename: 'deck.pdf', text: 'a real document body' });
+    expect(r.failed).toBe(true);
+    expect(recordEventMock).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'document_digest_failed' }));
   });
 });

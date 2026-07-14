@@ -1508,6 +1508,28 @@ export default function CopilotChatPage({
               })
             }
             onAuditDocs={() => setShowAddDocs(true)}
+            onSaveToDataRoom={async (text) => {
+              // Long-paste bridge: pasted chat text is ephemeral (never reaches
+              // the spine/skills) — persist it as an uploaded document instead,
+              // through the same extract+digest pipeline as a file upload.
+              try {
+                const form = new FormData();
+                const stamp = new Date().toISOString().slice(0, 10);
+                form.append('file', new Blob([text], { type: 'text/plain' }), `pasted-${stamp}.txt`);
+                const res = await fetch(`/api/projects/${projectId}/knowledge/upload?extract=1&digest=1`, {
+                  method: 'POST',
+                  body: form,
+                });
+                const body = await res.json().catch(() => null);
+                if (!res.ok || body?.success === false) return null;
+                window.dispatchEvent(new CustomEvent('lp-knowledge-changed', { detail: { projectId } }));
+                window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+                const r0 = body?.data?.results?.[0];
+                return { staged: typeof r0?.digest_staged_items === 'number' ? r0.digest_staged_items : 0 };
+              } catch {
+                return null;
+              }
+            }}
           />
         </div>
 
@@ -3195,6 +3217,10 @@ function MsgActions({
   );
 }
 
+/** A paste at or above this length is offered the Data Room route — long
+ *  enough to be a document, not a link or a sentence. */
+const LONG_PASTE_CHARS = 1_500;
+
 function ChatComposer({
   value,
   onChange,
@@ -3204,6 +3230,7 @@ function ChatComposer({
   onInsertTemplate,
   onAttachText,
   onAuditDocs,
+  onSaveToDataRoom,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -3215,10 +3242,41 @@ function ChatComposer({
   /** Opens the priced "audit document → knowledge" popup (distinct from the
    *  inline text attach above, which just pastes file text into the message). */
   onAuditDocs?: () => void;
+  /** Long-paste bridge: persist the pasted text as an uploaded document
+   *  (Data Room + digest → staged Inbox proposals). Returns the staged count,
+   *  or null on failure. Pasted chat text is otherwise ephemeral — it never
+   *  reaches the spine or skills. */
+  onSaveToDataRoom?: (text: string) => Promise<{ staged: number } | null>;
 }) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
+  // Long-paste bridge state: the pasted block we offered to save, and the
+  // one-line outcome notice after saving. The offer self-dismisses when the
+  // paste is no longer part of the message (edited away or sent).
+  const [pendingPaste, setPendingPaste] = useState<string | null>(null);
+  const [pasteNotice, setPasteNotice] = useState<string | null>(null);
+  const [savingPaste, setSavingPaste] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pasteOfferVisible = !!pendingPaste && !!onSaveToDataRoom && value.includes(pendingPaste);
+
+  async function savePasteToDataRoom() {
+    if (!pendingPaste || !onSaveToDataRoom || savingPaste) return;
+    setSavingPaste(true);
+    try {
+      const result = await onSaveToDataRoom(pendingPaste);
+      if (result) {
+        // Remove the saved block from the draft; keep whatever the founder
+        // typed around it.
+        onChange(value.replace(pendingPaste, '').trim());
+        setPendingPaste(null);
+        setPasteNotice(t('chat.paste-saved', { count: result.staged }));
+      } else {
+        setPasteNotice(t('chat.paste-save-failed'));
+      }
+    } finally {
+      setSavingPaste(false);
+    }
+  }
 
   const templates = [
     { label: t('chat.template-metrics-label'), text: t('chat.template-metrics-text') },
@@ -3257,6 +3315,14 @@ function ChatComposer({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={(e) => {
+            const text = e.clipboardData?.getData('text') ?? '';
+            if (text.length >= LONG_PASTE_CHARS && onSaveToDataRoom) {
+              // Default paste proceeds — we only offer the durable route.
+              setPendingPaste(text);
+              setPasteNotice(null);
+            }
+          }}
           placeholder={t('chat.composer-placeholder')}
           rows={2}
           disabled={disabled}
@@ -3274,6 +3340,41 @@ function ChatComposer({
             minHeight: 40,
           }}
         />
+        {pasteOfferVisible && (
+          <div
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+              marginTop: 6, padding: '6px 8px', borderRadius: 'var(--r-m)',
+              background: 'var(--paper-2)', border: '1px dashed var(--line-2)',
+              fontSize: 11.5, color: 'var(--ink-3)',
+            }}
+          >
+            <span style={{ flex: 1, minWidth: 140 }}>{t('chat.paste-detected')}</span>
+            <button
+              onClick={() => void savePasteToDataRoom()}
+              disabled={savingPaste}
+              style={{
+                border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)', cursor: savingPaste ? 'progress' : 'pointer',
+                background: 'var(--ink)', color: 'var(--paper)', padding: '4px 8px', fontSize: 11, fontFamily: 'inherit',
+              }}
+            >
+              {savingPaste ? t('chat.paste-saving') : t('chat.paste-save')}
+            </button>
+            <button
+              onClick={() => setPendingPaste(null)}
+              disabled={savingPaste}
+              style={{
+                border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)', cursor: 'pointer',
+                background: 'transparent', color: 'var(--ink-3)', padding: '4px 8px', fontSize: 11, fontFamily: 'inherit',
+              }}
+            >
+              {t('chat.paste-keep')}
+            </button>
+          </div>
+        )}
+        {pasteNotice && !pasteOfferVisible && (
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)' }}>{pasteNotice}</div>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, position: 'relative' }}>
           <div style={{ position: 'relative' }}>
             <IconBtn

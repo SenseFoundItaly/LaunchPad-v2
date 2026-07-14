@@ -1863,6 +1863,92 @@ const applyValidationProposal: ActionHandler = async (action) => {
           creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
         }
       }
+    } else if (it.kind === 'metric') {
+      // Operate-stage digest: a tracked KPI stated as an ACTUAL in the
+      // founder's document — Apply is their attestation. Mirrors the
+      // update_metrics tool exactly (upsert on (project_id, name), provenance
+      // 'founder_asserted' — a doc figure is still a self-report until a
+      // workflow measures it). Advances Stage 7 metrics_tracked.
+      const x = (it.extra ?? {}) as Record<string, unknown>;
+      const metricName = String(x.name ?? it.name ?? '').trim().slice(0, 200);
+      const metricValue = typeof x.current_value === 'number' && Number.isFinite(x.current_value) ? x.current_value : null;
+      if (metricName) {
+        const existing = await query<{ id: string }>(
+          'SELECT id FROM metrics WHERE project_id = ? AND name = ? LIMIT 1',
+          action.project_id, metricName,
+        );
+        if (existing.length > 0) {
+          if (metricValue !== null) {
+            await run(
+              `UPDATE metrics SET current_value = ?, provenance = 'founder_asserted' WHERE id = ?`,
+              metricValue, existing[0].id,
+            );
+          }
+        } else {
+          await run(
+            `INSERT INTO metrics (id, project_id, name, current_value, provenance) VALUES (?, ?, ?, ?, 'founder_asserted')`,
+            generateId('metric'), action.project_id, metricName, metricValue,
+          );
+        }
+        applied.push(it.label || `Metric: ${metricName}`);
+        creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+      }
+    } else if (it.kind === 'financial_fact') {
+      // Operate-stage digest: burn/cash fill the single burn_rate row (Stage-6
+      // runway, mirrors update_burn_rate's COALESCE upsert); revenue upserts an
+      // MRR metric (Stage-6 capital_plan reads a positive revenue metric).
+      const x = (it.extra ?? {}) as Record<string, unknown>;
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+      if (it.field === 'burn' || it.field === 'cash') {
+        const monthlyBurn = it.field === 'burn' ? num(x.monthly_burn) : null;
+        const cashOnHand = it.field === 'cash' ? num(x.cash_on_hand) : null;
+        if (monthlyBurn !== null || cashOnHand !== null) {
+          await run(
+            `INSERT INTO burn_rate (project_id, monthly_burn, cash_on_hand, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT (project_id) DO UPDATE SET
+               monthly_burn = COALESCE(EXCLUDED.monthly_burn, burn_rate.monthly_burn),
+               cash_on_hand = COALESCE(EXCLUDED.cash_on_hand, burn_rate.cash_on_hand),
+               updated_at   = EXCLUDED.updated_at`,
+            action.project_id, monthlyBurn, cashOnHand, new Date().toISOString(),
+          );
+          applied.push(it.label || (it.field === 'burn' ? 'Monthly burn' : 'Cash on hand'));
+          creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+        }
+      } else if (it.field === 'revenue') {
+        const mrr = num(x.mrr);
+        if (mrr !== null) {
+          const existing = await query<{ id: string }>(
+            `SELECT id FROM metrics WHERE project_id = ? AND LOWER(name) = 'mrr' LIMIT 1`,
+            action.project_id,
+          );
+          if (existing.length > 0) {
+            await run(`UPDATE metrics SET current_value = ?, provenance = 'founder_asserted' WHERE id = ?`, mrr, existing[0].id);
+          } else {
+            await run(
+              `INSERT INTO metrics (id, project_id, name, current_value, provenance) VALUES (?, ?, 'MRR', ?, 'founder_asserted')`,
+              generateId('metric'), action.project_id, mrr,
+            );
+          }
+          applied.push(it.label || 'Revenue (MRR)');
+          creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+        }
+      }
+    } else if (it.kind === 'brand_fact' && ownerUserId) {
+      // Brand/positioning statement — context, not spine-gated, but still
+      // staged (never auto-written from a doc: it could keyword-green a
+      // Stage-2/3 check without the founder's yes). Prefix keeps it findable.
+      await recordFact({
+        userId: ownerUserId,
+        projectId: action.project_id,
+        fact: `Brand${it.field ? ` (${it.field})` : ''} — ${value}`.slice(0, 1600),
+        kind: 'observation',
+        sources: sources ?? undefined,
+      });
+      applied.push(it.label || 'Brand statement');
+      creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+    } else if (it.kind === 'brand_fact') {
+      skippedNoOwner = true;
     }
   }
 

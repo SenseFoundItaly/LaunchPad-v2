@@ -422,6 +422,9 @@ interface IngestResult {
   /** Digest & Prefill (?digest=1): validation items staged / watchers proposed. */
   digest_staged_items?: number;
   digest_watchers?: number;
+  /** Present when the upload-time digest covered only the head of a long doc
+   *  (latency-capped at 2 chunks) — the Data Room offers re-digest for the tail. */
+  digest_partial?: { digested: number; total: number };
 }
 
 /**
@@ -577,6 +580,7 @@ export async function POST(
         const digest = await digestDocument({ projectId, factId: id, filename: file.name, text, maxChunks: 2 });
         result.digest_staged_items = digest.staged_items;
         result.digest_watchers = digest.watcher_proposals;
+        if (digest.partial) result.digest_partial = { digested: digest.chunks, total: digest.total_chunks };
       } catch (e) {
         console.warn('[knowledge/upload] digest failed (non-fatal):', (e as Error).message);
       }
