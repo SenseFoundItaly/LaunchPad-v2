@@ -689,6 +689,29 @@ export async function GET(request: NextRequest) {
       console.warn('[cron] expireOldBriefs failed:', (err as Error).message);
     }
 
+    // Phase B3 (launch pipeline): due campaign messages → founder-approvable
+    // Inbox proposals. PROPOSES ONLY — nothing sends from cron; sends execute
+    // exclusively in the send_campaign_message / draft executors on Apply.
+    // Pure DB work (no LLM), bounded batch.
+    let campaignSendsProposed = 0;
+    try {
+      const { proposeDueCampaignSends } = await import('@/lib/launch/send-proposer');
+      campaignSendsProposed = await proposeDueCampaignSends(20);
+    } catch (err) {
+      console.warn('[cron] proposeDueCampaignSends failed:', (err as Error).message);
+    }
+
+    // Phase B4 (launch pipeline): mirror Netlify Forms submission counts on
+    // published pages into the `signups` metric (workflow_derived). No-op
+    // without NETLIFY_API_KEY. 2 API calls per asset, bounded.
+    let assetsMeasured = 0;
+    try {
+      const { collectAssetMetrics } = await import('@/lib/launch/measure');
+      assetsMeasured = await collectAssetMetrics(10);
+    } catch (err) {
+      console.warn('[cron] collectAssetMetrics failed:', (err as Error).message);
+    }
+
     // Weekly intelligence pulse — reflection + cross-signal correlation +
     // Monday Brief email. Gated on PULSE_DAY (default Monday UTC) AND an
     // explicit ?run_pulse=1 param. The scheduler's default (due-ID) call must
@@ -853,6 +876,8 @@ export async function GET(request: NextRequest) {
       correlations_ran: correlationResults.length,
       correlation_results: correlationResults,
       briefs_expired: briefsExpired,
+      campaign_sends_proposed: campaignSendsProposed,
+      assets_measured: assetsMeasured,
       heartbeats_ran: heartbeatResults.length,
       heartbeat_results: heartbeatResults,
       pulse_remaining: pulseRemaining,

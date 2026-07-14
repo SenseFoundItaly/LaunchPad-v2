@@ -97,3 +97,48 @@ describe('markFormsForNetlify', () => {
     expect(markFormsForNetlify(html)).toBe(html);
   });
 });
+
+describe('ad-export', () => {
+  const pack = {
+    type: 'ad-pack' as const,
+    id: 'ap_test',
+    title: 'Launch ads — Test',
+    platform_targets: ['meta', 'google'] as Array<'meta' | 'google'>,
+    audiences: [
+      { name: 'Consultants', targeting_notes: 'solo marketing consultants', rationale: 'ICP' },
+      { name: 'Agencies', targeting_notes: 'small agencies', rationale: 'expansion' },
+    ],
+    budget: { total_monthly_usd: 600, split: [{ audience: 'Consultants', pct: 60 }, { audience: 'Agencies', pct: 40 }] },
+    ads: [
+      { audience: 'Consultants', headlines: ['Save 10h/week', 'Reports, automated'], descriptions: ['Client reporting on autopilot'], primary_text: 'Stop copy-pasting numbers.', cta: 'Sign up' },
+    ],
+    final_url: 'https://example.com',
+    sources: [],
+  };
+
+  it('google CSV carries the full RSA column contract', async () => {
+    const { toGoogleAdsCsv } = await import('./ad-export');
+    const csv = toGoogleAdsCsv(pack);
+    const [header, row] = csv.split('\n');
+    expect(header.split(',').length).toBe(2 + 15 + 4 + 1); // Campaign, Ad Group, H1-15, D1-4, Final URL
+    expect(header).toContain('Headline 15');
+    expect(header).toContain('Description 4');
+    expect(row).toContain('Save 10h/week');
+    expect(row).toContain('https://example.com');
+  });
+
+  it('csv escapes commas and quotes', async () => {
+    const { toGoogleAdsCsv } = await import('./ad-export');
+    const csv = toGoogleAdsCsv({ ...pack, ads: [{ ...pack.ads[0], headlines: ['Hello, "world"'] }] });
+    expect(csv).toContain('"Hello, ""world"""');
+  });
+
+  it('meta JSON splits budget by audience pct', async () => {
+    const { toMetaBulkJson } = await import('./ad-export');
+    const parsed = JSON.parse(toMetaBulkJson(pack));
+    expect(parsed.campaign.monthly_budget_usd).toBe(600);
+    expect(parsed.ad_sets[0].monthly_budget_usd).toBe(360);
+    expect(parsed.ad_sets[1].monthly_budget_usd).toBe(240);
+    expect(parsed.ad_sets[0].ads[0].link).toBe('https://example.com');
+  });
+});

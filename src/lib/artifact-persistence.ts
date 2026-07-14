@@ -44,6 +44,9 @@ import type {
   TaskArtifact,
   HtmlPreviewArtifact,
   DocumentArtifact,
+  EmailSequenceArtifact,
+  AdPackArtifact,
+  SocialCalendarArtifact,
   TamSamSomArtifact,
   IdeaCanvasArtifact,
   InvestorPipelineArtifact,
@@ -177,6 +180,15 @@ export async function persistArtifact(ctx: PersistContext, artifact: Artifact): 
         return await persistBuildArtifact(ctx, artifact as HtmlPreviewArtifact);
       case 'document':
         return await persistDocumentArtifact(ctx, artifact as DocumentArtifact);
+      // Launch pipeline deliverables: build_artifacts row + capture-at-persist
+      // into campaigns/campaign_messages (DRAFT — activation/sending is a
+      // separate founder decision; see src/lib/launch/campaigns.ts).
+      case 'email-sequence':
+        return await persistCampaignArtifact(ctx, artifact as EmailSequenceArtifact);
+      case 'ad-pack':
+        return await persistCampaignArtifact(ctx, artifact as AdPackArtifact);
+      case 'social-calendar':
+        return await persistCampaignArtifact(ctx, artifact as SocialCalendarArtifact);
       case 'solve-progress':
         return { type: artifact.type, persisted: false, note: 'UI-only tracker' };
       // idea-canvas + tam-sam-som map to gated spine checks. The agent reliably
@@ -1056,6 +1068,45 @@ async function persistDocumentArtifact(ctx: PersistContext, a: DocumentArtifact)
   );
 
   return { type: a.type, persisted: true, target: `build_artifacts (${id}, ${a.doc_type})` };
+}
+
+// ─── launch deliverables → build_artifacts + campaigns ───────────────────────
+
+async function persistCampaignArtifact(
+  ctx: PersistContext,
+  a: EmailSequenceArtifact | AdPackArtifact | SocialCalendarArtifact,
+): Promise<PersistResult> {
+  const SKILL_BY_TYPE = {
+    'email-sequence': 'email-sequence',
+    'ad-pack': 'ad-campaign',
+    'social-calendar': 'social-calendar',
+  } as const;
+  const id = generateId('ba');
+  await run(
+    `INSERT INTO build_artifacts (id, project_id, skill_id, artifact_type, title, content, metadata, sources, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    ctx.projectId,
+    SKILL_BY_TYPE[a.type],
+    a.type,
+    a.title || a.type,
+    JSON.stringify(a),
+    {},
+    a.sources ?? [],
+    new Date().toISOString(),
+  );
+  const { captureEmailSequence, captureSocialCalendar, captureAdPack } = await import('@/lib/launch/campaigns');
+  const campaignId = a.type === 'email-sequence'
+    ? await captureEmailSequence(ctx.projectId, id, a)
+    : a.type === 'social-calendar'
+      ? await captureSocialCalendar(ctx.projectId, id, a)
+      : await captureAdPack(ctx.projectId, id, a);
+  return {
+    type: a.type,
+    persisted: true,
+    target: campaignId ? `build_artifacts (${id}) + campaigns (${campaignId}, draft)` : `build_artifacts (${id})`,
+    persisted_id: campaignId ?? id,
+  };
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

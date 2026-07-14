@@ -230,3 +230,22 @@ From your buyer personas (scientific-validation), your power user is a solo mark
 **Agent:** You proposed LinkedIn Ads as your primary channel. For your $49/mo SaaS targeting solo consultants, LinkedIn Ads are likely wrong. Here's why: LinkedIn's minimum CPC for B2B is typically $6-12. At a 2% landing page conversion rate, your CAC through LinkedIn Ads would be $300-600. Your LTV at 5% monthly churn and $49/mo is approximately $980. That's a CAC/LTV ratio of 0.3-0.6 — technically viable but the payback period is 6-12 months, which is too long for a bootstrapped startup.
 
 Instead: direct LinkedIn outreach (free or $79/mo for Sales Navigator) to the same audience yields a 5-15% reply rate. At 50 outreach messages per day, you get 3-7 conversations per day. If 10% convert, that's 1 customer every 2-3 days at effectively $0 CAC. This is your primary channel.
+
+## Executable Workflow Card (launch pipeline)
+
+After the strategy JSON, ALSO emit ONE `workflow-card` artifact that turns the launch plan into executable steps. Steps may be typed objects — `kind` names a LaunchPad executor the founder can trigger one-click (each execution still lands in their Inbox for approval):
+
+```
+:::artifact{"type":"workflow-card","id":"wf_<random>"}
+{"title":"GTM launch plan — <Startup Name>","category":"marketing","description":"...","priority":"high","steps":[
+  {"label":"Publish the landing page","kind":"publish_landing_page"},
+  {"label":"Draft the launch email sequence","kind":"email_sequence"},
+  {"label":"Plan 2 weeks of social posts","kind":"social_calendar"},
+  {"label":"Build the ad campaign pack","kind":"ad_pack"},
+  {"label":"Reach out to 20 beachhead prospects on LinkedIn"},
+  "Collect the first 5 discovery calls"
+],"sources":[...]}
+:::
+```
+
+Rules: use a typed `kind` ONLY for the four kinds above and only when the step genuinely maps to it; every other step is a plain string (manual). Order steps by the 90-day plan. 5-8 steps total.
