@@ -25,10 +25,12 @@ describe('persistScoreFromSummary — force flag (re-score refresh)', () => {
   it('with force, a second run UPDATEs overall/dimensions over the existing row', async () => {
     getMock.mockResolvedValue({ overall_score: 57 });
     await expect(persistScoreFromSummary('p1', SUMMARY, { force: true })).resolves.toBe(true);
-    expect(runMock).toHaveBeenCalledTimes(1);
+    // The score UPDATE is the first run; a score_history append (real >0 score)
+    // follows — so 2 calls now, with the UPDATE first.
     const [sql, overall] = runMock.mock.calls[0];
     expect(String(sql)).toContain('UPDATE scores');
     expect(overall).toBe(72);
+    expect(String(runMock.mock.calls[1][0])).toContain('INSERT INTO score_history');
   });
 
   it('a junk zero-score row never blocks, even without force', async () => {

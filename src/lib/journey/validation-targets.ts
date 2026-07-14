@@ -23,7 +23,17 @@
 import { STAGES } from './index';
 import { MARKET_SIZE_CHECK_SOURCE, TECH_1B_SOURCES } from './stage-2-market-validation';
 
-export type ValidationItemKind = 'canvas_field' | 'competitor' | 'market_size_fact' | 'tech_fact';
+export type ValidationItemKind =
+  | 'canvas_field' | 'competitor' | 'market_size_fact' | 'tech_fact' | 'interview'
+  | 'persona_fact' | 'channel_fact' | 'pricing' | 'metric' | 'financial_fact' | 'brand_fact';
+
+/** The pricing_state column a `pricing` item fills (Stage-4 Business Model). */
+export type PricingField = 'anchor_price' | 'tiers' | 'wtp' | 'model' | 'unit_econ';
+
+/** The financial figure a `financial_fact` item asserts — burn/cash fill the
+ *  burn_rate row (Stage-6 runway); revenue upserts an MRR metric (Stage-6
+ *  capital plan reads a positive revenue metric). */
+export type FinancialField = 'burn' | 'cash' | 'revenue';
 
 /** The 1B finding a `tech_fact` item validates — maps to one of the three
  *  technical checks (see TECH_1B_SOURCES). */
@@ -69,6 +79,35 @@ function sourceKeysFor(kind: ValidationItemKind, field?: string): string[] {
       return field && field in TECH_1B_SOURCES
         ? [TECH_1B_SOURCES[field as keyof typeof TECH_1B_SOURCES]]
         : [];
+    case 'interview':
+      // Brownfield digest: an interview the founder ALREADY conducted, recorded
+      // in their uploaded notes — Apply is their attestation. Targets the 1C
+      // interviews-logged check; the verbatim-pain / WTP checks read the same
+      // rows once 1A+1B unlock 1C (the lock is on the check, not the data).
+      return ['interviews'];
+    case 'persona_fact':
+      // Stage 3 icp_defined reads memory_facts matching ICP keywords.
+      return ['memory_facts (ICP)'];
+    case 'channel_fact':
+      // Stage 3 channels_identified reads memory_facts matching channel keywords.
+      return ['memory_facts (channels)'];
+    case 'pricing':
+      // Stage 4 Business Model checks each read one pricing_state column.
+      return field ? [`pricing_state.${field}`] : [];
+    case 'metric':
+      // Stage 7 metrics_tracked reads distinct metrics names.
+      return ['metrics'];
+    case 'financial_fact':
+      // burn/cash fill burn_rate (Stage-6 runway_clear); revenue upserts an
+      // MRR metric (Stage-6 capital_plan's source string, verbatim).
+      if (field === 'burn' || field === 'cash') return ['burn_rate'];
+      if (field === 'revenue') return ['fundraising_rounds OR revenue metric', 'metrics'];
+      return [];
+    case 'brand_fact':
+      // Brand/positioning statements are context — no spine check reads them.
+      // Still staged (never auto-written): a doc-derived fact that landed
+      // ungated could keyword-green Stage-2/3 checks without the founder's yes.
+      return [];
     default:
       return [];
   }

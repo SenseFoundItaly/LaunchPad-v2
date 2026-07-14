@@ -32,7 +32,15 @@ export const stageOperate: Stage = {
       label: '3+ metrics tracked',
       source: 'metrics',
       evaluate: (s) => {
-        const n = s.metrics.length;
+        // Count DISTINCT metric names (case-insensitive), not raw rows: the
+        // dashboard REST POST (metrics/route.ts) blind-inserts with no dedup —
+        // unlike the chat update_metrics tool, which existence-checks (project,
+        // name) — so re-adding/double-clicking one metric would otherwise green
+        // this gate off a single real metric. Mirrors competitors_mapped, which
+        // dedups by LOWER(name) at read via mergeCompetitors.
+        const n = new Set(
+          s.metrics.map((m) => String(m.name ?? '').trim().toLowerCase()).filter(Boolean),
+        ).size;
         const ok = n >= 3;
         return ok
           ? { passed: true, evidence: `You're tracking ${n} metrics.` }

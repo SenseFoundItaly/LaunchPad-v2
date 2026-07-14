@@ -79,6 +79,18 @@ export async function POST(
       const [iteration] = await query('SELECT * FROM growth_iterations WHERE id = ?', iterId);
       const iterWithLLM = { ...(iteration), ...r };
 
+      // Launch pipeline (W4): route each proposed change onto a founder-
+      // approvable action (republish page / distribution draft / task).
+      // Proposals only — the loop can never act without an Inbox Apply.
+      setProgress(task.task_id, 85, 'Dispatching changes to your Inbox...');
+      try {
+        const { dispatchIterationChanges } = await import('@/lib/launch/growth-dispatch');
+        const dispatched = await dispatchIterationChanges(projectId, iterId, Array.isArray(r.proposed_changes) ? r.proposed_changes : []);
+        (iterWithLLM as Record<string, unknown>).dispatched_actions = dispatched.proposed;
+      } catch (err) {
+        console.warn('[growth:iterate] dispatch failed (non-fatal):', (err as Error).message);
+      }
+
       setProgress(task.task_id, 90, 'Done.');
       completeTask(task.task_id, iterWithLLM as Record<string, unknown>);
     } catch (err) {

@@ -39,6 +39,9 @@ interface DashboardProject {
   description: string;
   analyses_completed: number;
   total_analyses: number;
+  /** Journey stages fully validated (of total_stages=7) — drives "% validated". */
+  stages_validated?: number;
+  total_stages?: number;
   weekly_alerts: number;
   created_at: string;
   /** 'owner' = the user's org owns the project; 'member' = shared with them. */
@@ -1056,7 +1059,10 @@ export default function HomePage() {
                               }}
                             >
                               <span>
-                                {t('home.percent-validated', { percent: Math.round((p.analyses_completed / p.total_analyses) * 100) })}
+                                {/* Journey stages done / 7 — matches the in-project
+                                    spine; the old skill-run ratio under-reported
+                                    (fully-validated projects showed 0%). */}
+                                {t('home.percent-validated', { percent: Math.round(((p.stages_validated ?? 0) / (p.total_stages || 7)) * 100) })}
                               </span>
                               <span>·</span>
                               <span>

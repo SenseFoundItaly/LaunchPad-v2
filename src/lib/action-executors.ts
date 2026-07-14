@@ -58,7 +58,7 @@ import type {
   PendingActionType,
   EcosystemAlert,
 } from '@/types';
-import { getBuild, getCurrentBuild } from './mvp/mvp-builds';
+import { getBuild, getCurrentBuild, getLatestLiveBuild } from './mvp/mvp-builds';
 import { generateAndApplyIteration } from './mvp/run-iteration';
 
 export interface ExecutionDeliverable {
@@ -158,12 +158,34 @@ function encodeLinkedInShare(text: string, url?: string): string {
   return `https://www.linkedin.com/feed/?${params.toString()}`;
 }
 
+/** Launch pipeline: when a click-to-send draft was queued from a scheduled
+ *  campaign message (payload.campaign_message_id), the founder's Apply IS the
+ *  send — mark the message delivered so the queue advances. Non-fatal. */
+async function markCampaignMessageSent(
+  payload: Record<string, unknown>, sendRef: string,
+): Promise<void> {
+  const msgId = typeof payload.campaign_message_id === 'string' ? payload.campaign_message_id : '';
+  if (!msgId) return;
+  try {
+    await run(
+      `UPDATE campaign_messages SET status = 'sent', sent_at = CURRENT_TIMESTAMP, send_ref = ? WHERE id = ?`,
+      sendRef.slice(0, 500), msgId,
+    );
+    const { maybeCompleteCampaign } = await import('@/lib/launch/campaigns');
+    const campaignId = typeof payload.campaign_id === 'string' ? payload.campaign_id : '';
+    if (campaignId) await maybeCompleteCampaign(campaignId);
+  } catch (err) {
+    console.warn('[launch] markCampaignMessageSent failed (non-fatal):', (err as Error).message);
+  }
+}
+
 const draftEmail: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
   const to = String(payload.to || '');
   const subject = String(payload.subject || action.title);
-  const body = String(payload.body || payload.draft_seed || '');
+  const body = String(payload.body || payload.draft_seed || payload.draft || payload.content || '');
   const locale = await localeFor(action);
+  await markCampaignMessageSent(payload, 'click-to-send');
 
   if (!to) {
     return {
@@ -193,10 +215,12 @@ const draftEmail: ActionHandler = async (action) => {
 
 const draftLinkedInPost: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
-  const text = String(payload.body || payload.draft_seed || action.title);
+  const text = String(payload.body || payload.draft_seed || payload.draft || payload.content || action.title);
   const sourceAlert = await getSourceAlert(action.ecosystem_alert_id);
   const attachUrl = sourceAlert?.source_url || (typeof payload.url === 'string' ? payload.url : undefined);
   const locale = await localeFor(action);
+  const share = encodeLinkedInShare(text, attachUrl || undefined);
+  await markCampaignMessageSent(payload, share);
 
   return {
     ok: true,
@@ -656,7 +680,7 @@ const configureMonitor: ActionHandler = async (action) => {
   const linkedQuoteRaw = typeof payload.linked_quote === 'string' ? payload.linked_quote.trim() : '';
   const objective = objectiveRaw || linkedQuoteRaw || null;
   const kind = String(payload.kind ?? 'custom');
-  const schedule = String(payload.schedule ?? 'weekly') as 'daily' | 'weekly';
+  const schedule = String(payload.schedule ?? 'weekly') as 'daily' | 'weekly' | 'monthly';
   const q = typeof payload.query === 'string' ? payload.query : undefined;
   const urls = Array.isArray(payload.urls_to_track)
     ? payload.urls_to_track.filter((u): u is string => typeof u === 'string')
@@ -665,11 +689,20 @@ const configureMonitor: ActionHandler = async (action) => {
   // Phase-1 proposals carry the watcher-proposer topic — steers alert_type
   // choice in the built scan prompt. Absent on chat-proposed monitors.
   const topic = typeof payload.topic === 'string' ? payload.topic : undefined;
+  // Provenance marker (e.g. 'black_swan_catalog') — persisted into config so
+  // monitor-side queries can trace which pipeline staged the proposal.
+  const origin = typeof payload.origin === 'string' ? payload.origin : undefined;
   const linkedRiskId = String(payload.linked_risk_id ?? 'ad_hoc');
   const linkedQuote = typeof payload.linked_quote === 'string' ? payload.linked_quote : null;
   const dedupOverrideReason = typeof payload.dedup_override_reason === 'string'
     ? payload.dedup_override_reason
     : null;
+  // Proposer-supplied config extras (e.g. black-swan scenario metadata:
+  // source_brief_id, early_signals, …) — merged under the canonical keys so
+  // a payload can never shadow alert_threshold/urls_to_track/query.
+  const extraConfig = payload.config && typeof payload.config === 'object' && !Array.isArray(payload.config)
+    ? payload.config as Record<string, unknown>
+    : {};
   // JSONB columns (config, urls_to_track, sources) get RAW objects/arrays — the
   // run() helper auto-serializes; JSON.stringify here double-encodes, storing a
   // jsonb STRING that config->>'...'/array ops can't read (same bug class as
@@ -745,12 +778,14 @@ const configureMonitor: ActionHandler = async (action) => {
     objective,
     schedule,
     {
+      ...extraConfig,
       alert_threshold: alertThreshold,
       urls_to_track: urls,
       query: q,
       linked_risk_id: linkedRiskId,
       // Kept so objective-edit prompt rebuilds preserve the steering line.
       ...(topic ? { topic } : {}),
+      ...(origin ? { origin } : {}),
     },
     prompt,
     nextRun,
@@ -1682,6 +1717,7 @@ const applyValidationProposal: ActionHandler = async (action) => {
     const it = raw as {
       kind?: string; field?: string; name?: string; value?: string;
       credits?: number; sources?: Source[]; label?: string;
+      extra?: Record<string, unknown>;
     };
     const value = typeof it.value === 'string' ? it.value.trim() : '';
     if (!value) continue;
@@ -1762,6 +1798,182 @@ const applyValidationProposal: ActionHandler = async (action) => {
       applied.push(it.label || 'Technical finding');
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'tech_fact') {
+      skippedNoOwner = true;
+    } else if (it.kind === 'interview' && ownerUserId) {
+      // Brownfield digest: an interview the founder ALREADY conducted, staged
+      // from their uploaded notes — this Apply is their attestation. Writes a
+      // real interviews row so the 1C checks + Loop-1 WTP machinery read it
+      // exactly like a chat-logged interview. Structured fields ride it.extra.
+      const x = (it.extra ?? {}) as Record<string, unknown>;
+      const personName = String(it.name || x.person_name || 'Interviewee').slice(0, 200);
+      // IDEMPOTENCY (data-integrity): re-digesting a doc (retro-sweep or
+      // re-upload) must NOT create duplicate interview rows — Loop-1's WTP%
+      // denominator and the 1C "5+ interviews" check both read COUNT(*), so a
+      // dup would silently corrupt the validation math. Dedup by (project, name).
+      const dupIv = await query<{ id: string }>(
+        `SELECT id FROM interviews WHERE project_id = ? AND LOWER(person_name) = LOWER(?) LIMIT 1`,
+        action.project_id, personName,
+      );
+      if (dupIv.length > 0) {
+        applied.push(it.label || `Interview: ${personName} (already logged)`);
+        continue;
+      }
+      const wtpAmount = typeof x.wtp_amount === 'number' && Number.isFinite(x.wtp_amount) ? x.wtp_amount : null;
+      await run(
+        `INSERT INTO interviews
+           (id, project_id, user_id, person_name, person_role, person_segment,
+            conducted_at, channel, summary, top_pain, urgency,
+            wtp_amount, wtp_currency, meta, sources, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        generateId('iv'),
+        action.project_id,
+        ownerUserId,
+        personName,
+        typeof x.person_role === 'string' ? x.person_role.slice(0, 200) : null,
+        typeof x.person_segment === 'string' ? x.person_segment.slice(0, 200) : null,
+        typeof x.conducted_at === 'string' ? x.conducted_at : new Date().toISOString(),
+        'document',
+        value.slice(0, 2000),
+        typeof x.top_pain === 'string' ? x.top_pain.slice(0, 800) : null,
+        typeof x.urgency === 'string' ? x.urgency.slice(0, 40) : null,
+        wtpAmount,
+        typeof x.wtp_currency === 'string' && x.wtp_currency.length === 3 ? x.wtp_currency : 'EUR',
+        { origin: 'document_digest' },
+        sources ?? [],
+      );
+      applied.push(it.label || `Interview: ${it.name || 'logged'}`);
+      creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+    } else if (it.kind === 'interview') {
+      skippedNoOwner = true;
+    } else if ((it.kind === 'persona_fact' || it.kind === 'channel_fact') && ownerUserId) {
+      // Stage-3 prefill: write a keyword-bearing applied memory_fact so the
+      // icp_defined / channels_identified checks (which match memory_facts on
+      // ICP/channel keywords) green. Prefix guarantees the match regardless of
+      // the founder's phrasing. Founder-first (only on Apply).
+      const prefix = it.kind === 'persona_fact' ? 'Ideal customer profile — ' : 'Acquisition channel — ';
+      await recordFact({
+        userId: ownerUserId,
+        projectId: action.project_id,
+        fact: `${prefix}${value}`.slice(0, 1600),
+        kind: 'observation',
+        sources: sources ?? undefined,
+      });
+      applied.push(it.label || (it.kind === 'persona_fact' ? 'Ideal customer' : 'Acquisition channel'));
+      creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+    } else if (it.kind === 'persona_fact' || it.kind === 'channel_fact') {
+      skippedNoOwner = true;
+    } else if (it.kind === 'pricing' && it.field) {
+      // Stage-4 prefill: upsert one pricing_state column from the item's typed
+      // `extra`. tiers/wtp/unit_econ are JSONB (bind RAW — postgres.js serializes;
+      // pre-stringifying double-encodes and the unit_econ gate reads a string).
+      const col = it.field;
+      const PRICING_COLS = new Set(['anchor_price', 'tiers', 'wtp', 'unit_econ', 'model', 'currency']);
+      if (PRICING_COLS.has(col)) {
+        const x = (it.extra ?? {}) as Record<string, unknown>;
+        const raw = col in x ? x[col] : undefined;
+        if (raw !== undefined && raw !== null) {
+          await run(
+            `INSERT INTO pricing_state (project_id, ${col}, updated_at)
+             VALUES (?, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT (project_id) DO UPDATE SET ${col} = EXCLUDED.${col}, updated_at = CURRENT_TIMESTAMP`,
+            action.project_id, raw,
+          );
+          // Carry currency alongside an anchor_price when the doc stated one.
+          if (col === 'anchor_price' && typeof x.currency === 'string' && x.currency.length === 3) {
+            await run(
+              `UPDATE pricing_state SET currency = ? WHERE project_id = ?`,
+              x.currency, action.project_id,
+            );
+          }
+          applied.push(it.label || 'Pricing');
+          creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+        }
+      }
+    } else if (it.kind === 'metric') {
+      // Operate-stage digest: a tracked KPI stated as an ACTUAL in the
+      // founder's document — Apply is their attestation. Mirrors the
+      // update_metrics tool exactly (upsert on (project_id, name), provenance
+      // 'founder_asserted' — a doc figure is still a self-report until a
+      // workflow measures it). Advances Stage 7 metrics_tracked.
+      const x = (it.extra ?? {}) as Record<string, unknown>;
+      const metricName = String(x.name ?? it.name ?? '').trim().slice(0, 200);
+      const metricValue = typeof x.current_value === 'number' && Number.isFinite(x.current_value) ? x.current_value : null;
+      if (metricName) {
+        const existing = await query<{ id: string }>(
+          'SELECT id FROM metrics WHERE project_id = ? AND name = ? LIMIT 1',
+          action.project_id, metricName,
+        );
+        if (existing.length > 0) {
+          if (metricValue !== null) {
+            await run(
+              `UPDATE metrics SET current_value = ?, provenance = 'founder_asserted' WHERE id = ?`,
+              metricValue, existing[0].id,
+            );
+          }
+        } else {
+          await run(
+            `INSERT INTO metrics (id, project_id, name, current_value, provenance) VALUES (?, ?, ?, ?, 'founder_asserted')`,
+            generateId('metric'), action.project_id, metricName, metricValue,
+          );
+        }
+        applied.push(it.label || `Metric: ${metricName}`);
+        creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+      }
+    } else if (it.kind === 'financial_fact') {
+      // Operate-stage digest: burn/cash fill the single burn_rate row (Stage-6
+      // runway, mirrors update_burn_rate's COALESCE upsert); revenue upserts an
+      // MRR metric (Stage-6 capital_plan reads a positive revenue metric).
+      const x = (it.extra ?? {}) as Record<string, unknown>;
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+      if (it.field === 'burn' || it.field === 'cash') {
+        const monthlyBurn = it.field === 'burn' ? num(x.monthly_burn) : null;
+        const cashOnHand = it.field === 'cash' ? num(x.cash_on_hand) : null;
+        if (monthlyBurn !== null || cashOnHand !== null) {
+          await run(
+            `INSERT INTO burn_rate (project_id, monthly_burn, cash_on_hand, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT (project_id) DO UPDATE SET
+               monthly_burn = COALESCE(EXCLUDED.monthly_burn, burn_rate.monthly_burn),
+               cash_on_hand = COALESCE(EXCLUDED.cash_on_hand, burn_rate.cash_on_hand),
+               updated_at   = EXCLUDED.updated_at`,
+            action.project_id, monthlyBurn, cashOnHand, new Date().toISOString(),
+          );
+          applied.push(it.label || (it.field === 'burn' ? 'Monthly burn' : 'Cash on hand'));
+          creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+        }
+      } else if (it.field === 'revenue') {
+        const mrr = num(x.mrr);
+        if (mrr !== null) {
+          const existing = await query<{ id: string }>(
+            `SELECT id FROM metrics WHERE project_id = ? AND LOWER(name) = 'mrr' LIMIT 1`,
+            action.project_id,
+          );
+          if (existing.length > 0) {
+            await run(`UPDATE metrics SET current_value = ?, provenance = 'founder_asserted' WHERE id = ?`, mrr, existing[0].id);
+          } else {
+            await run(
+              `INSERT INTO metrics (id, project_id, name, current_value, provenance) VALUES (?, ?, 'MRR', ?, 'founder_asserted')`,
+              generateId('metric'), action.project_id, mrr,
+            );
+          }
+          applied.push(it.label || 'Revenue (MRR)');
+          creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+        }
+      }
+    } else if (it.kind === 'brand_fact' && ownerUserId) {
+      // Brand/positioning statement — context, not spine-gated, but still
+      // staged (never auto-written from a doc: it could keyword-green a
+      // Stage-2/3 check without the founder's yes). Prefix keeps it findable.
+      await recordFact({
+        userId: ownerUserId,
+        projectId: action.project_id,
+        fact: `Brand${it.field ? ` (${it.field})` : ''} — ${value}`.slice(0, 1600),
+        kind: 'observation',
+        sources: sources ?? undefined,
+      });
+      applied.push(it.label || 'Brand statement');
+      creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+    } else if (it.kind === 'brand_fact') {
       skippedNoOwner = true;
     }
   }
@@ -1898,6 +2110,138 @@ const proposeAssumptionRevision: ActionHandler = async (action) => {
 };
 
 /**
+ * `publish_landing_page` executor (launch pipeline) — founder-approved publish
+ * of a generated html-preview artifact to a real URL via the active publisher
+ * driver. Payload: { source_artifact_id, slug? }. The Apply IS the founder
+ * gate; the orchestration handles gate/record/watch (src/lib/launch/publish).
+ */
+const publishLandingPageExecutor: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const locale = await localeFor(action);
+  const artifactId = typeof payload.source_artifact_id === 'string' ? payload.source_artifact_id : '';
+  if (!artifactId) {
+    return { ok: false, error: 'publish_landing_page: missing source_artifact_id in payload.' };
+  }
+  try {
+    const { publishLandingPage } = await import('@/lib/launch/publish');
+    const { url } = await publishLandingPage({
+      projectId: action.project_id,
+      sourceArtifactId: artifactId,
+      slug: typeof payload.slug === 'string' ? payload.slug : undefined,
+    });
+    const isStub = url.startsWith('data:');
+    return {
+      ok: true,
+      deliverable: {
+        mode: 'direct',
+        url: isStub ? undefined : url,
+        narrative: locale === 'it'
+          ? (isStub ? 'Pubblicazione registrata (driver stub — nessun hosting reale configurato).' : `Landing page pubblicata: ${url}`)
+          : (isStub ? 'Publish recorded (stub driver — no real hosting configured).' : `Landing page published: ${url}`),
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+};
+
+/**
+ * `send_campaign_message` executor (launch pipeline) — THE single call site of
+ * SenderAdapter.send / SocialAdapter.post. Runs only on founder Apply of a
+ * cron-proposed due message; Reject marks the message skipped (route handler
+ * for reject is the generic one — we sweep skips below on apply of siblings).
+ * Channel-routed: email → active sender (stub/resend Broadcasts), linkedin/x →
+ * active social driver (ayrshare). Payload (founder-editable in the Inbox):
+ * { campaign_message_id, campaign_id, channel, subject?, body_html, recipients? }.
+ */
+const sendCampaignMessageExecutor: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const locale = await localeFor(action);
+  const msgId = typeof payload.campaign_message_id === 'string' ? payload.campaign_message_id : '';
+  const channel = String(payload.channel || 'email');
+  const body = String(payload.body_html || payload.body || '');
+  if (!msgId || !body.trim()) {
+    return { ok: false, error: 'send_campaign_message: missing campaign_message_id or body in payload.' };
+  }
+  try {
+    const { assertLaunchAllowed } = await import('@/lib/launch/launch-gate');
+    await assertLaunchAllowed(action.project_id);
+
+    let sendRef = '';
+    let stubbed = false;
+    let recipientCount: number | null = null;
+
+    if (channel === 'email') {
+      const recipients = Array.isArray(payload.recipients) ? (payload.recipients as string[]) : [];
+      if (recipients.length === 0) return { ok: false, error: 'send_campaign_message: no recipients on the proposal.' };
+      const { getActiveSender } = await import('@/lib/launch/senders');
+      const sender = getActiveSender();
+      const outcome = await sender.send({
+        projectId: action.project_id,
+        to: recipients,
+        subject: String(payload.subject || action.title),
+        html: body,
+      });
+      if (!outcome.ok) {
+        await run(`UPDATE campaign_messages SET status = 'failed' WHERE id = ?`, msgId).catch(() => {});
+        return { ok: false, error: `send failed via ${sender.label}: ${outcome.error ?? 'unknown'}` };
+      }
+      sendRef = outcome.providerRef ?? sender.id;
+      stubbed = outcome.stubbed;
+      recipientCount = recipients.length;
+    } else {
+      const { getActiveSocial } = await import('@/lib/launch/social');
+      const social = getActiveSocial();
+      const outcome = await social.post({
+        projectId: action.project_id,
+        channel: channel === 'x' ? 'x' : 'linkedin',
+        body,
+      });
+      if (!outcome.ok) {
+        await run(`UPDATE campaign_messages SET status = 'failed' WHERE id = ?`, msgId).catch(() => {});
+        return { ok: false, error: `post failed via ${social.label}: ${outcome.error ?? 'unknown'}` };
+      }
+      sendRef = outcome.url ?? outcome.postRef ?? social.id;
+      stubbed = outcome.stubbed;
+    }
+
+    await run(
+      `UPDATE campaign_messages SET status = 'sent', sent_at = CURRENT_TIMESTAMP, send_ref = ?, recipient_count = ? WHERE id = ?`,
+      sendRef.slice(0, 500), recipientCount, msgId,
+    );
+    const campaignId = typeof payload.campaign_id === 'string' ? payload.campaign_id : '';
+    if (campaignId) {
+      const { maybeCompleteCampaign } = await import('@/lib/launch/campaigns');
+      await maybeCompleteCampaign(campaignId);
+    }
+    const owner = await query<{ owner_user_id: string | null }>(
+      'SELECT owner_user_id FROM projects WHERE id = ?', action.project_id,
+    );
+    if (owner[0]?.owner_user_id) {
+      const { recordEvent: recordMemoryEvent } = await import('@/lib/memory/events');
+      await recordMemoryEvent({
+        userId: owner[0].owner_user_id,
+        projectId: action.project_id,
+        eventType: 'campaign_message_sent',
+        payload: { campaign_message_id: msgId, channel, send_ref: sendRef, stubbed, recipient_count: recipientCount },
+      }).catch(() => {});
+    }
+
+    const narrative = channel === 'email'
+      ? (locale === 'it'
+          ? (stubbed ? `Driver stub: invio registrato, nessuna email è partita (${recipientCount} destinatari).` : `Email inviata a ${recipientCount} destinatari.`)
+          : (stubbed ? `Stub driver: send recorded, no email left the system (${recipientCount} recipients).` : `Email sent to ${recipientCount} recipient(s).`))
+      : (locale === 'it'
+          ? (stubbed ? 'Driver stub: post registrato, nulla è stato pubblicato.' : `Post pubblicato su ${channel === 'x' ? 'X' : 'LinkedIn'}.`)
+          : (stubbed ? 'Stub driver: post recorded, nothing was published.' : `Posted to ${channel === 'x' ? 'X' : 'LinkedIn'}.`));
+
+    return { ok: true, deliverable: { mode: 'direct', narrative } };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+};
+
+/**
  * `mvp_build_iteration` executor (Build Hub) — on approve, draft the next
  * iteration's build prompt from accumulated feedback (mvp-build-spec skill) and
  * run the builder driver's in-place iterate, recording a new iteration row.
@@ -1906,22 +2250,32 @@ const proposeAssumptionRevision: ActionHandler = async (action) => {
 const mvpBuildIteration: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
   const buildId = typeof payload.build_id === 'string' ? payload.build_id : undefined;
-  const build = buildId ? await getBuild(buildId) : await getCurrentBuild(action.project_id);
+  // Iterate the latest LIVE build. A failed/superseded newest row must not become
+  // the parent, so latest-live wins over the (possibly stale) payload build_id.
+  const build =
+    (await getLatestLiveBuild(action.project_id)) ??
+    (buildId ? await getBuild(buildId) : undefined) ??
+    (await getCurrentBuild(action.project_id));
   if (!build || build.project_id !== action.project_id) {
-    return { ok: false, error: 'mvp_build_iteration: target build not found' };
+    return { ok: false, error: 'mvp_build_iteration: no live build to iterate' };
   }
   const next = await generateAndApplyIteration(build);
   return {
     ok: true,
     deliverable: {
       mode: 'direct' as const,
-      narrative: `Iterated the MVP to build v${next.iteration}.`,
+      narrative:
+        next.status === 'live'
+          ? `Iterated the MVP to build v${next.iteration}.`
+          : `Started iteration v${next.iteration} — building now; it will appear in the Build section shortly.`,
       url: next.preview_url ?? null,
     },
   };
 };
 
 const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
+  publish_landing_page: publishLandingPageExecutor,
+  send_campaign_message: sendCampaignMessageExecutor,
   draft_email: draftEmail,
   draft_linkedin_post: draftLinkedInPost,
   draft_linkedin_dm: draftLinkedInDM,
@@ -1942,21 +2296,26 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   validation_proposal: applyValidationProposal,
   propose_assumption_revision: proposeAssumptionRevision,
   mvp_build_iteration: mvpBuildIteration,
-  // Placeholder until the Phase-2 workflows execution layer ships. The
-  // workflow-card fan-out into per-step pending_actions was removed (2026-06),
-  // so this rarely materializes today; when it does, be honest rather than
-  // fake-acknowledging. Keep the mapping (don't 500 on an unknown type).
+  // Launch pipeline (W4): real dispatcher — maps the approved step to the
+  // publish orchestration or a drafting skill. Steps with no wired kind get
+  // the honest manual-tracking narrative (old placeholder behavior).
   workflow_step: async (pa) => {
     const locale = await localeFor(pa);
-    return {
-      ok: true,
-      deliverable: {
-        mode: 'direct' as const,
-        narrative: locale === 'it'
-          ? 'L’esecuzione dei workflow con un clic sta arrivando — per ora traccia questo passo manualmente.'
-          : 'One-click workflow execution is coming soon — track this step manually for now.',
-      },
-    };
+    try {
+      const { executeWorkflowStep } = await import('@/lib/launch/workflow-executor');
+      const out = await executeWorkflowStep(pa.project_id, effectivePayload(pa));
+      if (!out.ok) return { ok: false, error: out.error ?? 'workflow step failed' };
+      return {
+        ok: true,
+        deliverable: {
+          mode: 'direct' as const,
+          url: out.url,
+          narrative: locale === 'it' ? out.narrative_it : out.narrative_en,
+        },
+      };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
   },
 };
 

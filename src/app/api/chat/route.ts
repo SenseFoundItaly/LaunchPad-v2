@@ -18,7 +18,7 @@ import { buildResearchContext } from '@/lib/research-context';
 import { isClarificationOnly } from '@/lib/skill-output';
 import { formatStageContextForPrompt } from '@/lib/journey/stage-prompt';
 import { computeNextBestAction, renderDirectionForPrompt } from '@/lib/direction';
-import { recordEvent } from '@/lib/memory/events';
+import { recordEvent, factHash } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
 import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
@@ -34,6 +34,7 @@ import { captureWorkflow } from '@/lib/workflow-capture';
 import { pickModel, type TaskLabel } from '@/lib/llm/router';
 import { rankSkillsForQuery } from '@/lib/skill-relevance';
 import { persistArtifact } from '@/lib/artifact-persistence';
+import { captureChatArtifact } from '@/lib/chat-artifacts';
 import { renderContentMappingForPrompt, findMatchingSkill } from '@/lib/llm/content-mapping';
 import { analyzeTurnViolations, renderNudgeForNextTurn, type TurnViolations } from '@/lib/llm/turn-violations';
 
@@ -216,6 +217,7 @@ Knowledge enters the project through two channels with DIFFERENT rules — never
     :::
   Use the same sources schema as any factual artifact. Do NOT emit a knowledge-suggestion for trivia or conversational filler — only for durable facts worth keeping. One per genuinely new fact; don't spam.
 - The four knowledge CARDS already carry their own Apply/Dismiss controls — do NOT also emit a knowledge-suggestion for a fact you already put in a card. knowledge-suggestion is ONLY for prose-stated facts with no card.
+- WHEN THE FOUNDER EXPLICITLY ASKS TO SAVE / NOTE / REMEMBER A FACT ("save that", "note this", "don't lose this"), you MUST emit the matching apply affordance in that same turn — a \`knowledge-suggestion\` for a prose observation, or a commit option carrying "commit":{"items":[…]} for a competitor / market-size fact. Never acknowledge the save request in prose alone: with no affordance nothing persists, and telling the founder it is saved is then false.
 
 When a signal connects to an existing risk from get_risk_audit:
 - Reference the risk id and explain the connection
@@ -439,6 +441,11 @@ export async function POST(request: NextRequest) {
   }
 
   const { project_id, step = 'chat', messages = [], provider = 'openai' } = body;
+  // Which co-pilot surface is open next to the conversation (right pane):
+  // 'build' (MVP preview) | 'growth' (launch panel). Client-sent hint; only
+  // the two known values are honored. Used for a steering line below.
+  const surface: 'build' | 'growth' | null =
+    body.surface === 'build' || body.surface === 'growth' ? body.surface : null;
 
   if (!project_id) {
     return new Response(
@@ -586,11 +593,15 @@ export async function POST(request: NextRequest) {
   let commitGuardContext = '';
   if (snapshot && !allStagesDone) {
     try {
+      // Gap 6: widen from 1 → 2 prior assistant messages so a commit narrated
+      // and split across turns (or one turn back) is still caught. Patterns are
+      // specific enough that the extra message rarely false-fires, and the nudge
+      // is self-correcting ("if already saved, continue").
       const prevRows = await query<{ content: string }>(
-        "SELECT content FROM chat_messages WHERE project_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1",
+        "SELECT content FROM chat_messages WHERE project_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 2",
         project_id,
       );
-      const prev = prevRows[0]?.content ?? '';
+      const prev = prevRows.map((r) => r.content ?? '').join('\n\n');
       const guards: string[] = [];
 
       // (a) Canvas claim with a core field still missing from the live canvas.
@@ -606,9 +617,15 @@ export async function POST(request: NextRequest) {
       const claimedPaidCommit =
         /(added|saved|recorded|logged|captured|aggiunt\w+|salvat\w+|registrat\w+|inserit\w+)[^.\n]{0,40}(competitors?|to (?:your )?graph|to (?:your )?intelligence|market siz\w*|TAM\b|al grafo|all'intelligence|dimension\w+ di mercato)/i.test(prev)
         || /(competitors?|market siz\w*)[^.\n]{0,40}(added|saved|recorded|logged|aggiunt\w+|salvat\w+|registrat\w+)/i.test(prev);
+      // Gap 6: a competitor / market-size claim is only "afforded" by a path
+      // that ACTUALLY persists that paid item — a commit option carrying
+      // "commit":{"items":[…]}, or a validation-proposal / entity-card / comparison
+      // -table that stages it. A `knowledge-suggestion` does NOT: it is for prose
+      // observations (kind:observation) and, if unclicked, persists nothing — so
+      // counting it here let a narrated-but-dropped competitor claim slip past.
       const hadAffordance =
         /"commit"\s*:/.test(prev)
-        || /"type"\s*:\s*"(validation-proposal|entity-card|comparison-table|knowledge-suggestion)"/.test(prev);
+        || /"type"\s*:\s*"(validation-proposal|entity-card|comparison-table)"/.test(prev);
       if (claimedPaidCommit && !hadAffordance) {
         guards.push('You appear to have claimed a competitor / market-size commit, but your previous message carried NO commit affordance. Competitors and market size are saved ONLY via a commit option carrying "commit":{"items":[…]} (or an applied card). If you said you added one without that option, it was NOT saved — emit the commit option NOW. If it is already in the graph/knowledge, simply continue.');
       }
@@ -702,6 +719,14 @@ export async function POST(request: NextRequest) {
   // folds it into systemPrompt (byte-identical to before); split rides it on the
   // user turn AFTER the context (so the nudges keep their read-recency).
   let trailingSteer = '';
+  // Surface adaptation (founder directive 2026-07-14): when the founder has
+  // the Build preview or the Growth panel open next to the conversation, tell
+  // the agent so its answers meet them there instead of generic journey talk.
+  if (surface === 'build') {
+    trailingSteer += `\n\n[SURFACE] The founder currently has the BUILD tab open beside this chat — the pane is RENDER-ONLY; YOU are the CTA. Interpret product/UI/feature messages as being about the MVP. When they explicitly ask to generate the MVP, call start_mvp_build (it is stage-locked below stage 5 — if locked, help close the gaps instead). When they describe a concrete change and a live build exists, call iterate_mvp_build with their words. The result renders in the pane beside you — say so. Stay the same co-pilot — just anchored to what they see.`;
+  } else if (surface === 'growth') {
+    trailingSteer += `\n\n[SURFACE] The founder currently has the GROWTH tab open beside this chat — published pages, campaigns (email/social), and growth loops. Interpret marketing/launch messages in that frame: offer the email-sequence / social-calendar / ad-campaign / gtm-strategy skills where they fit, explain that campaign sends are approved from the Inbox, and read growth-loop questions against their loops. Stay the same co-pilot — just anchored to what they see.`;
+  }
   const encoder = new TextEncoder();
 
   // Session key: per (user, project) rather than per (project, step).
@@ -820,6 +845,7 @@ export async function POST(request: NextRequest) {
           const prior: TurnViolations = {
             skill_first_violation: !!(meta as Record<string, unknown>).skill_first_violation,
             prose_fabrication: !!(meta as Record<string, unknown>).prose_fabrication,
+            uncited_prose_claims: !!(meta as Record<string, unknown>).uncited_prose_claims,
           };
           const nudge = renderNudgeForNextTurn(prior);
           if (nudge) trailingSteer += `\n\n${nudge}`;
@@ -982,6 +1008,10 @@ export async function POST(request: NextRequest) {
         // text from fullResponse — artifact blocks stay in fullResponse
         // for the parser downstream, but the UI's copy/paste + rehydrate
         // works on the visible prose too. Non-fatal on failure.
+        // Gap C back-link: hoisted so the artifact-capture loop below can stamp
+        // each retrievable card with the assistant message it came from. Stays
+        // null when the message persist failed/was skipped — capture still runs.
+        let assistantMessageId: string | null = null;
         try {
           // Two rows per turn: the assistant MUST sort after its user prompt.
           // Give them distinct, ordered timestamps (user `now`, assistant +1ms)
@@ -1010,21 +1040,23 @@ export async function POST(request: NextRequest) {
                 fullResponse,
                 lastMessage,
               );
-              if (violations.skill_first_violation || violations.prose_fabrication) {
+              if (violations.skill_first_violation || violations.prose_fabrication || violations.uncited_prose_claims) {
                 metaJson = JSON.stringify(violations);
               }
             } catch (err) {
               console.warn('[chat] turn-violation analysis failed (non-fatal):', err);
             }
+            const msgId = `msg_${crypto.randomUUID().slice(0, 12)}`;
             await run(
               `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, tools_json, citations, langfuse_trace_id, meta)
                VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?)`,
-              `msg_${crypto.randomUUID().slice(0, 12)}`,
+              msgId,
               project_id, step, fullResponse, assistantTs, userId, toolsJson,
               citationsJson ?? null,
               langfuseTraceId,
               metaJson,
             );
+            assistantMessageId = msgId;
           }
         } catch (err) {
           console.warn('[chat] chat_messages persist failed (non-fatal):', err);
@@ -1053,7 +1085,54 @@ export async function POST(request: NextRequest) {
             },
           });
 
+          // Gap 3: a founder option-set click arrives as an "I choose: …" /
+          // "Scelgo: …" message (the localized chat.i-choose template). Record it
+          // as a structured decision event so which fork the founder took is
+          // queryable (activation/dropout metrics) instead of buried in prose.
+          try {
+            const choice = lastMessage.match(/^\s*(?:I choose|Scelgo):\s*([\s\S]+)$/i);
+            if (choice) {
+              await recordEvent({
+                userId,
+                projectId: project_id,
+                eventType: 'option_selected',
+                payload: { choice: choice[1].trim().slice(0, 200) },
+              });
+            }
+          } catch (err) {
+            console.warn('[chat] option_selected record failed (non-fatal):', (err as Error).message);
+          }
+
           const segments = parseMessageContent(fullResponse);
+
+          // Gap 1: record a knowledge_proposed event for each knowledge-suggestion
+          // the agent emitted. Proposals were previously zero-trace (prompt-emitted
+          // prose, no tool, no row) — the agent could re-suggest the same fact
+          // forever and never know if the founder applied or ignored it. This adds
+          // a durable proposal correlated to a later knowledge_applied via
+          // fact_hash. The founder-facing UI stays ephemeral (still just a card).
+          try {
+            for (const s of segments) {
+              if (s.type !== 'artifact') continue;
+              const a = s.artifact as unknown as Record<string, unknown>;
+              if (a.type !== 'knowledge-suggestion') continue;
+              const fact = typeof a.fact === 'string' ? a.fact : '';
+              if (!fact.trim()) continue;
+              await recordEvent({
+                userId,
+                projectId: project_id,
+                eventType: 'knowledge_proposed',
+                payload: {
+                  fact_hash: factHash(fact),
+                  preview: fact.slice(0, 140),
+                  kind: typeof a.kind === 'string' ? a.kind : 'observation',
+                },
+              });
+            }
+          } catch (err) {
+            console.warn('[chat] knowledge_proposed record failed (non-fatal):', (err as Error).message);
+          }
+
           // Track source-enforcement rejections so we can tune prompts if the
           // agent repeatedly produces unsourced artifacts. Each rejection is
           // a memory_event with the artifact type + reason — queryable later
@@ -1155,6 +1234,15 @@ export async function POST(request: NextRequest) {
               if (!persistResult.persisted && persistResult.note === 'out of credits') {
                 console.warn(`[chat] dropped ${seg.artifact.type} artifact: out of credits`);
               }
+              // Gap C: also capture the RENDERED card as a retrievable row so it
+              // survives the chat scroll and surfaces in the Data Room. The
+              // domain persist above stores the DATA (competitors→graph, …); this
+              // stores the artifact object for re-render. No-op for ephemeral /
+              // proposal / already-in-build_artifacts types (blocklist inside).
+              await captureChatArtifact(
+                { projectId: project_id, chatMessageId: assistantMessageId, turnPreview: lastMessage },
+                seg.artifact,
+              );
               if (seg.artifact.type === 'idea-canvas' || seg.artifact.type === 'tam-sam-som') {
                 stagedCanvasEvidence = true;
               }

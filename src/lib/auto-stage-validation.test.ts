@@ -21,6 +21,7 @@ vi.mock('@/lib/credits', () => ({ KNOWLEDGE_APPLY_CREDITS: 1 }));
 
 import {
   autoStageValidationFromArtifact,
+  sameSlot,
   stageMarketSizeProposal,
   supersedeCoveredAutoProposals,
 } from '@/lib/auto-stage-validation';
@@ -207,5 +208,32 @@ describe('supersedeCoveredAutoProposals — direct canvas apply', () => {
     queryMock.mockResolvedValueOnce([]);
     expect(await supersedeCoveredAutoProposals('p1')).toBe(0);
     expect(rejectMock).not.toHaveBeenCalled();
+  });
+});
+
+// Regression (2026-07-13): sameSlot's `return true` fallback made every
+// same-kind item across DOCUMENTS compete — so a second digest's interview
+// "replaced" the first, or the whole batch read as already-staged and dropped.
+describe('sameSlot — per-slot identity for digest kinds (no cross-doc clobber)', () => {
+  const item = (over: Record<string, unknown>) => over as unknown as Parameters<typeof sameSlot>[1];
+
+  it('interviews are one slot PER interviewee (by name)', () => {
+    expect(sameSlot({ kind: 'interview', name: 'Giulia' }, item({ kind: 'interview', name: 'Giulia' }))).toBe(true);
+    expect(sameSlot({ kind: 'interview', name: 'Marco' }, item({ kind: 'interview', name: 'Giulia' }))).toBe(false);
+  });
+
+  it('pricing is one slot PER pricing_state column (by field)', () => {
+    expect(sameSlot({ kind: 'pricing', field: 'anchor_price' }, item({ kind: 'pricing', field: 'anchor_price' }))).toBe(true);
+    expect(sameSlot({ kind: 'pricing', field: 'model' }, item({ kind: 'pricing', field: 'anchor_price' }))).toBe(false);
+  });
+
+  it('persona/channel facts are additive — never a shared slot', () => {
+    expect(sameSlot({ kind: 'channel_fact' }, item({ kind: 'channel_fact' }))).toBe(false);
+    expect(sameSlot({ kind: 'persona_fact' }, item({ kind: 'persona_fact' }))).toBe(false);
+  });
+
+  it('market_size stays a single sizing slot; different kinds never collide', () => {
+    expect(sameSlot({ kind: 'market_size_fact' }, item({ kind: 'market_size_fact' }))).toBe(true);
+    expect(sameSlot({ kind: 'interview', name: 'X' }, item({ kind: 'pricing', field: 'model' }))).toBe(false);
   });
 });

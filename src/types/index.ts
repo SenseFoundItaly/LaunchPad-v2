@@ -376,7 +376,9 @@ export type PendingActionType =
   | 'intelligence_brief'            // mirror of intelligence_briefs.status='active'
   | 'assumption_review'             // mirror of assumptions.status='open'
   | 'propose_assumption_revision'   // watcher-derived proposal to revise a financial assumption (e.g. ARPU) — founder edits/approves, then the model recomputes
-  | 'mvp_build_iteration';          // Build Hub: cron-drafted next-iteration proposal — founder approves, the executor runs the driver's iterate + records a new iteration
+  | 'mvp_build_iteration'           // Build Hub: cron-drafted next-iteration proposal — founder approves, the executor runs the driver's iterate + records a new iteration
+  | 'publish_landing_page'          // launch pipeline: proposed publish of an html-preview artifact to a real URL — Apply runs the publisher driver
+  | 'send_campaign_message';        // launch pipeline: cron-proposed due campaign email — Apply runs the sender driver; NOTHING sends without this approval
   // NOTE: `raw_change` was added in the first cut of the consolidation and then
   // removed — significant source_changes already become signal_alert via the
   // watch-source-processor → ecosystem_alerts route, so surfacing the raw diff

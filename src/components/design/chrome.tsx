@@ -27,6 +27,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icon, I, type IconKey } from './icons';
 import { ShareButton } from '@/components/project/ShareButton';
+import { DocsButton } from '@/components/project/DocsButton';
 import { CreditsBadge } from '@/components/CreditsBadge';
 import { LanguageSwitch } from '@/components/design/LanguageSwitch';
 import { ThemeToggle } from '@/components/design/ThemeToggle';
@@ -106,6 +107,9 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)' }}>
+        {/* Docs drawer — every generated deliverable + upload for the project.
+            Sits before Share so the two per-project icons read docs → people. */}
+        {projectId && <DocsButton projectId={projectId} />}
         {projectId && <ShareButton projectId={projectId} />}
         {right}
         <LanguageSwitch readOnly={!!projectId} />
@@ -147,9 +151,19 @@ interface NavItem {
 const PRIMARY_ITEMS: NavItem[] = [
   { id: 'dashboard', iconKey: 'home', labelKey: 'nav.home', route: 'today',
     tooltipKey: 'nav.home.tooltip' },
-  { id: 'build', iconKey: 'bolt', labelKey: 'nav.build', route: 'build',
-    tooltipKey: 'nav.build.tooltip' },
+  // Build & Launch lives INSIDE the co-pilot as a tab (founder directive
+  // 2026-07-14); the sidebar entry was removed same day — the co-pilot tabs
+  // are the only affordance. /build still redirects to chat?tab=build.
 ];
+
+// Feature flag: the Build & Launch Hub ships behind NEXT_PUBLIC_BUILD_ENABLED so
+// it can be live on staging (=1) while staying hidden in prod until GA. Inlined at
+// build time. This only hides the NAV entry — the /build route stays reachable by
+// URL for QA.
+const BUILD_NAV_ENABLED = process.env.NEXT_PUBLIC_BUILD_ENABLED === '1';
+const VISIBLE_PRIMARY_ITEMS = PRIMARY_ITEMS.filter(
+  (it) => it.id !== 'build' || BUILD_NAV_ENABLED,
+);
 
 // Channels — cross-cutting activity surfaces shown below the divider.
 // Phase 1 consolidation (2026-06): the dedicated Signals nav was removed —
@@ -202,7 +216,7 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
         gap: 2,
       }}
     >
-      {PRIMARY_ITEMS.map((it) => (
+      {VISIBLE_PRIMARY_ITEMS.map((it) => (
         <NavRailItem
           key={it.id}
           item={it}

@@ -17,6 +17,9 @@ import { stageFundraise } from './stage-6-fundraise';
 import { stageOperate } from './stage-7-operate';
 
 export { buildProjectSnapshot, countMemoryFactsMatching, keywordMatcher } from './snapshot';
+// Shared with the save_memory_fact spine-moving gate (project-tools.ts) — one
+// list, so the gate and the market_size check can never drift again.
+export { MARKET_SIZE_KEYWORDS } from './stage-2-market-validation';
 // Canonical id/number/label source of truth — import from here (or from
 // './canonical' directly in client code) instead of hardcoding stage names.
 export {
@@ -128,6 +131,17 @@ export function evaluateAllStages(snapshot: ProjectSnapshot): StageEvaluation[] 
       activeAssigned = true;
     } else {
       status = 'pending';
+    }
+    // Gap B: the execution stages (Build & Launch 5, Fundraise 6, Operate 7)
+    // are SEQUENCE-LOCKED until earlier stages are done — which is exactly when
+    // they're 'pending'. Mark their checks locked so the spine renders the 🔒
+    // affordance (matching the run-gate in stage-lock.ts) instead of dangling
+    // actionable gaps a founder can't act on yet. Threshold inlined (5) to avoid
+    // an index↔stage-lock import cycle; kept in sync with LOCK_FROM_STAGE.
+    if (status === 'pending' && stage.number >= 5) {
+      for (const r of results) {
+        if (!r.result.passed) r.result.locked = true;
+      }
     }
     return { stage, passed, total, status, results };
   });

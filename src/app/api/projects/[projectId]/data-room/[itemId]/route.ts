@@ -25,9 +25,10 @@ async function verifyOwner(projectId: string, userId: string): Promise<true | Re
   return true;
 }
 
-function tableForId(itemId: string): 'build_artifacts' | 'memory_facts' | null {
+function tableForId(itemId: string): 'build_artifacts' | 'memory_facts' | 'chat_artifacts' | null {
   if (itemId.startsWith('ba_')) return 'build_artifacts';
   if (itemId.startsWith('fact_')) return 'memory_facts';
+  if (itemId.startsWith('cart_')) return 'chat_artifacts'; // gap C retrievable card
   return null;
 }
 
@@ -66,20 +67,45 @@ export async function GET(
       itemId, projectId,
     );
     if (!row) return error('Not found', 404);
+    // json() already wraps in { success, data } — no manual envelope here.
     return json({
-      success: true,
-      data: {
-        id: row.id,
-        source: 'generated',
-        title: row.title,
-        content: row.content,
-        kind: row.artifact_type,
-        doc_type: row.doc_type,
-        metadata: row.metadata ?? {},
-        sources: Array.isArray(row.sources) ? row.sources : [],
-        created_at: row.created_at,
-        editable: true,
-      },
+      id: row.id,
+      source: 'generated',
+      title: row.title,
+      content: row.content,
+      kind: row.artifact_type,
+      doc_type: row.doc_type,
+      metadata: row.metadata ?? {},
+      sources: Array.isArray(row.sources) ? row.sources : [],
+      created_at: row.created_at,
+      editable: true,
+    });
+  }
+
+  // chat_artifacts (gap C retrievable card) — the panel renders these inline
+  // from the list payload, but keep GET coherent for direct API consumers.
+  if (table === 'chat_artifacts') {
+    const row = await get<{
+      id: string; artifact_type: string; title: string | null;
+      payload: unknown; sources: unknown; created_at: string;
+    }>(
+      `SELECT id, artifact_type, title, payload, sources, created_at
+       FROM chat_artifacts WHERE id = ? AND project_id = ? LIMIT 1`,
+      itemId, projectId,
+    );
+    if (!row) return error('Not found', 404);
+    return json({
+      id: row.id,
+      source: 'chat_artifact',
+      title: row.title ?? row.artifact_type,
+      content: '',
+      kind: row.artifact_type,
+      doc_type: null,
+      metadata: {},
+      payload: row.payload,
+      sources: Array.isArray(row.sources) ? row.sources : [],
+      created_at: row.created_at,
+      editable: false,
     });
   }
 
@@ -96,19 +122,16 @@ export async function GET(
   );
   if (!row) return error('Not found', 404);
   return json({
-    success: true,
-    data: {
-      id: row.id,
-      source: 'uploaded',
-      title: extractFilenameFromFact(row.fact) ?? 'Uploaded file',
-      content: stripUploadedFilePrefix(row.fact),
-      kind: 'file_upload',
-      doc_type: null,
-      metadata: {},
-      sources: Array.isArray(row.sources) ? row.sources : [],
-      created_at: row.created_at,
-      editable: false,
-    },
+    id: row.id,
+    source: 'uploaded',
+    title: extractFilenameFromFact(row.fact) ?? 'Uploaded file',
+    content: stripUploadedFilePrefix(row.fact),
+    kind: 'file_upload',
+    doc_type: null,
+    metadata: {},
+    sources: Array.isArray(row.sources) ? row.sources : [],
+    created_at: row.created_at,
+    editable: false,
   });
 }
 
@@ -163,7 +186,7 @@ export async function PATCH(
   // map to 404 from the caller's perspective.
   if (result.count === 0) return error('Not found', 404);
 
-  return json({ success: true, data: { id: itemId } });
+  return json({ id: itemId });
 }
 
 export async function DELETE(
@@ -187,14 +210,18 @@ export async function DELETE(
 
   const result = table === 'build_artifacts'
     ? await run('DELETE FROM build_artifacts WHERE id = ? AND project_id = ?', itemId, projectId)
-    : await run(
-        `DELETE FROM memory_facts
-         WHERE id = ? AND project_id = ? AND user_id = ? AND kind = 'file_upload'`,
-        itemId, projectId, userId,
-      );
+    : table === 'chat_artifacts'
+      // Gap C: chat-artifact rows are project-scoped (ownership already verified
+      // above); deleting removes the retrievable card, not the chat transcript.
+      ? await run('DELETE FROM chat_artifacts WHERE id = ? AND project_id = ?', itemId, projectId)
+      : await run(
+          `DELETE FROM memory_facts
+           WHERE id = ? AND project_id = ? AND user_id = ? AND kind = 'file_upload'`,
+          itemId, projectId, userId,
+        );
   if (result.count === 0) return error('Not found', 404);
 
-  return json({ success: true, data: { id: itemId } });
+  return json({ id: itemId });
 }
 
 function extractFilenameFromFact(fact: string): string | null {

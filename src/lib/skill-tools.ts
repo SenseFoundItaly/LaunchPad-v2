@@ -5,6 +5,7 @@ import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import { recordEvent } from './memory/events';
 import { run } from './db';
 import { estimateSkillCredits } from '@/lib/credits';
+import { stageSequenceLock } from '@/lib/journey/stage-lock';
 
 /**
  * Skills-as-tools — converts every launchpad-skills/<skill>/SKILL.md into an
@@ -138,9 +139,32 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
     async execute(_id, params): Promise<AgentToolResult<unknown>> {
       const context = (params as { context?: string }).context || '';
 
+      // STAGE-SEQUENCE LOCK (2026-07-13): Build & Launch / Fundraise / Operate
+      // skills are locked until earlier stages are done. Tell the agent up front
+      // so it EXPLAINS the lock and steers to the open stage, rather than
+      // proposing a runnable option the run gate would then 422. No skill_invoked
+      // event — nothing was really proposed.
+      const lock = await stageSequenceLock(opts.projectId, skill.id);
+      if (lock.locked) {
+        return {
+          content: [{
+            type: 'text',
+            text:
+              `"${skill.frontmatter.name}" is LOCKED. ${lock.message} ` +
+              `Do NOT offer it as a runnable option. Instead, briefly tell the founder it unlocks ` +
+              `once the earlier stages are complete, and steer them to the current open stage's work.`,
+          }],
+          details: { skill_id: skill.id, locked: true, blocking_stage: lock.blockingStage },
+        };
+      }
+
       // Record invocation event BEFORE the call — if the skill throws, we
-      // still have the trace entry for preference learning.
-      await recordEvent({
+      // still have the trace entry for preference learning. The returned id is
+      // the PROPOSAL id: we thread it through the option → run POST →
+      // skill_completed payload so a run can be correlated back to the proposal
+      // that suggested it (open vs. acted-on vs. lapsed). PR-A. recordEvent
+      // returns '' on write failure — we simply omit proposal_id in that case.
+      const proposalId = await recordEvent({
         userId: opts.userId,
         projectId: opts.projectId,
         eventType: 'skill_invoked',
@@ -195,9 +219,13 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
       // options[]. `skill_id` makes the click RUN the skill; `credits` shows the
       // cost before the click. label is verb-first ≤6 words; description is the
       // one-line "what this will do".
+      // `proposal_id` correlates the eventual run back to THIS proposal (PR-A).
+      // Only emitted when the skill_invoked write succeeded (non-empty id) — a
+      // valid crypto.randomUUID needs no escaping.
+      const proposalIdField = proposalId ? `,"proposal_id":"${proposalId}"` : '';
       const optionSnippet =
         `{"id":"${optionId}","label":"Run ${safe(skill.frontmatter.name)}",` +
-        `"description":"${safe(rationale)}","credits":${estCredits},"skill_id":"${safe(skill.id)}"}`;
+        `"description":"${safe(rationale)}","credits":${estCredits},"skill_id":"${safe(skill.id)}"${proposalIdField}}`;
       return {
         content: [{
           type: 'text',
@@ -206,7 +234,8 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
             `no Inbox row, nothing persists unless the founder runs it. Surface it as ONE OPTION in ` +
             `your turn's trailing option-set (do NOT emit a separate card). Add this option object to ` +
             `your option-set's options[] array (tweak the label/description wording to fit, but KEEP ` +
-            `"skill_id" and "credits" exactly — "skill_id" is what makes the click run the skill):\n\n` +
+            `"skill_id", "credits"${proposalId ? ' and "proposal_id"' : ''} exactly — "skill_id" is what makes the click run the skill` +
+            `${proposalId ? ', "proposal_id" links the run back to this suggestion' : ''}):\n\n` +
             `${optionSnippet}\n\n` +
             `Do NOT claim or invent the skill's findings — it has not run yet. One coherent option-set: ` +
             `the skill is just one of the choices, never a duplicate Run card plus a "run it now" option.`,

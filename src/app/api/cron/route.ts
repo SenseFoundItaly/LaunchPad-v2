@@ -34,6 +34,7 @@ import { withEmissionDiscipline } from '@/lib/ecosystem-monitors';
 import { extractAlertsSecondPass } from '@/lib/monitor-extract';
 import { processWatchSourcesCron } from '@/lib/watch-source-processor';
 import { proposeMvpIterationsCron } from '@/lib/mvp/iteration-proposer';
+import { sweepBuildingBuilds } from '@/lib/mvp/build-runner';
 import type { ProcessResult as WatchSourceResult } from '@/lib/watch-source-processor';
 import {
   processCorrelations,
@@ -74,6 +75,22 @@ const STALE_RUN_MINUTES = 15;
  * sweep the 'running' count grows without bound (observed: 51 orphans). Runs at
  * the very top of every tick so the table self-reconciles even if a run dies.
  */
+/**
+ * Gap A: evict expired research_cache rows so the cache (gap-2) doesn't grow
+ * unbounded. Cheap DELETE keyed on the expiry index; runs every cron tick.
+ */
+async function sweepExpiredResearchCache(): Promise<number> {
+  try {
+    const result = await run('DELETE FROM research_cache WHERE expires_at < CURRENT_TIMESTAMP');
+    const n = (result as unknown as { count: number }).count ?? 0;
+    if (n > 0) console.log(`[cron] evicted ${n} expired research_cache row(s)`);
+    return n;
+  } catch (err) {
+    console.warn('[cron] research_cache eviction failed (non-fatal):', (err as Error).message);
+    return 0;
+  }
+}
+
 async function sweepStaleRuns(): Promise<number> {
   const cutoff = new Date(Date.now() - STALE_RUN_MINUTES * 60 * 1000).toISOString();
   const result = await run(
@@ -613,6 +630,7 @@ export async function GET(request: NextRequest) {
   // Self-heal first: flip any run killed mid-flight on a previous tick to
   // 'failed' so the 'running' count can't grow without bound.
   const sweptStaleRuns = await sweepStaleRuns();
+  const evictedResearchCache = await sweepExpiredResearchCache();
 
   // Concurrency guard: if a fresh run is still in flight (duplicate trigger or
   // scheduler-loop re-entry), bail out rather than race it.
@@ -665,6 +683,17 @@ export async function GET(request: NextRequest) {
       console.warn('[cron] processWatchSourcesCron failed:', (err as Error).message);
     }
 
+    // Phase B1: advance in-flight builds (async drivers finish out-of-band) and
+    // reap rows stuck 'building' past the timeout (killed function / driver crash).
+    try {
+      const sweep = await sweepBuildingBuilds({ maxAgeMinutes: 12, limit: 20 });
+      if (sweep.advanced || sweep.reaped) {
+        console.log(`[cron] builds swept: ${sweep.advanced} advanced, ${sweep.reaped} reaped`);
+      }
+    } catch (err) {
+      console.warn('[cron] sweepBuildingBuilds failed:', (err as Error).message);
+    }
+
     // Phase B2: propose MVP build iterations for projects whose live build has
     // new feedback. Cheap SELECT-driven; the expensive delta generation runs only
     // on founder approval (the mvp_build_iteration executor).
@@ -684,6 +713,29 @@ export async function GET(request: NextRequest) {
       briefsExpired = await expireOldBriefs();
     } catch (err) {
       console.warn('[cron] expireOldBriefs failed:', (err as Error).message);
+    }
+
+    // Phase B3 (launch pipeline): due campaign messages → founder-approvable
+    // Inbox proposals. PROPOSES ONLY — nothing sends from cron; sends execute
+    // exclusively in the send_campaign_message / draft executors on Apply.
+    // Pure DB work (no LLM), bounded batch.
+    let campaignSendsProposed = 0;
+    try {
+      const { proposeDueCampaignSends } = await import('@/lib/launch/send-proposer');
+      campaignSendsProposed = await proposeDueCampaignSends(20);
+    } catch (err) {
+      console.warn('[cron] proposeDueCampaignSends failed:', (err as Error).message);
+    }
+
+    // Phase B4 (launch pipeline): mirror Netlify Forms submission counts on
+    // published pages into the `signups` metric (workflow_derived). No-op
+    // without NETLIFY_API_KEY. 2 API calls per asset, bounded.
+    let assetsMeasured = 0;
+    try {
+      const { collectAssetMetrics } = await import('@/lib/launch/measure');
+      assetsMeasured = await collectAssetMetrics(10);
+    } catch (err) {
+      console.warn('[cron] collectAssetMetrics failed:', (err as Error).message);
     }
 
     // Weekly intelligence pulse — reflection + cross-signal correlation +
@@ -837,6 +889,7 @@ export async function GET(request: NextRequest) {
     return json({
       cron_run_id: cronRunId,
       swept_stale_runs: sweptStaleRuns,
+      research_cache_evicted: evictedResearchCache,
       // The scheduler runs each of these via the streaming /api/cron/run-monitor
       // endpoint (Netlify can't complete a monitor agent run inline).
       due_monitor_ids: dueMonitorIds,
@@ -849,6 +902,8 @@ export async function GET(request: NextRequest) {
       correlations_ran: correlationResults.length,
       correlation_results: correlationResults,
       briefs_expired: briefsExpired,
+      campaign_sends_proposed: campaignSendsProposed,
+      assets_measured: assetsMeasured,
       heartbeats_ran: heartbeatResults.length,
       heartbeat_results: heartbeatResults,
       pulse_remaining: pulseRemaining,

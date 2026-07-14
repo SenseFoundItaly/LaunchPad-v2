@@ -76,6 +76,40 @@ export function formatMemoryContextMarkdown(ctx: ProjectContext): string {
     parts.push('');
   }
 
+  // 3b. Open proposals (PR-A) — skills you already suggested that the founder
+  // has NOT run yet. Rendered from a non-evicting query, so unlike the capped
+  // Recent-activity list below, a proposal never silently disappears here. You
+  // MAY reference a lapsed one conversationally ("I suggested Startup Scoring a
+  // couple of turns back — want me to run it?") — that is not nagging. Do NOT
+  // create an Inbox card or re-emit a duplicate proposal for one already listed
+  // here; the founder runs it by clicking the existing option.
+  if (ctx.openProposals && ctx.openProposals.length > 0) {
+    parts.push('## Open proposals (suggested, not yet run)');
+    for (const p of ctx.openProposals) {
+      const turns = p.turns_since === 0
+        ? 'this turn'
+        : `${p.turns_since} turn${p.turns_since === 1 ? '' : 's'} ago`;
+      const again = p.times_proposed > 1 ? ` · proposed ${p.times_proposed}× (still open)` : '';
+      const flag = p.lapsed ? ' · LAPSED' : '';
+      parts.push(`- ${p.skill_id} — suggested ${turns}${again}${flag}`);
+    }
+    parts.push('');
+  }
+
+  // 3c. Open knowledge-suggestion facts (gap 1) — facts you proposed saving
+  // that the founder has NOT applied yet. Same non-evicting rule as skills: do
+  // NOT re-propose a fact already listed here; you MAY mention it ("I flagged
+  // this earlier — want me to add it to your intelligence?").
+  if (ctx.openKnowledgeProposals && ctx.openKnowledgeProposals.length > 0) {
+    parts.push('## Open fact-suggestions (proposed, not yet applied)');
+    for (const k of ctx.openKnowledgeProposals) {
+      const turns = k.turns_since === 0 ? 'this turn' : `${k.turns_since} turn${k.turns_since === 1 ? '' : 's'} ago`;
+      const flag = k.lapsed ? ' · LAPSED' : '';
+      parts.push(`- "${k.fact_preview}" — suggested ${turns}${flag}`);
+    }
+    parts.push('');
+  }
+
   // 4. Recent timeline
   if (ctx.events && ctx.events.length > 0) {
     parts.push('## Recent activity (most recent first)');
@@ -207,8 +241,16 @@ function summarizeEvent(type: string, payload: unknown): string {
   if (type === 'monitor_alert' && typeof p.summary === 'string') return p.summary.slice(0, 140);
   if (type === 'skill_invoked' && typeof p.skill_id === 'string') {
     const inv = p.invoker === 'agent' ? ' (agent)' : '';
-    return `skill=${p.skill_id}${inv}`;
+    return `proposed skill=${p.skill_id}${inv}`;
   }
+  if (type === 'skill_completed' && typeof p.skill_id === 'string') {
+    // PR-A: show whether this run fulfilled a prior proposal.
+    const linked = typeof p.proposal_id === 'string' && p.proposal_id ? ' (ran a proposal)' : '';
+    return `ran skill=${p.skill_id}${linked}`;
+  }
+  if (type === 'knowledge_proposed' && typeof p.preview === 'string') return `proposed fact: ${p.preview.slice(0, 120)}`;
+  if (type === 'knowledge_applied') return 'founder applied a fact to intelligence';
+  if (type === 'option_selected' && typeof p.choice === 'string') return `founder chose: ${p.choice.slice(0, 120)}`;
   if (type === 'heartbeat_reflection' && typeof p.summary === 'string') return p.summary.slice(0, 200);
   return JSON.stringify(payload).slice(0, 160);
 }

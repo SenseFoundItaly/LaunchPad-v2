@@ -29,6 +29,18 @@ import { coerceJson } from '@/lib/jsonb';
  *  never re-type it, so the two can't drift byte-wise. */
 export const MARKET_SIZE_CHECK_SOURCE = 'research.market_size + memory_facts (market sizing)';
 
+/** The bilingual (EN + IT) keyword list the market_size check's prose fallback
+ *  counts. The save_memory_fact spine-moving gate in project-tools.ts MUST test
+ *  the exact same list — a fact matching here while slipping past the gate
+ *  auto-applies and greens the check with no founder yes. The gate once kept
+ *  its own English-only copy and the Italian phrases below drifted past it
+ *  (2026-07-10 audit INV5): "mercato totale ~30 miliardi" greened the check
+ *  ungated. Import this constant, never re-type it. */
+export const MARKET_SIZE_KEYWORDS = [
+  'market size', 'TAM', 'SAM', 'SOM', 'addressable',
+  'dimensione del mercato', 'dimensione di mercato', 'mercato totale', 'mercato indirizzabile',
+] as const;
+
 /** The three 1B check `source` strings — exported so validation-targets.ts can
  *  map the `tech_fact` item kind onto them without re-typing (drift-proof, same
  *  discipline as MARKET_SIZE_CHECK_SOURCE). Keyed by the finding discriminator
@@ -108,10 +120,7 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
       }
       // Keyword fallback (bilingual EN + IT) for projects that sized the
       // market in prose (approved market_size_fact → memory_facts).
-      const n = countMemoryFactsMatching(s, [
-        'market size', 'TAM', 'SAM', 'SOM', 'addressable',
-        'dimensione del mercato', 'dimensione di mercato', 'mercato totale', 'mercato indirizzabile',
-      ]);
+      const n = countMemoryFactsMatching(s, [...MARKET_SIZE_KEYWORDS]);
       const ok = n > 0;
       return ok
         ? { passed: true, evidence: "You've sized the market (TAM/SAM/SOM)." }

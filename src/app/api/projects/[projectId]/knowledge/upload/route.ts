@@ -8,6 +8,7 @@ import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
 import { validationTargetsFor, validationLabel } from '@/lib/journey/validation-targets';
 import { canvasIsEmpty } from '@/lib/idea-canvas-seed';
+import { digestDocument } from '@/lib/document-digest';
 
 const MAX_FILE_BYTES = 10_485_760; // 10 MiB per file — real PDFs/decks are bigger than a text note
 const MAX_FILES_PER_REQUEST = 10;
@@ -61,7 +62,36 @@ function isTextlike(file: File): boolean {
 // turn's memory context. The entity extractor samples the head separately.
 const MAX_STORED_TEXT = 50_000;
 
-type ExtractKind = 'text' | 'pdf' | 'docx';
+type ExtractKind = 'text' | 'pdf' | 'docx' | 'xlsx' | 'pptx';
+
+/** Extract readable text from an OOXML ZIP (xlsx / pptx) with JSZip — no new
+ *  dependency (JSZip already ships for other paths). We pull the cell/slide
+ *  text runs; formatting is dropped (the digest wants content, not layout). */
+export async function extractOoxmlText(buf: Buffer, kind: 'xlsx' | 'pptx'): Promise<string> {
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(buf);
+  const textOf = (xml: string): string[] =>
+    [...xml.matchAll(/<(?:a:t|t)(?:\s[^>]*)?>([\s\S]*?)<\/(?:a:t|t)>/g)]
+      .map((m) => m[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim())
+      .filter(Boolean);
+  const parts: string[] = [];
+  if (kind === 'xlsx') {
+    // Shared strings hold most text; also scan inline sheet strings.
+    const shared = zip.file('xl/sharedStrings.xml');
+    if (shared) parts.push(...textOf(await shared.async('string')));
+    for (const name of Object.keys(zip.files)) {
+      if (/^xl\/worksheets\/sheet\d+\.xml$/.test(name)) parts.push(...textOf(await zip.files[name].async('string')));
+    }
+  } else {
+    // One slide at a time, in order.
+    const slides = Object.keys(zip.files)
+      .filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+      .sort((a, b) => (parseInt(a.match(/\d+/)![0]) - parseInt(b.match(/\d+/)![0])));
+    for (const n of slides) parts.push(...textOf(await zip.files[n].async('string')), '');
+  }
+  return parts.join('\n').trim();
+}
+
 async function extractFileText(
   file: File,
 ): Promise<{ text: string; kind: ExtractKind } | { text: ''; kind: null; reason: string }> {
@@ -100,9 +130,30 @@ async function extractFileText(
     }
   }
 
-  // Legacy binary .doc isn't OOXML — mammoth can't read it.
+  // Spreadsheets (financial models) and slide decks — OOXML ZIPs, read via JSZip.
+  if (ext === 'xlsx' || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
+    try {
+      const text = await extractOoxmlText(buf, 'xlsx');
+      return text ? { text, kind: 'xlsx' } : { text: '', kind: null, reason: 'Spreadsheet had no readable text.' };
+    } catch (e) {
+      return { text: '', kind: null, reason: `Could not read spreadsheet: ${(e as Error).message}` };
+    }
+  }
+  if (ext === 'pptx' || file.type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+    try {
+      const text = await extractOoxmlText(buf, 'pptx');
+      return text ? { text, kind: 'pptx' } : { text: '', kind: null, reason: 'Deck had no readable text (image-only slides?).' };
+    } catch (e) {
+      return { text: '', kind: null, reason: `Could not read slide deck: ${(e as Error).message}` };
+    }
+  }
+
+  // Legacy binary .doc/.xls/.ppt aren't OOXML.
   if (ext === 'doc' || file.type === 'application/msword') {
     return { text: '', kind: null, reason: 'Legacy .doc isn’t supported — save as .docx or PDF.' };
+  }
+  if (ext === 'xls' || ext === 'ppt') {
+    return { text: '', kind: null, reason: `Legacy .${ext} isn’t supported — save as .${ext}x or PDF.` };
   }
 
   if (isTextlike(file)) {
@@ -368,6 +419,12 @@ interface IngestResult {
    *  Undefined when extraction wasn't requested. 0 when nothing parseable. */
   entities_proposed?: number;
   bytes?: number;
+  /** Digest & Prefill (?digest=1): validation items staged / watchers proposed. */
+  digest_staged_items?: number;
+  digest_watchers?: number;
+  /** Present when the upload-time digest covered only the head of a long doc
+   *  (latency-capped at 2 chunks) — the Data Room offers re-digest for the tail. */
+  digest_partial?: { digested: number; total: number };
 }
 
 /**
@@ -403,6 +460,7 @@ export async function POST(
   // ?extract=1 so user uploads auto-propose graph entities.
   const url = new URL(request.url);
   const shouldExtract = url.searchParams.get('extract') === '1';
+  const shouldDigest = url.searchParams.get('digest') === '1';
   // ?audit_charge=1 → bill a flat DOCUMENT_AUDIT_CREDITS per INGESTED document
   // (founder decision 2026-06-14). Off by default so onboarding's first-run
   // upload stays free; the Knowledge-page "Add documents" popup opts in. When
@@ -506,6 +564,25 @@ export async function POST(
         }
       } else {
         result.entities_proposed = 0;
+      }
+    }
+
+    // Digest & Prefill (brownfield founders, ?digest=1): route the document's
+    // canvas/competitor/market-size/tech content + watch-worthy names onto the
+    // journey's approval rails — staged proposals only, nothing auto-greens.
+    // Full stored text (chunked), not just the 16k head. Non-fatal.
+    if (shouldDigest) {
+      try {
+        // Upload runs digest INSIDE the buffered request (after entity
+        // extraction), so cap to 2 chunks to stay within the serverless
+        // function budget. Larger docs get head-prefill here; the /digest retro
+        // endpoint (called separately, not latency-bound) covers the full text.
+        const digest = await digestDocument({ projectId, factId: id, filename: file.name, text, maxChunks: 2 });
+        result.digest_staged_items = digest.staged_items;
+        result.digest_watchers = digest.watcher_proposals;
+        if (digest.partial) result.digest_partial = { digested: digest.chunks, total: digest.total_chunks };
+      } catch (e) {
+        console.warn('[knowledge/upload] digest failed (non-fatal):', (e as Error).message);
       }
     }
 

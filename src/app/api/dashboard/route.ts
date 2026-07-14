@@ -77,6 +77,31 @@ export async function GET() {
   const weeklyMap: Record<string, number> = {};
   for (const w of weeklyAlerts) weeklyMap[w.project_id] = w.count;
 
+  // "% validated" = journey stages DONE out of 7 — the same truth the
+  // in-project spine shows ("N stages validated"). Latest whole-stage event
+  // per (project, stage) from stage_events; skill-run counts (the old metric)
+  // said "how many analyses ran", not "how validated is this" (founder
+  // report 2026-07-14: fully-validated project showed 0%). Projects never
+  // evaluated since stage_events shipped show 0 and self-heal on open.
+  const stageDone = await query<{ project_id: string; stages_done: number }>(
+    `SELECT project_id, COUNT(*) FILTER (WHERE to_status = 'done')::int AS stages_done
+       FROM (
+         SELECT DISTINCT ON (project_id, stage_id) project_id, stage_id, to_status
+           FROM stage_events
+          WHERE check_id IS NULL
+            AND (
+              project_id IN (SELECT id FROM projects WHERE org_id = ?)
+              OR project_id IN (SELECT project_id FROM project_members WHERE user_id = ?)
+            )
+          ORDER BY project_id, stage_id, occurred_at DESC
+       ) latest
+      GROUP BY project_id`,
+    orgId,
+    userId,
+  ).catch(() => [] as { project_id: string; stages_done: number }[]);
+  const stagesDoneMap: Record<string, number> = {};
+  for (const s of stageDone) stagesDoneMap[s.project_id] = s.stages_done;
+
   // Enrich projects — include access_kind + owner_email so the home tile
   // can render a "Shared" badge and "shared by X" hover without re-derive.
   const enriched = projects.map(p => ({
@@ -86,6 +111,8 @@ export async function GET() {
     status: p.status,
     analyses_completed: skillMap[p.id] || 0,
     total_analyses: STAGES.reduce((sum, s) => sum + s.skills.length, 0),
+    stages_validated: stagesDoneMap[p.id] || 0,
+    total_stages: 7,
     weekly_alerts: weeklyMap[p.id] || 0,
     created_at: p.created_at,
     access_kind: p.org_id === orgId ? 'owner' as const : 'member' as const,

@@ -75,7 +75,7 @@ function OptionButton({
       if (state === 'running' || state === 'done') return;
       setState('running');
       try {
-        await onAction('skill:run', { skill_id: option.skill_id });
+        await onAction('skill:run', { skill_id: option.skill_id, proposal_id: option.proposal_id });
         setState('done');
       } catch {
         setState('error');

@@ -57,6 +57,10 @@ export interface BuildResult {
    *  carries the PRIOR version to wait past; on getStatus it carries the CURRENT
    *  version — the poller marks an iteration done when they differ + status is live. */
   versionRef?: string;
+  /** Driver-specific project/container handle (e.g. v0 requires a projectId to
+   *  deploy — chat must be CREATED inside it). Persisted on the build so deploy()
+   *  can reference it. */
+  projectRef?: string;
 }
 
 export interface BuilderAdapter {
@@ -85,8 +89,11 @@ export interface BuilderAdapter {
   iterateAsync?(ref: BuildContextRef, builderRef: string, message: string): Promise<BuildResult>;
   /** Poll the current status + preview URL for an in-flight (or live) build. */
   getStatus?(ref: BuildContextRef, builderRef: string): Promise<BuildResult>;
-  /** Optional: persist/deploy the current build to a shareable live URL. */
-  deploy?(ref: BuildContextRef, builderRef: string): Promise<BuildResult>;
-  /** Optional: fetch the current preview URL for embedding. */
-  getPreviewUrl?(ref: BuildContextRef, builderRef: string): Promise<string | undefined>;
+  /** Optional: persist/deploy the current build to a shareable live URL. `opts`
+   *  carries the persisted project/version handles (v0 needs both to deploy). */
+  deploy?(
+    ref: BuildContextRef,
+    builderRef: string,
+    opts?: { projectRef?: string | null; versionRef?: string | null },
+  ): Promise<BuildResult>;
 }

@@ -226,6 +226,12 @@ CREATE TABLE IF NOT EXISTS validation_loops (
 CREATE INDEX IF NOT EXISTS idx_validation_loops_project_open
   ON validation_loops(project_id, loop_number, status);
 
+-- 034: at most ONE open loop N per project — the DB-level gate that makes the
+-- trigger's check-then-insert race-safe (the loser gets a constraint error).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_validation_loops_one_open
+  ON validation_loops(project_id, loop_number)
+  WHERE status IN ('proposed', 'active', 'in_review');
+
 
 -- =============================================================================
 -- Alerts
@@ -436,12 +442,58 @@ CREATE TABLE IF NOT EXISTS published_assets (
   draft_version_id VARCHAR,
   asset_type VARCHAR NOT NULL,
   slug VARCHAR NOT NULL UNIQUE,
+  -- daytona_* are DORMANT (retired integration) — the launch pipeline uses the
+  -- url/host_ref/publisher columns below (migration 035); do not reuse these.
   daytona_workspace_id VARCHAR,
   daytona_url VARCHAR,
+  url TEXT,                        -- live URL written by the launch publisher
+  host_ref VARCHAR,                -- publisher handle (netlify site_id, 'stub')
+  publisher VARCHAR,               -- stub | netlify
+  source_artifact_id VARCHAR,      -- build_artifacts(id) the publish came from
+  source_build_id VARCHAR,         -- mvp_builds(id) (record-only path, PR-D)
+  watch_source_id VARCHAR,         -- watch_sources(id) monitoring the live URL
   metadata JSONB,
   is_active BOOLEAN DEFAULT true,
   published_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- =============================================================================
+-- Launch pipeline — campaigns (email sequences / social calendars / ad packs)
+-- Per-message send lifecycle is founder-gated: cron only PROPOSES a send
+-- (pending_actions send_campaign_message); the executor sends on Apply.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS campaigns (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind VARCHAR NOT NULL,                    -- email_sequence | social_calendar | ad_pack
+  title VARCHAR NOT NULL,
+  source_artifact_id VARCHAR,
+  status VARCHAR NOT NULL DEFAULT 'draft',  -- draft | active | paused | completed | archived
+  config JSONB DEFAULT '{}',                -- recipients[], cadence (founder-provided)
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_campaigns_project ON campaigns(project_id, status);
+
+CREATE TABLE IF NOT EXISTS campaign_messages (
+  id VARCHAR PRIMARY KEY,
+  campaign_id VARCHAR NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  channel VARCHAR NOT NULL,                 -- email | linkedin | x | other
+  position INTEGER NOT NULL DEFAULT 1,
+  subject VARCHAR,
+  body TEXT NOT NULL,
+  scheduled_at TIMESTAMP,                   -- when cron should PROPOSE the send
+  status VARCHAR NOT NULL DEFAULT 'draft',  -- draft | proposed | sent | skipped | failed
+  sent_at TIMESTAMP,
+  send_ref VARCHAR,                         -- resend broadcast id / share URL / 'stub'
+  recipient_count INTEGER,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_campaign_messages_due
+  ON campaign_messages(project_id, status, scheduled_at);
 
 -- =============================================================================
 -- LLM Usage Logs (telemetry / cost tracking)
@@ -1033,3 +1085,51 @@ CREATE INDEX IF NOT EXISTS idx_assumptions_project_status
 CREATE INDEX IF NOT EXISTS idx_assumptions_project_criticality
   ON assumptions(project_id, criticality, status);
 
+
+-- =============================================================================
+-- Research cache (gap 2, 2026-07-12) — durable TTL'd home for web_search /
+-- read_url results so repeated queries are served from cache (cost) and sources
+-- survive. GLOBAL (project-agnostic), keyed by sha1(tool:normalized_key).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS research_cache (
+  id           VARCHAR PRIMARY KEY,
+  tool         VARCHAR NOT NULL,
+  cache_key    VARCHAR NOT NULL,
+  result_text  TEXT NOT NULL,
+  sources      JSONB NOT NULL DEFAULT '[]',
+  created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at   TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_cache_expiry ON research_cache(expires_at);
+
+-- =============================================================================
+-- Stage transition history (gap 5, 2026-07-12) — append-only log of journey
+-- check/stage verdict changes (the evaluator stays pure; the write lives in
+-- recordStageTransitions). Answers "when did Stage N close?" / week-over-week.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS stage_events (
+  id            VARCHAR PRIMARY KEY,
+  project_id    VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  stage_id      VARCHAR NOT NULL,
+  stage_number  INTEGER,
+  check_id      VARCHAR,
+  from_status   VARCHAR,
+  to_status     VARCHAR NOT NULL,
+  occurred_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_stage_events_project_time ON stage_events(project_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stage_events_project_check ON stage_events(project_id, check_id);
+
+-- =============================================================================
+-- Score history (2026-07-13) — append-only startup-score trajectory over the
+-- single-row `scores` snapshot.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS score_history (
+  id             VARCHAR PRIMARY KEY,
+  project_id     VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  overall_score  DOUBLE PRECISION NOT NULL,
+  recommendation TEXT,
+  source         VARCHAR,
+  created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_score_history_project_time ON score_history(project_id, created_at DESC);

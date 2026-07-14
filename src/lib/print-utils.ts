@@ -96,3 +96,41 @@ export function openPrintPreview(title: string, content: string) {
   w.document.close();
   setTimeout(() => w.print(), 300);
 }
+
+/** Filesystem-safe filename stem from a document title. */
+export function slugifyFilename(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'document';
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Download document content as a .md file. */
+export function downloadMarkdownFile(title: string, content: string) {
+  downloadBlob(
+    new Blob([content], { type: 'text/markdown' }),
+    `${slugifyFilename(title)}.md`,
+  );
+}
+
+/**
+ * Download as a Word-compatible .doc. Word (and Pages/LibreOffice) opens
+ * HTML served with the msword MIME type, so we reuse the print HTML — no
+ * docx dependency needed. The BOM keeps Word's charset sniffing honest.
+ */
+export function downloadWordFile(title: string, content: string) {
+  downloadBlob(
+    new Blob(['﻿', generatePrintHTML(title, content)], { type: 'application/msword' }),
+    `${slugifyFilename(title)}.doc`,
+  );
+}

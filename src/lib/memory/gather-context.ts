@@ -1,8 +1,8 @@
 import { get, query } from '@/lib/db';
 import { listFacts } from './facts';
-import { listEvents } from './events';
+import { listEvents, openProposals, openKnowledgeProposals } from './events';
 import type { MemoryFact } from './facts';
-import type { MemoryEvent } from './events';
+import type { MemoryEvent, OpenProposal, OpenKnowledgeProposal } from './events';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -120,6 +120,10 @@ export interface ProjectContext {
   score: ScoreSnapshot | null;
   facts: MemoryFact[] | null;
   events: MemoryEvent[] | null;
+  /** PR-A: still-open agent skill proposals (non-evicting, unlike `events`). */
+  openProposals: OpenProposal[] | null;
+  /** Gap 1: still-open knowledge-suggestion facts (proposed, not yet applied). */
+  openKnowledgeProposals: OpenKnowledgeProposal[] | null;
   inbox: InboxItem[] | null;
   tasks: TaskItem[] | null;
   briefs: BriefItem[] | null;
@@ -201,6 +205,8 @@ export async function gatherProjectContext(
     score,
     facts,
     events,
+    openProps,
+    openKnowledgeProps,
     inbox,
     tasks,
     briefs,
@@ -229,6 +235,20 @@ export async function gatherProjectContext(
     // events
     loadSection('events', () =>
       listEvents(factsUserId, projectId, { limit: maxEvents }),
+      failedSections,
+    ),
+
+    // open proposals (PR-A) — non-evicting: agent skills suggested but not yet
+    // run. Kept separate from `events` so a proposal never scrolls out of the
+    // capped recent-activity window before the founder acts on it.
+    loadSection('openProposals', () =>
+      openProposals(factsUserId, projectId),
+      failedSections,
+    ),
+
+    // open knowledge-suggestion facts (gap 1) — same non-evicting rationale.
+    loadSection('openKnowledgeProposals', () =>
+      openKnowledgeProposals(factsUserId, projectId),
       failedSections,
     ),
 
@@ -392,6 +412,8 @@ export async function gatherProjectContext(
     score,
     facts,
     events,
+    openProposals: openProps,
+    openKnowledgeProposals: openKnowledgeProps,
     inbox,
     tasks,
     briefs,

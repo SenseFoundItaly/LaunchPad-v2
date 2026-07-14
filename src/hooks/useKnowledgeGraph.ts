@@ -13,12 +13,17 @@ export function useKnowledgeGraph(projectId: string) {
   // sharing. We deliberately don't memoize so projectId changes work cleanly.
   const key = ['knowledge', projectId, 'graph'] as const;
 
-  const { data, isLoading } = useQuery<KnowledgeGraphData>({
+  const { data, isLoading, isError } = useQuery<KnowledgeGraphData>({
     queryKey: key,
     enabled: !!projectId,
     queryFn: async () => {
+      // Throw on failure instead of mapping it to EMPTY: a fetch error
+      // rendered as "no ecosystem yet" told the founder the project was
+      // empty during an outage. axios already rejects on non-2xx; this
+      // covers the 200-but-{success:false} shape.
       const { data } = await api.get(`/api/graph/${projectId}`);
-      return data?.success ? data.data : EMPTY;
+      if (!data?.success) throw new Error('graph fetch failed');
+      return data.data as KnowledgeGraphData;
     },
   });
 
@@ -118,5 +123,5 @@ export function useKnowledgeGraph(projectId: string) {
     [projectId, qc],
   );
 
-  return { graph, loading: isLoading, addNode, addEdge };
+  return { graph, loading: isLoading, errored: isError, addNode, addEdge };
 }

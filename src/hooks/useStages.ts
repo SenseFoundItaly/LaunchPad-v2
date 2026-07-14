@@ -41,6 +41,11 @@ export function useStages(projectId: string) {
     enabled: !!projectId,
     queryFn: async () => {
       const res = await fetch(`/api/projects/${projectId}/stages`);
+      // Without this guard a 500 (HTML error page) rejected inside res.json(),
+      // and every consumer that defaults `data = []` rendered its EMPTY state
+      // — on StageCard that was an infinite dim skeleton. Throwing puts the
+      // query into isError, which consumers can (and StageCard does) surface.
+      if (!res.ok) throw new Error(`stages fetch failed: ${res.status}`);
       const body = await res.json();
       const inner = body?.data ?? body;
       const list: StageEvaluation[] = Array.isArray(inner?.evaluations) ? inner.evaluations : [];

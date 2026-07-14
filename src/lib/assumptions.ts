@@ -159,6 +159,22 @@ export async function extractAssumptions(
       result.skipped++;
       continue;
     }
+    // Idempotency guard: this function appends by MAX(number)+1, so the
+    // ON CONFLICT (project_id, number) clause is dead (every number is fresh) —
+    // a second call (the extract_assumptions chat tool or a re-POST to the
+    // context route both invoke this unguarded) would duplicate the whole
+    // registry and double the open_high premortem count. Skip any assumption
+    // whose text already exists for the project (mirrors recordFact's LOWER
+    // dedup).
+    const dup = await get<{ id: string }>(
+      'SELECT id FROM assumptions WHERE project_id = ? AND LOWER(text) = LOWER(?) LIMIT 1',
+      projectId,
+      item.text,
+    );
+    if (dup) {
+      result.skipped++;
+      continue;
+    }
     try {
       await run(
         `INSERT INTO assumptions

@@ -34,6 +34,8 @@ import ValidationProposalCard from '@/components/chat/artifacts/ValidationPropos
 import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard';
 import { Canvas, type PendingPlaceholder } from '@/components/canvas/Canvas';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
+import BuildHub from '@/components/build/BuildHub';
+import LaunchPanel from '@/components/launch/LaunchPanel';
 import { TopBar, NavRail } from '@/components/design/chrome';
 // CreditsBadge is now mounted globally inside TopBar (see chrome.tsx) so we
 // don't import or insert it here. The `right` slot below only carries the
@@ -449,6 +451,16 @@ export default function CopilotChatPage({
   const step = 'chat';
   const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages } = useChat(projectId, step);
   const [input, setInput] = useState('');
+  // Co-pilot surface tab: what the RIGHT pane shows next to the persistent
+  // chat column — 'chat' (artifact canvas) | 'build' (MVP preview) | 'growth'
+  // (launch panel). Deep-linkable via ?tab=build / ?tab=growth (NavRail + old
+  // /build and /launch routes land here). window.location, not
+  // useSearchParams — same client-only pattern as the prefill param below.
+  const [surfaceTab, setSurfaceTab] = useState<'chat' | 'build' | 'growth'>(() => {
+    if (typeof window === 'undefined') return 'chat';
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return tab === 'build' || tab === 'growth' ? tab : 'chat';
+  });
   // Option-set selection memory (see OptionSelectionContext): which option the
   // founder picked per set, so a chosen set locks — saved, not clickable. First
   // pick wins (later clicks on the same set are ignored).
@@ -549,11 +561,12 @@ export default function CopilotChatPage({
   // canvas skill kickoffs) is a deliberate jump to the live edge — queue a
   // one-shot pin so the user's own turn always lands in view, even if they
   // had scrolled up. Wrapping here centralizes it instead of sprinkling the
-  // flag across call sites.
+  // flag across call sites. Also rides the surface hint: when the Build or
+  // Growth pane is open, the agent is told so it adapts to what's on screen.
   const sendMessage = useCallback((content: string) => {
     forceScrollRef.current = true;
-    sendMessageRaw(content);
-  }, [sendMessageRaw]);
+    sendMessageRaw(content, surfaceTab !== 'chat' ? { surface: surfaceTab } : undefined);
+  }, [sendMessageRaw, surfaceTab]);
 
   // Fire lp-actions-changed immediately when streaming ends so downstream
   // surfaces (badge counts, inline cards) refetch without waiting for poll.
@@ -1054,6 +1067,11 @@ export default function CopilotChatPage({
         if (typeof payload.context === 'string' && payload.context) {
           reqBody.context = payload.context;
         }
+        // PR-A: correlate this run back to the proposal that suggested it, so
+        // the skill_completed event records which proposal was acted on.
+        if (typeof payload.proposal_id === 'string' && payload.proposal_id) {
+          reqBody.proposal_id = payload.proposal_id;
+        }
         const res = await fetch(`/api/projects/${projectId}/skills`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1077,8 +1095,9 @@ export default function CopilotChatPage({
           if (res.status === 422) {
             const body = await res.json().catch(() => null);
             // missing_prerequisites = canvas gate; validation_gate_locked = 1C
-            // gate (customer-interviews before 1A+1B). Same graceful surface.
-            if ((body?.error === 'missing_prerequisites' || body?.error === 'validation_gate_locked') && body?.message) {
+            // gate (customer-interviews before 1A+1B); stage_locked = Build/
+            // Fundraise/Operate (5-7) before earlier stages done. Same surface.
+            if ((body?.error === 'missing_prerequisites' || body?.error === 'validation_gate_locked' || body?.error === 'stage_locked') && body?.message) {
               setMessages((prev) => [
                 ...prev,
                 {
@@ -1368,6 +1387,30 @@ export default function CopilotChatPage({
   return (
     <GatedSkillsContext.Provider value={gatedSkills}>
      <OptionSelectionContext.Provider value={optionSelection}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      {/* Co-pilot surface tabs (founder directive 2026-07-14, v2): the chat
+          column stays put — the tabs swap only the RIGHT pane: the artifact
+          canvas, the Build preview, or the Growth (launch) panel. The agent is
+          told which surface is open (surface hint on sendMessage), so the
+          conversation adapts to what the founder is looking at. */}
+      <div style={{ display: 'flex', gap: 6, padding: '8px 20px 0', borderBottom: '1px solid var(--line)', background: 'var(--paper)' }}>
+        {(['chat', 'build', 'growth'] as const).map((tb) => (
+          <button
+            key={tb}
+            onClick={() => setSurfaceTab(tb)}
+            className="lp-mono"
+            style={{
+              fontSize: 11, fontWeight: 600, letterSpacing: 0.3, padding: '6px 12px',
+              border: 'none', background: 'transparent', cursor: 'pointer',
+              color: surfaceTab === tb ? 'var(--ink-1)' : 'var(--ink-5)',
+              borderBottom: surfaceTab === tb ? '2px solid var(--accent)' : '2px solid transparent',
+            }}
+          >
+            {tb === 'chat' ? t('chat.tab-copilot') : tb === 'build' ? t('chat.tab-build') : t('chat.tab-growth')}
+          </button>
+        ))}
+      </div>
+
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Chat column */}
         <div
@@ -1502,10 +1545,32 @@ export default function CopilotChatPage({
               })
             }
             onAuditDocs={() => setShowAddDocs(true)}
+            onSaveToDataRoom={async (text) => {
+              // Long-paste bridge: pasted chat text is ephemeral (never reaches
+              // the spine/skills) — persist it as an uploaded document instead,
+              // through the same extract+digest pipeline as a file upload.
+              try {
+                const form = new FormData();
+                const stamp = new Date().toISOString().slice(0, 10);
+                form.append('file', new Blob([text], { type: 'text/plain' }), `pasted-${stamp}.txt`);
+                const res = await fetch(`/api/projects/${projectId}/knowledge/upload?extract=1&digest=1`, {
+                  method: 'POST',
+                  body: form,
+                });
+                const body = await res.json().catch(() => null);
+                if (!res.ok || body?.success === false) return null;
+                window.dispatchEvent(new CustomEvent('lp-knowledge-changed', { detail: { projectId } }));
+                window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+                const r0 = body?.data?.results?.[0];
+                return { staged: typeof r0?.digest_staged_items === 'number' ? r0.digest_staged_items : 0 };
+              } catch {
+                return null;
+              }
+            }}
           />
         </div>
 
-        {/* Canvas */}
+        {/* Right pane — canvas / build preview / growth panel per surface tab. */}
         <div
           data-tour="chat-canvas"
           style={{
@@ -1516,6 +1581,15 @@ export default function CopilotChatPage({
             background: 'var(--paper-2)',
           }}
         >
+          {surfaceTab === 'build' ? (
+            <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+              <BuildHub projectId={projectId} embedded />
+            </div>
+          ) : surfaceTab === 'growth' ? (
+            <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0, padding: 20 }}>
+              <LaunchPanel projectId={projectId} />
+            </div>
+          ) : (
           <Canvas
             projectId={projectId}
             locale={locale}
@@ -1544,6 +1618,7 @@ export default function CopilotChatPage({
               }
             }}
           />
+          )}
         </div>
       </div>
 
@@ -1561,6 +1636,7 @@ export default function CopilotChatPage({
           }}
         />
       )}
+      </div>
 
      </OptionSelectionContext.Provider>
     </GatedSkillsContext.Provider>
@@ -3189,6 +3265,10 @@ function MsgActions({
   );
 }
 
+/** A paste at or above this length is offered the Data Room route — long
+ *  enough to be a document, not a link or a sentence. */
+const LONG_PASTE_CHARS = 1_500;
+
 function ChatComposer({
   value,
   onChange,
@@ -3198,6 +3278,7 @@ function ChatComposer({
   onInsertTemplate,
   onAttachText,
   onAuditDocs,
+  onSaveToDataRoom,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -3209,10 +3290,41 @@ function ChatComposer({
   /** Opens the priced "audit document → knowledge" popup (distinct from the
    *  inline text attach above, which just pastes file text into the message). */
   onAuditDocs?: () => void;
+  /** Long-paste bridge: persist the pasted text as an uploaded document
+   *  (Data Room + digest → staged Inbox proposals). Returns the staged count,
+   *  or null on failure. Pasted chat text is otherwise ephemeral — it never
+   *  reaches the spine or skills. */
+  onSaveToDataRoom?: (text: string) => Promise<{ staged: number } | null>;
 }) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
+  // Long-paste bridge state: the pasted block we offered to save, and the
+  // one-line outcome notice after saving. The offer self-dismisses when the
+  // paste is no longer part of the message (edited away or sent).
+  const [pendingPaste, setPendingPaste] = useState<string | null>(null);
+  const [pasteNotice, setPasteNotice] = useState<string | null>(null);
+  const [savingPaste, setSavingPaste] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pasteOfferVisible = !!pendingPaste && !!onSaveToDataRoom && value.includes(pendingPaste);
+
+  async function savePasteToDataRoom() {
+    if (!pendingPaste || !onSaveToDataRoom || savingPaste) return;
+    setSavingPaste(true);
+    try {
+      const result = await onSaveToDataRoom(pendingPaste);
+      if (result) {
+        // Remove the saved block from the draft; keep whatever the founder
+        // typed around it.
+        onChange(value.replace(pendingPaste, '').trim());
+        setPendingPaste(null);
+        setPasteNotice(t('chat.paste-saved', { count: result.staged }));
+      } else {
+        setPasteNotice(t('chat.paste-save-failed'));
+      }
+    } finally {
+      setSavingPaste(false);
+    }
+  }
 
   const templates = [
     { label: t('chat.template-metrics-label'), text: t('chat.template-metrics-text') },
@@ -3251,6 +3363,14 @@ function ChatComposer({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={(e) => {
+            const text = e.clipboardData?.getData('text') ?? '';
+            if (text.length >= LONG_PASTE_CHARS && onSaveToDataRoom) {
+              // Default paste proceeds — we only offer the durable route.
+              setPendingPaste(text);
+              setPasteNotice(null);
+            }
+          }}
           placeholder={t('chat.composer-placeholder')}
           rows={2}
           disabled={disabled}
@@ -3268,6 +3388,41 @@ function ChatComposer({
             minHeight: 40,
           }}
         />
+        {pasteOfferVisible && (
+          <div
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+              marginTop: 6, padding: '6px 8px', borderRadius: 'var(--r-m)',
+              background: 'var(--paper-2)', border: '1px dashed var(--line-2)',
+              fontSize: 11.5, color: 'var(--ink-3)',
+            }}
+          >
+            <span style={{ flex: 1, minWidth: 140 }}>{t('chat.paste-detected')}</span>
+            <button
+              onClick={() => void savePasteToDataRoom()}
+              disabled={savingPaste}
+              style={{
+                border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)', cursor: savingPaste ? 'progress' : 'pointer',
+                background: 'var(--ink)', color: 'var(--paper)', padding: '4px 8px', fontSize: 11, fontFamily: 'inherit',
+              }}
+            >
+              {savingPaste ? t('chat.paste-saving') : t('chat.paste-save')}
+            </button>
+            <button
+              onClick={() => setPendingPaste(null)}
+              disabled={savingPaste}
+              style={{
+                border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)', cursor: 'pointer',
+                background: 'transparent', color: 'var(--ink-3)', padding: '4px 8px', fontSize: 11, fontFamily: 'inherit',
+              }}
+            >
+              {t('chat.paste-keep')}
+            </button>
+          </div>
+        )}
+        {pasteNotice && !pasteOfferVisible && (
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)' }}>{pasteNotice}</div>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, position: 'relative' }}>
           <div style={{ position: 'relative' }}>
             <IconBtn

@@ -32,7 +32,8 @@ export const MAX_ACTIVE_MONITORS_PER_PROJECT = 10;
 export interface MonitorProposalInput {
   name: string;
   kind: string;
-  schedule: 'daily' | 'weekly';
+  /** 'monthly' rides only black-swan scenario watchers (long-horizon signals). */
+  schedule: 'daily' | 'weekly' | 'monthly';
   query?: string;
   urls_to_track?: string[];
   alert_threshold: string;
@@ -175,17 +176,29 @@ export async function checkDedup(
   // happen to produce the same normalized (url_set + query) combination
   // but different names — e.g. agent reproposing a known monitor with a
   // reworded title. The indexed lookup is O(1).
-  const hashDup = await get<{ id: string; name: string }>(
-    'SELECT id, name FROM monitors WHERE project_id = ? AND status = ? AND dedup_hash = ? LIMIT 1',
-    projectId, 'active', dedup_hash,
-  );
-  if (hashDup) {
-    return {
-      ok: false,
-      error: 'duplicate_for_risk_kind',  // surface as same error — the UX is identical
-      existing_monitor_id: hashDup.id,
-      existing_name: hashDup.name,
-    };
+  //
+  // Skipped when the proposal has NEITHER urls NOR a query: the hash
+  // degenerates to H("#"), shared by every empty-input monitor, so "exact
+  // match" would collapse all prompt-only signal watchers into one approvable
+  // sibling — the rest failing at apply time with duplicate_for_risk_kind
+  // (this is how only 1 of 5 black-swan watchers could ever be approved).
+  // Empty-input monitors remain protected by L1.0 (cap), L1.1 (risk+kind)
+  // and L2 (semantic).
+  const hasHashInput =
+    (proposal.urls_to_track ?? []).some((u) => u.trim()) || !!(proposal.query ?? '').trim();
+  if (hasHashInput) {
+    const hashDup = await get<{ id: string; name: string }>(
+      'SELECT id, name FROM monitors WHERE project_id = ? AND status = ? AND dedup_hash = ? LIMIT 1',
+      projectId, 'active', dedup_hash,
+    );
+    if (hashDup) {
+      return {
+        ok: false,
+        error: 'duplicate_for_risk_kind',  // surface as same error — the UX is identical
+        existing_monitor_id: hashDup.id,
+        existing_name: hashDup.name,
+      };
+    }
   }
 
   // L2 — Haiku semantic classifier. Only runs if we have a non-trivial

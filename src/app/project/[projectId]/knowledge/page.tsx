@@ -15,6 +15,7 @@ import { use, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useT } from '@/components/providers/LocaleProvider';
 import { useSetChrome } from '@/components/design/chrome-context';
+import { PanelBoundary } from '@/components/design/PanelBoundary';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import KnowledgeGraph from '@/components/graph/KnowledgeGraph';
 import type { TimelineEntry } from '@/components/graph/NodeDetailPanel';
@@ -280,7 +281,9 @@ export default function KnowledgePage({
           </div>
         ) : view === 'list' ? (
           <div style={{ position: 'absolute', inset: 0, overflow: 'auto', padding: 16 }}>
-            <AllKnowledgePanel projectId={projectId} />
+            <PanelBoundary resetKey={projectId}>
+              <AllKnowledgePanel projectId={projectId} />
+            </PanelBoundary>
           </div>
         ) : graphLoading ? (
           <GraphEmpty message={t('knowledge.loading-graph')} />
@@ -295,7 +298,11 @@ export default function KnowledgePage({
           // The graph now groups nodes into tinted macro-category regions even
           // with zero real edges, so the old "disconnected dots → grid" fallback
           // is no longer needed — the grouped graph IS the good edgeless view.
-          <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} onDeleteTimelineEntry={deleteTimelineEntry} showEmptyCategories initialFocusedCategory={initialCat} />
+          // Boundary-wrapped: a d3-simulation render throw must not take the
+          // whole Knowledge surface (incl. the textual list) down with it.
+          <PanelBoundary resetKey={projectId}>
+            <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} onDeleteTimelineEntry={deleteTimelineEntry} showEmptyCategories initialFocusedCategory={initialCat} />
+          </PanelBoundary>
         )}
         {view === 'graph' && pendingCount > 0 && (
           <div

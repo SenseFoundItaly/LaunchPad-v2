@@ -124,6 +124,12 @@ export const STAGES: StageDef[] = [
       { id: 'build-landing-page', label: 'Landing Page', route: 'chat?skill=build-landing-page', dataKey: 'build_landing_page' },
       { id: 'build-pitch-deck', label: 'Pitch Deck', route: 'chat?skill=build-pitch-deck', dataKey: 'build_pitch_deck' },
       { id: 'build-one-pager', label: 'One-Pager', route: 'chat?skill=build-one-pager', dataKey: 'build_one_pager' },
+      // Launch pipeline (growth lane): executable GTM deliverables. Each emits
+      // ONE structured artifact captured as a draft campaign — sending stays
+      // founder-gated in the Inbox.
+      { id: 'email-sequence', label: 'Email Sequence', route: 'chat?skill=email-sequence', dataKey: 'email_sequence' },
+      { id: 'social-calendar', label: 'Social Calendar', route: 'chat?skill=social-calendar', dataKey: 'social_calendar' },
+      { id: 'ad-campaign', label: 'Ad Campaign', route: 'chat?skill=ad-campaign', dataKey: 'ad_campaign' },
     ],
   },
   {
@@ -169,6 +175,9 @@ export const SKILL_KICKOFFS: Record<string, string> = {
   'build-landing-page': 'Build me a responsive landing page based on my validated idea, market research, and brand positioning.',
   'build-pitch-deck': 'Build a Sequoia-format investor pitch deck using my validated project data.',
   'build-one-pager': 'Create a concise executive summary one-pager for investor outreach.',
+  'email-sequence': 'Draft a launch email sequence (3-5 staged messages) grounded in my GTM strategy — I will provide the recipient list when I activate it.',
+  'social-calendar': 'Plan a 2-week social posting calendar (LinkedIn + X) for my launch, grounded in my positioning and GTM strategy.',
+  'ad-campaign': 'Build an ad campaign pack for Meta and Google — audiences, budget split, and ad copy variants I can export into the ad editors.',
 };
 
 /** Contextual next steps shown in the skill detail panel after completion */

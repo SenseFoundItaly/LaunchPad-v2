@@ -28,7 +28,10 @@ export type ArtifactType =
   | 'idea-canvas'
   | 'tam-sam-som'
   | 'investor-pipeline'
-  | 'weekly-update';
+  | 'weekly-update'
+  | 'email-sequence'
+  | 'ad-pack'
+  | 'social-calendar';
 
 /**
  * Source — verifiable provenance for every factual claim the agent makes.
@@ -132,6 +135,11 @@ export interface OptionSet extends ArtifactBase {
     description: string;
     credits?: number;
     skill_id?: string;
+    // `proposal_id` — the memory_events id of the skill_invoked proposal that
+    // suggested this skill (PR-A). Threaded through the run POST so the eventual
+    // skill_completed can be correlated back to the proposal (open/acted/lapsed
+    // in the agent's context). Only present on agent-proposed skill options.
+    proposal_id?: string;
     loop_verdict?: 'GO' | 'PIVOT' | 'STOP';
     loop_id?: string;
     commit?: {
@@ -221,13 +229,26 @@ export interface EntityCard extends ArtifactBase {
   sources: Source[];
 }
 
+/**
+ * A typed workflow step (launch pipeline W4). `kind` names the LaunchPad
+ * executor that can run the step one-click; plain strings and kind 'manual'
+ * stay founder-tracked checkboxes. Backward compatible: every pre-existing
+ * card's string steps parse as manual.
+ */
+export interface WorkflowStep {
+  label: string;
+  kind?: 'publish_landing_page' | 'email_sequence' | 'social_calendar' | 'ad_pack' | 'run_skill' | 'manual';
+  skill_id?: string;
+  params?: Record<string, unknown>;
+}
+
 export interface WorkflowCard extends ArtifactBase {
   type: 'workflow-card';
   title: string;
   category: 'hiring' | 'marketing' | 'fundraising' | 'product' | 'legal' | 'operations' | 'sales';
   description: string;
   priority: 'high' | 'medium' | 'low';
-  steps: string[];
+  steps: (string | WorkflowStep)[];
   // REQUIRED — a proposed workflow is synthesis; must cite the analysis
   // or data that motivated it so the founder knows why to run it.
   sources: Source[];
@@ -346,7 +367,10 @@ export interface MonitorProposalArtifact extends ArtifactBase {
    *  the field (executor / reader derives a fallback from linked_quote). */
   objective?: string;
   kind: 'competitor' | 'regulation' | 'market' | 'partner' | 'technology' | 'funding' | 'custom';
-  schedule: 'daily' | 'weekly';
+  /** 'monthly' rides the long-horizon black-swan scenario watchers — keep in
+   *  lockstep with MonitorProposalInput.schedule (monitor-dedup.ts) so an
+   *  artifact Edit UI can never silently rewrite monthly→weekly. */
+  schedule: 'daily' | 'weekly' | 'monthly';
   query?: string;
   urls_to_track?: string[];
   alert_threshold: string;
@@ -774,6 +798,68 @@ export interface WeeklyUpdateArtifact extends ArtifactBase {
   sources?: Source[];
 }
 
+/**
+ * `email-sequence` — a founder-approvable email campaign (launch pipeline).
+ * Persisting captures a draft `campaigns` row + per-message drafts; nothing
+ * is EVER sent from the artifact — sends are cron-PROPOSED and leave only on
+ * Inbox Apply. Recipients are never generated; the founder provides them at
+ * activation.
+ */
+export interface EmailSequenceArtifact extends ArtifactBase {
+  type: 'email-sequence';
+  title: string;
+  goal: 'launch' | 'waitlist' | 'nurture';
+  messages: Array<{
+    position: number;
+    subject: string;
+    body_html: string;
+    send_offset_days: number;
+  }>;
+  audience_notes?: string;
+  sources: Source[];
+}
+
+/**
+ * `ad-pack` — export-first ad campaign spec (launch pipeline). Downloads as
+ * Google Ads Editor CSV / Meta bulk JSON from the card; no ad-platform APIs.
+ */
+export interface AdPackArtifact extends ArtifactBase {
+  type: 'ad-pack';
+  title: string;
+  platform_targets: Array<'meta' | 'google'>;
+  audiences: Array<{ name: string; targeting_notes: string; rationale: string }>;
+  budget: { total_monthly_usd: number; split: Array<{ audience: string; pct: number }> };
+  ads: Array<{
+    audience: string;
+    headlines: string[];
+    descriptions: string[];
+    primary_text?: string;
+    image_prompt?: string;
+    cta?: string;
+  }>;
+  final_url?: string;
+  sources: Source[];
+}
+
+/**
+ * `social-calendar` — a scheduled post queue (launch pipeline). Persisting
+ * captures a campaigns row + one campaign_message per post; due posts are
+ * cron-PROPOSED and leave only via founder-approved drafts (or the Ayrshare
+ * driver, still behind an Inbox Apply).
+ */
+export interface SocialCalendarArtifact extends ArtifactBase {
+  type: 'social-calendar';
+  title: string;
+  posts: Array<{
+    position: number;
+    channel: 'linkedin' | 'x';
+    body: string;
+    day_offset: number;
+    best_time_hint?: string;
+  }>;
+  sources: Source[];
+}
+
 export type Artifact =
   | OptionSet
   | InsightCard
@@ -804,7 +890,10 @@ export type Artifact =
   | IdeaCanvasArtifact
   | TamSamSomArtifact
   | InvestorPipelineArtifact
-  | WeeklyUpdateArtifact;
+  | WeeklyUpdateArtifact
+  | EmailSequenceArtifact
+  | AdPackArtifact
+  | SocialCalendarArtifact;
 
 /**
  * Set of artifact types that MUST have non-empty sources. Parser uses this
@@ -833,6 +922,11 @@ export const ARTIFACTS_REQUIRING_SOURCES: ReadonlySet<ArtifactType> = new Set([
   'persona-card',
   'risk-matrix',
   'tam-sam-som',
+  // Launch pipeline deliverables — synthesis that motivates real-world spend;
+  // must cite the strategy/data behind it.
+  'email-sequence',
+  'ad-pack',
+  'social-calendar',
 ]);
 
 /**

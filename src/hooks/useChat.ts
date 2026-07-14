@@ -107,7 +107,7 @@ export function useChat(projectId: string, step: string = 'chat') {
   );
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, opts?: { surface?: 'build' | 'growth' }) => {
       // A fresh manual send supersedes any message stashed for auto-resend.
       pendingResends.delete(keyFor(projectId, step));
       // Read the live store (not a stale closure) so concurrent mounts agree.
@@ -147,6 +147,10 @@ export function useChat(projectId: string, step: string = 'chat') {
             project_id: projectId,
             step,
             messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
+            // Which co-pilot surface is open next to the conversation (build
+            // preview / growth panel) — the route injects a context line so
+            // the agent adapts to what the founder is looking at.
+            ...(opts?.surface ? { surface: opts.surface } : {}),
           }),
           signal: store.abort.signal,
         });

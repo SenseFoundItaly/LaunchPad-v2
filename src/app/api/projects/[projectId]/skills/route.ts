@@ -18,6 +18,10 @@ import {
   LOOP1_GATED_SKILLS,
 } from '@/lib/skill-prereqs';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { stageSequenceLock } from '@/lib/journey/stage-lock';
+import crypto from 'crypto';
+import { parseMessageContent } from '@/lib/artifact-parser';
+import { captureChatArtifact } from '@/lib/chat-artifacts';
 import { translate } from '@/lib/i18n/messages';
 import { maybeBuildScoreReviewOptionSet } from '@/lib/score-review';
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
@@ -157,6 +161,35 @@ export async function POST(
       );
     }
 
+    // STAGE-SEQUENCE LOCK (founder directive 2026-07-13) — Build & Launch (5),
+    // Fundraise (6), Operate (7) skills are locked until every earlier stage is
+    // 'done'. Same clean-422 contract; the message names the stage to finish.
+    const stageLock = await stageSequenceLock(projectId, body.skill_id as string);
+    if (stageLock.locked) {
+      console.info(
+        `[skills] ${body.skill_id} blocked — stage ${stageLock.skillStage} locked behind open stage ${stageLock.blockingStage}`,
+      );
+      // Localized founder-facing message (chat renders it verbatim as a bubble).
+      const locale = await resolveLocale(ownerUserId, projectId);
+      const message = translate(locale, 'skills.stage-locked', {
+        skillStage: stageLock.skillStageName ?? `Stage ${stageLock.skillStage}`,
+        blockingStage: String(stageLock.blockingStage ?? ''),
+        blockingName: stageLock.blockingStageName ?? '',
+        passed: String(stageLock.blockingPassed ?? 0),
+        total: String(stageLock.blockingTotal ?? 0),
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'stage_locked',
+          skill_stage: stageLock.skillStage,
+          blocking_stage: stageLock.blockingStage,
+          message,
+        }),
+        { status: 422, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
     // LOOP-1 GATE (run-time) — Phase-2 pricing/business skills are blocked while
     // an open PSF Review (weak WTP) is awaiting the founder: don't build pricing
     // on an invalidated PSF (§5). Resolving or overriding the loop unblocks.
@@ -197,6 +230,12 @@ export async function POST(
             ownerUserId,
             timeoutMs: 170_000,
             allowAnySkill: true,
+            // The route already ran stageSequenceLock above (returning a clean
+            // localized 422 if locked), so skip the redundant internal re-check.
+            bypassStageLock: true,
+            // PR-A: correlate the run back to the agent proposal that suggested
+            // this skill (threaded proposal_id → skill_completed payload).
+            proposalId: typeof body.proposal_id === 'string' ? body.proposal_id : undefined,
             // Stream the skill's output to the client live (founder sees it being
             // written, not a frozen "Running…"). Each delta is an SSE data event;
             // the buffered run + persistence below are unchanged.
@@ -231,6 +270,39 @@ export async function POST(
             summary: summaryOut,
             summary_preview: result.summary.slice(0, 300),
           })}\n\n`);
+          // Gap D: persist the skill's answer as an assistant chat_messages row.
+          // The chat page only INJECTS it into React state; GET /api/chat/history
+          // reads chat_messages, so without this the founder's thread showed a
+          // hole where the skill answered after any refresh. Founder-initiated
+          // runs only (heartbeat/cron never reach this route). Non-fatal.
+          let skillMsgId: string | null = null;
+          try {
+            if (runStatus === 'completed' && summaryOut.trim()) {
+              skillMsgId = `msg_${crypto.randomUUID().slice(0, 12)}`;
+              await run(
+                `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
+                 VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
+                skillMsgId, projectId, summaryOut, new Date().toISOString(), ownerUserId,
+              );
+            }
+          } catch (err) {
+            console.warn('[skills] chat_messages persist failed (non-fatal):', (err as Error).message);
+          }
+          // Gap E: capture the skill's cards as retrievable chat_artifacts —
+          // runSkill's persistArtifact loop writes DOMAIN data only, so skill-
+          // produced score-cards / research tables / personas were invisible to
+          // the Data Room (gap C only covered the chat-turn path). Non-fatal.
+          try {
+            for (const seg of parseMessageContent(summaryOut)) {
+              if (seg.type !== 'artifact') continue;
+              await captureChatArtifact(
+                { projectId, chatMessageId: skillMsgId, turnPreview: `skill: ${skillId}` },
+                seg.artifact,
+              );
+            }
+          } catch (err) {
+            console.warn('[skills] chat-artifact capture failed (non-fatal):', (err as Error).message);
+          }
           // Phase-1 watcher trigger — a completed skill run can close the last
           // Stage-1 evidence. AFTER the done frame (the founder already has the
           // result) and AWAITED (serverless freezes fire-and-forget work).

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import LaunchPanel from '@/components/launch/LaunchPanel';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { ActiveBuilder, ClientBuild, ClientFeedback } from './types';
 import CurrentBuildCard from './CurrentBuildCard';
@@ -19,8 +20,13 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return jsonBody.data as T;
 }
 
-export default function BuildHub({ projectId }: { projectId: string }) {
+export default function BuildHub({ projectId, embedded }: { projectId: string; embedded?: boolean }) {
   const t = useT();
+  // embedded = mounted in the co-pilot's right pane (Build tab): the page
+  // header and lane pills are dropped — Growth is its own co-pilot tab
+  // (LaunchPanel), so this surface is the product build alone.
+  const [lane, setLane] = useState<'product' | 'growth'>('product');
+  const [gate, setGate] = useState<{ locked: boolean; active_stage_number: number | null; active_stage_label: string | null } | null>(null);
   const [builds, setBuilds] = useState<ClientBuild[]>([]);
   const [feedback, setFeedback] = useState<ClientFeedback[]>([]);
   const [activeBuilder, setActiveBuilder] = useState<ActiveBuilder | null>(null);
@@ -31,11 +37,12 @@ export default function BuildHub({ projectId }: { projectId: string }) {
   const refresh = useCallback(async () => {
     try {
       const [buildsRes, fb] = await Promise.all([
-        api<{ builds: ClientBuild[]; active_builder: ActiveBuilder }>(`/api/projects/${projectId}/builds`),
+        api<{ builds: ClientBuild[]; active_builder: ActiveBuilder; build_gate?: { locked: boolean; active_stage_number: number | null; active_stage_label: string | null } }>(`/api/projects/${projectId}/builds`),
         api<ClientFeedback[]>(`/api/projects/${projectId}/build-feedback`),
       ]);
       setBuilds(buildsRes.builds);
       setActiveBuilder(buildsRes.active_builder);
+      setGate(buildsRes.build_gate ?? null);
       setFeedback(fb);
       setErr(null);
     } catch (e) {
@@ -48,6 +55,17 @@ export default function BuildHub({ projectId }: { projectId: string }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Embedded (co-pilot Build tab): the chat is the CTA — builds start/iterate
+  // through the start_mvp_build / iterate_mvp_build tools. Refresh this pane
+  // when a chat turn finishes so a tool-started build appears immediately
+  // (lp-actions-changed fires at stream end).
+  useEffect(() => {
+    if (!embedded) return;
+    const onChanged = () => void refresh();
+    window.addEventListener('lp-actions-changed', onChanged);
+    return () => window.removeEventListener('lp-actions-changed', onChanged);
+  }, [embedded, refresh]);
 
   const withBusy = useCallback(
     async (fn: () => Promise<unknown>) => {
@@ -116,6 +134,14 @@ export default function BuildHub({ projectId }: { projectId: string }) {
       }),
     );
 
+  const publish = () =>
+    withBusy(() =>
+      api(`/api/projects/${projectId}/builds/${current!.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ action: 'publish' }),
+      }),
+    );
+
   const addFeedback = (text: string) =>
     withBusy(() =>
       api(`/api/projects/${projectId}/build-feedback`, {
@@ -125,20 +151,31 @@ export default function BuildHub({ projectId }: { projectId: string }) {
     );
 
   return (
-    <div style={{ padding: 24, maxWidth: 920, margin: '0 auto', width: '100%' }}>
-      <header style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--ink)', margin: 0 }}>{t('build.title')}</h1>
-        <p style={{ color: 'var(--ink-4)', margin: '6px 0 0', fontSize: 14 }}>{t('build.subtitle')}</p>
-      </header>
+    <div style={{ padding: embedded ? 20 : 24, maxWidth: 920, margin: '0 auto', width: '100%' }}>
+      {!embedded && (
+        <header style={{ marginBottom: 20 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--ink)', margin: 0 }}>{t('build.title')}</h1>
+          <p style={{ color: 'var(--ink-4)', margin: '6px 0 0', fontSize: 14 }}>{t('build.subtitle')}</p>
+        </header>
+      )}
 
-      {/* Lane tabs — Product active; Growth (Ploy) reserved for a later phase. */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        <span style={pill(true)}>{t('build.lane.product')}</span>
-        <span style={{ ...pill(false), opacity: 0.5 }} title={t('build.lane.growth.soon')}>
-          {t('build.lane.growth')}
-        </span>
-      </div>
+      {/* Lane tabs (standalone only) — embedded mounts are product-only:
+          Growth is its own co-pilot tab rendering LaunchPanel. */}
+      {!embedded && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+          <button style={{ ...pill(lane === 'product'), cursor: 'pointer' }} onClick={() => setLane('product')}>
+            {t('build.lane.product')}
+          </button>
+          <button style={{ ...pill(lane === 'growth'), cursor: 'pointer' }} onClick={() => setLane('growth')}>
+            {t('build.lane.growth')}
+          </button>
+        </div>
+      )}
 
+      {!embedded && lane === 'growth' ? (
+        <LaunchPanel projectId={projectId} />
+      ) : (
+      <>
       {err && (
         <div
           style={{
@@ -157,6 +194,31 @@ export default function BuildHub({ projectId }: { projectId: string }) {
 
       {loading ? (
         <p style={{ color: 'var(--ink-4)' }}>…</p>
+      ) : !current && gate?.locked ? (
+        // Journey stage gate: the build brief is composed from accumulated
+        // project intelligence — Generate stays locked until Build & Launch
+        // (stage 5) is reached, mirroring the skills' stage-sequence lock.
+        <div
+          style={{
+            border: '1px dashed var(--line)',
+            borderRadius: 12,
+            padding: 32,
+            textAlign: 'center',
+            background: 'var(--paper-2)',
+          }}
+        >
+          <p style={{ color: 'var(--ink-3)', margin: '0 0 6px', fontSize: 14 }}>
+            🔒 {t('build.locked-title')}
+          </p>
+          <p style={{ color: 'var(--ink-4)', margin: '0 0 16px', fontSize: 13 }}>
+            {gate.active_stage_label
+              ? t('build.locked-detail', { stage: gate.active_stage_label, number: gate.active_stage_number ?? 1 })
+              : t('build.locked-detail-generic')}
+          </p>
+          <a href={`/project/${projectId}/today`} style={{ color: 'var(--accent-ink)', fontSize: 13 }}>
+            {t('build.locked-cta')}
+          </a>
+        </div>
       ) : !current ? (
         <div
           style={{
@@ -167,10 +229,14 @@ export default function BuildHub({ projectId }: { projectId: string }) {
             background: 'var(--paper-2)',
           }}
         >
-          <p style={{ color: 'var(--ink-4)', margin: '0 0 16px' }}>{t('build.empty')}</p>
-          <button style={primaryBtn} disabled={busy} onClick={generate}>
-            {busy ? t('build.generating') : t('build.generate')}
-          </button>
+          <p style={{ color: 'var(--ink-4)', margin: '0 0 16px' }}>
+            {embedded ? t('build.empty-via-chat') : t('build.empty')}
+          </p>
+          {!embedded && (
+            <button style={primaryBtn} disabled={busy} onClick={generate}>
+              {busy ? t('build.generating') : t('build.generate')}
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -181,10 +247,14 @@ export default function BuildHub({ projectId }: { projectId: string }) {
             onIterate={iterate}
             onSetLiveUrl={setLiveUrl}
             onRegenerate={generate}
+            onPublish={publish}
+            readOnly={embedded}
           />
-          <BuildFeedback feedback={feedback} busy={busy} onAdd={addFeedback} />
+          {!embedded && <BuildFeedback feedback={feedback} busy={busy} onAdd={addFeedback} />}
           <IterationTimeline builds={builds} />
         </>
+      )}
+      </>
       )}
     </div>
   );

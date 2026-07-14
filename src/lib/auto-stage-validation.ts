@@ -33,8 +33,25 @@ const CANVAS_FIELDS = ['problem', 'solution', 'target_market', 'value_propositio
 const TECH_FACT_LABELS: Record<string, string> = {
   feasibility: 'Technical feasibility', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance',
 };
+const PRICING_LABELS: Record<string, string> = {
+  anchor_price: 'Anchor price', tiers: 'Pricing tiers', wtp: 'Willingness to pay',
+  model: 'Revenue model', unit_econ: 'Unit economics',
+};
+const FINANCIAL_LABELS: Record<string, string> = {
+  burn: 'Monthly burn', cash: 'Cash on hand', revenue: 'Revenue (MRR)',
+};
 
-interface RawItem { kind: ValidationItemKind; field?: string; name?: string; value: string; sources?: Source[]; }
+interface RawItem {
+  kind: ValidationItemKind;
+  field?: string;
+  name?: string;
+  value: string;
+  sources?: Source[];
+  /** Structured payload for kinds that write typed rows (e.g. 'interview':
+   *  person_role, top_pain, urgency, wtp_amount…). Flows through buildItems'
+   *  spread into the stored proposal item; the apply executor reads it. */
+  extra?: Record<string, unknown>;
+}
 
 function buildItems(raw: RawItem[]) {
   return raw
@@ -50,12 +67,22 @@ function buildItems(raw: RawItem[]) {
         label: r.kind === 'canvas_field' ? (CANVAS_FIELD_LABELS[r.field ?? ''] ?? 'Idea Canvas')
           : r.kind === 'competitor' ? 'Competitor'
           : r.kind === 'tech_fact' ? (TECH_FACT_LABELS[r.field ?? ''] ?? 'Technical finding')
+          : r.kind === 'interview' ? `Interview — ${r.name ?? 'logged'}`
+          : r.kind === 'persona_fact' ? 'Ideal customer'
+          : r.kind === 'channel_fact' ? 'Acquisition channel'
+          : r.kind === 'pricing' ? (PRICING_LABELS[r.field ?? ''] ?? 'Pricing')
+          : r.kind === 'metric' ? `Metric — ${r.name ?? 'tracked'}`
+          : r.kind === 'financial_fact' ? (FINANCIAL_LABELS[r.field ?? ''] ?? 'Financial figure')
+          : r.kind === 'brand_fact' ? `Brand — ${r.field ?? 'statement'}`
           : 'Market size',
         value: r.value,
         validates: validationLabel(targets),
         targets,
         credits: r.kind === 'canvas_field' ? 0 : KNOWLEDGE_APPLY_CREDITS,
         sources: Array.isArray(r.sources) ? r.sources : [],
+        // Structured payload for typed-row kinds (interview: pain/WTP/urgency…)
+        // — the apply executor reads it; absent for plain-value kinds.
+        ...(r.extra ? { extra: r.extra } : {}),
       };
     });
 }
@@ -105,7 +132,7 @@ function itemsOf(payload: Record<string, unknown> | null): Record<string, unknow
 
 /** Two items compete for the same slot (same canvas field / same competitor /
  *  the one market-size item) — a reshape REPLACES the slot, never duplicates it. */
-function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
+export function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
   if (a?.kind !== b.kind) return false;
   if (b.kind === 'canvas_field') return a.field === b.field;
   if (b.kind === 'competitor') {
@@ -116,7 +143,30 @@ function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
   // without the field guard all three collapse into one and only the last
   // survives (cert 2026-07-07).
   if (b.kind === 'tech_fact') return a.field === b.field;
-  return true; // market_size_fact — one sizing slot per proposal
+  // interview: one slot per interviewee (by name) — else a second document's
+  // digest would make Giulia's interview "replace" Marco's, or the whole batch
+  // read as already-staged and get dropped.
+  if (b.kind === 'interview') {
+    return typeof a.name === 'string' && typeof b.name === 'string'
+      && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+  }
+  // pricing: one slot per pricing_state column (anchor_price / tiers / wtp / model).
+  if (b.kind === 'pricing') return a.field === b.field;
+  // metric: one slot per metric name — a re-digest updates the value in place,
+  // it never duplicates the metric row on the card.
+  if (b.kind === 'metric') {
+    return typeof a.name === 'string' && typeof b.name === 'string'
+      && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+  }
+  // financial_fact: one slot per figure (burn / cash / revenue).
+  if (b.kind === 'financial_fact') return a.field === b.field;
+  // brand_fact: one slot per aspect (positioning / voice / visual…).
+  if (b.kind === 'brand_fact') return a.field === b.field;
+  // persona_fact / channel_fact: ADDITIVE facts, never a shared slot (a founder
+  // can have several channels; distinct values coexist, exact dupes are caught
+  // by the allStagedAlready value check upstream).
+  if (b.kind === 'persona_fact' || b.kind === 'channel_fact') return false;
+  return b.kind === 'market_size_fact'; // only market_size has one sizing slot
 }
 
 async function openProposals(projectId: string): Promise<OpenProposalRow[]> {
@@ -196,6 +246,28 @@ async function stageOrMergeItems(
  * for unsupported artifacts, empty evidence, items that map to no gate, or when
  * every value is already staged. Never throws.
  */
+/**
+ * Digest & Prefill (brownfield founders): stage arbitrary RawItems from a
+ * NON-artifact origin (document digestion) through the SAME founder-approval
+ * gate as artifact auto-staging — nothing greens without the founder's Apply.
+ * Thin exported wrapper over buildItems + stageOrMergeItems.
+ */
+export type RawValidationItem = RawItem;
+export async function stageValidationItemsFromRaw(
+  projectId: string,
+  raw: RawItem[],
+  originNote: string,
+): Promise<{ staged: boolean; pendingActionId?: string; itemCount?: number; merged?: boolean }> {
+  try {
+    const items = buildItems(raw);
+    if (items.length === 0) return { staged: false };
+    return await stageOrMergeItems(projectId, items, originNote);
+  } catch (err) {
+    console.warn('[auto-stage] stageValidationItemsFromRaw failed (non-fatal):', (err as Error).message);
+    return { staged: false };
+  }
+}
+
 export async function autoStageValidationFromArtifact(
   projectId: string,
   artifact: Artifact,

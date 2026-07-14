@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { getBuild, updateBuild } from '@/lib/mvp/mvp-builds';
-import { startIteration, refreshBuild } from '@/lib/mvp/build-runner';
+import { startIteration, refreshBuild, publishBuild } from '@/lib/mvp/build-runner';
+import { ensureLiveAppWatch } from '@/lib/mvp/live-app-watch';
 
 /**
  * GET /api/projects/{projectId}/builds/{buildId}
@@ -58,7 +59,21 @@ export async function PATCH(
     } catch (e) {
       const msg = (e as Error).message;
       if (msg.startsWith('BUILD_CAPPED:')) return error(msg.replace('BUILD_CAPPED: ', ''), 402);
+      if (msg.startsWith('BUILD_UNSUPPORTED:')) return error(msg.replace('BUILD_UNSUPPORTED: ', ''), 400);
       return error(`Iteration failed: ${msg}`, 502);
+    }
+  }
+
+  // ── Publish verb (white-label): deploy the live build to a hosted URL ──────
+  if (body.action === 'publish') {
+    try {
+      const published = await publishBuild(build);
+      return json(published);
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg.startsWith('BUILD_CAPPED:')) return error(msg.replace('BUILD_CAPPED: ', ''), 402);
+      if (msg.startsWith('BUILD_UNSUPPORTED:')) return error(msg.replace('BUILD_UNSUPPORTED: ', ''), 400);
+      return error(`Publish failed: ${msg}`, 502);
     }
   }
 
@@ -68,8 +83,12 @@ export async function PATCH(
   if (typeof body.status === 'string') patch.status = body.status;
   if (Object.keys(patch).length === 0) return error('No supported fields to update');
 
-  // TODO(Phase E): when live_app_url is set, register a watch_source for Firecrawl
-  // monitoring and store watch_source_id on the build.
+  // When the founder sets a live URL, register it for Firecrawl change-tracking so
+  // its source_changes feed the iteration proposer (monitor → next-iteration loop).
+  if (patch.liveAppUrl && !build.watch_source_id) {
+    const wsId = await ensureLiveAppWatch(projectId, patch.liveAppUrl).catch(() => null);
+    if (wsId) patch.watchSourceId = wsId;
+  }
   const updated = await updateBuild(buildId, patch);
   return json(updated);
 }

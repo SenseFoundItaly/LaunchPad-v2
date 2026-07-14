@@ -37,9 +37,10 @@ interface MonitorProposalCardProps {
   onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }
 
-const SCHEDULE_LABELS: Record<'daily' | 'weekly', string> = {
+const SCHEDULE_LABELS: Record<'daily' | 'weekly' | 'monthly', string> = {
   daily: 'Daily',
   weekly: 'Weekly',
+  monthly: 'Monthly',
 };
 
 type CardState = 'collapsed' | 'editing' | 'applying' | 'dismissing' | 'applied' | 'dismissed' | 'error';
@@ -49,7 +50,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
   const [serverError, setServerError] = useState<string | null>(null);
 
   // Local edit state — initialized from artifact; only committed on Save.
-  const [editSchedule, setEditSchedule] = useState<'daily' | 'weekly'>(artifact.schedule);
+  const [editSchedule, setEditSchedule] = useState<'daily' | 'weekly' | 'monthly'>(artifact.schedule);
   const [editThreshold, setEditThreshold] = useState<string>(artifact.alert_threshold);
   const [editUrlsRaw, setEditUrlsRaw] = useState<string>(
     (artifact.urls_to_track ?? []).join('\n'),
@@ -186,11 +187,12 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
             <label className="text-[10px] text-ink-5 uppercase tracking-wider block mb-1">Schedule</label>
             <select
               value={editSchedule}
-              onChange={(e) => setEditSchedule(e.target.value as 'daily' | 'weekly')}
+              onChange={(e) => setEditSchedule(e.target.value as 'daily' | 'weekly' | 'monthly')}
               className="w-full bg-paper border border-line-2 rounded px-2 py-1 text-sm text-ink"
             >
               <option value="daily">Daily</option>
               <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
             </select>
           </div>
           <div>

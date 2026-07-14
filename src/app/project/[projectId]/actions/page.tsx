@@ -25,6 +25,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
 import { useSetChrome } from '@/components/design/chrome-context';
+import { PanelBoundary } from '@/components/design/PanelBoundary';
 import {
   Pill,
   Icon,
@@ -351,10 +352,15 @@ export default function TicketsPage({
         // expands rows in place (config + run logs). deepLinkWatcherId
         // pre-expands the row from ?watcher=<id>.
         <div data-tour="watchers-list" style={{ flex: 1, overflow: 'auto', background: 'var(--paper)' }}>
-          <MonitorListPanel
-            projectId={projectId}
-            initialExpandedWatcherId={deepLinkWatcherId ?? undefined}
-          />
+          {/* Boundary-wrapped like the Home panels: one render throw degrades
+              to a muted card instead of dropping the WHOLE Inbox surface to
+              the route error screen (blast-radius audit, 2026-07-11). */}
+          <PanelBoundary resetKey={projectId}>
+            <MonitorListPanel
+              projectId={projectId}
+              initialExpandedWatcherId={deepLinkWatcherId ?? undefined}
+            />
+          </PanelBoundary>
         </div>
       ) : (
         // Inbox = the ONE apply-to-intelligence queue. No toolbar, no
@@ -362,19 +368,25 @@ export default function TicketsPage({
         // action pair (Apply · 0.5 credits / Dismiss). Selecting a row opens
         // the read-only inspector pane on the right.
         <div style={{ flex: 1, display: 'grid', gridTemplateColumns: selected ? '1fr 420px' : '1fr', minHeight: 0 }}>
-          <InboxList
-            rows={filteredActions}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            onTransition={transition}
-            loading={loading}
-            error={error}
-          />
-          {selected && (
-            <TicketDetail
-              action={selected}
+          <PanelBoundary resetKey={projectId}>
+            <InboxList
+              rows={filteredActions}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
               onTransition={transition}
+              loading={loading}
+              error={error}
             />
+          </PanelBoundary>
+          {selected && (
+            // Keyed by the selected row too: a crash on ONE malformed action
+            // must not leave the inspector dead for every other row.
+            <PanelBoundary resetKey={`${projectId}:${selected.id}`}>
+              <TicketDetail
+                action={selected}
+                onTransition={transition}
+              />
+            </PanelBoundary>
           )}
         </div>
       )}
@@ -1134,6 +1146,10 @@ function producerFromType(type: PendingActionType, ecosystemAlertId?: string | n
     intelligence_brief: 'correlator',
     // Cron auto-proposer (Build Hub iteration-proposer.ts).
     mvp_build_iteration: 'cron',
+    // Launch pipeline: publish proposals come from chat/growth dispatch;
+    // campaign sends are queued by the cron send-proposer.
+    publish_landing_page: 'chat',
+    send_campaign_message: 'cron',
   };
   return map[type] || 'unknown';
 }
@@ -1167,6 +1183,9 @@ const TYPE_LABEL_KEY: Record<PendingActionType, MessageKey> = {
   assumption_review:            'actions.type-assumption',
   propose_assumption_revision:  'actions.type-assumption-revision',
   mvp_build_iteration:          'actions.type-mvp-build-iteration',
+  // Launch pipeline (growth lane).
+  publish_landing_page:         'actions.type-publish-page',
+  send_campaign_message:        'actions.type-campaign-send',
 };
 
 // Returns the i18n key for an action_type's chip label, or null when the type

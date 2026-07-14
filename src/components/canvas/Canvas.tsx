@@ -241,23 +241,30 @@ export function Canvas({
       className="lp-scroll"
       style={{ flex: 1, overflow: 'auto', padding: 20 }}
     >
-      <IdeaCanvasHeader
-        projectId={projectId}
-        locale={locale}
-        factCount={facts.length}
-        onRelaunchIdeaShaping={() => handleArtifactAction('skill:run', { skill_id: 'idea-shaping' })}
-      />
+      {/* Every dynamic section below is boundary-wrapped like the spine: one
+          corrupted artifact/brief must degrade to a muted card, not drop the
+          whole Co-pilot tab to the route error screen. */}
+      <PanelBoundary resetKey={projectId}>
+        <IdeaCanvasHeader
+          projectId={projectId}
+          locale={locale}
+          factCount={facts.length}
+          onRelaunchIdeaShaping={() => handleArtifactAction('skill:run', { skill_id: 'idea-shaping' })}
+        />
+      </PanelBoundary>
 
       {/* Boundary-wrapped: a render throw in the validation spine (e.g. a
           corrupted stages payload) degrades to a muted card instead of taking
           down the whole Co-pilot tab via the route-level error.tsx. */}
-      <PanelBoundary>
+      <PanelBoundary resetKey={projectId}>
         <SpineSection projectId={projectId} locale={locale} onSkillClick={onSkillClick} onPickPrompt={onPickPrompt} />
       </PanelBoundary>
 
       {hasSolveProgress && (
         <div style={{ marginBottom: 14 }}>
-          <InlineSolveProgress messages={messages} locale={locale} />
+          <PanelBoundary resetKey={projectId}>
+            <InlineSolveProgress messages={messages} locale={locale} />
+          </PanelBoundary>
         </div>
       )}
 
@@ -276,7 +283,9 @@ export function Canvas({
             {t('canvas.related-intelligence')}
           </div>
           {matchedBriefs.map((b) => (
-            <BriefCard key={b.id} brief={b} />
+            <PanelBoundary key={b.id} resetKey={projectId}>
+              <BriefCard brief={b} />
+            </PanelBoundary>
           ))}
         </section>
       )}
@@ -417,15 +426,18 @@ export function Canvas({
       )}
 
       {visibleDepartments.map((dept) => (
-        <DepartmentSection
-          key={dept}
-          department={dept}
-          locale={locale}
-          entries={grouped[dept]}
-          handleArtifactAction={handleArtifactAction}
-          focusedMessageId={focusedMessageId}
-          latestTurnIndex={latestTurnIndex}
-        />
+        // Per-department boundary: one malformed artifact takes down its own
+        // group only — the other departments' cards keep rendering.
+        <PanelBoundary key={dept} resetKey={projectId}>
+          <DepartmentSection
+            department={dept}
+            locale={locale}
+            entries={grouped[dept]}
+            handleArtifactAction={handleArtifactAction}
+            focusedMessageId={focusedMessageId}
+            latestTurnIndex={latestTurnIndex}
+          />
+        </PanelBoundary>
       ))}
 
       {/* Item 9 — progressive paint. Dimmed skeletons for artifacts the agent is
