@@ -55,9 +55,12 @@ export const v0Adapter: BuilderAdapter = {
   isConfigured: () => !!process.env.V0_API_KEY,
 
   // ── SYNC (local / executor) ───────────────────────────────────────────────
-  async create(_ref: BuildContextRef, spec: BuildSpec): Promise<BuildResult> {
-    const res = await client().chats.create({ message: spec.prompt, chatPrivacy: 'private', responseMode: 'sync', ...attach(spec) });
-    return toResult(res as unknown as ChatLike);
+  async create(ref: BuildContextRef, spec: BuildSpec): Promise<BuildResult> {
+    // Bind the chat to a fresh v0 project so it can be deployed later (verified
+    // via a live 409: deploy requires the chat to be CREATED inside the project).
+    const project = (await client().projects.create({ name: projectName(ref) })) as unknown as { id: string };
+    const res = await client().chats.create({ message: spec.prompt, chatPrivacy: 'private', responseMode: 'sync', projectId: project.id, ...attach(spec) });
+    return { ...toResult(res as unknown as ChatLike), projectRef: project.id };
   },
   async iterate(_ref: BuildContextRef, builderRef: string, message: string): Promise<BuildResult> {
     if (!builderRef) throw new Error('v0 iterate: missing chat id (builder_ref)');
@@ -66,9 +69,10 @@ export const v0Adapter: BuilderAdapter = {
   },
 
   // ── ASYNC (serverless — kick off fast, poll getStatus) ────────────────────
-  async createAsync(_ref: BuildContextRef, spec: BuildSpec): Promise<BuildResult> {
-    const res = await client().chats.create({ message: spec.prompt, chatPrivacy: 'private', responseMode: 'async', ...attach(spec) });
-    return { ...toResult(res as unknown as ChatLike), status: 'building' };
+  async createAsync(ref: BuildContextRef, spec: BuildSpec): Promise<BuildResult> {
+    const project = (await client().projects.create({ name: projectName(ref) })) as unknown as { id: string };
+    const res = await client().chats.create({ message: spec.prompt, chatPrivacy: 'private', responseMode: 'async', projectId: project.id, ...attach(spec) });
+    return { ...toResult(res as unknown as ChatLike), status: 'building', projectRef: project.id };
   },
   async iterateAsync(_ref: BuildContextRef, builderRef: string, message: string): Promise<BuildResult> {
     if (!builderRef) throw new Error('v0 iterate: missing chat id (builder_ref)');
@@ -84,24 +88,45 @@ export const v0Adapter: BuilderAdapter = {
   },
 
   // ── DEPLOY (white-label) ──────────────────────────────────────────────────
-  // v0's documented white-label path: deploy the current version to Vercel and
-  // return the hosted app URL (deployment.webUrl). A custom domain is then bound
-  // in the v0/Vercel dashboard (no domain field on the deploy response).
-  //
-  // A v0 deployment belongs to a PROJECT, so we create one lazily and deploy the
-  // version into it. NOTE: unverified against a live key — if v0 requires the chat
-  // to have been CREATED inside the project (rather than associated at deploy time),
-  // move projects.create into create()/createAsync and pass projectId to chats.create
-  // (which accepts it); this method then reads the stored projectId instead.
-  async deploy(_ref: BuildContextRef, builderRef: string): Promise<BuildResult> {
+  // v0's documented white-label path: deploy the current version to Vercel → hosted
+  // webUrl. A v0 deployment belongs to a PROJECT, and (VERIFIED via a live 409 —
+  // "Chat and project do not match") the chat must be CREATED inside that project.
+  // So create()/createAsync() bind the chat to a fresh project + persist projectRef;
+  // deploy() reads it back here. Custom domain is bound in the v0/Vercel dashboard
+  // afterward (no domain field on the deploy response).
+  async deploy(
+    _ref: BuildContextRef,
+    builderRef: string,
+    opts?: { projectRef?: string | null; versionRef?: string | null },
+  ): Promise<BuildResult> {
     if (!builderRef) throw new Error('v0 deploy: missing chat id (builder_ref)');
-    const chat = (await client().chats.getById({ chatId: builderRef })) as unknown as ChatLike;
-    const versionId = chat.latestVersion?.id;
+    const projectId = opts?.projectRef;
+    if (!projectId) {
+      throw new Error('v0 deploy: missing project ref (build was not created inside a v0 project)');
+    }
+    let versionId = opts?.versionRef ?? undefined;
+    if (!versionId) {
+      const chat = (await client().chats.getById({ chatId: builderRef })) as unknown as ChatLike;
+      versionId = chat.latestVersion?.id;
+    }
     if (!versionId) throw new Error('v0 deploy: no completed version to deploy yet');
-    const project = (await client().projects.create({
-      name: `launchpad-${builderRef.slice(0, 16)}`,
-    })) as unknown as { id: string };
-    const dep = await client().deployments.create({ projectId: project.id, chatId: builderRef, versionId });
+    // A v0 deployment targets a Vercel project — link one to the v0 project first
+    // (verified: deployments.create 500s without it). Requires the v0 account to have
+    // Vercel connected; "already linked" is fine.
+    try {
+      await client().integrations.vercel.projects.create({ projectId, name: `launchpad-${builderRef.slice(0, 16)}` });
+    } catch (e) {
+      const m = (e as Error).message || '';
+      if (!/exist|already|conflict|409/i.test(m)) {
+        throw new Error(`v0 deploy: could not link a Vercel project (is Vercel connected to your v0 account?): ${m}`);
+      }
+    }
+    const dep = await client().deployments.create({ projectId, chatId: builderRef, versionId });
     return { builderRef, status: 'live', liveUrl: dep.webUrl };
   },
 };
+
+/** v0 project name for a build — bounded, deterministic per build. */
+function projectName(ref: BuildContextRef): string {
+  return `launchpad-${ref.buildId}`.slice(0, 60);
+}
