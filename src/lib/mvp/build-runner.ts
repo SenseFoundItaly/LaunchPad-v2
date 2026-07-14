@@ -107,7 +107,12 @@ export async function startBuild(projectId: string, ownerUserId?: string): Promi
       previewUrl: res.previewUrl ?? null,
       liveAppUrl: res.liveUrl ?? null,
       status: res.status,
-      metadata: { versionRef: res.versionRef ?? null, logs: res.logs ?? null, diff: res.diff ?? null },
+      metadata: {
+        versionRef: res.versionRef ?? null,
+        v0ProjectId: res.projectRef ?? null, // needed to deploy (v0 chat lives in this project)
+        logs: res.logs ?? null,
+        diff: res.diff ?? null,
+      },
     });
     // Instant drivers (stub / sync) already finished — settle immediately.
     if (res.status === 'live') await supersedeOtherBuilds(projectId, build.id);
@@ -144,7 +149,13 @@ export async function startIteration(build: MvpBuild, message: string, ownerUser
       liveAppUrl: res.liveUrl ?? null,
       status: res.status,
       // `awaitAfterVersion` = the version to wait past (v0 iterateAsync returns the prior one).
-      metadata: { awaitAfterVersion: res.versionRef ?? null, logs: res.logs ?? null, diff: res.diff ?? null },
+      metadata: {
+        awaitAfterVersion: res.versionRef ?? null,
+        // The iteration reuses the parent's chat → same v0 project; carry it forward.
+        v0ProjectId: (build.metadata as Record<string, unknown> | null)?.v0ProjectId ?? null,
+        logs: res.logs ?? null,
+        diff: res.diff ?? null,
+      },
     });
     if (res.status === 'live') {
       await supersedeOtherBuilds(build.project_id, next.id);
@@ -166,7 +177,11 @@ export async function publishBuild(build: MvpBuild): Promise<MvpBuild> {
   if (!builder.deploy) throw new Error(`Builder "${builder.id}" does not support publishing`);
   if (build.status !== 'live') throw new Error('Only a live build can be published');
   await assertBuildAllowed(build.project_id, builder);
-  const res = await builder.deploy({ projectId: build.project_id, buildId: build.id }, build.builder_ref ?? '');
+  const md = (build.metadata ?? {}) as Record<string, unknown>;
+  const res = await builder.deploy({ projectId: build.project_id, buildId: build.id }, build.builder_ref ?? '', {
+    projectRef: (md.v0ProjectId as string | null | undefined) ?? null,
+    versionRef: (md.versionRef as string | null | undefined) ?? null,
+  });
   const liveUrl = res.liveUrl ?? null;
   if (!liveUrl) throw new Error('Publish returned no live URL');
   const wsId = await ensureLiveAppWatch(build.project_id, liveUrl).catch(() => null);
