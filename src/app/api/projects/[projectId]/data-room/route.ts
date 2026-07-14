@@ -35,6 +35,19 @@ export interface DataRoomItem {
     pending: number;
     rejected: number;
   } | null;
+  /**
+   * Digest state for uploaded files, from the latest document_digested /
+   * document_digest_failed memory_event. `null` when no digest ever ran
+   * (legacy uploads) and for generated/chat items. `partial` = only the head
+   * was digested (upload-time latency cap) — the panel offers re-digest;
+   * `failed` = every chunk's extraction errored — the panel offers retry.
+   */
+  digest: {
+    chunks: number;
+    total_chunks: number;
+    partial: boolean;
+    failed: boolean;
+  } | null;
 }
 
 /**
@@ -110,7 +123,10 @@ export async function GET(
   // with jsonb_array_elements, then group/filter by reviewed_state. Empty
   // factIds → skip the query entirely (cheaper than running with WHERE IN ()).
   const factIds = uploaded.map((u) => u.id);
-  const extractionStats = await loadExtractionStats(projectId, factIds);
+  const [extractionStats, digestStats] = await Promise.all([
+    loadExtractionStats(projectId, factIds),
+    loadDigestStats(projectId, factIds),
+  ]);
 
   // postgres.js hands timestamptz back as a Date (the row type says string) —
   // normalize to ISO here so the newest-first localeCompare sort below and the
@@ -126,6 +142,7 @@ export async function GET(
     mime: null,
     has_editable_content: true,
     extraction: null,
+    digest: null,
   }));
 
   const uploadedItems: DataRoomItem[] = uploaded.map((row) => {
@@ -146,6 +163,7 @@ export async function GET(
         pending: stat?.pending ?? 0,
         rejected: stat?.rejected ?? 0,
       },
+      digest: digestStats.get(row.id) ?? null,
     };
   });
 
@@ -165,6 +183,7 @@ export async function GET(
     payload: row.payload,
     sources: row.sources,
     extraction: null,
+    digest: null,
   }));
 
   const items = [...generatedItems, ...uploadedItems, ...chatArtifactItems]
@@ -254,6 +273,55 @@ async function loadExtractionStats(
       applied: Number(r.applied) || 0,
       pending: Number(r.pending) || 0,
       rejected: Number(r.rejected) || 0,
+    });
+  }
+  return out;
+}
+
+interface DigestStat {
+  chunks: number;
+  total_chunks: number;
+  partial: boolean;
+  failed: boolean;
+}
+
+/**
+ * Latest digest state per uploaded fact, from the memory_events timeline
+ * (document_digested / document_digest_failed carry fact_id + chunk counts in
+ * their payload). Rows come back oldest-first so the last write per fact wins —
+ * a successful re-digest supersedes an earlier partial/failed event. Facts
+ * never digested are absent (legacy uploads → no pill).
+ */
+async function loadDigestStats(
+  projectId: string,
+  factIds: string[],
+): Promise<Map<string, DigestStat>> {
+  if (factIds.length === 0) return new Map();
+
+  const placeholders = factIds.map(() => '?').join(',');
+  const rows = await query<{ fact_id: string; event_type: string; payload: unknown }>(
+    `SELECT (payload->>'fact_id') AS fact_id, event_type, payload
+       FROM memory_events
+      WHERE project_id = ?
+        AND event_type IN ('document_digested','document_digest_failed')
+        AND (payload->>'fact_id') IN (${placeholders})
+      ORDER BY created_at ASC`,
+    projectId, ...factIds,
+  );
+
+  const out = new Map<string, DigestStat>();
+  for (const r of rows) {
+    let p: Record<string, unknown> = {};
+    if (r.payload && typeof r.payload === 'object') p = r.payload as Record<string, unknown>;
+    else if (typeof r.payload === 'string') { try { p = JSON.parse(r.payload); } catch { /* legacy */ } }
+    const chunks = Number(p.chunks) || 0;
+    // Legacy events predate total_chunks — treat them as complete (no pill noise).
+    const total = Number(p.total_chunks) || chunks;
+    out.set(r.fact_id, {
+      chunks,
+      total_chunks: total,
+      partial: p.partial === true && chunks < total,
+      failed: r.event_type === 'document_digest_failed',
     });
   }
   return out;

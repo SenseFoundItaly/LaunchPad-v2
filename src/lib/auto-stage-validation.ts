@@ -59,6 +59,14 @@ const PRICING_LABEL_KEYS: Record<string, MessageKey> = {
   anchor_price: 'avs.pricing-anchor', tiers: 'avs.pricing-tiers', wtp: 'avs.pricing-wtp',
   model: 'avs.pricing-model', unit_econ: 'avs.pricing-unit',
 };
+// Kept for external callers that read the raw English map; itemLabel routes
+// through the KEYS map below so the founder sees their project language.
+const FINANCIAL_LABELS: Record<string, string> = {
+  burn: 'Monthly burn', cash: 'Cash on hand', revenue: 'Revenue (MRR)',
+};
+const FINANCIAL_LABEL_KEYS: Record<string, MessageKey> = {
+  burn: 'avs.financial-burn', cash: 'avs.financial-cash', revenue: 'avs.financial-revenue',
+};
 
 interface RawItem {
   kind: ValidationItemKind;
@@ -94,6 +102,14 @@ function itemLabel(r: RawItem, locale: Locale): string {
   if (r.kind === 'trend_fact') return t('avs.label-trend');
   if (r.kind === 'buyer_persona_fact') return t('avs.label-persona');
   if (r.kind === 'differentiation_fact') return t('avs.label-diff');
+  // #224's operate-stage digest kinds — routed through translate() like every
+  // other label, not the inline English the branch predated the refactor with.
+  if (r.kind === 'metric') return t('avs.label-metric', { name: r.name ?? t('avs.label-metric-tracked') });
+  if (r.kind === 'financial_fact') {
+    const key = FINANCIAL_LABEL_KEYS[r.field ?? ''];
+    return key ? t(key) : t('avs.label-financial');
+  }
+  if (r.kind === 'brand_fact') return t('avs.label-brand', { aspect: r.field ?? t('avs.label-brand-statement') });
   if (r.kind === 'pricing') {
     const key = PRICING_LABEL_KEYS[r.field ?? ''];
     return key ? t(key) : t('avs.label-pricing');
@@ -192,10 +208,19 @@ export function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
   }
   // pricing: one slot per pricing_state column (anchor_price / tiers / wtp / model).
   if (b.kind === 'pricing') return a.field === b.field;
+  // metric: one slot per metric name — a re-digest updates the value in place,
+  // it never duplicates the metric row on the card.
+  if (b.kind === 'metric') {
+    return typeof a.name === 'string' && typeof b.name === 'string'
+      && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+  }
+  // financial_fact: one slot per figure (burn / cash / revenue).
+  if (b.kind === 'financial_fact') return a.field === b.field;
+  // brand_fact: one slot per aspect (positioning / voice / visual…).
+  if (b.kind === 'brand_fact') return a.field === b.field;
   // persona_fact / channel_fact / trend_fact: ADDITIVE facts, never a shared
   // slot (a founder can have several channels/trends; distinct values coexist,
   // exact dupes are caught by the allStagedAlready value check upstream).
-  // buyer_persona_fact: ONE preliminary sketch slot — a re-run reshapes it.
   if (b.kind === 'persona_fact' || b.kind === 'channel_fact' || b.kind === 'trend_fact') return false;
   // One preliminary sketch/statement slot each — a re-stage reshapes it.
   if (b.kind === 'buyer_persona_fact' || b.kind === 'differentiation_fact') return true;
