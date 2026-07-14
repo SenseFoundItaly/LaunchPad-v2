@@ -152,9 +152,8 @@ const PRIMARY_ITEMS: NavItem[] = [
   { id: 'dashboard', iconKey: 'home', labelKey: 'nav.home', route: 'today',
     tooltipKey: 'nav.home.tooltip' },
   // Build & Launch lives INSIDE the co-pilot as a tab (founder directive
-  // 2026-07-14) — the nav entry deep-links to it; /build redirects there too.
-  { id: 'build', iconKey: 'bolt', labelKey: 'nav.build', route: 'chat?tab=build',
-    tooltipKey: 'nav.build.tooltip' },
+  // 2026-07-14); the sidebar entry was removed same day — the co-pilot tabs
+  // are the only affordance. /build still redirects to chat?tab=build.
 ];
 
 // Feature flag: the Build & Launch Hub ships behind NEXT_PUBLIC_BUILD_ENABLED so

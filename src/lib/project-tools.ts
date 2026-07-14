@@ -3017,6 +3017,73 @@ const updateBurnRateTool = (ctx: ToolContext): AgentTool => ({
   },
 });
 
+/**
+ * Launch pipeline (founder directive 2026-07-14): the co-pilot IS the CTA —
+ * the Build pane renders, the chat acts. These two tools are the only build
+ * actions; the founder's explicit chat request is the initiation, the
+ * journey stage gate (buildStageGate: locked below stage 5) + cost gate
+ * (assertBuildAllowed) still run inside startBuild/startIteration's path.
+ */
+const startMvpBuildTool = (ctx: ToolContext): AgentTool => ({
+  name: 'start_mvp_build',
+  label: 'Start MVP Build',
+  description:
+    'Generate the project\'s MVP build from its accumulated intelligence (canvas, validation, personas, pricing). Use ONLY when the founder explicitly asks to generate/build the MVP while no build exists or they want a fresh one. Locked until the journey reaches stage 5 (Build & Launch) — if locked, tell the founder which stages to close instead. The build renders live in the Build tab beside the chat.',
+  parameters: Type.Object({}),
+  async execute(): Promise<AgentToolResult<unknown>> {
+    try {
+      const { startBuild } = await import('@/lib/mvp/build-runner');
+      const build = await startBuild(ctx.projectId, ctx.userId);
+      return {
+        content: [{ type: 'text', text: build.status === 'failed'
+          ? `Build failed to start: ${(build.metadata as Record<string, unknown> | null)?.error ?? 'unknown error'}`
+          : `MVP build started (iteration ${build.iteration}, status: ${build.status}). It renders in the Build tab beside this chat — tell the founder to watch it there; async builds take 1-2 minutes.` }],
+        details: { build_id: build.id, status: build.status },
+      };
+    } catch (err) {
+      const msg = (err as Error).message;
+      return {
+        content: [{ type: 'text', text: msg.startsWith('BUILD_LOCKED:')
+          ? `The build is stage-locked: ${msg.replace('BUILD_LOCKED: ', '')} Help the founder close the remaining checks instead.`
+          : `Could not start the build: ${msg}` }],
+        details: { error: true },
+      };
+    }
+  },
+});
+
+const iterateMvpBuildTool = (ctx: ToolContext): AgentTool => ({
+  name: 'iterate_mvp_build',
+  label: 'Iterate MVP Build',
+  description:
+    'Apply a founder-described change to the current MVP build (new iteration, same project). Use when the founder describes a concrete change to the MVP ("make the hero darker", "add a pricing section") while a live build exists. Pass their change request verbatim-faithful.',
+  parameters: Type.Object({
+    change: Type.String({ description: 'The change to apply, in the founder\'s words.' }),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { change?: string };
+    const change = (p.change ?? '').trim();
+    if (!change) {
+      return { content: [{ type: 'text', text: 'iterate_mvp_build needs the change description. Ask the founder what to change.' }], details: { error: 'no_change' } };
+    }
+    try {
+      const { getLatestLiveBuild } = await import('@/lib/mvp/mvp-builds');
+      const { startIteration } = await import('@/lib/mvp/build-runner');
+      const build = await getLatestLiveBuild(ctx.projectId);
+      if (!build) {
+        return { content: [{ type: 'text', text: 'No live build to iterate on — offer to start one with start_mvp_build (if the founder asks and the stage gate allows).' }], details: { error: 'no_build' } };
+      }
+      const next = await startIteration(build, change, ctx.userId);
+      return {
+        content: [{ type: 'text', text: `Iteration v${next.iteration} started (status: ${next.status}). The new version renders in the Build tab beside this chat when ready.` }],
+        details: { build_id: next.id, iteration: next.iteration, status: next.status },
+      };
+    } catch (err) {
+      return { content: [{ type: 'text', text: `Could not iterate the build: ${(err as Error).message}` }], details: { error: true } };
+    }
+  },
+});
+
 const logFundraisingTool = (ctx: ToolContext): AgentTool => ({
   name: 'log_fundraising',
   label: 'Log Fundraising',
@@ -3138,5 +3205,8 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     updateMetricsTool(ctx),
     updateBurnRateTool(ctx),
     logFundraisingTool(ctx),
+    // Build tab is render-only — the chat is the CTA (2026-07-14).
+    startMvpBuildTool(ctx),
+    iterateMvpBuildTool(ctx),
   ];
 }

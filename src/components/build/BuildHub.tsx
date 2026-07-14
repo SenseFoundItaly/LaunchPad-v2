@@ -56,6 +56,17 @@ export default function BuildHub({ projectId, embedded }: { projectId: string; e
     void refresh();
   }, [refresh]);
 
+  // Embedded (co-pilot Build tab): the chat is the CTA — builds start/iterate
+  // through the start_mvp_build / iterate_mvp_build tools. Refresh this pane
+  // when a chat turn finishes so a tool-started build appears immediately
+  // (lp-actions-changed fires at stream end).
+  useEffect(() => {
+    if (!embedded) return;
+    const onChanged = () => void refresh();
+    window.addEventListener('lp-actions-changed', onChanged);
+    return () => window.removeEventListener('lp-actions-changed', onChanged);
+  }, [embedded, refresh]);
+
   const withBusy = useCallback(
     async (fn: () => Promise<unknown>) => {
       setBusy(true);
@@ -218,10 +229,14 @@ export default function BuildHub({ projectId, embedded }: { projectId: string; e
             background: 'var(--paper-2)',
           }}
         >
-          <p style={{ color: 'var(--ink-4)', margin: '0 0 16px' }}>{t('build.empty')}</p>
-          <button style={primaryBtn} disabled={busy} onClick={generate}>
-            {busy ? t('build.generating') : t('build.generate')}
-          </button>
+          <p style={{ color: 'var(--ink-4)', margin: '0 0 16px' }}>
+            {embedded ? t('build.empty-via-chat') : t('build.empty')}
+          </p>
+          {!embedded && (
+            <button style={primaryBtn} disabled={busy} onClick={generate}>
+              {busy ? t('build.generating') : t('build.generate')}
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -233,8 +248,9 @@ export default function BuildHub({ projectId, embedded }: { projectId: string; e
             onSetLiveUrl={setLiveUrl}
             onRegenerate={generate}
             onPublish={publish}
+            readOnly={embedded}
           />
-          <BuildFeedback feedback={feedback} busy={busy} onAdd={addFeedback} />
+          {!embedded && <BuildFeedback feedback={feedback} busy={busy} onAdd={addFeedback} />}
           <IterationTimeline builds={builds} />
         </>
       )}

@@ -13,6 +13,7 @@ export default function CurrentBuildCard({
   onSetLiveUrl,
   onRegenerate,
   onPublish,
+  readOnly,
 }: {
   build: ClientBuild;
   activeBuilder: ActiveBuilder | null;
@@ -21,6 +22,9 @@ export default function CurrentBuildCard({
   onSetLiveUrl: (url: string) => void;
   onRegenerate: () => void;
   onPublish: () => void;
+  /** Render-only mode (co-pilot Build tab): the chat is the CTA — no action
+   *  inputs here, just preview + status + changes. */
+  readOnly?: boolean;
 }) {
   const t = useT();
   const [message, setMessage] = useState('');
@@ -124,8 +128,9 @@ export default function CurrentBuildCard({
         </div>
       ) : null}
 
-      {/* Iterate box — the two-way loop; disabled while a build is in flight. */}
-      {canIterate && (
+      {/* Iterate box — the two-way loop; disabled while a build is in flight.
+          Hidden in readOnly: the founder iterates by telling the co-pilot. */}
+      {!readOnly && canIterate && (
         <div style={{ marginTop: 16 }}>
           <textarea
             value={message}
@@ -154,8 +159,14 @@ export default function CurrentBuildCard({
         </div>
       )}
 
+      {readOnly && canIterate && (
+        <p style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-4)' }}>
+          {t('build.iterate.via-chat')}
+        </p>
+      )}
+
       {/* Publish — deploy a shareable, hosted (white-label) version via the driver. */}
-      {build.status === 'live' && !build.live_app_url && (activeBuilder?.supports_deploy ?? false) && (
+      {!readOnly && build.status === 'live' && !build.live_app_url && (activeBuilder?.supports_deploy ?? false) && (
         <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <button style={primaryBtn} disabled={busy} onClick={onPublish}>
             {busy ? t('build.publishing') : t('build.publish')}
@@ -165,17 +176,19 @@ export default function CurrentBuildCard({
       )}
 
       {/* Live app URL capture — feeds monitoring + the next iteration's feedback. */}
-      <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <input
-          value={liveUrl}
-          onChange={(e) => setLiveUrl(e.target.value)}
-          placeholder={t('build.liveUrl.label')}
-          style={input}
-        />
-        <button style={secondaryBtn} disabled={busy || !liveUrl.trim()} onClick={() => onSetLiveUrl(liveUrl.trim())}>
-          {t('build.liveUrl.save')}
-        </button>
-      </div>
+      {!readOnly && (
+        <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            value={liveUrl}
+            onChange={(e) => setLiveUrl(e.target.value)}
+            placeholder={t('build.liveUrl.label')}
+            style={input}
+          />
+          <button style={secondaryBtn} disabled={busy || !liveUrl.trim()} onClick={() => onSetLiveUrl(liveUrl.trim())}>
+            {t('build.liveUrl.save')}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

@@ -28,6 +28,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   'build.locked-detail': 'L’MVP viene generato dall’intelligence accumulata del progetto — ora sei a {stage} (fase {number} di 5). Completa le fasi precedenti così la build ha contesto reale su cui lavorare.',
   'build.locked-detail-generic': 'L’MVP viene generato dall’intelligence accumulata del progetto — completa prima le fasi del percorso così la build ha contesto reale.',
   'build.locked-cta': 'Vedi cosa manca nel tuo percorso →',
+  'build.empty-via-chat': 'Nessuna build. Chiedi al co-pilot di generare il tuo MVP — costruisce da tutto ciò che LaunchPad sa del progetto e lo mostra qui.',
+  'build.iterate.via-chat': 'Per modificare questa build, descrivi il cambiamento al co-pilot — la nuova versione appare qui.',
   'chat.tab-copilot': 'Co-pilot',
   'chat.tab-build': 'Build & Launch',
   'chat.tab-growth': 'Growth',

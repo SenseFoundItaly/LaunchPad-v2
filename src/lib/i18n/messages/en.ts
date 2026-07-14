@@ -34,6 +34,8 @@ export const en = {
   'build.locked-detail': 'The MVP is generated from your accumulated project intelligence — you’re currently at {stage} (stage {number} of 5). Complete the earlier stages so the build has real context to work from.',
   'build.locked-detail-generic': 'The MVP is generated from your accumulated project intelligence — complete the earlier journey stages first so the build has real context to work from.',
   'build.locked-cta': 'See what’s left on your journey →',
+  'build.empty-via-chat': 'No build yet. Ask the co-pilot to generate your MVP — it builds from everything LaunchPad knows about this project and renders here.',
+  'build.iterate.via-chat': 'To change this build, describe the change to the co-pilot — the new version renders here.',
   'chat.tab-copilot': 'Co-pilot',
   'chat.tab-build': 'Build & Launch',
   'chat.tab-growth': 'Growth',
