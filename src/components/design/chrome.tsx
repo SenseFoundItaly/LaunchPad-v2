@@ -151,7 +151,9 @@ interface NavItem {
 const PRIMARY_ITEMS: NavItem[] = [
   { id: 'dashboard', iconKey: 'home', labelKey: 'nav.home', route: 'today',
     tooltipKey: 'nav.home.tooltip' },
-  { id: 'build', iconKey: 'bolt', labelKey: 'nav.build', route: 'build',
+  // Build & Launch lives INSIDE the co-pilot as a tab (founder directive
+  // 2026-07-14) — the nav entry deep-links to it; /build redirects there too.
+  { id: 'build', iconKey: 'bolt', labelKey: 'nav.build', route: 'chat?tab=build',
     tooltipKey: 'nav.build.tooltip' },
 ];
 

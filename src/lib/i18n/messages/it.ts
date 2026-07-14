@@ -24,6 +24,12 @@ export const it: Partial<Record<MessageKey, string>> = {
   // ── Hub Build & Launch ────────────────────────────────────────────────────
   'build.title': 'Build & Launch',
   'build.subtitle': 'Trasforma la tua intelligence validata in un MVP funzionante — genera, visualizza, itera.',
+  'build.locked-title': 'La Build si sblocca alla fase 5 (Build & Launch)',
+  'build.locked-detail': 'L’MVP viene generato dall’intelligence accumulata del progetto — ora sei a {stage} (fase {number} di 5). Completa le fasi precedenti così la build ha contesto reale su cui lavorare.',
+  'build.locked-detail-generic': 'L’MVP viene generato dall’intelligence accumulata del progetto — completa prima le fasi del percorso così la build ha contesto reale.',
+  'build.locked-cta': 'Vedi cosa manca nel tuo percorso →',
+  'chat.tab-copilot': 'Co-pilot',
+  'chat.tab-build': 'Build & Launch',
   'build.generate': 'Genera build MVP',
   'build.generating': 'Generazione…',
   'build.empty': 'Nessuna build. Genera il tuo primo MVP da tutto ciò che LaunchPad sa su questo progetto.',

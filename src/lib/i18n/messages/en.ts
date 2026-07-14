@@ -30,6 +30,12 @@ export const en = {
   // ── Build & Launch hub ────────────────────────────────────────────────────
   'build.title': 'Build & Launch',
   'build.subtitle': 'Turn your validated intelligence into a working MVP — generate, preview, and iterate.',
+  'build.locked-title': 'Build unlocks at stage 5 (Build & Launch)',
+  'build.locked-detail': 'The MVP is generated from your accumulated project intelligence — you’re currently at {stage} (stage {number} of 5). Complete the earlier stages so the build has real context to work from.',
+  'build.locked-detail-generic': 'The MVP is generated from your accumulated project intelligence — complete the earlier journey stages first so the build has real context to work from.',
+  'build.locked-cta': 'See what’s left on your journey →',
+  'chat.tab-copilot': 'Co-pilot',
+  'chat.tab-build': 'Build & Launch',
   'build.generate': 'Generate MVP build',
   'build.generating': 'Generating…',
   'build.empty': 'No build yet. Generate your first MVP from everything LaunchPad knows about this project.',

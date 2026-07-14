@@ -34,6 +34,7 @@ import ValidationProposalCard from '@/components/chat/artifacts/ValidationPropos
 import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard';
 import { Canvas, type PendingPlaceholder } from '@/components/canvas/Canvas';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
+import BuildHub from '@/components/build/BuildHub';
 import { TopBar, NavRail } from '@/components/design/chrome';
 // CreditsBadge is now mounted globally inside TopBar (see chrome.tsx) so we
 // don't import or insert it here. The `right` slot below only carries the
@@ -449,6 +450,14 @@ export default function CopilotChatPage({
   const step = 'chat';
   const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages } = useChat(projectId, step);
   const [input, setInput] = useState('');
+  // Co-pilot surface tab: 'chat' (conversation + canvas) | 'build' (Build &
+  // Launch hub — product builds + growth lane). Deep-linkable via ?tab=build
+  // (NavRail + old /build and /launch routes land here). window.location, not
+  // useSearchParams — same client-only pattern as the prefill param below.
+  const [surfaceTab, setSurfaceTab] = useState<'chat' | 'build'>(() => {
+    if (typeof window === 'undefined') return 'chat';
+    return new URLSearchParams(window.location.search).get('tab') === 'build' ? 'build' : 'chat';
+  });
   // Option-set selection memory (see OptionSelectionContext): which option the
   // founder picked per set, so a chosen set locks — saved, not clickable. First
   // pick wins (later clicks on the same set are ignored).
@@ -1374,6 +1383,33 @@ export default function CopilotChatPage({
   return (
     <GatedSkillsContext.Provider value={gatedSkills}>
      <OptionSelectionContext.Provider value={optionSelection}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      {/* Co-pilot surface tabs (founder directive 2026-07-14): Build & Launch
+          lives INSIDE the co-pilot as a tab, not as a separate nav section —
+          the conversation and the thing being built are one workspace. */}
+      <div style={{ display: 'flex', gap: 6, padding: '8px 20px 0', borderBottom: '1px solid var(--line)', background: 'var(--paper)' }}>
+        {(['chat', 'build'] as const).map((tb) => (
+          <button
+            key={tb}
+            onClick={() => setSurfaceTab(tb)}
+            className="lp-mono"
+            style={{
+              fontSize: 11, fontWeight: 600, letterSpacing: 0.3, padding: '6px 12px',
+              border: 'none', background: 'transparent', cursor: 'pointer',
+              color: surfaceTab === tb ? 'var(--ink-1)' : 'var(--ink-5)',
+              borderBottom: surfaceTab === tb ? '2px solid var(--accent)' : '2px solid transparent',
+            }}
+          >
+            {tb === 'chat' ? t('chat.tab-copilot') : t('chat.tab-build')}
+          </button>
+        ))}
+      </div>
+
+      {surfaceTab === 'build' ? (
+        <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+          <BuildHub projectId={projectId} />
+        </div>
+      ) : (
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Chat column */}
         <div
@@ -1574,6 +1610,7 @@ export default function CopilotChatPage({
           />
         </div>
       </div>
+      )}
 
       {showAddDocs && (
         <AddDocumentsDialog
@@ -1589,6 +1626,7 @@ export default function CopilotChatPage({
           }}
         />
       )}
+      </div>
 
      </OptionSelectionContext.Provider>
     </GatedSkillsContext.Provider>

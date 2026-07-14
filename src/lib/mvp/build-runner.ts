@@ -89,9 +89,44 @@ export async function buildSpecFromContext(projectId: string): Promise<string> {
   return renderBuildBrief(ctx).slice(0, MAX_PROMPT_CHARS);
 }
 
+/**
+ * Journey stage gate (founder directive 2026-07-14): the build brief is
+ * composed from the project's accumulated intelligence — canvas, validation
+ * evidence, personas, pricing. Generating an MVP before the journey reaches
+ * Build & Launch (stage 5) produces a hollow build from near-empty context,
+ * so Generate is LOCKED until the earlier stages are done. Mirrors the
+ * stage-sequence lock skills already respect (skill-executor).
+ */
+const BUILD_STAGE_NUMBER = 5;
+
+export interface BuildStageGate {
+  locked: boolean;
+  active_stage_number: number | null;
+  active_stage_label: string | null;
+}
+
+export async function buildStageGate(projectId: string): Promise<BuildStageGate> {
+  const { getActiveStage } = await import('@/lib/journey');
+  const active = await getActiveStage(projectId);
+  // Snapshot failure (brand-new project, missing tables) → degrade to LOCKED:
+  // no context is exactly the case the gate exists for.
+  if (!active) return { locked: true, active_stage_number: null, active_stage_label: null };
+  return {
+    locked: active.stage.number < BUILD_STAGE_NUMBER,
+    active_stage_number: active.stage.number,
+    active_stage_label: active.stage.label,
+  };
+}
+
 /** Start a new build: create a 'building' row + kick off the driver (async when supported). */
 export async function startBuild(projectId: string, ownerUserId?: string): Promise<MvpBuild> {
   const builder = getActiveBuilder();
+  const gate = await buildStageGate(projectId);
+  if (gate.locked) {
+    throw new Error(
+      `BUILD_LOCKED: Complete the earlier journey stages first — the build brief is composed from that context. Currently at: ${gate.active_stage_label ?? 'setup'} (stage ${gate.active_stage_number ?? '—'} of ${BUILD_STAGE_NUMBER}).`,
+    );
+  }
   await assertBuildAllowed(projectId, builder);
   const prompt = await buildSpecFromContext(projectId);
   const build = await createBuild({ projectId, builder: builder.id, specPrompt: prompt, status: 'building' });

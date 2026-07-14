@@ -23,6 +23,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export default function BuildHub({ projectId }: { projectId: string }) {
   const t = useT();
   const [lane, setLane] = useState<'product' | 'growth'>('product');
+  const [gate, setGate] = useState<{ locked: boolean; active_stage_number: number | null; active_stage_label: string | null } | null>(null);
   const [builds, setBuilds] = useState<ClientBuild[]>([]);
   const [feedback, setFeedback] = useState<ClientFeedback[]>([]);
   const [activeBuilder, setActiveBuilder] = useState<ActiveBuilder | null>(null);
@@ -33,11 +34,12 @@ export default function BuildHub({ projectId }: { projectId: string }) {
   const refresh = useCallback(async () => {
     try {
       const [buildsRes, fb] = await Promise.all([
-        api<{ builds: ClientBuild[]; active_builder: ActiveBuilder }>(`/api/projects/${projectId}/builds`),
+        api<{ builds: ClientBuild[]; active_builder: ActiveBuilder; build_gate?: { locked: boolean; active_stage_number: number | null; active_stage_label: string | null } }>(`/api/projects/${projectId}/builds`),
         api<ClientFeedback[]>(`/api/projects/${projectId}/build-feedback`),
       ]);
       setBuilds(buildsRes.builds);
       setActiveBuilder(buildsRes.active_builder);
+      setGate(buildsRes.build_gate ?? null);
       setFeedback(fb);
       setErr(null);
     } catch (e) {
@@ -174,6 +176,31 @@ export default function BuildHub({ projectId }: { projectId: string }) {
 
       {loading ? (
         <p style={{ color: 'var(--ink-4)' }}>…</p>
+      ) : !current && gate?.locked ? (
+        // Journey stage gate: the build brief is composed from accumulated
+        // project intelligence — Generate stays locked until Build & Launch
+        // (stage 5) is reached, mirroring the skills' stage-sequence lock.
+        <div
+          style={{
+            border: '1px dashed var(--line)',
+            borderRadius: 12,
+            padding: 32,
+            textAlign: 'center',
+            background: 'var(--paper-2)',
+          }}
+        >
+          <p style={{ color: 'var(--ink-3)', margin: '0 0 6px', fontSize: 14 }}>
+            🔒 {t('build.locked-title')}
+          </p>
+          <p style={{ color: 'var(--ink-4)', margin: '0 0 16px', fontSize: 13 }}>
+            {gate.active_stage_label
+              ? t('build.locked-detail', { stage: gate.active_stage_label, number: gate.active_stage_number ?? 1 })
+              : t('build.locked-detail-generic')}
+          </p>
+          <a href={`/project/${projectId}/today`} style={{ color: 'var(--accent-ink)', fontSize: 13 }}>
+            {t('build.locked-cta')}
+          </a>
+        </div>
       ) : !current ? (
         <div
           style={{
