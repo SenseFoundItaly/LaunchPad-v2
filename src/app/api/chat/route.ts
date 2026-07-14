@@ -441,6 +441,11 @@ export async function POST(request: NextRequest) {
   }
 
   const { project_id, step = 'chat', messages = [], provider = 'openai' } = body;
+  // Which co-pilot surface is open next to the conversation (right pane):
+  // 'build' (MVP preview) | 'growth' (launch panel). Client-sent hint; only
+  // the two known values are honored. Used for a steering line below.
+  const surface: 'build' | 'growth' | null =
+    body.surface === 'build' || body.surface === 'growth' ? body.surface : null;
 
   if (!project_id) {
     return new Response(
@@ -714,6 +719,14 @@ export async function POST(request: NextRequest) {
   // folds it into systemPrompt (byte-identical to before); split rides it on the
   // user turn AFTER the context (so the nudges keep their read-recency).
   let trailingSteer = '';
+  // Surface adaptation (founder directive 2026-07-14): when the founder has
+  // the Build preview or the Growth panel open next to the conversation, tell
+  // the agent so its answers meet them there instead of generic journey talk.
+  if (surface === 'build') {
+    trailingSteer += `\n\n[SURFACE] The founder currently has the BUILD tab open beside this chat — they are looking at their MVP build (generate / preview / iterate). Interpret product/UI/feature messages as being about the MVP. When they describe a change to make, remind them they can type it into the build panel's iterate box (or offer to note it as build feedback); when no build exists yet and stages allow it, point them at Generate. Stay the same co-pilot — just anchored to what they see.`;
+  } else if (surface === 'growth') {
+    trailingSteer += `\n\n[SURFACE] The founder currently has the GROWTH tab open beside this chat — published pages, campaigns (email/social), and growth loops. Interpret marketing/launch messages in that frame: offer the email-sequence / social-calendar / ad-campaign / gtm-strategy skills where they fit, explain that campaign sends are approved from the Inbox, and read growth-loop questions against their loops. Stay the same co-pilot — just anchored to what they see.`;
+  }
   const encoder = new TextEncoder();
 
   // Session key: per (user, project) rather than per (project, step).

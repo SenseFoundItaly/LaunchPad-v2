@@ -35,6 +35,7 @@ import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard
 import { Canvas, type PendingPlaceholder } from '@/components/canvas/Canvas';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import BuildHub from '@/components/build/BuildHub';
+import LaunchPanel from '@/components/launch/LaunchPanel';
 import { TopBar, NavRail } from '@/components/design/chrome';
 // CreditsBadge is now mounted globally inside TopBar (see chrome.tsx) so we
 // don't import or insert it here. The `right` slot below only carries the
@@ -450,13 +451,15 @@ export default function CopilotChatPage({
   const step = 'chat';
   const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages } = useChat(projectId, step);
   const [input, setInput] = useState('');
-  // Co-pilot surface tab: 'chat' (conversation + canvas) | 'build' (Build &
-  // Launch hub — product builds + growth lane). Deep-linkable via ?tab=build
-  // (NavRail + old /build and /launch routes land here). window.location, not
+  // Co-pilot surface tab: what the RIGHT pane shows next to the persistent
+  // chat column — 'chat' (artifact canvas) | 'build' (MVP preview) | 'growth'
+  // (launch panel). Deep-linkable via ?tab=build / ?tab=growth (NavRail + old
+  // /build and /launch routes land here). window.location, not
   // useSearchParams — same client-only pattern as the prefill param below.
-  const [surfaceTab, setSurfaceTab] = useState<'chat' | 'build'>(() => {
+  const [surfaceTab, setSurfaceTab] = useState<'chat' | 'build' | 'growth'>(() => {
     if (typeof window === 'undefined') return 'chat';
-    return new URLSearchParams(window.location.search).get('tab') === 'build' ? 'build' : 'chat';
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return tab === 'build' || tab === 'growth' ? tab : 'chat';
   });
   // Option-set selection memory (see OptionSelectionContext): which option the
   // founder picked per set, so a chosen set locks — saved, not clickable. First
@@ -558,11 +561,12 @@ export default function CopilotChatPage({
   // canvas skill kickoffs) is a deliberate jump to the live edge — queue a
   // one-shot pin so the user's own turn always lands in view, even if they
   // had scrolled up. Wrapping here centralizes it instead of sprinkling the
-  // flag across call sites.
+  // flag across call sites. Also rides the surface hint: when the Build or
+  // Growth pane is open, the agent is told so it adapts to what's on screen.
   const sendMessage = useCallback((content: string) => {
     forceScrollRef.current = true;
-    sendMessageRaw(content);
-  }, [sendMessageRaw]);
+    sendMessageRaw(content, surfaceTab !== 'chat' ? { surface: surfaceTab } : undefined);
+  }, [sendMessageRaw, surfaceTab]);
 
   // Fire lp-actions-changed immediately when streaming ends so downstream
   // surfaces (badge counts, inline cards) refetch without waiting for poll.
@@ -1384,11 +1388,13 @@ export default function CopilotChatPage({
     <GatedSkillsContext.Provider value={gatedSkills}>
      <OptionSelectionContext.Provider value={optionSelection}>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      {/* Co-pilot surface tabs (founder directive 2026-07-14): Build & Launch
-          lives INSIDE the co-pilot as a tab, not as a separate nav section —
-          the conversation and the thing being built are one workspace. */}
+      {/* Co-pilot surface tabs (founder directive 2026-07-14, v2): the chat
+          column stays put — the tabs swap only the RIGHT pane: the artifact
+          canvas, the Build preview, or the Growth (launch) panel. The agent is
+          told which surface is open (surface hint on sendMessage), so the
+          conversation adapts to what the founder is looking at. */}
       <div style={{ display: 'flex', gap: 6, padding: '8px 20px 0', borderBottom: '1px solid var(--line)', background: 'var(--paper)' }}>
-        {(['chat', 'build'] as const).map((tb) => (
+        {(['chat', 'build', 'growth'] as const).map((tb) => (
           <button
             key={tb}
             onClick={() => setSurfaceTab(tb)}
@@ -1400,16 +1406,11 @@ export default function CopilotChatPage({
               borderBottom: surfaceTab === tb ? '2px solid var(--accent)' : '2px solid transparent',
             }}
           >
-            {tb === 'chat' ? t('chat.tab-copilot') : t('chat.tab-build')}
+            {tb === 'chat' ? t('chat.tab-copilot') : tb === 'build' ? t('chat.tab-build') : t('chat.tab-growth')}
           </button>
         ))}
       </div>
 
-      {surfaceTab === 'build' ? (
-        <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-          <BuildHub projectId={projectId} />
-        </div>
-      ) : (
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Chat column */}
         <div
@@ -1569,7 +1570,7 @@ export default function CopilotChatPage({
           />
         </div>
 
-        {/* Canvas */}
+        {/* Right pane — canvas / build preview / growth panel per surface tab. */}
         <div
           data-tour="chat-canvas"
           style={{
@@ -1580,6 +1581,15 @@ export default function CopilotChatPage({
             background: 'var(--paper-2)',
           }}
         >
+          {surfaceTab === 'build' ? (
+            <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+              <BuildHub projectId={projectId} embedded />
+            </div>
+          ) : surfaceTab === 'growth' ? (
+            <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0, padding: 20 }}>
+              <LaunchPanel projectId={projectId} />
+            </div>
+          ) : (
           <Canvas
             projectId={projectId}
             locale={locale}
@@ -1608,9 +1618,9 @@ export default function CopilotChatPage({
               }
             }}
           />
+          )}
         </div>
       </div>
-      )}
 
       {showAddDocs && (
         <AddDocumentsDialog

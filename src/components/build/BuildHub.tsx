@@ -20,8 +20,11 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return jsonBody.data as T;
 }
 
-export default function BuildHub({ projectId }: { projectId: string }) {
+export default function BuildHub({ projectId, embedded }: { projectId: string; embedded?: boolean }) {
   const t = useT();
+  // embedded = mounted in the co-pilot's right pane (Build tab): the page
+  // header and lane pills are dropped — Growth is its own co-pilot tab
+  // (LaunchPanel), so this surface is the product build alone.
   const [lane, setLane] = useState<'product' | 'growth'>('product');
   const [gate, setGate] = useState<{ locked: boolean; active_stage_number: number | null; active_stage_label: string | null } | null>(null);
   const [builds, setBuilds] = useState<ClientBuild[]>([]);
@@ -137,24 +140,28 @@ export default function BuildHub({ projectId }: { projectId: string }) {
     );
 
   return (
-    <div style={{ padding: 24, maxWidth: 920, margin: '0 auto', width: '100%' }}>
-      <header style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--ink)', margin: 0 }}>{t('build.title')}</h1>
-        <p style={{ color: 'var(--ink-4)', margin: '6px 0 0', fontSize: 14 }}>{t('build.subtitle')}</p>
-      </header>
+    <div style={{ padding: embedded ? 20 : 24, maxWidth: 920, margin: '0 auto', width: '100%' }}>
+      {!embedded && (
+        <header style={{ marginBottom: 20 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--ink)', margin: 0 }}>{t('build.title')}</h1>
+          <p style={{ color: 'var(--ink-4)', margin: '6px 0 0', fontSize: 14 }}>{t('build.subtitle')}</p>
+        </header>
+      )}
 
-      {/* Lane tabs — Product (MVP builds) and Growth (the launch pipeline:
-          published pages, campaigns, growth loops — see LaunchPanel). */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        <button style={{ ...pill(lane === 'product'), cursor: 'pointer' }} onClick={() => setLane('product')}>
-          {t('build.lane.product')}
-        </button>
-        <button style={{ ...pill(lane === 'growth'), cursor: 'pointer' }} onClick={() => setLane('growth')}>
-          {t('build.lane.growth')}
-        </button>
-      </div>
+      {/* Lane tabs (standalone only) — embedded mounts are product-only:
+          Growth is its own co-pilot tab rendering LaunchPanel. */}
+      {!embedded && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+          <button style={{ ...pill(lane === 'product'), cursor: 'pointer' }} onClick={() => setLane('product')}>
+            {t('build.lane.product')}
+          </button>
+          <button style={{ ...pill(lane === 'growth'), cursor: 'pointer' }} onClick={() => setLane('growth')}>
+            {t('build.lane.growth')}
+          </button>
+        </div>
+      )}
 
-      {lane === 'growth' ? (
+      {!embedded && lane === 'growth' ? (
         <LaunchPanel projectId={projectId} />
       ) : (
       <>

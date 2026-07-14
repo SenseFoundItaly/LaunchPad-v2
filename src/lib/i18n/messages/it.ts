@@ -30,6 +30,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'build.locked-cta': 'Vedi cosa manca nel tuo percorso →',
   'chat.tab-copilot': 'Co-pilot',
   'chat.tab-build': 'Build & Launch',
+  'chat.tab-growth': 'Growth',
   'build.generate': 'Genera build MVP',
   'build.generating': 'Generazione…',
   'build.empty': 'Nessuna build. Genera il tuo primo MVP da tutto ciò che LaunchPad sa su questo progetto.',

@@ -36,6 +36,7 @@ export const en = {
   'build.locked-cta': 'See what’s left on your journey →',
   'chat.tab-copilot': 'Co-pilot',
   'chat.tab-build': 'Build & Launch',
+  'chat.tab-growth': 'Growth',
   'build.generate': 'Generate MVP build',
   'build.generating': 'Generating…',
   'build.empty': 'No build yet. Generate your first MVP from everything LaunchPad knows about this project.',

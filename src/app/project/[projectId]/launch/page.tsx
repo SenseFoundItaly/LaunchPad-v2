@@ -8,5 +8,5 @@ export default async function LaunchRedirect({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  redirect(`/project/${projectId}/chat?tab=build`);
+  redirect(`/project/${projectId}/chat?tab=growth`);
 }
