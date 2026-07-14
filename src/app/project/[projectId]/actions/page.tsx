@@ -1144,6 +1144,10 @@ function producerFromType(type: PendingActionType, ecosystemAlertId?: string | n
     propose_assumption_revision: 'signal',
     // Materialized from intelligence_briefs (intelligence-correlator.ts).
     intelligence_brief: 'correlator',
+    // Launch pipeline: publish proposals come from chat/growth dispatch;
+    // campaign sends are queued by the cron send-proposer (PR-B).
+    publish_landing_page: 'chat',
+    send_campaign_message: 'cron',
   };
   return map[type] || 'unknown';
 }
@@ -1176,6 +1180,9 @@ const TYPE_LABEL_KEY: Record<PendingActionType, MessageKey> = {
   intelligence_brief:           'actions.type-brief',
   assumption_review:            'actions.type-assumption',
   propose_assumption_revision:  'actions.type-assumption-revision',
+  // Launch pipeline (growth lane).
+  publish_landing_page:         'actions.type-publish-page',
+  send_campaign_message:        'actions.type-campaign-send',
 };
 
 // Returns the i18n key for an action_type's chip label, or null when the type

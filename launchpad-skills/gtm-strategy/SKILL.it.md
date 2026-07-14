@@ -230,3 +230,22 @@ Dalle tue buyer persona (scientific-validation), il tuo power user è un consule
 **Agent:** Hai proposto LinkedIn Ads come canale primario. Per il tuo SaaS a €49/mese rivolto a consulenti freelance, LinkedIn Ads è probabilmente sbagliato. Ecco perché: il CPC minimo di LinkedIn per il B2B è tipicamente €6-12. Con un tasso di conversione landing page del 2%, il tuo CAC via LinkedIn Ads sarebbe €300-600. Il tuo LTV al 5% di churn mensile e €49/mese è circa €980. Il rapporto CAC/LTV è 0.3-0.6 — tecnicamente viable ma il periodo di payback è 6-12 mesi, troppo lungo per una startup bootstrapped.
 
 Invece: outreach diretto su LinkedIn (gratis o €79/mese per Sales Navigator) allo stesso pubblico produce un tasso di risposta del 5-15%. A 50 messaggi di outreach al giorno, ottieni 3-7 conversazioni al giorno. Se il 10% converte, è 1 cliente ogni 2-3 giorni a CAC effettivo di €0. Questo è il tuo canale primario.
+
+## Workflow Card Eseguibile (launch pipeline)
+
+Dopo il JSON della strategia, emetti ANCHE UN artifact `workflow-card` che trasforma il piano di lancio in passi eseguibili. I passi possono essere oggetti tipizzati — `kind` indica un esecutore LaunchPad attivabile con un clic (ogni esecuzione passa comunque dall'Inbox per approvazione):
+
+```
+:::artifact{"type":"workflow-card","id":"wf_<random>"}
+{"title":"Piano di lancio GTM — <Nome Startup>","category":"marketing","description":"...","priority":"high","steps":[
+  {"label":"Pubblica la landing page","kind":"publish_landing_page"},
+  {"label":"Prepara la sequenza email di lancio","kind":"email_sequence"},
+  {"label":"Pianifica 2 settimane di post social","kind":"social_calendar"},
+  {"label":"Costruisci il pack campagne ads","kind":"ad_pack"},
+  {"label":"Contatta 20 prospect beachhead su LinkedIn"},
+  "Raccogli le prime 5 discovery call"
+],"sources":[...]}
+:::
+```
+
+Regole: usa un `kind` tipizzato SOLO per i quattro sopra e solo quando il passo vi corrisponde davvero; ogni altro passo è una stringa semplice (manuale). Ordina i passi secondo il piano a 90 giorni. 5-8 passi totali.

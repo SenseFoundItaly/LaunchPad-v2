@@ -14,6 +14,7 @@ import MonitorProposalCard from './MonitorProposalCard';
 import BudgetProposalCard from './BudgetProposalCard';
 import ValidationProposalCard from './ValidationProposalCard';
 import HtmlPreviewCard from './HtmlPreviewCard';
+import { EmailSequenceCard, SocialCalendarCard, AdPackCard } from './CampaignCards';
 import DocumentCard from './DocumentCard';
 import SolveProgressCard from './SolveProgressCard';
 import PersonaCard from './PersonaCard';
@@ -130,6 +131,14 @@ export default function ArtifactRenderer({
       return <InvestorPipelineCard artifact={artifact} />;
     case 'weekly-update':
       return <WeeklyUpdateCard artifact={artifact} />;
+    // Launch pipeline deliverables (W2/W3): read surfaces over captured
+    // draft campaigns + the export-first ad pack.
+    case 'email-sequence':
+      return <EmailSequenceCard artifact={artifact} defaultCollapsed={defaultCollapsed} />;
+    case 'social-calendar':
+      return <SocialCalendarCard artifact={artifact} defaultCollapsed={defaultCollapsed} />;
+    case 'ad-pack':
+      return <AdPackCard artifact={artifact} defaultCollapsed={defaultCollapsed} />;
     case 'task':  // Inline-only — rendered by InlineArtifact → TaskCard in chat/page.tsx
     case 'fact':  // Server-only — intercepted by chat route, never sent to client
       return null;

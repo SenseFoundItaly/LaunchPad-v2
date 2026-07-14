@@ -156,12 +156,34 @@ function encodeLinkedInShare(text: string, url?: string): string {
   return `https://www.linkedin.com/feed/?${params.toString()}`;
 }
 
+/** Launch pipeline: when a click-to-send draft was queued from a scheduled
+ *  campaign message (payload.campaign_message_id), the founder's Apply IS the
+ *  send — mark the message delivered so the queue advances. Non-fatal. */
+async function markCampaignMessageSent(
+  payload: Record<string, unknown>, sendRef: string,
+): Promise<void> {
+  const msgId = typeof payload.campaign_message_id === 'string' ? payload.campaign_message_id : '';
+  if (!msgId) return;
+  try {
+    await run(
+      `UPDATE campaign_messages SET status = 'sent', sent_at = CURRENT_TIMESTAMP, send_ref = ? WHERE id = ?`,
+      sendRef.slice(0, 500), msgId,
+    );
+    const { maybeCompleteCampaign } = await import('@/lib/launch/campaigns');
+    const campaignId = typeof payload.campaign_id === 'string' ? payload.campaign_id : '';
+    if (campaignId) await maybeCompleteCampaign(campaignId);
+  } catch (err) {
+    console.warn('[launch] markCampaignMessageSent failed (non-fatal):', (err as Error).message);
+  }
+}
+
 const draftEmail: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
   const to = String(payload.to || '');
   const subject = String(payload.subject || action.title);
-  const body = String(payload.body || payload.draft_seed || '');
+  const body = String(payload.body || payload.draft_seed || payload.draft || payload.content || '');
   const locale = await localeFor(action);
+  await markCampaignMessageSent(payload, 'click-to-send');
 
   if (!to) {
     return {
@@ -191,10 +213,12 @@ const draftEmail: ActionHandler = async (action) => {
 
 const draftLinkedInPost: ActionHandler = async (action) => {
   const payload = effectivePayload(action);
-  const text = String(payload.body || payload.draft_seed || action.title);
+  const text = String(payload.body || payload.draft_seed || payload.draft || payload.content || action.title);
   const sourceAlert = await getSourceAlert(action.ecosystem_alert_id);
   const attachUrl = sourceAlert?.source_url || (typeof payload.url === 'string' ? payload.url : undefined);
   const locale = await localeFor(action);
+  const share = encodeLinkedInShare(text, attachUrl || undefined);
+  await markCampaignMessageSent(payload, share);
 
   return {
     ok: true,
@@ -2083,7 +2107,141 @@ const proposeAssumptionRevision: ActionHandler = async (action) => {
   };
 };
 
+/**
+ * `publish_landing_page` executor (launch pipeline) — founder-approved publish
+ * of a generated html-preview artifact to a real URL via the active publisher
+ * driver. Payload: { source_artifact_id, slug? }. The Apply IS the founder
+ * gate; the orchestration handles gate/record/watch (src/lib/launch/publish).
+ */
+const publishLandingPageExecutor: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const locale = await localeFor(action);
+  const artifactId = typeof payload.source_artifact_id === 'string' ? payload.source_artifact_id : '';
+  if (!artifactId) {
+    return { ok: false, error: 'publish_landing_page: missing source_artifact_id in payload.' };
+  }
+  try {
+    const { publishLandingPage } = await import('@/lib/launch/publish');
+    const { url } = await publishLandingPage({
+      projectId: action.project_id,
+      sourceArtifactId: artifactId,
+      slug: typeof payload.slug === 'string' ? payload.slug : undefined,
+    });
+    const isStub = url.startsWith('data:');
+    return {
+      ok: true,
+      deliverable: {
+        mode: 'direct',
+        url: isStub ? undefined : url,
+        narrative: locale === 'it'
+          ? (isStub ? 'Pubblicazione registrata (driver stub — nessun hosting reale configurato).' : `Landing page pubblicata: ${url}`)
+          : (isStub ? 'Publish recorded (stub driver — no real hosting configured).' : `Landing page published: ${url}`),
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+};
+
+/**
+ * `send_campaign_message` executor (launch pipeline) — THE single call site of
+ * SenderAdapter.send / SocialAdapter.post. Runs only on founder Apply of a
+ * cron-proposed due message; Reject marks the message skipped (route handler
+ * for reject is the generic one — we sweep skips below on apply of siblings).
+ * Channel-routed: email → active sender (stub/resend Broadcasts), linkedin/x →
+ * active social driver (ayrshare). Payload (founder-editable in the Inbox):
+ * { campaign_message_id, campaign_id, channel, subject?, body_html, recipients? }.
+ */
+const sendCampaignMessageExecutor: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const locale = await localeFor(action);
+  const msgId = typeof payload.campaign_message_id === 'string' ? payload.campaign_message_id : '';
+  const channel = String(payload.channel || 'email');
+  const body = String(payload.body_html || payload.body || '');
+  if (!msgId || !body.trim()) {
+    return { ok: false, error: 'send_campaign_message: missing campaign_message_id or body in payload.' };
+  }
+  try {
+    const { assertLaunchAllowed } = await import('@/lib/launch/launch-gate');
+    await assertLaunchAllowed(action.project_id);
+
+    let sendRef = '';
+    let stubbed = false;
+    let recipientCount: number | null = null;
+
+    if (channel === 'email') {
+      const recipients = Array.isArray(payload.recipients) ? (payload.recipients as string[]) : [];
+      if (recipients.length === 0) return { ok: false, error: 'send_campaign_message: no recipients on the proposal.' };
+      const { getActiveSender } = await import('@/lib/launch/senders');
+      const sender = getActiveSender();
+      const outcome = await sender.send({
+        projectId: action.project_id,
+        to: recipients,
+        subject: String(payload.subject || action.title),
+        html: body,
+      });
+      if (!outcome.ok) {
+        await run(`UPDATE campaign_messages SET status = 'failed' WHERE id = ?`, msgId).catch(() => {});
+        return { ok: false, error: `send failed via ${sender.label}: ${outcome.error ?? 'unknown'}` };
+      }
+      sendRef = outcome.providerRef ?? sender.id;
+      stubbed = outcome.stubbed;
+      recipientCount = recipients.length;
+    } else {
+      const { getActiveSocial } = await import('@/lib/launch/social');
+      const social = getActiveSocial();
+      const outcome = await social.post({
+        projectId: action.project_id,
+        channel: channel === 'x' ? 'x' : 'linkedin',
+        body,
+      });
+      if (!outcome.ok) {
+        await run(`UPDATE campaign_messages SET status = 'failed' WHERE id = ?`, msgId).catch(() => {});
+        return { ok: false, error: `post failed via ${social.label}: ${outcome.error ?? 'unknown'}` };
+      }
+      sendRef = outcome.url ?? outcome.postRef ?? social.id;
+      stubbed = outcome.stubbed;
+    }
+
+    await run(
+      `UPDATE campaign_messages SET status = 'sent', sent_at = CURRENT_TIMESTAMP, send_ref = ?, recipient_count = ? WHERE id = ?`,
+      sendRef.slice(0, 500), recipientCount, msgId,
+    );
+    const campaignId = typeof payload.campaign_id === 'string' ? payload.campaign_id : '';
+    if (campaignId) {
+      const { maybeCompleteCampaign } = await import('@/lib/launch/campaigns');
+      await maybeCompleteCampaign(campaignId);
+    }
+    const owner = await query<{ owner_user_id: string | null }>(
+      'SELECT owner_user_id FROM projects WHERE id = ?', action.project_id,
+    );
+    if (owner[0]?.owner_user_id) {
+      const { recordEvent: recordMemoryEvent } = await import('@/lib/memory/events');
+      await recordMemoryEvent({
+        userId: owner[0].owner_user_id,
+        projectId: action.project_id,
+        eventType: 'campaign_message_sent',
+        payload: { campaign_message_id: msgId, channel, send_ref: sendRef, stubbed, recipient_count: recipientCount },
+      }).catch(() => {});
+    }
+
+    const narrative = channel === 'email'
+      ? (locale === 'it'
+          ? (stubbed ? `Driver stub: invio registrato, nessuna email è partita (${recipientCount} destinatari).` : `Email inviata a ${recipientCount} destinatari.`)
+          : (stubbed ? `Stub driver: send recorded, no email left the system (${recipientCount} recipients).` : `Email sent to ${recipientCount} recipient(s).`))
+      : (locale === 'it'
+          ? (stubbed ? 'Driver stub: post registrato, nulla è stato pubblicato.' : `Post pubblicato su ${channel === 'x' ? 'X' : 'LinkedIn'}.`)
+          : (stubbed ? 'Stub driver: post recorded, nothing was published.' : `Posted to ${channel === 'x' ? 'X' : 'LinkedIn'}.`));
+
+    return { ok: true, deliverable: { mode: 'direct', narrative } };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+};
+
 const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
+  publish_landing_page: publishLandingPageExecutor,
+  send_campaign_message: sendCampaignMessageExecutor,
   draft_email: draftEmail,
   draft_linkedin_post: draftLinkedInPost,
   draft_linkedin_dm: draftLinkedInDM,
@@ -2103,21 +2261,26 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   run_skill: runSkillExecutor,
   validation_proposal: applyValidationProposal,
   propose_assumption_revision: proposeAssumptionRevision,
-  // Placeholder until the Phase-2 workflows execution layer ships. The
-  // workflow-card fan-out into per-step pending_actions was removed (2026-06),
-  // so this rarely materializes today; when it does, be honest rather than
-  // fake-acknowledging. Keep the mapping (don't 500 on an unknown type).
+  // Launch pipeline (W4): real dispatcher — maps the approved step to the
+  // publish orchestration or a drafting skill. Steps with no wired kind get
+  // the honest manual-tracking narrative (old placeholder behavior).
   workflow_step: async (pa) => {
     const locale = await localeFor(pa);
-    return {
-      ok: true,
-      deliverable: {
-        mode: 'direct' as const,
-        narrative: locale === 'it'
-          ? 'L’esecuzione dei workflow con un clic sta arrivando — per ora traccia questo passo manualmente.'
-          : 'One-click workflow execution is coming soon — track this step manually for now.',
-      },
-    };
+    try {
+      const { executeWorkflowStep } = await import('@/lib/launch/workflow-executor');
+      const out = await executeWorkflowStep(pa.project_id, effectivePayload(pa));
+      if (!out.ok) return { ok: false, error: out.error ?? 'workflow step failed' };
+      return {
+        ok: true,
+        deliverable: {
+          mode: 'direct' as const,
+          url: out.url,
+          narrative: locale === 'it' ? out.narrative_it : out.narrative_en,
+        },
+      };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
   },
 };
 

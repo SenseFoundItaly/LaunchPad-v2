@@ -48,7 +48,9 @@ export type EventType =
   | 'alert_reverted'
   | 'loop1_review_proposed'   // Loop 1 (PSF Review) auto-trigger fired (WTP<30%)
   | 'loop1_override'          // founder ignored the auto-trigger, with motivation
-  | 'loop1_verdict';          // escalation cap reached → founder picked GO/PIVOT/STOP
+  | 'loop1_verdict'           // escalation cap reached → founder picked GO/PIVOT/STOP
+  | 'asset_published'         // launch pipeline: a page went live at a real URL (founder-gated)
+  | 'campaign_message_sent';  // launch pipeline: a founder-approved campaign send executed (PR-B)
 
 export interface MemoryEvent {
   id: string;
