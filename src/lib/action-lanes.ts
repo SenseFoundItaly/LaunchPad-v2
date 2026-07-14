@@ -69,6 +69,9 @@ export const ACTION_LANE: Record<PendingActionType, ActionLane> = {
   signal_alert: 'signal',
   intelligence_brief: 'approval',
   assumption_review: 'approval',
+  // Launch pipeline (growth lane): outbound side effects, always founder-gated.
+  publish_landing_page: 'approval',
+  send_campaign_message: 'approval',
 };
 
 export function laneFor(type: PendingActionType): ActionLane {
@@ -122,4 +125,8 @@ export const WATCHER_PROPOSAL_TYPES: readonly PendingActionType[] = [
 export const SURFACED_ACTION_TYPES: readonly PendingActionType[] = [
   ...INTEL_INBOX_TYPES,
   ...WATCHER_PROPOSAL_TYPES,
+  // Launch pipeline: publish/send proposals MUST be reachable — an unseen
+  // send proposal is a campaign that silently never goes out.
+  'publish_landing_page',
+  'send_campaign_message',
 ];

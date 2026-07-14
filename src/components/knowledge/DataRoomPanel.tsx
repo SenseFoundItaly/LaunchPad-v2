@@ -351,6 +351,30 @@ function DataRoomDetailView({
     onSuccess: onDeleted,
   });
 
+  // Launch pipeline: html-preview deliverables are publishable to a real URL.
+  // The click below IS the founder gate (same posture as Build Hub Generate).
+  const { data: launchAssets } = useQuery<Array<{ id: string; url: string | null; source_artifact_id: string | null }>>({
+    queryKey: ['launch-assets', projectId],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/launch/assets`);
+      const body = await res.json();
+      return (body?.data ?? []) as Array<{ id: string; url: string | null; source_artifact_id: string | null }>;
+    },
+  });
+  const publishMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/launch/publish`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ artifact_id: itemId }),
+      });
+      const body = await res.json();
+      if (!res.ok || body?.success === false) throw new Error(body?.error || `HTTP ${res.status}`);
+      return body.data as { url: string };
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['launch-assets', projectId] }),
+  });
+
   if (isError) return <EmptyHint message={t('kb.document-unavailable')} />;
   if (isLoading || !detail) return <EmptyHint message={t('common.loading')} />;
 
@@ -405,6 +429,49 @@ function DataRoomDetailView({
             {t('common.cancel')}
           </button>
         )}
+        {detail.source === 'generated' && detail.kind === 'html-preview' && (() => {
+          const asset = (launchAssets ?? []).find((a) => a.source_artifact_id === itemId);
+          const liveUrl = asset?.url && /^https?:\/\//.test(asset.url) ? asset.url : null;
+          return (
+            <>
+              {liveUrl && (
+                <a
+                  href={liveUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="lp-mono"
+                  style={{
+                    fontSize: 10, fontWeight: 600, color: 'var(--moss)',
+                    border: '1px solid var(--moss)', borderRadius: 999, padding: '2px 8px',
+                    textDecoration: 'none', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {t('launch.live')}
+                </a>
+              )}
+              <button
+                onClick={() => publishMutation.mutate()}
+                disabled={publishMutation.isPending}
+                title={t('launch.publish-hint')}
+                style={{
+                  fontSize: 11, padding: '4px 10px', borderRadius: 4, cursor: 'pointer',
+                  border: '1px solid var(--accent)',
+                  background: asset ? 'transparent' : 'var(--accent)',
+                  color: asset ? 'var(--accent-ink)' : 'white',
+                }}
+              >
+                {publishMutation.isPending
+                  ? t('launch.publishing')
+                  : asset ? t('launch.republish') : t('launch.publish')}
+              </button>
+              {publishMutation.isError && (
+                <span style={{ fontSize: 10, color: 'var(--clay)' }}>
+                  {(publishMutation.error as Error)?.message?.slice(0, 80)}
+                </span>
+              )}
+            </>
+          );
+        })()}
         {detail.source === 'generated' && (
           <>
             <IconBtn

@@ -2083,7 +2083,44 @@ const proposeAssumptionRevision: ActionHandler = async (action) => {
   };
 };
 
+/**
+ * `publish_landing_page` executor (launch pipeline) — founder-approved publish
+ * of a generated html-preview artifact to a real URL via the active publisher
+ * driver. Payload: { source_artifact_id, slug? }. The Apply IS the founder
+ * gate; the orchestration handles gate/record/watch (src/lib/launch/publish).
+ */
+const publishLandingPageExecutor: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const locale = await localeFor(action);
+  const artifactId = typeof payload.source_artifact_id === 'string' ? payload.source_artifact_id : '';
+  if (!artifactId) {
+    return { ok: false, error: 'publish_landing_page: missing source_artifact_id in payload.' };
+  }
+  try {
+    const { publishLandingPage } = await import('@/lib/launch/publish');
+    const { url } = await publishLandingPage({
+      projectId: action.project_id,
+      sourceArtifactId: artifactId,
+      slug: typeof payload.slug === 'string' ? payload.slug : undefined,
+    });
+    const isStub = url.startsWith('data:');
+    return {
+      ok: true,
+      deliverable: {
+        mode: 'direct',
+        url: isStub ? undefined : url,
+        narrative: locale === 'it'
+          ? (isStub ? 'Pubblicazione registrata (driver stub — nessun hosting reale configurato).' : `Landing page pubblicata: ${url}`)
+          : (isStub ? 'Publish recorded (stub driver — no real hosting configured).' : `Landing page published: ${url}`),
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+};
+
 const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
+  publish_landing_page: publishLandingPageExecutor,
   draft_email: draftEmail,
   draft_linkedin_post: draftLinkedInPost,
   draft_linkedin_dm: draftLinkedInDM,
