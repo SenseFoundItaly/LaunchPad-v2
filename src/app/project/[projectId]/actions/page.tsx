@@ -1144,8 +1144,10 @@ function producerFromType(type: PendingActionType, ecosystemAlertId?: string | n
     propose_assumption_revision: 'signal',
     // Materialized from intelligence_briefs (intelligence-correlator.ts).
     intelligence_brief: 'correlator',
+    // Cron auto-proposer (Build Hub iteration-proposer.ts).
+    mvp_build_iteration: 'cron',
     // Launch pipeline: publish proposals come from chat/growth dispatch;
-    // campaign sends are queued by the cron send-proposer (PR-B).
+    // campaign sends are queued by the cron send-proposer.
     publish_landing_page: 'chat',
     send_campaign_message: 'cron',
   };
@@ -1180,6 +1182,7 @@ const TYPE_LABEL_KEY: Record<PendingActionType, MessageKey> = {
   intelligence_brief:           'actions.type-brief',
   assumption_review:            'actions.type-assumption',
   propose_assumption_revision:  'actions.type-assumption-revision',
+  mvp_build_iteration:          'actions.type-mvp-build-iteration',
   // Launch pipeline (growth lane).
   publish_landing_page:         'actions.type-publish-page',
   send_campaign_message:        'actions.type-campaign-send',

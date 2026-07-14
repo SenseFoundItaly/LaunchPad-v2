@@ -58,6 +58,8 @@ import type {
   PendingActionType,
   EcosystemAlert,
 } from '@/types';
+import { getBuild, getCurrentBuild, getLatestLiveBuild } from './mvp/mvp-builds';
+import { generateAndApplyIteration } from './mvp/run-iteration';
 
 export interface ExecutionDeliverable {
   mode: 'click-to-send' | 'direct' | 'outbox' | 'autopilot-stub';
@@ -2239,6 +2241,38 @@ const sendCampaignMessageExecutor: ActionHandler = async (action) => {
   }
 };
 
+/**
+ * `mvp_build_iteration` executor (Build Hub) — on approve, draft the next
+ * iteration's build prompt from accumulated feedback (mvp-build-spec skill) and
+ * run the builder driver's in-place iterate, recording a new iteration row.
+ * Payload: { build_id? } (defaults to the project's current build).
+ */
+const mvpBuildIteration: ActionHandler = async (action) => {
+  const payload = effectivePayload(action);
+  const buildId = typeof payload.build_id === 'string' ? payload.build_id : undefined;
+  // Iterate the latest LIVE build. A failed/superseded newest row must not become
+  // the parent, so latest-live wins over the (possibly stale) payload build_id.
+  const build =
+    (await getLatestLiveBuild(action.project_id)) ??
+    (buildId ? await getBuild(buildId) : undefined) ??
+    (await getCurrentBuild(action.project_id));
+  if (!build || build.project_id !== action.project_id) {
+    return { ok: false, error: 'mvp_build_iteration: no live build to iterate' };
+  }
+  const next = await generateAndApplyIteration(build);
+  return {
+    ok: true,
+    deliverable: {
+      mode: 'direct' as const,
+      narrative:
+        next.status === 'live'
+          ? `Iterated the MVP to build v${next.iteration}.`
+          : `Started iteration v${next.iteration} — building now; it will appear in the Build section shortly.`,
+      url: next.preview_url ?? null,
+    },
+  };
+};
+
 const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   publish_landing_page: publishLandingPageExecutor,
   send_campaign_message: sendCampaignMessageExecutor,
@@ -2261,6 +2295,7 @@ const REGISTRY: Partial<Record<PendingActionType, ActionHandler>> = {
   run_skill: runSkillExecutor,
   validation_proposal: applyValidationProposal,
   propose_assumption_revision: proposeAssumptionRevision,
+  mvp_build_iteration: mvpBuildIteration,
   // Launch pipeline (W4): real dispatcher — maps the approved step to the
   // publish orchestration or a drafting skill. Steps with no wired kind get
   // the honest manual-tracking narrative (old placeholder behavior).
