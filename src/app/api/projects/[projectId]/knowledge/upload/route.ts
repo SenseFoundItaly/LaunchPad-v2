@@ -9,6 +9,22 @@ import { recordAgentUsage } from '@/lib/cost-meter';
 import { validationTargetsFor, validationLabel, buildSpinePreview } from '@/lib/journey/validation-targets';
 import { canvasIsEmpty } from '@/lib/idea-canvas-seed';
 import { digestDocument } from '@/lib/document-digest';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { LOCALE_ENGLISH_NAME, type Locale } from '@/lib/i18n/locales';
+
+// Language instruction for the single-shot extraction prompts (entities +
+// canvas). These prompts are English scaffolding, so without an explicit
+// directive Haiku answers in English even for an Italian project — and, absent
+// any directive, it would otherwise just echo the DOCUMENT's language (an
+// Italian doc in an English project → Italian output). We pin output to the
+// PROJECT locale for BOTH locales (the canvas/entities render in the project's
+// UI language), surgically: translate the natural-language VALUES, but keep the
+// JSON keys and node_type/enum values in English (the app parses them).
+// Mirrors src/lib/assumptions.ts's per-value language directive.
+function extractionLanguageDirective(locale: Locale): string {
+  const language = LOCALE_ENGLISH_NAME[locale];
+  return `\nWrite every natural-language value (each entity's summary, every canvas field, and idea_brief) in ${language}, regardless of the document's language. Keep the JSON keys and the node_type enum values in English.`;
+}
 
 const MAX_FILE_BYTES = 10_485_760; // 10 MiB per file — real PDFs/decks are bigger than a text note
 const MAX_FILES_PER_REQUEST = 10;
@@ -194,7 +210,7 @@ Return a JSON array. Each object: { "name": string, "node_type": string, "summar
 node_type MUST be one of: competitor, company, persona, market_segment, technology, trend, regulation, compliance, partner, risk, feature, metric, funding_source, supplier, hr_collaborator, brand_asset, gtm_strategy, business_essential.
 
 Skip generic concepts ("coffee", "the market"). Prefer named, specific entities ("Starbucks", "NYC DCWP"). If the text is too short, vague, or has no extractable entities, return [].
-
+{LANG}
 Output ONLY the JSON array — no markdown, no preamble.
 
 TEXT:
@@ -206,13 +222,16 @@ TEXT:
  * Best-effort entity extraction. Never throws — extraction failures degrade
  * silently to zero proposed entities so the upload still succeeds.
  */
-async function extractEntities(text: string, projectId: string): Promise<ExtractedEntity[]> {
+async function extractEntities(text: string, projectId: string, locale: Locale): Promise<ExtractedEntity[]> {
   // Cap input — Haiku context isn't the bottleneck but cost/latency are.
   // 16k chars covers most decks / one-pagers in full; longer docs sample the head.
   const truncated = text.length > 16000 ? text.slice(0, 16000) : text;
   try {
     const startedAt = Date.now();
-    const { text: raw, usage } = await runAgent(EXTRACT_PROMPT.replace('{TEXT}', truncated), {
+    const prompt = EXTRACT_PROMPT
+      .replace('{LANG}', extractionLanguageDirective(locale))
+      .replace('{TEXT}', truncated);
+    const { text: raw, usage } = await runAgent(prompt, {
       task: 'classify', // routes to Haiku (cheap)
       tools: false,
       timeout: 25_000,
@@ -273,7 +292,9 @@ const CANVAS_PROMPT = `From the founder's document(s) below, draft a lean startu
 Return ONE JSON object with these string fields:
 { "idea_brief": "...", "problem": "...", "solution": "...", "target_market": "...", "value_proposition": "...", "business_model": "...", "competitive_advantage": "...", "channels": "..." }
 
-"idea_brief": two or three plain sentences describing WHAT the idea/project is — the elevator description a stranger would need before reading anything else. Write it in the same language as the document. Every other field: one or two concise sentences in the founder's voice. Output ONLY the JSON object — no markdown, no preamble.
+"idea_brief": two or three plain sentences describing WHAT the idea/project is — the elevator description a stranger would need before reading anything else. Every other field: one or two concise sentences in the founder's voice.
+{LANG}
+Output ONLY the JSON object — no markdown, no preamble.
 
 DOCUMENT:
 """
@@ -288,11 +309,14 @@ interface CanvasDraft {
   idea_brief: string;
 }
 
-async function extractCanvas(text: string, projectId: string): Promise<CanvasDraft> {
+async function extractCanvas(text: string, projectId: string, locale: Locale): Promise<CanvasDraft> {
   const truncated = text.length > 16000 ? text.slice(0, 16000) : text;
   try {
     const startedAt = Date.now();
-    const { text: raw, usage } = await runAgent(CANVAS_PROMPT.replace('{TEXT}', truncated), {
+    const prompt = CANVAS_PROMPT
+      .replace('{LANG}', extractionLanguageDirective(locale))
+      .replace('{TEXT}', truncated);
+    const { text: raw, usage } = await runAgent(prompt, {
       task: 'classify',
       tools: false,
       timeout: 25_000,
@@ -464,6 +488,13 @@ export async function POST(
     throw e;
   }
 
+  // Project locale drives the language of the extracted canvas + entities so an
+  // Italian project doesn't get an English draft (and vice-versa). The project's
+  // frozen locale (set from the create-screen selector) wins — precedence
+  // project > user > English (resolve-locale.ts). Threaded into both Haiku
+  // extraction passes below.
+  const locale = await resolveLocale(userId, projectId);
+
   // Opt-in entity extraction. Off by default so existing callers don't pay
   // the extra Haiku latency. The in-app KnowledgeUpload dropzone passes
   // ?extract=1 so user uploads auto-propose graph entities.
@@ -560,7 +591,7 @@ export async function POST(
     // one slow Haiku call doesn't block the next file. A failure here never
     // unwinds the memory_facts INSERT above (the fact is already the user's).
     if (shouldExtract) {
-      const entities = await extractEntities(text, projectId);
+      const entities = await extractEntities(text, projectId, locale);
       if (entities.length > 0) {
         const { inserted, ids } = await persistExtracted(projectId, entities, id, file.name);
         result.entities_proposed = inserted;
@@ -634,7 +665,7 @@ export async function POST(
   // wastes the LLM call and the draft would be discarded anyway.
   const wantCanvas = shouldExtract && ingestedTexts.length > 0 && (await canvasIsEmpty(projectId));
   const canvasDraft = wantCanvas
-    ? await extractCanvas(ingestedTexts.join('\n\n---\n\n'), projectId)
+    ? await extractCanvas(ingestedTexts.join('\n\n---\n\n'), projectId, locale)
     : { canvas: null, idea_brief: '' };
   const proposedCanvas = canvasDraft.canvas;
 
