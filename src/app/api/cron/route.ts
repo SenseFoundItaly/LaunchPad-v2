@@ -1121,6 +1121,17 @@ async function processHeartbeats(
         },
       });
 
+      // Nanocorp P1: the Analyst posts the weekly reflection INTO the
+      // conversation (previously email-only — the chat is the company log).
+      // The reflection is already founder-language prose; prefix + verbatim.
+      try {
+        const { postAgentUpdate } = await import('@/lib/agents/narrate');
+        const isoWeek = new Date().toISOString().slice(0, 10);
+        await postAgentUpdate(project.id, 'analyst',
+          { key: 'agent.weekly-reflection', params: { reflection: reflection.slice(0, 900) } },
+          { dedupeKey: `heartbeat:${project.id}:${isoWeek}`, priority: 'must' });
+      } catch { /* non-fatal */ }
+
       // Send (or stub) the Monday Brief. Stubbed when RESEND_API_KEY is
       // unset — logs "would have emailed X" without a network call. Real
       // delivery is a one-env-var flip away. Non-fatal on failure.

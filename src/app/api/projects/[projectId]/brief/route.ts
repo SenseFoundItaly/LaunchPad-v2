@@ -174,9 +174,11 @@ ${ctx}`;
   const id = generateId('msg');
   const now = new Date().toISOString();
   await run(
-    `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
-     VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
+    `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, meta)
+     VALUES (?, ?, 'chat', 'assistant', ?, ?, ?, ?)`,
     id, projectId, content, now, userId,
+    // server_authored → the live updates poll delivers this without a refresh.
+    { server_authored: true, source_id: `brief:${id}` },
   );
 
   return json({ briefed: true });

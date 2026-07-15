@@ -60,6 +60,9 @@ export async function collectAssetMetrics(limit = 10): Promise<number> {
   let measured = 0;
   for (const asset of assets) {
     try {
+      const prior = await get<{ signups: number | null }>(
+        `SELECT (metadata->>'signups')::int AS signups FROM published_assets WHERE id = ?`, asset.id,
+      );
       const forms = await netlifyGet<NetlifyForm[]>(`/sites/${asset.host_ref}/forms`);
       let total = 0;
       for (const f of forms) {
@@ -77,6 +80,15 @@ export async function collectAssetMetrics(limit = 10): Promise<number> {
           WHERE id = ?`,
         total, new Date().toISOString(), asset.id,
       );
+      // Nanocorp P1: the Analyst reports movement — this sweep was silent
+      // before (metric rows updated, founder never told). Positive deltas only.
+      const delta = total - (prior?.signups ?? 0);
+      if (delta > 0) {
+        const { postAgentUpdate } = await import('@/lib/agents/narrate');
+        await postAgentUpdate(asset.project_id, 'analyst',
+          { key: 'agent.signups-delta', params: { delta, total } },
+          { dedupeKey: `signups:${asset.id}:${total}`, pane: 'growth' });
+      }
       measured++;
     } catch (err) {
       console.warn(`[launch:measure] asset ${asset.id} failed (non-fatal):`, (err as Error).message);

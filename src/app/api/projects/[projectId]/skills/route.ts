@@ -280,9 +280,11 @@ export async function POST(
             if (runStatus === 'completed' && summaryOut.trim()) {
               skillMsgId = `msg_${crypto.randomUUID().slice(0, 12)}`;
               await run(
-                `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
-                 VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
+                `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, meta)
+                 VALUES (?, ?, 'chat', 'assistant', ?, ?, ?, ?)`,
                 skillMsgId, projectId, summaryOut, new Date().toISOString(), ownerUserId,
+                // server_authored → the live updates poll delivers this without a refresh.
+                { server_authored: true, source_id: `skillmsg:${skillMsgId}` },
               );
             }
           } catch (err) {

@@ -129,10 +129,13 @@ export async function POST(
         try {
           const review = auto ? null : await maybeBuildScoreReviewOptionSet(projectId, ownerUserId);
           if (review) {
+            const reviewMsgId = generateId('msg');
             await run(
-              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
-               VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
-              generateId('msg'), projectId, review, new Date().toISOString(), ownerUserId,
+              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, meta)
+               VALUES (?, ?, 'chat', 'assistant', ?, ?, ?, ?)`,
+              reviewMsgId, projectId, review, new Date().toISOString(), ownerUserId,
+              // server_authored → the live updates poll delivers this without a refresh.
+              { server_authored: true, source_id: `scoremsg:${reviewMsgId}` },
             );
           }
         } catch (err) {

@@ -31,15 +31,20 @@ export async function maybeProposeMvpIteration(projectId: string): Promise<boole
   );
   if (open) return false;
 
-  await createPendingAction({
+  const pa = await createPendingAction({
     project_id: projectId,
     action_type: 'mvp_build_iteration',
     title: `Iterate MVP build (v${build.iteration} → v${build.iteration + 1})`,
     rationale: `${pending.length} new feedback item(s) since the last build — approve to generate the next iteration.`,
     estimated_impact: 'medium',
     priority: 'medium',
-    payload: { build_id: build.id },
+    payload: { build_id: build.id, agent: 'builder' },
   });
+  // Nanocorp P1: decision-request voice — the Builder asks in the chat.
+  const { postAgentUpdate } = await import('@/lib/agents/narrate');
+  await postAgentUpdate(projectId, 'builder',
+    { key: 'agent.iterate-due', params: { count: pending.length, version: build.iteration } },
+    { dedupeKey: `iterprop:${pa.id}`, pane: 'build', priority: 'must' });
   return true;
 }
 

@@ -714,7 +714,12 @@ function TicketDetail({
   onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
 }) {
   const t = useT();
-  const producer = producerFromType(action.action_type, action.ecosystem_alert_id);
+  // Nanocorp: prefer the stamped agent persona (payload.agent) over the derived
+  // subsystem badge — "marketer" beats "cron" for the founder's mental model.
+  const payloadAgent = (action.payload as { agent?: string } | null)?.agent;
+  const producer = typeof payloadAgent === 'string' && payloadAgent
+    ? payloadAgent
+    : producerFromType(action.action_type, action.ecosystem_alert_id);
   const canAct = action.status === 'pending' || action.status === 'edited';
   const awaitingClick = action.status === 'applied';
 
