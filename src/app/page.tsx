@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
@@ -110,6 +110,8 @@ export default function HomePage() {
   const [expandedSignals, setExpandedSignals] = useState<Set<string>>(new Set());
   const [showSignals, setShowSignals] = useState(false);
   const signalPanelRef = useRef<HTMLDivElement>(null);
+  // Hover state for the Create button's "why is this disabled" tooltip.
+  const [showNameTip, setShowNameTip] = useState(false);
 
   useEffect(() => {
     if (!showSignals) return;
@@ -121,6 +123,32 @@ export default function HomePage() {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [showSignals]);
+
+  // Tear down the full-screen create takeover and reset every create-flow field.
+  const resetCreate = useCallback(() => {
+    setShowCreate(false);
+    setNewName('');
+    setNewDesc('');
+    setNewLocale(accountLocale);
+    setCreateError(null);
+    setCreateMode('scratch');
+    setCreateFiles([]);
+    setUploadStatus(null);
+    setExtractResult(null);
+    setCreatedProjectId(null);
+    setShowNameTip(false);
+  }, [accountLocale]);
+
+  // Esc dismisses the takeover — but not mid-upload, so we don't strand an
+  // in-flight project create/extract.
+  useEffect(() => {
+    if (!showCreate) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !creating) resetCreate();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [showCreate, creating, resetCreate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -282,7 +310,8 @@ export default function HomePage() {
       />
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* Left projects rail */}
+        {/* Left projects rail — hidden during the full-screen create takeover */}
+        {!showCreate && (
         <div
           data-tour="projects-rail"
           style={{
@@ -417,6 +446,7 @@ export default function HomePage() {
             </button>
           </div>
         </div>
+        )}
 
         {/* Main content */}
         <div
@@ -428,7 +458,8 @@ export default function HomePage() {
             background: 'var(--paper)',
           }}
         >
-          {/* Content header */}
+          {/* Content header — hidden during the full-screen create takeover */}
+          {!showCreate && (
           <div
             style={{
               padding: '16px 24px 14px',
@@ -632,6 +663,7 @@ export default function HomePage() {
               )}
             </div>
           </div>
+          )}
 
           <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
             {loading ? (
@@ -650,10 +682,9 @@ export default function HomePage() {
                 {/* Create form */}
                 {showCreate && (
                   <div
-                    className="lp-card"
-                    style={{ padding: 16, marginBottom: 20 }}
+                    style={{ maxWidth: 720, margin: '24px auto 0', width: '100%' }}
                   >
-                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
+                    <div className="lp-serif" style={{ fontSize: 20, fontWeight: 400, letterSpacing: -0.3, marginBottom: 16 }}>
                       {t('home.new-project')}
                     </div>
 
@@ -765,37 +796,60 @@ export default function HomePage() {
                           </option>
                         ))}
                       </select>
-                      <button
-                        onClick={handleCreate}
-                        disabled={creating || !newName.trim()}
-                        style={{
-                          padding: '7px 14px',
-                          background: 'var(--ink)',
-                          color: 'var(--paper)',
-                          border: 'none',
-                          borderRadius: 'var(--r-m)',
-                          fontSize: 12,
-                          fontWeight: 500,
-                          cursor: 'pointer',
-                          fontFamily: 'inherit',
-                          opacity: creating || !newName.trim() ? 0.5 : 1,
-                        }}
+                      <span
+                        style={{ position: 'relative', display: 'inline-flex' }}
+                        onMouseEnter={() => setShowNameTip(true)}
+                        onMouseLeave={() => setShowNameTip(false)}
                       >
-                        {creating ? (uploadStatus ? t('home.uploading') : t('home.creating')) : t('home.create')}
-                      </button>
+                        <button
+                          onClick={handleCreate}
+                          disabled={creating || !newName.trim()}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '7px 14px',
+                            background: 'var(--ink)',
+                            color: 'var(--paper)',
+                            border: 'none',
+                            borderRadius: 'var(--r-m)',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            cursor: creating || !newName.trim() ? 'default' : 'pointer',
+                            fontFamily: 'inherit',
+                            opacity: creating || !newName.trim() ? 0.5 : 1,
+                          }}
+                        >
+                          {creating && <SpinnerIcon size={12} />}
+                          {creating ? (uploadStatus ? t('home.uploading') : t('home.creating')) : t('home.create')}
+                        </button>
+                        {/* Explain why the button is disabled when it's purely a missing name */}
+                        {!creating && !newName.trim() && showNameTip && (
+                          <span
+                            role="tooltip"
+                            style={{
+                              position: 'absolute',
+                              bottom: 'calc(100% + 6px)',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              background: 'var(--ink)',
+                              color: 'var(--paper)',
+                              fontSize: 11,
+                              lineHeight: 1.3,
+                              padding: '4px 8px',
+                              borderRadius: 'var(--r-s, 4px)',
+                              whiteSpace: 'nowrap',
+                              boxShadow: 'var(--shadow-lift)',
+                              zIndex: 10,
+                              pointerEvents: 'none',
+                            }}
+                          >
+                            {t('home.create-disabled-name-tip')}
+                          </span>
+                        )}
+                      </span>
                       <button
-                        onClick={() => {
-                          setShowCreate(false);
-                          setNewName('');
-                          setNewDesc('');
-                          setNewLocale(accountLocale);
-                          setCreateError(null);
-                          setCreateMode('scratch');
-                          setCreateFiles([]);
-                          setUploadStatus(null);
-                          setExtractResult(null);
-                          setCreatedProjectId(null);
-                        }}
+                        onClick={resetCreate}
                         style={{
                           padding: '7px 10px',
                           background: 'transparent',
@@ -925,8 +979,8 @@ export default function HomePage() {
                   </div>
                 )}
 
-                {/* Projects grid */}
-                {projects.length > 0 ? (
+                {/* Projects grid — hidden during the full-screen create takeover */}
+                {!showCreate && (projects.length > 0 ? (
                   <div>
                     <div
                       style={{
@@ -1115,7 +1169,7 @@ export default function HomePage() {
                       </button>
                     </div>
                   )
-                )}
+                ))}
               </>
             )}
           </div>
@@ -1130,6 +1184,16 @@ function safeHost(url: string): string {
 }
 
 // ─── Knowledge-populating flow (create-from-documents) ───────────────────────
+
+/** Inline busy spinner (Tailwind's built-in `animate-spin`), mirrors the
+ *  pattern used in chat/artifacts/UnifiedReviewControls. */
+function SpinnerIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill="none" className="animate-spin" aria-hidden="true">
+      <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20" strokeDashoffset="8" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 /** Shown while the upload is parsing docs + extracting entities. */
 function ExtractingView({ files, status }: { files: File[]; status: string | null }) {
