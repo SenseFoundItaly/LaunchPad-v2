@@ -37,8 +37,10 @@ export async function GET() {
     `SELECT project_id, COUNT(*) as count FROM skill_completions
      WHERE status = 'completed' GROUP BY project_id`
   );
+  // postgres.js returns COUNT(*) as a string — coerce so the reduce() sums
+  // below add numerically instead of concatenating (e.g. "0"+"1"+"2" → "012").
   const skillMap: Record<string, number> = {};
-  for (const s of skillCounts) skillMap[s.project_id] = s.count;
+  for (const s of skillCounts) skillMap[s.project_id] = Number(s.count);
 
   // Recent ecosystem signals across the user's accessible projects (last 20).
   // Scoped to owned (org match) + shared (project_members) so we don't leak
@@ -75,7 +77,7 @@ export async function GET() {
     userId,
   );
   const weeklyMap: Record<string, number> = {};
-  for (const w of weeklyAlerts) weeklyMap[w.project_id] = w.count;
+  for (const w of weeklyAlerts) weeklyMap[w.project_id] = Number(w.count);
 
   // Enrich projects — include access_kind + owner_email so the home tile
   // can render a "Shared" badge and "shared by X" hover without re-derive.
