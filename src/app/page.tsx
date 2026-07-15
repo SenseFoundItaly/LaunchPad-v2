@@ -11,6 +11,7 @@ import { NODE_COLORS } from '@/types/graph';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
 import { SUPPORTED_LOCALES, LOCALE_NATIVE_NAME, type Locale } from '@/lib/i18n/locales';
 import type { MessageKey } from '@/lib/i18n/messages';
+import { checkLabel, stageLabel } from '@/lib/journey-prompts';
 
 
 // Lean-canvas fields the upload extractor proposes from a founder's docs.
@@ -23,6 +24,21 @@ type ProposedCanvas = {
   competitive_advantage: string;
   channels: string;
 };
+// Wire shape of the upload extractor's per-stage spine preview (stage → checks
+// filled → the statement filling each). Mirrors buildSpinePreview's output —
+// declared locally because validation-targets is server-only.
+type SpinePreviewStage = {
+  stage_number: number;
+  stage_id: string;
+  stage_label: string;
+  total_checks: number;
+  checks: Array<{
+    check_id: string;
+    check_label: string;
+    statements: Array<{ kind: 'canvas_field' | 'entity'; field?: string; name?: string; statement: string }>;
+  }>;
+};
+
 const CANVAS_FIELD_LABELS: Array<{ key: keyof ProposedCanvas; labelKey: MessageKey }> = [
   { key: 'problem', labelKey: 'home.canvas-field-problem' },
   { key: 'solution', labelKey: 'home.canvas-field-solution' },
@@ -106,6 +122,8 @@ export default function HomePage() {
     canvas: ProposedCanvas | null;
     canvasValidates: Record<string, string>;
     spineSteps: number;
+    ideaBrief: string;
+    spinePreview: SpinePreviewStage[];
   } | null>(null);
   const [expandedSignals, setExpandedSignals] = useState<Set<string>>(new Set());
   const [showSignals, setShowSignals] = useState(false);
@@ -199,6 +217,8 @@ export default function HomePage() {
               proposed_canvas?: ProposedCanvas | null;
               canvas_validates?: Record<string, string>;
               spine_steps?: number;
+              idea_brief?: string;
+              spine_preview?: SpinePreviewStage[];
             };
             setExtractResult({
               ingested: d.ingested ?? 0,
@@ -207,6 +227,8 @@ export default function HomePage() {
               canvas: d.proposed_canvas ?? null,
               canvasValidates: d.canvas_validates ?? {},
               spineSteps: d.spine_steps ?? 0,
+              ideaBrief: typeof d.idea_brief === 'string' ? d.idea_brief : '',
+              spinePreview: Array.isArray(d.spine_preview) ? d.spine_preview : [],
             });
             setCreating(false);
             return; // show the results view; route to chat on "Continue"
@@ -661,6 +683,7 @@ export default function HomePage() {
                       <ExtractedKnowledgeView
                         result={extractResult}
                         projectId={createdProjectId}
+                        descriptionMissing={!newDesc.trim()}
                         onContinue={() => {
                           if (createdProjectId) router.push(`/project/${createdProjectId}/chat`);
                         }}
@@ -1158,23 +1181,84 @@ function ExtractingView({ files, status }: { files: File[]; status: string | nul
 function ExtractedKnowledgeView({
   result,
   projectId,
+  descriptionMissing,
   onContinue,
 }: {
-  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string; validates?: string | null }>; canvas: ProposedCanvas | null; canvasValidates: Record<string, string>; spineSteps: number };
+  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string; validates?: string | null }>; canvas: ProposedCanvas | null; canvasValidates: Record<string, string>; spineSteps: number; ideaBrief: string; spinePreview: SpinePreviewStage[] };
   projectId: string | null;
+  /** True when the founder left the create-form description blank — the
+   *  (possibly edited) idea brief then becomes the project description on Apply. */
+  descriptionMissing: boolean;
   onContinue: () => void;
 }) {
   const t = useT();
-  const { ingested, skipped, entities, canvas, canvasValidates, spineSteps } = result;
+  const { ingested, skipped, entities, canvas, canvasValidates, spineSteps, ideaBrief, spinePreview } = result;
   const [applying, setApplying] = useState(false);
+
+  // Everything extracted is editable in place before it lands anywhere — the
+  // founder's wording is what gets saved, not the extractor's. Edits live here;
+  // the server copies in `result` stay pristine (they key the diff on apply).
+  const [briefText, setBriefText] = useState(ideaBrief);
+  const [canvasEdits, setCanvasEdits] = useState<ProposedCanvas | null>(canvas ? { ...canvas } : null);
+  const [entityEdits, setEntityEdits] = useState<Array<{ name: string; summary: string }>>(
+    () => entities.map((e) => ({ name: e.name, summary: e.summary })),
+  );
 
   const canvasFields = canvas
     ? CANVAS_FIELD_LABELS.filter((f) => canvas[f.key]?.trim())
     : [];
 
+  // Live spine preview: statements track the founder's edits, and a check
+  // whose statement was cleared drops out (so the "fills X of Y" never
+  // over-promises what Apply will actually write).
+  const clip = (s: string, n = 280): string => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+  const entityEditByName = new Map(entities.map((e, i) => [e.name, entityEdits[i]]));
+  const liveStatement = (st: SpinePreviewStage['checks'][number]['statements'][number]): string => {
+    if (st.kind === 'canvas_field' && st.field && canvasEdits) {
+      return clip((canvasEdits[st.field as keyof ProposedCanvas] ?? '').trim());
+    }
+    if (st.kind === 'entity' && st.name) {
+      const ed = entityEditByName.get(st.name);
+      if (ed) return clip((ed.summary || ed.name).trim());
+    }
+    return st.statement;
+  };
+  const displayPreview = spinePreview
+    .map((s) => ({
+      ...s,
+      checks: s.checks
+        .map((c) => ({
+          ...c,
+          statements: c.statements
+            .map((st) => ({ ...st, statement: liveStatement(st) }))
+            .filter((st) => st.statement.length > 0),
+        }))
+        .filter((c) => c.statements.length > 0),
+    }))
+    .filter((s) => s.checks.length > 0);
+  const liveSpineSteps = spinePreview.length > 0
+    ? displayPreview.reduce((n, s) => n + s.checks.length, 0)
+    : spineSteps;
+
   // Applying is free (only a founder chat message costs a credit), so no cost
   // estimate is computed or shown on the home apply action.
   const applicableIds = entities.map((e) => e.node_id).filter((x): x is string => !!x);
+
+  // Diff the founder's inline entity edits against the extractor's originals —
+  // only real changes travel (apply-batch persists them before the state flip).
+  function collectEntityEdits(): Record<string, { name?: string; summary?: string }> {
+    const out: Record<string, { name?: string; summary?: string }> = {};
+    entities.forEach((e, i) => {
+      if (!e.node_id) return; // deduped hit — the node pre-exists, not ours to edit here
+      const ed = entityEdits[i];
+      if (!ed) return;
+      const changes: { name?: string; summary?: string } = {};
+      if (ed.name.trim() && ed.name.trim() !== e.name) changes.name = ed.name.trim();
+      if (ed.summary.trim() !== e.summary) changes.summary = ed.summary.trim();
+      if (changes.name !== undefined || changes.summary !== undefined) out[e.node_id] = changes;
+    });
+    return out;
+  }
 
   // ONE commit: canvas → entity batch-apply → into chat.
   // Every sub-action is best-effort/non-fatal — the founder always routes on.
@@ -1182,14 +1266,33 @@ function ExtractedKnowledgeView({
     if (!projectId) { onContinue(); return; }
     setApplying(true);
     try {
-      if (canvas && canvasFields.length > 0) {
+      // A fully-cleared draft skips the write (the route 400s on all-empty).
+      const editedCanvasHasContent = !!canvasEdits && Object.values(canvasEdits).some((v) => v.trim());
+      if (editedCanvasHasContent) {
         await fetch(`/api/projects/${projectId}/idea-canvas`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(canvas),
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(canvasEdits),
         }).catch(() => null);
       }
       if (applicableIds.length > 0) {
+        const editPayload = collectEntityEdits();
         await fetch(`/api/projects/${projectId}/knowledge/apply-batch`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_ids: applicableIds }),
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            Object.keys(editPayload).length > 0
+              ? { item_ids: applicableIds, edits: editPayload }
+              : { item_ids: applicableIds },
+          ),
+        }).catch(() => null);
+      }
+      // The idea brief becomes the project description when the founder left
+      // it blank at creation — Apply is the yes that lets it persist. Runs
+      // before the AI brief so the opening message can read it.
+      if (descriptionMissing && briefText.trim()) {
+        await fetch(`/api/projects/${projectId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ description: briefText.trim().slice(0, 600) }),
         }).catch(() => null);
       }
       // (Watcher suggestions at upload time were removed — 2026-07 founder
@@ -1214,12 +1317,14 @@ function ExtractedKnowledgeView({
   // a pending approval card (stage_only) so the founder can pick it up later
   // from chat/Inbox. Founder-first: staging only proposes, nothing applies.
   async function skipAndContinue() {
-    if (projectId && canvas && canvasFields.length > 0) {
+    if (projectId && canvasEdits && Object.values(canvasEdits).some((v) => v.trim())) {
       setApplying(true);
+      // Stage the founder's EDITED wording — skip defers the decision, it
+      // shouldn't discard corrections they already typed.
       await fetch(`/api/projects/${projectId}/idea-canvas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...canvas, stage_only: true }),
+        body: JSON.stringify({ ...canvasEdits, stage_only: true }),
       }).catch(() => null);
     }
     onContinue();
@@ -1246,6 +1351,15 @@ function ExtractedKnowledgeView({
     cursor: applying ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: applying ? 0.6 : 1,
   };
 
+  // Shared style for every inline-editable field on the review screen — the
+  // visible border is the "you can type here" affordance.
+  const editBoxStyle: React.CSSProperties = {
+    width: '100%', padding: '6px 8px', background: 'var(--paper)',
+    border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)',
+    fontSize: 12, color: 'var(--ink-2)', fontFamily: 'inherit', lineHeight: 1.45,
+    outline: 'none', resize: 'vertical' as const, boxSizing: 'border-box' as const,
+  };
+
   return (
     <div>
       <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 3 }}>
@@ -1265,14 +1379,76 @@ function ExtractedKnowledgeView({
           : t('home.full-text-in-knowledge')}
       </div>
 
+      {/* Everything below is editable in place before it lands anywhere. */}
+      {(ideaBrief || canvasFields.length > 0 || entities.length > 0) && (
+        <div style={{ fontSize: 11, color: 'var(--ink-5)', marginBottom: 10 }}>
+          {t('home.edit-hint')}
+        </div>
+      )}
+
+      {/* The idea in plain words — extracted alongside the canvas so the
+          founder sees WHAT we understood before reviewing field-by-field.
+          Editable; on Apply it becomes the project description when the
+          founder left that blank at creation. */}
+      {ideaBrief && (
+        <div style={{ marginBottom: 14, padding: 12, background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, fontFamily: 'var(--f-mono)', marginBottom: 6 }}>
+            {t('home.idea-brief-heading')}
+          </div>
+          <textarea
+            value={briefText}
+            onChange={(e) => setBriefText(e.target.value)}
+            rows={3}
+            style={{ ...editBoxStyle, fontSize: 12.5, lineHeight: 1.55 }}
+          />
+        </div>
+      )}
+
       {/* Spine framing — nothing turns a validation step green without the
-          founder's yes, so the draft headlines WHAT this document can validate. */}
-      {spineSteps > 0 && (
+          founder's yes, so the draft headlines WHAT this document can validate,
+          then breaks it down per stage: each check filled + the statement
+          filling it (so approval is a read of the spine, not a leap of faith). */}
+      {liveSpineSteps > 0 && (
         <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--accent-wash)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
           <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
-            {t('home.spine-framing-prefix')} <strong style={{ color: 'var(--ink)' }}>{spineSteps}</strong>{' '}
-            {spineSteps === 1 ? t('home.spine-framing-suffix-one') : t('home.spine-framing-suffix-many')}
+            {t('home.spine-framing-prefix')} <strong style={{ color: 'var(--ink)' }}>{liveSpineSteps}</strong>{' '}
+            {liveSpineSteps === 1 ? t('home.spine-framing-suffix-one') : t('home.spine-framing-suffix-many')}
           </div>
+          {displayPreview.map((s) => (
+            <div key={s.stage_number} style={{ marginTop: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: 0.4, fontFamily: 'var(--f-mono)' }}>
+                  {t('home.spine-stage-n', { number: s.stage_number })} · {stageLabel(s.stage_id, s.stage_label, t)}
+                </span>
+                <span style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>
+                  {s.checks.length === 1
+                    ? t('home.spine-stage-fills-one', { filled: s.checks.length, total: s.total_checks })
+                    : t('home.spine-stage-fills-many', { filled: s.checks.length, total: s.total_checks })}
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 5 }}>
+                {s.checks.map((c) => (
+                  <div key={c.check_id} style={{ paddingLeft: 9, borderLeft: '2px solid var(--line-2)' }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)' }}>
+                      ✓ {checkLabel(c.check_id, c.check_label, t)}
+                    </div>
+                    {c.statements.map((st, i) => {
+                      const fieldLabelKey = st.kind === 'canvas_field'
+                        ? CANVAS_FIELD_LABELS.find((f) => f.key === st.field)?.labelKey
+                        : undefined;
+                      const originLabel = fieldLabelKey ? t(fieldLabelKey) : st.name;
+                      return (
+                        <div key={i} style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45, marginTop: 2 }}>
+                          {originLabel && <span style={{ color: 'var(--ink-5)', fontWeight: 500 }}>{originLabel}: </span>}
+                          <span>“{st.statement}”</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -1285,13 +1461,18 @@ function ExtractedKnowledgeView({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto' }}>
             {canvasFields.map((f) => (
               <div key={f.key}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-3)' }}>{t(f.labelKey)}</div>
                   {canvasValidates[f.key] && (
                     <span style={{ fontSize: 10, color: 'var(--accent-ink)' }}>{t('home.validates', { target: canvasValidates[f.key] })}</span>
                   )}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.45 }}>{canvas![f.key]}</div>
+                <textarea
+                  value={canvasEdits?.[f.key] ?? ''}
+                  onChange={(e) => setCanvasEdits((prev) => (prev ? { ...prev, [f.key]: e.target.value } : prev))}
+                  rows={2}
+                  style={editBoxStyle}
+                />
               </div>
             ))}
           </div>
@@ -1307,16 +1488,38 @@ function ExtractedKnowledgeView({
                 style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '7px 10px', background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}
               >
                 <span className="lp-dot" style={{ background: NODE_COLORS[e.node_type] || 'var(--ink-5)', marginTop: 5, flexShrink: 0 }} />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
-                    {e.name}
-                    <span style={{ fontWeight: 400, color: 'var(--ink-5)', fontSize: 11 }}> · {e.node_type.replace(/_/g, ' ')}</span>
-                  </div>
-                  {e.validates && (
-                    <div style={{ fontSize: 10, color: 'var(--accent-ink)', marginTop: 1 }}>{t('home.validates', { target: e.validates })}</div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  {/* Editable only for nodes THIS upload created (node_id present).
+                      A dedup hit references a pre-existing node — read-only here. */}
+                  {e.node_id ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        value={entityEdits[i]?.name ?? e.name}
+                        onChange={(ev) => setEntityEdits((prev) => prev.map((x, j) => (j === i ? { ...x, name: ev.target.value } : x)))}
+                        style={{ ...editBoxStyle, resize: undefined, padding: '4px 6px', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', flex: 1, minWidth: 0 }}
+                      />
+                      <span style={{ fontWeight: 400, color: 'var(--ink-5)', fontSize: 11, flexShrink: 0 }}>{e.node_type.replace(/_/g, ' ')}</span>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+                      {e.name}
+                      <span style={{ fontWeight: 400, color: 'var(--ink-5)', fontSize: 11 }}> · {e.node_type.replace(/_/g, ' ')}</span>
+                    </div>
                   )}
-                  {e.summary && (
-                    <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 1, lineHeight: 1.4 }}>{e.summary}</div>
+                  {e.validates && (
+                    <div style={{ fontSize: 10, color: 'var(--accent-ink)', marginTop: 2 }}>{t('home.validates', { target: e.validates })}</div>
+                  )}
+                  {e.node_id ? (
+                    <textarea
+                      value={entityEdits[i]?.summary ?? e.summary}
+                      onChange={(ev) => setEntityEdits((prev) => prev.map((x, j) => (j === i ? { ...x, summary: ev.target.value } : x)))}
+                      rows={2}
+                      style={{ ...editBoxStyle, marginTop: 4, fontSize: 11 }}
+                    />
+                  ) : (
+                    e.summary && (
+                      <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 1, lineHeight: 1.4 }}>{e.summary}</div>
+                    )
                   )}
                 </div>
               </div>

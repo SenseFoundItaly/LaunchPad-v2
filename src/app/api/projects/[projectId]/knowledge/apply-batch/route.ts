@@ -7,12 +7,18 @@ import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import { recordEvent } from '@/lib/memory/events';
 
 /**
- * POST /api/projects/{projectId}/knowledge/apply-batch   { item_ids: string[] }
+ * POST /api/projects/{projectId}/knowledge/apply-batch
+ *   { item_ids: string[], edits?: { [nodeId]: { name?, summary? } } }
  *
  * Applies N pending graph_nodes in ONE call with ONE combined credit debit —
  * powers the create-from-documents populating view, so all extracted entities
  * apply behind a single "Apply · N credits" button instead of N separate clicks
  * (and N debits) in Know.
+ *
+ * `edits` carries the founder's inline corrections from the populating view
+ * (their wording replaces the extractor's before the node goes live). Edits are
+ * honored ONLY for ids in item_ids (ownership-checked below) and land whether
+ * or not the state flip is a no-op — a founder correction always wins.
  *
  * Credit accounting invariant: debits ONLY on a genuine pending→applied
  * transition (the SELECT-before-UPDATE `reviewed_state !== 'applied'` guard,
@@ -35,7 +41,7 @@ export async function POST(
     throw e;
   }
 
-  let body: { item_ids?: unknown; skip_charge?: unknown };
+  let body: { item_ids?: unknown; skip_charge?: unknown; edits?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -46,6 +52,20 @@ export async function POST(
     : [];
   if (itemIds.length === 0) {
     return error('item_ids must be a non-empty array of node ids', 400);
+  }
+  // Founder inline edits (name/summary), sanitized: strings only, trimmed,
+  // capped to the extractor's own bounds. A blank name is ignored (a node
+  // must stay nameable); a blank summary is a legitimate "clear it".
+  const edits = new Map<string, { name?: string; summary?: string }>();
+  if (body.edits && typeof body.edits === 'object' && !Array.isArray(body.edits)) {
+    for (const [id, raw] of Object.entries(body.edits as Record<string, unknown>)) {
+      if (!raw || typeof raw !== 'object') continue;
+      const e = raw as Record<string, unknown>;
+      const out: { name?: string; summary?: string } = {};
+      if (typeof e.name === 'string' && e.name.trim()) out.name = e.name.trim().slice(0, 200);
+      if (typeof e.summary === 'string') out.summary = e.summary.trim().slice(0, 1000);
+      if (out.name !== undefined || out.summary !== undefined) edits.set(id, out);
+    }
   }
   // skip_charge=true → apply WITHOUT the per-entity debit. Used by the
   // Knowledge-page document popup, where the flat per-document audit fee was
@@ -63,6 +83,18 @@ export async function POST(
     if (!row) continue; // unknown id — skip, don't abort the batch
     if (row.project_id !== projectId) {
       return error('Item does not belong to this project', 403); // ownership — hard fail
+    }
+    // Founder edit lands first (even if the node was already applied by
+    // another path — their correction still wins).
+    const edit = edits.get(id);
+    if (edit) {
+      if (edit.name !== undefined && edit.summary !== undefined) {
+        await run('UPDATE graph_nodes SET name = ?, summary = ? WHERE id = ?', edit.name, edit.summary, id);
+      } else if (edit.name !== undefined) {
+        await run('UPDATE graph_nodes SET name = ? WHERE id = ?', edit.name, id);
+      } else if (edit.summary !== undefined) {
+        await run('UPDATE graph_nodes SET summary = ? WHERE id = ?', edit.summary, id);
+      }
     }
     if (row.reviewed_state === 'applied') continue; // already applied — no double charge
     await run("UPDATE graph_nodes SET reviewed_state = 'applied' WHERE id = ?", id);

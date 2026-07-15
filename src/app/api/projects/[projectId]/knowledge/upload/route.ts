@@ -6,7 +6,7 @@ import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { debitCredits, DOCUMENT_AUDIT_CREDITS } from '@/lib/credits';
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
-import { validationTargetsFor, validationLabel } from '@/lib/journey/validation-targets';
+import { validationTargetsFor, validationLabel, buildSpinePreview } from '@/lib/journey/validation-targets';
 import { canvasIsEmpty } from '@/lib/idea-canvas-seed';
 import { digestDocument } from '@/lib/document-digest';
 
@@ -271,16 +271,24 @@ interface ProposedCanvas {
 const CANVAS_PROMPT = `From the founder's document(s) below, draft a lean startup canvas. Use ONLY what the text actually supports — leave a field as "" when the document doesn't address it. NEVER invent.
 
 Return ONE JSON object with these string fields:
-{ "problem": "...", "solution": "...", "target_market": "...", "value_proposition": "...", "business_model": "...", "competitive_advantage": "...", "channels": "..." }
+{ "idea_brief": "...", "problem": "...", "solution": "...", "target_market": "...", "value_proposition": "...", "business_model": "...", "competitive_advantage": "...", "channels": "..." }
 
-Each field: one or two concise sentences in the founder's voice. Output ONLY the JSON object — no markdown, no preamble.
+"idea_brief": two or three plain sentences describing WHAT the idea/project is — the elevator description a stranger would need before reading anything else. Write it in the same language as the document. Every other field: one or two concise sentences in the founder's voice. Output ONLY the JSON object — no markdown, no preamble.
 
 DOCUMENT:
 """
 {TEXT}
 """`;
 
-async function extractCanvas(text: string, projectId: string): Promise<ProposedCanvas | null> {
+interface CanvasDraft {
+  canvas: ProposedCanvas | null;
+  /** Plain-words "what is this idea" summary shown atop the populating screen.
+   *  Display-only — never written anywhere; the founder's confirmed canvas is
+   *  the durable record. '' when the model couldn't support one. */
+  idea_brief: string;
+}
+
+async function extractCanvas(text: string, projectId: string): Promise<CanvasDraft> {
   const truncated = text.length > 16000 ? text.slice(0, 16000) : text;
   try {
     const startedAt = Date.now();
@@ -297,7 +305,7 @@ async function extractCanvas(text: string, projectId: string): Promise<ProposedC
       latency_ms: Date.now() - startedAt,
     });
     const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) return null;
+    if (!m) return { canvas: null, idea_brief: '' };
     const parsed = JSON.parse(m[0]) as Record<string, unknown>;
     const str = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 1200) : '');
     const canvas: ProposedCanvas = {
@@ -309,10 +317,14 @@ async function extractCanvas(text: string, projectId: string): Promise<ProposedC
       competitive_advantage: str(parsed.competitive_advantage),
       channels: str(parsed.channels),
     };
-    return Object.values(canvas).some((v) => v.length > 0) ? canvas : null;
+    const idea_brief = str(parsed.idea_brief).slice(0, 600);
+    return {
+      canvas: Object.values(canvas).some((v) => v.length > 0) ? canvas : null,
+      idea_brief,
+    };
   } catch (err) {
     console.warn('[upload/canvas] canvas extraction failed:', (err as Error).message);
-    return null;
+    return { canvas: null, idea_brief: '' };
   }
 }
 
@@ -621,9 +633,10 @@ export async function POST(
   // project already has canvas content — re-drafting over an existing canvas
   // wastes the LLM call and the draft would be discarded anyway.
   const wantCanvas = shouldExtract && ingestedTexts.length > 0 && (await canvasIsEmpty(projectId));
-  const proposedCanvas = wantCanvas
+  const canvasDraft = wantCanvas
     ? await extractCanvas(ingestedTexts.join('\n\n---\n\n'), projectId)
-    : null;
+    : { canvas: null, idea_brief: '' };
+  const proposedCanvas = canvasDraft.canvas;
 
   // Watcher SUGGESTIONS at upload time were removed (2026-07 founder decision):
   // watchers are a POST-Stage-2 concern (auto-proposed once the Validation Gate
@@ -642,6 +655,10 @@ export async function POST(
       : null,
   }));
   const canvasValidates: Record<string, string> = {};
+  // Feeder for the per-stage spine preview: every gated statement the draft
+  // carries, tagged with the target that resolves its (stage, check).
+  const clip = (s: string, n = 280): string => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+  const previewFeed: Parameters<typeof buildSpinePreview>[0] = [];
   if (proposedCanvas) {
     const canvasRow = proposedCanvas as unknown as Record<string, unknown>;
     for (const f of ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage', 'channels'] as const) {
@@ -649,9 +666,17 @@ export async function POST(
       if (typeof v === 'string' && v.trim()) {
         const label = validationLabel(validationTargetsFor('canvas_field', f));
         if (label) canvasValidates[f] = label;
+        previewFeed.push({ kind: 'canvas_field', field: f, statement: clip(v.trim()), target: 'canvas_field', target_field: f });
       }
     }
   }
+  for (const e of entitiesWithTargets) {
+    if (!e.validates) continue; // today: competitors only — mirrors the chip logic above
+    previewFeed.push({ kind: 'entity', name: e.name, statement: clip(e.summary || e.name), target: 'competitor' });
+  }
+  // Per-stage grouping (stage → checks filled → the statement filling each) so
+  // the populating screen can show WHERE on the spine the document lands.
+  const spinePreview = buildSpinePreview(previewFeed);
   // Count of distinct spine steps this document can light up — the draft's headline.
   const spineSteps = new Set<string>([
     ...Object.values(canvasValidates),
@@ -669,10 +694,14 @@ export async function POST(
     extracted_entities: entitiesWithTargets,
     // Lean-canvas draft (or null) for the founder to confirm → Stage 1.
     proposed_canvas: proposedCanvas,
+    // Plain-words "what is this idea" summary (display-only, may be '').
+    idea_brief: canvasDraft.idea_brief,
     // Per-field map: which canvas field validates which substep.
     canvas_validates: canvasValidates,
     // How many distinct spine steps this document can validate.
     spine_steps: spineSteps,
+    // Per-stage breakdown: stage → checks filled → statement filling each.
+    spine_preview: spinePreview,
     // Watcher suggestions removed at upload time (founder decision) — watchers
     // are auto-proposed after the Validation Gate completes. Kept as [] so any
     // older client that reads this field degrades cleanly.

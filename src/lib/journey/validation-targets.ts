@@ -46,6 +46,9 @@ export type CanvasFieldName =
 
 export interface ValidationTarget {
   stage_number: number;
+  /** Canonical stage id (e.g. 'idea_validation') — lets clients localize via
+   *  the journey-stage.* catalog instead of shipping the EN label verbatim. */
+  stage_id: string;
   stage_label: string;
   check_id: string;
   check_label: string;
@@ -101,6 +104,7 @@ const CHECKS_BY_SOURCE: Map<string, ValidationTarget[]> = (() => {
     for (const check of stage.checks) {
       const target: ValidationTarget = {
         stage_number: stage.number,
+        stage_id: stage.id,
         stage_label: stage.label,
         check_id: check.id,
         check_label: check.label,
@@ -158,4 +162,92 @@ export function validationLabel(targets: ValidationTarget[]): string | null {
  */
 export function isGatedWrite(kind: ValidationItemKind, field?: string): boolean {
   return validationTargetsFor(kind, field).length > 0;
+}
+
+// ─── spine preview (per-stage grouping) ──────────────────────────────────────
+//
+// The upload draft screen frames extraction around the spine. The flat
+// "validates X — Stage N" chips answer per-item; this grouping answers
+// per-STAGE: "Stage 1 fills 4 of 9 steps — here is the statement filling each".
+// Same primary-target discipline as validationLabel (one check per item, never
+// the over-promising source-wired fan-out).
+
+export interface SpinePreviewStatement {
+  kind: 'canvas_field' | 'entity';
+  /** Canvas field key (kind='canvas_field') — the client localizes its label. */
+  field?: string;
+  /** Entity name (kind='entity'). */
+  name?: string;
+  /** The extracted statement that would fill the check, pre-clipped by the caller. */
+  statement: string;
+}
+
+export interface SpinePreviewCheck {
+  check_id: string;
+  check_label: string;
+  statements: SpinePreviewStatement[];
+}
+
+export interface SpinePreviewStage {
+  stage_number: number;
+  stage_id: string;
+  stage_label: string;
+  /** How many checks the stage has in total — lets the UI say "fills 3 of 9". */
+  total_checks: number;
+  checks: SpinePreviewCheck[];
+}
+
+// Stable render order: checks appear in their stage-definition order, not in
+// extraction order (so Problem always precedes Channels, like the live spine).
+const CHECK_ORDER: Map<string, number> = (() => {
+  const m = new Map<string, number>();
+  for (const stage of STAGES) {
+    stage.checks.forEach((check, i) => m.set(`${stage.number}:${check.id}`, i));
+  }
+  return m;
+})();
+
+const STAGE_TOTAL_CHECKS: Map<number, number> = new Map(
+  STAGES.map((s) => [s.number, s.checks.length]),
+);
+
+/**
+ * Group extracted items by the spine stage → check they would fill. Items with
+ * no gated target are dropped (context, not validation). Pure: same input,
+ * same output — the route feeds it canvas fields + competitor entities.
+ */
+export function buildSpinePreview(
+  items: Array<SpinePreviewStatement & { target: ValidationItemKind; target_field?: string }>,
+): SpinePreviewStage[] {
+  const stages = new Map<number, SpinePreviewStage>();
+  for (const item of items) {
+    const target = validationTargetsFor(item.target, item.target_field)[0];
+    if (!target) continue;
+    let stage = stages.get(target.stage_number);
+    if (!stage) {
+      stage = {
+        stage_number: target.stage_number,
+        stage_id: target.stage_id,
+        stage_label: target.stage_label,
+        total_checks: STAGE_TOTAL_CHECKS.get(target.stage_number) ?? 0,
+        checks: [],
+      };
+      stages.set(target.stage_number, stage);
+    }
+    let check = stage.checks.find((c) => c.check_id === target.check_id);
+    if (!check) {
+      check = { check_id: target.check_id, check_label: target.check_label, statements: [] };
+      stage.checks.push(check);
+    }
+    check.statements.push({ kind: item.kind, field: item.field, name: item.name, statement: item.statement });
+  }
+  const out = [...stages.values()].sort((a, b) => a.stage_number - b.stage_number);
+  for (const stage of out) {
+    stage.checks.sort(
+      (a, b) =>
+        (CHECK_ORDER.get(`${stage.stage_number}:${a.check_id}`) ?? 0) -
+        (CHECK_ORDER.get(`${stage.stage_number}:${b.check_id}`) ?? 0),
+    );
+  }
+  return out;
 }
