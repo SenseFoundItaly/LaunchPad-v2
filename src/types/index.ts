@@ -132,6 +132,14 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   tools?: ToolActivity[];
+  /** Server-side annotations (chat_messages.meta JSONB) — nanocorp agent
+   *  attribution rides here: {agent, source_id, server_authored, pane}. */
+  meta?: {
+    agent?: 'builder' | 'marketer' | 'analyst';
+    pane?: 'build' | 'growth';
+    server_authored?: boolean;
+    [k: string]: unknown;
+  };
 }
 
 export interface Task {

@@ -20,7 +20,7 @@ import { useQuery } from '@tanstack/react-query';
 import api from '@/api';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
-import { useChat, chatStoreHydrated, markChatHydrated } from '@/hooks/useChat';
+import { useChat, chatStoreHydrated, markChatHydrated, useAgentUpdatesPoll } from '@/hooks/useChat';
 import { broadcastPersistedArtifacts } from '@/hooks/usePersistedArtifact';
 import { useStages } from '@/hooks/useStages';
 import { requestRecharge } from '@/components/credits/recharge-events';
@@ -450,6 +450,9 @@ export default function CopilotChatPage({
   // (multi-thread routing was removed — see commit history).
   const step = 'chat';
   const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages } = useChat(projectId, step);
+  // Nanocorp: pull server-authored agent updates into the live thread while
+  // the page is visible (Builder/Marketer/Analyst narrations, loop verdicts).
+  useAgentUpdatesPoll(projectId, step);
   const [input, setInput] = useState('');
   // Co-pilot surface tab: what the RIGHT pane shows next to the persistent
   // chat column — 'chat' (artifact canvas) | 'build' (MVP preview) | 'growth'
@@ -610,6 +613,8 @@ export default function CopilotChatPage({
             content: m.content,
             timestamp: m.timestamp,
             tools: m.tools_json ? JSON.parse(m.tools_json) : undefined,
+            // Nanocorp: keep server annotations (agent attribution chips).
+            meta: (m as { meta?: Record<string, unknown> }).meta ?? undefined,
           }))
           : [];
         // Restored history replaces the whole thread: collapse paging, hide

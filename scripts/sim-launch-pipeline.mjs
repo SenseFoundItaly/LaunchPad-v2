@@ -224,6 +224,28 @@ const LANDING_HTML = `<!doctype html><html><head><title>Sim Landing</title></hea
   const assetsAfterGd = await sql`SELECT count(*)::int c FROM published_assets WHERE project_id = ${pid}`;
   ok('growth: dispatched republish applies (same asset, same URL)', gdApply.status === 200 && assetsAfterGd[0].c === 1);
 
+  // ---- Phase 10: nanocorp narration (agents speak into the chat) -------------
+  // The cron proposal (phase 7) and the founder-applied send must each have
+  // produced a server-authored, agent-attributed chat message — deduped.
+  const narrations = await sql`SELECT content, meta FROM chat_messages
+    WHERE project_id = ${pid} AND meta->>'agent' = 'marketer' ORDER BY created_at`;
+  ok('narrate: marketer posted the decision request', narrations.some((n) => n.meta?.source_id === `proposed:${msgA}`));
+  // Honest-stub behavior: a stubbed send must NOT narrate "sent ✓" — nothing
+  // actually left the system. The sent-confirmation fires only on real drivers.
+  ok('narrate: stub send does NOT fake a sent confirmation', !narrations.some((n) => n.meta?.source_id === `sent:${msgA}`));
+  ok('narrate: all narrations flagged server_authored', narrations.every((n) => n.meta?.server_authored === true));
+  const narrCountBefore = narrations.length;
+  // Second cron tick already ran in phase 7 — dedupe means no duplicate rows.
+  const narrAfter = await sql`SELECT count(*)::int c FROM chat_messages
+    WHERE project_id = ${pid} AND meta->>'source_id' = ${'proposed:' + msgA}`;
+  ok('narrate: dedupe (one row per source event)', narrAfter[0].c === 1, `count=${narrAfter[0].c} total=${narrCountBefore}`);
+  // Live delivery: the updates endpoint returns exactly the server-authored rows.
+  const updates = await api('GET', `/api/chat/updates?project_id=${pid}&step=chat&since=${encodeURIComponent('2020-01-01T00:00:00.000Z')}`);
+  const updRows = updates.json?.data?.messages || [];
+  ok('updates: poll endpoint returns agent messages', updates.status === 200 && updRows.length >= narrCountBefore,
+    `status=${updates.status} rows=${updRows.length}`);
+  ok('updates: every returned row is server-authored assistant', updRows.every((r) => r.meta?.server_authored === true));
+
   // Final invariant: nothing sent/published without an applied founder action.
   const unsentInvariant = await sql`SELECT count(*)::int c FROM campaign_messages
     WHERE project_id = ${pid} AND status = 'sent'

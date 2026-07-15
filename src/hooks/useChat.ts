@@ -83,6 +83,75 @@ export function markChatHydrated(projectId: string, step: string = 'chat') {
   getStore(projectId, step).hydrated = true;
 }
 
+// ---------------------------------------------------------------------------
+// Nanocorp live delivery — server-authored agent updates appended into the
+// live store via a lightweight visible-tab poll of GET /api/chat/updates.
+// ---------------------------------------------------------------------------
+
+// Appends queued while a stream is in flight — appending mid-stream would race
+// the setLast tail mutation; flushed when isStreaming flips false.
+const pendingAppends = new Map<string, ChatMessage[]>();
+
+/** Append server-authored rows (deduped by id, timestamp-ordered). Queues the
+ *  append while a stream is active for this thread. */
+export function appendServerMessages(projectId: string, step: string, rows: ChatMessage[]) {
+  const store = getStore(projectId, step);
+  if (rows.length === 0) return;
+  if (store.state.isStreaming) {
+    const key = keyFor(projectId, step);
+    pendingAppends.set(key, [...(pendingAppends.get(key) ?? []), ...rows]);
+    return;
+  }
+  const seen = new Set(store.state.messages.map((m) => m.id));
+  const fresh = rows.filter((m) => !seen.has(m.id));
+  if (fresh.length === 0) return;
+  patch(store, { messages: [...store.state.messages, ...fresh] });
+}
+
+function flushPendingAppends(projectId: string, step: string) {
+  const key = keyFor(projectId, step);
+  const queued = pendingAppends.get(key);
+  if (!queued?.length) return;
+  pendingAppends.delete(key);
+  appendServerMessages(projectId, step, queued);
+}
+
+/** Poll for agent updates while the chat page is mounted and the tab visible.
+ *  `since` cursor = the newest message timestamp in the store (so nothing is
+ *  re-fetched), falling back to mount time for empty threads. */
+export function useAgentUpdatesPoll(projectId: string, step: string = 'chat', intervalMs = 12_000) {
+  const mountedAtRef = useRef(new Date().toISOString());
+  useEffect(() => {
+    let stopped = false;
+    const tick = async () => {
+      if (stopped || typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+      const store = getStore(projectId, step);
+      if (!chatStoreHydrated(projectId, step)) return; // history not in yet — the load will include these rows
+      try {
+        const newest = store.state.messages.reduce(
+          (max, m) => (m.timestamp > max ? m.timestamp : max), mountedAtRef.current,
+        );
+        const res = await fetch(
+          `/api/chat/updates?project_id=${encodeURIComponent(projectId)}&step=${encodeURIComponent(step)}&since=${encodeURIComponent(newest)}`,
+        );
+        if (!res.ok) return;
+        const body = await res.json();
+        const rows = (body?.data?.messages ?? []) as Array<ChatMessage & { meta?: Record<string, unknown> }>;
+        if (rows.length > 0) {
+          appendServerMessages(projectId, step, rows.map((m) => ({
+            id: m.id, role: 'assistant' as const, content: m.content, timestamp: m.timestamp, meta: m.meta as ChatMessage['meta'],
+          })));
+          // Agent updates often accompany Inbox changes — refresh badges too.
+          window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+        }
+      } catch { /* transient — next tick retries */ }
+    };
+    const iv = setInterval(tick, intervalMs);
+    void tick();
+    return () => { stopped = true; clearInterval(iv); };
+  }, [projectId, step, intervalMs]);
+}
+
 export function useChat(projectId: string, step: string = 'chat') {
   const store = getStore(projectId, step);
 
@@ -274,6 +343,9 @@ export function useChat(projectId: string, step: string = 'chat') {
       } finally {
         patch(store, { isStreaming: false });
         store.abort = null;
+        // Nanocorp: agent updates that arrived mid-stream were queued — append
+        // them now that the tail mutation is done.
+        flushPendingAppends(projectId, step);
       }
     },
     [store, projectId, step],
@@ -300,7 +372,8 @@ export function useChat(projectId: string, step: string = 'chat') {
   const stopStreaming = useCallback(() => {
     store.abort?.abort();
     patch(store, { isStreaming: false });
-  }, [store]);
+    flushPendingAppends(projectId, step);
+  }, [store, projectId, step]);
 
   const clearMessages = useCallback(() => {
     patch(store, { messages: [] });

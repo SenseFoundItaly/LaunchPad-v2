@@ -345,9 +345,12 @@ export async function stageLoop1Verdict(
     const body = { prompt: evidenceLine + translate(locale, 'loop1.verdict-prompt'), options };
     const content = `:::artifact{"type":"option-set","id":"opt_loop1_verdict_${loopId.slice(-8)}"}\n${JSON.stringify(body)}\n:::`;
     await run(
-      `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
-       VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
+      `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, meta)
+       VALUES (?, ?, 'chat', 'assistant', ?, ?, ?, ?)`,
       generateId('msg'), projectId, content, new Date().toISOString(), ownerUserId,
+      // server_authored → the live updates poll (nanocorp P2) delivers the
+      // verdict card without a refresh.
+      { server_authored: true, source_id: `loop1verdict:${loopId}` },
     );
   } catch (err) {
     console.warn('[loop1-psf] stageLoop1Verdict failed (non-fatal):', (err as Error).message);

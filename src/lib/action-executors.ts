@@ -2130,6 +2130,13 @@ const publishLandingPageExecutor: ActionHandler = async (action) => {
       slug: typeof payload.slug === 'string' ? payload.slug : undefined,
     });
     const isStub = url.startsWith('data:');
+    // Nanocorp P1: the Marketer reports the publish into the conversation.
+    if (!isStub) {
+      const { postAgentUpdate } = await import('@/lib/agents/narrate');
+      await postAgentUpdate(action.project_id, 'marketer',
+        { key: 'agent.published-page', params: { url } },
+        { dedupeKey: `published:${artifactId}:${url}`, pane: 'growth', priority: 'must' });
+    }
     return {
       ok: true,
       deliverable: {
@@ -2235,6 +2242,16 @@ const sendCampaignMessageExecutor: ActionHandler = async (action) => {
           ? (stubbed ? 'Driver stub: post registrato, nulla è stato pubblicato.' : `Post pubblicato su ${channel === 'x' ? 'X' : 'LinkedIn'}.`)
           : (stubbed ? 'Stub driver: post recorded, nothing was published.' : `Posted to ${channel === 'x' ? 'X' : 'LinkedIn'}.`));
 
+    // Nanocorp P1: the Marketer confirms the consented act in the conversation.
+    if (!stubbed) {
+      const { postAgentUpdate } = await import('@/lib/agents/narrate');
+      await postAgentUpdate(action.project_id, 'marketer',
+        channel === 'email'
+          ? { key: 'agent.sent-email', params: { count: recipientCount ?? 0 } }
+          : { key: 'agent.posted-social', params: { channel: channel === 'x' ? 'X' : 'LinkedIn' } },
+        { dedupeKey: `sent:${msgId}`, pane: 'growth', priority: 'must' });
+    }
+
     return { ok: true, deliverable: { mode: 'direct', narrative } };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
@@ -2260,6 +2277,13 @@ const mvpBuildIteration: ActionHandler = async (action) => {
     return { ok: false, error: 'mvp_build_iteration: no live build to iterate' };
   }
   const next = await generateAndApplyIteration(build);
+  // Nanocorp P1: the Builder reports the new iteration into the conversation.
+  {
+    const { postAgentUpdate } = await import('@/lib/agents/narrate');
+    await postAgentUpdate(action.project_id, 'builder',
+      { key: next.status === 'live' ? 'agent.iteration-live' : 'agent.iteration-building', params: { version: next.iteration } },
+      { dedupeKey: `iter:${next.id}:${next.iteration}`, pane: 'build', priority: 'must' });
+  }
   return {
     ok: true,
     deliverable: {

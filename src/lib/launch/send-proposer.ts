@@ -64,6 +64,7 @@ export async function proposeDueCampaignSends(limit = 20): Promise<number> {
   });
   const socialConfigured = getActiveSocial().id !== 'clicktosend';
 
+  const { postAgentUpdate } = await import('@/lib/agents/narrate');
   for (const m of due) {
     try {
       if (m.channel === 'email') {
@@ -82,9 +83,14 @@ export async function proposeDueCampaignSends(limit = 20): Promise<number> {
             body_html: m.body,
             recipients,
             recipient_count: recipients.length,
+            agent: 'marketer',
           },
           estimated_impact: 'high',
         });
+        // Nanocorp P1: decision-request voice — the Marketer asks in the chat.
+        await postAgentUpdate(m.project_id, 'marketer',
+          { key: 'agent.send-due', params: { position: m.position, total: m.total, count: recipients.length } },
+          { dedupeKey: `proposed:${m.id}`, pane: 'growth', priority: 'must' });
       } else if (socialConfigured) {
         // Real social driver available → same action type, channel-routed executor.
         await createPendingAction({
@@ -97,9 +103,13 @@ export async function proposeDueCampaignSends(limit = 20): Promise<number> {
             campaign_id: m.campaign_id,
             channel: m.channel,
             body_html: m.body,
+            agent: 'marketer',
           },
           estimated_impact: 'medium',
         });
+        await postAgentUpdate(m.project_id, 'marketer',
+          { key: 'agent.post-due', params: { position: m.position, total: m.total, channel: m.channel === 'x' ? 'X' : 'LinkedIn' } },
+          { dedupeKey: `proposed:${m.id}`, pane: 'growth', priority: 'must' });
       } else {
         // Click-to-send fallback: the founder's click IS the send.
         await createPendingAction({
@@ -112,9 +122,13 @@ export async function proposeDueCampaignSends(limit = 20): Promise<number> {
             campaign_id: m.campaign_id,
             draft: m.body,
             content: m.body,
+            agent: 'marketer',
           },
           estimated_impact: 'medium',
         });
+        await postAgentUpdate(m.project_id, 'marketer',
+          { key: 'agent.post-due', params: { position: m.position, total: m.total, channel: m.channel === 'linkedin' ? 'LinkedIn' : 'email' } },
+          { dedupeKey: `proposed:${m.id}`, pane: 'growth', priority: 'must' });
       }
       await run(`UPDATE campaign_messages SET status = 'proposed' WHERE id = ?`, m.id);
       proposed++;

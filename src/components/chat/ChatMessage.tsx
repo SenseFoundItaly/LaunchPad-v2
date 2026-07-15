@@ -7,6 +7,28 @@ import ArtifactRenderer from './artifacts/ArtifactRenderer';
 import SourcesFooter from './artifacts/SourcesFooter';
 import ToolActivityBar from './ToolActivityBar';
 import MessageActions from './MessageActions';
+import { AGENTS, isAgentId, type AgentId } from '@/lib/agents/registry';
+import { useT } from '@/components/providers/LocaleProvider';
+
+/** Small attribution chip above agent-authored bubbles (nanocorp P1). */
+function AgentChip({ agentId }: { agentId: AgentId }) {
+  const t = useT();
+  const def = AGENTS[agentId];
+  return (
+    <span
+      className="lp-mono"
+      title={t(def.descKey)}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        fontSize: 9.5, fontWeight: 600, letterSpacing: 0.4,
+        color: def.color, marginBottom: 3, paddingLeft: 2,
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: 999, background: def.color, display: 'inline-block' }} />
+      {t(def.nameKey)}
+    </span>
+  );
+}
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -239,8 +261,13 @@ export default function ChatMessage({
   // can't "retry" themselves; the founder would retry the preceding user msg.
   const canRetry = isUser && onRetry && message.content.trim().length > 0;
 
+  const agentId = !isUser && message.meta?.agent && isAgentId(message.meta.agent) ? message.meta.agent : null;
+
   return (
     <div className={`group flex flex-col ${isUser ? 'items-end' : 'items-start'} mb-4`}>
+      {/* Nanocorp: attribution chip for agent-authored updates — the founder
+          sees WHICH of their agents is speaking (Builder/Marketer/Analyst). */}
+      {agentId && <AgentChip agentId={agentId} />}
       <div
         className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
           isUser
