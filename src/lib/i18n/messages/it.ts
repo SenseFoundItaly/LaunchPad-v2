@@ -391,6 +391,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'home.creating': 'Creazione…',
   'home.uploading': 'Caricamento…',
   'home.create': 'Crea',
+  'home.create-disabled-name-tip': 'Inserisci un nome per il progetto per continuare',
   'home.project-language-label': 'Lingua del progetto',
   'home.mode-scratch-label': 'Inizia da zero',
   'home.mode-scratch-desc': 'Pagina bianca. Costruisci il canvas tramite la chat.',

@@ -403,6 +403,7 @@ export const en = {
   'home.creating': 'Creating…',
   'home.uploading': 'Uploading…',
   'home.create': 'Create',
+  'home.create-disabled-name-tip': 'Enter a project name to continue',
   'home.project-language-label': 'Project language',
   'home.mode-scratch-label': 'Start from scratch',
   'home.mode-scratch-desc': 'Blank slate. Shape the canvas via chat.',
