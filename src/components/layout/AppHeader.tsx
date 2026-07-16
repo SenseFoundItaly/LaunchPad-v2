@@ -14,7 +14,7 @@ function getProjectName(pathname: string): string | null {
 // migration leftover that left today/knowledge/usage/monitors with a
 // duplicate "SenseFound /" bar stacked on top of the TopBar.
 function isFullBleedRoute(pathname: string): boolean {
-  if (pathname === '/' || pathname === '/settings') return true;
+  if (pathname === '/' || pathname === '/settings' || pathname === '/demo') return true;
   return /^\/project\/[^/]+/.test(pathname);
 }
 
