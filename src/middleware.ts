@@ -12,7 +12,8 @@ import { createServerClient } from '@supabase/ssr';
  *     /published/*, and Next.js internals.
  */
 
-const PUBLIC_PREFIXES = ['/login', '/api/auth', '/api/health', '/published'];
+// '/demo' is the static vision-demo page (src/app/demo) — no data, safe public.
+const PUBLIC_PREFIXES = ['/login', '/api/auth', '/api/health', '/published', '/demo'];
 const PUBLIC_EXACT = new Set(['/favicon.ico']);
 
 function isPublicPath(pathname: string): boolean {
