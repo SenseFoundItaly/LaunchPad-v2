@@ -15,6 +15,7 @@ import {
   CHAT_MESSAGES, AGENT_META, CANVAS_FIELDS, CANVAS_DEPTS, BUILD_CURRENT, BUILD_THREAD,
   LAUNCH_ASSETS, LAUNCH_CAMPAIGNS, LAUNCH_LOOPS,
 } from '../mock';
+import { MockLanding } from './landing';
 
 type SurfaceTab = 'chat' | 'build' | 'growth';
 
@@ -191,11 +192,19 @@ function BuildPane() {
           <a href="#" onClick={(e) => e.preventDefault()} style={{ fontSize: 11, color: 'var(--sky)', textDecoration: 'none' }}>Apri app live ↗</a>
         </div>
         <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 8 }}>Anteprima live · {BUILD_CURRENT.liveUrl}</div>
-        {/* iframe placeholder */}
-        <div style={{ height: 300, border: '1px solid var(--line)', borderRadius: 10, background: 'var(--paper)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <Icon d={I.terminal} size={22} style={{ color: 'var(--ink-5)' }} />
-          <div style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 500 }}>Anteprima MVP — build #{BUILD_CURRENT.iteration}</div>
-          <div style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>Costruita in sandbox dall’agente · si aggiorna qui ad ogni iterazione</div>
+        {/* Live preview — a mock browser frame with a scrollable landing page,
+            standing in for the real BuildHub iframe of the agent-built app. */}
+        <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderBottom: '1px solid var(--line)', background: 'var(--paper-2)' }}>
+            <span style={{ display: 'flex', gap: 5 }}>
+              {['var(--clay)', 'var(--accent)', 'var(--moss)'].map((c) => <span key={c} className="lp-dot" style={{ background: c, width: 8, height: 8 }} />)}
+            </span>
+            <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-4)', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 10px', flex: 1, textAlign: 'center' }}>{BUILD_CURRENT.liveUrl}</span>
+            <Icon d={I.external} size={12} style={{ color: 'var(--ink-5)' }} />
+          </div>
+          <div className="lp-scroll" style={{ height: 420, overflow: 'auto' }}>
+            <MockLanding />
+          </div>
         </div>
         {/* Changes */}
         <div style={{ marginTop: 12 }}>
