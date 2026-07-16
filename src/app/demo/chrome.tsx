@@ -48,8 +48,8 @@ const CHANNELS: NavEntry[] = [
   },
   {
     id: 'knowledge', href: '/demo/knowledge', iconKey: 'book', label: 'Knowledge', breadcrumb: 'Knowledge',
-    badge: 24, badgeTone: 'count',
-    status: { heartbeatLabel: 'heartbeat · grafo aggiornato', gateway: 'demo · dati simulati', ctxLabel: '24 nodi · 31 collegamenti' },
+    badge: 29, badgeTone: 'count',
+    status: { heartbeatLabel: 'heartbeat · grafo aggiornato', gateway: 'demo · dati simulati', ctxLabel: '18 nodi · 24 collegamenti' },
   },
   {
     id: 'financial', href: '/demo/financial', iconKey: 'dollar', label: 'Finanze', breadcrumb: 'Finanze',
@@ -216,37 +216,73 @@ const ECO_TYPES: Record<string, string> = {
   investor: 'var(--plum)',
 };
 
+// The ecosystem satellites (everything but the startup, which sits at center).
+// Positions are computed on a staggered ring so adding a node stays balanced.
+const ECO_SATELLITES: Array<{ label: string; type: string }> = [
+  { label: 'Veo', type: 'competitor' },
+  { label: 'Fornitori camere', type: 'partner' },
+  { label: 'Angel EU', type: 'investor' },
+  { label: 'Pixellot', type: 'competitor' },
+  { label: 'Federazioni', type: 'partner' },
+  { label: 'Allenatore U15', type: 'persona' },
+  { label: 'Trace', type: 'competitor' },
+  { label: 'Resend', type: 'partner' },
+  { label: 'Direttore sportivo', type: 'persona' },
+  { label: 'Hudl', type: 'competitor' },
+  { label: 'Netlify', type: 'partner' },
+  { label: 'Micro-VC sport', type: 'investor' },
+  { label: 'Spiideo', type: 'competitor' },
+  { label: 'Ayrshare', type: 'partner' },
+  { label: 'Genitore', type: 'persona' },
+  { label: 'Resp. federazione', type: 'persona' },
+  { label: 'Acceleratore', type: 'investor' },
+];
+
+const CENTER = { id: 'c', label: 'MatchLens', type: 'startup', x: 50, y: 50, r: 7 };
+
 const ECO_NODES = [
-  { id: 'c', label: 'MatchLens', type: 'startup', x: 50, y: 50, r: 7 },
-  { id: 'n1', label: 'Veo', type: 'competitor', x: 22, y: 24, r: 4.5 },
-  { id: 'n2', label: 'Pixellot', type: 'competitor', x: 78, y: 22, r: 4.5 },
-  { id: 'n3', label: 'Trace', type: 'competitor', x: 84, y: 55, r: 4.5 },
-  { id: 'n4', label: 'Allenatore U15', type: 'persona', x: 26, y: 74, r: 4.5 },
-  { id: 'n5', label: 'Direttore sportivo', type: 'persona', x: 50, y: 84, r: 4.5 },
-  { id: 'n6', label: 'Federazioni', type: 'partner', x: 16, y: 50, r: 4.5 },
-  { id: 'n7', label: 'Fornitori camere', type: 'partner', x: 34, y: 12, r: 4.5 },
-  { id: 'n8', label: 'Resend', type: 'partner', x: 72, y: 78, r: 4.5 },
-  { id: 'n9', label: 'Netlify', type: 'partner', x: 88, y: 38, r: 4.5 },
-  { id: 'n10', label: 'Angel EU', type: 'investor', x: 64, y: 12, r: 4.5 },
-  { id: 'n11', label: 'Micro-VC sport', type: 'investor', x: 12, y: 34, r: 4.5 },
+  CENTER,
+  ...ECO_SATELLITES.map((s, i) => {
+    const angle = (i / ECO_SATELLITES.length) * Math.PI * 2 - Math.PI / 2;
+    const radius = i % 2 === 0 ? 41 : 32; // stagger two rings to space labels out
+    return { id: `n${i}`, label: s.label, type: s.type, x: 50 + radius * Math.cos(angle), y: 50 + radius * Math.sin(angle), r: 4.2 };
+  }),
+];
+
+// A few cross-links between satellites so the graph reads as a real network,
+// not a pure star. Referenced by label.
+const ECO_CROSS: Array<[string, string]> = [
+  ['Federazioni', 'Resp. federazione'],
+  ['Allenatore U15', 'Genitore'],
+  ['Veo', 'Pixellot'],
+  ['Trace', 'Hudl'],
+  ['Resend', 'Netlify'],
+  ['Angel EU', 'Micro-VC sport'],
+  ['Fornitori camere', 'Veo'],
 ];
 
 export function EcoGraph({ height = 340, showLabels = true }: { height?: number; showLabels?: boolean }) {
   const center = ECO_NODES[0];
+  const byLabel = new Map(ECO_NODES.map((n) => [n.label, n]));
   return (
     <svg viewBox="0 0 100 100" style={{ width: '100%', height, display: 'block' }} preserveAspectRatio="xMidYMid meet">
       {ECO_NODES.slice(1).map((n) => (
         <line key={`e-${n.id}`} x1={center.x} y1={center.y} x2={n.x} y2={n.y} stroke="var(--line-2)" strokeWidth={0.3} />
       ))}
-      {ECO_NODES.map((n) => (
-        <g key={n.id}>
+      {ECO_CROSS.map(([a, b], i) => {
+        const na = byLabel.get(a), nb = byLabel.get(b);
+        if (!na || !nb) return null;
+        return <line key={`x-${i}`} x1={na.x} y1={na.y} x2={nb.x} y2={nb.y} stroke="var(--line-2)" strokeWidth={0.25} strokeDasharray="1 1" opacity={0.7} />;
+      })}
+      {ECO_NODES.map((n, i) => (
+        <g key={n.label + i}>
           <circle cx={n.x} cy={n.y} r={n.r} fill={ECO_TYPES[n.type]} opacity={n.type === 'startup' ? 1 : 0.85} />
           {showLabels && (
             <text
               x={n.x}
               y={n.y - n.r - 1.2}
               textAnchor="middle"
-              style={{ fontSize: n.type === 'startup' ? 3.4 : 2.6, fill: 'var(--ink-3)', fontFamily: 'var(--f-sans)' }}
+              style={{ fontSize: n.type === 'startup' ? 3.4 : 2.4, fill: 'var(--ink-3)', fontFamily: 'var(--f-sans)' }}
             >
               {n.label}
             </text>
@@ -260,10 +296,10 @@ export function EcoGraph({ height = 340, showLabels = true }: { height?: number;
 export function EcoLegend() {
   const items = [
     { label: 'Startup', type: 'startup', count: 1 },
-    { label: 'Competitor', type: 'competitor', count: 3 },
-    { label: 'Personas', type: 'persona', count: 2 },
-    { label: 'Partner', type: 'partner', count: 4 },
-    { label: 'Investitori', type: 'investor', count: 2 },
+    { label: 'Competitor', type: 'competitor', count: 5 },
+    { label: 'Personas', type: 'persona', count: 4 },
+    { label: 'Partner', type: 'partner', count: 5 },
+    { label: 'Investitori', type: 'investor', count: 3 },
   ];
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '8px 14px' }}>

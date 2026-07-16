@@ -134,7 +134,7 @@ function CanvasPane() {
           <Icon d={I.layers} size={13} style={{ color: 'var(--accent)' }} />
           <span style={{ fontSize: 12, fontWeight: 600 }}>Idea canvas</span>
           <span style={{ flex: 1 }} />
-          <span className="lp-chip" style={{ fontSize: 10 }}>backed by 24 fatti →</span>
+          <span className="lp-chip" style={{ fontSize: 10 }}>backed by 29 elementi →</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {CANVAS_FIELDS.map((f, i) => (
@@ -150,7 +150,7 @@ function CanvasPane() {
       <div className="lp-card" style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
         <Icon d={I.graph} size={13} style={{ color: 'var(--ink-4)' }} />
         <span className="lp-serif" style={{ fontSize: 14 }}>Knowledge</span>
-        <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)' }}>— 24 elementi</span>
+        <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)' }}>— 29 elementi</span>
         <span style={{ flex: 1 }} />
         <a href="/demo/knowledge" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>apri →</a>
       </div>
