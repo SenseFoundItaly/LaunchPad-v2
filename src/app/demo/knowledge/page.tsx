@@ -36,7 +36,7 @@ export default function DemoKnowledge() {
           <ViewBtn label="Data room" active={view === 'dataroom'} onClick={() => setView('dataroom')} />
           <span style={{ flex: 1 }} />
           <Pill kind="live" dot>1 in attesa</Pill>
-          <Pill kind="n">24 nodi · 31 collegamenti</Pill>
+          <Pill kind="n">18 nodi · 24 collegamenti</Pill>
         </div>
         <div className="lp-scroll" style={{ flex: 1, overflow: 'auto' }}>
           {view === 'graph' && <GraphView />}
@@ -109,7 +109,7 @@ function ListView() {
   );
 }
 
-const MOVE_COLOR: Record<string, string> = { competitor: 'var(--clay)', fact: 'var(--moss)', signal: 'var(--cat-gold)', interview: 'var(--cat-teal)' };
+const MOVE_COLOR: Record<string, string> = { entity: 'var(--sky)', competitor: 'var(--clay)', fact: 'var(--moss)', signal: 'var(--cat-gold)', brief: 'var(--plum)', interview: 'var(--cat-teal)' };
 
 function MovesView() {
   return (

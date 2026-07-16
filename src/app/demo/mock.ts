@@ -404,14 +404,14 @@ export const WATCHERS_FULL: Watcher[] = [
 // =============================================================================
 
 export const KNOWLEDGE_SUMMARY = {
-  total: 24,
+  total: 29,
   kinds: [
     { label: 'entità', count: 5 },
-    { label: 'concorrenti', count: 3 },
+    { label: 'concorrenti', count: 5 },
     { label: 'fatti', count: 8 },
     { label: 'segnali', count: 4 },
     { label: 'brief', count: 2 },
-    { label: 'interviste', count: 2 },
+    { label: 'interviste', count: 5 },
   ],
   provenance: [
     { label: 'dichiarato dal founder', kind: 'n' as const },
@@ -423,11 +423,23 @@ export const KNOWLEDGE_SUMMARY = {
 export type KnowledgeRow = { title: string; summary: string; prov: 'founder' | 'derived' | 'verified'; age: string };
 export const KNOWLEDGE_GROUPS: Array<{ kind: string; label: string; edge: string; rows: KnowledgeRow[] }> = [
   {
+    kind: 'entity', label: 'Entità', edge: 'var(--sky)',
+    rows: [
+      { title: 'MatchLens — la startup', summary: 'Vende telecamere AI turnkey ai club dilettantistici. Fase Operate, 38 club paganti, MRR €4.2k.', prov: 'verified', age: '9 mesi fa' },
+      { title: 'App MatchLens — il prodotto', summary: 'Web app + camera: registrazione, tagging eventi AI, clip automatiche, condivisione con le famiglie.', prov: 'derived', age: '6 mesi fa' },
+      { title: 'Mercato calcio dilettantistico EU', summary: 'Club giovanili e amatoriali con budget federazione. Frammentato e sottoservito dagli strumenti pro.', prov: 'verified', age: '3 mesi fa' },
+      { title: 'Federazioni regionali — canale', summary: 'Canale di acquisizione primario: 4 federazioni partner, 60% dei signup passa da qui.', prov: 'verified', age: '2 mesi fa' },
+      { title: 'Camera AI turnkey — tecnologia', summary: 'Hardware chiavi in mano + computer vision. Il differenziatore vs i competitor software-only.', prov: 'founder', age: '8 mesi fa' },
+    ],
+  },
+  {
     kind: 'competitor', label: 'Concorrenti', edge: 'var(--clay)',
     rows: [
-      { title: 'Veo', summary: 'Camera AI per riprese sportive. Forte nel calcio, modello a noleccio hardware + abbonamento. Piano entry €89/mese (nuovo).', prov: 'verified', age: '2 ore fa' },
-      { title: 'Pixellot', summary: 'Sistema di produzione automatizzata, orientato a broadcaster e club professionistici. Prezzo alto.', prov: 'verified', age: '5 giorni fa' },
-      { title: 'Trace', summary: 'Focalizzato su USA e calcio giovanile. Hardware proprietario, community forte.', prov: 'derived', age: '5 giorni fa' },
+      { title: 'Veo', summary: 'Camera AI per riprese sportive. Forte nel calcio, modello a noleggio hardware + abbonamento. Piano entry €89/mese (nuovo).', prov: 'verified', age: '2 ore fa' },
+      { title: 'Pixellot', summary: 'Sistema di produzione broadcast automatizzata, orientato a broadcaster e club professionistici. Prezzo alto.', prov: 'verified', age: '5 giorni fa' },
+      { title: 'Trace', summary: 'Focalizzato su USA e calcio giovanile. Hardware proprietario, community di allenatori forte.', prov: 'derived', age: '5 giorni fa' },
+      { title: 'Hudl', summary: 'Piattaforma US di sports performance & video, molto ampia. Non focalizzata su hardware turnkey per il mercato EU.', prov: 'derived', age: '6 giorni fa' },
+      { title: 'Spiideo', summary: 'Automated video per stadi e impianti, orientato alle strutture. Meno adatto ai piccoli club dilettantistici.', prov: 'derived', age: '6 giorni fa' },
     ],
   },
   {
@@ -437,13 +449,26 @@ export const KNOWLEDGE_GROUPS: Array<{ kind: string; label: string; edge: string
       { title: 'WTP 63% a €79/mese', summary: '9 club su 14 disposti a pagare €79/mese dopo la ristrutturazione dell’ICP in Loop 1.', prov: 'verified', age: '2 mesi fa' },
       { title: 'LTV/CAC 3.2×', summary: 'CAC €180 via federazioni, LTV €580, churn 3.5%/mese. Confermato in Loop 2.', prov: 'derived', age: '1 mese fa' },
       { title: 'GDPR minori — consenso federazione', summary: 'Le riprese di minori richiedono consenso raccolto tramite la federazione, non il singolo club.', prov: 'verified', age: '3 mesi fa' },
+      { title: 'Churn 3.5%/mese', summary: 'Tasso di abbandono mensile misurato sui club paganti. Stabile dopo l’iterazione #11.', prov: 'derived', age: '1 mese fa' },
+      { title: 'Attivazione 74%', summary: 'Percentuale di club che caricano la prima partita entro 7 giorni. Misurata in Loop 4.', prov: 'verified', age: '2 mesi fa' },
+      { title: 'Retention 7gg 58%', summary: 'Club ancora attivi a 7 giorni dall’onboarding. Segnale di PMF confermato.', prov: 'verified', age: '2 mesi fa' },
+      { title: 'NPS post-uso 46', summary: 'Net Promoter Score raccolto dopo il primo mese d’uso. Sopra la media SaaS B2B.', prov: 'derived', age: '2 mesi fa' },
     ],
   },
   {
     kind: 'signal', label: 'Segnali', edge: 'var(--cat-gold)',
     rows: [
       { title: 'Veo piano entry €89/mese', summary: 'Nuovo listino competitor sopra il nostro anchor. In attesa di applicazione in Inbox.', prov: 'derived', age: '2 ore fa' },
+      { title: 'Feedback: highlights su WhatsApp', summary: '2 richieste intermedie di condividere gli highlights via WhatsApp → iterazione MVP #13.', prov: 'derived', age: 'ieri' },
       { title: 'Feedback: condivisione con i genitori', summary: 'Cluster di richieste per condividere le clip con le famiglie → iterazione MVP #11.', prov: 'derived', age: '10 giorni fa' },
+      { title: 'AI Act — riprese sportive minori', summary: 'Osservatore proposto: possibili obblighi dall’AI Act sulle riprese di minori. In Inbox.', prov: 'derived', age: 'ieri' },
+    ],
+  },
+  {
+    kind: 'brief', label: 'Brief', edge: 'var(--plum)',
+    rows: [
+      { title: 'Monday Brief — settimana 38', summary: '3 mosse consigliate: approvare lo step 4 della sequenza email, aggiornare la battlecard Veo, valutare l’iterazione #13.', prov: 'derived', age: 'ieri' },
+      { title: 'Market Response Review — Loop 3', summary: 'Landing al 6.8%, feedback classificato su 3 livelli, nessun pivot necessario. Verdetto GO.', prov: 'derived', age: '2 mesi fa' },
     ],
   },
   {
@@ -451,6 +476,9 @@ export const KNOWLEDGE_GROUPS: Array<{ kind: string; label: string; edge: string
     rows: [
       { title: 'Allenatore U15 — ASD Rivoli', summary: 'Pain: "perdo ore ogni settimana a tagliare i video a mano". Urgenza alta. WTP €79/mese.', prov: 'founder', age: '2 mesi fa' },
       { title: 'Direttore sportivo — Pol. Chieri', summary: 'Interessato al budget federazione. Vuole condivisione con le famiglie e clip per allenamento.', prov: 'founder', age: '2 mesi fa' },
+      { title: 'Allenatore U17 — US Grugliasco', summary: 'Vuole tagging automatico dei falli e clip difensive. Conferma WTP €79/mese.', prov: 'founder', age: '2 mesi fa' },
+      { title: 'Resp. settore giovanile — FIGC Piemonte', summary: 'Interessata al consenso GDPR gestito a livello di federazione, non di singolo club.', prov: 'founder', age: '10 settimane fa' },
+      { title: 'Genitore — ASD Rivoli', summary: 'Vuole ricevere gli highlights del figlio direttamente su WhatsApp.', prov: 'founder', age: '2 mesi fa' },
     ],
   },
 ];
@@ -462,18 +490,34 @@ export const COMPETITORS_MATRYOSHKA = [
       { label: 'Prezzo', detail: 'Noleggio camera + abbonamento. Nuovo piano entry €89/mese.' },
       { label: 'Distribuzione', detail: 'Vendita diretta + partnership con federazioni nazionali.' },
       { label: 'Vantaggio competitivo', detail: 'Brand consolidato, ampia base installata nel calcio.' },
+      { label: 'Criticità', detail: 'Setup più oneroso e supporto lento per i piccoli club — leva per noi.' },
     ],
   },
   {
     name: 'Pixellot', categories: [
       { label: 'Prodotto', detail: 'Produzione broadcast automatizzata multi-sport.' },
       { label: 'Prezzo', detail: 'Enterprise, contratti annuali con club professionistici.' },
+      { label: 'Distribuzione', detail: 'Vendita B2B a leghe e broadcaster.' },
     ],
   },
   {
     name: 'Trace', categories: [
       { label: 'Prodotto', detail: 'Hardware proprietario + app per il calcio giovanile.' },
       { label: 'Distribuzione', detail: 'Forte penetrazione USA, community di allenatori.' },
+      { label: 'Criticità', detail: 'Presenza EU limitata — spazio aperto per noi.' },
+    ],
+  },
+  {
+    name: 'Hudl', categories: [
+      { label: 'Prodotto', detail: 'Suite ampia di sports performance & video analysis.' },
+      { label: 'Prezzo', detail: 'A livelli, orientata a scuole e programmi US.' },
+      { label: 'Vantaggio competitivo', detail: 'Ecosistema enorme, ma non turnkey sull’hardware.' },
+    ],
+  },
+  {
+    name: 'Spiideo', categories: [
+      { label: 'Prodotto', detail: 'Automated video per stadi e impianti sportivi.' },
+      { label: 'Distribuzione', detail: 'Vendita a strutture e impianti, non ai singoli club.' },
     ],
   },
 ];
@@ -482,6 +526,8 @@ export const MOVES = [
   { type: 'competitor', name: 'Veo', date: '2 ore fa', headline: 'Ha lanciato un piano entry a €89/mese', host: 'veo.co' },
   { type: 'fact', name: 'Metriche settimana 38', date: '5 ore fa', headline: 'MRR €4.2k (+18%), 38 club attivi', host: 'weekly-metrics' },
   { type: 'signal', name: 'Feedback allenatori', date: 'ieri', headline: '2 richieste di highlights su WhatsApp → iterazione #13', host: 'app store' },
+  { type: 'brief', name: 'Monday Brief', date: 'ieri', headline: '3 mosse consigliate per la settimana 38', host: 'cron' },
+  { type: 'competitor', name: 'Hudl', date: '6 giorni fa', headline: 'Aggiunto al grafo come competitor US indiretto', host: 'market-research' },
   { type: 'interview', name: 'ASD Rivoli', date: '3 giorni fa', headline: 'Nuova intervista PSF caricata e digerita', host: 'data room' },
 ];
 
@@ -595,23 +641,37 @@ export const CANVAS_DEPTS: Array<{ dept: string; artifacts: Array<{ title: strin
   { dept: 'Mercato', artifacts: [
     { title: 'Market sizing (TAM/SAM/SOM)', kind: 'ricerca' },
     { title: 'Battlecard Veo / Pixellot / Trace', kind: 'analisi' },
+    { title: 'Competitor matrix (5 player)', kind: 'analisi' },
     { title: 'Interviste PSF (14)', kind: 'evidenza' },
+    { title: 'ICP — club calcio giovanile', kind: 'segmento' },
+    { title: 'Trend: AI Act sport minori', kind: 'segnale' },
   ] },
   { dept: 'Prodotto', artifacts: [
     { title: 'Spec MVP — build #12', kind: 'prototipo' },
     { title: 'Roadmap iterazioni #10-13', kind: 'piano' },
+    { title: 'Feature backlog (18)', kind: 'backlog' },
+    { title: 'Changelog build #1-12', kind: 'storico' },
+    { title: 'User feedback — 3 livelli', kind: 'evidenza' },
   ] },
   { dept: 'Prezzi', artifacts: [
-    { title: 'Anchor €79 + 2 tier', kind: 'pricing' },
+    { title: 'Anchor €79 + 3 tier', kind: 'pricing' },
     { title: 'WTP research (63%)', kind: 'evidenza' },
+    { title: 'Van Westendorp — sensibilità prezzo', kind: 'analisi' },
+    { title: 'Unit economics (LTV/CAC 3.2×)', kind: 'modello' },
   ] },
   { dept: 'Finanza', artifacts: [
     { title: 'Modello finanziario v4', kind: 'modello' },
     { title: 'Runway 14 mesi · need €350k', kind: 'fatto' },
+    { title: 'Pitch deck v3 (12 slide)', kind: 'deck' },
+    { title: 'Cap table + scenario diluizione', kind: 'modello' },
+    { title: 'Data room investitori', kind: 'raccolta' },
   ] },
   { dept: 'Crescita', artifacts: [
     { title: 'Launch pipeline W0-W5', kind: 'piano' },
-    { title: 'Growth loop referral', kind: 'esperimento' },
+    { title: 'GTM strategy — federazioni first', kind: 'strategia' },
+    { title: 'Growth loop referral allenatori', kind: 'esperimento' },
+    { title: 'Sequenze email (5 step)', kind: 'campagna' },
+    { title: 'Funnel metrics (2.4k → 121)', kind: 'metrica' },
   ] },
 ];
 
