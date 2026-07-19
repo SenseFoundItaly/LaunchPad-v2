@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(supabase db reset:*)",
+      "Bash(supabase db push --force:*)",
+      "Bash(supabase projects delete:*)",
+      "Bash(supabase migration repair:*)",
+      "Bash(supabase stop --no-backup:*)",
+      "Bash(rm -rf:*)",
+      "Bash(rm -fr:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qiE '\\brm\\s+(-[a-zA-Z]*[rRf][a-zA-Z]*\\s+|.*--no-preserve-root)'; then echo 'BLOCKED: destructive rm command' >&2; exit 2; fi; if echo \"$CLAUDE_TOOL_INPUT\" | grep -qiE '\\b(drop|truncate)\\s+table\\b'; then echo 'BLOCKED: destructive SQL (drop/truncate table) — dev DB IS prod' >&2; exit 2; fi; if echo \"$CLAUDE_TOOL_INPUT\" | grep -qiE '\\bsupabase\\s+(db\\s+reset|db\\s+push\\s+--force|projects\\s+delete|migration\\s+repair|stop\\s+--no-backup)\\b'; then echo 'BLOCKED: destructive supabase command — dev DB IS prod' >&2; exit 2; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
