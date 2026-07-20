@@ -1,4 +1,7 @@
 {
+  "enabledPlugins": {
+    "aaron-seo-geo@aaron-seo-geo": true
+  },
   "permissions": {
     "deny": [
       "Bash(supabase db reset:*)",
