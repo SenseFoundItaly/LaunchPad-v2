@@ -22,6 +22,8 @@
 import { useEffect, useState } from 'react';
 import { Icon, I } from '@/components/design/primitives';
 import { notifyRecharged } from '@/components/credits/recharge-events';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 
 /** Placeholder credit packs — pricing intentionally TBD until payments land.
  *  `id` is what the recharge route will map to a server-side price; never trust
@@ -29,14 +31,14 @@ import { notifyRecharged } from '@/components/credits/recharge-events';
 export interface CreditPack {
   id: string;
   credits: number;
-  /** Optional marketing label (e.g. "Most popular"). */
-  badge?: string;
+  /** Optional marketing label, as an i18n key (e.g. 'recharge.badge-popular'). */
+  badge?: MessageKey;
 }
 
 const DEFAULT_PACKS: CreditPack[] = [
   { id: 'pack_100', credits: 100 },
-  { id: 'pack_500', credits: 500, badge: 'Most popular' },
-  { id: 'pack_1000', credits: 1000, badge: 'Best value' },
+  { id: 'pack_500', credits: 500, badge: 'recharge.badge-popular' },
+  { id: 'pack_1000', credits: 1000, badge: 'recharge.badge-value' },
 ];
 
 export interface RechargeDialogProps {
@@ -53,6 +55,7 @@ export interface RechargeDialogProps {
 type Phase = 'choose' | 'submitting' | 'success' | 'unavailable' | 'error';
 
 export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT_PACKS, onRecharged }: RechargeDialogProps) {
+  const t = useT();
   const [phase, setPhase] = useState<Phase>('choose');
   const [selected, setSelected] = useState<string>(packs[1]?.id ?? packs[0]?.id ?? '');
   const [message, setMessage] = useState<string>('');
@@ -82,7 +85,7 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
       // Legacy payments stub: 501 { error:'payments_not_integrated' }. Kept so
       // the dialog still behaves if the route is ever reverted to the stub.
       if (body?.error === 'payments_not_integrated') {
-        setMessage(body?.message ?? 'Recharge is not available yet — payments are coming soon.');
+        setMessage(body?.message ?? t('recharge.unavailable'));
         setPhase('unavailable');
         return;
       }
@@ -102,10 +105,10 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
         setPhase('success');
         return;
       }
-      setMessage(body?.error ?? `Recharge failed (HTTP ${res.status}).`);
+      setMessage(body?.error ?? t('recharge.failed-http', { status: res.status }));
       setPhase('error');
     } catch (e) {
-      setMessage((e as Error).message || 'Recharge failed.');
+      setMessage((e as Error).message || t('recharge.failed'));
       setPhase('error');
     }
   }
@@ -116,7 +119,7 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Recharge credits"
+      aria-label={t('credits.recharge')}
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(20,18,16,0.42)',
@@ -135,12 +138,12 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
         <header style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '13px 16px', borderBottom: '1px solid var(--line)' }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--clay)', flexShrink: 0 }} />
           <h2 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
-            {remaining > 0 ? 'Add credits' : 'Out of credits'}
+            {remaining > 0 ? t('recharge.title-add') : t('recharge.title-out')}
           </h2>
           <div style={{ flex: 1 }} />
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('recharge.close')}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--ink-5)', lineHeight: 0 }}
           >
             <Icon d={I.x} size={15} stroke={1.6} />
@@ -152,9 +155,7 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
           {(phase === 'choose' || phase === 'submitting' || phase === 'error') && (
             <>
               <p style={{ fontSize: 12.5, color: 'var(--ink-3)', margin: '0 0 14px', lineHeight: 1.5 }}>
-                {remaining > 0
-                  ? 'Top up your monthly pool to keep going.'
-                  : "You've used all your credits for this month. Recharge to keep going, or wait for next month's reset."}
+                {remaining > 0 ? t('recharge.intro-topup') : t('recharge.intro-out')}
               </p>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -187,7 +188,7 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                           <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>
-                            {pack.credits.toLocaleString()} credits
+                            {t('recharge.pack-credits', { n: pack.credits.toLocaleString() })}
                           </span>
                           {pack.badge && (
                             <span
@@ -198,14 +199,14 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
                                 borderRadius: 4, padding: '1px 5px',
                               }}
                             >
-                              {pack.badge}
+                              {t(pack.badge)}
                             </span>
                           )}
                         </span>
                         {/* Free while payments aren't wired (founder decision
                             2026-06-16) — real pricing lands with Stripe. */}
                         <span className="lp-mono" style={{ display: 'block', fontSize: 10.5, color: 'var(--ink-5)', marginTop: 2 }}>
-                          Free during beta
+                          {t('recharge.free-beta')}
                         </span>
                       </span>
                     </button>
@@ -227,10 +228,10 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
                 <Icon d={I.check} size={18} stroke={2.2} />
               </div>
               <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>
-                {addedCredits.toLocaleString()} credits added
+                {t('recharge.added', { n: addedCredits.toLocaleString() })}
               </div>
               <div style={{ fontSize: 12, color: 'var(--ink-5)', marginTop: 5, lineHeight: 1.5 }}>
-                Free during beta — you can pick up right where you left off.
+                {t('recharge.added-sub')}
               </div>
             </div>
           )}
@@ -240,9 +241,9 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
               <div style={{ width: 38, height: 38, borderRadius: '50%', margin: '0 auto 12px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--paper-2)', color: 'var(--ink-3)' }}>
                 <Icon d={I.clock} size={18} stroke={1.8} />
               </div>
-              <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>Coming soon</div>
+              <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>{t('recharge.coming-soon')}</div>
               <div style={{ fontSize: 12, color: 'var(--ink-5)', marginTop: 5, lineHeight: 1.5 }}>
-                {message || 'Recharge is not available yet — payments are coming soon. Your credits reset at the start of next month.'}
+                {message || t('recharge.unavailable')}
               </div>
             </div>
           )}
@@ -252,16 +253,16 @@ export default function RechargeDialog({ onClose, remaining = 0, packs = DEFAULT
         <footer style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 16px', borderTop: '1px solid var(--line)', background: 'var(--paper-2)' }}>
           <div style={{ flex: 1 }} />
           {phase === 'success' ? (
-            <button onClick={onClose} style={btnPrimary}>Done</button>
+            <button onClick={onClose} style={btnPrimary}>{t('recharge.done')}</button>
           ) : phase === 'unavailable' ? (
-            <button onClick={onClose} style={btnPrimary}>Got it</button>
+            <button onClick={onClose} style={btnPrimary}>{t('recharge.got-it')}</button>
           ) : (
             <>
               <button onClick={onClose} disabled={submitting} style={{ ...btnGhost, opacity: submitting ? 0.5 : 1 }}>
-                Cancel
+                {t('recharge.cancel')}
               </button>
               <button onClick={handleRecharge} disabled={submitting || !selected} style={{ ...btnPrimary, opacity: submitting || !selected ? 0.6 : 1 }}>
-                {submitting ? 'Working…' : 'Recharge'}
+                {submitting ? t('recharge.working') : t('recharge.cta')}
               </button>
             </>
           )}
