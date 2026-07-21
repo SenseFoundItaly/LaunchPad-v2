@@ -69,6 +69,7 @@ function buildItems(raw: RawItem[]) {
           : r.kind === 'channel_fact' ? 'Acquisition channel'
           : r.kind === 'trend_fact' ? 'Market trend'
           : r.kind === 'buyer_persona_fact' ? 'Buyer persona'
+          : r.kind === 'differentiation_fact' ? 'Differentiation'
           : r.kind === 'pricing' ? (PRICING_LABELS[r.field ?? ''] ?? 'Pricing')
           : 'Market size',
         value: r.value,
@@ -153,7 +154,8 @@ export function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
   // exact dupes are caught by the allStagedAlready value check upstream).
   // buyer_persona_fact: ONE preliminary sketch slot — a re-run reshapes it.
   if (b.kind === 'persona_fact' || b.kind === 'channel_fact' || b.kind === 'trend_fact') return false;
-  if (b.kind === 'buyer_persona_fact') return true;
+  // One preliminary sketch/statement slot each — a re-stage reshapes it.
+  if (b.kind === 'buyer_persona_fact' || b.kind === 'differentiation_fact') return true;
   return b.kind === 'market_size_fact'; // only market_size has one sizing slot
 }
 

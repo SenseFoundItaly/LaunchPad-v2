@@ -21,6 +21,8 @@ import { computeNextBestAction, renderDirectionForPrompt } from '@/lib/direction
 import { recordEvent, factHash } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
+import { findOptionDecision } from '@/lib/option-decision-log';
+import { sweepFounderMessageForFacts } from '@/lib/chat-fact-sweep';
 import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
 import { isProjectCapped } from '@/lib/cost-meter';
 import { assertCreditsAvailable, debitCredits } from '@/lib/credits';
@@ -1080,18 +1082,53 @@ export async function POST(request: NextRequest) {
           // "Scelgo: …" message (the localized chat.i-choose template). Record it
           // as a structured decision event so which fork the founder took is
           // queryable (activation/dropout metrics) instead of buried in prose.
+          // The DISCARDED siblings ride the same event (option-decision-log):
+          // without them, "why did we skip option B?" had no answer in a pivot.
           try {
             const choice = lastMessage.match(/^\s*(?:I choose|Scelgo):\s*([\s\S]+)$/i);
             if (choice) {
+              const chosen = choice[1].trim();
+              let decision = null;
+              try {
+                // The click's option-set lives in a PRIOR assistant message —
+                // this turn's reply is already persisted, so scan the last 3.
+                const prevAssistant = await query<{ content: string }>(
+                  `SELECT content FROM chat_messages
+                    WHERE project_id = ? AND role = 'assistant'
+                    ORDER BY "timestamp" DESC LIMIT 3`,
+                  project_id,
+                );
+                decision = findOptionDecision(prevAssistant.map((r) => r.content), chosen);
+              } catch { /* decision context is best-effort */ }
               await recordEvent({
                 userId,
                 projectId: project_id,
                 eventType: 'option_selected',
-                payload: { choice: choice[1].trim().slice(0, 200) },
+                payload: {
+                  choice: chosen.slice(0, 200),
+                  ...(decision?.discarded.length ? { discarded: decision.discarded } : {}),
+                  ...(decision?.prompt ? { prompt: decision.prompt } : {}),
+                },
               });
             }
           } catch (err) {
             console.warn('[chat] option_selected record failed (non-fatal):', (err as Error).message);
+          }
+
+          // Deterministic capture net (chat-fact-sweep): if this founder message
+          // states spine-relevant evidence the agent did NOT capture via
+          // save_memory_fact (facts written mid-turn are already in the DB, so
+          // the sweep's already-captured guard sees them), stage it as an
+          // approve-to-green item — founder-first, same gate as doc digests.
+          try {
+            const swept = await sweepFounderMessageForFacts(project_id, lastMessage);
+            if (swept.staged > 0) {
+              // Re-use the proposal backstop below so the staged card is
+              // injected into this turn instead of waiting silently in Inbox.
+              stagedCanvasEvidence = true;
+            }
+          } catch (err) {
+            console.warn('[chat] fact sweep failed (non-fatal):', (err as Error).message);
           }
 
           const segments = parseMessageContent(fullResponse);

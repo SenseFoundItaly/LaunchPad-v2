@@ -61,6 +61,63 @@ export const MARKET_1A_SOURCES = {
   persona: 'memory_facts (buyer persona)',
 } as const;
 
+/** The differentiation check's `source` string — exported so the
+ *  `differentiation_fact` item kind (chat retro-sweep) maps drift-proof. */
+export const DIFFERENTIATION_CHECK_SOURCE = 'memory_facts (vs. competitors)';
+
+// ── Exported keyword lists ───────────────────────────────────────────────────
+// One named constant per keyword-matched check, used BOTH by the check's
+// evaluate and by the chat retro-sweep (chat-fact-sweep.ts) — the same
+// import-never-retype discipline as MARKET_SIZE_KEYWORDS, so the sweep can
+// never green-light a phrasing the check wouldn't count (or vice versa).
+
+/** differentiation_evidence. 'vs' removed — bare substring matched any
+ *  comparison. 'differenz' stem catches differenza/differenziamo/-azione. */
+export const DIFFERENTIATION_KEYWORDS = [
+  'unlike', 'better than', 'differentiator', 'compared to',
+  'a differenza di', 'differenz', 'meglio di', 'ci distinguiamo', 'rispetto a',
+] as const;
+
+/** trends_assessed. Bare 'trend' deliberately absent (matches almost any
+ *  metric sentence); 'tendenz' stem catches tendenza/tendenze. */
+export const TRENDS_KEYWORDS = [
+  'tailwind', 'headwind', 'market trend', 'market shift', 'growth rate',
+  'trend di mercato', 'tendenz', 'vento a favore', 'vento contrario', 'in crescita', 'in calo',
+] as const;
+
+/** buyer_persona_defined. Bare 'persona' deliberately absent — it is the
+ *  Italian word for "person" and would false-positive on nearly any IT fact. */
+export const BUYER_PERSONA_KEYWORDS = [
+  'buyer persona', 'user persona', 'decision maker', 'purchase trigger', 'decision criteria',
+  'chi decide', 'criteri di scelta', 'persona acquirente', 'profilo del cliente', 'trigger di acquisto',
+] as const;
+
+/** build_approach. IT stems (fattibil/architettur) catch inflections. */
+export const BUILD_APPROACH_KEYWORDS = [
+  'feasibility', 'feasible', 'technically possible', 'build approach', 'architecture', 'tech stack',
+  'fattibil', 'tecnicamente possibile', 'architettur', 'stack tecnico', 'come lo costruiamo',
+] as const;
+
+/** technical_risk_named. Multi-word phrases only — bare 'risk'/'rischio'
+ *  would match market/regulatory risk facts and cross-green the check. */
+export const TECH_RISK_KEYWORDS = [
+  'technical risk', 'biggest risk', 'main risk', 'riskiest',
+  'rischio tecnico', 'rischio principale', 'sfida tecnica',
+] as const;
+
+/** key_dependencies. 'dependenc'/'dipendenz' stems: plural-safe, and
+ *  'dipendenz' does NOT match "dipendenti" (employees — ends -t, not -z). */
+export const DEPENDENCY_KEYWORDS = [
+  'dependenc', 'depends on', 'third-party', 'integration', 'infrastructure', 'vendor', 'relies on',
+  'dipendenz', 'dipende da', 'terze parti', 'integrazion', 'infrastruttur', 'fornitor', 'si affida', 'si basa su',
+] as const;
+
+/** regulatory_check. 'compliance'/'GDPR'/'privacy' are verbatim in Italian too. */
+export const REGULATORY_KEYWORDS = [
+  'regulation', 'regulatory', 'compliance', 'GDPR', 'license', 'certification', 'data protection', 'legal constraint',
+  'normativ', 'regolament', 'conformità', 'conformita', 'licenza', 'licenze', 'certificazion', 'protezione dati', 'privacy', 'vincolo legale',
+] as const;
+
 /** Non-empty TAM text from research.market_size — but ONLY once the founder
  *  approved it. The column is ALSO written ungated at artifact-emission time
  *  (the cross-turn reference write in artifact-persistence.ts, plus market
@@ -140,19 +197,12 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
   {
     id: 'differentiation_evidence',
     label: 'Differentiation evidenced',
-    source: 'memory_facts (vs. competitors)',
+    source: DIFFERENTIATION_CHECK_SOURCE,
     track: '1A',
     evaluate: (s) => {
-      // NOTE: 'vs' was removed — as a bare substring it matched almost any
-      // comparison ("email vs calls"), letting unrelated facts falsely green
-      // this check. The remaining phrases are specific differentiation signals.
-      // Bilingual (EN + IT). 'differenz' stem catches differenza/differenziamo/
-      // differenziazione; "a differenza di" / "ci distinguiamo" / "rispetto a"
-      // are the IT prose forms (all three phrasings SKILL.it.md instructs).
-      const n = countMemoryFactsMatching(s, [
-        'unlike', 'better than', 'differentiator', 'compared to',
-        'a differenza di', 'differenz', 'meglio di', 'ci distinguiamo', 'rispetto a',
-      ]);
+      // "a differenza di" / "ci distinguiamo" / "rispetto a" are the IT prose
+      // forms (all three phrasings SKILL.it.md instructs).
+      const n = countMemoryFactsMatching(s, [...DIFFERENTIATION_KEYWORDS]);
       const ok = n > 0;
       return ok
         ? { passed: true, evidence: "You've evidenced how you're different from competitors." }
@@ -167,16 +217,11 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
     evaluate: (s) => {
       // 2026-07 alpha feedback: the gate's market track was too thin. The
       // market-research skill's §3 (Market Trends) already produces this
-      // content — its insight-cards, once applied, close the check.
-      // Bilingual (EN + IT). Bare 'trend' is deliberately absent (it matches
-      // almost any metric sentence); 'tendenz' stem catches tendenza/tendenze.
+      // content — its staged trend_fact items, once applied, close the check.
       // Like the rest of the keyword checks these auto-apply from chat — the
       // founder stated the fact, which is the founder yes (only market SIZING
       // is spine-moving-gated, see MARKET_SIZE_KEYWORDS).
-      const n = countMemoryFactsMatching(s, [
-        'tailwind', 'headwind', 'market trend', 'market shift', 'growth rate',
-        'trend di mercato', 'tendenz', 'vento a favore', 'vento contrario', 'in crescita', 'in calo',
-      ]);
+      const n = countMemoryFactsMatching(s, [...TRENDS_KEYWORDS]);
       return n > 0
         ? { passed: true, evidence: "You've assessed the trends shaping this market." }
         : { passed: false, gap: 'Assess the market trends — tailwinds and headwinds (run Market Research or note them in chat)' };
@@ -188,15 +233,10 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
     source: MARKET_1A_SOURCES.persona,
     track: '1A',
     evaluate: (s) => {
-      // Market-research skill §5 (Customer Insights) produces this. Bilingual
-      // (EN + IT). Bare 'persona' is deliberately absent — it is the Italian
-      // word for "person" and would false-positive on nearly any IT fact;
-      // the phrases below are the specific persona signals both SKILL files
-      // instruct.
-      const n = countMemoryFactsMatching(s, [
-        'buyer persona', 'user persona', 'decision maker', 'purchase trigger', 'decision criteria',
-        'chi decide', 'criteri di scelta', 'persona acquirente', 'profilo del cliente', 'trigger di acquisto',
-      ]);
+      // Market-research skill §5 (Customer Insights) produces this — staged
+      // as a buyer_persona_fact item; the phrases in the list are the specific
+      // persona signals both SKILL files instruct.
+      const n = countMemoryFactsMatching(s, [...BUYER_PERSONA_KEYWORDS]);
       return n > 0
         ? { passed: true, evidence: "You've sketched who buys and why." }
         : { passed: false, gap: 'Sketch the buyer persona — who decides and what triggers the purchase' };
@@ -230,12 +270,8 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
     track: '1B',
     evaluate: (s) => {
       // Bilingual (EN + IT): founders chat in Italian, so the check must read
-      // Italian facts too. IT terms use stems so the length-tuned
-      // keywordMatcher catches inflections (fattibile/fattibilità).
-      const n = countMemoryFactsMatching(s, [
-        'feasibility', 'feasible', 'technically possible', 'build approach', 'architecture', 'tech stack',
-        'fattibil', 'tecnicamente possibile', 'architettur', 'stack tecnico', 'come lo costruiamo',
-      ]);
+      // Italian facts too.
+      const n = countMemoryFactsMatching(s, [...BUILD_APPROACH_KEYWORDS]);
       return n > 0
         ? { passed: true, evidence: "You've sketched how the core approach would be built." }
         : { passed: false, gap: 'Sketch the build approach — architecture, stack (run Technical Validation or note it in chat)' };
@@ -247,14 +283,9 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
     source: TECH_1B_SOURCES.feasibility,
     track: '1B',
     evaluate: (s) => {
-      // Bilingual (EN + IT). Multi-word phrases only — bare 'risk'/'rischio'
-      // would match market/regulatory risk facts and cross-green this check.
       // The auto-stage fallback's feasibility prefix carries 'technical risk' /
       // 'rischio tecnico' verbatim so a real skill run always closes this.
-      const n = countMemoryFactsMatching(s, [
-        'technical risk', 'biggest risk', 'main risk', 'riskiest',
-        'rischio tecnico', 'rischio principale', 'sfida tecnica',
-      ]);
+      const n = countMemoryFactsMatching(s, [...TECH_RISK_KEYWORDS]);
       return n > 0
         ? { passed: true, evidence: "You've named the single biggest technical risk." }
         : { passed: false, gap: 'Name the single biggest technical risk' };
@@ -267,13 +298,7 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
     track: '1B',
     evaluate: (s) => {
       // Bilingual (EN + IT): "Dipendenze chiave", "si affida a", "terze parti".
-      // 'dependenc' stem matches dependency AND dependencies (the plural never
-      // matched before); 'dipendenz' stem matches dipendenza/dipendenze but NOT
-      // "dipendenti" (employees — ends -t, not -z), so no false positive.
-      const n = countMemoryFactsMatching(s, [
-        'dependenc', 'depends on', 'third-party', 'integration', 'infrastructure', 'vendor', 'relies on',
-        'dipendenz', 'dipende da', 'terze parti', 'integrazion', 'infrastruttur', 'fornitor', 'si affida', 'si basa su',
-      ]);
+      const n = countMemoryFactsMatching(s, [...DEPENDENCY_KEYWORDS]);
       return n > 0
         ? { passed: true, evidence: "You've named the critical external dependencies." }
         : { passed: false, gap: 'Name the key dependencies (APIs, models, infra, vendors)' };
@@ -286,11 +311,7 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
     track: '1B',
     evaluate: (s) => {
       // Bilingual (EN + IT): "normativa", "conformità", "protezione dati".
-      // 'compliance'/'GDPR'/'privacy' are used verbatim in Italian too.
-      const n = countMemoryFactsMatching(s, [
-        'regulation', 'regulatory', 'compliance', 'GDPR', 'license', 'certification', 'data protection', 'legal constraint',
-        'normativ', 'regolament', 'conformità', 'conformita', 'licenza', 'licenze', 'certificazion', 'protezione dati', 'privacy', 'vincolo legale',
-      ]);
+      const n = countMemoryFactsMatching(s, [...REGULATORY_KEYWORDS]);
       return n > 0
         ? { passed: true, evidence: "You've checked the regulatory/compliance constraints." }
         : { passed: false, gap: 'Check any regulatory/compliance constraints (e.g. GDPR, licensing)' };
