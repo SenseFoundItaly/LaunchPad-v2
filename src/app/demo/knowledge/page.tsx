@@ -9,7 +9,7 @@
 
 import * as React from 'react';
 import { Icon, I, Pill } from '@/components/design/primitives';
-import { EcoGraph, EcoLegend } from '../chrome';
+import { EcoGraph, EcoLegend, ECO_NODE_COUNT, ECO_EDGE_COUNT } from '../chrome';
 import {
   KNOWLEDGE_SUMMARY, KNOWLEDGE_GROUPS, COMPETITORS_MATRYOSHKA, MOVES, DATA_ROOM, DATA_ROOM_FOOT,
   type KnowledgeRow,
@@ -36,7 +36,7 @@ export default function DemoKnowledge() {
           <ViewBtn label="Data room" active={view === 'dataroom'} onClick={() => setView('dataroom')} />
           <span style={{ flex: 1 }} />
           <Pill kind="live" dot>1 in attesa</Pill>
-          <Pill kind="n">18 nodi · 24 collegamenti</Pill>
+          <Pill kind="n">{ECO_NODE_COUNT} nodi · {ECO_EDGE_COUNT} collegamenti</Pill>
         </div>
         <div className="lp-scroll" style={{ flex: 1, overflow: 'auto' }}>
           {view === 'graph' && <GraphView />}
