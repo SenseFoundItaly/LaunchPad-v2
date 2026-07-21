@@ -55,6 +55,14 @@ i finding dove i check 1A del gate li leggono:
   `differentiation_evidence` fa keyword-match sui fatti applicati: esprimi il vantaggio con
   frasi comparative esplicite ("a differenza di X…", "meglio di Y perché…", "rispetto a Z…")
   così la card applicata chiude davvero il check.
+- **Trend → insight-card con body ricco di keyword.** Il check `trends_assessed` fa
+  keyword-match sui fatti applicati: esprimi la direzione di ogni trend con frasi esplicite
+  ("trend di mercato", "vento a favore", "vento contrario", "in crescita", "in calo") così la
+  card applicata dalla sezione §3 (Trend di mercato) chiude davvero il check.
+- **Buyer persona → insight-card con body ricco di keyword.** Il check
+  `buyer_persona_defined` fa keyword-match sui fatti applicati: nomina chi compra con frasi
+  esplicite ("buyer persona", "chi decide l'acquisto", "criteri di scelta", "trigger di
+  acquisto") così la card applicata dalla sezione §5 (Customer Insights) chiude davvero il check.
 
 Nessun check del gate diventa verde senza l'approvazione del founder — gli artifact qui
 sopra sono la superficie di approvazione, non un bypass.

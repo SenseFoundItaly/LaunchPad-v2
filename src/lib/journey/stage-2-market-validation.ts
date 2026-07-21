@@ -149,6 +149,49 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
         : { passed: false, gap: 'Pin what makes you different in chat' };
     },
   },
+  {
+    id: 'trends_assessed',
+    label: 'Market trends assessed (tailwinds/headwinds)',
+    source: 'memory_facts (market trends)',
+    track: '1A',
+    evaluate: (s) => {
+      // 2026-07 alpha feedback: the gate's market track was too thin. The
+      // market-research skill's §3 (Market Trends) already produces this
+      // content — its insight-cards, once applied, close the check.
+      // Bilingual (EN + IT). Bare 'trend' is deliberately absent (it matches
+      // almost any metric sentence); 'tendenz' stem catches tendenza/tendenze.
+      // Like the rest of the keyword checks these auto-apply from chat — the
+      // founder stated the fact, which is the founder yes (only market SIZING
+      // is spine-moving-gated, see MARKET_SIZE_KEYWORDS).
+      const n = countMemoryFactsMatching(s, [
+        'tailwind', 'headwind', 'market trend', 'market shift', 'growth rate',
+        'trend di mercato', 'tendenz', 'vento a favore', 'vento contrario', 'in crescita', 'in calo',
+      ]);
+      return n > 0
+        ? { passed: true, evidence: "You've assessed the trends shaping this market." }
+        : { passed: false, gap: 'Assess the market trends — tailwinds and headwinds (run Market Research or note them in chat)' };
+    },
+  },
+  {
+    id: 'buyer_persona_defined',
+    label: 'Buyer persona sketched (who decides, what triggers)',
+    source: 'memory_facts (buyer persona)',
+    track: '1A',
+    evaluate: (s) => {
+      // Market-research skill §5 (Customer Insights) produces this. Bilingual
+      // (EN + IT). Bare 'persona' is deliberately absent — it is the Italian
+      // word for "person" and would false-positive on nearly any IT fact;
+      // the phrases below are the specific persona signals both SKILL files
+      // instruct.
+      const n = countMemoryFactsMatching(s, [
+        'buyer persona', 'user persona', 'decision maker', 'purchase trigger', 'decision criteria',
+        'chi decide', 'criteri di scelta', 'persona acquirente', 'profilo del cliente', 'trigger di acquisto',
+      ]);
+      return n > 0
+        ? { passed: true, evidence: "You've sketched who buys and why." }
+        : { passed: false, gap: 'Sketch the buyer persona — who decides and what triggers the purchase' };
+    },
+  },
   // NOTE (2026-07 founder decision): the old `monitors_set` ("L1 watchers
   // active") check was REMOVED from the gate. Watchers are now a POST-Stage-2
   // concern — the system auto-proposes them only once the Validation Gate is
@@ -163,23 +206,48 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
 // (founder-stated in chat, or written by the `technical-validation` skill),
 // so the gate's technical track closes "man mano" — no single big run needed.
 export const VALIDATION_TRACK_1B: StageCheck[] = [
+  // 2026-07 alpha feedback: the old single `tech_feasibility` check swallowed
+  // two distinct questions — HOW you'd build it and what could SINK it — so one
+  // vague fact greened both. Split (ids retired: tech_feasibility). Both checks
+  // keep the SAME source string (TECH_1B_SOURCES.feasibility): the
+  // technical-validation skill's one feasibility card carries build approach
+  // AND biggest risk by instruction, so its staged tech_fact legitimately
+  // targets (and its keyword-bearing body closes) both.
   {
-    id: 'tech_feasibility',
-    label: 'Technical feasibility assessed',
+    id: 'build_approach',
+    label: 'Build approach sketched (architecture / stack)',
     source: TECH_1B_SOURCES.feasibility,
     track: '1B',
     evaluate: (s) => {
       // Bilingual (EN + IT): founders chat in Italian, so the check must read
-      // Italian facts too — "Rischio tecnico", "Stack tecnico", "fattibilità"
-      // would otherwise never close the gate. IT terms use stems so the
-      // length-tuned keywordMatcher catches inflections (fattibile/fattibilità).
+      // Italian facts too. IT terms use stems so the length-tuned
+      // keywordMatcher catches inflections (fattibile/fattibilità).
       const n = countMemoryFactsMatching(s, [
-        'feasibility', 'feasible', 'technically possible', 'build approach', 'architecture', 'tech stack', 'technical risk',
-        'fattibil', 'tecnicamente possibile', 'architettur', 'stack tecnico', 'rischio tecnico', 'sfida tecnica',
+        'feasibility', 'feasible', 'technically possible', 'build approach', 'architecture', 'tech stack',
+        'fattibil', 'tecnicamente possibile', 'architettur', 'stack tecnico', 'come lo costruiamo',
       ]);
       return n > 0
-        ? { passed: true, evidence: "You've assessed whether the core approach is buildable." }
-        : { passed: false, gap: 'Assess technical feasibility (run Technical Validation or note it in chat)' };
+        ? { passed: true, evidence: "You've sketched how the core approach would be built." }
+        : { passed: false, gap: 'Sketch the build approach — architecture, stack (run Technical Validation or note it in chat)' };
+    },
+  },
+  {
+    id: 'technical_risk_named',
+    label: 'Biggest technical risk named',
+    source: TECH_1B_SOURCES.feasibility,
+    track: '1B',
+    evaluate: (s) => {
+      // Bilingual (EN + IT). Multi-word phrases only — bare 'risk'/'rischio'
+      // would match market/regulatory risk facts and cross-green this check.
+      // The auto-stage fallback's feasibility prefix carries 'technical risk' /
+      // 'rischio tecnico' verbatim so a real skill run always closes this.
+      const n = countMemoryFactsMatching(s, [
+        'technical risk', 'biggest risk', 'main risk', 'riskiest',
+        'rischio tecnico', 'rischio principale', 'sfida tecnica',
+      ]);
+      return n > 0
+        ? { passed: true, evidence: "You've named the single biggest technical risk." }
+        : { passed: false, gap: 'Name the single biggest technical risk' };
     },
   },
   {

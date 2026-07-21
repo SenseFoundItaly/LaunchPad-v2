@@ -136,6 +136,11 @@
 
 /* element primitives */
 .lp-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: var(--shadow-card); }
+/* Card actions (e.g. delete) reveal on hover; always faintly visible on touch. */
+.lp-card .lp-card-action { opacity: 0; transition: opacity .12s; }
+.lp-card:hover .lp-card-action, .lp-card .lp-card-action:focus-visible { opacity: 1; }
+.lp-card .lp-card-action:hover { color: var(--clay, var(--ink-2)); }
+@media (hover: none) { .lp-card .lp-card-action { opacity: .6; } }
 /* Home dashboard grid — wide primary (Journey) + narrower secondary column.
    minmax(0,…) lets both columns shrink so long content never overflows.
    Collapses to a single column on narrow viewports. */

@@ -75,6 +75,8 @@ function snapshotWithABDone(over: Partial<ProjectSnapshot> = {}): ProjectSnapsho
     // No active monitor needed — `monitors_set` was removed from the gate (2026-07).
     memory_facts: facts([
       'Unlike legacy desktop tools we are cloud and mobile-first.',
+      'Market trend: teledentistry is a tailwind — cloud adoption among practices keeps growing.',
+      'Buyer persona: the practice owner is the decision maker; the purchase trigger is missed recalls.',
       'Feasibility: the recall engine is feasible with existing calendar APIs; main technical risk is EHR integration.',
       'Key dependency: relies on the Google Calendar API and Twilio for reminders.',
       'Regulatory: patient data means GDPR applies; needs a DPA with vendors.',
@@ -96,11 +98,15 @@ describe('track membership', () => {
     // Phase-0 vs Phase-1 dedup (2026-07): `problem_defined` + `segment_named`
     // were removed — they only re-checked canvas fields Stage 1 already owns.
     // The gate now validates the MARKET (evidence), not canvas existence.
+    // 2026-07 alpha feedback: the gate was too thin — 1A gained trends +
+    // buyer-persona; 1B split tech_feasibility into build_approach +
+    // technical_risk_named (one vague fact must not green both questions).
     expect(VALIDATION_TRACK_1A.map((c) => c.id)).toEqual([
       'competitors_mapped', 'market_size', 'differentiation_evidence',
+      'trends_assessed', 'buyer_persona_defined',
     ]);
     expect(VALIDATION_TRACK_1B.map((c) => c.id)).toEqual([
-      'tech_feasibility', 'key_dependencies', 'regulatory_check',
+      'build_approach', 'technical_risk_named', 'key_dependencies', 'regulatory_check',
     ]);
     expect(VALIDATION_TRACK_1C.map((c) => c.id)).toEqual([
       'interviews_logged', 'pain_validated', 'wtp_signal',
@@ -168,7 +174,8 @@ describe('1C lock / unlock', () => {
   it('validationTracksABMissing names the open 1A/1B labels', () => {
     const missing = validationTracksABMissing(mkSnapshot());
     expect(missing).toContain('3+ competitors mapped');           // 1A (evidence, not canvas existence)
-    expect(missing).toContain('Technical feasibility assessed');  // 1B
+    expect(missing).toContain('Build approach sketched (architecture / stack)');  // 1B
+    expect(missing).toContain('Biggest technical risk named');    // 1B (split from tech_feasibility)
     expect(missing).not.toContain('5+ customer interviews logged'); // 1C is not part of the unlock condition
   });
 });
@@ -335,6 +342,49 @@ describe('keyword honesty — SKILL.it.md-instructed phrasings close the checks'
     expect(checkWithFacts('key_dependencies', [
       'Dipendenze chiave: API di WhatsApp Business e Stripe per i pagamenti.',
     ])).toBe(true);
+  });
+
+  it('trends_assessed closes on Italian "trend di mercato" (market-research SKILL.it.md verbatim)', () => {
+    expect(checkWithFacts('trends_assessed', [
+      'Trend di mercato: la sanità digitale è un vento a favore per i prossimi 3 anni.',
+    ])).toBe(true);
+  });
+
+  it('trends_assessed does NOT false-positive on bare "trend"', () => {
+    expect(checkWithFacts('trends_assessed', [
+      'Il trend delle iscrizioni settimanali è stabile.',
+    ])).toBe(false);
+  });
+
+  it('buyer_persona_defined closes on "chi decide l\'acquisto" (market-research SKILL.it.md verbatim)', () => {
+    expect(checkWithFacts('buyer_persona_defined', [
+      'Nel nostro segmento chi decide l\'acquisto è il titolare dello studio, non il dentista associato.',
+    ])).toBe(true);
+  });
+
+  it('buyer_persona_defined does NOT false-positive on bare Italian "persona"', () => {
+    expect(checkWithFacts('buyer_persona_defined', [
+      'Serve una persona dedicata al supporto clienti nel primo anno.',
+    ])).toBe(false);
+  });
+
+  it('technical_risk_named closes on "rischio tecnico" but not on generic "rischio"', () => {
+    expect(checkWithFacts('technical_risk_named', [
+      'Il rischio tecnico principale è la latenza del matching su larga scala.',
+    ])).toBe(true);
+    expect(checkWithFacts('technical_risk_named', [
+      'C\'è un rischio di mercato legato alla stagionalità.',
+    ])).toBe(false);
+  });
+
+  it('one feasibility-card body closes BOTH split 1B checks (build_approach + technical_risk_named)', () => {
+    // Mirrors the technical-validation SKILL instruction: one card, body with
+    // build approach AND the literal "rischio tecnico" phrase.
+    const contents = [
+      'Fattibilità tecnica e rischio tecnico principale — architettura cloud con API dei calendari; il rischio tecnico maggiore è l\'integrazione EHR.',
+    ];
+    expect(checkWithFacts('build_approach', contents)).toBe(true);
+    expect(checkWithFacts('technical_risk_named', contents)).toBe(true);
   });
 });
 

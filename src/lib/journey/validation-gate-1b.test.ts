@@ -50,15 +50,18 @@ function gateChecks(snapshot: ProjectSnapshot): Record<string, boolean> {
 }
 
 describe('L2 Validation Gate · 1B Technical (incremental)', () => {
-  it('the 3 track-1B checks exist on the validation stage and are tagged 1B', () => {
+  it('the 4 track-1B checks exist on the validation stage and are tagged 1B', () => {
+    // 2026-07: tech_feasibility split into build_approach + technical_risk_named
+    // (one vague fact must not green both the HOW and the RISK questions).
     const gate = evaluateAllStages(mkSnapshot([])).find((e) => e.stage.id === 'market_validation')!;
     const oneB = gate.stage.checks.filter((c) => c.track === '1B').map((c) => c.id);
-    expect(oneB).toEqual(['tech_feasibility', 'key_dependencies', 'regulatory_check']);
+    expect(oneB).toEqual(['build_approach', 'technical_risk_named', 'key_dependencies', 'regulatory_check']);
   });
 
   it('1B checks are RED with no technical evidence', () => {
     const c = gateChecks(mkSnapshot([]));
-    expect(c.tech_feasibility).toBe(false);
+    expect(c.build_approach).toBe(false);
+    expect(c.technical_risk_named).toBe(false);
     expect(c.key_dependencies).toBe(false);
     expect(c.regulatory_check).toBe(false);
   });
@@ -69,7 +72,9 @@ describe('L2 Validation Gate · 1B Technical (incremental)', () => {
       { content: 'Key dependency: relies on the Stripe API for billing and OpenAI for embeddings.' },
       { content: 'Regulatory: handling EU user data means GDPR applies; needs a DPA with vendors.' },
     ]));
-    expect(c.tech_feasibility).toBe(true);
+    // The one feasibility fact carries both keywords → both split checks close.
+    expect(c.build_approach).toBe(true);
+    expect(c.technical_risk_named).toBe(true);
     expect(c.key_dependencies).toBe(true);
     expect(c.regulatory_check).toBe(true);
   });
@@ -77,13 +82,23 @@ describe('L2 Validation Gate · 1B Technical (incremental)', () => {
   it('1B checks close on ITALIAN facts (bilingual founders)', () => {
     // Real text the chat agent persisted for an Italian founder (proj_9f77e3a5).
     const c = gateChecks(mkSnapshot([
+      { content: 'Fattibilità: architettura a scraping schedulato dei portali, tecnicamente possibile con gli strumenti attuali.' },
       { content: 'Rischio tecnico principale: mantenere i dati dei bandi aggiornati su decine di portali regionali italiani.' },
       { content: 'Dipendenze chiave: feed dei portali bandi regionali italiani e OpenAI API per il matching.' },
       { content: 'Compliance: processa dati di PMI italiane → obbligo GDPR e protezione dati.' },
     ]));
-    expect(c.tech_feasibility).toBe(true);
+    expect(c.build_approach).toBe(true);
+    expect(c.technical_risk_named).toBe(true);
     expect(c.key_dependencies).toBe(true);
     expect(c.regulatory_check).toBe(true);
+  });
+
+  it('a risk-only fact does NOT green build_approach (the split is real)', () => {
+    const c = gateChecks(mkSnapshot([
+      { content: 'Rischio tecnico principale: mantenere i dati aggiornati su decine di portali.' },
+    ]));
+    expect(c.technical_risk_named).toBe(true);
+    expect(c.build_approach).toBe(false);
   });
 
   it('the IT dependency stem does NOT match "dipendenti" (employees)', () => {
@@ -98,7 +113,8 @@ describe('L2 Validation Gate · 1B Technical (incremental)', () => {
       { content: 'Key dependency: relies on a third-party payments vendor.' },
     ]));
     expect(c.key_dependencies).toBe(true);
-    expect(c.tech_feasibility).toBe(false);
+    expect(c.build_approach).toBe(false);
+    expect(c.technical_risk_named).toBe(false);
     expect(c.regulatory_check).toBe(false);
   });
 
@@ -145,7 +161,7 @@ describe('L2 Validation Gate · 1B Technical (incremental)', () => {
     const fromMonitor = gateChecks(mkSnapshot([
       { content: 'feasibility dependency regulatory GDPR architecture', source_type: 'monitor', kind: 'observation' },
     ]));
-    expect(fromFile.tech_feasibility).toBe(false);
+    expect(fromFile.build_approach).toBe(false);
     expect(fromMonitor.regulatory_check).toBe(false);
   });
 });

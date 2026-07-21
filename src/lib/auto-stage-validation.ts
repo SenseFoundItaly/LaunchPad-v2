@@ -312,8 +312,12 @@ export async function stageMarketSizeProposal(
  *  checks, so either language closes the gate), and keeps the fact text in the
  *  project language. */
 const TECH_FINDING_PREFIX = {
-  en: { feasibility: 'Technical feasibility', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance' },
-  it: { feasibility: 'Fattibilità tecnica', dependencies: 'Dipendenze chiave', regulatory: 'Vincoli normativi / compliance' },
+  // The feasibility prefix carries BOTH split-check keywords ('technical risk' /
+  // 'rischio tecnico'): the one feasibility finding targets build_approach AND
+  // technical_risk_named, and the prefix guarantees both close even when the
+  // model's section text words the risk differently.
+  en: { feasibility: 'Technical feasibility & main technical risk', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance' },
+  it: { feasibility: 'Fattibilità tecnica e rischio tecnico principale', dependencies: 'Dipendenze chiave', regulatory: 'Vincoli normativi / compliance' },
 } as const;
 
 export function extractTechnicalFindings(

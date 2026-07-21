@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import api from '@/api';
+import { deleteProject } from '@/api/projects';
 import { TopBar } from '@/components/design/chrome';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import { NODE_COLORS } from '@/types/graph';
@@ -95,6 +96,7 @@ export default function HomePage() {
   });
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -259,7 +261,7 @@ export default function HomePage() {
               spinePreview: Array.isArray(d.spine_preview) ? d.spine_preview : [],
             });
             setCreating(false);
-            return; // show the results view; route to chat on "Continue"
+            return; // show the results view; route to project Home on "Continue"
           }
           // Upload failed — surface it instead of silently routing into an
           // empty project (that silence masked a real 415 CSRF-guard bug).
@@ -283,11 +285,30 @@ export default function HomePage() {
         }
       }
 
-      router.push(`/project/${projectId}/chat`);
+      // Land on the project Home ("Start here" onboarding card), not the
+      // co-pilot — new founders need orientation before the chat.
+      router.push(`/project/${projectId}/today`);
     } catch (err) {
       setCreateError((err as Error).message || t('home.error-network'));
     }
     setCreating(false);
+  }
+
+  // Hard delete via the existing owner-only API (children CASCADE). The
+  // window.confirm + i18n-key pattern matches DataRoomPanel's delete.
+  async function handleDeleteProject(p: DashboardProject) {
+    if (deletingId) return;
+    if (!confirm(t('home.delete-confirm', { name: p.name }))) return;
+    setDeletingId(p.project_id);
+    try {
+      await deleteProject(p.project_id);
+      setProjects((prev) => prev.filter((x) => x.project_id !== p.project_id));
+      setStats((prev) => ({ ...prev, total_projects: Math.max(0, prev.total_projects - 1) }));
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+      alert(t(status === 403 ? 'home.delete-owner-only' : 'home.delete-failed'));
+    }
+    setDeletingId(null);
   }
 
   function toggleSignal(id: string) {
@@ -716,7 +737,7 @@ export default function HomePage() {
                         projectId={createdProjectId}
                         descriptionMissing={!newDesc.trim()}
                         onContinue={() => {
-                          if (createdProjectId) router.push(`/project/${createdProjectId}/chat`);
+                          if (createdProjectId) router.push(`/project/${createdProjectId}/today`);
                         }}
                       />
                     ) : creating && createMode === 'knowledge' && createFiles.length > 0 ? (
@@ -1120,6 +1141,38 @@ export default function HomePage() {
                               </div>
                               {p.weekly_alerts > 0 && (
                                 <Pill kind="warn">{p.weekly_alerts}</Pill>
+                              )}
+                              {p.access_kind !== 'member' && (
+                                <button
+                                  type="button"
+                                  className="lp-card-action"
+                                  title={t('home.delete-project')}
+                                  aria-label={t('home.delete-project')}
+                                  disabled={deletingId === p.project_id}
+                                  onClick={(e) => {
+                                    // The card is wrapped in a Link — stop both
+                                    // navigation and bubbling before deleting.
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    void handleDeleteProject(p);
+                                  }}
+                                  style={{
+                                    flexShrink: 0,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: 24,
+                                    height: 24,
+                                    padding: 0,
+                                    border: 'none',
+                                    borderRadius: 'var(--r-s)',
+                                    background: 'transparent',
+                                    color: 'var(--ink-4)',
+                                    cursor: deletingId === p.project_id ? 'default' : 'pointer',
+                                  }}
+                                >
+                                  <Icon d={I.trash} size={14} stroke={1.6} />
+                                </button>
                               )}
                             </div>
                             <div

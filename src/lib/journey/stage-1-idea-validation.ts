@@ -87,10 +87,14 @@ export const stageIdeaValidation: Stage = {
       label: 'Value proposition stated',
       source: 'idea_canvas.value_proposition',
       evaluate: (s) => {
-        const ok = !!s.idea_canvas?.value_proposition?.trim();
+        // Triviality floor, not a quality judgment: a one-word default like
+        // "Faster" must not flip the most critical Stage-1 check green. A real
+        // USP sentence (who + why over the alternative) clears this easily.
+        const v = s.idea_canvas?.value_proposition?.trim() ?? '';
+        const ok = v.length >= 25 && v.split(/\s+/).length >= 5;
         return ok
           ? { passed: true, evidence: "You've stated why the customer will care." }
-          : { passed: false, gap: 'Say why the customer would care' };
+          : { passed: false, gap: 'State a full value proposition — who it’s for and why it beats their current alternative' };
       },
     },
     {
