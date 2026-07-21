@@ -558,10 +558,20 @@ async function persistInsightCard(ctx: PersistContext, a: InsightCard): Promise<
 
 // ─── gauge-chart → scores.overall_score + benchmark ──────────────────────────
 
+/** scores.* canon is the startup-scoring rubric's 0-100 scale (parseScoreSummary
+ *  already writes it). Chat artifacts are prompted with maxScore:10 examples, so
+ *  a declared maxScore wins; without one, a value ≤10 is read as the prompt's
+ *  0-10 scale (6.8 → 68) and >10 as already-canonical 0-100. Mixed scales here
+ *  were founder-visible: the copilot said 6.8 while Home said /100. */
+function normalizeScoreTo100(score: number, maxScore?: number): number {
+  const max = maxScore && maxScore > 0 ? maxScore : score <= 10 ? 10 : 100;
+  return Math.max(0, Math.min(100, (score * 100) / max));
+}
+
 async function persistGaugeChart(ctx: PersistContext, a: GaugeChartArtifact): Promise<PersistResult> {
   if (typeof a.score !== 'number') return { type: a.type, persisted: false, note: 'non-numeric score' };
 
-  const normalizedScore = a.maxScore && a.maxScore > 0 ? (a.score * 10) / a.maxScore : a.score;
+  const normalizedScore = normalizeScoreTo100(a.score, a.maxScore);
   const benchmark = a.verdict ?? null;
   const srcJson = sourcesJson(a.sources);
 
@@ -610,7 +620,9 @@ async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Pr
   const incoming: Record<string, number> = {};
   for (const point of a.data) {
     if (point && typeof point.subject === 'string' && typeof point.value === 'number') {
-      incoming[point.subject] = point.value;
+      // Dimension values share the scores 0-100 canon (see normalizeScoreTo100);
+      // radar points declare their scale as fullMark when present.
+      incoming[point.subject] = normalizeScoreTo100(point.value, point.fullMark);
     }
   }
   if (Object.keys(incoming).length === 0) {
@@ -625,16 +637,15 @@ async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Pr
   const srcJson = sourcesJson(a.sources);
 
   // When the radar IS the startup-score baseline (title-matched), derive an
-  // overall from the dimension average (fullMark-normalized to 0-10) and
-  // BACKFILL it — never clobber a real gauge/prose overall. Without this a
-  // scoring run that renders only a radar leaves overall_score = 0 and the
+  // overall from the dimension average (already normalized to the 0-100 canon
+  // above) and BACKFILL it — never clobber a real gauge/prose overall. Without
+  // this a scoring run that renders only a radar leaves no baseline and the
   // Stage-1 startup_scoring_baseline check can never pass.
-  const overallFromDims = OVERALL_SCORE_TITLE_RE.test(a.title ?? '')
-    ? a.data
-        .filter((p) => p && typeof p.value === 'number')
-        .map((p) => (p.fullMark && p.fullMark > 0 ? (p.value * 10) / p.fullMark : p.value))
-        .reduce((s, v, _, arr) => s + v / arr.length, 0)
-    : null;
+  const dimValues = Object.values(incoming);
+  const overallFromDims =
+    OVERALL_SCORE_TITLE_RE.test(a.title ?? '') && dimValues.length > 0
+      ? dimValues.reduce((s, v) => s + v, 0) / dimValues.length
+      : null;
 
   if (existing) {
     // coerceJson: existing.dimensions may be a legacy double-encoded STRING.
@@ -653,10 +664,14 @@ async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Pr
       ctx.projectId,
     );
   } else {
+    // A baseline-titled radar fills the overall; a dimensions-only artifact
+    // leaves it NULL — never a literal 0, which rendered Home as "0/100 weak"
+    // and could not be told apart from a real zero (see stage-1
+    // startup_scoring_baseline).
     await run(
       'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, ?, ?, ?)',
       ctx.projectId,
-      overallFromDims ?? 0,
+      overallFromDims,
       incoming,
       srcJson,
     );
@@ -681,16 +696,16 @@ async function persistScoreCard(ctx: PersistContext, a: ScoreCardArtifact): Prom
   );
   // coerceJson guards against legacy double-encoded dimensions (see persistScoreCard).
   const prior = existing ? (coerceJson<Record<string, unknown>>(existing.dimensions) || {}) : {};
-  const merged = { ...prior, [a.title]: a.score };
+  const merged = { ...prior, [a.title]: normalizeScoreTo100(a.score, a.maxScore) };
   const srcJson = sourcesJson(a.sources);
 
   // A score-card titled as THE baseline/overall score (e.g. "DeskMate —
   // Baseline Startup Score: 6.8") is the startup-scoring result rendered as a
   // card instead of a gauge. Mirror persistGaugeChart: fill overall_score
-  // (maxScore-normalized to 0-10), otherwise the row stays at 0 and the
+  // (normalized to the 0-100 canon), otherwise no baseline lands and the
   // Stage-1 startup_scoring_baseline check can never pass.
   const isOverall = OVERALL_SCORE_TITLE_RE.test(a.title);
-  const normalizedScore = a.maxScore && a.maxScore > 0 ? (a.score * 10) / a.maxScore : a.score;
+  const normalizedScore = normalizeScoreTo100(a.score, a.maxScore);
 
   if (existing) {
     if (isOverall) {
@@ -710,10 +725,13 @@ async function persistScoreCard(ctx: PersistContext, a: ScoreCardArtifact): Prom
       );
     }
   } else {
+    // Baseline-titled cards fill the overall; per-dimension cards leave it
+    // NULL, never 0 — see persistRadarChart: a fabricated zero baseline
+    // poisons Home and the stage-1 scoring check.
     await run(
       'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, ?, ?, ?)',
       ctx.projectId,
-      isOverall ? normalizedScore : 0,
+      isOverall ? normalizedScore : null,
       merged,
       srcJson,
     );

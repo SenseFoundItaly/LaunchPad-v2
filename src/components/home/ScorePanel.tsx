@@ -59,6 +59,13 @@ function normalizeDimensions(raw: unknown): ScoreDimensionLite[] {
   return [];
 }
 
+// scores.* canon is 0-100, but rows written before the write-side normalization
+// (chat score-card/gauge artifacts prompted with maxScore:10) carry 0-10 values.
+// Same convention as baselineScore10 in stage-1: ≤10 reads as the 0-10 scale.
+function to100(v: number): number {
+  return v <= 10 ? v * 10 : v;
+}
+
 // Qualitative band — aligned with the anti-sycophancy scoring guardrails
 // (70+ = strong/verified, 40-or-below = serious warning). Colors mirror the spine.
 function band(score: number): { key: MessageKey; color: string } {
@@ -96,7 +103,10 @@ export function ScorePanel({ projectId }: { projectId: string }) {
   const autoScoreFired = useRef(false);
   const scoreLoaded = score !== undefined;
   const stagesDone = evals.filter((e) => e.status === 'done').length;
-  const needsScore = typeof score?.overall_score !== 'number';
+  // 0 counts as unscored: legacy score-card/radar INSERTs fabricated a literal
+  // 0 baseline (now NULL at the write side) — those rows must both render as
+  // "not scored" and stay eligible for the auto-score heal below.
+  const needsScore = !(typeof score?.overall_score === 'number' && score.overall_score > 0);
   useEffect(() => {
     if (autoScoreFired.current) return;
     if (!scoreLoaded || stagesLoading) return;  // wait for both queries
@@ -116,8 +126,11 @@ export function ScorePanel({ projectId }: { projectId: string }) {
     })();
   }, [scoreLoaded, stagesLoading, needsScore, stagesDone, projectId, queryClient]);
 
-  const overall = typeof score?.overall_score === 'number' ? Math.round(score.overall_score) : null;
-  const dims = normalizeDimensions(score?.dimensions);
+  const overall =
+    typeof score?.overall_score === 'number' && score.overall_score > 0
+      ? Math.round(to100(score.overall_score))
+      : null;
+  const dims = normalizeDimensions(score?.dimensions).map((d) => ({ ...d, score: to100(d.score) }));
   const total = evals.length || 7;
   const done = evals.filter((e) => e.status === 'done').length;
   const active = evals.find((e) => e.status === 'active');

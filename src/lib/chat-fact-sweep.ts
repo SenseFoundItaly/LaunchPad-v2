@@ -16,10 +16,15 @@
  * Apply gate as document digests. A family is skipped when ANY existing
  * memory_fact (applied or pending) already matches it — i.e. capture already
  * happened, by the agent or by an earlier sweep.
+ *
+ * Stage-gated: the net only opens once the project is PAST Idea Validation —
+ * staging Stage-2 evidence cards out of a Stage-1 brainstorm read as noise
+ * (see the gate comment in sweepFounderMessageForFacts).
  */
 
 import { query } from '@/lib/db';
-import { keywordMatcher } from '@/lib/journey';
+import { keywordMatcher, activeStageFor } from '@/lib/journey';
+import { buildProjectSnapshot } from '@/lib/journey/snapshot';
 import {
   MARKET_SIZE_KEYWORDS,
   DIFFERENTIATION_KEYWORDS,
@@ -107,6 +112,17 @@ export async function sweepFounderMessageForFacts(
     const text = (message ?? '').replace(/\s+/g, ' ').trim();
     if (text.length < MIN_MESSAGE_CHARS || OPTION_CLICK_RE.test(text)) return { staged: 0 };
     if (!FAMILIES.some((f) => keywordMatcher([...f.keywords]).test(text))) return { staged: 0 };
+
+    // Stage gate (alpha feedback 21/07): the sweep exists to close STAGE-2
+    // checks, but it used to fire from Stage-1 conversations too — a founder
+    // brainstorming his value proposition mentioned "compliance" and got a
+    // "Regulatory / compliance — Stage 2" evidence card mid-flow, reading as
+    // the agent proposing his own prompt back. While the project is still in
+    // Idea Validation, capture is the agent's save_memory_fact job; the net
+    // opens once Stage-2 work actually begins. Runs only after the cheap
+    // keyword pre-test above, so the snapshot cost is on rare turns only.
+    const snapshot = await buildProjectSnapshot(projectId).catch(() => null);
+    if (!snapshot || activeStageFor(snapshot).stage.id === 'idea_validation') return { staged: 0 };
 
     // Any state counts as "captured" — a pending fact means the capture
     // already happened and is waiting on the founder, not lost.

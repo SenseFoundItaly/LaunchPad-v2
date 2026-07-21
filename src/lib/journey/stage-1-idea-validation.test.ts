@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { evaluateAllStages } from '@/lib/journey';
-import { stageIdeaValidation, baselineScore10 } from '@/lib/journey/stage-1-idea-validation';
+import { stageIdeaValidation, baselineScore100 } from '@/lib/journey/stage-1-idea-validation';
 import type { ProjectSnapshot } from '@/lib/journey/types';
 
 /**
@@ -146,9 +146,9 @@ describe('Stage 1 — Idea Canvas (L2 Phase-0 step list)', () => {
   it('startup scoring baseline flips on a scores row and normalizes mixed scales', () => {
     expect(stage1(mkSnapshot({ score: 6.5 })).byId.startup_scoring_baseline).toBe(true);
     expect(stage1(mkSnapshot()).byId.startup_scoring_baseline).toBe(false);
-    // gauge-chart path persists 0-10; prose fallback persists 0-100.
-    expect(baselineScore10(6.5)).toBe(6.5);
-    expect(baselineScore10(65)).toBe(6.5);
+    // legacy gauge-chart rows persist 0-10; the /100 canon passes through.
+    expect(baselineScore100(6.5)).toBe(65);
+    expect(baselineScore100(65)).toBe(65);
   });
 
   it('a junk zero-score row does NOT green the baseline check', () => {

@@ -5,9 +5,9 @@
  * fields as a compact card so they're always in view while scrolling
  * department artifacts below.
  *
- * Data source: GET /api/projects/{id}/idea-canvas — returns the 5 fields
- * we surface (problem, solution, target, value, business_model). Refetches
- * on lp-actions-changed so agent updates appear seamlessly.
+ * Data source: GET /api/projects/{id}/idea-canvas — returns all 9 Lean
+ * Canvas blocks (the same set the Stage-1 checks read). Refetches on
+ * lp-actions-changed so agent updates appear seamlessly.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -15,7 +15,14 @@ import { useQuery } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 
-type CanvasFieldName = 'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model';
+type CanvasFieldName =
+  | 'problem'
+  | 'solution'
+  | 'target_market'
+  | 'value_proposition'
+  | 'business_model'
+  | 'competitive_advantage'
+  | 'channels';
 
 interface IdeaCanvasRow {
   problem?: string | null;
@@ -23,9 +30,20 @@ interface IdeaCanvasRow {
   target_market?: string | null;
   value_proposition?: string | null;
   business_model?: string | null;
+  competitive_advantage?: string | null;
+  unfair_advantage?: string | null;
+  channels?: string | null;
+  key_metrics?: string[] | null;
+  revenue_streams?: string[] | null;
+  cost_structure?: string[] | null;
   /** Staged-but-unapproved field values (open validation_proposals) — painted
    *  progressively as the agent proposes them, before the founder approves. */
   pending?: Partial<Record<CanvasFieldName, string>>;
+}
+
+/** JSONB string[] blocks (metrics, costs, revenues) → one display line. */
+function joinList(v: string[] | null | undefined): string {
+  return (v ?? []).filter((x) => typeof x === 'string' && x.trim()).join(' · ');
 }
 
 interface IdeaCanvasHeaderProps {
@@ -76,6 +94,15 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
   const loaded = !isLoading;
 
   const pending = data?.pending ?? {};
+  // Competitive advantage folds the moat in when both exist — the Stage-1
+  // "edge" check reads them as one articulation (incl. unfair advantage).
+  const edge = [data?.competitive_advantage, data?.unfair_advantage]
+    .map((v) => v?.trim())
+    .filter(Boolean)
+    .join(' · ');
+  const metrics = joinList(data?.key_metrics);
+  const costs = joinList(data?.cost_structure);
+  const revenues = joinList(data?.revenue_streams);
   const isEmpty =
     loaded &&
     !data?.problem &&
@@ -83,6 +110,11 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
     !data?.target_market &&
     !data?.value_proposition &&
     !data?.business_model &&
+    !edge &&
+    !data?.channels &&
+    !metrics &&
+    !costs &&
+    !revenues &&
     Object.keys(pending).length === 0;
 
   return (
@@ -197,6 +229,14 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
           <Field label={t('canvas.field-solution')} value={data?.solution} pendingValue={pending.solution} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-solution" />
           <Field label={t('canvas.field-target')} value={data?.target_market} pendingValue={pending.target_market} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-target_market" />
           <Field label={t('canvas.field-value')} value={data?.value_proposition} pendingValue={pending.value_proposition} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-value_proposition" />
+          {/* Alpha feedback 21/07: the founder can't see (or fill) the blocks the
+              Stage-1 checks require — edge, channels, costs/revenues, metrics
+              were tracked in idea_canvas but never surfaced here. */}
+          <Field label={t('canvas.field-edge')} value={edge || null} pendingValue={pending.competitive_advantage} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-competitive_advantage" />
+          <Field label={t('canvas.field-channels')} value={data?.channels} pendingValue={pending.channels} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-channels" />
+          <Field label={t('canvas.field-costs')} value={costs || null} anchorId="canvasfield-cost_structure" />
+          <Field label={t('canvas.field-revenues')} value={revenues || null} anchorId="canvasfield-revenue_streams" />
+          <Field label={t('canvas.field-metrics')} value={metrics || null} anchorId="canvasfield-key_metrics" full />
           <Field label={t('canvas.field-business-model')} value={data?.business_model} pendingValue={pending.business_model} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-business_model" full />
         </div>
       )}

@@ -29,6 +29,12 @@ function clip(v: unknown, cap = FIELD_CAP): string {
   return s.length > cap ? `${s.slice(0, cap)}…` : s;
 }
 
+/** JSONB string[] canvas fields (key metrics, costs, revenues) → one clipped line. */
+function joinList(v: unknown): string {
+  if (!Array.isArray(v)) return '';
+  return clip(v.filter((x) => typeof x === 'string' && x.trim()).join('; '));
+}
+
 /**
  * Returns an authoritative `=== PROJECT CONTEXT ===` block for injection into a
  * skill agent's system prompt, or '' when the project has no usable context yet.
@@ -62,6 +68,10 @@ export async function buildSkillProjectContext(projectId: string, skillId?: stri
     lines.push(`Project: ${clip(project.name, 120)}${project.description ? ` — ${clip(project.description, 240)}` : ''}`);
   }
 
+  // ALL 9 Lean Canvas blocks (stage-1 check list) — this used to stop at 7
+  // scalar fields, so even a fully-compiled canvas starved skills of metrics,
+  // moat, costs and revenues, and startup-scoring asked the founder for
+  // "more details" instead of scoring (alpha feedback 21/07).
   const canvasFields: Array<[string, unknown]> = canvas
     ? [
         ['Problem', canvas.problem],
@@ -69,8 +79,12 @@ export async function buildSkillProjectContext(projectId: string, skillId?: stri
         ['Target market', canvas.target_market],
         ['Value proposition', canvas.value_proposition],
         ['Competitive advantage', canvas.competitive_advantage],
+        ['Unfair advantage / moat', canvas.unfair_advantage],
         ['Channels', canvas.channels],
         ['Business model', canvas.business_model],
+        ['Key metrics', joinList(canvas.key_metrics)],
+        ['Cost structure', joinList(canvas.cost_structure)],
+        ['Revenue streams', joinList(canvas.revenue_streams)],
       ]
     : [];
   const filledCanvas = canvasFields.filter(([, v]) => clip(v).length > 0);
@@ -121,7 +135,7 @@ export async function buildSkillProjectContext(projectId: string, skillId?: stri
     '=== PROJECT CONTEXT (authoritative — USE this; do NOT ask the founder for information already present here) ===',
     ...lines,
     '',
-    'You have enough to begin. Do NOT open by asking the founder basic questions that are already answered above (what the product does, who the customer is, etc.). If a specific input is genuinely missing and essential, state a clearly-labeled assumption and proceed — never stall the deliverable to collect information you already have.',
+    'You have enough to begin. Do NOT open by asking the founder basic questions that are already answered above (what the product does, who the customer is, etc.). If a specific input is genuinely missing and essential, state a clearly-labeled assumption and proceed — never stall the deliverable to collect information you already have. Where data is thin, deliver the output anyway: treat the absence of evidence as a finding (score it low, flag it as a gap) rather than a reason to ask. A response that only asks questions is a FAILED run — it is discarded and the founder sees an error.',
     '=== END PROJECT CONTEXT ===',
   ].join('\n');
 }

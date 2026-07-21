@@ -147,7 +147,7 @@ export const STAGES: StageDef[] = [
 
 export const SKILL_KICKOFFS: Record<string, string> = {
   'idea-shaping': 'Help me structure my startup idea into a Lean Canvas. Walk me through each section.',
-  'startup-scoring': 'Score my startup idea across all 6 dimensions and give me specific ratings.',
+  'startup-scoring': 'Score my startup idea across all 6 dimensions NOW, using the project context provided. Where evidence is missing, score the absence (low) and name it as a gap — do not ask me questions before delivering the scorecard.',
   'market-research': 'Run a comprehensive market analysis — TAM/SAM/SOM, competitors, and trends.',
   'technical-validation': 'Validate the technical feasibility — build approach, key dependencies, and regulatory/compliance constraints.',
   'customer-interviews': 'Build my Problem-Solution Fit interview kit — who to interview, the 5-question script with verbatim-pain and willingness-to-pay capture, and how to log each interview.',
