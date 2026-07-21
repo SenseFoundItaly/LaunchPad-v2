@@ -22,7 +22,7 @@ import { run, get } from '@/lib/db';
 import { coerceJson } from '@/lib/jsonb';
 import { marketSizeDrift, fmtAmount } from '@/lib/market-size-coherence';
 import { persistCompetitorCategories } from '@/lib/competitor-categories';
-import { stageMarketSizeProposal } from '@/lib/auto-stage-validation';
+import { stageMarketSizeProposal, stageValidationItemsFromRaw, type RawValidationItem } from '@/lib/auto-stage-validation';
 import type { Source } from '@/types/artifacts';
 
 // JSONB bind: pass the RAW value (postgres.js single-encodes). JSON.stringify here
@@ -74,6 +74,7 @@ export interface ResearchFields {
   marketSizing: unknown;
   competitors: ResearchObj[];
   trends: unknown[];
+  customerInsights: ResearchObj | null;
   sources: unknown;
 }
 
@@ -90,7 +91,9 @@ export function extractResearchFields(text: string): ResearchFields | null {
     if (mr && (mr.market_sizing || mr.market_size || mr.competitors || mr.competitor_profiles)) {
       const competitors = asArray(mr.competitors).length ? asArray(mr.competitors) : asArray(mr.competitor_profiles);
       const trends = asArray(mr.trends).length ? asArray(mr.trends) : asArray(mr.market_trends);
-      return { marketSizing: mr.market_sizing ?? mr.market_size ?? null, competitors: competitors as ResearchObj[], trends, sources: mr.sources ?? [] };
+      const ci = mr.customer_insights;
+      const customerInsights = ci && typeof ci === 'object' && !Array.isArray(ci) ? (ci as ResearchObj) : null;
+      return { marketSizing: mr.market_sizing ?? mr.market_size ?? null, competitors: competitors as ResearchObj[], trends, customerInsights, sources: mr.sources ?? [] };
     }
   }
   // Truncated output — recover complete sub-structures individually.
@@ -98,7 +101,9 @@ export function extractResearchFields(text: string): ResearchFields | null {
   const competitors = asArray(parseSafe(extractBalanced(text, 'competitors') ?? extractBalanced(text, 'competitor_profiles'))) as ResearchObj[];
   if (marketSizing || competitors.length) {
     const trends = asArray(parseSafe(extractBalanced(text, 'trends') ?? extractBalanced(text, 'market_trends')));
-    return { marketSizing, competitors, trends, sources: [] };
+    const ciRaw = parseSafe(extractBalanced(text, 'customer_insights'));
+    const customerInsights = ciRaw && typeof ciRaw === 'object' && !Array.isArray(ciRaw) ? (ciRaw as ResearchObj) : null;
+    return { marketSizing, competitors, trends, customerInsights, sources: [] };
   }
   return null;
 }
@@ -223,7 +228,7 @@ export async function persistResearchFromSkillOutput(
 
   const fields = extractResearchFields(text);
   if (!fields) return NONE;
-  const { marketSizing, competitors, trends, sources } = fields;
+  const { marketSizing, competitors, trends, customerInsights, sources } = fields;
 
   // F6 — market-size drift TELEMETRY (observe-only). A market-research re-run
   // overwrites the established TAM/SAM/SOM; if the canonical keeps moving, the
@@ -296,6 +301,48 @@ export async function persistResearchFromSkillOutput(
       { tam: tierStr('tam'), sam: tierStr('sam'), som: tierStr('som') },
       Array.isArray(sources) ? (sources as Source[]) : [],
     ).catch((err) => console.warn('[skill-research-persist] market-size proposal failed (non-fatal):', (err as Error).message));
+  }
+
+  // Approve-to-green items for the Stage-2 1A trends_assessed +
+  // buyer_persona_defined checks (2026-07 alpha-feedback follow-up): those
+  // checks read memory_facts keywords, but this parser routes trends/insights
+  // into research.trends — which no check reads. Without this staging a perfect
+  // run left both checks red unless the model ALSO emitted well-phrased
+  // insight-cards. Same founder-first shape as the sizing card: the apply
+  // executor prefixes each fact with its check's verbatim keyword ('Market
+  // trend — ' / 'Buyer persona — '), so approval always closes the check.
+  {
+    const skillSources = Array.isArray(sources) ? (sources as Source[]) : [];
+    const raw: RawValidationItem[] = [];
+    for (const t of (trends as ResearchObj[]).slice(0, 3)) {
+      const name = str(t?.name);
+      if (!name) continue;
+      const dir = str(t?.direction);
+      const timeframe = str(t?.timeframe);
+      const impl = str(t?.implication ?? t?.description).slice(0, 300);
+      const value = `${name}${dir ? ` — ${dir}` : ''}${timeframe ? ` (${timeframe})` : ''}${impl ? `: ${impl}` : ''}`;
+      const tSources = Array.isArray(t?.sources) ? (t.sources as Source[]) : skillSources;
+      raw.push({ kind: 'trend_fact', value, sources: tSources });
+    }
+    if (customerInsights) {
+      const buyer = str(customerInsights.buyer_persona);
+      if (buyer) {
+        const user = str(customerInsights.user_persona);
+        const criteria = asArray(customerInsights.decision_criteria).map(str).filter(Boolean).slice(0, 3).join('; ');
+        const triggers = asArray(customerInsights.purchase_triggers).map(str).filter(Boolean).slice(0, 3).join('; ');
+        const value = [
+          buyer,
+          user && user !== buyer ? `Daily user: ${user}` : '',
+          criteria ? `Decision criteria: ${criteria}` : '',
+          triggers ? `Purchase triggers: ${triggers}` : '',
+        ].filter(Boolean).join('. ');
+        raw.push({ kind: 'buyer_persona_fact', value, sources: skillSources });
+      }
+    }
+    if (raw.length > 0) {
+      await stageValidationItemsFromRaw(projectId, raw, 'market-research skill').catch((err) =>
+        console.warn('[skill-research-persist] trends/persona proposal failed (non-fatal):', (err as Error).message));
+    }
   }
 
   // pending competitor nodes + their matryoshka categories (item 14)

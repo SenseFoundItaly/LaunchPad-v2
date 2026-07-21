@@ -51,6 +51,16 @@ export const TECH_1B_SOURCES = {
   regulatory: 'memory_facts (regulatory)',
 } as const;
 
+/** The 1A trends/persona check `source` strings — exported for the same
+ *  drift-proof mapping: skill-research-persist stages `trend_fact` /
+ *  `buyer_persona_fact` items from the market-research skill's parsed JSON
+ *  (§3 trends, §5 customer_insights), and validation-targets resolves them
+ *  onto these checks by source. */
+export const MARKET_1A_SOURCES = {
+  trends: 'memory_facts (market trends)',
+  persona: 'memory_facts (buyer persona)',
+} as const;
+
 /** Non-empty TAM text from research.market_size — but ONLY once the founder
  *  approved it. The column is ALSO written ungated at artifact-emission time
  *  (the cross-turn reference write in artifact-persistence.ts, plus market
@@ -152,7 +162,7 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
   {
     id: 'trends_assessed',
     label: 'Market trends assessed (tailwinds/headwinds)',
-    source: 'memory_facts (market trends)',
+    source: MARKET_1A_SOURCES.trends,
     track: '1A',
     evaluate: (s) => {
       // 2026-07 alpha feedback: the gate's market track was too thin. The
@@ -175,7 +185,7 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
   {
     id: 'buyer_persona_defined',
     label: 'Buyer persona sketched (who decides, what triggers)',
-    source: 'memory_facts (buyer persona)',
+    source: MARKET_1A_SOURCES.persona,
     track: '1A',
     evaluate: (s) => {
       // Market-research skill §5 (Customer Insights) produces this. Bilingual

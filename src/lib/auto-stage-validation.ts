@@ -67,6 +67,8 @@ function buildItems(raw: RawItem[]) {
           : r.kind === 'interview' ? `Interview — ${r.name ?? 'logged'}`
           : r.kind === 'persona_fact' ? 'Ideal customer'
           : r.kind === 'channel_fact' ? 'Acquisition channel'
+          : r.kind === 'trend_fact' ? 'Market trend'
+          : r.kind === 'buyer_persona_fact' ? 'Buyer persona'
           : r.kind === 'pricing' ? (PRICING_LABELS[r.field ?? ''] ?? 'Pricing')
           : 'Market size',
         value: r.value,
@@ -146,10 +148,12 @@ export function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
   }
   // pricing: one slot per pricing_state column (anchor_price / tiers / wtp / model).
   if (b.kind === 'pricing') return a.field === b.field;
-  // persona_fact / channel_fact: ADDITIVE facts, never a shared slot (a founder
-  // can have several channels; distinct values coexist, exact dupes are caught
-  // by the allStagedAlready value check upstream).
-  if (b.kind === 'persona_fact' || b.kind === 'channel_fact') return false;
+  // persona_fact / channel_fact / trend_fact: ADDITIVE facts, never a shared
+  // slot (a founder can have several channels/trends; distinct values coexist,
+  // exact dupes are caught by the allStagedAlready value check upstream).
+  // buyer_persona_fact: ONE preliminary sketch slot — a re-run reshapes it.
+  if (b.kind === 'persona_fact' || b.kind === 'channel_fact' || b.kind === 'trend_fact') return false;
+  if (b.kind === 'buyer_persona_fact') return true;
   return b.kind === 'market_size_fact'; // only market_size has one sizing slot
 }
 

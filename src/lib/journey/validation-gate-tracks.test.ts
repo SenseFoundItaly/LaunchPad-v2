@@ -377,6 +377,23 @@ describe('keyword honesty — SKILL.it.md-instructed phrasings close the checks'
     ])).toBe(false);
   });
 
+  it('trend_fact / buyer_persona_fact items map to the new 1A checks (source key in sync)', () => {
+    expect(validationTargetsFor('trend_fact').map((t) => t.check_id)).toEqual(['trends_assessed']);
+    expect(validationTargetsFor('buyer_persona_fact').map((t) => t.check_id)).toEqual(['buyer_persona_defined']);
+  });
+
+  it('the apply-executor prefixes close the new 1A checks verbatim (skill-run path)', () => {
+    // action-executors prefixes staged items with 'Market trend — ' /
+    // 'Buyer persona — '; both are entries in the bilingual keyword lists, so
+    // an approved item ALWAYS closes its check regardless of body phrasing.
+    expect(checkWithFacts('trends_assessed', [
+      'Market trend — Telemedicina in Italia (favorevole): adozione in aumento post-2024.',
+    ])).toBe(true);
+    expect(checkWithFacts('buyer_persona_defined', [
+      'Buyer persona — Il titolare dello studio; Decision criteria: prezzo; Purchase triggers: richiami mancati.',
+    ])).toBe(true);
+  });
+
   it('one feasibility-card body closes BOTH split 1B checks (build_approach + technical_risk_named)', () => {
     // Mirrors the technical-validation SKILL instruction: one card, body with
     // build approach AND the literal "rischio tecnico" phrase.
