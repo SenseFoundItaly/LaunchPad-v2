@@ -353,143 +353,6 @@ export default function HomePage() {
       />
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* Left projects rail — hidden during the full-screen create takeover */}
-        {!showCreate && (
-        <div
-          data-tour="projects-rail"
-          style={{
-            width: 200,
-            flexShrink: 0,
-            borderRight: '1px solid var(--line)',
-            background: 'var(--paper-2)',
-            display: 'flex',
-            flexDirection: 'column',
-            padding: '12px 0',
-            gap: 2,
-          }}
-        >
-          <div
-            style={{
-              padding: '0 12px 8px',
-              fontSize: 10,
-              color: 'var(--ink-5)',
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              fontFamily: 'var(--f-mono)',
-            }}
-          >
-            {t('home.projects-heading')}
-          </div>
-
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            {projects.map((p) => (
-              <Link
-                key={p.project_id}
-                href={`/project/${p.project_id}/chat`}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '7px 12px',
-                  fontSize: 12.5,
-                  color: 'var(--ink-2)',
-                  textDecoration: 'none',
-                  borderRadius: 0,
-                  transition: 'background .1s',
-                }}
-                className="lp-rail-item"
-              >
-                <span
-                  style={{
-                    width: 22,
-                    height: 22,
-                    flexShrink: 0,
-                    borderRadius: 6,
-                    background: 'var(--surface)',
-                    border: '1px solid var(--line)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 10,
-                    fontWeight: 700,
-                    fontFamily: 'var(--f-mono)',
-                    color: 'var(--ink-3)',
-                  }}
-                >
-                  {p.name.slice(0, 2).toUpperCase()}
-                </span>
-                <span
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {p.name}
-                </span>
-                {p.access_kind === 'member' && (
-                  <span
-                    title={p.owner_email ? t('home.shared-by', { email: p.owner_email }) : t('home.shared-with-you')}
-                    className="lp-mono"
-                    style={{
-                      fontSize: 9,
-                      color: 'var(--accent-ink)',
-                      background: 'var(--accent-wash)',
-                      padding: '1px 5px',
-                      borderRadius: 999,
-                      letterSpacing: 0.3,
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    {t('home.shared')}
-                  </span>
-                )}
-                {p.weekly_alerts > 0 && (
-                  <span
-                    style={{
-                      fontSize: 9,
-                      fontFamily: 'var(--f-mono)',
-                      color: 'var(--clay)',
-                      background: 'var(--accent-wash)',
-                      padding: '1px 4px',
-                      borderRadius: 4,
-                    }}
-                  >
-                    {p.weekly_alerts}
-                  </span>
-                )}
-              </Link>
-            ))}
-          </div>
-
-          <div style={{ padding: '8px 8px 0' }}>
-            <button
-              data-tour="new-project"
-              onClick={() => setShowCreate(true)}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '7px 8px',
-                background: 'transparent',
-                border: '1px dashed var(--line-2)',
-                borderRadius: 'var(--r-m)',
-                color: 'var(--ink-4)',
-                fontSize: 12,
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                transition: 'border-color .12s, color .12s',
-              }}
-            >
-              <Icon d={I.plus} size={12} />
-              {t('home.new-project')}
-            </button>
-          </div>
-        </div>
-        )}
 
         {/* Main content */}
         <div
@@ -705,6 +568,29 @@ export default function HomePage() {
                 </div>
               )}
             </div>
+            {/* Primary CTA — moved here from the retired left projects rail
+                (the rail duplicated the main grid; feedback 2026-07-21). */}
+            <button
+              data-tour="new-project"
+              onClick={() => setShowCreate(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--on-accent)',
+                background: 'var(--accent)',
+                border: 'none',
+                borderRadius: 'var(--r-m)',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              <Icon d={I.plus} size={12} stroke={1.8} />
+              {t('home.new-project')}
+            </button>
           </div>
           )}
 
@@ -1039,6 +925,7 @@ export default function HomePage() {
                       {t('home.projects-heading')}
                     </div>
                     <div
+                      data-tour="projects-grid"
                       style={{
                         display: 'grid',
                         gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',

@@ -10,7 +10,7 @@
  * on lp-actions-changed so agent updates appear seamlessly.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
@@ -59,7 +59,7 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
   // Cached via TanStack so the pinned header survives tab navigation. The
   // 'idea-canvas' topic is invalidated by the lp-actions-changed bridge, so
   // agent updates still appear seamlessly — no per-component listener needed.
-  const { data = null, isLoading } = useQuery<IdeaCanvasRow | null>({
+  const { data = null, isLoading, isFetching } = useQuery<IdeaCanvasRow | null>({
     queryKey: ['idea-canvas', projectId],
     enabled: !!projectId,
     queryFn: async () => {
@@ -106,6 +106,22 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
         <span className="lp-serif" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
           {t('canvas.idea-canvas-title')}
         </span>
+        {loaded && isFetching && (
+          // Enrichment in flight (a commit/apply just invalidated the query) —
+          // a small ambient pulse so the founder sees the canvas updating.
+          <span
+            className="lp-pulse"
+            aria-hidden
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 999,
+              background: 'var(--accent)',
+              animation: 'lp-pulse 1s ease-in-out infinite',
+              flexShrink: 0,
+            }}
+          />
+        )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           {factCount > 0 && (
             <button
@@ -212,8 +228,30 @@ function Field({
 }) {
   const showPending = !value && !!pendingValue;
   const showPendingUpdate = !!value && !!pendingValue;
+
+  // Enrichment animation: when this field's displayed text CHANGES after the
+  // first paint (a commit landed, a proposal staged, a reshape applied), play
+  // a brief accent-wash rise so the founder sees the piece get populated.
+  // The sentinel skips the mount (opening the page must not flash every field).
+  const displayed = value || pendingValue || '';
+  const prevRef = useRef<string | null>(null);
+  const [enriching, setEnriching] = useState(false);
+  useEffect(() => {
+    if (prevRef.current === null) {
+      prevRef.current = displayed;
+      return;
+    }
+    if (displayed && displayed !== prevRef.current) {
+      prevRef.current = displayed;
+      setEnriching(true);
+      const timer = setTimeout(() => setEnriching(false), 1400);
+      return () => clearTimeout(timer);
+    }
+    prevRef.current = displayed;
+  }, [displayed]);
+
   return (
-    <div id={anchorId} style={{ gridColumn: full ? '1 / -1' : undefined, minWidth: 0, borderRadius: 4 }}>
+    <div id={anchorId} className={enriching ? 'lp-enrich' : undefined} style={{ gridColumn: full ? '1 / -1' : undefined, minWidth: 0, borderRadius: 4 }}>
       <div
         className="lp-mono"
         style={{
