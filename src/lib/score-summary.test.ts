@@ -1,6 +1,47 @@
 import { describe, it, expect } from 'vitest';
 import { parseScoreSummary, weakestDimensions } from './score-summary';
 
+describe('parseScoreSummary — JSON contract (skill Output Format)', () => {
+  it('reads the fenced startup_score JSON before any prose number (live E2E 2026-07-21 shape)', () => {
+    // Narrative mentions a dimension "30/100" BEFORE the JSON — the prose
+    // fallback used to grab it as the overall (stored 30 when the JSON said 47).
+    const summary = [
+      'Ho tutti i dati necessari. La domanda dei clienti è debole (30/100 nella mia stima iniziale).',
+      '',
+      '```json',
+      JSON.stringify({
+        startup_score: {
+          overall_score: 47,
+          overall_grade: 'C+',
+          summary: "TurniFacili è un'idea DUBBIA allo stadio attuale.",
+          dimensions: {
+            market_opportunity: { score: 55, weight: 0.2, rationale: 'r' },
+            competitive_landscape: { score: 40, weight: 0.15 },
+            customer_demand: { score: 30, weight: 0.2 },
+          },
+        },
+      }),
+      '```',
+    ].join('\n');
+
+    const r = parseScoreSummary(summary)!;
+    expect(r.overall).toBe(47);
+    expect(r.dimensions).toEqual({
+      'Market opportunity': 55,
+      'Competitive landscape': 40,
+      'Customer demand': 30,
+    });
+    expect(r.benchmark).toBe('Grade C+');
+    expect(r.recommendation).toMatch(/DUBBIA/);
+  });
+
+  it('a malformed json fence falls back to prose parsing', () => {
+    const summary = '```json\n{ not valid json\n```\nOverall Score: 61/100';
+    const r = parseScoreSummary(summary)!;
+    expect(r.overall).toBe(61);
+  });
+});
+
 describe('parseScoreSummary', () => {
   it('parses numbered + emoji-prefixed dimension headers (real startup-scoring format)', () => {
     const summary = [

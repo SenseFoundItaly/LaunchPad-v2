@@ -19,11 +19,56 @@ export interface ParsedScore {
   benchmark: string | null;
 }
 
+/**
+ * The skill's Output Format is a fenced ```json block ({"startup_score": {...}}
+ * with overall_score, overall_grade, summary, and a dimensions object map) —
+ * parse that FIRST. The prose regexes below mis-read it: the first bare
+ * "NN/100" in the surrounding narrative landed as the overall (live E2E
+ * 2026-07-21: stored 30 when the JSON said 47) and the dimensions map came
+ * back empty. Prose parsing remains the fallback for runs that narrate the
+ * scorecard instead of emitting the JSON contract.
+ */
+function parseScoreJson(summary: string): ParsedScore | null {
+  for (const m of summary.matchAll(/```json\s*([\s\S]*?)```/gi)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(m[1]);
+    } catch {
+      continue; // malformed/truncated fence — try the next one, else prose
+    }
+    const s = (parsed as { startup_score?: Record<string, unknown> })?.startup_score;
+    if (!s || typeof s.overall_score !== 'number' || !Number.isFinite(s.overall_score)) continue;
+    const overall = Math.max(0, Math.min(100, s.overall_score));
+
+    const dims: Record<string, number> = {};
+    if (s.dimensions && typeof s.dimensions === 'object') {
+      for (const [key, v] of Object.entries(s.dimensions as Record<string, unknown>)) {
+        const score = (v as { score?: unknown })?.score;
+        if (typeof score === 'number' && Number.isFinite(score)) {
+          // snake_case contract keys → display names ("market_opportunity" →
+          // "Market opportunity"); keys stay English in both locales by design.
+          const name = key.replace(/_/g, ' ').replace(/^./, (ch) => ch.toUpperCase());
+          dims[name] = Math.max(0, Math.min(100, score));
+        }
+      }
+    }
+    return {
+      overall,
+      dimensions: Object.keys(dims).length > 0 ? dims : null,
+      recommendation: typeof s.summary === 'string' && s.summary.trim() ? s.summary.trim().slice(0, 400) : null,
+      benchmark: typeof s.overall_grade === 'string' && s.overall_grade.trim() ? `Grade ${s.overall_grade.trim()}` : null,
+    };
+  }
+  return null;
+}
+
 // Italian-locale projects run the skill with an Italian SKILL body, so the
 // scorecard prose arrives in Italian ("Punteggio Complessivo", "Verdetto",
 // "Voto: C+", accented dimension names like "Fattibilità") — every anchor
 // below accepts both languages. À-ÖØ-öø-ÿ = Latin-1 letters minus ×/÷.
 export function parseScoreSummary(summary: string): ParsedScore | null {
+  const fromJson = parseScoreJson(summary);
+  if (fromJson) return fromJson;
   const overallMatch =
     summary.match(/(?:overall\s+score|punteggio\s+complessivo)[:*\s]*\**\s*(\d{1,3})\s*\/\s*100/i) ||
     summary.match(/\b(\d{1,3})\s*\/\s*100\b/);
