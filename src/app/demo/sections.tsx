@@ -100,7 +100,7 @@ export function SpineSection() {
   return (
     <Panel
       title="La Spina — 7 stage"
-      subtitle="35 controlli di evidenza · niente diventa verde senza il sì del founder"
+      subtitle="35 verifiche documentate · nulla si sblocca senza il sì del founder"
       right={<Pill kind="ok" dot>6/7 validati</Pill>}
     >
       <div style={{ padding: '12px 14px' }}>
@@ -114,7 +114,7 @@ export function SpineSection() {
                 padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 5,
               }}
             >
-              <div className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-5)', letterSpacing: 0.4 }}>STAGE {s.n}</div>
+              <div className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-5)', letterSpacing: 0.4 }}>FASE {s.n}</div>
               <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.2 }}>{s.label}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--ink-4)' }}>
                 {s.done ? (

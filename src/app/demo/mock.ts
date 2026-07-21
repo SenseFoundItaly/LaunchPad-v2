@@ -45,9 +45,9 @@ export const GATE_TRACKS = [
     id: '1A',
     label: '1A · Mercato',
     checks: [
-      { text: '3 competitor mappati', proof: 'Veo · Pixellot · Trace' },
+      { text: '3 concorrenti mappati', proof: 'Veo · Pixellot · Trace' },
       { text: 'Dimensione del mercato approvata', proof: 'TAM €40M · SAM €16M · SOM €2.4M' },
-      { text: 'Differenziazione con evidenza', proof: '"A differenza di Veo siamo chiavi in mano"' },
+      { text: 'Differenziazione supportata da prove', proof: '"A differenza di Veo siamo chiavi in mano"' },
     ],
   },
   {
@@ -399,8 +399,8 @@ export const WATCHERS_FULL: Watcher[] = [
 ];
 
 // =============================================================================
-// KNOWLEDGE — competitor matryoshka + knowledge list + moves + data room
-// mirrors AllKnowledgePanel / CompetitorMatryoshka / RecentMovesFeed
+// KNOWLEDGE — knowledge list + moves + data room
+// mirrors AllKnowledgePanel / RecentMovesFeed
 // =============================================================================
 
 export const KNOWLEDGE_SUMMARY = {
@@ -429,7 +429,7 @@ export const KNOWLEDGE_GROUPS: Array<{ kind: string; label: string; edge: string
       { title: 'App MatchLens — il prodotto', summary: 'Web app + camera: registrazione, tagging eventi AI, clip automatiche, condivisione con le famiglie.', prov: 'derived', age: '6 mesi fa' },
       { title: 'Mercato calcio dilettantistico EU', summary: 'Club giovanili e amatoriali con budget federazione. Frammentato e sottoservito dagli strumenti pro.', prov: 'verified', age: '3 mesi fa' },
       { title: 'Federazioni regionali — canale', summary: 'Canale di acquisizione primario: 4 federazioni partner, 60% dei signup passa da qui.', prov: 'verified', age: '2 mesi fa' },
-      { title: 'Camera AI turnkey — tecnologia', summary: 'Hardware chiavi in mano + computer vision. Il differenziatore vs i competitor software-only.', prov: 'founder', age: '8 mesi fa' },
+      { title: 'Camera AI turnkey — tecnologia', summary: 'Hardware chiavi in mano + computer vision. Il differenziatore rispetto ai concorrenti puramente software.', prov: 'founder', age: '8 mesi fa' },
     ],
   },
   {
@@ -458,7 +458,7 @@ export const KNOWLEDGE_GROUPS: Array<{ kind: string; label: string; edge: string
   {
     kind: 'signal', label: 'Segnali', edge: 'var(--cat-gold)',
     rows: [
-      { title: 'Veo piano entry €89/mese', summary: 'Nuovo listino competitor sopra il nostro anchor. In attesa di applicazione in Inbox.', prov: 'derived', age: '2 ore fa' },
+      { title: 'Veo piano entry €89/mese', summary: 'Nuovo listino dei concorrenti sopra il nostro anchor. In attesa di applicazione in Inbox.', prov: 'derived', age: '2 ore fa' },
       { title: 'Feedback: highlights su WhatsApp', summary: '2 richieste intermedie di condividere gli highlights via WhatsApp → iterazione MVP #13.', prov: 'derived', age: 'ieri' },
       { title: 'Feedback: condivisione con i genitori', summary: 'Cluster di richieste per condividere le clip con le famiglie → iterazione MVP #11.', prov: 'derived', age: '10 giorni fa' },
       { title: 'AI Act — riprese sportive minori', summary: 'Osservatore proposto: possibili obblighi dall’AI Act sulle riprese di minori. In Inbox.', prov: 'derived', age: 'ieri' },
@@ -483,52 +483,13 @@ export const KNOWLEDGE_GROUPS: Array<{ kind: string; label: string; edge: string
   },
 ];
 
-export const COMPETITORS_MATRYOSHKA = [
-  {
-    name: 'Veo', categories: [
-      { label: 'Prodotto', detail: 'Camera AI 180°, tracking automatico del pallone, editing cloud.' },
-      { label: 'Prezzo', detail: 'Noleggio camera + abbonamento. Nuovo piano entry €89/mese.' },
-      { label: 'Distribuzione', detail: 'Vendita diretta + partnership con federazioni nazionali.' },
-      { label: 'Vantaggio competitivo', detail: 'Brand consolidato, ampia base installata nel calcio.' },
-      { label: 'Criticità', detail: 'Setup più oneroso e supporto lento per i piccoli club — leva per noi.' },
-    ],
-  },
-  {
-    name: 'Pixellot', categories: [
-      { label: 'Prodotto', detail: 'Produzione broadcast automatizzata multi-sport.' },
-      { label: 'Prezzo', detail: 'Enterprise, contratti annuali con club professionistici.' },
-      { label: 'Distribuzione', detail: 'Vendita B2B a leghe e broadcaster.' },
-    ],
-  },
-  {
-    name: 'Trace', categories: [
-      { label: 'Prodotto', detail: 'Hardware proprietario + app per il calcio giovanile.' },
-      { label: 'Distribuzione', detail: 'Forte penetrazione USA, community di allenatori.' },
-      { label: 'Criticità', detail: 'Presenza EU limitata — spazio aperto per noi.' },
-    ],
-  },
-  {
-    name: 'Hudl', categories: [
-      { label: 'Prodotto', detail: 'Suite ampia di sports performance & video analysis.' },
-      { label: 'Prezzo', detail: 'A livelli, orientata a scuole e programmi US.' },
-      { label: 'Vantaggio competitivo', detail: 'Ecosistema enorme, ma non turnkey sull’hardware.' },
-    ],
-  },
-  {
-    name: 'Spiideo', categories: [
-      { label: 'Prodotto', detail: 'Automated video per stadi e impianti sportivi.' },
-      { label: 'Distribuzione', detail: 'Vendita a strutture e impianti, non ai singoli club.' },
-    ],
-  },
-];
-
 export const MOVES = [
-  { type: 'competitor', name: 'Veo', date: '2 ore fa', headline: 'Ha lanciato un piano entry a €89/mese', host: 'veo.co' },
+  { type: 'competitor', name: 'Veo', date: '2 ore fa', headline: 'Ha lanciato un piano base a €89/mese', host: 'veo.co' },
   { type: 'fact', name: 'Metriche settimana 38', date: '5 ore fa', headline: 'MRR €4.2k (+18%), 38 club attivi', host: 'weekly-metrics' },
   { type: 'signal', name: 'Feedback allenatori', date: 'ieri', headline: '2 richieste di highlights su WhatsApp → iterazione #13', host: 'app store' },
   { type: 'brief', name: 'Monday Brief', date: 'ieri', headline: '3 mosse consigliate per la settimana 38', host: 'cron' },
-  { type: 'competitor', name: 'Hudl', date: '6 giorni fa', headline: 'Aggiunto al grafo come competitor US indiretto', host: 'market-research' },
-  { type: 'interview', name: 'ASD Rivoli', date: '3 giorni fa', headline: 'Nuova intervista PSF caricata e digerita', host: 'data room' },
+  { type: 'competitor', name: 'Hudl', date: '6 giorni fa', headline: 'Aggiunto al grafo come concorrente USA indiretto', host: 'market-research' },
+  { type: 'interview', name: 'ASD Rivoli', date: '3 giorni fa', headline: 'Nuova intervista PSF caricata e analizzata', host: 'data room' },
 ];
 
 // =============================================================================
