@@ -574,6 +574,13 @@ async function persistGaugeChart(ctx: PersistContext, a: GaugeChartArtifact): Pr
   return { type: a.type, persisted: true, target: 'scores (overall_score)' };
 }
 
+// Titles that mark a score artifact as THE project-level baseline (vs a
+// per-dimension or competitor score): must name both a score word and an
+// overall/baseline qualifier, EN or IT. Kept tight — a generic "Competitor
+// radar" or single-dimension card must never fill scores.overall_score.
+const OVERALL_SCORE_TITLE_RE =
+  /\b(overall|startup|baseline|complessivo|complessiva|generale)\b[\s\S]*\b(score|scoring|punteggio)\b|\b(score|scoring|punteggio)\b[\s\S]*\b(overall|startup|baseline|complessivo|complessiva|generale)\b/i;
+
 // ─── radar-chart → scores.dimensions (merged JSON) ───────────────────────────
 
 async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Promise<PersistResult> {
@@ -598,6 +605,18 @@ async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Pr
 
   const srcJson = sourcesJson(a.sources);
 
+  // When the radar IS the startup-score baseline (title-matched), derive an
+  // overall from the dimension average (fullMark-normalized to 0-10) and
+  // BACKFILL it — never clobber a real gauge/prose overall. Without this a
+  // scoring run that renders only a radar leaves overall_score = 0 and the
+  // Stage-1 startup_scoring_baseline check can never pass.
+  const overallFromDims = OVERALL_SCORE_TITLE_RE.test(a.title ?? '')
+    ? a.data
+        .filter((p) => p && typeof p.value === 'number')
+        .map((p) => (p.fullMark && p.fullMark > 0 ? (p.value * 10) / p.fullMark : p.value))
+        .reduce((s, v, _, arr) => s + v / arr.length, 0)
+    : null;
+
   if (existing) {
     // coerceJson: existing.dimensions may be a legacy double-encoded STRING.
     // Spreading a string enumerates its characters into char-index keys
@@ -605,18 +624,26 @@ async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Pr
     const prior = coerceJson<Record<string, unknown>>(existing.dimensions) || {};
     const merged = { ...prior, ...incoming };
     await run(
-      'UPDATE scores SET dimensions = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+      `UPDATE scores SET dimensions = ?,
+         overall_score = CASE WHEN (overall_score IS NULL OR overall_score = 0) AND ?::numeric IS NOT NULL THEN ?::numeric ELSE overall_score END,
+         sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?`,
       merged,
+      overallFromDims,
+      overallFromDims,
       srcJson,
       ctx.projectId,
     );
   } else {
     await run(
-      'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, 0, ?, ?)',
+      'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, ?, ?, ?)',
       ctx.projectId,
+      overallFromDims ?? 0,
       incoming,
       srcJson,
     );
+  }
+  if (overallFromDims != null && overallFromDims > 0) {
+    await recordScoreHistory(ctx.projectId, overallFromDims, 'radar-chart');
   }
 
   return { type: a.type, persisted: true, target: `scores.dimensions (+${Object.keys(incoming).length} dims)` };
@@ -638,20 +665,42 @@ async function persistScoreCard(ctx: PersistContext, a: ScoreCardArtifact): Prom
   const merged = { ...prior, [a.title]: a.score };
   const srcJson = sourcesJson(a.sources);
 
+  // A score-card titled as THE baseline/overall score (e.g. "DeskMate —
+  // Baseline Startup Score: 6.8") is the startup-scoring result rendered as a
+  // card instead of a gauge. Mirror persistGaugeChart: fill overall_score
+  // (maxScore-normalized to 0-10), otherwise the row stays at 0 and the
+  // Stage-1 startup_scoring_baseline check can never pass.
+  const isOverall = OVERALL_SCORE_TITLE_RE.test(a.title);
+  const normalizedScore = a.maxScore && a.maxScore > 0 ? (a.score * 10) / a.maxScore : a.score;
+
   if (existing) {
-    await run(
-      'UPDATE scores SET dimensions = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
-      merged,
-      srcJson,
-      ctx.projectId,
-    );
+    if (isOverall) {
+      await run(
+        'UPDATE scores SET dimensions = ?, overall_score = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+        merged,
+        normalizedScore,
+        srcJson,
+        ctx.projectId,
+      );
+    } else {
+      await run(
+        'UPDATE scores SET dimensions = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+        merged,
+        srcJson,
+        ctx.projectId,
+      );
+    }
   } else {
     await run(
-      'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, 0, ?, ?)',
+      'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, ?, ?, ?)',
       ctx.projectId,
+      isOverall ? normalizedScore : 0,
       merged,
       srcJson,
     );
+  }
+  if (isOverall && normalizedScore > 0) {
+    await recordScoreHistory(ctx.projectId, normalizedScore, 'score-card');
   }
 
   return { type: a.type, persisted: true, target: `scores.dimensions["${a.title}"]` };

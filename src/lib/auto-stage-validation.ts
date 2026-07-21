@@ -28,6 +28,8 @@ const CANVAS_FIELD_LABELS: Record<string, string> = {
   problem: 'Problem', solution: 'Solution', target_market: 'Target market',
   value_proposition: 'Value proposition', business_model: 'Business model',
   competitive_advantage: 'Competitive edge', channels: 'Channels',
+  unfair_advantage: 'Unfair advantage', key_metrics: 'Key metrics',
+  cost_structure: 'Cost structure', revenue_streams: 'Revenue streams',
 };
 const CANVAS_FIELDS = ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage', 'business_model', 'channels'] as const;
 const TECH_FACT_LABELS: Record<string, string> = {

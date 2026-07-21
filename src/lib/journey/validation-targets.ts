@@ -36,14 +36,17 @@ export type PricingField = 'anchor_price' | 'tiers' | 'wtp' | 'model' | 'unit_ec
 export type TechFactField = 'feasibility' | 'dependencies' | 'regulatory';
 
 /** The canvas fields that map to a spine check. Others (e.g. business_model)
- *  are context, not gated — `validationTargetsFor` returns [] for them. */
+ *  are context, not gated — `validationTargetsFor` returns [] for them.
+ *  cost_structure maps to the Stage-1 cost_revenue_defined check (its source
+ *  is `idea_canvas.cost_structure`; revenue_streams rides the same check). */
 export type CanvasFieldName =
   | 'problem'
   | 'solution'
   | 'value_proposition'
   | 'competitive_advantage'
   | 'target_market'
-  | 'channels';
+  | 'channels'
+  | 'cost_structure';
 
 export interface ValidationTarget {
   stage_number: number;

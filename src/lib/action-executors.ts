@@ -53,6 +53,7 @@ import { calculateNextRun } from './monitor-schedule';
 import { logSignalActivity } from './signal-activity-log';
 import { maybeProposePhase1Watchers } from './phase1-watchers';
 import { syncBusinessEssentialNodes } from './business-essentials-sync';
+import { persistCanvasDetails, type CanvasDetailsInput } from './canvas-details';
 import type {
   PendingAction,
   PendingActionType,
@@ -1681,9 +1682,16 @@ const applyValidationProposal: ActionHandler = async (action) => {
     'problem', 'solution', 'target_market',
     'value_proposition', 'business_model', 'competitive_advantage', 'channels',
   ] as const;
+  // Soft Lean Canvas fields (JSONB arrays + unfair_advantage text) — written
+  // via persistCanvasDetails, not the core-canvas upsert. Array items arrive
+  // newline-joined from update_idea_canvas (and stay editable as plain text on
+  // the approval card); split back into the arrays the Stage-1
+  // cost_revenue_defined / lean_canvas_compiled checks read.
+  const SOFT_ARRAY_COLS = ['key_metrics', 'cost_structure', 'revenue_streams'] as const;
 
   const applied: string[] = [];
   const canvasFields: Record<string, string> = {};
+  const canvasDetails: CanvasDetailsInput = {};
   let creditsToDebit = 0;
   let skippedNoOwner = false; // a market_size_fact couldn't persist (project has no owner)
 
@@ -1701,6 +1709,15 @@ const applyValidationProposal: ActionHandler = async (action) => {
     if (it.kind === 'canvas_field' && it.field && (CANVAS_COLS as readonly string[]).includes(it.field)) {
       canvasFields[it.field] = value;
       applied.push(it.label || it.field);
+    } else if (it.kind === 'canvas_field' && it.field === 'unfair_advantage') {
+      canvasDetails.unfair_advantage = value;
+      applied.push(it.label || it.field);
+    } else if (it.kind === 'canvas_field' && it.field && (SOFT_ARRAY_COLS as readonly string[]).includes(it.field)) {
+      const list = value.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (list.length > 0) {
+        canvasDetails[it.field as (typeof SOFT_ARRAY_COLS)[number]] = list;
+        applied.push(it.label || it.field);
+      }
     } else if (it.kind === 'competitor') {
       // Clean the name so it persists as an entity, not a description — the agent
       // sometimes proposes "Commercialista (incumbent non-software competitor)";
@@ -1875,6 +1892,12 @@ const applyValidationProposal: ActionHandler = async (action) => {
         }
       }
     }
+  }
+
+  // Soft Lean Canvas fields (founder-approved on this card) — persistCanvasDetails
+  // COALESCEs per column, so a partial write never wipes the others.
+  if (Object.keys(canvasDetails).length > 0) {
+    await persistCanvasDetails(action.project_id, canvasDetails);
   }
 
   // One canvas upsert for every approved canvas field.

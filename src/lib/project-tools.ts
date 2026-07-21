@@ -2236,6 +2236,10 @@ const CANVAS_FIELD_LABELS: Record<string, string> = {
   business_model: 'Business model',
   competitive_advantage: 'Competitive edge',
   channels: 'Channels',
+  unfair_advantage: 'Unfair advantage',
+  key_metrics: 'Key metrics',
+  cost_structure: 'Cost structure',
+  revenue_streams: 'Revenue streams',
 };
 
 function itemDisplayLabel(item: RawValidationItem): string {
@@ -2329,7 +2333,7 @@ const proposeValidationTool = (ctx: ToolContext): AgentTool => ({
     items: Type.Array(
       Type.Object({
         kind: Type.String({ description: 'One of: canvas_field, competitor, market_size_fact.' }),
-        field: Type.Optional(Type.String({ description: 'For kind=canvas_field ONLY: which canvas field — problem | solution | target_market | value_proposition | business_model | competitive_advantage.' })),
+        field: Type.Optional(Type.String({ description: 'For kind=canvas_field ONLY: which canvas field — problem | solution | target_market | value_proposition | business_model | competitive_advantage | channels | unfair_advantage | key_metrics | cost_structure | revenue_streams. For the three list fields (key_metrics, cost_structure, revenue_streams) put one entry per line in `value`.' })),
         name: Type.Optional(Type.String({ description: 'For kind=competitor ONLY: the competitor name (e.g. "HelloFresh").' })),
         value: Type.String({ description: 'The actual content to commit: the canvas field text, the competitor summary (what they do + how you differ), or the market-sizing statement (e.g. "TAM ~EUR 2.4B: 12M EU households x ...").' }),
         sources: Type.Optional(Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] provenance for this item (web/skill/user/inference). Feeds the proof shown when the founder later clicks the validated substep. Strongly recommended for competitors and market size.' })),
@@ -2370,7 +2374,7 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
   name: 'update_idea_canvas',
   label: 'Update Idea Canvas',
   description:
-    'Propose one or more Idea Canvas fields (problem, solution, target market, value proposition, business model, competitive advantage, acquisition channels) for the founder to approve onto their canvas. Call this whenever the founder has articulated — or you have synthesized — canvas content. It does NOT write directly: canvas fields turn Stage 1-3 substeps green, so they go through the founder approval gate (a validation_proposal card). Pass every field you have in ONE call so the founder sees a single card. If you are ALSO proposing competitors or market size this turn, prefer propose_validation to batch them together. Emit the returned artifact block VERBATIM so the approval card renders.',
+    'Propose one or more Idea Canvas fields (problem, solution, target market, value proposition, business model, competitive advantage, acquisition channels, unfair advantage, key metrics, cost structure, revenue streams) for the founder to approve onto their canvas. Call this whenever the founder has articulated — or you have synthesized — canvas content. It does NOT write directly: canvas fields turn Stage 1-3 substeps green, so they go through the founder approval gate (a validation_proposal card). The Stage-1 "Main cost & revenue sources" and "Lean Canvas compiled" checks read cost_structure, revenue_streams and key_metrics — propose them as soon as the founder has stated them, or Stage 1 cannot complete. Pass every field you have in ONE call so the founder sees a single card. If you are ALSO proposing competitors or market size this turn, prefer propose_validation to batch them together. Emit the returned artifact block VERBATIM so the approval card renders.',
   parameters: Type.Object({
     problem: Type.Optional(Type.String({ description: 'The specific pain the target user experiences. Concrete, not generic. Quote the founder when possible.' })),
     solution: Type.Optional(Type.String({ description: 'What you build to solve it. The "what", not the "how" — keep tech details out.' })),
@@ -2379,14 +2383,19 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
     business_model: Type.Optional(Type.String({ description: 'How it makes money — subscription, transaction, freemium, etc., plus pricing logic.' })),
     competitive_advantage: Type.Optional(Type.String({ description: 'The moat: insight, data, distribution, network effects, regulatory lock-in. Be specific about which.' })),
     channels: Type.Optional(Type.String({ description: 'Acquisition channels — how you reach customers: e.g. "founder-led LinkedIn outreach, SEO, accountant partnerships".' })),
+    unfair_advantage: Type.Optional(Type.String({ description: 'The Lean Canvas unfair advantage — what cannot be easily copied or bought.' })),
+    key_metrics: Type.Optional(Type.Array(Type.String(), { description: 'The key metrics that tell you the business is working — e.g. ["Weekly active clubs", "MRR", "Churn"]. One metric per array item.' })),
+    cost_structure: Type.Optional(Type.Array(Type.String(), { description: 'Main cost items — e.g. ["Hardware COGS", "Cloud/AI inference", "Support"]. One cost per array item.' })),
+    revenue_streams: Type.Optional(Type.Array(Type.String(), { description: 'Revenue sources — e.g. ["Monthly SaaS subscription", "Hardware rental"]. One stream per array item.' })),
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
     const p = params as Partial<Record<
-      'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model' | 'competitive_advantage' | 'channels',
+      'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model' | 'competitive_advantage' | 'channels' | 'unfair_advantage',
       string
-    >>;
+    >> & Partial<Record<'key_metrics' | 'cost_structure' | 'revenue_streams', string[]>>;
     const clean = (v: string | undefined): string => (typeof v === 'string' ? v.trim().slice(0, 1200) : '');
-    const order = ['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage', 'channels'] as const;
+    const order = ['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage', 'channels', 'unfair_advantage'] as const;
+    const arrayFields = ['key_metrics', 'cost_structure', 'revenue_streams'] as const;
 
     // Build canvas_field items from the provided fields and route them through
     // the validation gate. The actual idea_canvas write + assumptions seeding
@@ -2395,6 +2404,15 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
     for (const field of order) {
       const value = clean(p[field]);
       if (value.length > 0) rawItems.push({ kind: 'canvas_field', field, value });
+    }
+    // Array fields (Lean Canvas soft blocks) ride the same gate as one
+    // newline-joined item; applyValidationProposal splits them back into the
+    // JSONB arrays the Stage-1 cost_revenue/lean_canvas checks read.
+    for (const field of arrayFields) {
+      const list = Array.isArray(p[field])
+        ? p[field]!.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim().slice(0, 300)).slice(0, 12)
+        : [];
+      if (list.length > 0) rawItems.push({ kind: 'canvas_field', field, value: list.join('\n') });
     }
     if (rawItems.length === 0) {
       return {
