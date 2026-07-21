@@ -16,6 +16,10 @@ import { usePathname } from 'next/navigation';
 import { TopBar } from '@/components/design/chrome';
 import { Icon, I, Pill, StatusBar } from '@/components/design/primitives';
 import type { IconKey } from '@/components/design/icons';
+import {
+  MACRO_CATEGORY_ORDER, MACRO_CATEGORY_COLOR, MACRO_CATEGORY_LABEL, NODE_COLORS, macroCategoryFor,
+  type MacroCategory,
+} from '@/types/graph';
 
 // -----------------------------------------------------------------------------
 // Nav config — one entry per demo page
@@ -49,7 +53,9 @@ const CHANNELS: NavEntry[] = [
   {
     id: 'knowledge', href: '/demo/knowledge', iconKey: 'book', label: 'Knowledge', breadcrumb: 'Knowledge',
     badge: 29, badgeTone: 'count',
-    status: { heartbeatLabel: 'heartbeat · grafo aggiornato', gateway: 'demo · dati simulati', ctxLabel: '18 nodi · 24 collegamenti' },
+    // ctxLabel is derived from the graph data in DemoStatusBar (ECO_* counts)
+    // so it can't drift; this static value is only a fallback.
+    status: { heartbeatLabel: 'heartbeat · grafo aggiornato', gateway: 'demo · dati simulati', ctxLabel: 'grafo Knowledge' },
   },
   {
     id: 'financial', href: '/demo/financial', iconKey: 'dollar', label: 'Finanze', breadcrumb: 'Finanze',
@@ -117,13 +123,17 @@ export function DemoTopBar() {
 
 export function DemoStatusBar() {
   const pathname = usePathname() || '/demo';
-  const s = entryFor(pathname).status;
+  const entry = entryFor(pathname);
+  const s = entry.status;
+  const ctxLabel = entry.id === 'knowledge'
+    ? `${ECO_NODE_COUNT} nodi · ${ECO_EDGE_COUNT} collegamenti`
+    : s.ctxLabel;
   return (
     <StatusBar
       heartbeatLabel={s.heartbeatLabel}
       heartbeatKind="healthy"
       gateway={s.gateway}
-      ctxLabel={s.ctxLabel}
+      ctxLabel={ctxLabel}
       budget="crediti · 38/50"
       tz="Europe/Rome"
     />
@@ -203,110 +213,220 @@ function RailItem({ e, active }: { e: NavEntry; active: boolean }) {
 }
 
 // -----------------------------------------------------------------------------
-// EcoGraph — static SVG ecosystem graph (startup + typed satellites).
-// Reused on Home (small) and Knowledge (large). Replaces the D3 KnowledgeGraph
-// with a fixed, deterministic layout so the demo never needs data.
+// EcoGraph — static SVG ecosystem graph that mirrors the live product graph
+// (src/components/graph/KnowledgeGraph.tsx): the startup root at centre with 12
+// fixed macro-category wedges arranged clockwise (MACRO_CATEGORY_ORDER), each
+// drawn as a soft tinted region + label, and dashed "ghost" circles for empty
+// categories. Reused on Home (small) and Knowledge (large). Reproduces the LOOK,
+// not the d3 force sim — colours/labels/wedge order are imported from
+// @/types/graph so the demo tracks the product instead of re-typing them.
 // -----------------------------------------------------------------------------
 
-const ECO_TYPES: Record<string, string> = {
-  startup: 'var(--accent)',
-  competitor: 'var(--clay)',
-  persona: 'var(--cat-teal)',
-  partner: 'var(--moss)',
-  investor: 'var(--plum)',
-};
-
-// The ecosystem satellites (everything but the startup, which sits at center).
-// Positions are computed on a staggered ring so adding a node stays balanced.
-const ECO_SATELLITES: Array<{ label: string; type: string }> = [
-  { label: 'Veo', type: 'competitor' },
-  { label: 'Fornitori camere', type: 'partner' },
-  { label: 'Angel EU', type: 'investor' },
-  { label: 'Pixellot', type: 'competitor' },
-  { label: 'Federazioni', type: 'partner' },
-  { label: 'Allenatore U15', type: 'persona' },
-  { label: 'Trace', type: 'competitor' },
-  { label: 'Resend', type: 'partner' },
-  { label: 'Direttore sportivo', type: 'persona' },
-  { label: 'Hudl', type: 'competitor' },
-  { label: 'Netlify', type: 'partner' },
-  { label: 'Micro-VC sport', type: 'investor' },
-  { label: 'Spiideo', type: 'competitor' },
-  { label: 'Ayrshare', type: 'partner' },
-  { label: 'Genitore', type: 'persona' },
-  { label: 'Resp. federazione', type: 'persona' },
-  { label: 'Acceleratore', type: 'investor' },
-];
-
-const CENTER = { id: 'c', label: 'MatchLens', type: 'startup', x: 50, y: 50, r: 7 };
-
-const ECO_NODES = [
-  CENTER,
-  ...ECO_SATELLITES.map((s, i) => {
-    const angle = (i / ECO_SATELLITES.length) * Math.PI * 2 - Math.PI / 2;
-    const radius = i % 2 === 0 ? 41 : 32; // stagger two rings to space labels out
-    return { id: `n${i}`, label: s.label, type: s.type, x: 50 + radius * Math.cos(angle), y: 50 + radius * Math.sin(angle), r: 4.2 };
-  }),
+// Each satellite is a named MatchLens entity + its product node_type; the wedge
+// it lands in is resolved via macroCategoryFor() and its dot colour via
+// NODE_COLORS — exactly like the real graph. Names are kept consistent with the
+// Lista/competitor data in ./mock.ts so both surfaces tell one story.
+// hr_collabs is intentionally left empty so the ghost-circle affordance shows.
+type EcoEntity = { label: string; node_type: string };
+const ECO_ENTITIES: EcoEntity[] = [
+  // concorrenza
+  { label: 'Veo', node_type: 'competitor' },
+  { label: 'Pixellot', node_type: 'competitor' },
+  { label: 'Trace', node_type: 'competitor' },
+  { label: 'Hudl', node_type: 'competitor' },
+  // clienti
+  { label: 'Allenatore U15', node_type: 'persona' },
+  { label: 'Direttore sportivo', node_type: 'persona' },
+  { label: 'Genitore', node_type: 'persona' },
+  { label: 'Club dilettantistici EU', node_type: 'market_segment' },
+  // partner
+  { label: 'Federazioni regionali', node_type: 'partner' },
+  { label: 'Resend', node_type: 'partner' },
+  { label: 'Netlify', node_type: 'partner' },
+  // investitori
+  { label: 'Angel EU', node_type: 'funding_source' },
+  { label: 'Micro-VC sport', node_type: 'funding_source' },
+  // fornitori
+  { label: 'Fornitori camere', node_type: 'supplier' },
+  { label: 'Cloud storage', node_type: 'supplier' },
+  // prodotto
+  { label: 'Tagging AI eventi', node_type: 'feature' },
+  { label: 'Clip automatiche', node_type: 'feature' },
+  { label: 'Condivisione famiglie', node_type: 'feature' },
+  // trend_tech
+  { label: 'Camera AI turnkey', node_type: 'technology' },
+  { label: 'Computer vision', node_type: 'technology' },
+  // trend_mercato
+  { label: 'AI Act minori', node_type: 'trend' },
+  { label: 'Highlights WhatsApp', node_type: 'signal' },
+  // business_essentials
+  { label: 'Consenso GDPR federazione', node_type: 'business_essential' },
+  // gtm
+  { label: 'Sequenza email', node_type: 'gtm_strategy' },
+  { label: 'Canale federazioni', node_type: 'gtm_strategy' },
+  // branding
+  { label: 'Brand MatchLens', node_type: 'brand_asset' },
 ];
 
 // A few cross-links between satellites so the graph reads as a real network,
 // not a pure star. Referenced by label.
 const ECO_CROSS: Array<[string, string]> = [
-  ['Federazioni', 'Resp. federazione'],
-  ['Allenatore U15', 'Genitore'],
   ['Veo', 'Pixellot'],
-  ['Trace', 'Hudl'],
-  ['Resend', 'Netlify'],
+  ['Federazioni regionali', 'Consenso GDPR federazione'],
   ['Angel EU', 'Micro-VC sport'],
-  ['Fornitori camere', 'Veo'],
+  ['Camera AI turnkey', 'Fornitori camere'],
+  ['Sequenza email', 'Federazioni regionali'],
+  ['Allenatore U15', 'Highlights WhatsApp'],
 ];
 
+// Node + edge totals derived from the data above, so the header pill and legend
+// can never drift from what the graph actually renders (the old bug: a literal
+// "18 nodi · 24 collegamenti" string maintained by hand).
+export const ECO_NODE_COUNT = 1 + ECO_ENTITIES.length; // + startup root
+export const ECO_EDGE_COUNT = ECO_ENTITIES.length + ECO_CROSS.length; // spokes + cross-links
+
+// --- Deterministic layout (viewBox units, centre 50,50) -----------------------
+const CX = 50, CY = 50;
+const RING = 30; // radius of the satellite cluster ring
+const catOf = (node_type: string) => macroCategoryFor(node_type) as MacroCategory;
+const catAngle = (cat: MacroCategory) =>
+  (-90 + (360 / MACRO_CATEGORY_ORDER.length) * MACRO_CATEGORY_ORDER.indexOf(cat)) * (Math.PI / 180);
+
+type PlacedNode = EcoEntity & { x: number; y: number };
+function computeLayout() {
+  const byCat = new Map<MacroCategory, EcoEntity[]>();
+  for (const e of ECO_ENTITIES) {
+    const cat = catOf(e.node_type);
+    (byCat.get(cat) ?? byCat.set(cat, []).get(cat)!).push(e);
+  }
+  const placed: PlacedNode[] = [];
+  for (const cat of MACRO_CATEGORY_ORDER) {
+    const list = byCat.get(cat) ?? [];
+    const base = catAngle(cat);
+    const spread = 22 * (Math.PI / 180);
+    list.forEach((e, j) => {
+      const frac = list.length === 1 ? 0 : j / (list.length - 1) - 0.5; // -0.5..0.5
+      const a = base + frac * spread;
+      const r = RING + (list.length > 1 ? (j % 2 === 0 ? -3 : 3) : 0); // stagger radius
+      placed.push({ ...e, x: CX + r * Math.cos(a), y: CY + r * Math.sin(a) });
+    });
+  }
+  const presentCats = MACRO_CATEGORY_ORDER.filter(c => (byCat.get(c)?.length ?? 0) > 0);
+  const emptyCats = MACRO_CATEGORY_ORDER.filter(c => !(byCat.get(c)?.length));
+  return { placed, byCat, presentCats, emptyCats };
+}
+
+/** Soft tinted region (centroid + radius) covering a category's placed nodes —
+ *  the static analog of the real convex-hull wash. */
+function regionFor(nodes: PlacedNode[]) {
+  const mx = nodes.reduce((s, p) => s + p.x, 0) / nodes.length;
+  const my = nodes.reduce((s, p) => s + p.y, 0) / nodes.length;
+  const rr = Math.max(...nodes.map(p => Math.hypot(p.x - mx, p.y - my)), 0) + 6;
+  return { mx, my, rr };
+}
+
 export function EcoGraph({ height = 340, showLabels = true }: { height?: number; showLabels?: boolean }) {
-  const center = ECO_NODES[0];
-  const byLabel = new Map(ECO_NODES.map((n) => [n.label, n]));
+  const { placed, byCat, presentCats, emptyCats } = computeLayout();
+  const byLabel = new Map(placed.map(p => [p.label, p]));
+  const ghostCats = showLabels ? emptyCats : []; // ghosts only on the labelled (full) variant
+  const labelText = (cat: MacroCategory) => MACRO_CATEGORY_LABEL[cat].it.toUpperCase();
+  // Place a category label just outside its wedge; anchor by hemisphere so long
+  // Italian labels don't clip the square viewBox.
+  const labelPos = (cat: MacroCategory) => {
+    const a = catAngle(cat), lr = 43;
+    const x = CX + lr * Math.cos(a), y = CY + lr * Math.sin(a);
+    const anchor = Math.cos(a) > 0.3 ? 'start' : Math.cos(a) < -0.3 ? 'end' : 'middle';
+    return { x, y, anchor: anchor as 'start' | 'middle' | 'end' };
+  };
   return (
     <svg viewBox="0 0 100 100" style={{ width: '100%', height, display: 'block' }} preserveAspectRatio="xMidYMid meet">
-      {ECO_NODES.slice(1).map((n) => (
-        <line key={`e-${n.id}`} x1={center.x} y1={center.y} x2={n.x} y2={n.y} stroke="var(--line-2)" strokeWidth={0.3} />
+      {/* Macro-category regions — soft tinted washes drawn behind links + nodes */}
+      {presentCats.map(cat => {
+        const { mx, my, rr } = regionFor(byCat.get(cat)!.map(e => byLabel.get(e.label)!));
+        return (
+          <circle key={`r-${cat}`} cx={mx} cy={my} r={rr}
+            fill={MACRO_CATEGORY_COLOR[cat]} fillOpacity={0.07}
+            stroke={MACRO_CATEGORY_COLOR[cat]} strokeOpacity={0.22} strokeWidth={0.4} />
+        );
+      })}
+      {/* Ghost circles for empty categories (dashed) */}
+      {ghostCats.map(cat => {
+        const a = catAngle(cat);
+        return (
+          <circle key={`g-${cat}`} cx={CX + RING * Math.cos(a)} cy={CY + RING * Math.sin(a)} r={7}
+            fill="none" stroke="var(--line-2)" strokeOpacity={0.7} strokeWidth={0.4} strokeDasharray="1.4 1.4" />
+        );
+      })}
+      {/* Category labels */}
+      {showLabels && [...presentCats, ...ghostCats].map(cat => {
+        const { x, y, anchor } = labelPos(cat);
+        const present = presentCats.includes(cat);
+        return (
+          <text key={`l-${cat}`} x={x} y={y} textAnchor={anchor}
+            style={{
+              fontSize: 2.2, fontWeight: 700, letterSpacing: 0.18, fontFamily: 'var(--f-sans)',
+              fill: present ? MACRO_CATEGORY_COLOR[cat] : 'var(--ink-5)',
+              fillOpacity: present ? 0.85 : 0.55,
+            }}>
+            {labelText(cat)}
+          </text>
+        );
+      })}
+      {/* Spokes: root → each satellite */}
+      {placed.map((n, i) => (
+        <line key={`e-${i}`} x1={CX} y1={CY} x2={n.x} y2={n.y} stroke="var(--line-2)" strokeWidth={0.3} />
       ))}
+      {/* Cross-links (dashed) */}
       {ECO_CROSS.map(([a, b], i) => {
         const na = byLabel.get(a), nb = byLabel.get(b);
         if (!na || !nb) return null;
         return <line key={`x-${i}`} x1={na.x} y1={na.y} x2={nb.x} y2={nb.y} stroke="var(--line-2)" strokeWidth={0.25} strokeDasharray="1 1" opacity={0.7} />;
       })}
-      {ECO_NODES.map((n, i) => (
-        <g key={n.label + i}>
-          <circle cx={n.x} cy={n.y} r={n.r} fill={ECO_TYPES[n.type]} opacity={n.type === 'startup' ? 1 : 0.85} />
-          {showLabels && (
-            <text
-              x={n.x}
-              y={n.y - n.r - 1.2}
-              textAnchor="middle"
-              style={{ fontSize: n.type === 'startup' ? 3.4 : 2.4, fill: 'var(--ink-3)', fontFamily: 'var(--f-sans)' }}
-            >
-              {n.label}
-            </text>
-          )}
-        </g>
-      ))}
+      {/* Satellite nodes — labels pushed radially outward from the root so the
+          dense inner clusters stay legible. */}
+      {placed.map((n, i) => {
+        const a = Math.atan2(n.y - CY, n.x - CX);
+        const lx = n.x + Math.cos(a) * 2.6, ly = n.y + Math.sin(a) * 2.6 + 0.6;
+        const anchor = Math.cos(a) > 0.3 ? 'start' : Math.cos(a) < -0.3 ? 'end' : 'middle';
+        return (
+          <g key={n.label + i}>
+            <circle cx={n.x} cy={n.y} r={1.9} fill={NODE_COLORS[n.node_type] ?? 'var(--ink-5)'} opacity={0.9} />
+            {showLabels && (
+              <text x={lx} y={ly} textAnchor={anchor}
+                style={{ fontSize: 1.9, fill: 'var(--ink-3)', fontFamily: 'var(--f-sans)' }}>
+                {n.label}
+              </text>
+            )}
+          </g>
+        );
+      })}
+      {/* Startup root, pinned at centre */}
+      <circle cx={CX} cy={CY} r={4.4} fill={NODE_COLORS.your_startup} />
+      {showLabels && (
+        <text x={CX} y={CY - 5.6} textAnchor="middle"
+          style={{ fontSize: 3, fontWeight: 600, fill: 'var(--ink-2)', fontFamily: 'var(--f-sans)' }}>
+          MatchLens
+        </text>
+      )}
     </svg>
   );
 }
 
 export function EcoLegend() {
-  const items = [
-    { label: 'Startup', type: 'startup', count: 1 },
-    { label: 'Competitor', type: 'competitor', count: 5 },
-    { label: 'Personas', type: 'persona', count: 4 },
-    { label: 'Partner', type: 'partner', count: 5 },
-    { label: 'Investitori', type: 'investor', count: 3 },
-  ];
+  // One row per macro-category that has nodes, coloured by its wash + counted
+  // from the graph data — no hand-maintained totals.
+  const counts = new Map<MacroCategory, number>();
+  for (const e of ECO_ENTITIES) {
+    const cat = catOf(e.node_type);
+    counts.set(cat, (counts.get(cat) ?? 0) + 1);
+  }
+  const items = MACRO_CATEGORY_ORDER.filter(c => (counts.get(c) ?? 0) > 0);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '8px 14px' }}>
-      {items.map((it) => (
-        <span key={it.label} style={{ fontSize: 10.5, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 5 }}>
-          <span className="lp-dot" style={{ background: ECO_TYPES[it.type] }} />
-          {it.label} · {it.count}
+      {items.map((cat) => (
+        <span key={cat} style={{ fontSize: 10.5, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span className="lp-dot" style={{ background: MACRO_CATEGORY_COLOR[cat] }} />
+          {MACRO_CATEGORY_LABEL[cat].it} · {counts.get(cat)}
         </span>
       ))}
     </div>
