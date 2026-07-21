@@ -25,7 +25,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Icon, I, type IconKey } from './icons';
+import { Icon, I, BinocularsGlyph, RobotGlyph, RailTooltip, useRailHover, type IconKey } from './icons';
 import { ShareButton } from '@/components/project/ShareButton';
 import { DocsButton } from '@/components/project/DocsButton';
 import { CreditsBadge } from '@/components/CreditsBadge';
@@ -137,6 +137,8 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
 interface NavItem {
   id: string;
   iconKey: IconKey;
+  /** Optional custom glyph (overrides iconKey) for icons not in the shared set. */
+  icon?: React.ReactNode;
   /** i18n key for the micro label — resolved via useT() at render. */
   labelKey: MessageKey;
   /** Path segment after /project/{id}/ — e.g. 'dashboard', 'chat' */
@@ -158,13 +160,13 @@ const PRIMARY_ITEMS: NavItem[] = [
 // signal_alert + intelligence_brief now materialize into the Inbox, so the
 // channel is collapsed into the single proposal queue.
 const CHANNEL_ITEMS: NavItem[] = [
-  { id: 'inbox',     iconKey: 'tickets', labelKey: 'nav.inbox',     route: 'actions',
+  { id: 'inbox',     iconKey: 'tickets', icon: <BinocularsGlyph />, labelKey: 'nav.inbox',     route: 'actions',
     tooltipKey: 'nav.inbox.tooltip' },
   { id: 'knowledge', iconKey: 'book',    labelKey: 'nav.knowledge', route: 'knowledge',
     tooltipKey: 'nav.knowledge.tooltip' },
   { id: 'financial', iconKey: 'dollar',  labelKey: 'nav.financial', route: 'financial',
     tooltipKey: 'nav.financial.tooltip' },
-  { id: 'chat',      iconKey: 'chat',    labelKey: 'nav.copilot',   route: 'chat',
+  { id: 'chat',      iconKey: 'chat',    icon: <RobotGlyph />,      labelKey: 'nav.copilot',   route: 'chat',
     tooltipKey: 'nav.copilot.tooltip' },
 ];
 
@@ -278,35 +280,36 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
 
 function NavRailItem({ item, label, tooltip, projectId, active, badge, badgeTone = 'alert', streaming }: { item: NavItem; label: string; tooltip?: string; projectId: string; active: boolean; badge?: number; badgeTone?: 'alert' | 'count'; streaming?: boolean }) {
   const isCount = badgeTone === 'count';
+  const { hover, bind } = useRailHover();
   return (
     <Link
       href={`/project/${projectId}/${item.route}`}
-      title={tooltip ?? label}
+      aria-label={tooltip ?? label}
       data-tour={`nav-${item.id}`}
+      {...bind}
       style={{
         width: 42,
-        padding: '8px 0',
+        height: 38,
         borderRadius: 'var(--r-m)',
         cursor: 'pointer',
         background: active ? 'var(--surface)' : 'transparent',
         boxShadow: active ? 'inset 0 0 0 1px var(--line)' : 'none',
         color: active ? 'var(--ink)' : 'var(--ink-4)',
         display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
-        gap: 3,
+        justifyContent: 'center',
         textDecoration: 'none',
         transition: 'background .12s, color .12s',
         position: 'relative',
       }}
     >
-      <Icon d={I[item.iconKey]} size={15} stroke={1.3} />
+      {item.icon ?? <Icon d={I[item.iconKey]} size={17} stroke={1.35} />}
       {typeof badge === 'number' && badge > 0 && (
         <span
           style={{
             position: 'absolute',
-            top: 4,
-            right: 4,
+            top: 3,
+            right: 5,
             minWidth: 14,
             height: 14,
             borderRadius: 7,
@@ -332,24 +335,16 @@ function NavRailItem({ item, label, tooltip, projectId, active, badge, badgeTone
           className="lp-dot lp-pulse"
           style={{
             position: 'absolute',
-            top: 4,
-            right: 4,
+            top: 5,
+            right: 6,
             width: 6,
             height: 6,
             background: 'var(--accent)',
           }}
         />
       )}
-      <span
-        style={{
-          fontSize: 9,
-          fontFamily: 'var(--f-mono)',
-          letterSpacing: -0.2,
-          textTransform: 'uppercase',
-        }}
-      >
-        {label}
-      </span>
+      {/* Section name shown on hover — the label span is gone (icon-only rail). */}
+      <RailTooltip label={label} show={hover} />
     </Link>
   );
 }
