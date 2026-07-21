@@ -2232,7 +2232,15 @@ function InlineOption({
   // disambiguate between similar options. Clamping is render-only.
   const split = splitOptionLabel(option.label || `Option ${index + 1}`, option.description);
 
-  const baseLabel = split.label || t('chat.option-fallback', { n: index + 1 });
+  // Expand-in-place: the clamp made long options unreadable without selecting
+  // (alpha feedback 2026-07-15). Toggle shown only when text was actually cut;
+  // when expanded, show split.full as the label and the ORIGINAL description
+  // (split.description carries the label overflow and would duplicate it).
+  const [expanded, setExpanded] = useState(false);
+  const isClamped = split.full !== split.label || (split.description?.length ?? 0) > 120;
+  const expandedDescription = String(option.description ?? '').trim();
+
+  const baseLabel = (expanded ? split.full : split.label) || t('chat.option-fallback', { n: index + 1 });
   const labelText =
     locked ? `🔒 ${baseLabel}` :
     state === 'running' ? `${baseLabel} · ${t('chat.running')}` :
@@ -2350,7 +2358,7 @@ function InlineOption({
             fontWeight: 500,
             flex: 1,
             minWidth: 0,
-            whiteSpace: 'nowrap',
+            whiteSpace: expanded ? 'normal' : 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
           }}
@@ -2360,21 +2368,52 @@ function InlineOption({
         {/* No per-option credit chip: only a founder chat message costs a credit
             (1/message); running an analysis, applying, and committing are free. */}
       </div>
-      {split.description && (
+      {(expanded ? expandedDescription : split.description) && (
         <div
           style={{
             fontSize: 11,
             color: 'var(--ink-4)',
             marginTop: 2,
             lineHeight: 1.4,
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
+            ...(expanded
+              ? {}
+              : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }),
           }}
         >
-          {split.description}
+          {expanded ? expandedDescription : split.description}
         </div>
+      )}
+      {isClamped && !isDisabled && (
+        // Not a <button>: nested buttons are invalid HTML. stopPropagation +
+        // preventDefault so toggling never selects/runs the option. Hidden once
+        // the set is disabled — a disabled button suppresses child clicks anyway.
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            }
+          }}
+          style={{
+            display: 'inline-block',
+            fontSize: 11,
+            color: 'var(--ink-4)',
+            marginTop: 4,
+            textDecoration: 'underline',
+            textUnderlineOffset: 2,
+            cursor: 'pointer',
+          }}
+        >
+          {expanded ? t('chat.option-show-less') : t('chat.option-show-more')}
+        </span>
       )}
       {state === 'error' && (
         <div style={{ fontSize: 11, color: 'var(--clay, #b4513a)', marginTop: 2 }}>
