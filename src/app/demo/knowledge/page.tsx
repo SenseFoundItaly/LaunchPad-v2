@@ -1,17 +1,17 @@
 'use client';
 
 /**
- * /demo/knowledge — DEMO PURPOSES ONLY. The Knowledge surface: competitor
- * matryoshka + a view toggle (Grafo | Lista | Movimenti | Data room),
- * mirroring knowledge/page.tsx, AllKnowledgePanel, RecentMovesFeed and
- * DataRoomPanel. Interactive toggle, zero data fetching.
+ * /demo/knowledge — DEMO PURPOSES ONLY. The Knowledge surface: a view toggle
+ * (Grafo | Lista | Movimenti | Data room), mirroring knowledge/page.tsx,
+ * AllKnowledgePanel, RecentMovesFeed and DataRoomPanel. Interactive toggle,
+ * zero data fetching.
  */
 
 import * as React from 'react';
 import { Icon, I, Pill } from '@/components/design/primitives';
 import { EcoGraph, EcoLegend, DemoNodeDetailPanel, ECO_NODE_COUNT, ECO_EDGE_COUNT, type EcoEntity } from '../chrome';
 import {
-  KNOWLEDGE_SUMMARY, KNOWLEDGE_GROUPS, COMPETITORS_MATRYOSHKA, MOVES, DATA_ROOM, DATA_ROOM_FOOT,
+  KNOWLEDGE_SUMMARY, KNOWLEDGE_GROUPS, MOVES, DATA_ROOM, DATA_ROOM_FOOT,
   type KnowledgeRow,
 } from '../mock';
 
@@ -27,7 +27,6 @@ export default function DemoKnowledge() {
   const [view, setView] = React.useState<View>('graph');
   return (
     <div className="lp-rise" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <CompetitorMatryoshka />
       <div style={{ flex: 1, position: 'relative', background: 'var(--paper-2)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', gap: 4, padding: '10px 16px', flexShrink: 0 }}>
           <ViewBtn label="Grafo" active={view === 'graph'} onClick={() => setView('graph')} />
@@ -179,42 +178,5 @@ ${doc.meta}`}
         </pre>
       </div>
     </div>
-  );
-}
-
-function CompetitorMatryoshka() {
-  const [open, setOpen] = React.useState<string | null>('Veo');
-  return (
-    <section style={{ margin: '12px 16px 0', border: '1px solid var(--line)', borderRadius: 'var(--r-l)', background: 'var(--surface)', overflow: 'hidden', flexShrink: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderBottom: '1px solid var(--line)' }}>
-        <Icon d={I.layers} size={13} style={{ color: 'var(--ink-4)' }} />
-        <span className="lp-mono" style={{ fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-3)', fontWeight: 600 }}>Concorrenti</span>
-        <Pill kind="n">{COMPETITORS_MATRYOSHKA.length}</Pill>
-      </div>
-      <div style={{ maxHeight: '30vh', overflow: 'auto' }}>
-        {COMPETITORS_MATRYOSHKA.map((c) => {
-          const isOpen = open === c.name;
-          return (
-            <div key={c.name} style={{ borderBottom: '1px solid var(--line)' }}>
-              <div onClick={() => setOpen(isOpen ? null : c.name)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', cursor: 'pointer' }}>
-                <Icon d={isOpen ? I.chevd : I.chevr} size={11} style={{ color: 'var(--ink-4)' }} />
-                <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: 'var(--ink-2)' }}>{c.name}</span>
-                <span style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>{c.categories.length} categorie</span>
-              </div>
-              {isOpen && (
-                <div style={{ padding: '0 14px 10px 30px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
-                  {c.categories.map((cat) => (
-                    <div key={cat.label}>
-                      <div className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-5)', letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 2 }}>{cat.label}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.4 }}>{cat.detail}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </section>
   );
 }
