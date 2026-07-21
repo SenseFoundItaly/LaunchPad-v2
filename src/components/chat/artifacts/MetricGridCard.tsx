@@ -36,7 +36,10 @@ export default function MetricGridCard({ artifact, onAction, defaultCollapsed }:
     updated[idx] = { ...updated[idx], value: editValue };
     setMetrics(updated);
     setEditingIdx(null);
-    onAction?.('metric-update', { metrics: updated });
+    // persisted_id targets the graph_node row this grid persisted as — the
+    // handler PATCHes it so the founder's corrected values survive refresh and
+    // are what Apply commits (not the agent's originals).
+    onAction?.('metric-update', { metrics: updated, persisted_id: artifact.persisted_id });
   }
 
   return (

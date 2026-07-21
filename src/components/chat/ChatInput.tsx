@@ -1,22 +1,26 @@
 'use client';
 
-import { useState, useRef, KeyboardEvent } from 'react';
+import { useRef, KeyboardEvent } from 'react';
+import { useDraft } from '@/hooks/useDraft';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  /** localStorage key for draft persistence (typed-but-unsent text survives
+   *  refresh). Omit to keep the composer purely in-memory. */
+  draftKey?: string;
 }
 
-export default function ChatInput({ onSend, disabled, placeholder = 'Type your message...' }: ChatInputProps) {
-  const [input, setInput] = useState('');
+export default function ChatInput({ onSend, disabled, placeholder = 'Type your message...', draftKey }: ChatInputProps) {
+  const [input, setInput, clearDraft] = useDraft(draftKey ?? null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSend = () => {
     const trimmed = input.trim();
     if (!trimmed || disabled) {return;}
     onSend(trimmed);
-    setInput('');
+    clearDraft();
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }

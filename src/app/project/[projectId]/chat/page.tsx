@@ -25,6 +25,7 @@ import { broadcastPersistedArtifacts } from '@/hooks/usePersistedArtifact';
 import { useStages } from '@/hooks/useStages';
 import { requestRecharge } from '@/components/credits/recharge-events';
 import { useProject } from '@/hooks/useProject';
+import { useDraft } from '@/hooks/useDraft';
 import { splitOptionLabel } from '@/components/chat/option-label';
 import { IdeaShapingQuickReplies } from '@/components/chat/IdeaShapingQuickReplies';
 import { parseMessageContent, normalizeCanvasJsonFences } from '@/lib/artifact-parser';
@@ -448,7 +449,9 @@ export default function CopilotChatPage({
   // (multi-thread routing was removed — see commit history).
   const step = 'chat';
   const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages } = useChat(projectId, step);
-  const [input, setInput] = useState('');
+  // Draft-persisted composer: typed-but-unsent text survives refresh/close
+  // (per-project localStorage; cleared on send).
+  const [input, setInput, clearDraft] = useDraft(`lp_chat_draft_${projectId}`);
   // Option-set selection memory (see OptionSelectionContext): which option the
   // founder picked per set, so a chosen set locks — saved, not clickable. First
   // pick wins (later clicks on the same set are ignored).
@@ -833,7 +836,7 @@ export default function CopilotChatPage({
     const v = input.trim();
     if (!v || isStreaming) return;
     sendMessage(v);
-    setInput('');
+    clearDraft();
   }
 
   /**
@@ -891,6 +894,34 @@ export default function CopilotChatPage({
           if (state === 'applied') {
             window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
           }
+        }
+        return;
+      }
+
+      // metric-update — the founder click-edited a metric value on a
+      // MetricGridCard. PATCH the persisted graph_node so the correction
+      // survives refresh and is what a later Apply commits (previously this
+      // action had no handler: edits were lost and Apply committed the
+      // agent's original values). No persisted_id → nothing to update
+      // server-side (persist failed at emit time); fail soft.
+      if (action === 'metric-update') {
+        const persistedId = String(payload.persisted_id ?? '');
+        const metrics = Array.isArray(payload.metrics) ? payload.metrics : [];
+        if (!persistedId || metrics.length === 0) return;
+        const res = await fetch(
+          `/api/projects/${projectId}/knowledge/${encodeURIComponent(persistedId)}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ metrics }),
+          },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `Metric update failed with status ${res.status}`);
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('lp-knowledge-changed', { detail: { projectId } }));
         }
         return;
       }
