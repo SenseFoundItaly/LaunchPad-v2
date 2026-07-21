@@ -14,7 +14,7 @@
  *   6. Acquisition channels identified
  *   7. Main cost & revenue sources
  *   8. Lean Canvas compiled
- *   9. Startup Scoring baseline (0-10)
+ *   9. Startup Scoring baseline (displayed 0-100 — the skill rubric's scale)
  * The two legacy length-based extras (solution_detailed ≥80 chars,
  * value_prop_sharp ≥30 chars) were dropped — not in the spec list.
  * Target & ICP here is the PRELIMINARY canvas assertion; Stage 3 (Persona)
@@ -38,11 +38,12 @@ const LEAN_CANVAS_BLOCKS: Array<{ label: string; filled: (c: NonNullable<Project
   { label: 'Revenue streams', filled: (c) => (c.revenue_streams?.length ?? 0) > 0 },
 ];
 
-/** scores.overall_score carries mixed scales: gauge-chart persists 0-10,
- *  the startup-scoring prose fallback persists 0-100. Normalize to the
- *  spec's 0-10 baseline for display. */
-export function baselineScore10(overall: number): number {
-  return overall > 10 ? overall / 10 : overall;
+/** scores.overall_score canon is the startup-scoring rubric's 0-100 scale,
+ *  but legacy rows (gauge-chart artifacts before the write-side normalization)
+ *  carry 0-10 values. Normalize for display — one scale everywhere, /100
+ *  (founder feedback 21/07: copilot said 6.8 while Home said /100). */
+export function baselineScore100(overall: number): number {
+  return overall <= 10 ? overall * 10 : overall;
 }
 
 export const stageIdeaValidation: Stage = {
@@ -154,14 +155,14 @@ export const stageIdeaValidation: Stage = {
     },
     {
       id: 'startup_scoring_baseline',
-      label: 'Startup Scoring baseline (0-10)',
+      label: 'Startup Scoring baseline (0-100)',
       source: 'scores.overall_score',
       evaluate: (s) => {
         // > 0: chat radar-chart/score-card artifacts insert junk 0-score rows;
         // a zero baseline must not green the check with no founder-run scoring.
         const overall = s.startup_score?.overall_score;
         return overall != null && overall > 0
-          ? { passed: true, evidence: `Baseline score: ${baselineScore10(overall).toFixed(1)}/10 — the reference for the whole cycle.` }
+          ? { passed: true, evidence: `Baseline score: ${Math.round(baselineScore100(overall))}/100 — the reference for the whole cycle.` }
           : { passed: false, gap: 'Run the Startup Scoring analysis to set your baseline' };
       },
     },

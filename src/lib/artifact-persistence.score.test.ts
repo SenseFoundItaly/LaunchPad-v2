@@ -60,7 +60,7 @@ describe('score-card / radar-chart — overall-score baseline fill', () => {
   const ctx = { userId: 'u1', projectId: 'p1' };
   beforeEach(() => { getMock.mockReset(); runMock.mockReset(); });
 
-  it('a baseline-titled score-card fills overall_score on INSERT (normalized to 0-10)', async () => {
+  it('a baseline-titled score-card fills overall_score on INSERT (0-100 canon)', async () => {
     getMock.mockResolvedValue(undefined);
     await persistArtifact(ctx, {
       type: 'score-card', id: 'a1', title: 'DeskMate — Baseline Startup Score',
@@ -68,7 +68,7 @@ describe('score-card / radar-chart — overall-score baseline fill', () => {
     } as unknown as Artifact);
     const [sql, , overall] = runMock.mock.calls[0];
     expect(String(sql)).toContain('INSERT INTO scores');
-    expect(overall).toBe(6.8);
+    expect(overall).toBe(68);
     // A real >0 baseline also lands in score_history.
     expect(String(runMock.mock.calls[1][0])).toContain('INSERT INTO score_history');
   });
@@ -81,7 +81,8 @@ describe('score-card / radar-chart — overall-score baseline fill', () => {
     } as unknown as Artifact);
     const [sql, , overall] = runMock.mock.calls[0];
     expect(String(sql)).toContain('overall_score = ?');
-    expect(overall).toBe(6.8);
+    // No declared maxScore + value ≤10 → read as the legacy 0-10 scale → 68.
+    expect(overall).toBe(68);
   });
 
   it('a per-dimension score-card still leaves overall_score untouched', async () => {
@@ -104,10 +105,10 @@ describe('score-card / radar-chart — overall-score baseline fill', () => {
     } as unknown as Artifact);
     const [sql, , overall] = runMock.mock.calls[0];
     expect(String(sql)).toContain('INSERT INTO scores');
-    expect(overall).toBe(7); // (6 + 8) / 2, fullMark-normalized to 0-10
+    expect(overall).toBe(70); // (60 + 80) / 2, fullMark-normalized to 0-100
   });
 
-  it('a non-baseline radar-chart still inserts overall_score = 0', async () => {
+  it('a non-baseline radar-chart inserts overall_score NULL (never a junk 0)', async () => {
     getMock.mockResolvedValue(undefined);
     await persistArtifact(ctx, {
       type: 'radar-chart', id: 'a1', title: 'Confronto competitor',
@@ -115,6 +116,6 @@ describe('score-card / radar-chart — overall-score baseline fill', () => {
       sources: [],
     } as unknown as Artifact);
     const [, , overall] = runMock.mock.calls[0];
-    expect(overall).toBe(0);
+    expect(overall).toBeNull();
   });
 });

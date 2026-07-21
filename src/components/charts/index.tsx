@@ -207,15 +207,21 @@ export function ScoreCard({ title, score, maxScore = 10, description, onChange, 
   const bg = pct >= 0.7 ? 'bg-moss/10 border-moss/30' : pct >= 0.5 ? 'bg-accent/10 border-accent/30' : 'bg-clay/10 border-clay/30';
   const barColor = pct >= 0.7 ? 'var(--moss)' : pct >= 0.5 ? 'var(--cat-gold)' : 'var(--clay)';
 
+  // Integer scales (the 0-100 rubric) read as "68", not "68.0"; the explicit
+  // "/ max" label keeps the scale unambiguous next to the 0-100 Home score
+  // (alpha feedback 21/07: an unlabeled 6.8 read as a different metric).
+  const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+
   return (
     <div className={`rounded-lg border p-3 ${bg}`}>
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs text-ink-4">{title}</span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-baseline gap-2">
           {originalScore !== undefined && originalScore !== displayScore && (
-            <span className="text-xs text-ink-6 line-through">{originalScore.toFixed(1)}</span>
+            <span className="text-xs text-ink-6 line-through">{fmt(originalScore)}</span>
           )}
-          <span className={`text-lg font-bold ${color}`}>{displayScore.toFixed(1)}</span>
+          <span className={`text-lg font-bold ${color}`}>{fmt(displayScore)}</span>
+          <span className="text-xs text-ink-5">/ {maxScore}</span>
         </div>
       </div>
       {description && <p className="text-[11px] text-ink-5">{description}</p>}

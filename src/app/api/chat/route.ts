@@ -303,8 +303,8 @@ CHART ARTIFACTS:
 radar-chart: :::artifact{"type":"radar-chart","id":"rdr_ID"}\n{"title":"...","data":[{"subject":"Market","value":8}],"sources":[...]}\n:::
 bar-chart: :::artifact{"type":"bar-chart","id":"bar_ID"}\n{"title":"...","data":[{"name":"Q1","value":50000}],"sources":[...]}\n:::
 pie-chart: :::artifact{"type":"pie-chart","id":"pie_ID"}\n{"title":"...","data":[{"name":"Us","value":30}],"sources":[...]}\n:::
-gauge-chart: :::artifact{"type":"gauge-chart","id":"gau_ID"}\n{"title":"...","score":7.5,"maxScore":10,"verdict":"GO","sources":[...]}\n:::
-score-card: :::artifact{"type":"score-card","id":"sc_ID"}\n{"title":"...","score":8.5,"maxScore":10,"description":"...","sources":[...]}\n:::
+gauge-chart: :::artifact{"type":"gauge-chart","id":"gau_ID"}\n{"title":"...","score":75,"maxScore":100,"verdict":"GO","sources":[...]}\n:::
+score-card: :::artifact{"type":"score-card","id":"sc_ID"}\n{"title":"...","score":85,"maxScore":100,"description":"...","sources":[...]}\n:::
 metric-grid: :::artifact{"type":"metric-grid","id":"mg_ID"}\n{"title":"...","metrics":[{"label":"MRR","value":"$12K","change":"+15%"}],"sources":[...]}\n:::
 sensitivity-slider: :::artifact{"type":"sensitivity-slider","id":"ss_ID"}\n{"title":"...","variables":[{"name":"retainer","min":4000,"max":15000,"value":8000,"unit":"$"}],"output":{"label":"Monthly","formula":"retainer * 0.15"}}\n:::  (sources optional)
 
@@ -314,7 +314,7 @@ fact: :::artifact{"type":"fact","id":"fact_ID"}\n{"fact":"...","kind":"decision"
 - Facts MUST have sources.
 
 USAGE RULES:
-1) gauge-chart for overall scores with GO/NO-GO/CAUTION verdict
+1) gauge-chart for overall scores with GO/NO-GO/CAUTION verdict. Score scales are ALWAYS 0-100 (maxScore:100) on gauge-chart, score-card, and radar-chart alike — the official scoring rubric's scale; never emit 0-10 scores (a 6.8/10 next to the 0-100 Home score reads as a contradiction to the founder).
 2) radar-chart for multi-dimension scoring
 3) bar-chart for comparisons and rankings
 4) score-card for individual dimension scores
