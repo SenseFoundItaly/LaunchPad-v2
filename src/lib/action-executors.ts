@@ -1819,12 +1819,19 @@ const applyValidationProposal: ActionHandler = async (action) => {
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'interview') {
       skippedNoOwner = true;
-    } else if ((it.kind === 'persona_fact' || it.kind === 'channel_fact') && ownerUserId) {
-      // Stage-3 prefill: write a keyword-bearing applied memory_fact so the
-      // icp_defined / channels_identified checks (which match memory_facts on
-      // ICP/channel keywords) green. Prefix guarantees the match regardless of
-      // the founder's phrasing. Founder-first (only on Apply).
-      const prefix = it.kind === 'persona_fact' ? 'Ideal customer profile — ' : 'Acquisition channel — ';
+    } else if ((it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact') && ownerUserId) {
+      // Stage-2/3 prefill: write a keyword-bearing applied memory_fact so the
+      // matching check (icp_defined / channels_identified / trends_assessed /
+      // buyer_persona_defined — all keyword-match memory_facts) greens. Prefix
+      // guarantees the match regardless of the founder's phrasing ('Market
+      // trend' and 'Buyer persona' are verbatim entries in the bilingual
+      // Stage-2 keyword lists). Founder-first (only on Apply).
+      const prefix =
+        it.kind === 'persona_fact' ? 'Ideal customer profile — ' :
+        it.kind === 'channel_fact' ? 'Acquisition channel — ' :
+        it.kind === 'trend_fact' ? 'Market trend — ' :
+        it.kind === 'differentiation_fact' ? 'Differentiator — ' :
+        'Buyer persona — ';
       await recordFact({
         userId: ownerUserId,
         projectId: action.project_id,
@@ -1832,9 +1839,13 @@ const applyValidationProposal: ActionHandler = async (action) => {
         kind: 'observation',
         sources: sources ?? undefined,
       });
-      applied.push(it.label || (it.kind === 'persona_fact' ? 'Ideal customer' : 'Acquisition channel'));
+      applied.push(it.label || (
+        it.kind === 'persona_fact' ? 'Ideal customer' :
+        it.kind === 'channel_fact' ? 'Acquisition channel' :
+        it.kind === 'trend_fact' ? 'Market trend' :
+        it.kind === 'differentiation_fact' ? 'Differentiation' : 'Buyer persona'));
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
-    } else if (it.kind === 'persona_fact' || it.kind === 'channel_fact') {
+    } else if (it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact') {
       skippedNoOwner = true;
     } else if (it.kind === 'pricing' && it.field) {
       // Stage-4 prefill: upsert one pricing_state column from the item's typed

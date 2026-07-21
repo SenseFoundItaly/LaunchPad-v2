@@ -45,6 +45,16 @@ export async function PUT(
       values.push(body[key]);
     }
   }
+  // settings is a shallow JSONB MERGE (never a replace) so independent flags —
+  // onboarding_dismissed, future prefs — can't clobber each other. Bind the
+  // RAW object; postgres.js serializes (pre-stringifying double-encodes).
+  if ('settings' in body) {
+    if (!body.settings || typeof body.settings !== 'object' || Array.isArray(body.settings)) {
+      return error('settings must be an object');
+    }
+    fields.push(`settings = COALESCE(settings, '{}'::jsonb) || ?`);
+    values.push(body.settings);
+  }
   if (fields.length === 0) {return error('No fields to update');}
 
   fields.push('updated_at = ?');

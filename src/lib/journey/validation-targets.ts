@@ -21,11 +21,12 @@
  */
 
 import { STAGES } from './index';
-import { MARKET_SIZE_CHECK_SOURCE, TECH_1B_SOURCES } from './stage-2-market-validation';
+import { MARKET_SIZE_CHECK_SOURCE, TECH_1B_SOURCES, MARKET_1A_SOURCES, DIFFERENTIATION_CHECK_SOURCE } from './stage-2-market-validation';
 
 export type ValidationItemKind =
   | 'canvas_field' | 'competitor' | 'market_size_fact' | 'tech_fact' | 'interview'
-  | 'persona_fact' | 'channel_fact' | 'pricing';
+  | 'persona_fact' | 'channel_fact' | 'pricing'
+  | 'trend_fact' | 'buyer_persona_fact' | 'differentiation_fact';
 
 /** The pricing_state column a `pricing` item fills (Stage-4 Business Model). */
 export type PricingField = 'anchor_price' | 'tiers' | 'wtp' | 'model' | 'unit_econ';
@@ -83,6 +84,17 @@ function sourceKeysFor(kind: ValidationItemKind, field?: string): string[] {
       // interviews-logged check; the verbatim-pain / WTP checks read the same
       // rows once 1A+1B unlock 1C (the lock is on the check, not the data).
       return ['interviews'];
+    case 'trend_fact':
+      // Stage 2 trends_assessed reads memory_facts matching trend keywords.
+      // Imported constant = the check's source string, drift-proof.
+      return [MARKET_1A_SOURCES.trends];
+    case 'buyer_persona_fact':
+      // Stage 2 buyer_persona_defined (preliminary sketch — distinct from the
+      // Stage 3 persona_fact / icp_defined deep persona).
+      return [MARKET_1A_SOURCES.persona];
+    case 'differentiation_fact':
+      // Stage 2 differentiation_evidence (chat retro-sweep staging).
+      return [DIFFERENTIATION_CHECK_SOURCE];
     case 'persona_fact':
       // Stage 3 icp_defined reads memory_facts matching ICP keywords.
       return ['memory_facts (ICP)'];

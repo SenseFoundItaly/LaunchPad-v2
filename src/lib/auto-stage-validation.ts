@@ -67,6 +67,9 @@ function buildItems(raw: RawItem[]) {
           : r.kind === 'interview' ? `Interview — ${r.name ?? 'logged'}`
           : r.kind === 'persona_fact' ? 'Ideal customer'
           : r.kind === 'channel_fact' ? 'Acquisition channel'
+          : r.kind === 'trend_fact' ? 'Market trend'
+          : r.kind === 'buyer_persona_fact' ? 'Buyer persona'
+          : r.kind === 'differentiation_fact' ? 'Differentiation'
           : r.kind === 'pricing' ? (PRICING_LABELS[r.field ?? ''] ?? 'Pricing')
           : 'Market size',
         value: r.value,
@@ -146,10 +149,13 @@ export function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
   }
   // pricing: one slot per pricing_state column (anchor_price / tiers / wtp / model).
   if (b.kind === 'pricing') return a.field === b.field;
-  // persona_fact / channel_fact: ADDITIVE facts, never a shared slot (a founder
-  // can have several channels; distinct values coexist, exact dupes are caught
-  // by the allStagedAlready value check upstream).
-  if (b.kind === 'persona_fact' || b.kind === 'channel_fact') return false;
+  // persona_fact / channel_fact / trend_fact: ADDITIVE facts, never a shared
+  // slot (a founder can have several channels/trends; distinct values coexist,
+  // exact dupes are caught by the allStagedAlready value check upstream).
+  // buyer_persona_fact: ONE preliminary sketch slot — a re-run reshapes it.
+  if (b.kind === 'persona_fact' || b.kind === 'channel_fact' || b.kind === 'trend_fact') return false;
+  // One preliminary sketch/statement slot each — a re-stage reshapes it.
+  if (b.kind === 'buyer_persona_fact' || b.kind === 'differentiation_fact') return true;
   return b.kind === 'market_size_fact'; // only market_size has one sizing slot
 }
 
@@ -312,8 +318,12 @@ export async function stageMarketSizeProposal(
  *  checks, so either language closes the gate), and keeps the fact text in the
  *  project language. */
 const TECH_FINDING_PREFIX = {
-  en: { feasibility: 'Technical feasibility', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance' },
-  it: { feasibility: 'Fattibilità tecnica', dependencies: 'Dipendenze chiave', regulatory: 'Vincoli normativi / compliance' },
+  // The feasibility prefix carries BOTH split-check keywords ('technical risk' /
+  // 'rischio tecnico'): the one feasibility finding targets build_approach AND
+  // technical_risk_named, and the prefix guarantees both close even when the
+  // model's section text words the risk differently.
+  en: { feasibility: 'Technical feasibility & main technical risk', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance' },
+  it: { feasibility: 'Fattibilità tecnica e rischio tecnico principale', dependencies: 'Dipendenze chiave', regulatory: 'Vincoli normativi / compliance' },
 } as const;
 
 export function extractTechnicalFindings(

@@ -54,6 +54,14 @@ land where the gate's 1A checks read them:
   `differentiation_evidence` check keyword-matches applied facts: state the edge with
   explicit comparative phrasing ("unlike X…", "better than Y because…", "compared to Z…")
   so the applied card actually closes the check.
+- **Trends → insight-card with a keyword-bearing body.** The `trends_assessed` check
+  keyword-matches applied facts: state each trend's direction with explicit phrasing
+  ("tailwind", "headwind", "market trend", IT: "trend di mercato", "vento a favore/contrario")
+  so the applied card from §3 (Market Trends) actually closes the check.
+- **Buyer persona → insight-card with a keyword-bearing body.** The `buyer_persona_defined`
+  check keyword-matches applied facts: name who buys with explicit phrasing ("buyer persona",
+  "decision maker", "purchase trigger", IT: "chi decide l'acquisto", "criteri di scelta") so
+  the applied card from §5 (Customer Insights) actually closes the check.
 
 Nothing turns a gate check green without the founder's approval — the artifacts above are
 the approval surface, not a bypass.

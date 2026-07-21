@@ -17,7 +17,7 @@ const FULL_CANVAS: Canvas = {
   problem: 'Founders build the wrong thing first',
   solution: 'A staged validation pipeline',
   target_market: 'Solo pre-seed founders',
-  value_proposition: 'Validate before you build',
+  value_proposition: 'Pre-seed founders validate demand before building anything',
   competitive_advantage: 'Multi-stage scoring',
   unfair_advantage: 'Agent that learns the project',
   business_model: 'SaaS subscription',
@@ -97,6 +97,15 @@ describe('Stage 1 — Idea Canvas (L2 Phase-0 step list)', () => {
     const { eval: e } = stage1(mkSnapshot({ canvas: FULL_CANVAS, score: 6.5 }));
     expect(e.passed).toBe(9);
     expect(e.status).toBe('done');
+  });
+
+  it('value prop has a triviality floor — a one-word default stays RED', () => {
+    const short = stage1(mkSnapshot({ canvas: { value_proposition: 'Faster and cheaper' } }));
+    expect(short.byId.value_prop).toBe(false);
+    const real = stage1(mkSnapshot({
+      canvas: { value_proposition: 'Pre-seed founders validate demand before building anything' },
+    }));
+    expect(real.byId.value_prop).toBe(true);
   });
 
   it('target & ICP is a Stage-1 preliminary check (canvas presence)', () => {
