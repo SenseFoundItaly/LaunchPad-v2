@@ -177,6 +177,10 @@
 }
 .lp-flash { animation: lp-flash-bg 1.2s ease-out; border-radius: var(--r-m); }
 
+/* Canvas enrichment — a field that just got populated/updated rises in with a
+   brief accent wash, so the founder SEES the canvas being enriched. */
+.lp-enrich { animation: lp-flash-bg 1.4s ease-out, lp-rise .45s ease-out; border-radius: var(--r-m); }
+
 /* Credit deduction feedback: when a turn charges the balance, the chip pops
    (zoom in → land → zoom out, driven imperatively via WAAPI in CreditsBadge)
    and a small "−N" delta floats up and fades, so the spend is legible. */
@@ -201,7 +205,7 @@
 /* Accessibility — honour reduced-motion: drop non-essential motion (entrance,
    caret blink, ambient pulses, deltas). Functional state transitions stay. */
 @media (prefers-reduced-motion: reduce) {
-  .lp-rise, .lp-caret, .lp-credit-delta, .lp-flash, .lp-pulse { animation: none !important; }
+  .lp-rise, .lp-caret, .lp-credit-delta, .lp-flash, .lp-pulse, .lp-enrich { animation: none !important; }
   .lp-scan::after { animation: none !important; }
 }
 
