@@ -9,7 +9,7 @@
 
 import * as React from 'react';
 import { Icon, I, Pill } from '@/components/design/primitives';
-import { EcoGraph, EcoLegend, ECO_NODE_COUNT, ECO_EDGE_COUNT } from '../chrome';
+import { EcoGraph, EcoLegend, DemoNodeDetailPanel, ECO_NODE_COUNT, ECO_EDGE_COUNT, type EcoEntity } from '../chrome';
 import {
   KNOWLEDGE_SUMMARY, KNOWLEDGE_GROUPS, COMPETITORS_MATRYOSHKA, MOVES, DATA_ROOM, DATA_ROOM_FOOT,
   type KnowledgeRow,
@@ -65,10 +65,13 @@ function ViewBtn({ label, active, onClick }: { label: string; active: boolean; o
 }
 
 function GraphView() {
+  const [detail, setDetail] = React.useState<EcoEntity | null>(null);
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ flex: 1, minHeight: 360, padding: '0 16px' }}>
-        <EcoGraph height={440} />
+      {/* position:relative so the detail panel can overlay the graph's right edge */}
+      <div style={{ flex: 1, minHeight: 360, padding: '0 16px', position: 'relative', overflow: 'hidden' }}>
+        <EcoGraph height={440} onNodeClick={setDetail} selectedLabel={detail?.label} />
+        <DemoNodeDetailPanel node={detail} onClose={() => setDetail(null)} onSelectNeighbor={setDetail} />
       </div>
       <div style={{ borderTop: '1px solid var(--line)', background: 'var(--surface)' }}>
         <EcoLegend />
