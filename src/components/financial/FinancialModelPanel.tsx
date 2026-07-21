@@ -21,19 +21,36 @@ import {
   type FinancialAssumptions,
 } from '@/lib/financial-projection';
 import { buildFinancialExport } from '@/lib/financial-export';
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 import type { ApiResponse } from '@/types';
 
-type FieldDef = { key: keyof FinancialAssumptions; label: string; suffix?: string; step?: number };
+// Labels/suffixes are i18n keys, resolved via useT() at render — the whole
+// Financials page shipped hardcoded EN on Italian projects (alpha feedback
+// 21/07). Literal suffixes ('€', '%') are locale-neutral and stay inline.
+type FieldDef = { key: keyof FinancialAssumptions; label: MessageKey; suffix?: MessageKey | '€' | '%'; step?: number };
 const FIELDS: FieldDef[] = [
-  { key: 'starting_cash', label: 'Starting cash', suffix: '€' },
-  { key: 'monthly_opex', label: 'Monthly opex', suffix: '€/mo' },
-  { key: 'arpu_monthly', label: 'ARPU', suffix: '€/mo' },
-  { key: 'gross_margin_pct', label: 'Gross margin', suffix: '%' },
-  { key: 'initial_customers', label: 'Starting customers' },
-  { key: 'new_customers_m1', label: 'New customers / mo (month 1)' },
-  { key: 'monthly_growth_rate_pct', label: 'Acquisition growth', suffix: '%/mo' },
-  { key: 'monthly_churn_rate_pct', label: 'Monthly churn', suffix: '%' },
-  { key: 'horizon_months', label: 'Horizon', suffix: 'months' },
+  { key: 'starting_cash', label: 'fin.f-starting-cash', suffix: '€' },
+  { key: 'monthly_opex', label: 'fin.f-monthly-opex', suffix: 'fin.sfx-eur-month' },
+  { key: 'arpu_monthly', label: 'fin.f-arpu', suffix: 'fin.sfx-eur-month' },
+  { key: 'gross_margin_pct', label: 'fin.f-gross-margin', suffix: '%' },
+  { key: 'initial_customers', label: 'fin.f-starting-customers' },
+  { key: 'new_customers_m1', label: 'fin.f-new-customers' },
+  { key: 'monthly_growth_rate_pct', label: 'fin.f-growth', suffix: 'fin.sfx-pct-month' },
+  { key: 'monthly_churn_rate_pct', label: 'fin.f-churn', suffix: '%' },
+  { key: 'horizon_months', label: 'fin.f-horizon', suffix: 'fin.sfx-months' },
+];
+
+// Scenario display names by engine key — the engine's own `label` stays EN.
+const SCENARIO_KEY: Record<string, MessageKey> = {
+  base: 'fin.scenario-base',
+  optimistic: 'fin.scenario-optimistic',
+  pessimistic: 'fin.scenario-pessimistic',
+};
+
+const TABLE_HEADERS: MessageKey[] = [
+  'fin.th-mo', 'fin.th-new', 'fin.th-churn', 'fin.th-customers', 'fin.th-mrr', 'fin.th-revenue',
+  'fin.th-cogs', 'fin.th-opex', 'fin.th-burn', 'fin.th-cash', 'fin.th-runway',
 ];
 
 function money(n: number, cur = 'EUR'): string {
@@ -52,6 +69,7 @@ interface FinancialModelResponse {
 
 export default function FinancialModelPanel({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
+  const t = useT();
   const [assumptions, setAssumptions] = useState<FinancialAssumptions>(defaultAssumptions());
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -142,7 +160,7 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center flex-1 text-ink-5 text-sm">Loading financial model…</div>;
+    return <div className="flex items-center justify-center flex-1 text-ink-5 text-sm">{t('fin.loading')}</div>;
   }
 
   const baseMonths = model.scenarios.find((s) => s.key === 'base')!.monthly_projections;
@@ -151,25 +169,23 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
     <div className="lp-rise flex-1 overflow-y-auto p-6">
       <div className="max-w-5xl mx-auto" data-tour="financial-model">
         <div className="flex items-center gap-3 mb-1">
-          <h3 className="text-lg font-semibold text-ink">Financial projections</h3>
-          <span className="text-[11px] text-ink-5">36-month · 3-scenario · recomputes live as you edit</span>
+          <h3 className="text-lg font-semibold text-ink">{t('fin.title')}</h3>
+          <span className="text-[11px] text-ink-5">{t('fin.subtitle')}</span>
         </div>
-        <p className="text-xs text-ink-4 mb-2">
-          Edit the assumptions — projections update instantly. <b>Save</b> persists them; <b>Download</b> opens in Excel/Sheets.
-        </p>
+        <p className="text-xs text-ink-4 mb-2">{t('fin.hint')}</p>
         {Object.keys(provenance).length > 0 && !savedAt && (
-          <p className="text-[11px] text-accent mb-6">
-            ↳ Seeded from your project (see tagged fields below) — review and Save to lock them in.
-          </p>
+          <p className="text-[11px] text-accent mb-6">{t('fin.seeded')}</p>
         )}
 
         {/* Editable assumptions */}
         <div className="bg-paper border border-line rounded-xl p-4 mb-6">
-          <div className="text-xs text-ink-4 uppercase tracking-wider mb-3">Assumptions</div>
+          <div className="text-xs text-ink-4 uppercase tracking-wider mb-3">{t('fin.assumptions')}</div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {FIELDS.map((f) => (
+            {FIELDS.map((f) => {
+              const suffix = f.suffix === '€' || f.suffix === '%' ? f.suffix : f.suffix ? t(f.suffix) : '';
+              return (
               <label key={f.key} className="flex flex-col gap-1">
-                <span className="text-[11px] text-ink-4">{f.label}{f.suffix ? ` (${f.suffix})` : ''}</span>
+                <span className="text-[11px] text-ink-4">{t(f.label)}{suffix ? ` (${suffix})` : ''}</span>
                 <input
                   type="number"
                   value={String(assumptions[f.key] as number)}
@@ -182,7 +198,8 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
                   </span>
                 )}
               </label>
-            ))}
+              );
+            })}
           </div>
           <div className="flex items-center gap-3 mt-4">
             <button
@@ -191,16 +208,16 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
               disabled={saving}
               className="text-xs px-3 py-1.5 bg-ink text-paper rounded-md disabled:opacity-50"
             >
-              {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+              {saving ? t('fin.saving') : dirty ? t('fin.save') : t('fin.saved')}
             </button>
             <button
               type="button"
               onClick={download}
               className="text-xs px-3 py-1.5 bg-paper-3 hover:bg-paper-2 text-ink-2 rounded-md"
             >
-              Download CSV
+              {t('fin.download')}
             </button>
-            {savedAt && !dirty && <span className="text-[11px] text-ink-5">saved</span>}
+            {savedAt && !dirty && <span className="text-[11px] text-ink-5">{t('fin.saved-tag')}</span>}
           </div>
         </div>
 
@@ -210,13 +227,13 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
             const y3 = s.year_summaries[s.year_summaries.length - 1];
             return (
               <div key={s.key} className="bg-paper border border-line rounded-xl p-4">
-                <div className="text-xs text-ink-4 uppercase tracking-wider mb-2">{s.label}</div>
-                <div className="text-2xl font-bold text-ink">{money(y3?.arr ?? 0, cur)}<span className="text-sm font-medium text-ink-4"> ARR (Y{y3?.year ?? 3})</span></div>
+                <div className="text-xs text-ink-4 uppercase tracking-wider mb-2">{SCENARIO_KEY[s.key] ? t(SCENARIO_KEY[s.key]) : s.label}</div>
+                <div className="text-2xl font-bold text-ink">{money(y3?.arr ?? 0, cur)}<span className="text-sm font-medium text-ink-4"> {t('fin.arr-y', { y: y3?.year ?? 3 })}</span></div>
                 <div className="mt-2 space-y-1 text-[12px] text-ink-3">
-                  <div>Breakeven: <span className="text-ink">{s.breakeven_month ? `month ${s.breakeven_month}` : 'beyond horizon'}</span></div>
-                  <div>Peak cash need: <span className="text-ink">{money(s.peak_cash_need, cur)}</span></div>
-                  <div>Ending cash: <span className="text-ink">{money(s.ending_cash, cur)}</span></div>
-                  <div>End customers: <span className="text-ink">{(y3?.ending_customers ?? 0).toLocaleString()}</span></div>
+                  <div>{t('fin.breakeven')} <span className="text-ink">{s.breakeven_month ? t('fin.month-n', { n: s.breakeven_month }) : t('fin.beyond-horizon')}</span></div>
+                  <div>{t('fin.peak-cash')} <span className="text-ink">{money(s.peak_cash_need, cur)}</span></div>
+                  <div>{t('fin.ending-cash')} <span className="text-ink">{money(s.ending_cash, cur)}</span></div>
+                  <div>{t('fin.end-customers')} <span className="text-ink">{(y3?.ending_customers ?? 0).toLocaleString()}</span></div>
                 </div>
               </div>
             );
@@ -225,13 +242,13 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
 
         {/* Base monthly table */}
         <div className="bg-paper border border-line rounded-xl overflow-hidden">
-          <div className="text-xs text-ink-4 uppercase tracking-wider px-4 py-3 border-b border-line">Base scenario — monthly</div>
+          <div className="text-xs text-ink-4 uppercase tracking-wider px-4 py-3 border-b border-line">{t('fin.base-monthly')}</div>
           <div className="overflow-x-auto max-h-[420px]">
             <table className="w-full text-[12px]">
               <thead className="sticky top-0 bg-surface-sunk text-ink-4">
                 <tr>
-                  {['Mo', 'New', 'Churn', 'Customers', 'MRR', 'Revenue', 'COGS', 'Opex', 'Net burn', 'Cash', 'Runway'].map((h) => (
-                    <th key={h} className="text-right font-medium px-3 py-2 whitespace-nowrap first:text-left">{h}</th>
+                  {TABLE_HEADERS.map((h) => (
+                    <th key={h} className="text-right font-medium px-3 py-2 whitespace-nowrap first:text-left">{t(h)}</th>
                   ))}
                 </tr>
               </thead>
@@ -248,7 +265,7 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
                     <td className="text-right px-3 py-1.5 text-ink-5">{money(r.opex, cur)}</td>
                     <td className={`text-right px-3 py-1.5 ${r.net_burn > 0 ? 'text-clay' : 'text-moss'}`}>{money(r.net_burn, cur)}</td>
                     <td className={`text-right px-3 py-1.5 ${r.cash_remaining < 0 ? 'text-clay' : 'text-ink'}`}>{money(r.cash_remaining, cur)}</td>
-                    <td className="text-right px-3 py-1.5 text-ink-4">{r.runway_months === null ? '∞' : `${r.runway_months}mo`}</td>
+                    <td className="text-right px-3 py-1.5 text-ink-4">{r.runway_months === null ? '∞' : `${r.runway_months}${t('fin.mo-suffix')}`}</td>
                   </tr>
                 ))}
               </tbody>

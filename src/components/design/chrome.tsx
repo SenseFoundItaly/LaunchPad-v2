@@ -53,6 +53,7 @@ export interface TopBarProps {
 }
 
 export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
+  const t = useT();
   return (
     <div
       style={{
@@ -121,7 +122,7 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
             (no per-route re-fetch). The title-wrapping span keeps the
             tooltip in chrome.tsx without touching CreditsBadge itself. */}
         {projectId && (
-          <span title="Credits — your project's monthly budget">
+          <span title={t('credits.chip-tooltip')}>
             <CreditsBadge projectId={projectId} />
           </span>
         )}

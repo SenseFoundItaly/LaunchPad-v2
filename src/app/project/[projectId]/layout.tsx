@@ -32,10 +32,13 @@ import { asLocale } from '@/lib/i18n/locales';
  */
 
 // Fallback breadcrumb tail by route segment, used until (or if) a page publishes
-// its own via useSetChrome — avoids a one-frame blank on first paint.
-const FALLBACK_CRUMB: Record<string, string> = {
-  today: 'Home', actions: 'Inbox', knowledge: 'Knowledge', chat: 'Co-pilot', usage: 'Usage',
-};
+// its own via useSetChrome — avoids a one-frame blank on first paint. Resolved
+// through the nav.* i18n keys so the pre-paint crumb matches the project locale
+// (a hardcoded EN 'Knowledge' flashed on Italian projects).
+const FALLBACK_CRUMB_KEYS = {
+  today: 'nav.home', actions: 'nav.inbox', knowledge: 'nav.knowledge',
+  chat: 'nav.copilot', usage: 'nav.usage', financial: 'nav.financial',
+} as const;
 
 export default function ProjectLayout({
   children,
@@ -117,9 +120,11 @@ function ProjectChrome({
   const seg = pathname.split('/')[3] ?? ''; // /project/<id>/<seg>
   const { count: inboxBadge } = useOpenActionCount(projectId);
   const chrome = useChromeState();
+  const t = useT();
 
+  const fallbackKey = FALLBACK_CRUMB_KEYS[seg as keyof typeof FALLBACK_CRUMB_KEYS];
   const breadcrumb =
-    chrome.breadcrumb ?? ['Project', FALLBACK_CRUMB[seg] ?? projectName ?? ''];
+    chrome.breadcrumb ?? [t('fin.breadcrumb-project'), fallbackKey ? t(fallbackKey) : projectName ?? ''];
 
   return (
     <div className="lp-frame">
