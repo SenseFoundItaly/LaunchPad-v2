@@ -15,11 +15,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { TopBar } from '@/components/design/chrome';
 import { Icon, I, Pill, StatusBar } from '@/components/design/primitives';
-import type { IconKey } from '@/components/design/icons';
+import { BinocularsGlyph, RobotGlyph, RailTooltip, useRailHover, type IconKey } from '@/components/design/icons';
 import {
   MACRO_CATEGORY_ORDER, MACRO_CATEGORY_COLOR, MACRO_CATEGORY_LABEL, NODE_COLORS, macroCategoryFor,
   nodeTypeLabel, type MacroCategory,
 } from '@/types/graph';
+import { THEME_COOKIE } from '@/lib/theme';
 
 // -----------------------------------------------------------------------------
 // Nav config — one entry per demo page
@@ -29,6 +30,8 @@ type NavEntry = {
   id: string;
   href: string;
   iconKey: IconKey;
+  /** Optional custom glyph (overrides iconKey) for icons not in the shared set. */
+  icon?: React.ReactNode;
   label: string;
   breadcrumb: string;
   badge?: number;
@@ -36,6 +39,9 @@ type NavEntry = {
   streaming?: boolean;
   status: { heartbeatLabel: string; gateway: string; ctxLabel: string };
 };
+
+// Custom rail glyphs (binoculars → Osservatori, robot → Co-pilot) live in the
+// shared design/icons module so the real NavRail + this demo replica stay in sync.
 
 const PRIMARY: NavEntry[] = [
   {
@@ -46,7 +52,7 @@ const PRIMARY: NavEntry[] = [
 
 const CHANNELS: NavEntry[] = [
   {
-    id: 'inbox', href: '/demo/inbox', iconKey: 'tickets', label: 'Osservatori', breadcrumb: 'Osservatori',
+    id: 'inbox', href: '/demo/inbox', iconKey: 'tickets', icon: <BinocularsGlyph />, label: 'Osservatori', breadcrumb: 'Osservatori',
     badge: 4, badgeTone: 'alert',
     status: { heartbeatLabel: 'heartbeat · ultima scansione 2 ore fa', gateway: 'demo · dati simulati', ctxLabel: '4 proposte da rivedere' },
   },
@@ -62,7 +68,7 @@ const CHANNELS: NavEntry[] = [
     status: { heartbeatLabel: 'heartbeat · modello ricalcolato', gateway: 'demo · dati simulati', ctxLabel: 'runway 14 mesi' },
   },
   {
-    id: 'chat', href: '/demo/chat', iconKey: 'chat', label: 'Co-pilot', breadcrumb: 'Co-pilot',
+    id: 'chat', href: '/demo/chat', iconKey: 'chat', icon: <RobotGlyph />, label: 'Co-pilot', breadcrumb: 'Co-pilot',
     streaming: true,
     status: { heartbeatLabel: 'heartbeat · co-pilot pronto', gateway: 'demo · dati simulati', ctxLabel: 'build #12 live · 4 campagne' },
   },
@@ -158,40 +164,36 @@ export function DemoNavRail() {
       <div aria-hidden style={{ width: 28, height: 1, background: 'var(--line)', margin: '6px 0', flexShrink: 0 }} />
       {CHANNELS.map((e) => <RailItem key={e.id} e={e} active={active === e.id} />)}
       <div style={{ flex: 1, minHeight: 6 }} />
-      <div
-        title="Demo — account di esempio"
-        style={{
-          flexShrink: 0, width: 28, height: 28, borderRadius: 14, background: 'var(--ink)', color: 'var(--paper)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600,
-          fontFamily: 'var(--f-mono)', marginTop: 6,
-        }}
-      >
-        ML
-      </div>
+      {/* Light/dark theme toggle — same mechanism as the real NavRail ThemeToggle
+          (toggles the token-driven theme-ink/dark class on <html>, cookie-persisted). */}
+      <DemoThemeToggle />
+      <AccountChip />
     </div>
   );
 }
 
 function RailItem({ e, active }: { e: NavEntry; active: boolean }) {
   const isCount = e.badgeTone === 'count';
+  const { hover, bind } = useRailHover();
   return (
     <Link
       href={e.href}
-      title={e.label}
+      aria-label={e.label}
+      {...bind}
       style={{
-        width: 42, padding: '8px 0', borderRadius: 'var(--r-m)', cursor: 'pointer',
+        width: 42, height: 38, borderRadius: 'var(--r-m)', cursor: 'pointer',
         background: active ? 'var(--surface)' : 'transparent',
         boxShadow: active ? 'inset 0 0 0 1px var(--line)' : 'none',
         color: active ? 'var(--ink)' : 'var(--ink-4)',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
         textDecoration: 'none', position: 'relative',
       }}
     >
-      <Icon d={I[e.iconKey]} size={15} stroke={1.3} />
+      {e.icon ?? <Icon d={I[e.iconKey]} size={17} stroke={1.35} />}
       {typeof e.badge === 'number' && e.badge > 0 && (
         <span
           style={{
-            position: 'absolute', top: 4, right: 4, minWidth: 14, height: 14, borderRadius: 7,
+            position: 'absolute', top: 3, right: 5, minWidth: 14, height: 14, borderRadius: 7,
             background: isCount ? 'var(--paper-3)' : 'var(--clay)',
             color: isCount ? 'var(--ink-4)' : 'var(--on-accent)',
             border: isCount ? '1px solid var(--line)' : 'none',
@@ -203,12 +205,74 @@ function RailItem({ e, active }: { e: NavEntry; active: boolean }) {
         </span>
       )}
       {e.streaming && (
-        <span className="lp-dot lp-pulse" style={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, background: 'var(--accent)' }} />
+        <span className="lp-dot lp-pulse" style={{ position: 'absolute', top: 5, right: 6, width: 6, height: 6, background: 'var(--accent)' }} />
       )}
-      <span style={{ fontSize: 9, fontFamily: 'var(--f-mono)', letterSpacing: -0.2, textTransform: 'uppercase' }}>
-        {e.label}
-      </span>
+      <RailTooltip label={e.label} show={hover} />
     </Link>
+  );
+}
+
+// Icon-only theme toggle for the demo rail. Re-implements the real ThemeToggle's
+// mechanism (add/remove theme-ink + dark on <html>, persist THEME_COOKIE) without
+// the LocaleProvider label dependency, so it stays self-contained + icon-only.
+function DemoThemeToggle() {
+  const [dark, setDark] = React.useState(true);
+  const { hover, bind } = useRailHover();
+  React.useEffect(() => {
+    setDark(document.documentElement.classList.contains('theme-ink'));
+  }, []);
+  function toggle() {
+    const el = document.documentElement;
+    const goingLight = el.classList.contains('theme-ink');
+    if (goingLight) el.classList.remove('theme-ink', 'dark');
+    else el.classList.add('theme-ink', 'dark');
+    document.cookie = `${THEME_COOKIE}=${goingLight ? 'light' : 'dark'}; path=/; max-age=31536000; samesite=lax`;
+    setDark(!goingLight);
+  }
+  const label = dark ? 'Tema chiaro' : 'Tema scuro';
+  return (
+    <button
+      onClick={toggle}
+      aria-label={label}
+      {...bind}
+      style={{
+        flexShrink: 0, width: 42, height: 38, borderRadius: 'var(--r-m)', cursor: 'pointer',
+        background: 'transparent', border: 'none', color: 'var(--ink-4)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
+      }}
+    >
+      {dark ? (
+        // Sun — click to go light.
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+        </svg>
+      ) : (
+        // Moon — click to go dark.
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+        </svg>
+      )}
+      <RailTooltip label={label} show={hover} />
+    </button>
+  );
+}
+
+function AccountChip() {
+  const { hover, bind } = useRailHover();
+  return (
+    <div {...bind} style={{ position: 'relative', flexShrink: 0, marginTop: 6 }}>
+      <div
+        style={{
+          width: 28, height: 28, borderRadius: 14, background: 'var(--ink)', color: 'var(--paper)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600,
+          fontFamily: 'var(--f-mono)', cursor: 'default',
+        }}
+      >
+        ML
+      </div>
+      <RailTooltip label="Demo — account di esempio" show={hover} />
+    </div>
   );
 }
 
