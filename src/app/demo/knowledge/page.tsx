@@ -9,9 +9,9 @@
 
 import * as React from 'react';
 import { Icon, I, Pill } from '@/components/design/primitives';
-import { EcoGraph, EcoLegend, DemoNodeDetailPanel, ECO_NODE_COUNT, ECO_EDGE_COUNT, type EcoEntity } from '../chrome';
+import { EcoGraph, EcoLegend, DemoNodeDetailPanel, DataRoomView, ECO_NODE_COUNT, ECO_EDGE_COUNT, type EcoEntity } from '../chrome';
 import {
-  KNOWLEDGE_SUMMARY, KNOWLEDGE_GROUPS, MOVES, DATA_ROOM, DATA_ROOM_FOOT,
+  KNOWLEDGE_SUMMARY, KNOWLEDGE_GROUPS, MOVES,
   type KnowledgeRow,
 } from '../mock';
 
@@ -136,47 +136,5 @@ function MovesView() {
   );
 }
 
-function DataRoomView() {
-  const [sel, setSel] = React.useState(0);
-  const doc = DATA_ROOM[sel];
-  return (
-    <div style={{ height: '100%', display: 'grid', gridTemplateColumns: '340px 1fr' }}>
-      <div style={{ borderRight: '1px solid var(--line)', overflow: 'auto', background: 'var(--surface)' }}>
-        <div className="lp-mono" style={{ fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-5)', padding: '10px 14px', borderBottom: '1px solid var(--line)' }}>Data room · {DATA_ROOM.length}</div>
-        {DATA_ROOM.map((d, i) => (
-          <div key={d.name} onClick={() => setSel(i)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--line)', cursor: 'pointer', background: i === sel ? 'var(--accent-wash)' : 'transparent' }}>
-            <Icon d={I[d.icon]} size={13} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11.5, color: 'var(--ink-2)', fontWeight: 500 }}>{d.name}</div>
-              <div style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>{d.meta}</div>
-            </div>
-            <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}>{d.version}</span>
-          </div>
-        ))}
-        <div style={{ padding: '8px 14px', fontSize: 10.5, color: 'var(--ink-5)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Icon d={I.users} size={12} style={{ color: 'var(--ink-4)' }} />{DATA_ROOM_FOOT}
-        </div>
-      </div>
-      <div style={{ overflow: 'auto', padding: '16px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{doc.name}</h3>
-          <Pill kind="n">{doc.version}</Pill>
-          <span style={{ flex: 1 }} />
-          <Icon d={I.edit} size={14} style={{ color: 'var(--ink-4)' }} />
-          <Icon d={I.download} size={14} style={{ color: 'var(--ink-4)' }} />
-          <Icon d={I.printer} size={14} style={{ color: 'var(--ink-4)' }} />
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--ink-5)', marginBottom: 12 }}>{doc.meta}</div>
-        <pre className="lp-mono" style={{ margin: 0, fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.6, whiteSpace: 'pre-wrap', background: 'var(--paper-2)', border: '1px solid var(--line)', borderRadius: 'var(--r-m)', padding: '12px 14px' }}>
-{`# ${doc.name}  ${doc.version}
-
-Documento generato da LaunchPad per MatchLens.
-Anteprima demo — il contenuto reale è indicizzato nel grafo Conoscenza
-e alimenta le skill del co-pilot.
-
-${doc.meta}`}
-        </pre>
-      </div>
-    </div>
-  );
-}
+// DataRoomView lives in ../chrome — shared with the TopBar docs drawer
+// (DemoDocsButton) so both surfaces render the same static Data Room.
