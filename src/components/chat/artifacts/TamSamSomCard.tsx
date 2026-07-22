@@ -1,16 +1,18 @@
 'use client';
 
 import type { TamSamSomArtifact, MarketSizeTier } from '@/types/artifacts';
+import type { MessageKey } from '@/lib/i18n/messages';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 
 interface TamSamSomCardProps {
   artifact: TamSamSomArtifact;
 }
 
-const CONFIDENCE_LABEL: Record<NonNullable<MarketSizeTier['confidence']>, string> = {
-  low:    'Low confidence',
-  medium: 'Medium confidence',
-  high:   'High confidence',
+const CONFIDENCE_KEY: Record<NonNullable<MarketSizeTier['confidence']>, MessageKey> = {
+  low:    'tss.confidence-low',
+  medium: 'tss.confidence-medium',
+  high:   'tss.confidence-high',
 };
 
 /**
@@ -43,6 +45,7 @@ function tierRadiusPercent(tam?: number, sam?: number, som?: number): { tam: num
 }
 
 function Tier({ label, tier, className }: { label: string; tier: MarketSizeTier; className?: string }) {
+  const t = useT();
   return (
     <div className={`flex flex-col gap-0.5 ${className || ''}`}>
       <div className="flex items-baseline gap-2">
@@ -50,7 +53,7 @@ function Tier({ label, tier, className }: { label: string; tier: MarketSizeTier;
         <span className="text-sm font-semibold text-ink">{tier.value}</span>
         {tier.confidence && (
           <span className="text-[10px] text-ink-5 font-mono">
-            {CONFIDENCE_LABEL[tier.confidence]}
+            {t(CONFIDENCE_KEY[tier.confidence])}
           </span>
         )}
       </div>
@@ -62,6 +65,7 @@ function Tier({ label, tier, className }: { label: string; tier: MarketSizeTier;
 }
 
 export default function TamSamSomCard({ artifact }: TamSamSomCardProps) {
+  const t = useT();
   const radii = tierRadiusPercent(
     artifact.tam.numeric_usd,
     artifact.sam.numeric_usd,
@@ -70,7 +74,7 @@ export default function TamSamSomCard({ artifact }: TamSamSomCardProps) {
 
   return (
     <ArtifactCardShell
-      typeLabel="Market Size"
+      typeLabel={t('tss.type-market-size')}
       title={artifact.title}
       sources={artifact.sources}
       provenance={artifact.provenance}
@@ -102,9 +106,9 @@ export default function TamSamSomCard({ artifact }: TamSamSomCardProps) {
           <Tier label="SOM" tier={artifact.som} />
           {(artifact.timeframe || artifact.market_share_implied) && (
             <div className="text-xs text-ink-4 pt-1 border-t border-line-2">
-              {artifact.timeframe && <>Timeframe: {artifact.timeframe}</>}
+              {artifact.timeframe && <>{t('tss.timeframe')}{artifact.timeframe}</>}
               {artifact.timeframe && artifact.market_share_implied && ' · '}
-              {artifact.market_share_implied && <>Implied share: {artifact.market_share_implied}</>}
+              {artifact.market_share_implied && <>{t('tss.implied-share')}{artifact.market_share_implied}</>}
             </div>
           )}
         </div>
