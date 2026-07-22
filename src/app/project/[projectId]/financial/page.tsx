@@ -15,7 +15,7 @@ export default function FinancialPage({
   useSetChrome(
     {
       breadcrumb: [t('fin.breadcrumb-project'), t('fin.breadcrumb-financials')],
-      status: { heartbeatLabel: 'financials', gateway: 'projection-engine' },
+      status: { heartbeatLabel: t('fin.heartbeat-label'), gateway: 'projection-engine' },
     },
     [t],
   );
