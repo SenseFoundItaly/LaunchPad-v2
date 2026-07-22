@@ -20,10 +20,11 @@
  *   - 'validation:dismiss' { pending_action_id }
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ValidationProposalArtifact, ValidationProposalItem } from '@/types/artifacts';
 import ArtifactCardShell from './ArtifactCardShell';
 import { useT } from '@/components/providers/LocaleProvider';
+import { useResolvedActionStatus } from '@/hooks/useResolvedActionStatus';
 
 interface ValidationProposalCardProps {
   artifact: ValidationProposalArtifact;
@@ -44,6 +45,20 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [edits, setEdits] = useState<Record<string, ItemEdit>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Reload guard: if this proposal was already resolved on a prior turn, mount
+  // in the resolved state instead of a clickable "Apply" the founder already
+  // acted on (a re-click would silently no-op and drop any inline edits). Only
+  // seeds from the untouched initial 'active' state — an in-session apply/skip
+  // owns the state from there. 'failed' stays active on purpose (retry).
+  const resolved = useResolvedActionStatus(artifact.pending_action_id);
+  useEffect(() => {
+    if (resolved === 'applied' || resolved === 'sent') {
+      setState((s) => (s === 'active' ? 'applied' : s));
+    } else if (resolved === 'rejected') {
+      setState((s) => (s === 'active' ? 'dismissed' : s));
+    }
+  }, [resolved]);
 
   const items = Array.isArray(artifact.items) ? artifact.items : [];
 

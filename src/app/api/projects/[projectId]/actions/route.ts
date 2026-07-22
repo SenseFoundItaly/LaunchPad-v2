@@ -46,10 +46,16 @@ export async function GET(
   const limit = limitParam ? parseInt(limitParam, 10) : 50;
   if (Number.isNaN(limit)) return error('Invalid limit');
 
+  // materialize=false → skip the read-time proposal materialization (which only
+  // ever creates PENDING rows). Callers that only want RESOLVED statuses
+  // (useResolvedActionStatus, fired on every inline card mount) pass this to
+  // keep the fetch a pure read instead of a write on every card.
+  const materialize = url.searchParams.get('materialize') !== 'false';
+
   // Per-call fallbacks: one failing query shouldn't 500 the whole inbox
   // (clients read summary with optional chaining, so null degrades cleanly).
   const [actions, summary] = await Promise.all([
-    listPendingActions({ project_id: projectId, status, limit }).catch((err) => {
+    listPendingActions({ project_id: projectId, status, limit, materialize }).catch((err) => {
       console.error('[actions] listPendingActions failed:', err);
       return [];
     }),

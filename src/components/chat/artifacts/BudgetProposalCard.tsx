@@ -15,13 +15,14 @@
  *   - 'budget:dismiss' { pending_action_id }
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { BudgetProposalArtifact } from '@/types/artifacts';
 import SourcesFooter from './SourcesFooter';
 import ArtifactCardShell from './ArtifactCardShell';
 import UnifiedReviewControls from './UnifiedReviewControls';
 import type { MessageKey } from '@/lib/i18n/messages';
 import { useT } from '@/components/providers/LocaleProvider';
+import { useResolvedActionStatus } from '@/hooks/useResolvedActionStatus';
 
 interface BudgetProposalCardProps {
   artifact: BudgetProposalArtifact;
@@ -47,6 +48,17 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
   const [serverError, setServerError] = useState<string | null>(null);
   const [editCap, setEditCap] = useState<string>(artifact.proposed_cap_usd.toFixed(2));
   const [capError, setCapError] = useState<string | null>(null);
+
+  // Reload guard — see useResolvedActionStatus. Seeds only from the untouched
+  // 'collapsed' state; 'failed' stays actionable for retry.
+  const resolved = useResolvedActionStatus(artifact.pending_action_id);
+  useEffect(() => {
+    if (resolved === 'applied' || resolved === 'sent') {
+      setState((s) => (s === 'collapsed' ? 'applied' : s));
+    } else if (resolved === 'rejected') {
+      setState((s) => (s === 'collapsed' ? 'dismissed' : s));
+    }
+  }, [resolved]);
 
   const delta = artifact.proposed_cap_usd - artifact.current_cap_usd;
   const directionKey: MessageKey = delta > 0 ? 'bprop.increase' : delta < 0 ? 'bprop.decrease' : 'bprop.no-change';
