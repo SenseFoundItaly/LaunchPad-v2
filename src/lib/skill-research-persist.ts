@@ -315,6 +315,10 @@ export async function persistResearchFromSkillOutput(
   {
     const skillSources = Array.isArray(sources) ? (sources as Source[]) : [];
     const raw: RawValidationItem[] = [];
+    // Resolve locale ONCE for this staging block (persona + differentiation
+    // both need it). Structural infixes go in the project language; the
+    // keyword that closes each check is the executor's verbatim prefix.
+    const it = (await resolveLocale('', projectId).catch(() => 'en')) === 'it';
     for (const t of (trends as ResearchObj[]).slice(0, 3)) {
       const name = str(t?.name);
       if (!name) continue;
@@ -337,7 +341,6 @@ export async function persistResearchFromSkillOutput(
         // 'criteri di scelta' / 'trigger di acquisto' are verbatim entries in
         // the bilingual BUYER_PERSONA_KEYWORDS list, so the keyword match that
         // closes the check is preserved in both languages.
-        const it = (await resolveLocale('', projectId).catch(() => 'en')) === 'it';
         const value = [
           buyer,
           user && user !== buyer ? `${it ? 'Utente quotidiano' : 'Daily user'}: ${user}` : '',
@@ -347,6 +350,31 @@ export async function persistResearchFromSkillOutput(
         raw.push({ kind: 'buyer_persona_fact', value, sources: skillSources });
       }
     }
+
+    // Differentiation (Stage-2 1A differentiation_evidence) — the ONE 1A check
+    // with no deterministic staging: it depended on the model emitting a
+    // comparative insight-card or the chat retro-sweep firing, so a clean
+    // market-research run left it red while trends + persona greened (the gate
+    // felt "parziale"). Stage a differentiation_fact from the competitor
+    // weaknesses the skill JUST found — the opening the founder differentiates
+    // into — mirroring trends/persona. Founder-first (pending → Apply); the
+    // executor's 'Differentiator — '/'Differenziazione — ' prefix carries the
+    // keyword that closes the check.
+    const rivals = (competitors as ResearchObj[])
+      .map((c) => ({
+        name: str(c?.name ?? c?.competitor ?? c?.company),
+        weak: asArray(c?.weaknesses ?? c?.key_weaknesses).map(str).filter(Boolean).slice(0, 2),
+      }))
+      .filter((c) => c.name && c.weak.length > 0)
+      .slice(0, 3);
+    if (rivals.length > 0) {
+      const parts = rivals.map((c) => `${c.name} (${c.weak.join(', ')})`).join('; ');
+      const value = it
+        ? `Rispetto a ${parts} — questi sono i punti deboli dei concorrenti su cui differenziarsi.`
+        : `Compared to ${parts} — these competitor gaps are where you differentiate.`;
+      raw.push({ kind: 'differentiation_fact', value, sources: skillSources });
+    }
+
     if (raw.length > 0) {
       await stageValidationItemsFromRaw(projectId, raw, 'market-research skill').catch((err) =>
         console.warn('[skill-research-persist] trends/persona proposal failed (non-fatal):', (err as Error).message));
