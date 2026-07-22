@@ -19,6 +19,7 @@ import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { useT } from '@/components/providers/LocaleProvider';
 import { ScoreCard } from '@/components/charts';
+import ScoreTrajectory from '@/components/charts/ScoreTrajectory';
 import { band, normalizeDimensions, to100 } from '@/lib/score-display';
 import type { ScoreCardArtifact } from '@/types/artifacts';
 
@@ -61,11 +62,12 @@ export default function BaselineScoreCard({ artifact }: { artifact: ScoreCardArt
 
   return (
     <div className="my-1">
-      {/* Headline: score / 100 + qualitative band */}
+      {/* Headline: score / 100 + qualitative band + trajectory sparkline */}
       <div className="flex items-baseline gap-2">
         <span className="lp-serif text-3xl leading-none text-ink">{overall}</span>
         <span className="text-sm text-ink-5">/ 100</span>
         <span className="lp-mono text-xs tracking-wide" style={{ color: b.color }}>{t(b.key)}</span>
+        <span className="ml-auto self-center"><ScoreTrajectory projectId={projectId} /></span>
       </div>
 
       {/* Per-dimension breakdown — same bars as Home's ScorePanel */}

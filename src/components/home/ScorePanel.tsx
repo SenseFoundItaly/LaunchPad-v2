@@ -22,6 +22,7 @@ import { useT } from '@/components/providers/LocaleProvider';
 import { useStages } from '@/hooks/useStages';
 import { stageLabel } from '@/lib/journey-prompts';
 import { band, normalizeDimensions, to100 } from '@/lib/score-display';
+import ScoreTrajectory from '@/components/charts/ScoreTrajectory';
 
 interface ScoreResp {
   overall_score: number | null;
@@ -128,6 +129,7 @@ export function ScorePanel({ projectId }: { projectId: string }) {
                 <span className="lp-serif" style={{ fontSize: 30, lineHeight: 1, color: 'var(--ink)' }}>{overall}</span>
                 <span style={{ fontSize: 13, color: 'var(--ink-5)' }}>/ 100</span>
                 <span className="lp-mono" style={{ fontSize: 10, color: band(overall).color, letterSpacing: 0.3 }}>{t(band(overall).key)}</span>
+                <span style={{ marginLeft: 'auto', alignSelf: 'center' }}><ScoreTrajectory projectId={projectId} /></span>
               </div>
               {dims.length > 0 && (
                 <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>

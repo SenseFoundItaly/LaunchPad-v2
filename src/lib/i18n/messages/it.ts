@@ -106,6 +106,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'score.project-score': 'Score del progetto',
   'score.not-scored': 'Non ancora valutato — parte in automatico man mano che completi le fasi.',
   'score.band-strong': 'forte',
+  'score.trajectory-tooltip': '{count} punteggi · {delta} complessivo',
   'score.band-promising': 'promettente',
   'score.band-caution': 'attenzione',
   'score.band-weak': 'debole',

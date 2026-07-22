@@ -112,6 +112,7 @@ export const en = {
   'score.project-score': 'Project score',
   'score.not-scored': 'Not scored yet — runs automatically as you complete stages.',
   'score.band-strong': 'strong',
+  'score.trajectory-tooltip': '{count} scores · {delta} overall',
   'score.band-promising': 'promising',
   'score.band-caution': 'caution',
   'score.band-weak': 'weak',
