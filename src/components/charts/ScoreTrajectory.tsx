@@ -45,7 +45,9 @@ export default function ScoreTrajectory({ projectId }: { projectId: string }) {
   const color = up ? 'var(--moss)' : 'var(--clay)';
 
   // Sparkline geometry — small, fixed box; y inverted (SVG origin top-left).
-  const W = 56, H = 16, pad = 1.5;
+  // pad leaves room for the endpoint dot (r) so nothing paints outside the box
+  // (the SVG clips to its bounds — no overflow:visible spilling past the card).
+  const W = 56, H = 16, pad = 2.5;
   const lo = Math.min(...pts), hi = Math.max(...pts);
   const span = hi - lo || 1;
   const coords = pts.map((v, i) => {
@@ -55,8 +57,8 @@ export default function ScoreTrajectory({ projectId }: { projectId: string }) {
   });
 
   return (
-    <span className="inline-flex items-center gap-1.5" title={t('score.trajectory-tooltip', { count: pts.length, delta: `${up ? '+' : ''}${delta}` })}>
-      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden style={{ overflow: 'visible' }}>
+    <span className="inline-flex items-center gap-1.5 shrink-0" title={t('score.trajectory-tooltip', { count: pts.length, delta: `${up ? '+' : ''}${delta}` })}>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden>
         <polyline
           points={coords.join(' ')}
           fill="none"
