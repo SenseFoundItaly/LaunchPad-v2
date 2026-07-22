@@ -11,9 +11,12 @@ import { Icon, I, Panel, Pill, MetricTile, type PillKind } from '@/components/de
 import type { IconKey } from '@/components/design/icons';
 import { EcoGraph, EcoLegend } from './chrome';
 import {
-  PROJECT, HEADLINE_METRICS, SCORE, STAGES, GATE_TRACKS, LOOPS, ACTIVITY,
+  PROJECT, HEADLINE_METRICS, SCORE, SPINE, GATE_TRACKS, LOOPS, ACTIVITY,
   WATCHERS, INTEL_ALERT, INBOX, FOOTER_NOTE, type Verdict,
 } from './mock';
+
+// Verdict → pill colour, shared by the spine's inline loops and the loop timeline.
+const VERDICT_PILL: Record<Verdict, PillKind> = { GO: 'ok', PIVOT: 'warn', STOP: 'warn', 'LAUNCH READY': 'live' };
 
 // =============================================================================
 // Header — greeting + project identity + headline metrics
@@ -97,69 +100,108 @@ export function ScoreSection() {
 // =============================================================================
 
 export function SpineSection() {
+  const phases = SPINE.filter((n) => n.kind === 'phase').length;
+  const loops = SPINE.filter((n) => n.kind === 'loop').length;
   return (
     <Panel
-      title="La Spina — 7 stage"
-      subtitle="35 verifiche documentate · nulla si sblocca senza il sì del founder"
-      right={<Pill kind="ok" dot>6/7 validati</Pill>}
+      title={`La Spina — ${phases} fasi macro + ${loops} loop`}
+      subtitle="1 modulo trasversale · loop di iterazione nelle transizioni critiche · nulla si sblocca senza il sì del founder"
+      right={<Pill kind="live" dot>Loop 4 · Launch Ready</Pill>}
     >
-      <div style={{ padding: '12px 14px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
-          {STAGES.map((s) => (
-            <div
-              key={s.n}
-              style={{
-                border: '1px solid var(--line)', borderRadius: 'var(--r-m)',
-                background: s.active ? 'var(--accent-wash)' : s.done ? 'var(--moss-wash)' : 'var(--paper-2)',
-                padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 5,
-              }}
-            >
-              <div className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-5)', letterSpacing: 0.4 }}>FASE {s.n}</div>
-              <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.2 }}>{s.label}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--ink-4)' }}>
-                {s.done ? (
-                  <><Icon d={I.check} size={11} stroke={2} style={{ color: 'var(--moss)' }} />validato</>
-                ) : (
-                  <><span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />attivo</>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div style={{ marginTop: 12, border: '1px solid var(--line)', borderRadius: 'var(--r-m)', background: 'var(--surface)', padding: '10px 12px' }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 600 }}>Stage 2 · Validation Gate</span>
-            <span style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>1A e 1B in parallelo · 1C si sblocca dopo</span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-            {GATE_TRACKS.map((track) => (
-              <div key={track.id}>
-                <div className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-4)', letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 6 }}>{track.label}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {track.checks.map((c) => (
-                    <div key={c.text} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                      <Icon d={I.check} size={11} stroke={2} style={{ color: 'var(--moss)', flexShrink: 0, marginTop: 2 }} />
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{c.text}</div>
-                        <div style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>{c.proof}</div>
-                      </div>
-                    </div>
-                  ))}
+      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+        {SPINE.map((node, i) => {
+          // ── Macro phase (0-4) — the prominent row ──────────────────────────
+          if (node.kind === 'phase') {
+            return (
+              <React.Fragment key={i}>
+                <div
+                  style={{
+                    border: '1px solid var(--line)', borderRadius: 'var(--r-m)',
+                    background: node.active ? 'var(--accent-wash)' : node.done ? 'var(--moss-wash)' : 'var(--paper-2)',
+                    padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 11,
+                  }}
+                >
+                  <div className="lp-mono" style={{ fontSize: 14, fontWeight: 700, color: node.active ? 'var(--accent-ink)' : 'var(--ink-4)', minWidth: 16, textAlign: 'center' }}>{node.n}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.2 }}>{node.label}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--ink-5)', marginTop: 2 }}>{node.sub}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--ink-4)', flexShrink: 0 }}>
+                    {node.done ? (
+                      <><Icon d={I.check} size={12} stroke={2} style={{ color: 'var(--moss)' }} />validato</>
+                    ) : (
+                      <><span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />attivo</>
+                    )}
+                  </div>
                 </div>
+                {node.expanded && <GateExpanded />}
+              </React.Fragment>
+            );
+          }
+          // ── Cross-cutting module — indented, accent-dashed connector ────────
+          if (node.kind === 'module') {
+            return (
+              <div key={i} style={{ marginLeft: 20, borderLeft: '2px dashed var(--accent)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}>
+                <Icon d={I.layers} size={13} stroke={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)' }}>{node.label}</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-5)' }}>{node.sub}</div>
+                </div>
+                {node.done && <Icon d={I.check} size={12} stroke={2} style={{ color: 'var(--moss)', flexShrink: 0 }} />}
               </div>
-            ))}
-          </div>
-        </div>
+            );
+          }
+          // ── Iteration loop — indented, sits in the transition ──────────────
+          return (
+            <div key={i} style={{ marginLeft: 20, borderLeft: '2px solid var(--line-2)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}>
+              <Icon d={I.history} size={13} stroke={1.6} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)' }}>{node.label}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-5)' }}>{node.sub}</div>
+              </div>
+              <Pill kind={VERDICT_PILL[node.verdict]}>{node.verdict}</Pill>
+            </div>
+          );
+        })}
       </div>
     </Panel>
+  );
+}
+
+// The Validation Gate's expanded evidence (1A ∥ 1B → 1C) — rendered inline
+// under phase 1 in the spine timeline.
+function GateExpanded() {
+  return (
+    <div style={{ marginLeft: 20, border: '1px solid var(--line)', borderRadius: 'var(--r-m)', background: 'var(--surface)', padding: '10px 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 600 }}>Fase 1 · Validation Gate</span>
+        <span style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>1A e 1B in parallelo · 1C si sblocca dopo</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        {GATE_TRACKS.map((track) => (
+          <div key={track.id}>
+            <div className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-4)', letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 6 }}>{track.label}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {track.checks.map((c) => (
+                <div key={c.text} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                  <Icon d={I.check} size={11} stroke={2} style={{ color: 'var(--moss)', flexShrink: 0, marginTop: 2 }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{c.text}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>{c.proof}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
 // =============================================================================
 // Loop timeline — Loops 1-4 with verdicts
 // =============================================================================
-
-const VERDICT_PILL: Record<Verdict, PillKind> = { GO: 'ok', PIVOT: 'warn', STOP: 'warn', 'LAUNCH READY': 'live' };
 
 export function LoopTimeline() {
   return (

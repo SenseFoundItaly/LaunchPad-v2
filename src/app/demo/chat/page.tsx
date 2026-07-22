@@ -53,7 +53,7 @@ function ChatColumn() {
           <span className="lp-serif" style={{ fontSize: 20, fontWeight: 400 }}>MatchLens</span>
           <span className="lp-dot lp-pulse" style={{ background: 'var(--moss)' }} />
         </div>
-        <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)', marginTop: 2 }}>In operate · crescita post-launch</div>
+        <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)', marginTop: 2 }}>MVP Release & Launch · crescita post-launch</div>
       </div>
       <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', padding: '16px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         {CHAT_MESSAGES.map((m, i) => m.role === 'user' ? <UserMsg key={i} body={m.body} /> : <AiMsg key={i} agent={m.agent} body={m.body} tools={m.tools} />)}

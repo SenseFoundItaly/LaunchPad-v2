@@ -16,8 +16,8 @@
 export const PROJECT = {
   name: 'MatchLens',
   tagline: 'Analisi video AI per club sportivi dilettantistici',
-  stagePill: 'Operate · attivo',
-  irl: 'IRL 7/7',
+  stagePill: '4 · MVP Release & Launch',
+  irl: 'IRL 5/5',
   age: '9 mesi',
 };
 
@@ -28,15 +28,26 @@ export const HEADLINE_METRICS = [
   { label: 'Runway', value: '14 mesi', delta: 'pre-seed €350k', spark: [], kind: 'n' as const },
 ];
 
-// The 7 canonical stages (labels verbatim from src/lib/journey/canonical.ts).
-export const STAGES = [
-  { n: 1, label: 'Idea Canvas', done: true },
-  { n: 2, label: 'Validation Gate', done: true, expanded: true },
-  { n: 3, label: 'Persona', done: true },
-  { n: 4, label: 'Business Model', done: true },
-  { n: 5, label: 'Build & Launch', done: true },
-  { n: 6, label: 'Fundraise', done: true },
-  { n: 7, label: 'Operate', done: false, active: true },
+// The revised flow architecture (founder 2026-07-22): 5 macro phases (0-4) +
+// 1 cross-cutting module + 4 iteration loops in the critical transitions. The
+// loops sit BETWEEN the phases; the Modulo Trasversale (Financial & Pitch
+// Assets) opens after Loop 1 and is mandatory pre-launch.
+export type SpineNode =
+  | { kind: 'phase'; n: number; label: string; sub: string; done: boolean; active?: boolean; expanded?: boolean }
+  | { kind: 'loop'; label: string; sub: string; verdict: Verdict }
+  | { kind: 'module'; label: string; sub: string; done: boolean };
+
+export const SPINE: SpineNode[] = [
+  { kind: 'phase', n: 0, label: 'Idea Canvas', sub: 'Struttura l’idea grezza · Lean Canvas + Startup Score baseline', done: true },
+  { kind: 'phase', n: 1, label: 'Validation Gate', sub: 'Market + Technical + Problem-Solution Fit · watcher attivati', done: true, expanded: true },
+  { kind: 'loop', label: 'Loop 1 · PSF Review', sub: 'trigger: score < 6/10 o WTP < 30% · max 2 iterazioni', verdict: 'GO' },
+  { kind: 'phase', n: 2, label: 'Business Essentials', sub: 'Business Model · unit economics · financial draft', done: true },
+  { kind: 'loop', label: 'Loop 2 · BM Stress Test', sub: 'trigger: LTV/CAC < 3× o score < 6/10 · max 2 iterazioni', verdict: 'GO' },
+  { kind: 'module', label: 'Modulo Trasversale · Financial & Pitch Assets', sub: 'attivabile dopo Loop 1 · obbligatorio pre-lancio', done: true },
+  { kind: 'phase', n: 3, label: 'Build & Test Sandbox', sub: 'Landing page · demo · warm users testing', done: true },
+  { kind: 'loop', label: 'Loop 3 · Market Response Review', sub: 'trigger: conversion < 5% o score < 6/10 · max 2 iterazioni', verdict: 'GO' },
+  { kind: 'phase', n: 4, label: 'MVP Release & Launch', sub: 'Build + Launch + Testing con cold & warm users', done: false, active: true },
+  { kind: 'loop', label: 'Loop 4 · MVP Test Verdict', sub: 'trigger: activation < 20% o score < 6/10 · verdetto finale', verdict: 'LAUNCH READY' },
 ];
 
 // Expanded evidence checks for the Validation Gate stage (1A ∥ 1B → 1C).
@@ -220,7 +231,7 @@ export const INBOX = [
 
 export const FOOTER_NOTE =
   'Questa è una demo statica della visione completa di LaunchPad su un progetto di esempio. ' +
-  'In produzione: la spina a 7 stage con 35 controlli di evidenza, le 19 skill e il Loop 1 (PSF Review). ' +
+  'In produzione: la spina a 5 fasi macro + 4 loop di iterazione con 35 controlli di evidenza, le 19 skill e il Loop 1 (PSF Review). ' +
   'In staging: Build Hub (agenti che iterano l’MVP) e Launch Pipeline (campagne, email, ads, misurazione). ' +
   'Loop 2-4 completano la roadmap. Naviga la barra a sinistra per esplorare tutte le pagine.';
 
@@ -241,7 +252,7 @@ export const SCORE = {
   ],
   recommendation:
     'Trazione solida e unit economics sane. Prossima leva: allargare i canali oltre le federazioni per ridurre il rischio di concentrazione.',
-  irl: { level: 7, of: 7, stage: 'Operate' },
+  irl: { level: 5, of: 5, stage: 'MVP Release & Launch' },
 };
 
 // =============================================================================
@@ -425,7 +436,7 @@ export const KNOWLEDGE_GROUPS: Array<{ kind: string; label: string; edge: string
   {
     kind: 'entity', label: 'Entità', edge: 'var(--sky)',
     rows: [
-      { title: 'MatchLens — la startup', summary: 'Vende telecamere AI turnkey ai club dilettantistici. Fase Operate, 38 club paganti, MRR €4.2k.', prov: 'verified', age: '9 mesi fa' },
+      { title: 'MatchLens — la startup', summary: 'Vende telecamere AI turnkey ai club dilettantistici. Fase MVP Release & Launch, 38 club paganti, MRR €4.2k.', prov: 'verified', age: '9 mesi fa' },
       { title: 'App MatchLens — il prodotto', summary: 'Web app + camera: registrazione, tagging eventi AI, clip automatiche, condivisione con le famiglie.', prov: 'derived', age: '6 mesi fa' },
       { title: 'Mercato calcio dilettantistico EU', summary: 'Club giovanili e amatoriali con budget federazione. Frammentato e sottoservito dagli strumenti pro.', prov: 'verified', age: '3 mesi fa' },
       { title: 'Federazioni regionali — canale', summary: 'Canale di acquisizione primario: 4 federazioni partner, 60% dei signup passa da qui.', prov: 'verified', age: '2 mesi fa' },
