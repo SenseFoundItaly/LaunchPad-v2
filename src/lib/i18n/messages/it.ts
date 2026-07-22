@@ -529,7 +529,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'chat.commit-failed': 'salvataggio non riuscito — tocca per riprovare',
   'chat.run-with-credits': 'Esegui',
   'chat.skill-running-note': 'In esecuzione in tempo reale — al termine registra le prove di validazione.',
-  'chat.skill-done-note': 'Analisi eseguita — preparazione e spine aggiornate.',
+  'chat.skill-done-note': 'Analisi eseguita — preparazione e spina dorsale aggiornate.',
   'chat.skill-incomplete-note': 'Questa analisi non ha prodotto un risultato utilizzabile — servono più dettagli sul tuo progetto. Aggiungi qualche informazione e riprova.',
   'chat.skill-locked-hint': 'Definisci prima la soluzione e la value proposition per sbloccare questa analisi.',
   // Canvas pannello destro (riga riepilogo conoscenza / intelligence + stati).
@@ -1109,7 +1109,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'val.label-competitor': 'Concorrente',
   'val.label-market-size': 'Dimensione del mercato',
   'val.proposal-title': 'Prove di validazione — {count} elemento/i',
-  'val.proposal-title-gated': ', {gated} passaggi della spine',
+  'val.proposal-title-gated': ', {gated} passaggi della spina dorsale',
 
   // ── i18n gap audit 21/07 — staged validation labels (batch D) ─────
   'avs.tech-feasibility': 'Fattibilità tecnica',
@@ -1223,12 +1223,12 @@ export const it: Partial<Record<MessageKey, string>> = {
   // Card proposta di validazione (ValidationProposalCard.tsx)
   'vp.type-label': 'Validazione',
   'vp.title': 'Valida le prove',
-  'vp.validated-onto-spine': 'Validato sulla tua spine:',
+  'vp.validated-onto-spine': 'Validato sulla tua spina dorsale:',
   'vp.items-one': '1 elemento',
   'vp.items-other': '{count} elementi',
-  'vp.skipped': 'Saltato — niente è finito sulla tua spine.',
-  'vp.framing-upload': 'Dal tuo documento — approva ciò che finisce sulla tua spine.',
-  'vp.framing-chat': 'Approva ciò che finisce sulla tua spine — niente è validato senza il tuo sì.',
+  'vp.skipped': 'Saltato — niente è finito sulla tua spina dorsale.',
+  'vp.framing-upload': 'Dal tuo documento — approva ciò che finisce sulla tua spina dorsale.',
+  'vp.framing-chat': 'Approva ciò che finisce sulla tua spina dorsale — niente è validato senza il tuo sì.',
   'vp.undo': 'ripristina',
   'vp.validates': 'valida {target}',
   'vp.competitor-name-placeholder': 'Nome del concorrente',
