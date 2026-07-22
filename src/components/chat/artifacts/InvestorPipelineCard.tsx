@@ -1,6 +1,8 @@
 'use client';
 
 import type { InvestorPipelineArtifact, InvestorEntry, InvestorStage } from '@/types/artifacts';
+import type { MessageKey } from '@/lib/i18n/messages';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 
 interface InvestorPipelineCardProps {
@@ -9,13 +11,13 @@ interface InvestorPipelineCardProps {
 
 const STAGE_ORDER: InvestorStage[] = ['target', 'contacted', 'meeting', 'interested', 'committed', 'passed'];
 
-const STAGE_LABEL: Record<InvestorStage, string> = {
-  target:     'Target',
-  contacted:  'Contacted',
-  meeting:    'Meeting',
-  interested: 'Interested',
-  committed:  'Committed',
-  passed:     'Passed',
+const STAGE_KEY: Record<InvestorStage, MessageKey> = {
+  target:     'pipe.stage-target',
+  contacted:  'pipe.stage-contacted',
+  meeting:    'pipe.stage-meeting',
+  interested: 'pipe.stage-interested',
+  committed:  'pipe.stage-committed',
+  passed:     'pipe.stage-passed',
 };
 
 const STAGE_COLOR: Record<InvestorStage, string> = {
@@ -35,6 +37,7 @@ function formatCheck(amount?: number): string {
 }
 
 function InvestorCard({ investor }: { investor: InvestorEntry }) {
+  const t = useT();
   // Compose the "Next" line as one string so we can hover-title the full
   // text when truncated. Dates rendered with `whitespace-nowrap` so
   // `2026-06-25` never breaks across lines char-by-char.
@@ -70,7 +73,7 @@ function InvestorCard({ investor }: { investor: InvestorEntry }) {
           // word-spacing via min-w-0 so the parent can shrink properly.
           style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
         >
-          <span className="text-ink-5">Next: </span>
+          <span className="text-ink-5">{t('pipe.next')}</span>
           {investor.next_step}
           {investor.next_step_date && (
             <span className="text-ink-5 whitespace-nowrap"> · {investor.next_step_date}</span>
@@ -82,6 +85,7 @@ function InvestorCard({ investor }: { investor: InvestorEntry }) {
 }
 
 export default function InvestorPipelineCard({ artifact }: InvestorPipelineCardProps) {
+  const t = useT();
   const byStage = new Map<InvestorStage, InvestorEntry[]>();
   for (const stage of STAGE_ORDER) byStage.set(stage, []);
   for (const inv of artifact.investors) {
@@ -98,7 +102,7 @@ export default function InvestorPipelineCard({ artifact }: InvestorPipelineCardP
 
   return (
     <ArtifactCardShell
-      typeLabel="Pipeline"
+      typeLabel={t('pipe.type-pipeline')}
       title={artifact.title}
       sources={artifact.sources}
       aiGenerated
@@ -111,18 +115,18 @@ export default function InvestorPipelineCard({ artifact }: InvestorPipelineCardP
           {artifact.round_target && (
             <span className="text-ink-3">
               <span className="font-semibold text-ink">{formatCheck(committed)}</span>
-              <span className="text-ink-5"> committed</span>
+              <span className="text-ink-5">{t('pipe.committed')}</span>
               {interested > 0 && (
                 <>
                   <span className="text-ink-5"> · </span>
-                  <span className="text-ink-4">{formatCheck(interested)} interested</span>
+                  <span className="text-ink-4">{formatCheck(interested)}{t('pipe.interested')}</span>
                 </>
               )}
-              <span className="text-ink-5"> of {formatCheck(artifact.round_target)}</span>
+              <span className="text-ink-5">{t('pipe.of')}{formatCheck(artifact.round_target)}</span>
             </span>
           )}
           {artifact.target_close && (
-            <span className="text-ink-5">Close by {artifact.target_close}</span>
+            <span className="text-ink-5">{t('pipe.close-by', { date: artifact.target_close })}</span>
           )}
         </div>
       )}
@@ -156,7 +160,7 @@ export default function InvestorPipelineCard({ artifact }: InvestorPipelineCardP
                   >
                     <div className="flex items-baseline justify-between mb-1.5 gap-1">
                       <span className="text-[10px] uppercase tracking-wider text-ink-5 font-mono truncate">
-                        {STAGE_LABEL[stage]}
+                        {t(STAGE_KEY[stage])}
                       </span>
                       <span className="text-[10px] text-ink-5 font-mono shrink-0">{investors.length}</span>
                     </div>
@@ -173,14 +177,14 @@ export default function InvestorPipelineCard({ artifact }: InvestorPipelineCardP
             {filled.length > 0 && empty.length > 0 && (
               <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                 <span className="text-[9px] uppercase tracking-wider text-ink-5 font-mono">
-                  Empty
+                  {t('pipe.empty')}
                 </span>
                 {empty.map((stage) => (
                   <span
                     key={stage}
                     className="text-[10px] text-ink-5 font-mono px-1.5 py-0.5 border border-line-2 rounded bg-paper-2/40"
                   >
-                    {STAGE_LABEL[stage]} · 0
+                    {t(STAGE_KEY[stage])} · 0
                   </span>
                 ))}
               </div>

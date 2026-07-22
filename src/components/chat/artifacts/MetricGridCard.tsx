@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { MetricGrid } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 import KnowledgeApplyControls from './SavedHint';
 
@@ -20,6 +21,7 @@ interface MetricGridCardProps {
  * functional and stays.
  */
 export default function MetricGridCard({ artifact, onAction, defaultCollapsed }: MetricGridCardProps) {
+  const t = useT();
   const [metrics, setMetrics] = useState(artifact.metrics);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -44,7 +46,7 @@ export default function MetricGridCard({ artifact, onAction, defaultCollapsed }:
 
   return (
     <ArtifactCardShell
-      typeLabel="Metrics"
+      typeLabel={t('card.type-metrics')}
       title={artifact.title || ''}
       sources={artifact.sources}
       provenance={artifact.provenance}
@@ -78,7 +80,7 @@ export default function MetricGridCard({ artifact, onAction, defaultCollapsed }:
               <div
                 className="text-lg font-bold text-ink mt-1 cursor-pointer hover:text-moss transition-colors"
                 onClick={() => startEdit(i)}
-                title="Click to edit"
+                title={t('card.click-to-edit')}
               >
                 {m.value}
               </div>

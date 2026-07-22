@@ -6,6 +6,8 @@ import {
   RadarChart as RRadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   PieChart as RPieChart, Pie,
 } from 'recharts';
+import type { MessageKey } from '@/lib/i18n/messages';
+import { useT } from '@/components/providers/LocaleProvider';
 
 const COLORS = ['var(--sky)', 'var(--plum)', 'var(--moss)', 'var(--cat-gold)', 'var(--clay)', 'var(--cat-teal)', 'var(--cat-rose)'];
 const AXIS_TICK = { fontSize: 11, fill: 'var(--ink-5)' };
@@ -109,6 +111,21 @@ export function PieChart({ data, height = 250, title, donut = true }: {
   );
 }
 
+/**
+ * Verdict pill labels, keyed on the normalized enum (lowercase,
+ * spaces→underscores). Skills emit both shouty ('NO-GO') and snake
+ * ('no_go') forms, so both spellings map to the same key. Unknown
+ * verdicts keep the raw uppercased rendering.
+ */
+const VERDICT_KEY: Record<string, MessageKey> = {
+  'go':          'chart.verdict-go',
+  'strong_go':   'chart.verdict-strong-go',
+  'caution':     'chart.verdict-caution',
+  'conditional': 'chart.verdict-conditional',
+  'no_go':       'chart.verdict-no-go',
+  'no-go':       'chart.verdict-no-go',
+};
+
 /** Score gauge — semicircular progress */
 export function GaugeChart({ score, maxScore = 10, label, verdict }: {
   score: number;
@@ -116,6 +133,7 @@ export function GaugeChart({ score, maxScore = 10, label, verdict }: {
   label?: string;
   verdict?: string;
 }) {
+  const t = useT();
   const pct = Math.min(score / maxScore, 1);
   const color = pct >= 0.7 ? 'var(--moss)' : pct >= 0.5 ? 'var(--cat-gold)' : 'var(--clay)';
   const verdictColor = verdict === 'GO' || verdict === 'strong_go' ? 'text-moss bg-moss-wash'
@@ -151,11 +169,14 @@ export function GaugeChart({ score, maxScore = 10, label, verdict }: {
         </text>
       </svg>
       {label && <span className="text-xs text-ink-4 mt-1">{label}</span>}
-      {verdict && (
-        <span className={`text-xs font-bold px-3 py-1 rounded-full mt-2 ${verdictColor}`}>
-          {verdict.replace('_', ' ').toUpperCase()}
-        </span>
-      )}
+      {verdict && (() => {
+        const verdictKey = VERDICT_KEY[verdict.trim().toLowerCase().replace(/\s+/g, '_')];
+        return (
+          <span className={`text-xs font-bold px-3 py-1 rounded-full mt-2 ${verdictColor}`}>
+            {verdictKey ? t(verdictKey) : verdict.replace('_', ' ').toUpperCase()}
+          </span>
+        );
+      })()}
     </div>
   );
 }
