@@ -155,7 +155,7 @@ export const LOOPS: Array<{
 export const DATA_ROOM = [
   { name: 'Pitch deck', version: 'v3', meta: '12 slide · aggiornato 4 giorni fa', icon: 'file' as const },
   { name: 'One-pager', version: 'v2', meta: 'EN + IT', icon: 'file' as const },
-  { name: 'Modello finanziario', version: 'v4', meta: 'runway 14 mesi · need €350k pre-seed', icon: 'fund' as const },
+  { name: 'Modello finanziario', version: 'v4', meta: 'runway 14 mesi · serve €350k pre-seed', icon: 'fund' as const },
   { name: 'Matrice evidenze — Loop 1', version: 'v1', meta: 'allegata al verdetto GO', icon: 'layers' as const },
   { name: 'Interviste PSF (14)', version: '—', meta: 'trascrizioni + verbatim pain', icon: 'book' as const },
 ];

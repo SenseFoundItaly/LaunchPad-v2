@@ -14,13 +14,14 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { TopBar } from '@/components/design/chrome';
-import { Icon, I, Pill, StatusBar } from '@/components/design/primitives';
+import { Icon, I, IconBtn, Pill, StatusBar } from '@/components/design/primitives';
 import { BinocularsGlyph, RobotGlyph, RailTooltip, useRailHover, type IconKey } from '@/components/design/icons';
 import {
   MACRO_CATEGORY_ORDER, MACRO_CATEGORY_COLOR, MACRO_CATEGORY_LABEL, NODE_COLORS, macroCategoryFor,
   nodeTypeLabel, type MacroCategory,
 } from '@/types/graph';
 import { THEME_COOKIE } from '@/lib/theme';
+import { DATA_ROOM, DATA_ROOM_FOOT } from './mock';
 
 // -----------------------------------------------------------------------------
 // Nav config — one entry per demo page
@@ -115,11 +116,246 @@ export function DemoTopBar() {
       breadcrumb={['MatchLens', entry.breadcrumb]}
       right={
         <>
+          {/* Docs → Share, same order as the real per-project TopBar — both
+              are static replicas (no fetch) since /demo is public. */}
+          <DemoDocsButton />
+          <DemoShareButton />
           <Pill kind="n">38 crediti</Pill>
           <Pill kind="live" dot>DEMO</Pill>
         </>
       }
     />
+  );
+}
+
+// -----------------------------------------------------------------------------
+// DemoDocsButton — static replica of DocsButton: file icon → Data Room drawer
+// -----------------------------------------------------------------------------
+
+function DemoDocsButton() {
+  const [open, setOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open]);
+
+  return (
+    <>
+      <IconBtn
+        d={I.file}
+        title="Documenti — deliverable generati e file caricati"
+        aria-label="Documenti — deliverable generati e file caricati"
+        onClick={() => setOpen(true)}
+      />
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 200, display: 'flex', justifyContent: 'flex-end' }}
+        >
+          <div
+            role="dialog"
+            aria-label="Data room"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(960px, 94vw)', height: '100%', background: 'var(--paper)', borderLeft: '1px solid var(--line)', display: 'flex', flexDirection: 'column', minHeight: 0 }}
+          >
+            <div style={{ height: 38, flexShrink: 0, borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 8 }}>
+              <span className="lp-mono" style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.5, color: 'var(--ink-2)', flex: 1, textTransform: 'uppercase' }}>
+                Data room
+              </span>
+              <IconBtn d={I.x} title="Chiudi" onClick={() => setOpen(false)} />
+            </div>
+            <DataRoomView />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function DataRoomView() {
+  const [sel, setSel] = React.useState(0);
+  const doc = DATA_ROOM[sel];
+  return (
+    <div style={{ height: '100%', display: 'grid', gridTemplateColumns: '340px 1fr', minHeight: 0, overflow: 'hidden' }}>
+      <div style={{ borderRight: '1px solid var(--line)', overflow: 'auto', background: 'var(--surface)' }}>
+        <div className="lp-mono" style={{ fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-5)', padding: '10px 14px', borderBottom: '1px solid var(--line)' }}>Data room · {DATA_ROOM.length}</div>
+        {DATA_ROOM.map((d, i) => (
+          <div key={d.name} onClick={() => setSel(i)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--line)', cursor: 'pointer', background: i === sel ? 'var(--accent-wash)' : 'transparent' }}>
+            <Icon d={I[d.icon]} size={13} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11.5, color: 'var(--ink-2)', fontWeight: 500 }}>{d.name}</div>
+              <div style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>{d.meta}</div>
+            </div>
+            <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}>{d.version}</span>
+          </div>
+        ))}
+        <div style={{ padding: '8px 14px', fontSize: 10.5, color: 'var(--ink-5)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon d={I.users} size={12} style={{ color: 'var(--ink-4)' }} />{DATA_ROOM_FOOT}
+        </div>
+      </div>
+      <div style={{ overflow: 'auto', padding: '16px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{doc.name}</h3>
+          <Pill kind="n">{doc.version}</Pill>
+          <span style={{ flex: 1 }} />
+          <Icon d={I.edit} size={14} style={{ color: 'var(--ink-4)' }} />
+          <Icon d={I.download} size={14} style={{ color: 'var(--ink-4)' }} />
+          <Icon d={I.printer} size={14} style={{ color: 'var(--ink-4)' }} />
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--ink-5)', marginBottom: 12 }}>{doc.meta}</div>
+        <pre className="lp-mono" style={{ margin: 0, fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.6, whiteSpace: 'pre-wrap', background: 'var(--paper-2)', border: '1px solid var(--line)', borderRadius: 'var(--r-m)', padding: '12px 14px' }}>
+{`# ${doc.name}  ${doc.version}
+
+Documento generato da LaunchPad per MatchLens.
+Anteprima demo — il contenuto reale è indicizzato nel grafo Conoscenza
+e alimenta le skill del co-pilot.
+
+${doc.meta}`}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// DemoShareButton — static replica of ShareButton/ShareDialog: users icon →
+// share modal. Local state only (add/remove edits the in-memory list, no
+// fetch) — the demo is public and must stay zero-fetch.
+// -----------------------------------------------------------------------------
+
+type ShareMember = { email: string; role: 'owner' | 'member' };
+
+const SHARE_INITIAL: ShareMember[] = [
+  { email: 'founder@matchlens.it', role: 'owner' },
+  { email: 'marco@matchlens.it', role: 'member' },
+  { email: 'angel.eu@investor.vc', role: 'member' },
+];
+
+function DemoShareButton() {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <>
+      <IconBtn
+        d={I.users}
+        title="Condividi progetto"
+        aria-label="Condividi progetto"
+        onClick={() => setOpen(true)}
+      />
+      {open && <DemoShareDialog onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function DemoShareDialog({ onClose }: { onClose: () => void }) {
+  const [members, setMembers] = React.useState<ShareMember[]>(SHARE_INITIAL);
+  const [email, setEmail] = React.useState('');
+  const [addError, setAddError] = React.useState<string | null>(null);
+  const [addedJustNow, setAddedJustNow] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  function handleAdd(e: React.FormEvent) {
+    e.preventDefault();
+    const value = email.trim().toLowerCase();
+    if (!value || !value.includes('@')) {
+      setAddError("Inserisci un'email valida.");
+      return;
+    }
+    setMembers((prev) => [...prev, { email: value, role: 'member' }]);
+    setEmail('');
+    setAddError(null);
+    setAddedJustNow(value);
+    setTimeout(() => setAddedJustNow(null), 3500);
+  }
+
+  function handleRemove(target: string) {
+    if (!confirm('Vuoi rimuovere questa persona dal progetto?')) return;
+    setMembers((prev) => prev.filter((m) => m.email !== target));
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(20, 18, 16, 0.42)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: '100%', maxWidth: 480, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-l)', boxShadow: '0 12px 40px rgba(0,0,0,0.18)', fontFamily: 'var(--f-sans)' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon d={I.users} size={14} style={{ color: 'var(--ink-3)' }} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Condividi progetto</span>
+          </div>
+          <IconBtn d={I.x} title="Chiudi" size={24} onClick={onClose} />
+        </div>
+
+        <div style={{ padding: '14px 18px 18px' }}>
+          <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
+            Aggiungi chiunque abbia un account SenseFound tramite email. Avrà accesso completo in lettura e scrittura solo a questo progetto — non al resto del workspace. Le azioni riservate al proprietario restano tue.
+          </p>
+
+          <form onSubmit={handleAdd} style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => { setEmail(e.target.value); if (addError) setAddError(null); }}
+              placeholder="collega@esempio.com"
+              style={{ flex: 1, padding: '8px 10px', fontSize: 13, border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)', background: 'var(--paper)', color: 'var(--ink)', fontFamily: 'inherit', outline: 'none' }}
+            />
+            <button
+              type="submit"
+              disabled={!email.trim()}
+              style={{ padding: '8px 14px', fontSize: 12, fontWeight: 500, background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 'var(--r-m)', cursor: email.trim() ? 'pointer' : 'not-allowed', opacity: email.trim() ? 1 : 0.5, fontFamily: 'inherit' }}
+            >
+              Condividi
+            </button>
+          </form>
+
+          {addError && (
+            <div style={{ margin: '0 0 12px', padding: '8px 10px', fontSize: 12, color: 'var(--clay)', background: 'oklch(0.96 0.04 30)', border: '1px solid oklch(0.88 0.08 30)', borderRadius: 'var(--r-m)', lineHeight: 1.4 }}>
+              {addError}
+            </div>
+          )}
+          {addedJustNow && (
+            <div style={{ margin: '0 0 12px', padding: '8px 10px', fontSize: 12, color: 'var(--moss)', background: 'var(--moss-wash)', border: '1px solid color-mix(in srgb, var(--moss) 35%, transparent)', borderRadius: 'var(--r-m)' }}>
+              ✓ Condiviso con {addedJustNow}
+            </div>
+          )}
+
+          <div style={{ fontSize: 11, color: 'var(--ink-5)', marginBottom: 6, fontFamily: 'var(--f-mono)', letterSpacing: 0.5 }}>
+            CHI HA ACCESSO
+          </div>
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            {members.map((m) => (
+              <li key={m.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {m.email}
+                </div>
+                {m.role === 'owner' ? (
+                  <Pill kind="ok" dot>Proprietario</Pill>
+                ) : (
+                  <>
+                    <Pill kind="info">Membro</Pill>
+                    <IconBtn d={I.x} title="Rimuovi accesso" size={24} onClick={() => handleRemove(m.email)} />
+                  </>
+                )}
+              </li>
+            ))}
+            {members.length === 0 && (
+              <li style={{ fontSize: 12, color: 'var(--ink-5)', padding: '8px 0' }}>Nessun altro ha ancora accesso.</li>
+            )}
+          </ul>
+        </div>
+      </div>
+    </div>
   );
 }
 
