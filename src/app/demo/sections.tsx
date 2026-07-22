@@ -85,9 +85,9 @@ export function ScoreSection() {
             <span className="lp-serif" style={{ fontSize: 30, fontWeight: 400, letterSpacing: -0.6 }}>{SCORE.irl.level}</span>
             <span style={{ fontSize: 13, color: 'var(--ink-5)' }}>/ {SCORE.irl.of}</span>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>fasi validate</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>livello di sviluppo</div>
           <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45 }}>
-            Attualmente in <strong style={{ color: 'var(--ink-2)' }}>{SCORE.irl.stage}</strong>. Tutte le fasi di validazione sono superate; il progetto è investor-ready.
+            Attualmente in <strong style={{ color: 'var(--ink-2)' }}>{SCORE.irl.stage}</strong> + Loop 4 (LAUNCH READY). Ogni punto si suda: fasi e loop superati — 7-9 si sbloccano con gli add-on GTM orchestration, Fundraising readiness e Operations.
           </p>
         </div>
       </div>

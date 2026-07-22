@@ -17,7 +17,7 @@ export const PROJECT = {
   name: 'MatchLens',
   tagline: 'Analisi video AI per club sportivi dilettantistici',
   stagePill: '4 · MVP Release & Launch',
-  irl: 'IRL 5/5',
+  irl: 'IRL 6/9',
   age: '9 mesi',
 };
 
@@ -252,7 +252,15 @@ export const SCORE = {
   ],
   recommendation:
     'Trazione solida e unit economics sane. Prossima leva: allargare i canali oltre le federazioni per ridurre il rischio di concentrazione.',
-  irl: { level: 5, of: 5, stage: 'MVP Release & Launch' },
+  // IRL is a 1-9 developmental ladder, NOT tied 1:1 to the 5 macro phases —
+  // each phase+loop milestone earns one point (1 Idea Canvas · 2 first score +
+  // Gate 1A/1B · 3 Gate 1C + Loop 1 · 4 Business Essentials + Loop 2 · 5 Build
+  // & Test + Loop 3 · 6 MVP Release & Launch + Loop 4); 7-9 unlock only via the
+  // paid add-on modules (GTM orchestration · Fundraising readiness ·
+  // Operations), not yet built. MatchLens cleared Loop 4 (LAUNCH READY) but
+  // hasn't activated any add-on — hence 6/9 despite an 87/100 score, the
+  // "promising, still maturing" quadrant the founder wants IRL to expose.
+  irl: { level: 6, of: 9, stage: 'MVP Release & Launch' },
 };
 
 // =============================================================================
