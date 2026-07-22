@@ -1108,6 +1108,32 @@ export const en = {
   'signals.signals-tooltip-other': '{count} raw signals cited',
   'signals.confidence-tooltip': 'Model self-rated confidence {percent}%',
 
+  // ── Skill-run prerequisite messages (i18n gap audit 21/07) ─────────────────
+  'skills.field-solution': 'solution',
+  'skills.field-value-proposition': 'value proposition',
+  'skills.field-joiner': ' and ',
+  'skills.prereq-pending': "You've defined your {fields} — approve the pending proposal (on the canvas card or under Watchers → To review) to apply it, then run this analysis again.",
+  'skills.prereq-missing': "Sketch your {fields} first — this analysis needs your idea defined before it can run. Tell me what you're building and I'll write it to your canvas, then we can run it.",
+
+  // ── Server-side founder-facing strings (i18n gap audit 21/07) ──────────────
+  'pa.rationale-monitor-quote': 'Founder said in chat: "{quote}"',
+  'pa.rationale-monitor-derisk': 'Derisking {risk} — alert threshold: {threshold}',
+  'pa.rationale-edit-watcher': 'Proposed change: {summary}. Approve to apply.',
+  'pa.rationale-delete-watcher': 'Permanently remove this watcher and its run history. Approve to apply.',
+  'pa.rationale-pause-watcher': 'Stop this watcher from running (reversible — you can re-activate it later). Approve to apply.',
+  'pa.raise-cap': 'Raise monthly cap: ${from} → ${to}',
+  'src.founder-request': 'Founder request',
+  'src.web-source': 'Web source',
+  'src.watcher-proposal': 'Watcher proposal',
+  'src.reference': 'Reference',
+  'src.source': 'Source',
+  'src.skill': 'Skill: {id}',
+  'val.label-canvas': 'Idea Canvas',
+  'val.label-competitor': 'Competitor',
+  'val.label-market-size': 'Market size',
+  'val.proposal-title': 'Validation evidence — {count} item(s)',
+  'val.proposal-title-gated': ', {gated} spine step(s)',
+
   // ── Credits badge + popover (alpha feedback 21/07: was hardcoded EN) ───────
   'nav.usage': 'Usage',
   'credits.chip': '{n}/{total} credits',

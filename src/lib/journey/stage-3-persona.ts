@@ -24,7 +24,13 @@ export const stagePersona: Stage = {
       label: 'ICP described',
       source: 'memory_facts (ICP)',
       evaluate: (s) => {
-        const n = countMemoryFactsMatching(s, ['ICP', 'ideal customer', 'persona', 'beachhead']);
+        // Bilingual EN+IT (keyword-gate discipline, same as the Stage-2 lists) —
+        // these were EN-only, so an Italian founder stating their ICP could
+        // never green the check (i18n gap audit 21/07). 'persona' matches both.
+        const n = countMemoryFactsMatching(s, [
+          'ICP', 'ideal customer', 'persona', 'beachhead',
+          'cliente ideale', 'profilo del cliente', 'cliente tipo',
+        ]);
         const ok = n > 0;
         return ok
           ? { passed: true, evidence: "You've described your ideal customer." }
@@ -36,7 +42,11 @@ export const stagePersona: Stage = {
       label: 'Acquisition channels identified',
       source: 'memory_facts (channels)',
       evaluate: (s) => {
-        const n = countMemoryFactsMatching(s, ['channel', 'acquisition', 'reach customers', 'outreach', 'distribution']);
+        // Bilingual EN+IT — see icp_defined above.
+        const n = countMemoryFactsMatching(s, [
+          'channel', 'acquisition', 'reach customers', 'outreach', 'distribution',
+          'canale', 'canali', 'acquisizione', 'distribuzione',
+        ]);
         const ok = n > 0;
         return ok
           ? { passed: true, evidence: "You've identified how you'll reach customers." }
