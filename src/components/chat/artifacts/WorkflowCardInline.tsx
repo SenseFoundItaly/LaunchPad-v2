@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { WorkflowCard } from '@/types/artifacts';
 import ArtifactCardShell from './ArtifactCardShell';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface WorkflowCardInlineProps {
   artifact: WorkflowCard;
@@ -18,6 +19,7 @@ export default function WorkflowCardInline({
   onAction,
   defaultCollapsed,
 }: WorkflowCardInlineProps) {
+  const t = useT();
   const discoveredRef = useRef(false);
   const [completed, setCompleted] = useState<Set<number>>(new Set());
 
@@ -50,7 +52,7 @@ export default function WorkflowCardInline({
     // Category + priority header chips removed (2026-06 zero-chips rule);
     // the checklist, progress bar, and coming-soon note are functional and stay.
     <ArtifactCardShell
-      typeLabel="Workflow"
+      typeLabel={t('wfc.type-label')}
       title={artifact.title}
       sources={artifact.sources}
       provenance={artifact.provenance}
@@ -62,7 +64,7 @@ export default function WorkflowCardInline({
       {total > 0 && (
         <div className="mb-3">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-ink-5">{doneCount} of {total} completed</span>
+            <span className="text-[10px] text-ink-5">{t('wfc.progress', { done: doneCount, total })}</span>
             <span className="text-[10px] text-ink-5">{Math.round(pct)}%</span>
           </div>
           <div className="w-full h-1.5 bg-paper-3 rounded-full overflow-hidden">
@@ -107,17 +109,17 @@ export default function WorkflowCardInline({
           'trigger-workflow' event — a dead click.) */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] text-ink-5 italic">
-          Check off steps as you complete them — one-click execution is coming soon.
+          {t('wfc.coming-soon')}
         </span>
         <button
           type="button"
           disabled
-          title="Automated execution (connect this workflow to your real tools) is coming soon. For now, track steps manually above."
+          title={t('wfc.execute-title')}
           className="text-xs px-3 py-1 bg-paper-3 text-ink-5 rounded-md cursor-not-allowed select-none flex items-center gap-1.5"
         >
-          Execute
+          {t('wfc.execute')}
           <span className="text-[9px] uppercase tracking-wide bg-accent/15 text-accent px-1.5 py-0.5 rounded-full">
-            Soon
+            {t('wfc.soon')}
           </span>
         </button>
       </div>

@@ -31,6 +31,7 @@
 import { useState } from 'react';
 import type { ReviewedState } from '@/types/artifacts';
 import { usePersistedArtifact } from '@/hooks/usePersistedArtifact';
+import { useT } from '@/components/providers/LocaleProvider';
 
 type KnowledgeType = 'fact' | 'graph_node' | 'tabular_review';
 
@@ -51,6 +52,7 @@ export default function KnowledgeApplyControls({
   type: KnowledgeType;
   onAction?: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }) {
+  const t = useT();
   // Merge the artifact's own values with the live done-event broadcast.
   const persisted = usePersistedArtifact(artifactId ?? '', {
     persisted_id: persistedId,
@@ -77,17 +79,17 @@ export default function KnowledgeApplyControls({
       await onAction?.('knowledge:apply', { item_id: itemId, type, state: next });
     } catch (e) {
       setLocalState(prev); // revert
-      setErr(e instanceof Error ? e.message : 'Action failed');
+      setErr(e instanceof Error ? e.message : t('kac.action-failed'));
     } finally {
       setBusy(false);
     }
   }
 
   if (effective === 'applied') {
-    return <div className="mt-2 text-[10px] text-ink-5">Applied ✓</div>;
+    return <div className="mt-2 text-[10px] text-ink-5">{t('kac.applied')}</div>;
   }
   if (effective === 'rejected') {
-    return <div className="mt-2 text-[10px] text-ink-5">Dismissed</div>;
+    return <div className="mt-2 text-[10px] text-ink-5">{t('kac.dismissed')}</div>;
   }
 
   // pending / undefined → action pair.
@@ -111,7 +113,7 @@ export default function KnowledgeApplyControls({
           whiteSpace: 'nowrap',
         }}
       >
-        {busy ? 'Applying…' : 'Apply'}
+        {busy ? t('kac.applying') : t('kac.apply')}
       </button>
       <button
         type="button"
@@ -130,10 +132,10 @@ export default function KnowledgeApplyControls({
           whiteSpace: 'nowrap',
         }}
       >
-        Dismiss
+        {t('kac.dismiss')}
       </button>
       {!itemId && (
-        <span style={{ fontSize: 10, color: 'var(--ink-5)' }}>Saving proposal…</span>
+        <span style={{ fontSize: 10, color: 'var(--ink-5)' }}>{t('kac.saving-proposal')}</span>
       )}
       {err && <span style={{ fontSize: 10, color: 'var(--clay)' }}>{err}</span>}
     </div>

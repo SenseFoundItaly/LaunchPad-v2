@@ -9,8 +9,10 @@
 
 import type { Artifact } from '@/types/artifacts';
 import { buildArtifactExport } from '@/lib/artifact-export';
+import { useT } from '@/components/providers/LocaleProvider';
 
 export default function ArtifactExportButton({ artifact }: { artifact: Artifact }) {
+  const t = useT();
   const payload = buildArtifactExport(artifact);
   if (!payload) return null;
 
@@ -30,8 +32,8 @@ export default function ArtifactExportButton({ artifact }: { artifact: Artifact 
       type="button"
       onClick={download}
       className="text-ink-5 hover:text-ink-3 transition-colors p-0.5 shrink-0"
-      aria-label={`Download ${payload.filename}`}
-      title={`Download ${payload.filename}`}
+      aria-label={t('shell.download-file', { file: payload.filename })}
+      title={t('shell.download-file', { file: payload.filename })}
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />

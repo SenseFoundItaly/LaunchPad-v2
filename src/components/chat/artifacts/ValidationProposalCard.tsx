@@ -23,6 +23,7 @@
 import { useState } from 'react';
 import type { ValidationProposalArtifact, ValidationProposalItem } from '@/types/artifacts';
 import ArtifactCardShell from './ArtifactCardShell';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface ValidationProposalCardProps {
   artifact: ValidationProposalArtifact;
@@ -37,6 +38,7 @@ interface ItemEdit {
 }
 
 export default function ValidationProposalCard({ artifact, onAction }: ValidationProposalCardProps) {
+  const t = useT();
   const [state, setState] = useState<CardState>('active');
   const [serverError, setServerError] = useState<string | null>(null);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
@@ -93,8 +95,8 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
       <div className="my-3 bg-paper-2/30 border border-moss/20 rounded-lg p-3 opacity-80">
         <div className="flex items-center gap-2 text-sm">
           <span className="text-moss font-mono">{'✓'}</span>
-          <span className="text-ink-3">Validated onto your spine:</span>
-          <span className="text-ink font-medium">{n === 1 ? '1 item' : `${n} items`}</span>
+          <span className="text-ink-3">{t('vp.validated-onto-spine')}</span>
+          <span className="text-ink font-medium">{n === 1 ? t('vp.items-one') : t('vp.items-other', { count: n })}</span>
         </div>
       </div>
     );
@@ -104,7 +106,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
       <div className="my-3 bg-paper-2/20 border border-line-2 rounded-lg p-3 opacity-60">
         <div className="flex items-center gap-2 text-sm">
           <span className="text-ink-5 font-mono">{'✗'}</span>
-          <span className="text-ink-4">Skipped — nothing committed to your spine.</span>
+          <span className="text-ink-4">{t('vp.skipped')}</span>
         </div>
       </div>
     );
@@ -112,13 +114,13 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
 
   const busy = state === 'applying' || state === 'dismissing';
   const framing = artifact.origin === 'upload'
-    ? 'From your document — approve what lands on your spine.'
-    : 'Approve what lands on your spine — nothing is validated without your yes.';
+    ? t('vp.framing-upload')
+    : t('vp.framing-chat');
 
   return (
     <ArtifactCardShell
-      typeLabel="Validation"
-      title="Validate evidence"
+      typeLabel={t('vp.type-label')}
+      title={t('vp.title')}
       collapsible={false}
     >
       <div className="text-[11px] text-ink-4 mb-2.5">{framing}</div>
@@ -141,7 +143,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
                   onClick={() => setRemoved((s) => { const n = new Set(s); n.delete(it.id); return n; })}
                   className="ml-auto text-[10px] text-accent-ink hover:underline"
                 >
-                  undo
+                  {t('vp.undo')}
                 </button>
               </div>
             );
@@ -156,7 +158,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
                   <div className="flex items-baseline gap-2 flex-wrap">
                     <span className="text-xs font-medium text-ink">{it.label}</span>
                     {it.validates && (
-                      <span className="text-[10px] text-moss/90">validates {it.validates}</span>
+                      <span className="text-[10px] text-moss/90">{t('vp.validates', { target: it.validates })}</span>
                     )}
                   </div>
 
@@ -168,7 +170,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
                           type="text"
                           value={curName ?? ''}
                           onChange={(ev) => setEdits((m) => ({ ...m, [it.id]: { value: curValue, name: ev.target.value } }))}
-                          placeholder="Competitor name"
+                          placeholder={t('vp.competitor-name-placeholder')}
                           className="w-full bg-paper border border-line-2 rounded px-2 py-1 text-xs text-ink"
                         />
                       )}
@@ -184,7 +186,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
                           onClick={() => setEditingId(null)}
                           className="text-[11px] px-2 py-0.5 bg-moss/90 hover:bg-moss text-paper rounded"
                         >
-                          Done
+                          {t('vp.done')}
                         </button>
                       </div>
                     </div>
@@ -205,15 +207,15 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
                       type="button"
                       onClick={() => setEditingId(it.id)}
                       className="text-[10px] text-ink-4 hover:text-ink-2"
-                      title="Edit this item"
+                      title={t('vp.edit-title')}
                     >
-                      edit
+                      {t('vp.edit')}
                     </button>
                     <button
                       type="button"
                       onClick={() => setRemoved((s) => new Set(s).add(it.id))}
                       className="text-[10px] text-ink-4 hover:text-clay"
-                      title="Remove this item"
+                      title={t('vp.remove-title')}
                     >
                       {'✕'}
                     </button>
@@ -234,12 +236,12 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
           className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 text-paper rounded-md transition-colors disabled:opacity-40"
         >
           {state === 'applying'
-            ? 'Applying…'
+            ? t('vp.applying')
             : kept.length === 0
-              ? 'Nothing selected'
+              ? t('vp.nothing-selected')
               // Applying validation evidence is free (only a chat message costs a
               // credit), so the button states just the item count.
-              : `Apply ${kept.length === 1 ? '1 item' : `${kept.length} items`}`}
+              : kept.length === 1 ? t('vp.apply-one') : t('vp.apply-other', { count: kept.length })}
         </button>
         <button
           type="button"
@@ -247,7 +249,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
           disabled={busy}
           className="text-xs px-3 py-1.5 bg-paper-3 hover:bg-paper-3/80 text-ink-2 rounded-md transition-colors disabled:opacity-40"
         >
-          Skip
+          {t('vp.skip')}
         </button>
       </div>
 

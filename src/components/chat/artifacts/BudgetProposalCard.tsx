@@ -20,6 +20,8 @@ import type { BudgetProposalArtifact } from '@/types/artifacts';
 import SourcesFooter from './SourcesFooter';
 import ArtifactCardShell from './ArtifactCardShell';
 import UnifiedReviewControls from './UnifiedReviewControls';
+import type { MessageKey } from '@/lib/i18n/messages';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface BudgetProposalCardProps {
   artifact: BudgetProposalArtifact;
@@ -40,13 +42,14 @@ function fmtUsd(n: number): string {
 }
 
 export default function BudgetProposalCard({ artifact, onAction }: BudgetProposalCardProps) {
+  const t = useT();
   const [state, setState] = useState<CardState>('collapsed');
   const [serverError, setServerError] = useState<string | null>(null);
   const [editCap, setEditCap] = useState<string>(artifact.proposed_cap_usd.toFixed(2));
   const [capError, setCapError] = useState<string | null>(null);
 
   const delta = artifact.proposed_cap_usd - artifact.current_cap_usd;
-  const direction = delta > 0 ? 'increase' : delta < 0 ? 'decrease' : 'no change';
+  const directionKey: MessageKey = delta > 0 ? 'bprop.increase' : delta < 0 ? 'bprop.decrease' : 'bprop.no-change';
   const arrow = delta > 0 ? '\u2191' : delta < 0 ? '\u2193' : '\u00B7';
 
   async function handleApply(withOverrides: boolean) {
@@ -56,7 +59,7 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
     if (withOverrides) {
       const parsed = parseFloat(editCap);
       if (!Number.isFinite(parsed) || parsed <= 0) {
-        setServerError('Proposed cap must be a positive number');
+        setServerError(t('bprop.cap-positive'));
         setState('error');
         return;
       }
@@ -89,11 +92,11 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
       <div className="my-3 bg-paper-2/30 border border-moss/20 rounded-lg p-3 opacity-75">
         <div className="flex items-center gap-2 text-sm">
           <span className="text-moss font-mono">{'\u2713'}</span>
-          <span className="text-ink-3">Budget cap updated:</span>
+          <span className="text-ink-3">{t('bprop.updated')}</span>
           <span className="text-ink font-medium">
             {fmtUsd(artifact.current_cap_usd)} {'\u2192'} {fmtUsd(artifact.proposed_cap_usd)}
           </span>
-          <span className="text-ink-5 text-xs ml-auto">effective immediately</span>
+          <span className="text-ink-5 text-xs ml-auto">{t('bprop.effective-now')}</span>
         </div>
         <SourcesFooter sources={artifact.sources} compact />
       </div>
@@ -104,8 +107,8 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
       <div className="my-3 bg-paper-2/20 border border-line-2 rounded-lg p-3 opacity-60">
         <div className="flex items-center gap-2 text-sm">
           <span className="text-ink-5 font-mono">{'\u2717'}</span>
-          <span className="text-ink-4">Dismissed budget proposal</span>
-          <span className="text-ink-5 ml-auto">cap stays at {fmtUsd(artifact.current_cap_usd)}</span>
+          <span className="text-ink-4">{t('bprop.dismissed')}</span>
+          <span className="text-ink-5 ml-auto">{t('bprop.cap-stays', { cap: fmtUsd(artifact.current_cap_usd) })}</span>
         </div>
       </div>
     );
@@ -113,24 +116,24 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
 
   return (
     <ArtifactCardShell
-      typeLabel="Budget proposal"
-      title={`Monthly LLM cap: ${fmtUsd(artifact.current_cap_usd)} ${arrow} ${fmtUsd(artifact.proposed_cap_usd)}`}
+      typeLabel={t('bprop.type-label')}
+      title={t('bprop.title', { from: fmtUsd(artifact.current_cap_usd), arrow, to: fmtUsd(artifact.proposed_cap_usd) })}
       sources={artifact.sources}
       collapsible={false}
       aiGenerated
       headerRight={<>
         <span className="text-[10px] px-2 py-0.5 rounded-full border bg-cat-gold-wash text-cat-gold border-line-2">
-          {direction}
+          {t(directionKey)}
         </span>
         {artifact.estimated_monthly_cost_usd != null && (
           <span className="text-[10px] text-ink-5">
-            est. {fmtUsd(artifact.estimated_monthly_cost_usd)}/mo
+            {t('bprop.est-per-month', { amount: fmtUsd(artifact.estimated_monthly_cost_usd) })}
           </span>
         )}
       </>}
     >
       <div className="text-[11px] text-ink-4 mb-3">
-        <span className="text-ink-5">Reason: </span>
+        <span className="text-ink-5">{t('bprop.reason')}</span>
         <span className="text-ink-3">{artifact.reason}</span>
       </div>
 
@@ -138,7 +141,7 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
         <div className="space-y-2 mb-3">
           <div>
             <label className="text-[10px] text-ink-5 uppercase tracking-wider block mb-1">
-              Proposed cap (USD/month)
+              {t('bprop.proposed-cap-label')}
             </label>
             <input
               type="number"
@@ -153,9 +156,9 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
                 } else {
                   const n = parseFloat(v);
                   if (!Number.isFinite(n) || n <= 0) {
-                    setCapError('Must be a positive number');
+                    setCapError(t('bprop.must-be-positive'));
                   } else if (n > 10_000) {
-                    setCapError('Max $10,000/month');
+                    setCapError(t('bprop.max-cap'));
                   } else {
                     setCapError(null);
                   }
@@ -176,14 +179,14 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
             onClick={() => handleApply(true)}
             className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 disabled:opacity-50 disabled:cursor-not-allowed text-paper rounded-md transition-colors"
           >
-            Save &amp; apply
+            {t('bprop.save-apply')}
           </button>
           <button
             type="button"
             onClick={() => { setCapError(null); setState('collapsed'); }}
             className="text-xs px-3 py-1.5 bg-paper-3 hover:bg-paper-3/80 text-ink-2 rounded-md transition-colors"
           >
-            Cancel
+            {t('bprop.cancel')}
           </button>
         </div>
       ) : (
@@ -198,8 +201,8 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
           onEdit={() => setState('editing')}
           errorMessage={serverError ?? undefined}
           variant="footer"
-          destination="Budget"
-          impactHint="Cap will update immediately"
+          destination={t('bprop.destination')}
+          impactHint={t('bprop.impact')}
         />
       )}
     </ArtifactCardShell>
