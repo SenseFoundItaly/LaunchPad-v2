@@ -71,7 +71,7 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
         {/* Brand mark — SenseFound logomark + wordmark (V1.1 guidelines: the
             protective bracket + validation arrow is the brand's identity). The
             logomark links home; the wordmark is hidden on narrow widths. */}
-        <a href="/" aria-label="LaunchPad — home" style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none', flexShrink: 0 }}>
+        <a href="/" aria-label={t('nav.home-aria')} style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none', flexShrink: 0 }}>
           {/* SenseFound logomark (brand symbol) + LaunchPad wordmark (product
               name). 22px = the brand's documented minimum logo size (p.12). */}
           <Logomark size={22} />

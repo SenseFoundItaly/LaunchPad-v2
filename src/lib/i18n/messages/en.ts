@@ -13,6 +13,7 @@
 export const en = {
   // ── Nav rail ────────────────────────────────────────────────────────────
   'nav.home': 'Home',
+  'nav.home-aria': 'LaunchPad — home',
   'nav.home.tooltip': 'Dashboard — project stage, todos, and signal log',
   // 'Intel' and 'Knowledge' are FROZEN BRAND TERMS — same word in every locale
   // (do NOT translate them; see the brand-terms note in messages/index.ts).
@@ -1288,6 +1289,7 @@ export const en = {
   'kac.saving-proposal': 'Saving proposal…',
   // Monitor proposal card (MonitorProposalCard.tsx)
   'mprop.type-label': 'Monitor proposal',
+  'mprop.url-placeholder': 'https://example.com/pricing',
   'mprop.schedule-daily': 'Daily',
   'mprop.schedule-weekly': 'Weekly',
   'mprop.schedule-monthly': 'Monthly',
@@ -1511,6 +1513,7 @@ export const en = {
   'sett.aes-note': 'API keys are encrypted with AES-256-GCM before storage. The plaintext key is never stored or logged. Only the last 4 characters are shown for identification.',
   // Share dialog + button
   'share.title': 'Share project',
+  'share.email-placeholder': 'teammate@example.com',
   'share.close': 'Close',
   'share.explainer': 'Add anyone with a SenseFound account by email. They’ll get full read-write access to this project only — not the rest of your workspace. Owner-only actions (delete project, manage sharing) stay yours.',
   'share.err-email': 'Enter a valid email.',
