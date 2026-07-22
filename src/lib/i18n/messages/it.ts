@@ -1111,6 +1111,26 @@ export const it: Partial<Record<MessageKey, string>> = {
   'val.proposal-title': 'Prove di validazione — {count} elemento/i',
   'val.proposal-title-gated': ', {gated} passaggi della spine',
 
+  // ── i18n gap audit 21/07 — staged validation labels (batch D) ─────
+  'avs.tech-feasibility': 'Fattibilità tecnica',
+  'avs.tech-dependencies': 'Dipendenze chiave',
+  'avs.tech-regulatory': 'Regolamentazione / compliance',
+  'avs.pricing-anchor': 'Prezzo di riferimento',
+  'avs.pricing-tiers': 'Fasce di prezzo',
+  'avs.pricing-wtp': 'Disponibilità a pagare',
+  'avs.pricing-model': 'Modello di ricavo',
+  'avs.pricing-unit': 'Unit economics',
+  'avs.label-tech-finding': 'Evidenza tecnica',
+  'avs.label-interview': 'Intervista — {name}',
+  'avs.label-interview-logged': 'registrata',
+  'avs.label-icp': 'Cliente ideale',
+  'avs.label-channel': 'Canale di acquisizione',
+  'avs.label-trend': 'Trend di mercato',
+  'avs.label-persona': 'Buyer persona',
+  'avs.label-diff': 'Differenziazione',
+  'avs.label-pricing': 'Prezzi',
+  'avs.prefix-market-size': 'Dimensione del mercato — ',
+
   // ── Badge crediti + popover (feedback alpha 21/07: era hardcoded EN) ───────
   'nav.usage': 'Utilizzo',
   'credits.chip': '{n}/{total} crediti',

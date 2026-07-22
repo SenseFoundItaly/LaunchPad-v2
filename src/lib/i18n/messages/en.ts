@@ -1134,6 +1134,26 @@ export const en = {
   'val.proposal-title': 'Validation evidence — {count} item(s)',
   'val.proposal-title-gated': ', {gated} spine step(s)',
 
+  // ── i18n gap audit 21/07 — staged validation labels (batch D) ─────
+  'avs.tech-feasibility': 'Technical feasibility',
+  'avs.tech-dependencies': 'Key dependencies',
+  'avs.tech-regulatory': 'Regulatory / compliance',
+  'avs.pricing-anchor': 'Anchor price',
+  'avs.pricing-tiers': 'Pricing tiers',
+  'avs.pricing-wtp': 'Willingness to pay',
+  'avs.pricing-model': 'Revenue model',
+  'avs.pricing-unit': 'Unit economics',
+  'avs.label-tech-finding': 'Technical finding',
+  'avs.label-interview': 'Interview — {name}',
+  'avs.label-interview-logged': 'logged',
+  'avs.label-icp': 'Ideal customer',
+  'avs.label-channel': 'Acquisition channel',
+  'avs.label-trend': 'Market trend',
+  'avs.label-persona': 'Buyer persona',
+  'avs.label-diff': 'Differentiation',
+  'avs.label-pricing': 'Pricing',
+  'avs.prefix-market-size': 'Market size — ',
+
   // ── Credits badge + popover (alpha feedback 21/07: was hardcoded EN) ───────
   'nav.usage': 'Usage',
   'credits.chip': '{n}/{total} credits',
