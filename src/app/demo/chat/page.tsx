@@ -53,7 +53,7 @@ function ChatColumn() {
           <span className="lp-serif" style={{ fontSize: 20, fontWeight: 400 }}>MatchLens</span>
           <span className="lp-dot lp-pulse" style={{ background: 'var(--moss)' }} />
         </div>
-        <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)', marginTop: 2 }}>MVP Release & Launch · crescita post-launch</div>
+        <div className="lp-mono" style={{ fontSize: 10.5, color: 'var(--ink-5)', marginTop: 2 }}>MVP Release & Launch · crescita post-lancio</div>
       </div>
       <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', padding: '16px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         {CHAT_MESSAGES.map((m, i) => m.role === 'user' ? <UserMsg key={i} body={m.body} /> : <AiMsg key={i} agent={m.agent} body={m.body} tools={m.tools} />)}
@@ -132,9 +132,9 @@ function CanvasPane() {
       <div className="lp-card" style={{ padding: '12px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           <Icon d={I.layers} size={13} style={{ color: 'var(--accent)' }} />
-          <span style={{ fontSize: 12, fontWeight: 600 }}>Idea canvas</span>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>Idea Canvas</span>
           <span style={{ flex: 1 }} />
-          <span className="lp-chip" style={{ fontSize: 10 }}>backed by 29 elementi →</span>
+          <span className="lp-chip" style={{ fontSize: 10 }}>basato su 29 elementi →</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {CANVAS_FIELDS.map((f, i) => (
@@ -149,7 +149,7 @@ function CanvasPane() {
       {/* Knowledge summary row */}
       <div className="lp-card" style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
         <Icon d={I.graph} size={13} style={{ color: 'var(--ink-4)' }} />
-        <span className="lp-serif" style={{ fontSize: 14 }}>Knowledge</span>
+        <span className="lp-serif" style={{ fontSize: 14 }}>Conoscenza</span>
         <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)' }}>— 29 elementi</span>
         <span style={{ flex: 1 }} />
         <a href="/demo/knowledge" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>apri →</a>
@@ -255,7 +255,7 @@ function GrowthPane() {
     <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-4)' }}>
         <Icon d={I.signal} size={12} stroke={1.4} />
-        La tua lane di esecuzione: pagine pubblicate, campagne e growth loop. Niente parte o pubblica senza la tua approvazione.
+        La tua corsia di esecuzione: pagine pubblicate, campagne e loop di crescita. Niente parte o pubblica senza la tua approvazione.
       </div>
 
       <LaunchSection title="Asset pubblicati" hint="pagine live + raccolta iscrizioni">
@@ -282,7 +282,7 @@ function GrowthPane() {
         ))}
       </LaunchSection>
 
-      <LaunchSection title="Growth loop" hint="itera → le proposte arrivano nell'Inbox">
+      <LaunchSection title="Loop di crescita" hint="itera → le proposte arrivano nell'Inbox">
         {LAUNCH_LOOPS.map((l) => (
           <LaunchRow key={l.metric}>
             <span style={{ flex: 1, fontSize: 12, color: 'var(--ink-2)' }}>{l.metric}</span>

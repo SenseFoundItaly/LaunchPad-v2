@@ -57,11 +57,11 @@ const CHANNELS: NavEntry[] = [
     status: { heartbeatLabel: 'heartbeat · ultima scansione 2 ore fa', gateway: 'demo · dati simulati', ctxLabel: '4 proposte da rivedere' },
   },
   {
-    id: 'knowledge', href: '/demo/knowledge', iconKey: 'book', label: 'Knowledge', breadcrumb: 'Knowledge',
+    id: 'knowledge', href: '/demo/knowledge', iconKey: 'book', label: 'Conoscenza', breadcrumb: 'Conoscenza',
     badge: 29, badgeTone: 'count',
     // ctxLabel is derived from the graph data in DemoStatusBar (ECO_* counts)
     // so it can't drift; this static value is only a fallback.
-    status: { heartbeatLabel: 'heartbeat · grafo aggiornato', gateway: 'demo · dati simulati', ctxLabel: 'grafo Knowledge' },
+    status: { heartbeatLabel: 'heartbeat · grafo aggiornato', gateway: 'demo · dati simulati', ctxLabel: 'grafo Conoscenza' },
   },
   {
     id: 'financial', href: '/demo/financial', iconKey: 'dollar', label: 'Finanze', breadcrumb: 'Finanze',
@@ -304,7 +304,7 @@ export type EcoEntity = {
 export const ECO_ENTITIES: EcoEntity[] = [
   // concorrenza
   { label: 'Veo', node_type: 'competitor', prov: 'verified',
-    summary: 'Leader delle camere AI turnkey per il calcio dilettantistico, forte in Nord Europa.',
+    summary: 'Leader delle camere AI chiavi in mano per il calcio dilettantistico, forte in Nord Europa.',
     attributes: [{ k: 'Prezzo', v: '~1.200 €/anno' }, { k: 'Copertura', v: '40+ paesi' }, { k: 'Punto debole', v: 'costo alto per club piccoli' }] },
   { label: 'Pixellot', node_type: 'competitor', prov: 'verified',
     summary: 'Piattaforma di ripresa automatica multi-sport, spesso in licenza alle federazioni.',
@@ -347,7 +347,7 @@ export const ECO_ENTITIES: EcoEntity[] = [
     attributes: [{ k: 'Taglio', v: '100-500k €' }, { k: 'Tesi', v: 'sportech consumer' }] },
   // fornitori
   { label: 'Fornitori camere', node_type: 'supplier', prov: 'founder',
-    summary: 'Produttori hardware delle telecamere AI turnkey installate nei campi.',
+    summary: 'Produttori hardware delle telecamere AI chiavi in mano installate nei campi.',
     attributes: [{ k: 'Tipo', v: 'OEM camera' }, { k: 'Rischio', v: 'lead time' }] },
   { label: 'Cloud storage', node_type: 'supplier', prov: 'founder',
     summary: 'Storage video scalabile per registrazioni e clip generate.',
@@ -363,7 +363,7 @@ export const ECO_ENTITIES: EcoEntity[] = [
     summary: 'Distribuzione delle clip a genitori e giocatori per squadra.',
     attributes: [{ k: 'Canale', v: 'WhatsApp / link' }, { k: 'Accesso', v: 'per squadra' }] },
   // trend_tech
-  { label: 'Camera AI turnkey', node_type: 'technology', prov: 'verified',
+  { label: 'Camera AI chiavi in mano', node_type: 'technology', prov: 'verified',
     summary: 'Telecamere plug-and-play con visione integrata, sempre più accessibili.',
     attributes: [{ k: 'Maturità', v: 'in crescita' }, { k: 'Barriera', v: 'costo hardware' }] },
   { label: 'Computer vision', node_type: 'technology', prov: 'verified',
@@ -407,7 +407,7 @@ const ECO_CROSS: Array<[string, string]> = [
   ['Veo', 'Pixellot'],
   ['Federazioni regionali', 'Consenso GDPR federazione'],
   ['Angel EU', 'Micro-VC sport'],
-  ['Camera AI turnkey', 'Fornitori camere'],
+  ['Camera AI chiavi in mano', 'Fornitori camere'],
   ['Sequenza email', 'Federazioni regionali'],
   ['Allenatore U15', 'Highlights WhatsApp'],
 ];

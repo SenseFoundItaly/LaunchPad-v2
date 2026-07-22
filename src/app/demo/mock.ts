@@ -22,7 +22,7 @@ export const PROJECT = {
 };
 
 export const HEADLINE_METRICS = [
-  { label: 'Project Score', value: '87/100', delta: '+6 vs Loop 4', spark: [52, 58, 55, 63, 61, 70, 74, 79, 83, 87], kind: 'ok' as const },
+  { label: 'Punteggio progetto', value: '87/100', delta: '+6 vs Loop 4', spark: [52, 58, 55, 63, 61, 70, 74, 79, 83, 87], kind: 'ok' as const },
   { label: 'MRR', value: '€4.2k', delta: '+18% m/m', spark: [0, 0, 0, 0.3, 0.8, 1.4, 2.1, 2.9, 3.6, 4.2], kind: 'ok' as const },
   { label: 'Club attivi', value: '38', delta: '+7 questo mese', spark: [0, 0, 2, 5, 9, 14, 21, 27, 33, 38], kind: 'ok' as const },
   { label: 'Runway', value: '14 mesi', delta: 'pre-seed €350k', spark: [], kind: 'n' as const },
@@ -39,15 +39,15 @@ export type SpineNode =
 
 export const SPINE: SpineNode[] = [
   { kind: 'phase', n: 0, label: 'Idea Canvas', sub: 'Struttura l’idea grezza · Lean Canvas + Startup Score baseline', done: true },
-  { kind: 'phase', n: 1, label: 'Validation Gate', sub: 'Market + Technical + Problem-Solution Fit · watcher attivati', done: true, expanded: true },
+  { kind: 'phase', n: 1, label: 'Validation Gate', sub: 'Mercato + Tecnica + Problem-Solution Fit · watcher attivati', done: true, expanded: true },
   { kind: 'loop', label: 'Loop 1 · PSF Review', sub: 'trigger: score < 6/10 o WTP < 30% · max 2 iterazioni', verdict: 'GO' },
-  { kind: 'phase', n: 2, label: 'Business Essentials', sub: 'Business Model · unit economics · financial draft', done: true },
+  { kind: 'phase', n: 2, label: 'Business Essentials', sub: 'Business Model · unit economics · bozza finanziaria', done: true },
   { kind: 'loop', label: 'Loop 2 · BM Stress Test', sub: 'trigger: LTV/CAC < 3× o score < 6/10 · max 2 iterazioni', verdict: 'GO' },
   { kind: 'module', label: 'Modulo Trasversale · Financial & Pitch Assets', sub: 'attivabile dopo Loop 1 · obbligatorio pre-lancio', done: true },
-  { kind: 'phase', n: 3, label: 'Build & Test Sandbox', sub: 'Landing page · demo · warm users testing', done: true },
-  { kind: 'loop', label: 'Loop 3 · Market Response Review', sub: 'trigger: conversion < 5% o score < 6/10 · max 2 iterazioni', verdict: 'GO' },
-  { kind: 'phase', n: 4, label: 'MVP Release & Launch', sub: 'Build + Launch + Testing con cold & warm users', done: false, active: true },
-  { kind: 'loop', label: 'Loop 4 · MVP Test Verdict', sub: 'trigger: activation < 20% o score < 6/10 · verdetto finale', verdict: 'LAUNCH READY' },
+  { kind: 'phase', n: 3, label: 'Build & Test Sandbox', sub: 'Landing page · demo · test con warm users', done: true },
+  { kind: 'loop', label: 'Loop 3 · Market Response Review', sub: 'trigger: conversione < 5% o score < 6/10 · max 2 iterazioni', verdict: 'GO' },
+  { kind: 'phase', n: 4, label: 'MVP Release & Launch', sub: 'Build + Launch + Test con cold & warm users', done: false, active: true },
+  { kind: 'loop', label: 'Loop 4 · MVP Test Verdict', sub: 'trigger: attivazione < 20% o score < 6/10 · verdetto finale', verdict: 'LAUNCH READY' },
 ];
 
 // Expanded evidence checks for the Validation Gate stage (1A ∥ 1B → 1C).
@@ -117,7 +117,7 @@ export const LOOPS: Array<{
     id: 'loop2',
     title: 'Loop 2 · BM Stress Test',
     subtitle: 'attivazione automatica — mese 3',
-    trigger: 'business model + pricing compilati',
+    trigger: 'business model + prezzi compilati',
     verdict: 'GO',
     body: [
       'LTV/CAC 3.2× (soglia 2×). Prezzo ancora €79/mese, ancorato alla WTP misurata in Loop 1 — nessuna micro-iterazione necessaria.',
@@ -156,7 +156,7 @@ export const DATA_ROOM = [
   { name: 'Pitch deck', version: 'v3', meta: '12 slide · aggiornato 4 giorni fa', icon: 'file' as const },
   { name: 'One-pager', version: 'v2', meta: 'EN + IT', icon: 'file' as const },
   { name: 'Modello finanziario', version: 'v4', meta: 'runway 14 mesi · need €350k pre-seed', icon: 'fund' as const },
-  { name: 'Evidence Matrix — Loop 1', version: 'v1', meta: 'allegata al verdetto GO', icon: 'layers' as const },
+  { name: 'Matrice evidenze — Loop 1', version: 'v1', meta: 'allegata al verdetto GO', icon: 'layers' as const },
   { name: 'Interviste PSF (14)', version: '—', meta: 'trascrizioni + verbatim pain', icon: 'book' as const },
 ];
 export const DATA_ROOM_FOOT = 'Data room condivisa con 2 investitori · ultimo accesso ieri';
@@ -166,18 +166,18 @@ export const DATA_ROOM_FOOT = 'Data room condivisa con 2 investitori · ultimo a
 // executor sends, measure cron reads the results back.
 export const GROWTH_FUNNEL = [
   { label: 'Visitatori 30gg', value: '2.4k', delta: '+12%', kind: 'ok' as const },
-  { label: 'Signup', value: '164', delta: '6.8% conv.', kind: 'ok' as const },
+  { label: 'Iscrizioni', value: '164', delta: '6.8% conv.', kind: 'ok' as const },
   { label: 'Attivati', value: '121', delta: '74%', kind: 'ok' as const },
   { label: 'Email inviate', value: '1.2k', delta: 'open 41% · click 12%', kind: 'ok' as const },
 ];
 export const GROWTH_ITEMS = [
-  { week: 'W0', title: 'Landing pubblicata — matchlens.app', meta: 'deploy Netlify · form signup attivo, letto dal cron di misurazione', state: 'live', kind: 'ok' as const },
+  { week: 'W0', title: 'Landing pubblicata — matchlens.app', meta: 'deploy Netlify · form di iscrizione attivo, letto dal cron di misurazione', state: 'live', kind: 'ok' as const },
   { week: 'W1', title: 'Sequenza email "Onboarding club"', meta: '5 step via Resend · 3 inviati · step 4 proposto in Inbox', state: 'attiva', kind: 'ok' as const },
   { week: 'W2', title: 'Broadcast "Stagione primaverile"', meta: '412 destinatari · inviato dopo approvazione · 38 risposte', state: 'inviato', kind: 'ok' as const },
   { week: 'W3', title: 'Ads — Google CSV + Meta JSON', meta: '3 ad group esportati · €14 CPA misurato', state: 'attiva', kind: 'ok' as const },
   { week: 'W3', title: 'Social — 8 post programmati', meta: 'LinkedIn + Instagram via Ayrshare · calendario 2 settimane', state: 'in coda', kind: 'info' as const },
   { week: 'W4', title: 'Misurazione notturna', meta: 'cron legge i Forms → metrica signups aggiornata ogni notte', state: 'attiva', kind: 'ok' as const },
-  { week: 'W5', title: 'Growth loop — referral allenatori', meta: 'dispatch per area · 1 club porta 0.4 club/mese', state: 'in test', kind: 'info' as const },
+  { week: 'W5', title: 'Loop di crescita — referral allenatori', meta: 'dispatch per area · 1 club porta 0.4 club/mese', state: 'in test', kind: 'info' as const },
 ];
 
 // Build hub — the MVP is built and iterated BY AGENTS (v0 + E2B drivers):
@@ -197,8 +197,8 @@ export const BUILD_ITERATIONS = [
 // Agent activity — the last 48h of the machine working on its own (cron,
 // watchers, executors). Everything outbound went through founder approval.
 export const ACTIVITY = [
-  { when: 'oggi 06:00', what: 'Scansione watcher — 2 segnali competitor, 1 proposta in Inbox', type: 'cron' },
-  { when: 'oggi 06:02', what: 'Misurazione — +9 signup dai Forms, metrica aggiornata', type: 'cron' },
+  { when: 'oggi 06:00', what: 'Scansione watcher — 2 segnali concorrenti, 1 proposta in Inbox', type: 'cron' },
+  { when: 'oggi 06:02', what: 'Misurazione — +9 iscrizioni dai Forms, metrica aggiornata', type: 'cron' },
   { when: 'oggi 06:05', what: 'Proposto invio step 4/5 della sequenza email (in Inbox)', type: 'proposta' },
   { when: 'ieri 18:40', what: 'Broadcast "Stagione primaverile" inviato — dopo la tua approvazione', type: 'eseguito' },
   { when: 'ieri 09:15', what: 'Proposta iterazione MVP #13 da feedback allenatori', type: 'proposta' },
@@ -207,17 +207,17 @@ export const ACTIVITY = [
 
 // Intelligence — watchers + ecosystem.
 export const WATCHERS = [
-  { title: 'Competitor — prodotto e pricing', meta: 'Veo · Pixellot · Trace · scansione settimanale', state: 'attivo' },
+  { title: 'Concorrenti — prodotto e prezzi', meta: 'Veo · Pixellot · Trace · scansione settimanale', state: 'attivo' },
   { title: 'Normativa — GDPR minori', meta: 'garante privacy + linee guida federazioni', state: 'attivo' },
   { title: 'Feedback utenti — app store + email', meta: 'classificazione automatica su 3 livelli', state: 'attivo' },
 ];
 export const INTEL_ALERT = {
   title: 'Veo lancia un piano entry a €89/mese',
-  body: 'Sopra il nostro anchor di €79 — la differenziazione "chiavi in mano" regge. Proposta in Inbox: aggiornare la battlecard competitor.',
+  body: 'Sopra il nostro anchor di €79 — la differenziazione "chiavi in mano" regge. Proposta in Inbox: aggiornare la battlecard concorrenti.',
 };
 export const ECOSYSTEM = [
-  { label: 'Competitor', count: 3 },
-  { label: 'Personas', count: 2 },
+  { label: 'Concorrenti', count: 3 },
+  { label: 'Persone', count: 2 },
   { label: 'Partner', count: 4 },
   { label: 'Investitori', count: 2 },
 ];
@@ -225,8 +225,8 @@ export const ECOSYSTEM = [
 // Inbox preview — pending proposals awaiting founder approval.
 export const INBOX = [
   { title: 'Approva campagna email — "Stagione primaverile"', lane: 'Approvazione', kind: 'live' as const },
-  { title: 'Weekly metrics — report settimana 38 pronto', lane: 'Skill', kind: 'info' as const },
-  { title: 'Alert competitor — piano entry Veo €89/mese', lane: 'Segnale', kind: 'warn' as const },
+  { title: 'Metriche settimanali — report settimana 38 pronto', lane: 'Skill', kind: 'info' as const },
+  { title: 'Alert concorrenti — piano entry Veo €89/mese', lane: 'Segnale', kind: 'warn' as const },
 ];
 
 export const FOOTER_NOTE =
@@ -248,7 +248,7 @@ export const SCORE = {
     { label: 'Soluzione & prodotto', value: 88 },
     { label: 'Modello di business', value: 84 },
     { label: 'Trazione & metriche', value: 86 },
-    { label: 'Team & execution', value: 83 },
+    { label: 'Team & esecuzione', value: 83 },
   ],
   recommendation:
     'Trazione solida e unit economics sane. Prossima leva: allargare i canali oltre le federazioni per ridurre il rischio di concentrazione.',
@@ -262,7 +262,7 @@ export const SCORE = {
 
 export const INBOX_SUBHEAD = {
   title: 'Applica all’intelligence del tuo progetto.',
-  desc: 'Risultati degli osservatori e proposte di conoscenza. Applica o ignora — ogni elemento applicato finisce in Knowledge.',
+  desc: 'Risultati degli osservatori e proposte di conoscenza. Applica o ignora — ogni elemento applicato finisce in Conoscenza.',
 };
 
 export type InboxItem = {
@@ -287,29 +287,29 @@ export const INBOX_ITEMS: InboxItem[] = [
     brief: 'Nuovo listino sul sito di Veo: piano "Club" a €89/mese, sopra il nostro anchor di €79. La differenziazione "chiavi in mano" regge.',
     lane: 'Segnale',
     laneKind: 'live',
-    producer: 'osservatore · competitor',
+    producer: 'osservatore · concorrenti',
     age: '2 ore fa',
-    applyLabel: 'Accetta nella knowledge',
+    applyLabel: 'Accetta nella conoscenza',
     detail: [
       { label: 'Fonte', value: 'veo.co/pricing' },
-      { label: 'Rilevato da', value: 'Osservatore competitor (settimanale)' },
+      { label: 'Rilevato da', value: 'Osservatore concorrenti (settimanale)' },
       { label: 'Delta prezzo', value: '€89 vs nostro €79' },
-      { label: 'Impatto', value: 'Aggiornare la battlecard competitor' },
+      { label: 'Impatto', value: 'Aggiornare la battlecard concorrenti' },
     ],
-    adds: 'Aggiunge un fatto "pricing competitor" al grafo Knowledge e aggiorna il profilo di Veo.',
+    adds: 'Aggiunge un fatto "prezzi concorrenti" al grafo Conoscenza e aggiorna il profilo di Veo.',
   },
   {
     id: 'b7c2',
     typeChip: 'Analisi',
-    title: 'Weekly metrics — report settimana 38 pronto',
+    title: 'Metriche settimanali — report settimana 38 pronto',
     brief: 'La skill weekly-metrics ha compilato il report: MRR €4.2k (+18%), 38 club attivi (+7), churn 3.1%. Nessuna anomalia.',
     lane: 'Approvazione',
     laneKind: 'info',
     producer: 'skill · weekly-metrics',
     age: '5 ore fa',
-    applyLabel: 'Applica alla knowledge',
+    applyLabel: 'Applica alla conoscenza',
     detail: [
-      { label: 'Analisi', value: 'Weekly metrics' },
+      { label: 'Analisi', value: 'Metriche settimanali' },
       { label: 'Cosa ottieni', value: 'Snapshot MRR/churn/attivazione della settimana' },
       { label: 'Durata', value: 'eseguita — pronta da applicare' },
     ],
@@ -349,7 +349,7 @@ export const INBOX_ITEMS: InboxItem[] = [
       { label: 'Pianificazione', value: 'Settimanale' },
       { label: 'Avvisa quando', value: 'nuove linee guida o obblighi di consenso' },
     ],
-    adds: 'Crea un osservatore attivo che alimenta la knowledge con segnali normativi.',
+    adds: 'Crea un osservatore attivo che alimenta la conoscenza con segnali normativi.',
   },
 ];
 
@@ -369,7 +369,7 @@ export type Watcher = {
 
 export const WATCHERS_FULL: Watcher[] = [
   {
-    name: 'Competitor — prodotto e pricing',
+    name: 'Concorrenti — prodotto e prezzi',
     kind: 'URL',
     status: 'attivo',
     statusKind: 'ok',
@@ -377,7 +377,7 @@ export const WATCHERS_FULL: Watcher[] = [
     lastRun: '2 ore fa',
     whatChecks: 'Listini e note di rilascio di Veo, Pixellot e Trace.',
     sources: ['veo.co/pricing', 'pixellot.tv', 'traceup.com'],
-    alertsWhen: 'un competitor cambia prezzo o lancia un piano nuovo',
+    alertsWhen: 'un concorrente cambia prezzo o lancia un piano nuovo',
     lastVerdict: '1 segnale: Veo piano entry €89/mese',
     alerts: 1,
   },
@@ -402,7 +402,7 @@ export const WATCHERS_FULL: Watcher[] = [
     cadence: 'giornaliera',
     lastRun: '3 ore fa',
     whatChecks: 'Recensioni store e risposte email, classificate su 3 livelli (superficiale/intermedio/profondo).',
-    sources: ['App Store', 'Google Play', 'support inbox'],
+    sources: ['App Store', 'Google Play', 'email di supporto'],
     alertsWhen: 'un cluster di feedback profondo mette in discussione l’ICP',
     lastVerdict: '2 feedback intermedi → iterazione MVP #13 proposta',
     alerts: 2,
@@ -436,11 +436,11 @@ export const KNOWLEDGE_GROUPS: Array<{ kind: string; label: string; edge: string
   {
     kind: 'entity', label: 'Entità', edge: 'var(--sky)',
     rows: [
-      { title: 'MatchLens — la startup', summary: 'Vende telecamere AI turnkey ai club dilettantistici. Fase MVP Release & Launch, 38 club paganti, MRR €4.2k.', prov: 'verified', age: '9 mesi fa' },
+      { title: 'MatchLens — la startup', summary: 'Vende telecamere AI chiavi in mano ai club dilettantistici. Fase MVP Release & Launch, 38 club paganti, MRR €4.2k.', prov: 'verified', age: '9 mesi fa' },
       { title: 'App MatchLens — il prodotto', summary: 'Web app + camera: registrazione, tagging eventi AI, clip automatiche, condivisione con le famiglie.', prov: 'derived', age: '6 mesi fa' },
       { title: 'Mercato calcio dilettantistico EU', summary: 'Club giovanili e amatoriali con budget federazione. Frammentato e sottoservito dagli strumenti pro.', prov: 'verified', age: '3 mesi fa' },
-      { title: 'Federazioni regionali — canale', summary: 'Canale di acquisizione primario: 4 federazioni partner, 60% dei signup passa da qui.', prov: 'verified', age: '2 mesi fa' },
-      { title: 'Camera AI turnkey — tecnologia', summary: 'Hardware chiavi in mano + computer vision. Il differenziatore rispetto ai concorrenti puramente software.', prov: 'founder', age: '8 mesi fa' },
+      { title: 'Federazioni regionali — canale', summary: 'Canale di acquisizione primario: 4 federazioni partner, 60% delle iscrizioni passa da qui.', prov: 'verified', age: '2 mesi fa' },
+      { title: 'Camera AI chiavi in mano — tecnologia', summary: 'Hardware chiavi in mano + computer vision. Il differenziatore rispetto ai concorrenti puramente software.', prov: 'founder', age: '8 mesi fa' },
     ],
   },
   {
@@ -449,7 +449,7 @@ export const KNOWLEDGE_GROUPS: Array<{ kind: string; label: string; edge: string
       { title: 'Veo', summary: 'Camera AI per riprese sportive. Forte nel calcio, modello a noleggio hardware + abbonamento. Piano entry €89/mese (nuovo).', prov: 'verified', age: '2 ore fa' },
       { title: 'Pixellot', summary: 'Sistema di produzione broadcast automatizzata, orientato a broadcaster e club professionistici. Prezzo alto.', prov: 'verified', age: '5 giorni fa' },
       { title: 'Trace', summary: 'Focalizzato su USA e calcio giovanile. Hardware proprietario, community di allenatori forte.', prov: 'derived', age: '5 giorni fa' },
-      { title: 'Hudl', summary: 'Piattaforma US di sports performance & video, molto ampia. Non focalizzata su hardware turnkey per il mercato EU.', prov: 'derived', age: '6 giorni fa' },
+      { title: 'Hudl', summary: 'Piattaforma US di sports performance & video, molto ampia. Non focalizzata su hardware chiavi in mano per il mercato EU.', prov: 'derived', age: '6 giorni fa' },
       { title: 'Spiideo', summary: 'Automated video per stadi e impianti, orientato alle strutture. Meno adatto ai piccoli club dilettantistici.', prov: 'derived', age: '6 giorni fa' },
     ],
   },
@@ -485,7 +485,7 @@ export const KNOWLEDGE_GROUPS: Array<{ kind: string; label: string; edge: string
   {
     kind: 'interview', label: 'Interviste', edge: 'var(--cat-teal)',
     rows: [
-      { title: 'Allenatore U15 — ASD Rivoli', summary: 'Pain: "perdo ore ogni settimana a tagliare i video a mano". Urgenza alta. WTP €79/mese.', prov: 'founder', age: '2 mesi fa' },
+      { title: 'Allenatore U15 — ASD Rivoli', summary: 'Problema: "perdo ore ogni settimana a tagliare i video a mano". Urgenza alta. WTP €79/mese.', prov: 'founder', age: '2 mesi fa' },
       { title: 'Direttore sportivo — Pol. Chieri', summary: 'Interessato al budget federazione. Vuole condivisione con le famiglie e clip per allenamento.', prov: 'founder', age: '2 mesi fa' },
       { title: 'Allenatore U17 — US Grugliasco', summary: 'Vuole tagging automatico dei falli e clip difensive. Conferma WTP €79/mese.', prov: 'founder', age: '2 mesi fa' },
       { title: 'Resp. settore giovanile — FIGC Piemonte', summary: 'Interessata al consenso GDPR gestito a livello di federazione, non di singolo club.', prov: 'founder', age: '10 settimane fa' },
@@ -591,7 +591,7 @@ export const CHAT_MESSAGES: ChatMsg[] = [
   { role: 'ai', agent: 'AN', body: 'Ho classificato 11 feedback: 9 superficiali, 2 intermedi. I due intermedi convergono su una richiesta: **condividere gli highlights su WhatsApp**. L’ho proposto come iterazione MVP #13 nel tab Build.', tools: ['read-feedback', 'classify'] },
   { role: 'ai', agent: 'BU', body: 'Nel tab **Build & Launch** trovi la build #12 live su app.matchlens.it. L’iterazione #13 è pronta da approvare: appena la confermi la costruisco in sandbox e la vedi in anteprima qui.' },
   { role: 'user', body: 'Perfetto. E la sequenza email di onboarding a che punto è?' },
-  { role: 'ai', agent: 'MK', body: 'Sequenza "Onboarding club": 3 step inviati, step 4 proposto nel tuo Inbox (parte dopo la tua approvazione). Open 41%, click 12%. Nel tab **Growth** vedi tutte le campagne e i growth loop attivi.', tools: ['campaigns'] },
+  { role: 'ai', agent: 'MK', body: 'Sequenza "Onboarding club": 3 step inviati, step 4 proposto nel tuo Inbox (parte dopo la tua approvazione). Aperture 41%, click 12%. Nel tab **Growth** vedi tutte le campagne e i loop di crescita attivi.', tools: ['campaigns'] },
 ];
 
 export const AGENT_META: Record<string, { name: string; color: string }> = {
@@ -611,9 +611,9 @@ export const CANVAS_FIELDS = [
 
 export const CANVAS_DEPTS: Array<{ dept: string; artifacts: Array<{ title: string; kind: string }> }> = [
   { dept: 'Mercato', artifacts: [
-    { title: 'Market sizing (TAM/SAM/SOM)', kind: 'ricerca' },
+    { title: 'Dimensionamento mercato (TAM/SAM/SOM)', kind: 'ricerca' },
     { title: 'Battlecard Veo / Pixellot / Trace', kind: 'analisi' },
-    { title: 'Competitor matrix (5 player)', kind: 'analisi' },
+    { title: 'Matrice concorrenti (5 player)', kind: 'analisi' },
     { title: 'Interviste PSF (14)', kind: 'evidenza' },
     { title: 'ICP — club calcio giovanile', kind: 'segmento' },
     { title: 'Trend: AI Act sport minori', kind: 'segnale' },
@@ -621,29 +621,29 @@ export const CANVAS_DEPTS: Array<{ dept: string; artifacts: Array<{ title: strin
   { dept: 'Prodotto', artifacts: [
     { title: 'Spec MVP — build #12', kind: 'prototipo' },
     { title: 'Roadmap iterazioni #10-13', kind: 'piano' },
-    { title: 'Feature backlog (18)', kind: 'backlog' },
+    { title: 'Backlog funzionalità (18)', kind: 'backlog' },
     { title: 'Changelog build #1-12', kind: 'storico' },
-    { title: 'User feedback — 3 livelli', kind: 'evidenza' },
+    { title: 'Feedback utenti — 3 livelli', kind: 'evidenza' },
   ] },
   { dept: 'Prezzi', artifacts: [
-    { title: 'Anchor €79 + 3 tier', kind: 'pricing' },
-    { title: 'WTP research (63%)', kind: 'evidenza' },
+    { title: 'Anchor €79 + 3 tier', kind: 'prezzi' },
+    { title: 'Ricerca WTP (63%)', kind: 'evidenza' },
     { title: 'Van Westendorp — sensibilità prezzo', kind: 'analisi' },
     { title: 'Unit economics (LTV/CAC 3.2×)', kind: 'modello' },
   ] },
   { dept: 'Finanza', artifacts: [
     { title: 'Modello finanziario v4', kind: 'modello' },
-    { title: 'Runway 14 mesi · need €350k', kind: 'fatto' },
+    { title: 'Runway 14 mesi · serve €350k', kind: 'fatto' },
     { title: 'Pitch deck v3 (12 slide)', kind: 'deck' },
     { title: 'Cap table + scenario diluizione', kind: 'modello' },
     { title: 'Data room investitori', kind: 'raccolta' },
   ] },
   { dept: 'Crescita', artifacts: [
     { title: 'Launch pipeline W0-W5', kind: 'piano' },
-    { title: 'GTM strategy — federazioni first', kind: 'strategia' },
-    { title: 'Growth loop referral allenatori', kind: 'esperimento' },
+    { title: 'Strategia GTM — prima le federazioni', kind: 'strategia' },
+    { title: 'Loop di crescita referral allenatori', kind: 'esperimento' },
     { title: 'Sequenze email (5 step)', kind: 'campagna' },
-    { title: 'Funnel metrics (2.4k → 121)', kind: 'metrica' },
+    { title: 'Metriche funnel (2.4k → 121)', kind: 'metrica' },
   ] },
 ];
 
@@ -660,7 +660,7 @@ export const BUILD_CURRENT = {
   ],
 };
 export const BUILD_THREAD = [
-  { n: 1, label: 'Build iniziale — dashboard club + upload video', status: 'live' },
+  { n: 1, label: 'Build iniziale — dashboard club + caricamento video', status: 'live' },
   { n: 10, label: 'Tagging eventi in tempo reale', status: 'live' },
   { n: 11, label: 'Condivisione video con i genitori', status: 'live' },
   { n: 12, label: 'Clip automatiche per allenamento', status: 'live' },
@@ -670,13 +670,13 @@ export const BUILD_THREAD = [
 // Growth tab — LaunchPanel shape: assets, campaigns, loops
 export const LAUNCH_ASSETS = [
   { title: 'Landing — MatchLens per club', signups: 164, watched: true, publisher: 'netlify', live: true },
-  { title: 'Pagina pricing €79/mese', signups: 0, watched: false, publisher: 'netlify', live: true },
+  { title: 'Pagina prezzi €79/mese', signups: 0, watched: false, publisher: 'netlify', live: true },
 ];
 export const LAUNCH_CAMPAIGNS = [
   { kind: 'email', title: 'Onboarding club', sent: 3, total: 5, status: 'attiva', statusKind: 'ok' as const, action: 'Pausa' },
   { kind: 'email', title: 'Stagione primaverile (broadcast)', sent: 412, total: 412, status: 'inviato', statusKind: 'ok' as const, action: null },
   { kind: 'social', title: 'Calendario LinkedIn + Instagram', sent: 4, total: 8, status: 'attiva', statusKind: 'ok' as const, action: 'Pausa' },
-  { kind: 'ads', title: 'Pack Google + Meta', sent: 0, total: 3, status: 'bozza', statusKind: 'n' as const, action: 'Attiva' },
+  { kind: 'ads', title: 'Pacchetto Google + Meta', sent: 0, total: 3, status: 'bozza', statusKind: 'n' as const, action: 'Attiva' },
 ];
 export const LAUNCH_LOOPS = [
   { metric: 'Conversione landing', from: '4,1%', to: '6,8%', status: 'attiva', statusKind: 'ok' as const },
