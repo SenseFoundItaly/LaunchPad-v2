@@ -125,7 +125,7 @@ export function ScorePanel({ projectId }: { projectId: string }) {
             </div>
           ) : (
             <>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', rowGap: 4 }}>
                 <span className="lp-serif" style={{ fontSize: 30, lineHeight: 1, color: 'var(--ink)' }}>{overall}</span>
                 <span style={{ fontSize: 13, color: 'var(--ink-5)' }}>/ 100</span>
                 <span className="lp-mono" style={{ fontSize: 10, color: band(overall).color, letterSpacing: 0.3 }}>{t(band(overall).key)}</span>

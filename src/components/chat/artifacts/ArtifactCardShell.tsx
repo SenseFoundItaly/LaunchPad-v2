@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Artifact, Source } from '@/types/artifacts';
 import SourcesFooter from './SourcesFooter';
 import ArtifactExportButton from './ArtifactExportButton';
@@ -183,8 +184,14 @@ export default function ArtifactCardShell({
           artifacts (investor-pipeline, idea-canvas, risk-matrix) get the
           horizontal real estate the canvas grid can't always afford.
           Renders the body without re-mounting the card to keep any local
-          card state (selected stage, expanded row) preserved. */}
-      {inspectorOpen && (
+          card state (selected stage, expanded row) preserved.
+          PORTALED to document.body: the card's `lp-rise` animation uses
+          animation-fill-mode:both, which leaves a `transform: translateY(0)`
+          on the element permanently — and a non-`none` transform makes it the
+          containing block for `position: fixed` descendants. Without the
+          portal the overlay was trapped inside the ~190px card box instead of
+          the viewport (it rendered as a cramped narrow modal, not fullscreen). */}
+      {inspectorOpen && typeof document !== 'undefined' && createPortal(
         <div
           onClick={() => setInspectorOpen(false)}
           className="fixed inset-0 z-[100] flex items-center justify-center p-6"
@@ -227,7 +234,8 @@ export default function ArtifactCardShell({
               <SourcesFooter sources={sources} inferredFromResponse={provenance === 'fallback'} />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
