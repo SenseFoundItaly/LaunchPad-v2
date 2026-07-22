@@ -47,7 +47,10 @@ export type EventType =
   | 'alert_reverted'
   | 'loop1_review_proposed'   // Loop 1 (PSF Review) auto-trigger fired (WTP<30%)
   | 'loop1_override'          // founder ignored the auto-trigger, with motivation
-  | 'loop1_verdict';          // escalation cap reached → founder picked GO/PIVOT/STOP
+  | 'loop1_verdict'           // escalation cap reached → founder picked GO/PIVOT/STOP
+  | 'loop2_review_proposed'   // Loop 2 (BM Stress Test) auto-trigger fired (LTV/CAC<3×)
+  | 'loop2_override'          // founder ignored the auto-trigger, with motivation
+  | 'loop2_verdict';          // escalation cap reached → founder picked GO/PIVOT/STOP
 
 export interface MemoryEvent {
   id: string;

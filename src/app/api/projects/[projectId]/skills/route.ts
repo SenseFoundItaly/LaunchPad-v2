@@ -16,7 +16,9 @@ import {
   validationGateRunPrereqs,
   loop1RunBlocked,
   LOOP1_GATED_SKILLS,
+  loop2RunBlocked,
 } from '@/lib/skill-prereqs';
+import { LOOP2_GATED_SKILLS } from '@/lib/loops/loop2-bm';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { stageSequenceLock } from '@/lib/journey/stage-lock';
 import crypto from 'crypto';
@@ -46,16 +48,19 @@ export async function GET(
   if (!auth.ok) return auth.response;
 
   if (new URL(request.url).searchParams.get('availability') === '1') {
-    const [incomplete, gate1c, loop1Open] = await Promise.all([
+    const [incomplete, gate1c, loop1Open, loop2Open] = await Promise.all([
       canvasLacksCorePrereqs(projectId),
       validationGatePrereqs(projectId),
       loop1RunBlocked(projectId, 'business-model'), // any gated skill probes the open-loop state
+      loop2RunBlocked(projectId, 'prototype-spec'), // any Phase-3 skill probes the open Loop-2 state
     ]);
     const gated = incomplete ? [...CANVAS_DEPENDENT_SKILLS] : [];
     // Track-1C skills (customer-interviews) stay gated until 1A+1B pass.
     if (gate1c.blocked) gated.push(...GATE_1C_DEPENDENT_SKILLS);
     // Phase-2 pricing/business skills stay gated while a PSF Review is open.
     if (loop1Open) gated.push(...LOOP1_GATED_SKILLS);
+    // Phase-3 build/GTM skills stay gated while a BM Stress Test is open.
+    if (loop2Open) gated.push(...LOOP2_GATED_SKILLS);
     return json({ gated });
   }
 
@@ -207,6 +212,22 @@ export async function POST(
           success: false,
           error: 'loop1_gate_open',
           message: translate(locale, 'skills.loop1-gated'),
+        }),
+        { status: 422, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // LOOP-2 GATE (run-time) — Phase-3 build/GTM skills are blocked while an
+    // open BM Stress Test (weak LTV/CAC) awaits the founder: don't build/GTM on
+    // a fragile unit model. Resolving or overriding the loop unblocks.
+    if (await loop2RunBlocked(projectId, body.skill_id as string)) {
+      console.info(`[skills] ${body.skill_id} blocked — open Loop-2 (BM stress test) pending`);
+      const locale = await resolveLocale(ownerUserId, projectId);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'loop2_gate_open',
+          message: translate(locale, 'skills.loop2-gated'),
         }),
         { status: 422, headers: { 'Content-Type': 'application/json' } },
       );

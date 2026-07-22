@@ -670,6 +670,20 @@ export const it: Partial<Record<MessageKey, string>> = {
   'loop.signal-ltvcac': 'LTV : CAC',
   'loop.signal-payback': 'Payback',
   'loop.signal-margin': 'Margine lordo',
+  // Loop 2 — BM Stress Test (LTV/CAC sotto la soglia 3× dopo che il modello di
+  // business è compilato). Speculare a loop1.* una fase più a valle.
+  'loop2.card-title': 'BM Stress Test — LTV:CAC è solo {ratio}×',
+  'loop2.card-rationale': 'Le tue unit economics sono sostenibili ma deboli — LTV:CAC è {ratio}× (sotto la soglia di stress del {threshold}×). Rivedi pricing o struttura dei costi prima di investire in Build e go-to-market. Approva per rilanciare il business model — oppure archiviala per procedere al build senza.',
+  'loop2.card-title-manual': 'BM Stress Test',
+  'loop2.card-rationale-manual': 'Stress-test del tuo modello di business — pricing, tier e unit economics — rispetto alla soglia LTV:CAC del 3×. Approva per rilanciare il business model.',
+  'loop2.verdict-prompt': 'Hai iterato due volte sul modello di business e LTV:CAC è ancora sotto la soglia. È il momento di decidere:',
+  'loop2.verdict-evidence': 'Evidenza — dopo {iterations} iterazioni di stress BM: LTV:CAC {ltvcac}× (sotto la soglia del {threshold}×).',
+  'loop2.verdict-go': 'GO — le unit economics sono abbastanza solide per procedere',
+  'loop2.verdict-pivot': 'PIVOT — rivedi pricing, tier o la struttura dei costi',
+  'loop2.verdict-stop': 'STOP — le unit economics non funzionano a nessun prezzo',
+  'loop2.verdict-recorded-go': 'Verdetto registrato: **GO**. Le unit economics sono abbastanza solide — questo stress test è chiuso e la Fase 3 (build e go-to-market) è sbloccata.',
+  'loop2.verdict-recorded-pivot': 'Verdetto registrato: **PIVOT**. Rivedi pricing, tier o struttura dei costi, poi ricalcola le unit economics. Questo stress test è ora chiuso.',
+  'loop2.verdict-recorded-stop': 'Verdetto registrato: **STOP**. Le unit economics non reggono. Questo stress test è chiuso — non serve altro.',
   'journey-prompt.wtp': 'Aiutami a registrare un segnale di disponibilità a pagare — ti dico cosa hanno detto gli intervistati.',
   'journey-prompt.generic': 'Aiutami con: {label}',
   // Etichette dello spine — testo delle check-row / tile di stage / tagline
@@ -813,6 +827,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'skills.gate-1c-locked': 'Le interviste ai clienti si sbloccano quando le track 1A (Mercato) e 1B (Tecnica) sono complete. Ancora aperti: {missing}. Chiudiamo prima quelli — posso aiutarti su ciascuno.',
   'skills.stage-locked': '{skillStage} è bloccato finché non completi tutte le fasi precedenti. Sei alla Fase {blockingStage} — {blockingName} ({passed}/{total} check completati). Completala e finisci le fasi rimanenti, poi si sblocca. Non perdi nulla — completa il lavoro precedente e torna qui.',
   'skills.loop1-gated': 'Il lavoro su pricing e business model è in pausa finché la PSF Review è aperta — la disponibilità a pagare è risultata debole. Risolvi la review (o archiviala con una motivazione) prima, così costruisci il pricing su un fit confermato.',
+  'skills.loop2-gated': 'Il lavoro su build e go-to-market è in pausa finché il BM Stress Test è aperto — LTV:CAC è risultato sotto la soglia del 3×. Risolvi la review (o archiviala con una motivazione) prima, così costruisci su un modello che regge.',
   // Revisione delle sezioni deboli post-scoring (option-set deterministico).
   'score-review.prompt': 'Il tuo punteggio di partenza ha aree deboli. Dove vuoi approfondire prima di validare?',
   'score-review.option-label': 'Rivediamo {dim} ({score}/100)',

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query, run } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
+import { maybeTriggerLoop2 } from '@/lib/loops/loop2-bm';
 
 /**
  * GET /api/projects/{projectId}/pricing
@@ -83,6 +84,12 @@ export async function PUT(
       ...values,
     );
   }
+
+  // Loop 2 (BM Stress Test): a pricing/unit-econ change may push LTV/CAC below
+  // the 3× stress bar (or, on a re-run, recover it). Awaited (idempotent,
+  // non-throwing, self-guards on missing unit econ) so the serverless freeze
+  // can't drop it — mirror of the set_pricing tool hook.
+  await maybeTriggerLoop2(projectId);
 
   const [row] = await query('SELECT * FROM pricing_state WHERE project_id = ?', projectId);
   return json(row ?? null);
