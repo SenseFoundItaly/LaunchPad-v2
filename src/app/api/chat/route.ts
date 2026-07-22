@@ -9,6 +9,7 @@ import { runAgentStream, buildSeedHistory } from '@/lib/pi-agent';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { LOCALE_ENGLISH_NAME } from '@/lib/i18n/locales';
+import { translate } from '@/lib/i18n/messages';
 import { makeProjectTools, withSourceTitles } from '@/lib/project-tools';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
@@ -1342,7 +1343,7 @@ export async function POST(request: NextRequest) {
                   linked_risk_id: 'ad_hoc',
                   urls_to_track: pl.url ? [pl.url] : [],
                   pending_action_id: pa.id,
-                  sources: withSourceTitles(pl.sources),
+                  sources: withSourceTitles(pl.sources, (k, v) => translate(locale, k, v)),
                 };
                 card = `\n\n:::artifact{"type":"monitor-proposal","id":"mon_prop_${pa.id.slice(-12)}"}\n${JSON.stringify(body)}\n:::`;
               } else {
@@ -1358,7 +1359,7 @@ export async function POST(request: NextRequest) {
                   estimated_monthly_credits: pl.estimated_monthly_credits,
                   estimated_per_run_credits: pl.estimated_per_run_credits,
                   pending_action_id: pa.id,
-                  sources: withSourceTitles(rawSources),
+                  sources: withSourceTitles(rawSources, (k, v) => translate(locale, k, v)),
                 };
                 if (pl.query) body.query = pl.query;
                 if (Array.isArray(pl.urls_to_track) && pl.urls_to_track.length) body.urls_to_track = pl.urls_to_track;

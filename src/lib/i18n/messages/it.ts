@@ -1085,6 +1085,32 @@ export const it: Partial<Record<MessageKey, string>> = {
   'signals.signals-tooltip-other': '{count} segnali grezzi citati',
   'signals.confidence-tooltip': 'Affidabilità autovalutata dal modello {percent}%',
 
+  // ── Messaggi prerequisiti run skill (audit gap i18n 21/07) ─────────────────
+  'skills.field-solution': 'la soluzione',
+  'skills.field-value-proposition': 'la value proposition',
+  'skills.field-joiner': ' e ',
+  'skills.prereq-pending': 'Hai già definito {fields} — approva la proposta in attesa (nella card del canvas o in Osservatori → Da rivedere) per applicarla, poi rilancia questa analisi.',
+  'skills.prereq-missing': "Prima delinea {fields} — questa analisi parte solo con l'idea definita. Raccontami cosa stai costruendo e lo scrivo io nel canvas, poi la lanciamo.",
+
+  // ── Stringhe server-side founder-facing (audit gap i18n 21/07) ─────────────
+  'pa.rationale-monitor-quote': 'Detto dal founder in chat: "{quote}"',
+  'pa.rationale-monitor-derisk': 'Derisking {risk} — soglia di allerta: {threshold}',
+  'pa.rationale-edit-watcher': 'Modifica proposta: {summary}. Approva per applicarla.',
+  'pa.rationale-delete-watcher': "Rimuove definitivamente questo osservatore e lo storico delle esecuzioni. Approva per applicare.",
+  'pa.rationale-pause-watcher': 'Mette in pausa questo osservatore (reversibile — puoi riattivarlo quando vuoi). Approva per applicare.',
+  'pa.raise-cap': 'Alza il tetto mensile: ${from} → ${to}',
+  'src.founder-request': 'Richiesta del founder',
+  'src.web-source': 'Fonte web',
+  'src.watcher-proposal': 'Proposta di un osservatore',
+  'src.reference': 'Riferimento',
+  'src.source': 'Fonte',
+  'src.skill': 'Analisi: {id}',
+  'val.label-canvas': 'Idea Canvas',
+  'val.label-competitor': 'Concorrente',
+  'val.label-market-size': 'Dimensione del mercato',
+  'val.proposal-title': 'Prove di validazione — {count} elemento/i',
+  'val.proposal-title-gated': ', {gated} passaggi della spine',
+
   // ── Badge crediti + popover (feedback alpha 21/07: era hardcoded EN) ───────
   'nav.usage': 'Utilizzo',
   'credits.chip': '{n}/{total} crediti',

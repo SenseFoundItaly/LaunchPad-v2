@@ -682,7 +682,7 @@ export async function POST(
   const entitiesWithTargets = extractedEntities.map((e) => ({
     ...e,
     validates: e.node_type === 'competitor'
-      ? validationLabel(validationTargetsFor('competitor'))
+      ? validationLabel(validationTargetsFor('competitor'), locale)
       : null,
   }));
   const canvasValidates: Record<string, string> = {};
@@ -695,7 +695,7 @@ export async function POST(
     for (const f of ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage', 'channels'] as const) {
       const v = canvasRow[f];
       if (typeof v === 'string' && v.trim()) {
-        const label = validationLabel(validationTargetsFor('canvas_field', f));
+        const label = validationLabel(validationTargetsFor('canvas_field', f), locale);
         if (label) canvasValidates[f] = label;
         previewFeed.push({ kind: 'canvas_field', field: f, statement: clip(v.trim()), target: 'canvas_field', target_field: f });
       }

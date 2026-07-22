@@ -20,6 +20,7 @@
 
 import { run, get } from '@/lib/db';
 import { coerceJson } from '@/lib/jsonb';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { marketSizeDrift, fmtAmount } from '@/lib/market-size-coherence';
 import { persistCompetitorCategories } from '@/lib/competitor-categories';
 import { stageMarketSizeProposal, stageValidationItemsFromRaw, type RawValidationItem } from '@/lib/auto-stage-validation';
@@ -330,11 +331,18 @@ export async function persistResearchFromSkillOutput(
         const user = str(customerInsights.user_persona);
         const criteria = asArray(customerInsights.decision_criteria).map(str).filter(Boolean).slice(0, 3).join('; ');
         const triggers = asArray(customerInsights.purchase_triggers).map(str).filter(Boolean).slice(0, 3).join('; ');
+        // Structural labels in the project language — the surrounding content
+        // already arrives in the skill's (project) language, and these fixed
+        // English infixes leaked into IT founder cards (i18n gap audit 21/07).
+        // 'criteri di scelta' / 'trigger di acquisto' are verbatim entries in
+        // the bilingual BUYER_PERSONA_KEYWORDS list, so the keyword match that
+        // closes the check is preserved in both languages.
+        const it = (await resolveLocale('', projectId).catch(() => 'en')) === 'it';
         const value = [
           buyer,
-          user && user !== buyer ? `Daily user: ${user}` : '',
-          criteria ? `Decision criteria: ${criteria}` : '',
-          triggers ? `Purchase triggers: ${triggers}` : '',
+          user && user !== buyer ? `${it ? 'Utente quotidiano' : 'Daily user'}: ${user}` : '',
+          criteria ? `${it ? 'Criteri di scelta' : 'Decision criteria'}: ${criteria}` : '',
+          triggers ? `${it ? 'Trigger di acquisto' : 'Purchase triggers'}: ${triggers}` : '',
         ].filter(Boolean).join('. ');
         raw.push({ kind: 'buyer_persona_fact', value, sources: skillSources });
       }

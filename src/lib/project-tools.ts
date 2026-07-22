@@ -95,7 +95,12 @@ async function ctxT(ctx: ToolContext): Promise<(key: MessageKey, vars?: Record<s
  * (monitor-proposal) pass. Used by propose_monitor, propose_watch_source, and
  * the chat-route monitor-card backstop so all three emit renderable cards.
  */
-export function withSourceTitles(sources: unknown): Array<Record<string, unknown>> {
+export function withSourceTitles(
+  sources: unknown,
+  // Localized titles (i18n gap audit 21/07) — callers with a project locale
+  // pass their ctxT-bound t; external callers without one fall back to EN.
+  tr: (key: MessageKey, vars?: Record<string, string | number>) => string = (k, v) => translate('en', k, v),
+): Array<Record<string, unknown>> {
   const arr = Array.isArray(sources) ? sources : [];
   const titled = arr
     .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
@@ -103,16 +108,16 @@ export function withSourceTitles(sources: unknown): Array<Record<string, unknown
       if (typeof s.title === 'string' && s.title.length > 0) return s;
       const t = typeof s.type === 'string' ? s.type : 'source';
       const title =
-        t === 'user' ? 'Founder request'
-        : t === 'web' ? (typeof s.url === 'string' ? String(s.url) : 'Web source')
-        : t === 'skill' ? `Skill: ${s.skill_id ?? ''}`
-        : t === 'internal' ? String(s.ref ?? 'Reference')
-        : 'Source';
+        t === 'user' ? tr('src.founder-request')
+        : t === 'web' ? (typeof s.url === 'string' ? String(s.url) : tr('src.web-source'))
+        : t === 'skill' ? tr('src.skill', { id: String(s.skill_id ?? '') })
+        : t === 'internal' ? String(s.ref ?? tr('src.reference'))
+        : tr('src.source');
       return { ...s, title };
     });
   return titled.length > 0
     ? titled
-    : [{ type: 'internal', title: 'Watcher proposal', ref: 'chat', ref_id: 'chat' }];
+    : [{ type: 'internal', title: tr('src.watcher-proposal'), ref: 'chat', ref_id: 'chat' }];
 }
 
 // =============================================================================
@@ -959,8 +964,8 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
         action_type: 'configure_monitor',
         title: t('pa.configure-monitor', { name: p.name }),
         rationale: p.linked_risk_id === 'ad_hoc'
-          ? `Founder said in chat: "${p.linked_quote}"`
-          : `Derisking ${p.linked_risk_id} — alert threshold: ${p.alert_threshold}`,
+          ? t('pa.rationale-monitor-quote', { quote: String(p.linked_quote ?? '') })
+          : t('pa.rationale-monitor-derisk', { risk: String(p.linked_risk_id), threshold: String(p.alert_threshold) }),
         payload: pendingActionPayload,
         estimated_impact: 'medium',
         sources: p.sources,
@@ -998,7 +1003,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
       estimated_monthly_credits: creditEstimate.monthly_credits,
       estimated_per_run_credits: creditEstimate.per_run_credits,
       pending_action_id: pendingAction.id,
-      sources: withSourceTitles(p.sources),
+      sources: withSourceTitles(p.sources, t),
     };
     if (p.query) artifactBody.query = p.query;
     if (p.urls_to_track) artifactBody.urls_to_track = p.urls_to_track;
@@ -1085,7 +1090,7 @@ const editWatcherTool = (ctx: ToolContext): AgentTool => ({
       project_id: ctx.projectId,
       action_type: 'edit_monitor',
       title: t('pa.edit-watcher', { name: monitor.name }),
-      rationale: `Proposed change: ${summary}. Approve to apply.`,
+      rationale: t('pa.rationale-edit-watcher', { summary }),
       payload: { monitor_id: monitor.id, monitor_name: monitor.name, changes },
     });
     return {
@@ -1123,9 +1128,7 @@ const deleteWatcherTool = (ctx: ToolContext): AgentTool => ({
       project_id: ctx.projectId,
       action_type: 'delete_monitor',
       title: t(mode === 'delete' ? 'pa.delete-watcher' : 'pa.pause-watcher', { name: monitor.name }),
-      rationale: mode === 'delete'
-        ? 'Permanently remove this watcher and its run history. Approve to apply.'
-        : 'Stop this watcher from running (reversible — you can re-activate it later). Approve to apply.',
+      rationale: t(mode === 'delete' ? 'pa.rationale-delete-watcher' : 'pa.rationale-pause-watcher'),
       payload: { monitor_id: monitor.id, monitor_name: monitor.name, mode },
     });
     return {
@@ -1223,10 +1226,11 @@ const proposeBudgetChangeTool = (ctx: ToolContext): AgentTool => ({
 
     let pendingAction;
     try {
+      const t = await ctxT(ctx);
       pendingAction = await createPendingAction({
         project_id: ctx.projectId,
         action_type: 'configure_budget',
-        title: `Raise monthly cap: $${currentCapUsd.toFixed(2)} → $${p.proposed_cap_usd.toFixed(2)}`,
+        title: t('pa.raise-cap', { from: currentCapUsd.toFixed(2), to: p.proposed_cap_usd.toFixed(2) }),
         rationale: p.reason,
         payload: pendingActionPayload,
         estimated_impact: 'medium',
@@ -1483,7 +1487,7 @@ const proposeWatchSourceTool = (ctx: ToolContext): AgentTool => ({
       schedule: p.schedule,
       rationale: p.rationale,
       pending_action_id: pendingAction.id,
-      sources: withSourceTitles(p.sources),
+      sources: withSourceTitles(p.sources, t),
     };
 
     const artifactBlock = [
@@ -2242,10 +2246,33 @@ const CANVAS_FIELD_LABELS: Record<string, string> = {
   revenue_streams: 'Revenue streams',
 };
 
-function itemDisplayLabel(item: RawValidationItem): string {
-  if (item.kind === 'canvas_field') return CANVAS_FIELD_LABELS[item.field ?? ''] ?? 'Idea Canvas';
-  if (item.kind === 'competitor') return 'Competitor';
-  return 'Market size';
+// Localized display labels (i18n gap audit 21/07): canvas fields reuse the
+// client's canvas.field-* keys so card and header always agree. EN fallback
+// when no translator is passed.
+const CANVAS_FIELD_LABEL_KEYS: Record<string, MessageKey> = {
+  problem: 'canvas.field-problem',
+  solution: 'canvas.field-solution',
+  target_market: 'canvas.field-target',
+  value_proposition: 'canvas.field-value',
+  business_model: 'canvas.field-business-model',
+  competitive_advantage: 'canvas.field-edge',
+  channels: 'canvas.field-channels',
+  key_metrics: 'canvas.field-metrics',
+  cost_structure: 'canvas.field-costs',
+  revenue_streams: 'canvas.field-revenues',
+};
+
+function itemDisplayLabel(
+  item: RawValidationItem,
+  tr?: (key: MessageKey, vars?: Record<string, string | number>) => string,
+): string {
+  if (item.kind === 'canvas_field') {
+    const key = CANVAS_FIELD_LABEL_KEYS[item.field ?? ''];
+    if (key && tr) return tr(key);
+    return CANVAS_FIELD_LABELS[item.field ?? ''] ?? (tr ? tr('val.label-canvas') : 'Idea Canvas');
+  }
+  if (item.kind === 'competitor') return tr ? tr('val.label-competitor') : 'Competitor';
+  return tr ? tr('val.label-market-size') : 'Market size';
 }
 
 /** Credits to commit one item. Canvas fields are free (the founder's own idea
@@ -2279,6 +2306,11 @@ async function stageValidationProposal(
     return { ok: false, error: 'propose_validation requires at least one item with a non-empty value.' };
   }
 
+  // Localized labels/validates/title (i18n gap audit 21/07) — these persist
+  // into the pending_action payload the founder reads on the card.
+  const t = await ctxT(ctx);
+  const locale = ctx._locale;
+
   const items = cleaned.map((r, i) => {
     const targets = validationTargetsFor(r.kind, r.field);
     return {
@@ -2286,9 +2318,9 @@ async function stageValidationProposal(
       kind: r.kind,
       field: r.field,
       name: r.name,
-      label: itemDisplayLabel(r),
+      label: itemDisplayLabel(r, t),
       value: r.value,
-      validates: validationLabel(targets),
+      validates: validationLabel(targets, locale),
       targets,
       credits: itemCredits(r.kind),
       sources: Array.isArray(r.sources) ? r.sources : [],
@@ -2297,7 +2329,8 @@ async function stageValidationProposal(
 
   const combined_credits = items.reduce((s, it) => s + it.credits, 0);
   const gated = items.filter((it) => it.targets.length > 0).length;
-  const title = `Validation evidence — ${items.length} item(s)${gated > 0 ? `, ${gated} spine step(s)` : ''}`;
+  const title = t('val.proposal-title', { count: items.length }) +
+    (gated > 0 ? t('val.proposal-title-gated', { gated }) : '');
 
   let pendingAction;
   try {

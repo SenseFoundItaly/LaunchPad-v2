@@ -22,6 +22,7 @@
 
 import { STAGES } from './index';
 import { MARKET_SIZE_CHECK_SOURCE, TECH_1B_SOURCES, MARKET_1A_SOURCES, DIFFERENTIATION_CHECK_SOURCE } from './stage-2-market-validation';
+import { translate, type MessageKey } from '@/lib/i18n/messages';
 
 export type ValidationItemKind =
   | 'canvas_field' | 'competitor' | 'market_size_fact' | 'tech_fact' | 'interview'
@@ -164,9 +165,16 @@ export function validationTargetsFor(
  * defined" has a 40-char bar Stage 1's existence check doesn't), so it
  * over-promised. The founder sees the real per-stage state on the live spine.
  */
-export function validationLabel(targets: ValidationTarget[]): string | null {
+export function validationLabel(targets: ValidationTarget[], locale?: 'en' | 'it'): string | null {
   if (targets.length === 0) return null;
   const primary = targets[0];
+  // Localized by check id when a locale is passed (i18n gap audit 21/07): the
+  // baked-in English check_label used to reach IT founders raw inside the
+  // localized "convalida {target}" wrapper. Callers without a locale keep EN.
+  if (locale && locale !== 'en') {
+    const localized = translate(locale, `journey-check.${primary.check_id}` as MessageKey);
+    return `${localized} — Fase ${primary.stage_number}`;
+  }
   return `${primary.check_label} — Stage ${primary.stage_number}`;
 }
 

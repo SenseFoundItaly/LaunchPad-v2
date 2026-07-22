@@ -125,9 +125,15 @@ export async function POST(
       console.info(
         `[skills] ${body.skill_id} blocked — canvas missing: [${prereq.missing.join(', ')}] pending: [${prereq.pending.join(', ')}]`,
       );
+      // Localized: the chat renders this verbatim as an assistant bubble — it
+      // shipped hardcoded EN on Italian projects (i18n gap audit 2026-07-21).
+      const locale = await resolveLocale(ownerUserId, projectId);
+      const fieldName = (label: string) =>
+        translate(locale, label === 'value proposition' ? 'skills.field-value-proposition' : 'skills.field-solution');
+      const joiner = translate(locale, 'skills.field-joiner');
       const message = prereq.missing.length === 0
-        ? `You've defined your ${prereq.pending.join(' and ')} — approve the pending proposal in your Intel (or the canvas card) to apply it, then run this skill again.`
-        : `Sketch your ${prereq.missing.join(' and ')} first — this skill needs your idea defined before it can run. Tell me what you're building and I'll write it to your canvas, then we can run this.`;
+        ? translate(locale, 'skills.prereq-pending', { fields: prereq.pending.map(fieldName).join(joiner) })
+        : translate(locale, 'skills.prereq-missing', { fields: prereq.missing.map(fieldName).join(joiner) });
       return new Response(
         JSON.stringify({
           success: false,

@@ -1634,11 +1634,18 @@ const runSkillExecutor: ActionHandler = async (action) => {
   // serverless freeze, idempotent + non-throwing inside).
   await maybeProposePhase1Watchers(action.project_id);
 
+  // Localized like every other executor narrative — this one shipped EN-only
+  // (i18n gap audit 21/07).
+  const runLocale = await localeFor(action);
+  const runSecs = Math.round(result.latency_ms / 1000);
   return {
     ok: true,
     deliverable: {
       mode: 'direct',
-      narrative: `Ran ${skillId} (${Math.round(result.latency_ms / 1000)}s, ${result.artifacts_persisted} artifact(s)). ${result.summary.slice(0, 300)}`,
+      narrative:
+        runLocale === 'it'
+          ? `Eseguita ${skillId} (${runSecs}s, ${result.artifacts_persisted} artifact). ${result.summary.slice(0, 300)}`
+          : `Ran ${skillId} (${runSecs}s, ${result.artifacts_persisted} artifact(s)). ${result.summary.slice(0, 300)}`,
       created_row_id: skillId,
     },
   };
@@ -1832,23 +1839,35 @@ const applyValidationProposal: ActionHandler = async (action) => {
         { origin: 'document_digest' },
         sources ?? [],
       );
-      applied.push(it.label || `Interview: ${it.name || 'logged'}`);
+      applied.push(
+        it.label ||
+          (locale === 'it'
+            ? `Intervista: ${it.name || 'registrata'}`
+            : `Interview: ${it.name || 'logged'}`),
+      );
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'interview') {
       skippedNoOwner = true;
     } else if ((it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact') && ownerUserId) {
       // Stage-2/3 prefill: write a keyword-bearing applied memory_fact so the
       // matching check (icp_defined / channels_identified / trends_assessed /
-      // buyer_persona_defined — all keyword-match memory_facts) greens. Prefix
-      // guarantees the match regardless of the founder's phrasing ('Market
-      // trend' and 'Buyer persona' are verbatim entries in the bilingual
-      // Stage-2 keyword lists). Founder-first (only on Apply).
-      const prefix =
-        it.kind === 'persona_fact' ? 'Ideal customer profile — ' :
-        it.kind === 'channel_fact' ? 'Acquisition channel — ' :
-        it.kind === 'trend_fact' ? 'Market trend — ' :
-        it.kind === 'differentiation_fact' ? 'Differentiator — ' :
-        'Buyer persona — ';
+      // buyer_persona_defined — all keyword-match memory_facts) greens. The
+      // prefix guarantees the match regardless of the founder's phrasing, so
+      // the LOCALIZED prefix must itself be a verbatim entry in the bilingual
+      // keyword lists ('trend di mercato', 'cliente ideale', 'canale di
+      // acquisizione', 'differenz' stem, 'buyer persona'). Founder-first
+      // (only on Apply). Localized: these are founder-visible Knowledge facts.
+      const prefix = locale === 'it'
+        ? (it.kind === 'persona_fact' ? 'Profilo del cliente ideale — ' :
+           it.kind === 'channel_fact' ? 'Canale di acquisizione — ' :
+           it.kind === 'trend_fact' ? 'Trend di mercato — ' :
+           it.kind === 'differentiation_fact' ? 'Differenziazione — ' :
+           'Buyer persona — ')
+        : (it.kind === 'persona_fact' ? 'Ideal customer profile — ' :
+           it.kind === 'channel_fact' ? 'Acquisition channel — ' :
+           it.kind === 'trend_fact' ? 'Market trend — ' :
+           it.kind === 'differentiation_fact' ? 'Differentiator — ' :
+           'Buyer persona — ');
       await recordFact({
         userId: ownerUserId,
         projectId: action.project_id,
@@ -1856,11 +1875,15 @@ const applyValidationProposal: ActionHandler = async (action) => {
         kind: 'observation',
         sources: sources ?? undefined,
       });
-      applied.push(it.label || (
-        it.kind === 'persona_fact' ? 'Ideal customer' :
-        it.kind === 'channel_fact' ? 'Acquisition channel' :
-        it.kind === 'trend_fact' ? 'Market trend' :
-        it.kind === 'differentiation_fact' ? 'Differentiation' : 'Buyer persona'));
+      applied.push(it.label || (locale === 'it'
+        ? (it.kind === 'persona_fact' ? 'Cliente ideale' :
+           it.kind === 'channel_fact' ? 'Canale di acquisizione' :
+           it.kind === 'trend_fact' ? 'Trend di mercato' :
+           it.kind === 'differentiation_fact' ? 'Differenziazione' : 'Buyer persona')
+        : (it.kind === 'persona_fact' ? 'Ideal customer' :
+           it.kind === 'channel_fact' ? 'Acquisition channel' :
+           it.kind === 'trend_fact' ? 'Market trend' :
+           it.kind === 'differentiation_fact' ? 'Differentiation' : 'Buyer persona')));
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact') {
       skippedNoOwner = true;
@@ -1887,7 +1910,7 @@ const applyValidationProposal: ActionHandler = async (action) => {
               x.currency, action.project_id,
             );
           }
-          applied.push(it.label || 'Pricing');
+          applied.push(it.label || (locale === 'it' ? 'Prezzi' : 'Pricing'));
           creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
         }
       }
@@ -1935,8 +1958,12 @@ const applyValidationProposal: ActionHandler = async (action) => {
     return {
       ok: false,
       error: skippedNoOwner
-        ? 'Cannot persist the market-size fact: this project has no owner to scope it to.'
-        : 'No valid validation items to apply.',
+        ? (locale === 'it'
+            ? 'Impossibile salvare il fatto: questo progetto non ha un proprietario a cui associarlo.'
+            : 'Cannot persist the market-size fact: this project has no owner to scope it to.')
+        : (locale === 'it'
+            ? 'Nessun elemento di convalida valido da applicare.'
+            : 'No valid validation items to apply.'),
     };
   }
 
