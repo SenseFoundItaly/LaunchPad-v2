@@ -25,7 +25,7 @@
  * banner and re-enables the buttons.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { MonitorProposalArtifact } from '@/types/artifacts';
 import SourcesFooter from './SourcesFooter';
 import ArtifactCardShell from './ArtifactCardShell';
@@ -33,6 +33,7 @@ import UnifiedReviewControls from './UnifiedReviewControls';
 import { monitorPalette } from '@/lib/brand-palette';
 import type { MessageKey } from '@/lib/i18n/messages';
 import { useT } from '@/components/providers/LocaleProvider';
+import { useResolvedActionStatus } from '@/hooks/useResolvedActionStatus';
 
 interface MonitorProposalCardProps {
   artifact: MonitorProposalArtifact;
@@ -51,6 +52,18 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
   const t = useT();
   const [state, setState] = useState<CardState>('collapsed');
   const [serverError, setServerError] = useState<string | null>(null);
+
+  // Reload guard — see useResolvedActionStatus: an already-approved proposal
+  // must not re-render as a clickable card after refresh. Seeds only from the
+  // untouched 'collapsed' state; 'failed' stays actionable for retry.
+  const resolved = useResolvedActionStatus(artifact.pending_action_id);
+  useEffect(() => {
+    if (resolved === 'applied' || resolved === 'sent') {
+      setState((s) => (s === 'collapsed' ? 'applied' : s));
+    } else if (resolved === 'rejected') {
+      setState((s) => (s === 'collapsed' ? 'dismissed' : s));
+    }
+  }, [resolved]);
 
   // Local edit state — initialized from artifact; only committed on Save.
   const [editSchedule, setEditSchedule] = useState<'daily' | 'weekly' | 'monthly'>(artifact.schedule);
