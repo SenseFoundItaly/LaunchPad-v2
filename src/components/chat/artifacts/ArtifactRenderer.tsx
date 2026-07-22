@@ -26,6 +26,8 @@ import InvestorPipelineCard from './InvestorPipelineCard';
 import WeeklyUpdateCard from './WeeklyUpdateCard';
 import ArtifactCardShell from './ArtifactCardShell';
 import { RadarChart, BarChart, PieChart, GaugeChart, ScoreCard } from '@/components/charts';
+import BaselineScoreCard from './BaselineScoreCard';
+import { isBaselineScoreTitle } from '@/lib/score-display';
 import { useT } from '@/components/providers/LocaleProvider';
 
 interface ArtifactRendererProps {
@@ -115,7 +117,12 @@ export default function ArtifactRenderer({
     case 'score-card':
       return (
         <KeyedShell typeKey="card.type-score" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
-          <ScoreCard title="" score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />
+          {/* THE project baseline (title-flagged) renders the rich breakdown —
+              score/100 + per-dimension bars + verdict — from the authoritative
+              /score, matching Home. Per-dimension score-cards stay thin. */}
+          {isBaselineScoreTitle(artifact.title)
+            ? <BaselineScoreCard artifact={artifact} />
+            : <ScoreCard title="" score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />}
         </KeyedShell>
       );
     case 'metric-grid':

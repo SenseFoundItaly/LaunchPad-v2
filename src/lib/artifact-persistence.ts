@@ -31,6 +31,7 @@ import { coerceJson } from '@/lib/jsonb';
 import { parseScoreSummary } from '@/lib/score-summary';
 import { generateId } from '@/lib/api-helpers';
 import { recordScoreHistory } from '@/lib/score-history';
+import { OVERALL_SCORE_TITLE_RE } from '@/lib/score-display';
 import type {
   Artifact,
   EntityCard,
@@ -603,12 +604,8 @@ async function persistGaugeChart(ctx: PersistContext, a: GaugeChartArtifact): Pr
   return { type: a.type, persisted: true, target: 'scores (overall_score)' };
 }
 
-// Titles that mark a score artifact as THE project-level baseline (vs a
-// per-dimension or competitor score): must name both a score word and an
-// overall/baseline qualifier, EN or IT. Kept tight — a generic "Competitor
-// radar" or single-dimension card must never fill scores.overall_score.
-const OVERALL_SCORE_TITLE_RE =
-  /\b(overall|startup|baseline|complessivo|complessiva|generale)\b[\s\S]*\b(score|scoring|punteggio)\b|\b(score|scoring|punteggio)\b[\s\S]*\b(overall|startup|baseline|complessivo|complessiva|generale)\b/i;
+// OVERALL_SCORE_TITLE_RE now lives in @/lib/score-display (single source shared
+// with the in-chat baseline score card renderer) — imported at the top.
 
 // ─── radar-chart → scores.dimensions (merged JSON) ───────────────────────────
 
