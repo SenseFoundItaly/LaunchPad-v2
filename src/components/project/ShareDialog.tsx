@@ -195,7 +195,7 @@ export function ShareDialog({
                 setEmail(e.target.value);
                 if (addError) setAddError(null);
               }}
-              placeholder="teammate@example.com"
+              placeholder={t('share.email-placeholder')}
               disabled={submitting}
               style={{
                 flex: 1,

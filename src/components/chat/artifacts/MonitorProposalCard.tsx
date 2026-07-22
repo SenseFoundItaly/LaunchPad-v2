@@ -229,7 +229,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
               onChange={(e) => setEditUrlsRaw(e.target.value)}
               rows={Math.min(5, Math.max(2, editUrlsRaw.split('\n').length))}
               className="w-full bg-paper border border-line-2 rounded px-2 py-1 text-xs text-ink font-mono resize-y"
-              placeholder="https://example.com/pricing"
+              placeholder={t('mprop.url-placeholder')}
             />
           </div>
         </div>

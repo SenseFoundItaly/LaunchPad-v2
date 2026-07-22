@@ -8,6 +8,7 @@ import type { MessageKey } from './en';
 
 export const it: Partial<Record<MessageKey, string>> = {
   'nav.home': 'Home',
+  'nav.home-aria': 'LaunchPad — home',
   'nav.home.tooltip': 'Dashboard — fase del progetto, attività e log dei segnali',
   // 'Knowledge' → 'Conoscenza' OVUNQUE (decisione founder 2026-07-21, feedback
   // alpha — supera la vecchia regola "brand term fisso"). 'Intel' resta fisso.
@@ -1265,6 +1266,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'kac.saving-proposal': 'Salvataggio della proposta…',
   // Card proposta di osservatore (MonitorProposalCard.tsx)
   'mprop.type-label': 'Proposta di osservatore',
+  'mprop.url-placeholder': 'https://example.com/prezzi',
   'mprop.schedule-daily': 'Giornaliera',
   'mprop.schedule-weekly': 'Settimanale',
   'mprop.schedule-monthly': 'Mensile',
@@ -1488,6 +1490,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'sett.aes-note': 'Le API key vengono cifrate con AES-256-GCM prima di essere salvate. La chiave in chiaro non viene mai salvata né registrata nei log. Per identificarla mostriamo solo gli ultimi 4 caratteri.',
   // Dialog di condivisione + pulsante
   'share.title': 'Condividi progetto',
+  'share.email-placeholder': 'collega@esempio.com',
   'share.close': 'Chiudi',
   'share.explainer': 'Aggiungi chiunque abbia un account SenseFound tramite email. Avrà accesso completo in lettura e scrittura solo a questo progetto — non al resto del tuo workspace. Le azioni riservate al proprietario (eliminare il progetto, gestire la condivisione) restano tue.',
   'share.err-email': "Inserisci un'email valida.",
