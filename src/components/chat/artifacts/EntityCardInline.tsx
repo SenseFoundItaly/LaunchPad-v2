@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { EntityCard } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 import KnowledgeApplyControls from './SavedHint';
 import MonitorChip from './MonitorChip';
@@ -27,6 +28,7 @@ export default function EntityCardInline({
   onAction,
   defaultCollapsed,
 }: EntityCardInlineProps) {
+  const t = useT();
   const discoveredRef = useRef(false);
 
   const rejected = artifact.reviewed_state === 'rejected';
@@ -40,7 +42,7 @@ export default function EntityCardInline({
 
   return (
     <ArtifactCardShell
-      typeLabel="Entity"
+      typeLabel={t('card.type-entity')}
       title={artifact.name}
       sources={artifact.sources}
       dimmed={rejected}

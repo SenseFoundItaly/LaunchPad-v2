@@ -31,21 +31,24 @@ import SourcesFooter from './SourcesFooter';
 import ArtifactCardShell from './ArtifactCardShell';
 import UnifiedReviewControls from './UnifiedReviewControls';
 import { monitorPalette } from '@/lib/brand-palette';
+import type { MessageKey } from '@/lib/i18n/messages';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface MonitorProposalCardProps {
   artifact: MonitorProposalArtifact;
   onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }
 
-const SCHEDULE_LABELS: Record<'daily' | 'weekly' | 'monthly', string> = {
-  daily: 'Daily',
-  weekly: 'Weekly',
-  monthly: 'Monthly',
+const SCHEDULE_LABELS: Record<'daily' | 'weekly' | 'monthly', MessageKey> = {
+  daily: 'mprop.schedule-daily',
+  weekly: 'mprop.schedule-weekly',
+  monthly: 'mprop.schedule-monthly',
 };
 
 type CardState = 'collapsed' | 'editing' | 'applying' | 'dismissing' | 'applied' | 'dismissed' | 'error';
 
 export default function MonitorProposalCard({ artifact, onAction }: MonitorProposalCardProps) {
+  const t = useT();
   const [state, setState] = useState<CardState>('collapsed');
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -102,9 +105,9 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
       <div className="my-3 bg-paper-2/30 border border-moss/20 rounded-lg p-3 opacity-75">
         <div className="flex items-center gap-2 text-sm">
           <span className="text-moss font-mono">{'\u2713'}</span>
-          <span className="text-ink-3">Monitor applied:</span>
+          <span className="text-ink-3">{t('mprop.applied')}</span>
           <span className="text-ink font-medium">{artifact.name}</span>
-          <span className="text-ink-5 text-xs ml-auto">will run next cron tick</span>
+          <span className="text-ink-5 text-xs ml-auto">{t('mprop.next-tick')}</span>
         </div>
         <SourcesFooter sources={artifact.sources} compact />
       </div>
@@ -115,7 +118,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
       <div className="my-3 bg-paper-2/20 border border-line-2 rounded-lg p-3 opacity-60">
         <div className="flex items-center gap-2 text-sm">
           <span className="text-ink-5 font-mono">{'\u2717'}</span>
-          <span className="text-ink-4">Dismissed:</span>
+          <span className="text-ink-4">{t('mprop.dismissed')}</span>
           <span className="text-ink-5">{artifact.name}</span>
         </div>
       </div>
@@ -124,7 +127,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
 
   return (
     <ArtifactCardShell
-      typeLabel="Monitor proposal"
+      typeLabel={t('mprop.type-label')}
       title={artifact.name}
       sources={artifact.sources}
       collapsible={false}
@@ -134,7 +137,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
           {artifact.kind}
         </span>
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-paper-3/50 text-ink-3">
-          {SCHEDULE_LABELS[artifact.schedule]}
+          {t(SCHEDULE_LABELS[artifact.schedule])}
         </span>
       </>}
     >
@@ -149,7 +152,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
 
       {/* Derisking breadcrumb */}
       <div className="text-[11px] text-ink-4 mb-2">
-        <span className="text-ink-5">Derisking: </span>
+        <span className="text-ink-5">{t('mprop.derisking')}</span>
         <span className="font-mono text-ink-3">{artifact.linked_risk_id}</span>
         {artifact.linked_quote && (
           <span className="text-ink-5"> — &ldquo;{artifact.linked_quote}&rdquo;</span>
@@ -162,20 +165,20 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
       {artifact.overlap_warning && (
         <div className="mb-2 p-2 bg-clay/10 border border-clay/40 rounded text-[11px]">
           <div className="font-semibold text-clay mb-0.5">
-            Dedup warning — agent bypassed semantic overlap check
+            {t('mprop.dedup-warning')}
           </div>
           {artifact.overlap_warning.existing_name && (
             <div className="text-clay/80">
-              Matches existing monitor <span className="font-mono">{artifact.overlap_warning.existing_name}</span>
+              {t('mprop.matches-existing')} <span className="font-mono">{artifact.overlap_warning.existing_name}</span>
               {typeof artifact.overlap_warning.overlap_score === 'number' &&
                 ` (score ${artifact.overlap_warning.overlap_score.toFixed(2)})`}
             </div>
           )}
           {artifact.overlap_warning.reason && (
-            <div className="text-clay/70 mt-1">Reason: {artifact.overlap_warning.reason}</div>
+            <div className="text-clay/70 mt-1">{t('mprop.reason')}{artifact.overlap_warning.reason}</div>
           )}
           {artifact.overlap_warning.override_reason && (
-            <div className="text-clay/70 mt-1">Override: {artifact.overlap_warning.override_reason}</div>
+            <div className="text-clay/70 mt-1">{t('mprop.override')}{artifact.overlap_warning.override_reason}</div>
           )}
         </div>
       )}
@@ -184,19 +187,19 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
       {state === 'editing' ? (
         <div className="space-y-2 mb-3">
           <div>
-            <label className="text-[10px] text-ink-5 uppercase tracking-wider block mb-1">Schedule</label>
+            <label className="text-[10px] text-ink-5 uppercase tracking-wider block mb-1">{t('mprop.schedule')}</label>
             <select
               value={editSchedule}
               onChange={(e) => setEditSchedule(e.target.value as 'daily' | 'weekly' | 'monthly')}
               className="w-full bg-paper border border-line-2 rounded px-2 py-1 text-sm text-ink"
             >
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
+              <option value="daily">{t('mprop.schedule-daily')}</option>
+              <option value="weekly">{t('mprop.schedule-weekly')}</option>
+              <option value="monthly">{t('mprop.schedule-monthly')}</option>
             </select>
           </div>
           <div>
-            <label className="text-[10px] text-ink-5 uppercase tracking-wider block mb-1">Alert threshold</label>
+            <label className="text-[10px] text-ink-5 uppercase tracking-wider block mb-1">{t('mprop.alert-threshold')}</label>
             <textarea
               value={editThreshold}
               onChange={(e) => setEditThreshold(e.target.value)}
@@ -206,7 +209,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
           </div>
           <div>
             <label className="text-[10px] text-ink-5 uppercase tracking-wider block mb-1">
-              URLs to track (one per line, 5 max)
+              {t('mprop.urls-to-track')}
             </label>
             <textarea
               value={editUrlsRaw}
@@ -220,14 +223,14 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
       ) : (
         <>
           <div className="text-xs text-ink-3 mb-2">
-            <span className="text-ink-5">Alerts when:</span> {artifact.alert_threshold}
+            <span className="text-ink-5">{t('mprop.alerts-when')}</span> {artifact.alert_threshold}
           </div>
           {artifact.urls_to_track && artifact.urls_to_track.length > 0 && (
             <div className="text-[11px] text-ink-5 mb-2">
-              {artifact.urls_to_track.length === 1 ? 'URL:' : `${artifact.urls_to_track.length} URLs:`}{' '}
+              {artifact.urls_to_track.length === 1 ? t('mprop.url-one') : t('mprop.url-other', { count: artifact.urls_to_track.length })}{' '}
               <span className="font-mono text-ink-4 break-all">
                 {artifact.urls_to_track.slice(0, 2).join(', ')}
-                {artifact.urls_to_track.length > 2 && ` (+${artifact.urls_to_track.length - 2} more)`}
+                {artifact.urls_to_track.length > 2 && t('mprop.more', { count: artifact.urls_to_track.length - 2 })}
               </span>
             </div>
           )}
@@ -247,14 +250,14 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
             onClick={() => handleApply(true)}
             className="text-xs px-3 py-1.5 bg-moss hover:bg-moss/80 text-paper rounded-md transition-colors"
           >
-            Save &amp; apply
+            {t('mprop.save-apply')}
           </button>
           <button
             type="button"
             onClick={() => setState('collapsed')}
             className="text-xs px-3 py-1.5 bg-paper-3 hover:bg-paper-3/80 text-ink-2 rounded-md transition-colors"
           >
-            Cancel
+            {t('mprop.cancel')}
           </button>
         </div>
       ) : (
@@ -269,8 +272,8 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
           onEdit={() => setState('editing')}
           errorMessage={serverError ?? undefined}
           variant="footer"
-          destination="Active Monitors"
-          impactHint="Will run on next scheduled tick"
+          destination={t('mprop.destination')}
+          impactHint={t('mprop.impact')}
         />
       )}
     </ArtifactCardShell>

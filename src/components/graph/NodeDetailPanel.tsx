@@ -22,6 +22,7 @@ import { NODE_COLORS } from '@/types/graph';
 import { nodeImportanceKey } from '@/lib/node-importance';
 import { coerceTimeline, type TimelineEntry } from '@/lib/timeline';
 import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
 
 // Re-exported so existing importers (KnowledgeGraph, knowledge/page) keep
 // resolving TimelineEntry from here; the canonical home is @/lib/timeline.
@@ -141,20 +142,23 @@ function formatAttrValue(value: unknown): string {
 }
 
 /** Build a human label + optional href for one provenance source. */
-function describeSource(src: Source): { label: string; href?: string; quote?: string } {
+function describeSource(
+  src: Source,
+  t: (key: MessageKey, vars?: TranslateVars) => string,
+): { label: string; href?: string; quote?: string } {
   switch (src.type) {
     case 'web':
       return { label: src.title || hostOf(src.url), href: src.url, quote: src.quote };
     case 'skill':
-      return { label: src.title || `Skill: ${src.skill_id}`, quote: src.quote };
+      return { label: src.title || t('kbx.source-skill', { id: src.skill_id }), quote: src.quote };
     case 'internal':
-      return { label: src.title || `${humanize(src.ref)} reference`, quote: src.quote };
+      return { label: src.title || t('kbx.source-reference', { ref: humanize(src.ref) }), quote: src.quote };
     case 'user':
-      return { label: src.title || 'Founder', quote: src.quote };
+      return { label: src.title || t('kbx.source-founder'), quote: src.quote };
     case 'inference':
-      return { label: src.title || 'Inferred', quote: src.reasoning };
+      return { label: src.title || t('kbx.source-inferred'), quote: src.reasoning };
     default:
-      return { label: 'Source' };
+      return { label: t('kbx.source-generic') };
   }
 }
 
@@ -271,7 +275,7 @@ export default function NodeDetailPanel({
   return (
     <aside
       role="complementary"
-      aria-label={`Details for ${node.name}`}
+      aria-label={t('kbx.details-for', { name: node.name })}
       onClick={(e) => e.stopPropagation()}
       style={{
         position: 'absolute',
@@ -358,7 +362,7 @@ export default function NodeDetailPanel({
           )}
           <button
             onClick={onClose}
-            aria-label="Close details"
+            aria-label={t('kbx.close-details')}
             style={{
               flexShrink: 0,
               background: 'none',
@@ -554,7 +558,7 @@ export default function NodeDetailPanel({
             <SectionLabel>{t('knowledge.detail-sources', { count: sources.length })}</SectionLabel>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {sources.map((src, i) => {
-                const { label, href, quote } = describeSource(src);
+                const { label, href, quote } = describeSource(src, t);
                 return (
                   <div key={i} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
                     {href ? (

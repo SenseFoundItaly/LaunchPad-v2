@@ -1,6 +1,8 @@
 'use client';
 
 import type { InsightCard as InsightCardType } from '@/types/artifacts';
+import type { MessageKey } from '@/lib/i18n/messages';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 import KnowledgeApplyControls from './SavedHint';
 
@@ -11,13 +13,13 @@ interface InsightCardProps {
   defaultCollapsed?: boolean;
 }
 
-const CATEGORY_LABELS: Record<InsightCardType['category'], string> = {
-  competitor: 'Competitor',
-  market: 'Market',
-  risk: 'Risk',
-  opportunity: 'Opportunity',
-  technology: 'Technology',
-  regulatory: 'Regulatory',
+const CATEGORY_KEYS: Record<InsightCardType['category'], MessageKey> = {
+  competitor: 'icat.competitor',
+  market: 'icat.market',
+  risk: 'icat.risk',
+  opportunity: 'icat.opportunity',
+  technology: 'icat.technology',
+  regulatory: 'icat.regulatory',
 };
 
 /**
@@ -28,11 +30,12 @@ const CATEGORY_LABELS: Record<InsightCardType['category'], string> = {
  * pending and a muted status once resolved.
  */
 export default function InsightCard({ artifact, onAction, defaultCollapsed }: InsightCardProps) {
+  const t = useT();
   const rejected = artifact.reviewed_state === 'rejected';
 
   return (
     <ArtifactCardShell
-      typeLabel={CATEGORY_LABELS[artifact.category]}
+      typeLabel={t(CATEGORY_KEYS[artifact.category])}
       title={artifact.title}
       sources={artifact.sources}
       dimmed={rejected}

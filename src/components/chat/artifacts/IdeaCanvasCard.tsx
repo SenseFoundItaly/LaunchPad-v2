@@ -1,6 +1,7 @@
 'use client';
 
 import type { IdeaCanvasArtifact } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 
 interface IdeaCanvasCardProps {
@@ -40,33 +41,34 @@ function Block({
 }
 
 export default function IdeaCanvasCard({ artifact }: IdeaCanvasCardProps) {
+  const t = useT();
   return (
     <ArtifactCardShell
-      typeLabel="Lean Canvas"
+      typeLabel={t('iccard.type-lean-canvas')}
       title={artifact.title}
       sources={artifact.sources}
       aiGenerated
     >
       {/* Lean Canvas layout — 5 cols × 3 rows, value prop centered */}
       <div className="grid grid-cols-5 gap-1.5">
-        <Block label="Problem" text={artifact.problem} />
-        <Block label="Solution" text={artifact.solution} />
+        <Block label={t('canvas.field-problem')} text={artifact.problem} />
+        <Block label={t('canvas.field-solution')} text={artifact.solution} />
         <Block
-          label="Value Proposition"
+          label={t('canvas.field-value')}
           text={artifact.value_proposition}
           className="row-span-2"
         />
-        <Block label="Unfair Advantage" text={artifact.unfair_advantage} />
-        <Block label="Target Market" text={artifact.target_market} />
+        <Block label={t('iccard.unfair')} text={artifact.unfair_advantage} />
+        <Block label={t('canvas.field-target')} text={artifact.target_market} />
 
-        <Block label="Key Metrics" items={artifact.key_metrics} />
-        <Block label="Channels" text={artifact.channels} />
+        <Block label={t('canvas.field-metrics')} items={artifact.key_metrics} />
+        <Block label={t('canvas.field-channels')} text={artifact.channels} />
         {/* Value Prop spans row from above */}
-        <Block label="Business Model" text={artifact.business_model} />
-        <Block label="Competitive Edge" text={artifact.competitive_advantage} />
+        <Block label={t('canvas.field-business-model')} text={artifact.business_model} />
+        <Block label={t('canvas.field-edge')} text={artifact.competitive_advantage} />
 
-        <Block label="Cost Structure" items={artifact.cost_structure} className="col-span-2" />
-        <Block label="Revenue Streams" items={artifact.revenue_streams} className="col-span-3" />
+        <Block label={t('canvas.field-costs')} items={artifact.cost_structure} className="col-span-2" />
+        <Block label={t('canvas.field-revenues')} items={artifact.revenue_streams} className="col-span-3" />
       </div>
     </ArtifactCardShell>
   );

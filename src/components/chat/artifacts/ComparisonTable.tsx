@@ -1,6 +1,7 @@
 'use client';
 
 import type { ComparisonTable as ComparisonTableType, ColumnType } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 import KnowledgeApplyControls from './SavedHint';
 
@@ -86,13 +87,14 @@ function formatCell(value: string | number, colType: ColumnType | undefined): Re
  * into project intelligence.
  */
 export default function ComparisonTable({ artifact, onAction, defaultCollapsed }: ComparisonTableProps) {
+  const t = useT();
   const colTypes = artifact.column_types;
   const rejected = artifact.reviewed_state === 'rejected';
 
   return (
     <ArtifactCardShell
-      typeLabel="Comparison"
-      title={artifact.title || 'Comparison'}
+      typeLabel={t('card.type-comparison')}
+      title={artifact.title || t('card.type-comparison')}
       sources={artifact.sources}
       provenance={artifact.provenance}
       exportArtifact={artifact}

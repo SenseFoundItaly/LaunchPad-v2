@@ -1,17 +1,19 @@
 'use client';
 
 import type { PersonaCard as PersonaCardArtifact } from '@/types/artifacts';
+import type { MessageKey } from '@/lib/i18n/messages';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 
 interface PersonaCardProps {
   artifact: PersonaCardArtifact;
 }
 
-const ARCHETYPE_LABEL: Record<PersonaCardArtifact['archetype'], string> = {
-  customer: 'Customer',
-  investor: 'Investor',
-  expert: 'Expert',
-  competitor: 'Competitor',
+const ARCHETYPE_KEY: Record<PersonaCardArtifact['archetype'], MessageKey> = {
+  customer: 'pcard.archetype-customer',
+  investor: 'pcard.archetype-investor',
+  expert: 'pcard.archetype-expert',
+  competitor: 'pcard.archetype-competitor',
 };
 
 // NOTE: the engagement-score header-chip design question (old TODO scaffold)
@@ -19,6 +21,7 @@ const ARCHETYPE_LABEL: Record<PersonaCardArtifact['archetype'], string> = {
 // as one plain muted text line at the top of the body, no header chips.
 
 export default function PersonaCard({ artifact }: PersonaCardProps) {
+  const t = useT();
   const hasPlanning =
     artifact.demographics ||
     (artifact.jobs_to_be_done?.length ?? 0) > 0 ||
@@ -30,14 +33,15 @@ export default function PersonaCard({ artifact }: PersonaCardProps) {
     // Archetype header chip removed (2026-06 zero-chips rule) — the
     // archetype renders as a plain muted line at the top of the body.
     <ArtifactCardShell
-      typeLabel="Persona"
+      typeLabel={t('pcard.type-persona')}
       title={artifact.name}
       sources={artifact.sources}
       provenance={artifact.provenance}
     >
       <div className="text-[10px] text-ink-5 mb-1.5">
-        {ARCHETYPE_LABEL[artifact.archetype]}
-        {artifact.engagement_score !== undefined && ` · engagement ${artifact.engagement_score}/10`}
+        {t(ARCHETYPE_KEY[artifact.archetype])}
+        {artifact.engagement_score !== undefined &&
+          ` · ${t('pcard.engagement', { score: artifact.engagement_score })}`}
       </div>
       {artifact.demographics && (
         <p className="text-sm text-ink-3 mb-2">{artifact.demographics}</p>
@@ -46,13 +50,13 @@ export default function PersonaCard({ artifact }: PersonaCardProps) {
       {hasPlanning && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
           {(artifact.jobs_to_be_done?.length ?? 0) > 0 && (
-            <PersonaList label="Jobs to be done" items={artifact.jobs_to_be_done!} />
+            <PersonaList label={t('pcard.jobs')} items={artifact.jobs_to_be_done!} />
           )}
           {(artifact.pains?.length ?? 0) > 0 && (
-            <PersonaList label="Pains" items={artifact.pains!} />
+            <PersonaList label={t('pcard.pains')} items={artifact.pains!} />
           )}
           {(artifact.channels?.length ?? 0) > 0 && (
-            <PersonaList label="Channels" items={artifact.channels!} />
+            <PersonaList label={t('pcard.channels')} items={artifact.channels!} />
           )}
         </div>
       )}

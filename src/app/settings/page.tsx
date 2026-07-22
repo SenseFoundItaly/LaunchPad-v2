@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import api from '@/api';
 import { LanguageSelector } from '@/components/settings/LanguageSelector';
 import { relaunchTour } from '@/components/onboarding/tour-state';
+import { useT } from '@/components/providers/LocaleProvider';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ const PROVIDERS: { value: Provider; label: string; placeholder: string }[] = [
 
 export default function SettingsPage() {
   const router = useRouter();
+  const t = useT();
 
   // API Keys state
   const [keys, setKeys] = useState<StoredKey[]>([]);
@@ -92,11 +94,11 @@ export default function SettingsPage() {
   async function handleAddKey() {
     setKeyError('');
     if (!newApiKey.trim()) {
-      setKeyError('API key is required.');
+      setKeyError(t('sett.err-key-required'));
       return;
     }
     if (!newLabel.trim()) {
-      setKeyError('Label is required.');
+      setKeyError(t('sett.err-label-required'));
       return;
     }
 
@@ -113,7 +115,7 @@ export default function SettingsPage() {
       setKeyError('');
       await fetchKeys();
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to save key.';
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || t('sett.err-save-failed');
       setKeyError(msg);
     } finally {
       setKeySaving(false);
@@ -159,19 +161,19 @@ export default function SettingsPage() {
           <span className="text-ink font-semibold tracking-tight text-sm">SenseFound</span>
         </Link>
         <span className="ml-3 text-ink-6 text-sm">/</span>
-        <span className="ml-2 text-ink-4 text-sm">Settings</span>
+        <span className="ml-2 text-ink-4 text-sm">{t('sett.title')}</span>
       </header>
 
       <div className="max-w-2xl mx-auto py-8 px-6">
-        <h1 className="text-xl font-semibold text-ink mb-8">Settings</h1>
+        <h1 className="text-xl font-semibold text-ink mb-8">{t('sett.title')}</h1>
 
         {/* ═══ API Keys Section ═══ */}
         <section className="mb-10">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-sm font-medium text-ink">API Keys</h2>
+              <h2 className="text-sm font-medium text-ink">{t('sett.api-keys')}</h2>
               <p className="text-xs text-ink-5 mt-0.5">
-                Use your own API keys for LLM calls (BYOK). Keys are encrypted at rest.
+                {t('sett.byok-subtitle')}
               </p>
             </div>
             {!addingKey && (
@@ -179,19 +181,19 @@ export default function SettingsPage() {
                 onClick={() => setAddingKey(true)}
                 className="text-xs px-3 py-1.5 rounded-md bg-moss text-paper hover:bg-moss transition-colors"
               >
-                Add Key
+                {t('sett.add-key')}
               </button>
             )}
           </div>
 
           {/* Stored keys list */}
           {keysLoading ? (
-            <div className="text-ink-5 text-sm py-4">Loading...</div>
+            <div className="text-ink-5 text-sm py-4">{t('common.loading')}</div>
           ) : keys.length === 0 && !addingKey ? (
             <div className="bg-paper border border-line rounded-xl p-6 text-center">
-              <p className="text-sm text-ink-4">No API keys configured.</p>
+              <p className="text-sm text-ink-4">{t('sett.no-keys')}</p>
               <p className="text-xs text-ink-6 mt-1">
-                SenseFound uses system keys by default. Add your own to use your API quota.
+                {t('sett.no-keys-hint')}
               </p>
             </div>
           ) : (
@@ -218,14 +220,14 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     {k.validated_at && (
-                      <span className="text-[10px] text-moss">Validated</span>
+                      <span className="text-[10px] text-moss">{t('sett.validated')}</span>
                     )}
                     <button
                       onClick={() => handleDeleteKey(k.id)}
                       disabled={deletingId === k.id}
                       className="text-xs text-clay hover:text-clay disabled:opacity-50 transition-colors"
                     >
-                      {deletingId === k.id ? 'Removing...' : 'Remove'}
+                      {deletingId === k.id ? t('sett.removing') : t('sett.remove')}
                     </button>
                   </div>
                 </div>
@@ -238,7 +240,7 @@ export default function SettingsPage() {
             <div className="mt-3 bg-paper border border-line rounded-xl p-4 space-y-3">
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="text-xs text-ink-4 block mb-1">Provider</label>
+                  <label className="text-xs text-ink-4 block mb-1">{t('sett.provider')}</label>
                   <select
                     value={newProvider}
                     onChange={(e) => setNewProvider(e.target.value as Provider)}
@@ -250,18 +252,18 @@ export default function SettingsPage() {
                   </select>
                 </div>
                 <div className="flex-1">
-                  <label className="text-xs text-ink-4 block mb-1">Label</label>
+                  <label className="text-xs text-ink-4 block mb-1">{t('sett.label')}</label>
                   <input
                     type="text"
                     value={newLabel}
                     onChange={(e) => setNewLabel(e.target.value)}
-                    placeholder="My Anthropic Key"
+                    placeholder={t('sett.label-placeholder')}
                     className="w-full bg-paper-2 border border-line-2 rounded-md px-3 py-2 text-sm text-ink-2 placeholder:text-ink-6 focus:outline-none focus:ring-1 focus:ring-moss"
                   />
                 </div>
               </div>
               <div>
-                <label className="text-xs text-ink-4 block mb-1">API Key</label>
+                <label className="text-xs text-ink-4 block mb-1">{t('sett.api-key')}</label>
                 <input
                   type="password"
                   value={newApiKey}
@@ -278,14 +280,14 @@ export default function SettingsPage() {
                   onClick={() => { setAddingKey(false); setKeyError(''); setNewApiKey(''); }}
                   className="text-xs px-3 py-1.5 rounded-md text-ink-4 hover:text-ink-3 transition-colors"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleAddKey}
                   disabled={keySaving}
                   className="text-xs px-3 py-1.5 rounded-md bg-moss text-paper hover:bg-moss disabled:opacity-50 transition-colors"
                 >
-                  {keySaving ? 'Validating...' : 'Save Key'}
+                  {keySaving ? t('sett.validating') : t('sett.save-key')}
                 </button>
               </div>
             </div>
@@ -297,14 +299,13 @@ export default function SettingsPage() {
 
         {/* ═══ Model Preference Section ═══ */}
         <section className="mb-10">
-          <h2 className="text-sm font-medium text-ink mb-1">Preferred Model</h2>
+          <h2 className="text-sm font-medium text-ink mb-1">{t('sett.preferred-model')}</h2>
           <p className="text-xs text-ink-5 mb-4">
-            Override the system's automatic model routing. When set, all chat messages use this model.
-            Leave on "System Default" for automatic tier-based routing.
+            {t('sett.model-desc')}
           </p>
 
           {prefsLoading ? (
-            <div className="text-ink-5 text-sm py-4">Loading...</div>
+            <div className="text-ink-5 text-sm py-4">{t('common.loading')}</div>
           ) : (
             <div className="bg-paper border border-line rounded-xl p-4">
               <div className="space-y-1.5">
@@ -319,8 +320,8 @@ export default function SettingsPage() {
                     className="accent-moss"
                   />
                   <div>
-                    <span className="text-sm text-ink-2">System Default</span>
-                    <span className="ml-2 text-xs text-ink-5">(automatic routing by task complexity)</span>
+                    <span className="text-sm text-ink-2">{t('sett.system-default')}</span>
+                    <span className="ml-2 text-xs text-ink-5">{t('sett.auto-routing')}</span>
                   </div>
                 </label>
 
@@ -352,7 +353,7 @@ export default function SettingsPage() {
                 ))}
               </div>
               {prefsSaving && (
-                <p className="text-xs text-ink-5 mt-2">Saving...</p>
+                <p className="text-xs text-ink-5 mt-2">{t('sett.saving')}</p>
               )}
             </div>
           )}
@@ -360,9 +361,9 @@ export default function SettingsPage() {
 
         {/* ═══ Product Tour Section ═══ */}
         <section className="mb-10">
-          <h2 className="text-sm font-medium text-ink mb-1">Product tour</h2>
+          <h2 className="text-sm font-medium text-ink mb-1">{t('sett.tour-title')}</h2>
           <p className="text-xs text-ink-5 mb-4">
-            Walk through the workspace again — dashboard, Home, Intel, Knowledge, Financials and the Co-pilot.
+            {t('sett.tour-desc')}
           </p>
           <button
             onClick={() => {
@@ -371,14 +372,13 @@ export default function SettingsPage() {
             }}
             className="text-xs px-3 py-1.5 rounded-md bg-paper border border-line text-ink-2 hover:bg-paper-2 transition-colors"
           >
-            Replay tour
+            {t('sett.replay-tour')}
           </button>
         </section>
 
         {/* Footer */}
         <div className="border-t border-line pt-4 text-xs text-ink-6">
-          API keys are encrypted with AES-256-GCM before storage. The plaintext key is never
-          stored or logged. Only the last 4 characters are shown for identification.
+          {t('sett.aes-note')}
         </div>
       </div>
     </div>
