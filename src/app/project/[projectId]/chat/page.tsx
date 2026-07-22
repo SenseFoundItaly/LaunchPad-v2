@@ -1331,7 +1331,7 @@ export default function CopilotChatPage({
           if (items.length > 0) window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
         }
         // Continue the conversation so the agent moves to the next gap.
-        const cLabel = typeof payload.label === 'string' ? payload.label : 'Confirm';
+        const cLabel = typeof payload.label === 'string' ? payload.label : t('chat.confirm-fallback');
         const cDesc = typeof payload.description === 'string' ? payload.description.trim() : '';
         sendMessage(t('chat.i-choose', { choice: `${cLabel}${cDesc ? ` — ${cDesc}` : ''}` }));
         return;
@@ -1345,7 +1345,7 @@ export default function CopilotChatPage({
         sendMessage(t('chat.i-choose', { choice: `${payload.label}${optDesc ? ` — ${optDesc}` : ''}` }));
       } else if (action === 'trigger-action' && typeof payload.title === 'string') {
         const desc = typeof payload.description === 'string' ? payload.description : '';
-        sendMessage(`${payload.title}${desc ? ': ' + desc : ''}. Give me a detailed step-by-step plan.`);
+        sendMessage(t('chat.trigger-action-plan', { title: `${payload.title}${desc ? ': ' + desc : ''}` }));
       }
     },
     [projectId, sendMessage, setMessages, t],
@@ -2261,7 +2261,7 @@ function InlineOption({
   // the title attribute. The PAYLOAD carries the FULL original label
   // (split.full), never the clamped head — a truncated "Yes" can't
   // disambiguate between similar options. Clamping is render-only.
-  const split = splitOptionLabel(option.label || `Option ${index + 1}`, option.description);
+  const split = splitOptionLabel(option.label || t('chat.option-fallback', { n: index + 1 }), option.description);
 
   // Expand-in-place: the clamp made long options unreadable without selecting
   // (alpha feedback 2026-07-15). Toggle shown only when text was actually cut;
@@ -2339,7 +2339,7 @@ function InlineOption({
         await onAction?.('commit:apply', {
           canvas: commit.canvas ?? {},
           items: commit.items ?? [],
-          label: split.full || `Option ${index + 1}`,
+          label: split.full || t('chat.option-fallback', { n: index + 1 }),
           description: option.description ?? '',
         });
         setState('done');
@@ -2353,7 +2353,7 @@ function InlineOption({
     onChoose?.(); // non-commit select: lock optimistically (a text round-trip, nothing to persist-fail)
     onAction?.('select-option', {
       optionId: option.id ?? String(index),
-      label: split.full || `Option ${index + 1}`,
+      label: split.full || t('chat.option-fallback', { n: index + 1 }),
       description: option.description ?? '',
     });
   };

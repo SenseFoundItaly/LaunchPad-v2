@@ -54,7 +54,7 @@ export default function ProjectLayout({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full text-ink-5 text-sm">
-        Loading...
+        {t('common.loading')}
       </div>
     );
   }

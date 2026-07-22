@@ -83,7 +83,7 @@ export function StageCard({ projectId }: { projectId: string }) {
         title={
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', letterSpacing: 0.5 }}>
-              STAGE {headline.stage.number}
+              {t('stagec.stage-n', { n: headline.stage.number })}
             </span>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{stageLabel(headline.stage.id, headline.stage.label, t)}</span>
           </span>
@@ -217,7 +217,7 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
           {t('canvas.track-locked')}
         </span>
       ) : (
-        <Link href={prefillHref} title={`${check.source ?? ''} · ask the Co-pilot to validate this`} style={askCtaStyle}>
+        <Link href={prefillHref} title={`${check.source ?? ''} · ${t('stagec.ask-copilot-validate')}`} style={askCtaStyle}>
           {t('canvas.ask-copilot-cta')} →
         </Link>
       )}
