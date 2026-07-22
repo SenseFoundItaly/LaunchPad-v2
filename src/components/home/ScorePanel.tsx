@@ -21,9 +21,8 @@ import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import { useStages } from '@/hooks/useStages';
 import { stageLabel } from '@/lib/journey-prompts';
-import type { MessageKey } from '@/lib/i18n/messages';
+import { band, normalizeDimensions, to100 } from '@/lib/score-display';
 
-interface ScoreDimensionLite { name: string; score: number }
 interface ScoreResp {
   overall_score: number | null;
   // Stored as a JSONB OBJECT MAP (name -> numeric score); older/corrupted rows
@@ -34,46 +33,8 @@ interface ScoreResp {
   scored_at: string | null;
 }
 
-// scores.dimensions is persisted as a JSONB object map (e.g. {"Problem": 7.2}),
-// NOT an array. The panel previously did Array.isArray(...) and silently rendered
-// an EMPTY breakdown for every project. Normalize the object map (and the
-// defensive array / double-encoded-string shapes) into [{name, score}].
-function normalizeDimensions(raw: unknown): ScoreDimensionLite[] {
-  let d = raw;
-  if (typeof d === 'string') {
-    try { d = JSON.parse(d); } catch { return []; }
-  }
-  if (Array.isArray(d)) {
-    return d.filter(
-      (x): x is ScoreDimensionLite =>
-        !!x && typeof x === 'object' &&
-        typeof (x as ScoreDimensionLite).name === 'string' &&
-        typeof (x as ScoreDimensionLite).score === 'number',
-    );
-  }
-  if (d && typeof d === 'object') {
-    return Object.entries(d as Record<string, unknown>)
-      .filter(([, v]) => typeof v === 'number' && Number.isFinite(v))
-      .map(([name, v]) => ({ name, score: v as number }));
-  }
-  return [];
-}
-
-// scores.* canon is 0-100, but rows written before the write-side normalization
-// (chat score-card/gauge artifacts prompted with maxScore:10) carry 0-10 values.
-// Same convention as baselineScore10 in stage-1: ≤10 reads as the 0-10 scale.
-function to100(v: number): number {
-  return v <= 10 ? v * 10 : v;
-}
-
-// Qualitative band — aligned with the anti-sycophancy scoring guardrails
-// (70+ = strong/verified, 40-or-below = serious warning). Colors mirror the spine.
-function band(score: number): { key: MessageKey; color: string } {
-  if (score >= 70) return { key: 'score.band-strong', color: 'var(--moss)' };
-  if (score >= 55) return { key: 'score.band-promising', color: 'var(--accent)' };
-  if (score >= 40) return { key: 'score.band-caution', color: 'var(--clay)' };
-  return { key: 'score.band-weak', color: 'var(--clay)' };
-}
+// band / normalizeDimensions / to100 now live in @/lib/score-display so the
+// in-chat baseline card renders identically (imported below).
 
 export function ScorePanel({ projectId }: { projectId: string }) {
   const t = useT();
