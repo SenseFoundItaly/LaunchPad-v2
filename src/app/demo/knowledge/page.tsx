@@ -29,9 +29,9 @@ export default function DemoKnowledge() {
     <div className="lp-rise" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ flex: 1, position: 'relative', background: 'var(--paper-2)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', gap: 4, padding: '10px 16px', flexShrink: 0 }}>
-          <ViewBtn label="Grafo" active={view === 'graph'} onClick={() => setView('graph')} />
-          <ViewBtn label="Lista" active={view === 'list'} onClick={() => setView('list')} />
-          <ViewBtn label="Movimenti" active={view === 'moves'} onClick={() => setView('moves')} />
+          <ViewBtn label="Mappa" active={view === 'graph'} onClick={() => setView('graph')} />
+          <ViewBtn label="Elenco" active={view === 'list'} onClick={() => setView('list')} />
+          <ViewBtn label="Cronologia" active={view === 'moves'} onClick={() => setView('moves')} />
           <ViewBtn label="Data room" active={view === 'dataroom'} onClick={() => setView('dataroom')} />
           <span style={{ flex: 1 }} />
           <Pill kind="live" dot>1 in attesa</Pill>
@@ -171,7 +171,7 @@ function DataRoomView() {
 {`# ${doc.name}  ${doc.version}
 
 Documento generato da LaunchPad per MatchLens.
-Anteprima demo — il contenuto reale è indicizzato nel grafo Knowledge
+Anteprima demo — il contenuto reale è indicizzato nel grafo Conoscenza
 e alimenta le skill del co-pilot.
 
 ${doc.meta}`}

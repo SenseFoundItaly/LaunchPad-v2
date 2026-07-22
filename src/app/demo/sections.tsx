@@ -53,7 +53,7 @@ export function HeaderStrip() {
 
 export function ScoreSection() {
   return (
-    <Panel title="Score" subtitle="del progetto + investment readiness" right={<Pill kind="ok" dot>{SCORE.band}</Pill>}>
+    <Panel title="Punteggio" subtitle="del progetto + prontezza all’investimento" right={<Pill kind="ok" dot>{SCORE.band}</Pill>}>
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 0 }}>
         <div style={{ padding: '14px 16px' }}>
           <div className="lp-mono" style={{ fontSize: 9.5, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-5)' }}>
@@ -79,7 +79,7 @@ export function ScoreSection() {
         </div>
         <div style={{ padding: '14px 16px', borderLeft: '1px solid var(--line)' }}>
           <div className="lp-mono" style={{ fontSize: 9.5, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-5)' }}>
-            Investment readiness (IRL)
+            Prontezza all’investimento (IRL)
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '4px 0 6px' }}>
             <span className="lp-serif" style={{ fontSize: 30, fontWeight: 400, letterSpacing: -0.6 }}>{SCORE.irl.level}</span>
@@ -234,7 +234,7 @@ export function LoopTimeline() {
               {loop.evidenceMatrix && (
                 <div style={{ marginTop: 8, border: '1px solid var(--line)', borderRadius: 'var(--r-m)', overflow: 'hidden', maxWidth: 460 }}>
                   <div className="lp-mono" style={{ fontSize: 9.5, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-4)', background: 'var(--paper-2)', padding: '5px 10px', borderBottom: '1px solid var(--line)' }}>
-                    Evidence Matrix
+                    Matrice evidenze
                   </div>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                     <thead>
@@ -341,7 +341,7 @@ export function ActivitySection() {
 
 export function EcosystemSection() {
   return (
-    <Panel title="Ecosistema" subtitle="il grafo Knowledge del progetto" right={<a href="/demo/knowledge" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>Vedi il grafo →</a>}>
+    <Panel title="Ecosistema" subtitle="il grafo Conoscenza del progetto" right={<a href="/demo/knowledge" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>Vedi il grafo →</a>}>
       <div style={{ padding: '4px 0 0' }}>
         <EcoGraph height={300} />
         <div style={{ borderTop: '1px solid var(--line)' }}>

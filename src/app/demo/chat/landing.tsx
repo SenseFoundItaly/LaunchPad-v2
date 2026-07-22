@@ -75,7 +75,7 @@ function PitchVisual() {
         <span className="lp-dot lp-pulse" style={{ background: 'var(--clay)' }} />
         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-3)' }}>LIVE · U15 · 2° tempo</span>
         <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 10, fontFamily: 'var(--f-mono)', color: 'var(--ink-5)' }}>AI tracking on</span>
+        <span style={{ fontSize: 10, fontFamily: 'var(--f-mono)', color: 'var(--ink-5)' }}>tracking AI attivo</span>
       </div>
       <svg viewBox="0 0 320 190" style={{ width: '100%', display: 'block' }}>
         <rect x="0" y="0" width="320" height="190" fill="#2f7d4f" />
