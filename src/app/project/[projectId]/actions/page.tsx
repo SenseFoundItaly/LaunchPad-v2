@@ -20,7 +20,7 @@
  *   - ago       ← humanized created_at
  */
 
-import { use, useEffect, useState, useMemo } from 'react';
+import { use, useEffect, useState, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -130,6 +130,14 @@ export default function TicketsPage({
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // In-flight guard against double-firing apply/reject (#159): a fast
+  // double-click used to POST twice — and a second `apply` racing the first
+  // (before the row's status flips to sent/rejected server-side) re-runs the
+  // executor → double-charge / double-write. The ref is the SYNCHRONOUS gate
+  // (two clicks in one tick both see it); `busyIds` mirrors it to disable the
+  // buttons.
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
   // Executor narrative toast ("Signal accepted and folded into project
   // knowledge (graph node …)"). Set by transition() on a successful apply,
@@ -281,6 +289,11 @@ export default function TicketsPage({
   }
 
   async function transition(actionId: string, verb: 'apply' | 'reject' | 'mark_sent', extras: Record<string, unknown> = {}) {
+    // Synchronous double-fire guard — a second click in the same tick sees the
+    // id already in the ref and bails before a second POST goes out.
+    if (inFlightRef.current.has(actionId)) return;
+    inFlightRef.current.add(actionId);
+    setBusyIds(new Set(inFlightRef.current));
     try {
       const res = await fetch(`/api/projects/${projectId}/actions/${actionId}`, {
         method: 'POST',
@@ -308,6 +321,9 @@ export default function TicketsPage({
       await qc.invalidateQueries({ queryKey: ['actions', projectId] });
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      inFlightRef.current.delete(actionId);
+      setBusyIds(new Set(inFlightRef.current));
     }
   }
 
@@ -374,6 +390,7 @@ export default function TicketsPage({
               selectedId={selectedId}
               onSelect={setSelectedId}
               onTransition={transition}
+              busyIds={busyIds}
               loading={loading}
               error={error}
             />
@@ -587,6 +604,7 @@ function InboxList({
   selectedId,
   onSelect,
   onTransition,
+  busyIds,
   loading,
   error,
 }: {
@@ -594,6 +612,7 @@ function InboxList({
   selectedId: string | null;
   onSelect: (id: string) => void;
   onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
+  busyIds: Set<string>;
   loading: boolean;
   error: string | null;
 }) {
@@ -629,6 +648,7 @@ function InboxList({
           selected={r.id === selectedId}
           onSelect={onSelect}
           onTransition={onTransition}
+          busy={busyIds.has(r.id)}
         />
       ))}
     </div>
@@ -645,11 +665,13 @@ function InboxRow({
   selected,
   onSelect,
   onTransition,
+  busy,
 }: {
   action: PendingAction;
   selected: boolean;
   onSelect: (id: string) => void;
   onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
+  busy: boolean;
 }) {
   const t = useT();
   // Short brief: first line of the rationale, trimmed to one tidy line.
@@ -685,15 +707,17 @@ function InboxRow({
       <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
         <button
           type="button"
+          disabled={busy}
           onClick={(e) => { e.stopPropagation(); onTransition(action.id, 'apply'); }}
-          style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--moss)', color: 'var(--paper)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--moss)', color: 'var(--paper)', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, whiteSpace: 'nowrap' }}
         >
           {t('actions.apply-credits')}
         </button>
         <button
           type="button"
+          disabled={busy}
           onClick={(e) => { e.stopPropagation(); onTransition(action.id, 'reject'); }}
-          style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-2)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-2)', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, whiteSpace: 'nowrap' }}
         >
           {t('actions.dismiss')}
         </button>
