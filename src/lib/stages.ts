@@ -118,6 +118,7 @@ export const STAGES: StageDef[] = [
     color: 'emerald',
     skills: [
       { id: 'prototype-spec', label: 'MVP Spec', route: 'chat?skill=prototype-spec', dataKey: 'prototype_spec' },
+      { id: 'mvp-build-spec', label: 'MVP Build', route: 'chat?skill=mvp-build-spec', dataKey: 'mvp_builds' },
       { id: 'gtm-strategy', label: 'GTM Strategy', route: 'chat?skill=gtm-strategy', dataKey: 'gtm_strategy' },
       { id: 'growth-optimization', label: 'Growth Loops', route: 'chat?skill=growth-optimization', dataKey: 'growth_loops' },
       { id: 'build-landing-page', label: 'Landing Page', route: 'chat?skill=build-landing-page', dataKey: 'build_landing_page' },
@@ -157,6 +158,7 @@ export const SKILL_KICKOFFS: Record<string, string> = {
   'business-model': 'Help me evaluate and score business model options for my startup.',
   'financial-model': 'Build detailed 3-year financial projections with scenario analysis for my startup.',
   'prototype-spec': 'Create an MVP blueprint — tech stack, core features, brand identity, and build timeline.',
+  'mvp-build-spec': 'Turn my validated intelligence into a builder-ready MVP prompt, then generate a first build I can preview and iterate on.',
   'gtm-strategy': 'Develop a go-to-market strategy — target segments, channels, pricing, and launch plan.',
   'growth-optimization': 'Set up growth experiment loops to improve my key metrics.',
   'investment-readiness': 'Assess my fundraising readiness — OKRs, deck, data room, and gaps to close.',
@@ -206,6 +208,11 @@ export const SKILL_NEXT_STEPS: Record<string, { label: string; skillId: string }
     { label: 'Plan go-to-market strategy', skillId: 'gtm-strategy' },
   ],
   'prototype-spec': [
+    { label: 'Generate a builder-ready MVP + preview', skillId: 'mvp-build-spec' },
+    { label: 'Plan go-to-market launch', skillId: 'gtm-strategy' },
+    { label: 'Build a landing page', skillId: 'build-landing-page' },
+  ],
+  'mvp-build-spec': [
     { label: 'Plan go-to-market launch', skillId: 'gtm-strategy' },
     { label: 'Set up growth loops', skillId: 'growth-optimization' },
     { label: 'Build a landing page', skillId: 'build-landing-page' },
@@ -253,6 +260,7 @@ export const SKILL_SOURCES: Record<string, string[]> = {
   'business-model': ['startup-scoring', 'market-research', 'scientific-validation'],
   'financial-model': ['business-model', 'startup-scoring'],
   'prototype-spec': ['idea-shaping', 'business-model'],
+  'mvp-build-spec': ['prototype-spec', 'scientific-validation', 'market-research', 'gtm-strategy'],
   'gtm-strategy': ['market-research', 'scientific-validation', 'business-model'],
   'growth-optimization': ['gtm-strategy', 'weekly-metrics'],
   'investment-readiness': ['financial-model', 'startup-scoring', 'risk-scoring'],

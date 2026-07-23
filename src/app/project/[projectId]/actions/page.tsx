@@ -1168,6 +1168,8 @@ function producerFromType(type: PendingActionType, ecosystemAlertId?: string | n
     propose_assumption_revision: 'signal',
     // Materialized from intelligence_briefs (intelligence-correlator.ts).
     intelligence_brief: 'correlator',
+    // Cron auto-proposer (Build Hub iteration-proposer.ts).
+    mvp_build_iteration: 'cron',
   };
   return map[type] || 'unknown';
 }
@@ -1200,6 +1202,7 @@ const TYPE_LABEL_KEY: Record<PendingActionType, MessageKey> = {
   intelligence_brief:           'actions.type-brief',
   assumption_review:            'actions.type-assumption',
   propose_assumption_revision:  'actions.type-assumption-revision',
+  mvp_build_iteration:          'actions.type-mvp-build-iteration',
 };
 
 // Returns the i18n key for an action_type's chip label, or null when the type
