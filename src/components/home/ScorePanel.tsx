@@ -24,6 +24,14 @@ import { stageLabel } from '@/lib/journey-prompts';
 import { band, normalizeDimensions, to100 } from '@/lib/score-display';
 import ScoreTrajectory from '@/components/charts/ScoreTrajectory';
 
+interface IrlResp {
+  level: number;
+  of: number;
+  next_key: string | null;
+  current_stage_id: string | null;
+  current_stage_label: string | null;
+}
+
 interface ScoreResp {
   overall_score: number | null;
   // Stored as a JSONB OBJECT MAP (name -> numeric score); older/corrupted rows
@@ -47,6 +55,19 @@ export function ScorePanel({ projectId }: { projectId: string }) {
       const res = await fetch(`/api/projects/${projectId}/score`);
       const body = await res.json();
       return (body?.data ?? body) as ScoreResp;
+    },
+  });
+
+  // IRL — the 1-9 evidence-gated ladder (src/lib/irl/ladder.ts). Computed
+  // server-side from the snapshot; distinct from the naive done/total stage
+  // count (which still drives the auto-score trigger below).
+  const { data: irl } = useQuery<IrlResp>({
+    queryKey: ['irl', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/irl`);
+      const body = await res.json();
+      return (body?.data ?? body) as IrlResp;
     },
   });
 
@@ -93,8 +114,9 @@ export function ScorePanel({ projectId }: { projectId: string }) {
       ? Math.round(to100(score.overall_score))
       : null;
   const dims = normalizeDimensions(score?.dimensions).map((d) => ({ ...d, score: to100(d.score) }));
-  const total = evals.length || 7;
-  const done = evals.filter((e) => e.status === 'done').length;
+  // IRL now comes from the /irl ladder endpoint (the `irl` query above); the
+  // done/total stage count is no longer the readout. `active` still drives the
+  // "currently in {stage}" line.
   const active = evals.find((e) => e.status === 'active');
   const runHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(t('journey-prompt.scoring'))}`;
 
@@ -157,9 +179,9 @@ export function ScorePanel({ projectId }: { projectId: string }) {
             {t('score.irl-title')}
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span className="lp-serif" style={{ fontSize: 30, lineHeight: 1, color: 'var(--ink)' }}>{done}</span>
-            <span style={{ fontSize: 13, color: 'var(--ink-5)' }}>/ {total}</span>
-            <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', letterSpacing: 0.3 }}>{t('score.irl-stages')}</span>
+            <span className="lp-serif" style={{ fontSize: 30, lineHeight: 1, color: 'var(--ink)' }}>{irl ? irl.level : '—'}</span>
+            <span style={{ fontSize: 13, color: 'var(--ink-5)' }}>/ {irl?.of ?? 9}</span>
+            <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', letterSpacing: 0.3 }}>{t('score.irl-level')}</span>
           </div>
           {active && (
             <p style={{ margin: '10px 0 0', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.45 }}>
