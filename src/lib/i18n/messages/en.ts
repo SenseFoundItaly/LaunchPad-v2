@@ -118,8 +118,9 @@ export const en = {
   'score.band-weak': 'weak',
   'score.irl-title': 'Investment readiness (IRL)',
   'score.irl-stages': 'stages validated',
+  'score.irl-level': 'development level',
   'score.irl-current': 'Currently in {stage}.',
-  'score.irl-explainer': 'IRL tracks journey progress toward investor-readiness — distinct from the project score, which rates the idea itself.',
+  'score.irl-explainer': 'IRL is a 1-9 ladder of investment readiness — each level earned against evidence, distinct from the project score (which rates the idea). Levels 7-9 unlock via add-on modules.',
 
   // ── Home: Ecosystem (src/components/home/EcosystemPanel.tsx) ───────────────
   'eco.title': 'Ecosystem',

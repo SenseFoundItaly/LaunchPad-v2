@@ -112,8 +112,9 @@ export const it: Partial<Record<MessageKey, string>> = {
   'score.band-weak': 'debole',
   'score.irl-title': 'Investment readiness (IRL)',
   'score.irl-stages': 'fasi validate',
+  'score.irl-level': 'livello di sviluppo',
   'score.irl-current': 'Attualmente in {stage}.',
-  'score.irl-explainer': 'L’IRL misura l’avanzamento del percorso verso la investor-readiness — distinto dallo score del progetto, che valuta l’idea in sé.',
+  'score.irl-explainer': 'L’IRL è una scala 1-9 di prontezza all’investimento — ogni livello si guadagna con l’evidenza, distinto dallo score del progetto (che valuta l’idea). I livelli 7-9 si sbloccano con i moduli add-on.',
 
   // ── Home: Ecosystem (src/components/home/EcosystemPanel.tsx) ───────────────
   'eco.title': 'Ecosistema',
