@@ -38,6 +38,7 @@ import type { Watcher } from '@/lib/watchers';
 import { laneFor, INTEL_INBOX_TYPES } from '@/lib/action-lanes';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { SkillProposalReview } from '@/components/actions/SkillProposalReview';
+import { LoopReviewCard, isLoopReview } from '@/components/loops/LoopReviewCard';
 import { PayloadSummary } from '@/components/actions/PayloadSummary';
 import { nodeImportanceKey } from '@/lib/node-importance';
 
@@ -217,7 +218,7 @@ export default function TicketsPage({
     const c: Record<DisplayTab, number> = { inbox: 0, monitor: 0 };
     for (const a of actions) {
       if (
-        APPLY_TO_INTELLIGENCE.has(a.action_type) &&
+        (APPLY_TO_INTELLIGENCE.has(a.action_type) || isLoopReview(a)) &&
         (a.status === 'pending' || a.status === 'edited')
       ) {
         c.inbox++;
@@ -266,7 +267,10 @@ export default function TicketsPage({
   const filteredActions = useMemo(() => {
     return actions
       .filter((a) =>
-        APPLY_TO_INTELLIGENCE.has(a.action_type) &&
+        // Loop reviews (run_skill + loop_id) join the intelligence types in the
+        // one "apply or dismiss" queue — otherwise the loop's review card is
+        // unreachable (run_skill is hidden), so an open loop dead-ends.
+        (APPLY_TO_INTELLIGENCE.has(a.action_type) || isLoopReview(a)) &&
         (a.status === 'pending' || a.status === 'edited'),
       )
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -779,9 +783,13 @@ function TicketDetail({
         <MonitorProposalReview action={action} />
       ) : action.action_type === 'run_skill' ? (
         // Skill kickoffs SPEND credits on approval — they get a human card
-        // (what you'll get / cost / duration), never a raw JSON dump.
-        <SideSection title={t('actions.section-skill-run')}>
-          <SkillProposalReview action={action} />
+        // (what you'll get / cost / duration), never a raw JSON dump. A loop
+        // review (carries a loop_id) gets the loop-framed card instead so the
+        // founder sees the trigger evidence + scope, not just "run a skill".
+        <SideSection title={isLoopReview(action) ? t('actions.section-loop-review') : t('actions.section-skill-run')}>
+          {isLoopReview(action)
+            ? <LoopReviewCard action={action} projectId={action.project_id} />
+            : <SkillProposalReview action={action} />}
         </SideSection>
       ) : (
         // Everything else: tidy key→value summary; full JSON behind the

@@ -27,6 +27,7 @@ import { StageCard } from '@/components/stages/StageCard';
 import { OnboardingCard } from '@/components/onboarding/OnboardingCard';
 import { NotesCard } from '@/components/onboarding/NotesCard';
 import { ScorePanel } from '@/components/home/ScorePanel';
+import { LoopStatusRow } from '@/components/loops/LoopStatusRow';
 import { EcosystemPanel } from '@/components/home/EcosystemPanel';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { laneFor, isIntelInboxType } from '@/lib/action-lanes';
@@ -130,6 +131,13 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
               </PanelBoundary>
               <PanelBoundary resetKey={projectId}>
                 <ScorePanel projectId={projectId} />
+              </PanelBoundary>
+
+              {/* Loop banner — renders only when a validation loop is open, so a
+                  founder can't miss that a loop is driving the locked skills /
+                  review card. Boundary-wrapped (network-driven). */}
+              <PanelBoundary resetKey={projectId}>
+                <LoopStatusRow projectId={projectId} />
               </PanelBoundary>
 
               {/* Two-column dashboard: wide Journey column + narrow utility column.
