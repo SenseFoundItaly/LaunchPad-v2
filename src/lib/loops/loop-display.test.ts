@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   isOpenLoop, openLoopOf, loopNameKey, verdictPillKind,
-  signalLabelKey, formatSignal, primaryFailingSignal, type LoopRow, type LoopSignal,
+  signalLabelKey, formatSignal, primaryFailingSignal, awaitedEvidenceKey,
+  type LoopRow, type LoopSignal,
 } from './loop-display';
 
 const row = (over: Partial<LoopRow>): LoopRow => ({
@@ -50,6 +51,17 @@ describe('formatSignal', () => {
     expect(formatSignal('gross_margin', 0.82)).toBe('82%');
     expect(formatSignal('ltv_cac_ratio', 2.0)).toBe('2.0×');
     expect(formatSignal('payback_months', 18)).toBe('18mo');
+  });
+});
+
+describe('awaitedEvidenceKey (§4 dead-end guard)', () => {
+  it('names the evidence each built loop waits on while active', () => {
+    expect(awaitedEvidenceKey(1)).toBe('loop.awaiting-1'); // more interviews
+    expect(awaitedEvidenceKey(2)).toBe('loop.awaiting-2'); // revised unit economics
+  });
+  it('returns null for the unbuilt loops (no hint rather than a wrong one)', () => {
+    expect(awaitedEvidenceKey(3)).toBeNull();
+    expect(awaitedEvidenceKey(4)).toBeNull();
   });
 });
 

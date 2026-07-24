@@ -65,6 +65,20 @@ export function loopNameKey(loopNumber: number): MessageKey | null {
   return LOOP_NAME_KEYS[loopNumber] ?? null;
 }
 
+/**
+ * What NEW evidence an 'active' loop is waiting for before it re-evaluates.
+ * An active loop's review has already run (its inbox card is consumed) but the
+ * phase gate stays on until the signal recovers — so the founder must be told
+ * what re-opens it, or the gate reads as an unexplained block (§4 dead-end).
+ */
+const AWAITED_EVIDENCE_KEYS: Record<number, MessageKey> = {
+  1: 'loop.awaiting-1',
+  2: 'loop.awaiting-2',
+};
+export function awaitedEvidenceKey(loopNumber: number): MessageKey | null {
+  return AWAITED_EVIDENCE_KEYS[loopNumber] ?? null;
+}
+
 /** i18n key for a loop status → the founder-facing state line. */
 export function loopStatusKey(status: LoopRow['status']): MessageKey {
   switch (status) {

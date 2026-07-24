@@ -35,6 +35,7 @@ import { computeFinancialModel, coerceAssumptions, defaultAssumptions } from '@/
 import { applyRevisionToAssumptions, isRevisableField, proposeArpuRevisionFromAlert } from '@/lib/financial-assumption-revision';
 import { deriveAssumptionsForProject } from '@/lib/financial-assumptions';
 import { createPendingAction } from '@/lib/pending-actions';
+import { maybeTriggerLoop2 } from '@/lib/loops/loop2-bm';
 import { coerceJson } from '@/lib/jsonb';
 import { resolveProjectLocale } from '@/lib/agent-prompt';
 import type { Locale } from '@/lib/agent-prompt';
@@ -1703,6 +1704,12 @@ const applyValidationProposal: ActionHandler = async (action) => {
   const canvasDetails: CanvasDetailsInput = {};
   let creditsToDebit = 0;
   let skippedNoOwner = false; // a market_size_fact couldn't persist (project has no owner)
+  // A `pricing` item wrote pricing_state (possibly unit_econ) — the Loop-2
+  // signal. This is the THIRD pricing write path (alongside the set_pricing tool
+  // and the pricing route); all three must re-evaluate the BM Stress Test or a
+  // founder whose unit economics arrive via an approved proposal (e.g. a document
+  // digest) never gets Loop 2, and an open one never re-checks.
+  let pricingWritten = false;
 
   for (const raw of items) {
     const it = raw as {
@@ -1912,6 +1919,7 @@ const applyValidationProposal: ActionHandler = async (action) => {
               x.currency, action.project_id,
             );
           }
+          pricingWritten = true;
           applied.push(it.label || (locale === 'it' ? 'Prezzi' : 'Pricing'));
           creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
         }
@@ -1977,6 +1985,14 @@ const applyValidationProposal: ActionHandler = async (action) => {
     } catch (err) {
       console.warn('[applyValidationProposal] credit debit failed (non-fatal):', (err as Error).message);
     }
+  }
+
+  // Loop 2 (BM Stress Test): approving a pricing item may have just landed the
+  // unit economics the loop gates on — open it, or close/escalate an open one.
+  // AWAITED like the watcher hook below (post-response work freezes on
+  // serverless); idempotent + non-throwing internally.
+  if (pricingWritten) {
+    await maybeTriggerLoop2(action.project_id);
   }
 
   // Phase-1 watcher activation — this approval may have just completed Stage 1
