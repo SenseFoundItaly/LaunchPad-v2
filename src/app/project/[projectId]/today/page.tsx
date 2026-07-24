@@ -28,6 +28,7 @@ import { OnboardingCard } from '@/components/onboarding/OnboardingCard';
 import { NotesCard } from '@/components/onboarding/NotesCard';
 import { ScorePanel } from '@/components/home/ScorePanel';
 import { LoopStatusRow } from '@/components/loops/LoopStatusRow';
+import { PhaseSpine } from '@/components/journey/PhaseSpine';
 import { EcosystemPanel } from '@/components/home/EcosystemPanel';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { laneFor, isIntelInboxType } from '@/lib/action-lanes';
@@ -145,6 +146,11 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
               <div className="lp-home-grid">
                 {/* Primary — the journey/validation card (its checks ARE the
                     "next to validate" list, so no separate panel duplicates it). */}
+                {/* The 5-phase spine — read-only reduction of the 7 stages +
+                    live loops (the real mirror of the /demo spine, #306). */}
+                <PanelBoundary resetKey={projectId}>
+                  <PhaseSpine projectId={projectId} />
+                </PanelBoundary>
                 <PanelBoundary resetKey={projectId}>
                   <StageCard projectId={projectId} />
                 </PanelBoundary>

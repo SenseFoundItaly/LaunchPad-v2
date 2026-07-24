@@ -169,6 +169,13 @@ export const en = {
   'today.watchers-cadence': 'watchers · weekly cadence',
   'today.signals-to-review': '{count} signals to review',
   'today.watchers': 'Watchers',
+  // The 5-phase spine (read-only reduction of the 7 stages + live loops).
+  'journey-phase.spine-title': 'The Spine',
+  'journey-phase.spine-sub': '5 macro phases · validation loops in the critical transitions',
+  'journey-phase.status-done': 'validated',
+  'journey-phase.status-active': 'active',
+  'journey-phase.status-pending': 'locked',
+  'journey-phase.loop-pending': 'not yet triggered',
   'today.open-inbox': 'Open Watchers',
   'today.signals-awaiting-review': '{count} signals awaiting review →',
   'today.inbox': 'Needs review',

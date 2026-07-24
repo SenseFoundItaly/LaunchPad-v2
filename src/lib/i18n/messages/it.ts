@@ -161,6 +161,13 @@ export const it: Partial<Record<MessageKey, string>> = {
   'today.watchers-cadence': 'osservatori · cadenza settimanale',
   'today.signals-to-review': '{count} segnali da rivedere',
   'today.watchers': 'Osservatori',
+  // La spina a 5 fasi (riduzione read-only dei 7 stage + loop live).
+  'journey-phase.spine-title': 'La Spina',
+  'journey-phase.spine-sub': '5 fasi macro · loop di validazione nelle transizioni critiche',
+  'journey-phase.status-done': 'validato',
+  'journey-phase.status-active': 'attivo',
+  'journey-phase.status-pending': 'bloccato',
+  'journey-phase.loop-pending': 'non ancora attivato',
   'today.open-inbox': 'Apri Osservatori',
   'today.signals-awaiting-review': '{count} segnali in attesa di revisione →',
   'today.inbox': 'Da rivedere',
