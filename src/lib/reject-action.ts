@@ -17,6 +17,7 @@ import { query } from '@/lib/db';
 import { rejectPendingAction } from '@/lib/pending-actions';
 import { dismissAlertSource } from '@/lib/action-executors';
 import { overrideLoop1 } from '@/lib/loops/loop1-psf';
+import { overrideLoop } from '@/lib/loops/loop-core';
 import { recordFact } from '@/lib/memory/facts';
 import { recordEvent } from '@/lib/memory/events';
 import type { PendingAction } from '@/types';
@@ -49,13 +50,24 @@ export async function rejectActionWithSideEffects(
     const p = (existing.payload && typeof existing.payload === 'object'
       ? existing.payload
       : (() => { try { return JSON.parse(String(existing.payload ?? '{}')); } catch { return {}; } })()) as Record<string, unknown>;
-    if (p.skill_id === 'psf-review' && typeof p.loop_id === 'string') {
+    // Any run_skill card carrying a loop_id is a validation-loop review. The
+    // review skill IS the loop discriminator (no extra query): Loop 1 is the
+    // only loop that proposes psf-review; Loop 2 proposes business-model. n=1
+    // keeps Loop 1's original override path byte-for-byte; the rest use the
+    // generic loop-core override (which reads loop_number off the row and emits
+    // the right loop{N}_override event).
+    if (typeof p.loop_id === 'string') {
+      const isLoop1 = p.skill_id === 'psf-review';
       const ownerRow = (await query<{ owner_user_id: string | null }>(
         'SELECT owner_user_id FROM projects WHERE id = ?', projectId,
       ))[0];
-      const motivation = trimmedReason ?? 'Founder dismissed the PSF review and chose to proceed.';
-      await overrideLoop1(projectId, p.loop_id, ownerRow?.owner_user_id || '', motivation)
-        .catch((err) => console.warn('[reject] loop1 override failed (non-fatal):', (err as Error).message));
+      const ownerUserId = ownerRow?.owner_user_id || '';
+      const motivation = trimmedReason ?? (isLoop1
+        ? 'Founder dismissed the PSF review and chose to proceed.'
+        : 'Founder dismissed the loop review and chose to proceed.');
+      const release = isLoop1 ? overrideLoop1 : overrideLoop;
+      await release(projectId, p.loop_id, ownerUserId, motivation)
+        .catch((err) => console.warn('[reject] loop override failed (non-fatal):', (err as Error).message));
     }
   }
 

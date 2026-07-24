@@ -685,6 +685,20 @@ export const en = {
   'loop.signal-ltvcac': 'LTV : CAC',
   'loop.signal-payback': 'Payback',
   'loop.signal-margin': 'Gross margin',
+  // Loop 2 — BM Stress Test (LTV/CAC below the 3× bar after the Business Model
+  // stage is compiled). Mirror of loop1.* one phase downstream.
+  'loop2.card-title': 'BM Stress Test — LTV:CAC is only {ratio}×',
+  'loop2.card-rationale': 'Your unit economics are viable but weak — LTV:CAC is {ratio}× (below the {threshold}× stress bar). Revise pricing or the cost structure before investing in Build & go-to-market. Approve to re-run the business model — or dismiss it to proceed to build without it.',
+  'loop2.card-title-manual': 'BM Stress Test',
+  'loop2.card-rationale-manual': 'Stress-test your business model — pricing, tiers and unit economics — against the 3× LTV:CAC bar. Approve to re-run the business model.',
+  'loop2.verdict-prompt': "You've iterated on the business model twice and LTV:CAC is still below the bar. Time for a decision:",
+  'loop2.verdict-evidence': 'Evidence — after {iterations} BM stress iteration(s): LTV:CAC {ltvcac}× (below the {threshold}× bar).',
+  'loop2.verdict-go': 'GO — the unit economics are sound enough to proceed',
+  'loop2.verdict-pivot': 'PIVOT — revise pricing, tiers or the cost structure',
+  'loop2.verdict-stop': "STOP — the unit economics don't work at any pricing",
+  'loop2.verdict-recorded-go': 'Verdict recorded: **GO**. The unit economics are sound enough — this stress test is closed and Phase 3 (build & go-to-market) is unblocked.',
+  'loop2.verdict-recorded-pivot': 'Verdict recorded: **PIVOT**. Revise your pricing, tiers or cost structure, then recompute unit economics. This stress test is now closed.',
+  'loop2.verdict-recorded-stop': 'Verdict recorded: **STOP**. The unit economics don\'t hold. This stress test is closed — nothing further is required.',
   'journey-prompt.wtp': "Help me capture a willingness-to-pay signal — I'll tell you what interviewees said they'd pay.",
   'journey-prompt.generic': 'Help me with: {label}',
   // Spine display labels — the founder-facing check-row / stage-tile / tagline
@@ -831,6 +845,7 @@ export const en = {
   'skills.gate-1c-locked': 'Customer interviews unlock after tracks 1A (Market) and 1B (Technical) are complete. Still open: {missing}. Close those first — I can help with each one.',
   'skills.stage-locked': '{skillStage} is locked until every earlier stage is complete. You\'re on Stage {blockingStage} — {blockingName} ({passed}/{total} checks done). Finish it and any remaining stages first, then this unlocks. Nothing is lost — complete the work ahead of it and come back.',
   'skills.loop1-gated': 'Pricing and business-model work is on hold while your PSF Review is open — willingness-to-pay came back weak. Resolve the review (or dismiss it with a reason) first, so you build pricing on a confirmed fit.',
+  'skills.loop2-gated': 'Build and go-to-market work is on hold while your BM Stress Test is open — LTV:CAC came back below the 3× bar. Resolve the review (or dismiss it with a reason) first, so you build on a model that holds.',
   // Road-1 post-scoring weak-section review (deterministic option-set).
   'score-review.prompt': 'Your baseline score has weak areas. Where do you want to dig in before validating?',
   'score-review.option-label': "Let's review {dim} ({score}/100)",

@@ -32,6 +32,7 @@ import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
 import { coerceJson } from '@/lib/jsonb';
 import { maybeTriggerLoop1 } from '@/lib/loops/loop1-psf';
+import { maybeTriggerLoop2 } from '@/lib/loops/loop2-bm';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { translate, type MessageKey } from '@/lib/i18n/messages';
 import type { Locale } from '@/lib/i18n/locales';
@@ -2568,6 +2569,12 @@ const updatePricingTool = (ctx: ToolContext): AgentTool => ({
         ctx.projectId,
       );
     }
+
+    // Loop 2 (BM Stress Test): fresh unit economics may push LTV/CAC below the
+    // 3× stress bar. Awaited (idempotent, non-throwing, self-guards when unit
+    // econ is absent) so it isn't lost to the serverless freeze — mirror of the
+    // maybeTriggerLoop1 hook on interview writes.
+    await maybeTriggerLoop2(ctx.projectId);
 
     return {
       content: [{ type: 'text', text: `Updated pricing_state: ${Object.keys(updates).join(', ')}. Pricing tab will reflect on next render.` }],

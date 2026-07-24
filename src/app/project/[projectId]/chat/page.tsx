@@ -1262,12 +1262,21 @@ export default function CopilotChatPage({
           window.dispatchEvent(new CustomEvent('lp-skills-changed', { detail: { projectId } }));
         }
         // Confirm inline — the verdict is already recorded, so no model turn is
-        // needed. Each verdict gets its own next-step guidance.
-        const confirmKey = recorded === 'GO'
-          ? 'loop1.verdict-recorded-go'
-          : recorded === 'PIVOT'
-            ? 'loop1.verdict-recorded-pivot'
-            : 'loop1.verdict-recorded-stop';
+        // needed. Each verdict gets its own next-step guidance, per loop (the
+        // option payload carries loop_number; Loop 1 = default). Loop 2's copy
+        // speaks to Phase 3 (build & GTM) instead of Phase 2 (pricing).
+        const loopN = Number(payload.loop_number) || 1;
+        const confirmKey = loopN === 2
+          ? (recorded === 'GO'
+              ? 'loop2.verdict-recorded-go'
+              : recorded === 'PIVOT'
+                ? 'loop2.verdict-recorded-pivot'
+                : 'loop2.verdict-recorded-stop')
+          : (recorded === 'GO'
+              ? 'loop1.verdict-recorded-go'
+              : recorded === 'PIVOT'
+                ? 'loop1.verdict-recorded-pivot'
+                : 'loop1.verdict-recorded-stop');
         setMessages((prev) => [
           ...prev,
           {
