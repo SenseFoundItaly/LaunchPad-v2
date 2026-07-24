@@ -41,4 +41,7 @@ tsconfig.tsbuildinfo
 /interconnect-verify.png
 
 # Claude Code local agent config / worktree state (not shared)
-.claude/
+# shared project settings + skills ARE tracked
+.claude/*
+!.claude/settings.json
+!.claude/skills/
