@@ -96,6 +96,24 @@ export function verdictPillKind(verdict: LoopRow['verdict']): PillKind {
   return 'n';
 }
 
+/**
+ * How a CLOSED loop closed. A loop can close three ways and only one of them
+ * carries a verdict, so verdict-or-nothing mislabels the other two: a loop that
+ * ran and resolved (signal recovered) rendered as "not yet triggered".
+ *   verdict set        → the founder decided at the escalation cap
+ *   override_motivation → the founder dismissed it
+ *   neither            → the signal recovered on its own
+ */
+export type LoopOutcome = 'verdict' | 'dismissed' | 'resolved';
+export function closedOutcome(loop: Pick<LoopRow, 'verdict' | 'override_motivation'>): LoopOutcome {
+  if (loop.verdict) return 'verdict';
+  if (loop.override_motivation) return 'dismissed';
+  return 'resolved';
+}
+export function outcomeLabelKey(outcome: Exclude<LoopOutcome, 'verdict'>): MessageKey {
+  return outcome === 'dismissed' ? 'loop.outcome-dismissed' : 'loop.outcome-resolved';
+}
+
 /** i18n key for a known trigger signal; null → prettify the raw key. */
 const SIGNAL_LABEL_KEYS: Record<string, MessageKey> = {
   wtp_rate: 'loop.signal-wtp',

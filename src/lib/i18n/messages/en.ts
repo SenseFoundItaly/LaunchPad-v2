@@ -683,6 +683,8 @@ export const en = {
   'loop.cta-review': 'Review',
   'loop.cta-decide': 'Decide',
   'loop.cta-dismiss': 'Dismiss loop',
+  'loop.outcome-resolved': 'resolved',
+  'loop.outcome-dismissed': 'dismissed',
   'loop.dismiss-prompt': 'Why are you proceeding without resolving this loop? (recorded in your Knowledge)',
   'loop.awaiting-1': 'Waiting on new interviews — log more to re-check willingness to pay.',
   'loop.awaiting-2': 'Waiting on revised unit economics — update pricing or costs to re-check LTV : CAC.',

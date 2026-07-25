@@ -668,6 +668,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   'loop.cta-review': 'Rivedi',
   'loop.cta-decide': 'Decidi',
   'loop.cta-dismiss': 'Archivia loop',
+  'loop.outcome-resolved': 'risolto',
+  'loop.outcome-dismissed': 'archiviato',
   'loop.dismiss-prompt': 'Perché procedi senza risolvere questo loop? (registrato nella tua Conoscenza)',
   'loop.awaiting-1': 'In attesa di nuove interviste — registrane altre per ri-verificare la disponibilità a pagare.',
   'loop.awaiting-2': 'In attesa di unit economics riviste — aggiorna prezzi o costi per ri-verificare LTV : CAC.',
