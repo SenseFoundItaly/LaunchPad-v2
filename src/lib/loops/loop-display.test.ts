@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isOpenLoop, openLoopOf, loopNameKey, verdictPillKind,
   signalLabelKey, formatSignal, primaryFailingSignal, awaitedEvidenceKey,
+  closedOutcome, outcomeLabelKey,
   type LoopRow, type LoopSignal,
 } from './loop-display';
 
@@ -62,6 +63,19 @@ describe('awaitedEvidenceKey (§4 dead-end guard)', () => {
   it('returns null for the unbuilt loops (no hint rather than a wrong one)', () => {
     expect(awaitedEvidenceKey(3)).toBeNull();
     expect(awaitedEvidenceKey(4)).toBeNull();
+  });
+});
+
+describe('closedOutcome — a closed loop is never "not yet triggered"', () => {
+  it('distinguishes the three ways a loop closes', () => {
+    expect(closedOutcome({ verdict: 'GO', override_motivation: null })).toBe('verdict');
+    expect(closedOutcome({ verdict: null, override_motivation: 'proceeding anyway' })).toBe('dismissed');
+    // The E2E case: the review ran and the signal recovered — no verdict, no override.
+    expect(closedOutcome({ verdict: null, override_motivation: null })).toBe('resolved');
+  });
+  it('labels the two verdict-less outcomes', () => {
+    expect(outcomeLabelKey('resolved')).toBe('loop.outcome-resolved');
+    expect(outcomeLabelKey('dismissed')).toBe('loop.outcome-dismissed');
   });
 });
 

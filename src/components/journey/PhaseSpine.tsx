@@ -14,7 +14,8 @@ import { useStages } from '@/hooks/useStages';
 import { useLoops } from '@/hooks/useLoops';
 import { buildSpine, type PhaseStatus } from '@/lib/journey/phases';
 import {
-  loopNameKey, verdictPillKind, isOpenLoop, loopStatusKey, type LoopRow,
+  loopNameKey, verdictPillKind, isOpenLoop, loopStatusKey,
+  closedOutcome, outcomeLabelKey, type LoopRow,
 } from '@/lib/loops/loop-display';
 
 const PHASE_BG: Record<PhaseStatus, string> = {
@@ -79,6 +80,12 @@ export function PhaseSpine({ projectId }: { projectId: string }) {
                 <Pill kind={verdictPillKind(loop.verdict)}>{loop.verdict}</Pill>
               ) : loop && isOpenLoop(loop) ? (
                 <Pill kind="warn" dot>{t(loopStatusKey(loop.status))}</Pill>
+              ) : loop ? (
+                // Closed WITHOUT a verdict — it resolved (signal recovered) or was
+                // dismissed. Never "not yet triggered": it ran.
+                <Pill kind={closedOutcome(loop) === 'resolved' ? 'ok' : 'n'}>
+                  {t(outcomeLabelKey(closedOutcome(loop) as 'resolved' | 'dismissed'))}
+                </Pill>
               ) : (
                 <span style={{ fontSize: 10, color: 'var(--ink-5)' }}>{t('journey-phase.loop-pending')}</span>
               )}
