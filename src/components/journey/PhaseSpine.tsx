@@ -12,14 +12,15 @@ import { Panel, Pill, Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import { useStages } from '@/hooks/useStages';
 import { useLoops } from '@/hooks/useLoops';
-import { buildSpine, type PhaseStatus } from '@/lib/journey/phases';
+import { buildSpine, type PhaseDisplayStatus } from '@/lib/journey/phases';
 import {
   loopNameKey, verdictPillKind, isOpenLoop, loopStatusKey,
   closedOutcome, outcomeLabelKey, type LoopRow,
 } from '@/lib/loops/loop-display';
 
-const PHASE_BG: Record<PhaseStatus, string> = {
+const PHASE_BG: Record<PhaseDisplayStatus, string> = {
   done: 'var(--moss-wash)',
+  ahead: 'var(--paper-2)',   // evidence complete but blocked by an earlier phase
   active: 'var(--accent-wash)',
   pending: 'var(--paper-2)',
 };
@@ -40,17 +41,25 @@ export function PhaseSpine({ projectId }: { projectId: string }) {
       <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 7 }}>
         {spine.map((node, i) => {
           if (node.kind === 'phase') {
-            const done = node.status === 'done';
-            const active = node.status === 'active';
+            const { status } = node;
             return (
-              <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-m)', background: PHASE_BG[node.status], padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 11 }}>
-                <div className="lp-mono" style={{ fontSize: 14, fontWeight: 700, color: active ? 'var(--accent-ink)' : 'var(--ink-4)', minWidth: 16, textAlign: 'center' }}>{node.n}</div>
+              <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-m)', background: PHASE_BG[status], padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 11 }}>
+                <div className="lp-mono" style={{ fontSize: 14, fontWeight: 700, color: status === 'active' ? 'var(--accent-ink)' : 'var(--ink-4)', minWidth: 16, textAlign: 'center' }}>{node.n}</div>
                 <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.2 }}>{node.label}</div>
+                {/* Evidence tally — the honest number behind the label, so a
+                    phase's state is never just a colour the founder must trust. */}
+                {node.total > 0 && (
+                  <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', flexShrink: 0 }}>
+                    {node.passed}/{node.total}
+                  </span>
+                )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--ink-4)', flexShrink: 0 }}>
-                  {done ? (
+                  {status === 'done' ? (
                     <><Icon d={I.check} size={12} stroke={2} style={{ color: 'var(--moss)' }} />{t('journey-phase.status-done')}</>
-                  ) : active ? (
+                  ) : status === 'active' ? (
                     <><span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />{t('journey-phase.status-active')}</>
+                  ) : status === 'ahead' ? (
+                    <span style={{ color: 'var(--ink-4)' }}>{t('journey-phase.status-ahead')}</span>
                   ) : (
                     <span style={{ color: 'var(--ink-5)' }}>{t('journey-phase.status-pending')}</span>
                   )}
