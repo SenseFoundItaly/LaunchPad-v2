@@ -175,6 +175,7 @@ export const en = {
   'journey-phase.status-done': 'validated',
   'journey-phase.status-active': 'active',
   'journey-phase.status-pending': 'locked',
+  'journey-phase.status-ahead': 'evidence ready',
   'journey-phase.loop-pending': 'not yet triggered',
   'today.open-inbox': 'Open Watchers',
   'today.signals-awaiting-review': '{count} signals awaiting review →',

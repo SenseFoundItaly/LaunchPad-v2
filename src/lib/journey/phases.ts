@@ -27,6 +27,9 @@ import type { StageId } from './types';
 export interface PhaseEval {
   stage: { id: string };
   status: 'done' | 'active' | 'pending';
+  /** Check tallies — summed across a phase's stages for the evidence readout. */
+  passed?: number;
+  total?: number;
 }
 
 export interface PhaseDef {
@@ -63,20 +66,64 @@ export function phaseStatus(phase: PhaseDef, evals: PhaseEval[]): PhaseStatus {
   return 'pending';
 }
 
+/**
+ * What the spine SHOWS, which is not the same as the raw per-stage status.
+ *
+ * `evaluateAllStages` marks a stage done independently (passed === total), and
+ * the later stages carry far fewer checks than the early ones (persona 2,
+ * business_model 5, build_launch 4 vs idea_validation 9, market_validation 12).
+ * So later phases routinely go green while phase 0 is still incomplete — on a
+ * full 5-row spine that reads as "you finished Business Essentials, Build &
+ * Test and MVP Release" to a founder who is still on Idea Canvas. Observed on
+ * real projects.
+ *
+ * So the spine is CONTIGUOUS, exactly like the IRL ladder: a phase only claims
+ * "validated" when every earlier phase is validated too. A phase whose own
+ * evidence is complete but which is blocked by an earlier gap renders 'ahead'
+ * — truthful ("evidence ready") without the false completion claim. Both
+ * surfaces then tell the founder one coherent story.
+ */
+export type PhaseDisplayStatus = 'done' | 'ahead' | 'active' | 'pending';
+
 export type SpineNode =
-  | { kind: 'phase'; n: number; label: string; status: PhaseStatus }
+  | { kind: 'phase'; n: number; label: string; status: PhaseDisplayStatus; passed: number; total: number }
   | { kind: 'module'; label: string }
   | { kind: 'loop'; loopNumber: number };
 
-/** The ordered spine: phases with computed status, interleaved with the loop
- *  slots and the module — the live-data mirror of the demo's SPINE. Loop/module
- *  live state (open? verdict?) is resolved by the component from GET /loops. */
-export function buildSpine(evals: PhaseEval[]): SpineNode[] {
-  const nodes: SpineNode[] = [];
-  for (const phase of PHASES) {
-    nodes.push({ kind: 'phase', n: phase.n, label: phase.label, status: phaseStatus(phase, evals) });
-    if (phase.moduleAfter) nodes.push({ kind: 'module', label: 'Financial & Pitch Assets' });
-    if (phase.loopAfter) nodes.push({ kind: 'loop', loopNumber: phase.loopAfter });
+/** Evidence tally across the stages a phase reduces from. */
+export function phaseEvidence(phase: PhaseDef, evals: PhaseEval[]): { passed: number; total: number } {
+  let passed = 0, total = 0;
+  for (const id of phase.stageIds) {
+    const e = evals.find((x) => x.stage.id === id);
+    if (!e) continue;
+    passed += e.passed ?? 0;
+    total += e.total ?? 0;
   }
+  return { passed, total };
+}
+
+/** The ordered spine: phases with CONTIGUOUS display status + evidence counts,
+ *  interleaved with the loop slots and the module. Loop live state (open?
+ *  verdict?) is resolved by the component from GET /loops. */
+export function buildSpine(evals: PhaseEval[]): SpineNode[] {
+  const raw = PHASES.map((p) => ({ phase: p, status: phaseStatus(p, evals) }));
+
+  const nodes: SpineNode[] = [];
+  let brokeAt = -1; // index of the first phase that isn't raw-done
+  raw.forEach((r, i) => { if (brokeAt === -1 && r.status !== 'done') brokeAt = i; });
+
+  raw.forEach((r, i) => {
+    const contiguousDone = brokeAt === -1 || i < brokeAt;
+    let status: PhaseDisplayStatus;
+    if (contiguousDone) status = 'done';
+    else if (r.status === 'done') status = 'ahead';       // evidence complete, but blocked earlier
+    else if (i === brokeAt) status = 'active';            // the phase actually in play
+    else status = r.status === 'active' ? 'active' : 'pending';
+
+    const { passed, total } = phaseEvidence(r.phase, evals);
+    nodes.push({ kind: 'phase', n: r.phase.n, label: r.phase.label, status, passed, total });
+    if (r.phase.moduleAfter) nodes.push({ kind: 'module', label: 'Financial & Pitch Assets' });
+    if (r.phase.loopAfter) nodes.push({ kind: 'loop', loopNumber: r.phase.loopAfter });
+  });
   return nodes;
 }
