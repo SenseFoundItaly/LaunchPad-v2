@@ -44,6 +44,7 @@ export default function WeeklyUpdateCard({ artifact }: WeeklyUpdateCardProps) {
   const t = useT();
   return (
     <ArtifactCardShell
+      exportArtifact={artifact}
       typeLabel={t('wu.type-update')}
       title={`${artifact.title} · ${artifact.period}`}
       sources={artifact.sources}

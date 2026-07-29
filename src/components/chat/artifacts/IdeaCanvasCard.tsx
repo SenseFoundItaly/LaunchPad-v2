@@ -44,6 +44,7 @@ export default function IdeaCanvasCard({ artifact }: IdeaCanvasCardProps) {
   const t = useT();
   return (
     <ArtifactCardShell
+      exportArtifact={artifact}
       typeLabel={t('iccard.type-lean-canvas')}
       title={artifact.title}
       sources={artifact.sources}

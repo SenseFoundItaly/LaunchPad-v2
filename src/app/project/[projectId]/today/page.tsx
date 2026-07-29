@@ -34,6 +34,7 @@ import { EcosystemPanel } from '@/components/home/EcosystemPanel';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { laneFor, isIntelInboxType } from '@/lib/action-lanes';
 import type { PendingActionType } from '@/types';
+import { LoadingState } from '@/components/ui/LoadingState';
 
 // Mirror of the /actions Intel hide flag — keeps the Today "Intel" panel in
 // lock-step with the full surface. See actions/page.tsx + action-lanes.ts.
@@ -382,17 +383,12 @@ function Panel({
 
 function SkeletonRow() {
   const t = useT();
+  // Was centred mono text — a label with no sign of life, so a slow load read
+  // as a stalled one. LoadingState animates and counts, so the founder can tell
+  // "still working" from "stuck".
   return (
-    <div
-      style={{
-        padding: 24,
-        textAlign: 'center',
-        fontSize: 12,
-        color: 'var(--ink-5)',
-        fontFamily: 'var(--f-mono)',
-      }}
-    >
-      {t('today.loading-today')}
+    <div style={{ padding: 24, display: 'flex', justifyContent: 'center' }}>
+      <LoadingState label={t('today.loading-today')} />
     </div>
   );
 }

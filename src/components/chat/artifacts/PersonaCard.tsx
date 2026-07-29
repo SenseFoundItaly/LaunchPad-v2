@@ -33,6 +33,7 @@ export default function PersonaCard({ artifact }: PersonaCardProps) {
     // Archetype header chip removed (2026-06 zero-chips rule) — the
     // archetype renders as a plain muted line at the top of the body.
     <ArtifactCardShell
+      exportArtifact={artifact}
       typeLabel={t('pcard.type-persona')}
       title={artifact.name}
       sources={artifact.sources}

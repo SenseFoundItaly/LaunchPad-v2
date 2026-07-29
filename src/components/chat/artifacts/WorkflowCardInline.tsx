@@ -52,6 +52,7 @@ export default function WorkflowCardInline({
     // Category + priority header chips removed (2026-06 zero-chips rule);
     // the checklist, progress bar, and coming-soon note are functional and stay.
     <ArtifactCardShell
+      exportArtifact={artifact}
       typeLabel={t('wfc.type-label')}
       title={artifact.title}
       sources={artifact.sources}

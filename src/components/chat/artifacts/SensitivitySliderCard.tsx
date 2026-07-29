@@ -51,6 +51,7 @@ export default function SensitivitySliderCard({ artifact, onAction }: Sensitivit
 
   return (
     <ArtifactCardShell
+      exportArtifact={artifact}
       typeLabel={t('card.type-sensitivity')}
       title={artifact.title || ''}
       sources={artifact.sources}
