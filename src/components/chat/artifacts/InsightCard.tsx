@@ -35,6 +35,7 @@ export default function InsightCard({ artifact, onAction, defaultCollapsed }: In
 
   return (
     <ArtifactCardShell
+      exportArtifact={artifact}
       typeLabel={t(CATEGORY_KEYS[artifact.category])}
       title={artifact.title}
       sources={artifact.sources}

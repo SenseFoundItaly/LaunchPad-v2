@@ -102,6 +102,7 @@ export default function InvestorPipelineCard({ artifact }: InvestorPipelineCardP
 
   return (
     <ArtifactCardShell
+      exportArtifact={artifact}
       typeLabel={t('pipe.type-pipeline')}
       title={artifact.title}
       sources={artifact.sources}

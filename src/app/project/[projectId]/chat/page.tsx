@@ -33,6 +33,7 @@ import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
 import type { Artifact, ArtifactType, Department, ValidationProposalArtifact } from '@/types/artifacts';
 import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
 import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard';
+import BudgetProposalCard from '@/components/chat/artifacts/BudgetProposalCard';
 import { Canvas, type PendingPlaceholder } from '@/components/canvas/Canvas';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import { TopBar, NavRail } from '@/components/design/chrome';
@@ -46,6 +47,8 @@ import { buildContextMarkdown } from '@/lib/context-export';
 import { buildFinancialExport } from '@/lib/financial-export';
 import type { ContextExportData } from '@/lib/context-export';
 import { openPrintPreview } from '@/lib/print-utils';
+import { ToolChips } from '@/components/ui/ToolChips';
+import type { ToolActivity } from '@/types';
 import {
   Pill,
   StatusBar,
@@ -1821,6 +1824,45 @@ function ChatEmptyState({
   );
 }
 
+/**
+ * Tool-call presentation helpers.
+ *
+ * `ToolActivity.args` has been streamed since the SSE plumbing landed and
+ * dropped on the floor by the renderer. These turn it into something a founder
+ * can read: an inline one-liner (the search query, the fact being saved) and,
+ * on expand, the full argument list.
+ */
+function toolIconFor(name: string): 'think' | 'write' | 'run' | 'read' {
+  if (/^(web_search|read_url|search|list_|get_)/.test(name)) return 'read';
+  if (/^(save_|create_|propose_|update_|record_|commit)/.test(name)) return 'write';
+  if (/^skill_/.test(name)) return 'run';
+  return 'think';
+}
+
+/** Single most descriptive argument, clamped — the chip is one line. */
+function toolArgSummary(args?: Record<string, unknown>): string | undefined {
+  if (!args) return undefined;
+  for (const key of ['query', 'url', 'name', 'title', 'fact', 'skill_id', 'content']) {
+    const v = args[key];
+    if (typeof v === 'string' && v.trim()) {
+      return v.length > 70 ? `${v.slice(0, 70)}…` : v;
+    }
+  }
+  return undefined;
+}
+
+function toolArgDetail(args?: Record<string, unknown>): { text: string }[] | undefined {
+  if (!args) return undefined;
+  const lines = Object.entries(args)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([k, v]) => {
+      const raw = typeof v === 'string' ? v : JSON.stringify(v);
+      const clamped = raw.length > 160 ? `${raw.slice(0, 160)}…` : raw;
+      return { text: `${k}: ${clamped}` };
+    });
+  return lines.length > 0 ? lines : undefined;
+}
+
 function Msg({
   messageId,
   who,
@@ -1840,7 +1882,9 @@ function Msg({
   who: 'user' | 'ai';
   agent: string;
   streaming?: boolean;
-  tools?: Array<{ id: string; name: string; status: string }>;
+  // ToolActivity, not a narrowed copy: the old inline shape omitted `args`,
+  // which is why the streamed tool arguments were invisible to this renderer.
+  tools?: ToolActivity[];
   children: React.ReactNode;
   /** Raw text for clipboard + retry. User sees `children` (stripped);
    *  clipboard + retry use the original `rawContent`. */
@@ -1858,7 +1902,6 @@ function Msg({
   onMouseLeave?: () => void;
 }) {
   const t = useT();
-  const [toolsExpanded, setToolsExpanded] = useState(false);
 
   if (who === 'user') {
     return (
@@ -1909,80 +1952,25 @@ function Msg({
         </span>
         {streaming && <Pill kind="live" dot>{t('chat.streaming')}</Pill>}
       </div>
-      {tools && tools.length === 1 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-          <span
-            className="lp-chip"
-            style={{
-              background: tools[0].status === 'running'
-                ? 'var(--accent-wash)'
-                : tools[0].status === 'error'
-                  ? 'var(--accent-wash)'
-                  : 'var(--paper-2)',
-              color: tools[0].status === 'running'
-                ? 'var(--accent-ink)'
-                : tools[0].status === 'error'
-                  ? 'var(--clay)'
-                  : 'var(--ink-4)',
-            }}
-          >
-            {tools[0].status === 'running' && (
-              <span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />
-            )}
-            {tools[0].name}
-          </span>
-        </div>
-      )}
-      {tools && tools.length > 1 && !toolsExpanded && (
-        <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-          <span
-            className="lp-chip"
-            style={{
-              background: tools.some((t) => t.status === 'running') ? 'var(--accent-wash)' : 'var(--paper-2)',
-              color: tools.some((t) => t.status === 'running') ? 'var(--accent-ink)' : 'var(--ink-4)',
-              cursor: 'pointer',
-            }}
-            onClick={() => setToolsExpanded(true)}
-          >
-            {tools.some((tool) => tool.status === 'running') && (
-              <span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />
-            )}
-            {t('chat.using-tools', { count: tools.length })}
-          </span>
-        </div>
-      )}
-      {tools && tools.length > 1 && toolsExpanded && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-          {tools.map((t) => (
-            <span
-              key={t.id}
-              className="lp-chip"
-              style={{
-                background: t.status === 'running'
-                  ? 'var(--accent-wash)'
-                  : t.status === 'error'
-                    ? 'var(--accent-wash)'
-                    : 'var(--paper-2)',
-                color: t.status === 'running'
-                  ? 'var(--accent-ink)'
-                  : t.status === 'error'
-                    ? 'var(--clay)'
-                    : 'var(--ink-4)',
-              }}
-            >
-              {t.status === 'running' && (
-                <span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />
-              )}
-              {t.name}
-            </span>
-          ))}
-          <span
-            className="lp-chip"
-            style={{ background: 'var(--paper-2)', color: 'var(--ink-4)', cursor: 'pointer' }}
-            onClick={() => setToolsExpanded(false)}
-          >
-            {t('chat.tools-collapse')}
-          </span>
+      {/* Tool activity. Previously three sibling chip blocks that showed only
+          "Using 8 tools" and, when expanded, the bare names — while useChat has
+          been streaming each call's `args` and discarding them at the renderer.
+          ToolChips surfaces those as expandable per-call detail, so the founder
+          can see WHAT the agent searched for, not just that it searched. */}
+      {tools && tools.length > 0 && (
+        <div style={{ marginBottom: 6 }}>
+          <ToolChips
+            rows={tools.map((tool) => ({
+              id: tool.id,
+              label: tool.name,
+              status: tool.status,
+              icon: toolIconFor(tool.name),
+              chip: toolArgSummary(tool.args),
+              detail: toolArgDetail(tool.args),
+              detailMono: true,
+            }))}
+            defaultOpen={tools.length === 1}
+          />
         </div>
       )}
       <div
@@ -2616,6 +2604,15 @@ function InlineArtifact({
   // watcher-card backstop emits monitor-proposal for BOTH topic and URL watchers.
   if (artifact.type === 'monitor-proposal') {
     return <MonitorProposalCard artifact={artifact} onAction={onAction ?? (() => {})} />;
+  }
+  // budget-proposal had the exact bug described above, still unfixed: it is in
+  // INLINE_ARTIFACT_TYPES (so classifyArtifacts keeps it out of the Canvas) and
+  // in NON_RETRIEVABLE_TYPES (so the Data Room never shows it), but had no
+  // branch here — so `propose_budget_change` emitted a card that rendered
+  // NOWHERE. BudgetProposalCard itself was only reachable via DepartmentSection,
+  // which never receives this type.
+  if (artifact.type === 'budget-proposal') {
+    return <BudgetProposalCard artifact={artifact} onAction={onAction ?? (() => {})} />;
   }
 
   return null;

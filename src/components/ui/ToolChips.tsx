@@ -42,6 +42,12 @@ export interface ToolChipRow {
   id: string;
   label: string;
   icon?: ToolIcon;
+  /**
+   * Live state of this call. `running` shows a pulsing dot, `error` tints the
+   * label clay. Omitted reads as settled-and-fine, which is the right default
+   * for a completed run being re-read from history.
+   */
+  status?: 'running' | 'done' | 'error';
   /** The inline argument chip: a filename, a command, a one-line summary. */
   chip?: string;
   /** Render the chip monospace. */
@@ -149,7 +155,14 @@ export function ToolChips({
                         </svg>
                       )}
                     </span>
-                    <span className="shrink-0 text-[12.5px] font-medium text-ink">{row.label}</span>
+                    {row.status === 'running' && (
+                      <span className="lp-dot lp-pulse shrink-0" style={{ background: 'var(--accent)' }} />
+                    )}
+                    <span
+                      className={`shrink-0 text-[12.5px] font-medium ${row.status === 'error' ? 'text-clay' : 'text-ink'}`}
+                    >
+                      {row.label}
+                    </span>
                     {row.chip && (
                       <span
                         className={`inline-flex h-5.5 min-w-0 flex-1 items-center truncate rounded-full bg-paper-2 px-1.5 text-[11.5px] text-ink-2 transition-colors duration-100 ${
