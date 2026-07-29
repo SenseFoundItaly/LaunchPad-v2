@@ -162,7 +162,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'today.signals-to-review': '{count} segnali da rivedere',
   'today.watchers': 'Osservatori',
   // La spina a 5 fasi (riduzione read-only dei 7 stage + loop live).
-  'journey-phase.spine-title': 'La Spina',
+  'journey-phase.spine-title': 'La Spina Dorsale',
   'journey-phase.spine-sub': '5 fasi macro · loop di validazione nelle transizioni critiche',
   'journey-phase.status-done': 'validato',
   'journey-phase.status-active': 'attivo',
