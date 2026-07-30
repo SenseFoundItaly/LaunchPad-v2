@@ -44,6 +44,21 @@ export interface LoopRow {
 /** The escalation cap (mirrors LOOP*_ITERATION_CAP) — the "N of 2" denominator. */
 export const LOOP_ITERATION_CAP = 2;
 
+/**
+ * Loops with a working trigger in production. Loops 3 and 4 exist in the spine
+ * (they're part of the architecture) but NOTHING can fire them yet: Loop 3
+ * needs a landing-conversion feed and Loop 4 an MVP-activation feed, and
+ * neither metric source is in prod. Labelling them "not yet triggered" promised
+ * a review that can never arrive — they render as "coming" instead.
+ *
+ * ⚠️ Add the number here when a loop's trigger ships (#126 Loop 3, #127 Loop 4)
+ * and the spine flips to the real not-yet-triggered wording automatically.
+ */
+export const IMPLEMENTED_LOOPS: ReadonlySet<number> = new Set([1, 2]);
+export function isLoopImplemented(loopNumber: number): boolean {
+  return IMPLEMENTED_LOOPS.has(loopNumber);
+}
+
 const OPEN_STATUSES = new Set(['proposed', 'active', 'in_review']);
 export function isOpenLoop(loop: Pick<LoopRow, 'status'>): boolean {
   return OPEN_STATUSES.has(loop.status);

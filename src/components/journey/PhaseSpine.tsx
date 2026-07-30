@@ -15,7 +15,7 @@ import { useLoops } from '@/hooks/useLoops';
 import { buildSpine, type PhaseDisplayStatus } from '@/lib/journey/phases';
 import {
   loopNameKey, verdictPillKind, isOpenLoop, loopStatusKey,
-  closedOutcome, outcomeLabelKey, type LoopRow,
+  closedOutcome, outcomeLabelKey, isLoopImplemented, type LoopRow,
 } from '@/lib/loops/loop-display';
 
 const PHASE_BG: Record<PhaseDisplayStatus, string> = {
@@ -96,7 +96,12 @@ export function PhaseSpine({ projectId }: { projectId: string }) {
                   {t(outcomeLabelKey(closedOutcome(loop) as 'resolved' | 'dismissed'))}
                 </Pill>
               ) : (
-                <span style={{ fontSize: 10, color: 'var(--ink-5)' }}>{t('journey-phase.loop-pending')}</span>
+                // No loop row yet. Distinguish "armed, hasn't fired" from
+                // "can't fire — the trigger isn't built" so the spine never
+                // promises a review that will never arrive.
+                <span style={{ fontSize: 10, color: 'var(--ink-5)' }}>
+                  {t(isLoopImplemented(node.loopNumber) ? 'journey-phase.loop-pending' : 'journey-phase.loop-coming')}
+                </span>
               )}
             </div>
           );
