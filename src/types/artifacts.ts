@@ -28,7 +28,10 @@ export type ArtifactType =
   | 'idea-canvas'
   | 'tam-sam-som'
   | 'investor-pipeline'
-  | 'weekly-update';
+  | 'weekly-update'
+  | 'approval-request'
+  | 'recommendation'
+  | 'insight-carousel';
 
 /**
  * Source — verifiable provenance for every factual claim the agent makes.
@@ -782,6 +785,66 @@ export interface WeeklyUpdateArtifact extends ArtifactBase {
   sources?: Source[];
 }
 
+
+/**
+ * Multi-question founder gate — asks several questions in sequence and returns
+ * the answers in one submit.
+ *
+ * DELIBERATELY NOT a replacement for `option-set`. An option-set click can
+ * close a validation loop (`verdict:record`) or deterministically persist canvas
+ * fields (`commit:apply`), and carries the skill-prereq lock. This type does
+ * none of that — it gathers answers and hands them back. Anything that MOVES
+ * the spine still goes through option-set / validation-proposal.
+ */
+export interface ApprovalRequestArtifact extends ArtifactBase {
+  type: 'approval-request';
+  title: string;
+  sources: Source[];
+  questions: Array<{
+    id: string;
+    question: string;
+    /** radio = pick one (auto-advances); check = pick any. */
+    type: 'radio' | 'check';
+    options: string[];
+  }>;
+}
+
+/** Ranked options with a confidence signal; the founder accepts one. */
+export interface RecommendationArtifact extends ArtifactBase {
+  type: 'recommendation';
+  title: string;
+  sources: Source[];
+  options: Array<{
+    id: string;
+    /** Short label for the selector chip. */
+    short: string;
+    /** The reasoning, one or two sentences. */
+    body: string;
+    /** 0-100 confidence. Drives the signal bar. */
+    signal: number;
+    /** Qualitative band, e.g. "Strongest". */
+    label: string;
+    /** Accept-button copy. */
+    cta: string;
+    tone?: 'moss' | 'gold' | 'clay' | 'neutral';
+  }>;
+}
+
+/** A carousel of findings, each paired with a small chart. */
+export interface InsightCarouselArtifact extends ArtifactBase {
+  type: 'insight-carousel';
+  title: string;
+  sources: Source[];
+  insights: Array<{
+    id: string;
+    /** The finding, as plain prose. */
+    prose: string;
+    /** Series to plot beneath it. */
+    series: Array<{ id: string; name: string; color?: string; points: number[]; delta?: string; tone?: 'positive' | 'negative' }>;
+    caption: string;
+  }>;
+}
+
 export type Artifact =
   | OptionSet
   | InsightCard
@@ -812,7 +875,10 @@ export type Artifact =
   | IdeaCanvasArtifact
   | TamSamSomArtifact
   | InvestorPipelineArtifact
-  | WeeklyUpdateArtifact;
+  | WeeklyUpdateArtifact
+  | ApprovalRequestArtifact
+  | RecommendationArtifact
+  | InsightCarouselArtifact;
 
 /**
  * Set of artifact types that MUST have non-empty sources. Parser uses this

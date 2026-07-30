@@ -2,143 +2,77 @@
 
 import type { SolveProgressArtifact, SolveStageStatus } from '@/types/artifacts';
 import { useT } from '@/components/providers/LocaleProvider';
+import { TaskRows, type TaskRow, type TaskStatus } from '@/components/ui/TaskRows';
+import ArtifactCardShell from './ArtifactCardShell';
 
-const STATUS_COLORS: Record<SolveStageStatus, { circle: string; line: string; text: string }> = {
-  completed: { circle: 'var(--moss)', line: 'var(--moss)', text: 'var(--ink-2)' },
-  active: { circle: 'var(--accent)', line: 'var(--line-2)', text: 'var(--ink-1)' },
-  pending: { circle: 'var(--ink-5)', line: 'var(--line-2)', text: 'var(--ink-4)' },
-  skipped: { circle: 'var(--line-2)', line: 'var(--line-2)', text: 'var(--ink-5)' },
+/**
+ * `solve-progress` — the multi-stage solve timeline.
+ *
+ * Now rendered with TaskRows inside the standard ArtifactCardShell. Two audit
+ * findings closed at once: this card previously had NO shell (so no collapse,
+ * no inspector, no export, and its sources were dropped even though it is an
+ * artifact like any other), and it hand-rolled a timeline in inline styles
+ * including its own injected <style> tag for a pulse keyframe.
+ *
+ * Stage status maps directly onto TaskRows' status, which is why TaskRows and
+ * not Thinking: a solve stage carries completed/active/pending/skipped state,
+ * and Thinking's rows are narrative with no status to show.
+ */
+
+/** Model output has been observed outside the typed set (e.g. 'in-progress'),
+ *  which once crashed the whole chat page — anything unknown reads as pending. */
+const STATUS_MAP: Record<SolveStageStatus, TaskStatus> = {
+  completed: 'done',
+  active: 'running',
+  pending: 'pending',
+  skipped: 'pending',
 };
 
-export default function SolveProgressCard({ artifact }: { artifact: SolveProgressArtifact }) {
+export default function SolveProgressCard({
+  artifact,
+  defaultCollapsed,
+}: {
+  artifact: SolveProgressArtifact;
+  defaultCollapsed?: boolean;
+}) {
   const t = useT();
   const { stages } = artifact;
+  const done = stages.filter((s) => s.status === 'completed').length;
+
+  const rows: TaskRow[] = stages.map((stage, i) => {
+    const steps = [
+      // Stage labels are model-generated with their own ad-hoc id space — they
+      // do NOT map to the canonical journey ids, so the spine i18n helpers must
+      // not be wired here (stageLabel() would only fall back to this same text).
+      ...(stage.summary ? [{ label: stage.summary }] : []),
+      ...(stage.skill_id && stage.status === 'completed'
+        ? [{ label: t('solve.via', { skill: stage.skill_id }), meta: stage.skill_id }]
+        : []),
+    ];
+    return {
+      id: stage.id || `stage-${i}`,
+      label: stage.label,
+      status: STATUS_MAP[stage.status] ?? 'pending',
+      index: i + 1,
+      amount: stage.status === 'skipped' ? t('solve.skipped') : undefined,
+      steps: steps.length > 0 ? steps : undefined,
+    };
+  });
 
   return (
-    <div
-      style={{
-        gridColumn: 'span 6',
-        border: '1px solid var(--line)',
-        borderRadius: 'var(--r-m)',
-        padding: '20px 24px',
-        background: 'var(--surface)',
-      }}
+    <ArtifactCardShell
+      typeLabel={t('solve.title')}
+      title={t('solve.title')}
+      headerRight={
+        <span className="lp-mono text-[10px] text-ink-5">
+          {t('solve.complete', { done, total: stages.length })}
+        </span>
+      }
+      exportArtifact={artifact}
+      defaultCollapsed={defaultCollapsed}
+      style={{ gridColumn: 'span 6' }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-1)' }}>
-          {t('solve.title')}
-        </span>
-        <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-          {t('solve.complete', { done: stages.filter(s => s.status === 'completed').length, total: stages.length })}
-        </span>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-        {stages.map((stage, i) => {
-          // Defensive lookup: agent has been observed emitting `status` values
-          // outside the typed set (e.g. 'in-progress' instead of 'active'),
-          // which crashed the whole chat page with "Cannot read properties of
-          // undefined (reading 'circle')". Fall back to 'pending' styling.
-          const colors = STATUS_COLORS[stage.status] || STATUS_COLORS.pending;
-          const isLast = i === stages.length - 1;
-
-          return (
-            <div key={stage.id} style={{ display: 'flex', gap: 14 }}>
-              {/* Circle + connecting line */}
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  width: 20,
-                }}
-              >
-                <div
-                  style={{
-                    width: 14,
-                    height: 14,
-                    borderRadius: '50%',
-                    background: stage.status === 'active' ? 'transparent' : colors.circle,
-                    border: stage.status === 'active'
-                      ? `2px solid ${colors.circle}`
-                      : 'none',
-                    boxShadow: stage.status === 'active'
-                      ? `0 0 0 3px ${colors.circle}33`
-                      : 'none',
-                    flexShrink: 0,
-                    // Pulse animation for active stage
-                    animation: stage.status === 'active' ? 'solve-pulse 2s ease-in-out infinite' : 'none',
-                  }}
-                />
-                {!isLast && (
-                  <div
-                    style={{
-                      width: 2,
-                      flex: 1,
-                      minHeight: 24,
-                      background: colors.line,
-                    }}
-                  />
-                )}
-              </div>
-
-              {/* Stage content */}
-              <div style={{ paddingBottom: isLast ? 0 : 16, flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: stage.status === 'active' ? 600 : 400,
-                      color: colors.text,
-                      textDecoration: stage.status === 'skipped' ? 'line-through' : 'none',
-                    }}
-                  >
-                    {/* NOT localized on purpose: these are model-generated
-                        'solve-progress' stage labels with their own ad-hoc id
-                        space — they do NOT map to the canonical journey ids, so
-                        stageLabel() would only fall back to this same raw label.
-                        Do not wire the spine i18n helpers here. */}
-                    {stage.label}
-                  </span>
-                  {stage.status === 'completed' && (
-                    <span className="lp-mono" style={{ fontSize: 10, color: 'var(--moss)' }}>
-                      {t('solve.done')}
-                    </span>
-                  )}
-                  {stage.status === 'active' && (
-                    <span className="lp-mono" style={{ fontSize: 10, color: 'var(--accent)' }}>
-                      {t('solve.in-progress')}
-                    </span>
-                  )}
-                  {stage.status === 'skipped' && (
-                    <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-                      {t('solve.skipped')}
-                    </span>
-                  )}
-                </div>
-                {stage.summary && (
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-                    {stage.summary}
-                  </p>
-                )}
-                {stage.skill_id && stage.status === 'completed' && (
-                  <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', marginTop: 2, display: 'block' }}>
-                    {t('solve.via', { skill: stage.skill_id })}
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* CSS animation for the active pulse */}
-      <style>{`
-        @keyframes solve-pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-      `}</style>
-    </div>
+      <TaskRows rows={rows} variant="list" />
+    </ArtifactCardShell>
   );
 }

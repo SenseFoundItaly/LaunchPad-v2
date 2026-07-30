@@ -66,6 +66,12 @@ export interface StreamingTextProps {
    * is ignored when `renderText` is set. Sources still render in the footer.
    */
   renderText?: (visibleText: string) => React.ReactNode;
+  /**
+   * Root classes. Defaults to the showcase width (`w-full max-w-95`); pass
+   * `w-full` when the host already constrains the column, as a chat transcript
+   * does — otherwise every message is clamped to 380px.
+   */
+  className?: string;
   typewriter?: boolean;
   /** Typewriter cadence in ms per word. */
   wordMs?: number;
@@ -153,6 +159,7 @@ export function StreamingText({
   text,
   streaming = false,
   renderText,
+  className = 'w-full max-w-95',
   typewriter = false,
   wordMs = 80,
   citations = [],
@@ -205,7 +212,7 @@ export function StreamingText({
   const hasActions = Boolean(onCopy || onRetry || onFeedback) || sources.length > 0;
 
   return (
-    <div className="w-full max-w-95">
+    <div className={className}>
       <div className="text-[13px] leading-relaxed text-ink">
         {renderText ? (
           // Caller owns rendering (markdown, MDX, whatever). Feed it only the

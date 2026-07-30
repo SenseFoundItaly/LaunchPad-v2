@@ -23,6 +23,8 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Panel, Pill } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
+import { FilterTable, type FilterTone } from '@/components/ui/FilterTable';
+import { ContextCards, type ContextSourceTone } from '@/components/ui/ContextCards';
 import type { MessageKey } from '@/lib/i18n/messages';
 import type {
   KnowledgeItem,
@@ -79,10 +81,35 @@ function sectionStyle(kind: KnowledgeKind) {
   };
 }
 
+/**
+ * Same six tints, expressed as FilterTable tones — so the table view's chips
+ * read as the same colour language as the sections' left edges. `interview`
+ * has no cat-teal tone in the primitive's palette and falls back to neutral.
+ */
+const KIND_TONE: Record<KnowledgeKind, FilterTone> = {
+  entity: 'sky',
+  competitor: 'clay',
+  fact: 'moss',
+  signal: 'cat-gold',
+  brief: 'plum',
+  interview: 'neutral',
+};
+
 const TIER_BADGE: Record<ProvenanceTier, { labelKey: string; kind: 'n' | 'info' | 'ok' }> = {
   founder_asserted: { labelKey: 'kb.tier-founder-stated', kind: 'n' },
   workflow_derived: { labelKey: 'kb.tier-derived', kind: 'info' },
   externally_verified: { labelKey: 'kb.tier-verified', kind: 'ok' },
+};
+
+/**
+ * Provenance tier → ContextCards source marker. The 2–4 char badge is the
+ * founder-facing shorthand for who vouched for the item (you / the system / an
+ * independent URL); the tone matches TIER_BADGE's neutral/info/ok reading.
+ */
+const TIER_SOURCE: Record<ProvenanceTier, { abbrKey: string; tone: ContextSourceTone }> = {
+  founder_asserted: { abbrKey: 'ui.knowledge.tier-abbr-founder', tone: 'plum' },
+  workflow_derived: { abbrKey: 'ui.knowledge.tier-abbr-derived', tone: 'sky' },
+  externally_verified: { abbrKey: 'ui.knowledge.tier-abbr-verified', tone: 'moss' },
 };
 
 /** Founder-facing hint key for the producing store — detail view only. */
@@ -134,6 +161,11 @@ export default function AllKnowledgePanel({ projectId }: { projectId: string }) 
   const errorMsg = errObj instanceof Error ? errObj.message : null;
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Sections = the tinted per-kind panels with expandable row detail (default,
+  // and the only view that carries the detail). Table = the same rows in one
+  // FilterTable, filterable by kind. Additive: the toggle never removes the
+  // sections view, because the table has no row expansion to put detail in.
+  const [layout, setLayout] = useState<'sections' | 'table'>('sections');
 
   if (isLoading) return <CenterNote text={t('kb.loading-project-knowledge')} />;
   if (errorMsg) return <CenterNote text={t('kb.load-knowledge-error', { error: errorMsg })} tone="error" />;
@@ -165,27 +197,76 @@ export default function AllKnowledgePanel({ projectId }: { projectId: string }) 
               {summary.byProvenanceTier[tier]} {t(TIER_BADGE[tier].labelKey as MessageKey)}
             </Pill>
           ))}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
+          {(['sections', 'table'] as const).map(mode => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setLayout(mode)}
+              aria-pressed={layout === mode}
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                padding: '3px 9px',
+                borderRadius: 'var(--r-s)',
+                border: '1px solid var(--line)',
+                cursor: 'pointer',
+                background: layout === mode ? 'var(--ink)' : 'transparent',
+                color: layout === mode ? 'var(--paper)' : 'var(--ink-4)',
+              }}
+            >
+              {t(mode === 'sections' ? 'ui.knowledge.view-sections' : 'ui.knowledge.view-table')}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {KIND_GROUPS.map(({ kind, labelKey }) => {
-        const group = items.filter(it => it.kind === kind);
-        if (group.length === 0) return null;
-        return (
-          <Panel key={kind} title={t(labelKey as MessageKey)} subtitle={`${group.length}`} style={sectionStyle(kind)}>
-            <div>
-              {group.map((it, i) => (
-                <KnowledgeRow
-                  key={it.id}
-                  item={it}
-                  last={i === group.length - 1}
-                  expanded={expandedId === it.id}
-                  onToggle={() => setExpandedId(expandedId === it.id ? null : it.id)}
-                />
-              ))}
-            </div>
-          </Panel>
-        );
-      })}
+      {layout === 'table' ? (
+        <FilterTable
+          minWidth={400}
+          columns={[
+            { key: 'title', label: t('ui.knowledge.col-item'), width: '1.35fr' },
+            { key: 'tier', label: t('ui.knowledge.col-provenance'), width: '0.85fr' },
+            { key: 'kind', label: t('ui.knowledge.col-kind'), width: '88px', status: true },
+          ]}
+          // Only kinds actually present get a chip — an option with no rows
+          // would render a chip permanently reading 0.
+          options={KIND_GROUPS.filter(g => items.some(it => it.kind === g.kind)).map(g => ({
+            key: g.kind,
+            label: t(g.labelKey as MessageKey),
+            dot: KIND_TINT[g.kind].solid,
+            tone: KIND_TONE[g.kind],
+          }))}
+          rows={items.map(it => ({
+            id: it.id,
+            status: it.kind,
+            cells: {
+              title: it.title,
+              tier: t((TIER_BADGE[it.provenanceTier] ?? TIER_BADGE.founder_asserted).labelKey as MessageKey),
+            },
+          }))}
+        />
+      ) : (
+        KIND_GROUPS.map(({ kind, labelKey }) => {
+          const group = items.filter(it => it.kind === kind);
+          if (group.length === 0) return null;
+          return (
+            <Panel key={kind} title={t(labelKey as MessageKey)} subtitle={`${group.length}`} style={sectionStyle(kind)}>
+              <div>
+                {group.map((it, i) => (
+                  <KnowledgeRow
+                    key={it.id}
+                    item={it}
+                    last={i === group.length - 1}
+                    expanded={expandedId === it.id}
+                    onToggle={() => setExpandedId(expandedId === it.id ? null : it.id)}
+                  />
+                ))}
+              </div>
+            </Panel>
+          );
+        })
+      )}
     </div>
   );
 }
@@ -217,6 +298,7 @@ function KnowledgeRow({
 }) {
   const t = useT();
   const badge = TIER_BADGE[item.provenanceTier] ?? TIER_BADGE.founder_asserted;
+  const source = TIER_SOURCE[item.provenanceTier] ?? TIER_SOURCE.founder_asserted;
   const hintKey = STORE_HINT[item.sourceStore];
   const hint = hintKey ? t(hintKey as MessageKey) : item.sourceStore;
   const refIsUrl = !!item.sourceRef && /^https?:\/\//i.test(item.sourceRef);
@@ -265,38 +347,28 @@ function KnowledgeRow({
         <RowChevron open={expanded} />
       </div>
 
+      {/* Detail — the item rendered as one attributed chunk. Everything the
+          hand-rolled detail carried survives: the summary is the chunk body,
+          the exact timestamp is its meta, and the producing store + provenance
+          tier + source URL are the attribution chip (a link when the ref is a
+          real URL, inert otherwise — the chip never fakes being clickable). */}
       {expanded && (
-        <div style={{ padding: '0 14px 10px' }}>
-          {item.summary && (
-            <p style={{ fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.5, margin: '6px 0 8px' }}>
-              {item.summary}
-            </p>
-          )}
-          <div
-            className="lp-mono"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              flexWrap: 'wrap',
-              fontSize: 10,
-              color: 'var(--ink-5)',
-            }}
-          >
-            <span>{t('kb.from-store', { store: hint })}</span>
-            <span>{new Date(item.createdAt).toLocaleString()}</span>
-            {refIsUrl && (
-              <a
-                href={item.sourceRef as string}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                style={{ color: 'var(--accent-ink, var(--accent))', textDecoration: 'underline', textUnderlineOffset: 2 }}
-              >
-                {t('kb.source-link')}
-              </a>
-            )}
-          </div>
+        <div style={{ padding: '2px 14px 12px' }}>
+          <ContextCards
+            heading={t('ui.knowledge.detail-heading')}
+            chunks={[{
+              id: item.id,
+              title: item.title,
+              meta: new Date(item.createdAt).toLocaleString(),
+              body: item.summary || t('ui.knowledge.no-summary'),
+              source: {
+                label: hint,
+                badge: t(source.abbrKey as MessageKey),
+                tone: source.tone,
+                ...(refIsUrl ? { href: item.sourceRef as string } : {}),
+              },
+            }]}
+          />
         </div>
       )}
     </div>
