@@ -54,6 +54,18 @@ export interface StreamingTextProps {
   /** Parent is still receiving tokens: keeps the caret, hides the action row. */
   streaming?: boolean;
   /** Animate `text` in word by word. Off by default. */
+  /**
+   * Render the visible text yourself — e.g. through a markdown renderer.
+   *
+   * Without this the component splits on whitespace and emits one span per
+   * word, which silently destroys markdown: a host app whose assistant replies
+   * contain headings, lists and bold would render them as literal asterisks.
+   * Supplying `renderText` hands that job back to the caller.
+   *
+   * Trade-off: per-word citation anchoring needs the word spans, so `citations`
+   * is ignored when `renderText` is set. Sources still render in the footer.
+   */
+  renderText?: (visibleText: string) => React.ReactNode;
   typewriter?: boolean;
   /** Typewriter cadence in ms per word. */
   wordMs?: number;
@@ -140,6 +152,7 @@ function ActionButton({
 export function StreamingText({
   text,
   streaming = false,
+  renderText,
   typewriter = false,
   wordMs = 80,
   citations = [],
@@ -193,17 +206,23 @@ export function StreamingText({
 
   return (
     <div className="w-full max-w-95">
-      <p className="text-[13px] leading-relaxed text-ink">
-        {words.slice(0, shown).map((word, i) => (
-          <Fragment key={i}>
-            <span className="lp-fade-in inline">{word} </span>
-            {citeAfter.get(i)?.map((source) => <CitationChip key={source.id} source={source} />)}
-          </Fragment>
-        ))}
+      <div className="text-[13px] leading-relaxed text-ink">
+        {renderText ? (
+          // Caller owns rendering (markdown, MDX, whatever). Feed it only the
+          // revealed prefix so an opt-in typewriter still works.
+          renderText(typewriter ? words.slice(0, shown).join(' ') : text)
+        ) : (
+          words.slice(0, shown).map((word, i) => (
+            <Fragment key={i}>
+              <span className="lp-fade-in inline">{word} </span>
+              {citeAfter.get(i)?.map((source) => <CitationChip key={source.id} source={source} />)}
+            </Fragment>
+          ))
+        )}
         {busy && (
           <span className="lp-fade-in ml-0.5 inline-block h-3 w-0.5 translate-y-0.5 rounded-full bg-ink" />
         )}
-      </p>
+      </div>
 
       {hasActions && (
         <div

@@ -48,6 +48,7 @@ import { buildFinancialExport } from '@/lib/financial-export';
 import type { ContextExportData } from '@/lib/context-export';
 import { openPrintPreview } from '@/lib/print-utils';
 import { ToolChips } from '@/components/ui/ToolChips';
+import { TaskRows } from '@/components/ui/TaskRows';
 import type { ToolActivity } from '@/types';
 import {
   Pill,
@@ -507,6 +508,8 @@ export default function CopilotChatPage({
   // flash "Loading history…" or re-fetch. Fresh mount / full refresh → false.
   const [historyLoaded, setHistoryLoaded] = useState(() => chatStoreHydrated(projectId, step));
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Focus target for the Canvas "use this prompt" handoff (see onPickPrompt).
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   // Turn-linked canvas: which chat message is hovered (null = none).
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   // "Audit document → knowledge" popup, opened from the composer "+" menu. Runs
@@ -1538,6 +1541,7 @@ export default function CopilotChatPage({
           />
 
           <ChatComposer
+            textareaRef={composerRef}
             value={input}
             onChange={setInput}
             onSend={handleSend}
@@ -1585,12 +1589,13 @@ export default function CopilotChatPage({
               // prompt into the (left-pane) composer and focus it so the founder
               // sees it ready to send. No auto-send: they review/edit + send.
               setInput(prompt);
-              if (typeof document !== 'undefined') {
-                const tas = Array.from(document.querySelectorAll('textarea')) as HTMLTextAreaElement[];
-                const composer = tas.find((t) => /co-pilot/i.test(t.placeholder)) ?? tas[0];
-                composer?.focus();
-                composer?.scrollIntoView({ block: 'nearest' });
-              }
+              // Was: scan every <textarea> and match /co-pilot/i against its
+              // placeholder. That silently fell back to tas[0] the moment the
+              // placeholder copy changed — an invisible coupling between a
+              // translated string and this handler, with no test. A ref is the
+              // same behaviour without the tripwire.
+              composerRef.current?.focus();
+              composerRef.current?.scrollIntoView({ block: 'nearest' });
             }}
           />
         </div>
@@ -3009,55 +3014,27 @@ function TaskCard({
             </div>
           )}
           {expansion.subtasks && expansion.subtasks.length > 0 && (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {expansion.subtasks.map((st, i) => {
-                const checked = checkedSubtasks.has(i);
-                return (
-                  <li
-                    key={i}
-                    onClick={() => {
-                      // UI-only check state for now (v2 may persist).
-                      setCheckedSubtasks((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(i)) next.delete(i); else next.add(i);
-                        return next;
-                      });
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 6,
-                      fontSize: 11.5,
-                      color: checked ? 'var(--ink-4)' : 'var(--ink-2)',
-                      textDecoration: checked ? 'line-through' : 'none',
-                      cursor: 'pointer',
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: 14,
-                        height: 14,
-                        flexShrink: 0,
-                        marginTop: 2,
-                        border: '1px solid var(--line-2)',
-                        borderRadius: 3,
-                        background: checked ? 'var(--ink)' : 'transparent',
-                        color: checked ? 'var(--paper)' : 'transparent',
-                        fontSize: 10,
-                        lineHeight: 1,
-                      }}
-                    >
-                      {checked ? '✓' : ''}
-                    </span>
-                    <span>{st}</span>
-                  </li>
-                );
-              })}
-            </ul>
+            /* Checklist, NOT agent status: these are the founder's own ticks,
+               so TaskRows runs in checklist mode (onToggle) and never renders a
+               status the agent could appear to have set. Check state stays
+               UI-only for now, as before. */
+            <TaskRows
+              dense
+              variant="list"
+              onToggle={(id) => {
+                const i = Number(id);
+                setCheckedSubtasks((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(i)) next.delete(i); else next.add(i);
+                  return next;
+                });
+              }}
+              rows={expansion.subtasks.map((st, i) => ({
+                id: String(i),
+                label: st,
+                checked: checkedSubtasks.has(i),
+              }))}
+            />
           )}
           {expansion.references && expansion.references.length > 0 && (
             <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -3280,6 +3257,7 @@ function ChatComposer({
   onInsertTemplate,
   onAttachText,
   onAuditDocs,
+  textareaRef,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -3291,6 +3269,9 @@ function ChatComposer({
   /** Opens the priced "audit document → knowledge" popup (distinct from the
    *  inline text attach above, which just pastes file text into the message). */
   onAuditDocs?: () => void;
+  /** Focus target for Canvas's "use this prompt" handoff (replaces a
+   *  placeholder-regex lookup that broke silently on copy changes). */
+  textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
 }) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -3330,6 +3311,7 @@ function ChatComposer({
         }}
       >
         <textarea
+          ref={textareaRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
