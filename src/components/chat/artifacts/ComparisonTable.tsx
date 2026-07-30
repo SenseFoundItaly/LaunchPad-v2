@@ -2,6 +2,7 @@
 
 import type { ComparisonTable as ComparisonTableType, ColumnType } from '@/types/artifacts';
 import { useT } from '@/components/providers/LocaleProvider';
+import { RecordsTable, type RecordCell, type RecordColumn, type RecordRow } from '@/components/ui/RecordsTable';
 import ArtifactCardShell from './ArtifactCardShell';
 import KnowledgeApplyControls from './SavedHint';
 
@@ -13,70 +14,66 @@ interface ComparisonTableProps {
 }
 
 /**
- * Format a cell value according to its column type.
- * Falls back to plain string rendering for unknown types or when
- * column_types is absent (backward compatibility).
+ * Format a cell value according to its column type, as a RecordsTable cell.
+ *
+ * The typed formatting rules are unchanged from the hand-rolled table this
+ * replaced — same currency abbreviation thresholds, same 0-1 → 0-100 percentage
+ * rescale, same 0-10 score clamp and moss/accent/clay bands, same hostname-only
+ * link display. What changed is the CARRIER: RecordCell takes text, not
+ * ReactNode, so the colour that used to live in a <span>/progress bar is
+ * carried by a `dot` cell instead (`link` for urls, `text` for the rest). No
+ * number is re-scaled and no threshold moved — in particular the score clamp
+ * stays 0-10; the open question about that scale is not settled here.
  */
-function formatCell(value: string | number, colType: ColumnType | undefined): React.ReactNode {
+function formatCell(value: string | number, colType: ColumnType | undefined): RecordCell {
   const type = colType ?? 'text';
 
   switch (type) {
     case 'currency': {
       const num = typeof value === 'number' ? value : parseFloat(String(value));
-      if (isNaN(num)) return String(value);
-      if (Math.abs(num) >= 1_000_000_000) return `$${(num / 1_000_000_000).toFixed(1)}B`;
-      if (Math.abs(num) >= 1_000_000) return `$${(num / 1_000_000).toFixed(1)}M`;
-      if (Math.abs(num) >= 1_000) return `$${(num / 1_000).toFixed(0)}K`;
-      return `$${num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+      if (isNaN(num)) return { kind: 'text', text: String(value) };
+      const text =
+        Math.abs(num) >= 1_000_000_000 ? `$${(num / 1_000_000_000).toFixed(1)}B`
+        : Math.abs(num) >= 1_000_000 ? `$${(num / 1_000_000).toFixed(1)}M`
+        : Math.abs(num) >= 1_000 ? `$${(num / 1_000).toFixed(0)}K`
+        : `$${num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+      // sort on the raw number: "$1.2M" vs "$900K" sorts wrong lexically.
+      return { kind: 'text', text, sort: num };
     }
     case 'percentage': {
       const num = typeof value === 'number' ? value : parseFloat(String(value));
-      if (isNaN(num)) return String(value);
+      if (isNaN(num)) return { kind: 'text', text: String(value) };
       // If the value is already 0-100, display as-is. If 0-1, multiply by 100.
       const pct = Math.abs(num) <= 1 ? num * 100 : num;
-      return (
-        <span className={pct >= 0 ? 'text-moss' : 'text-clay'}>
-          {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
-        </span>
-      );
+      return {
+        kind: 'dot',
+        text: `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`,
+        color: pct >= 0 ? 'var(--moss)' : 'var(--clay)',
+        sort: pct,
+      };
     }
     case 'score': {
       const num = typeof value === 'number' ? value : parseFloat(String(value));
-      if (isNaN(num)) return String(value);
+      if (isNaN(num)) return { kind: 'text', text: String(value) };
       const clamped = Math.max(0, Math.min(10, num));
-      const pctVal = (clamped / 10) * 100;
-      const color = clamped >= 7 ? 'bg-moss' : clamped >= 4 ? 'bg-accent' : 'bg-clay';
-      return (
-        <div className="flex items-center gap-2">
-          <div className="w-16 h-1.5 bg-paper-3 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full ${color}`} style={{ width: `${pctVal}%` }} />
-          </div>
-          <span className="text-xs font-mono">{num.toFixed(1)}</span>
-        </div>
-      );
+      const color = clamped >= 7 ? 'var(--moss)' : clamped >= 4 ? 'var(--accent)' : 'var(--clay)';
+      return { kind: 'dot', text: num.toFixed(1), color, sort: num };
     }
     case 'url': {
       const str = String(value);
-      if (!str.startsWith('http')) return str;
+      if (!str.startsWith('http')) return { kind: 'text', text: str, sort: str };
       let display: string;
       try {
         display = new URL(str).hostname.replace(/^www\./, '');
       } catch {
         display = str.slice(0, 30);
       }
-      return (
-        <a
-          href={str}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sky hover:text-sky/80 underline underline-offset-2"
-        >
-          {display}
-        </a>
-      );
+      return { kind: 'link', text: display, href: str, sort: display };
     }
-    default:
-      return String(value);
+    default: {
+      const str = String(value);
+      return { kind: 'text', text: str, sort: str };
+    }
   }
 }
 
@@ -90,6 +87,25 @@ export default function ComparisonTable({ artifact, onAction, defaultCollapsed }
   const t = useT();
   const colTypes = artifact.column_types;
   const rejected = artifact.reviewed_state === 'rejected';
+
+  // Column keys are positional, not the header text: two columns can legitimately
+  // carry the same label ("2024" / "2024") and RecordsTable keys cells by column key.
+  const columns: RecordColumn[] = [
+    { key: '__label', label: t('ui.comparison.identity-column'), width: '160px' },
+    ...artifact.columns.map((col, idx) => ({
+      key: `c${idx}`,
+      label: col,
+      sortable: true,
+    })),
+  ];
+
+  const rows: RecordRow[] = artifact.rows.map((row, rIdx) => ({
+    id: `r${rIdx}`,
+    label: row.label,
+    cells: Object.fromEntries(
+      row.values.map((value, idx) => [`c${idx}`, formatCell(value, colTypes?.[idx])]),
+    ),
+  }));
 
   return (
     <ArtifactCardShell
@@ -111,40 +127,10 @@ export default function ComparisonTable({ artifact, onAction, defaultCollapsed }
         />
       }
     >
-      <table className="w-full text-sm border-collapse">
-        <thead>
-          <tr className="bg-paper-2">
-            <th className="text-left px-3 py-2 text-ink-4 font-medium border border-line-2 rounded-tl-md">
-              &nbsp;
-            </th>
-            {artifact.columns.map((col) => (
-              <th
-                key={col}
-                className="text-left px-3 py-2 text-ink-4 font-medium border border-line-2"
-              >
-                {col}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {artifact.rows.map((row) => (
-            <tr key={row.label} className="bg-paper hover:bg-paper-2/60 transition-colors">
-              <td className="px-3 py-2 text-ink-2 font-medium border border-line-2">
-                {row.label}
-              </td>
-              {row.values.map((value, idx) => (
-                <td
-                  key={`${row.label}-${artifact.columns[idx]}`}
-                  className="px-3 py-2 text-ink-3 border border-line-2"
-                >
-                  {formatCell(value, colTypes?.[idx])}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {/* selectable={false}: RecordsTable can select rows, but nothing here
+          consumes a selection — Apply/Dismiss acts on the whole proposal — and a
+          checkbox that does nothing is a lie about what the founder can do. */}
+      <RecordsTable columns={columns} rows={rows} selectable={false} />
     </ArtifactCardShell>
   );
 }

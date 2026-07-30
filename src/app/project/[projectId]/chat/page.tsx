@@ -49,6 +49,8 @@ import type { ContextExportData } from '@/lib/context-export';
 import { openPrintPreview } from '@/lib/print-utils';
 import { ToolChips } from '@/components/ui/ToolChips';
 import { TaskRows } from '@/components/ui/TaskRows';
+import { StreamingText } from '@/components/ui/StreamingText';
+import { LoadingState } from '@/components/ui/LoadingState';
 import type { ToolActivity } from '@/types';
 import {
   Pill,
@@ -1494,8 +1496,10 @@ export default function CopilotChatPage({
               style={{ flex: 1, overflow: 'auto', padding: '16px 20px 20px' }}
             >
               {!historyLoaded && messages.length === 0 ? (
-                <div style={{ fontSize: 12, color: 'var(--ink-5)', padding: 20, textAlign: 'center' }}>
-                  {t('chat.loading-history')}
+                <div style={{ padding: 20, display: 'flex', justifyContent: 'center' }}>
+                  {/* Was bare centred text, so a slow history fetch was
+                      indistinguishable from a stalled one. */}
+                  <LoadingState label={t('chat.loading-history')} />
                 </div>
               ) : messages.length === 0 ? (
                 <ChatEmptyState
@@ -2055,8 +2059,18 @@ function MsgImpl({
         className="lp-msg-row lp-md"
         style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink-2)' }}
       >
-        <MdProse text={String(children ?? '')} />
-        {streaming && <span className="lp-caret" aria-hidden="true">▋</span>}
+        {/* StreamingText owns the caret and the settled/streaming distinction;
+            MdProse stays the renderer via renderText, so markdown survives —
+            without that hatch this component splits on whitespace and every
+            heading, list and bold in every reply becomes literal asterisks.
+            No action handlers are passed: copy/retry already live in MsgActions
+            below, and a second row would just duplicate them. */}
+        <StreamingText
+          className="w-full"
+          text={String(children ?? '')}
+          streaming={streaming}
+          renderText={(visible) => <MdProse text={visible} />}
+        />
       </div>
       {inlineArtifacts && inlineArtifacts.length > 0 && (() => {
         // When actionable watcher cards are present, suppress the generic

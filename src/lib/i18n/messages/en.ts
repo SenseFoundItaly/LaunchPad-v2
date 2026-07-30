@@ -658,6 +658,31 @@ export const en = {
   'ui.insights.next': 'Next insight',
   'ui.insights.segments': 'Allocation segments',
   'ui.loading.label': 'Working',
+  // ui/* primitives mounted into the Knowledge surface (AllKnowledgePanel).
+  'ui.knowledge.view-sections': 'Sections',
+  'ui.knowledge.view-table': 'Table',
+  'ui.knowledge.col-item': 'Item',
+  'ui.knowledge.col-kind': 'Kind',
+  'ui.knowledge.col-provenance': 'Provenance',
+  'ui.knowledge.detail-heading': 'Detail',
+  'ui.knowledge.no-summary': 'No summary was recorded for this item.',
+  'ui.knowledge.tier-abbr-founder': 'YOU',
+  'ui.knowledge.tier-abbr-derived': 'SYS',
+  'ui.knowledge.tier-abbr-verified': 'VER',
+  // comparison-table artifact rendered via RecordsTable — the identity column
+  // header the hand-rolled table used to leave blank.
+  'ui.comparison.identity-column': 'Option',
+  // Idea Canvas pending-changes diff. This is the founder-approval gate's READ
+  // surface: the wording must say "not approved yet" in words, never lean on
+  // colour alone.
+  'ui.canvas-pending.title-one': 'Proposed change — not approved yet',
+  'ui.canvas-pending.title-many': '{count} proposed changes — not approved yet',
+  'ui.canvas-pending.col-field': 'Block',
+  'ui.canvas-pending.col-state': 'State',
+  'ui.canvas-pending.col-value': 'Value',
+  'ui.canvas-pending.state-current': 'Current',
+  'ui.canvas-pending.state-proposed': 'Proposed',
+  'ui.canvas-pending.hint': 'Nothing here is applied until you approve it.',
   'chat.commit-failed': "couldn't save — tap to retry",
   'chat.run-with-credits': 'Run',
   'chat.skill-running-note': 'Running in real time — this writes validation evidence when it finishes.',
@@ -1784,6 +1809,10 @@ export const en = {
   'avs.financial-burn': 'Monthly burn',
   'avs.financial-cash': 'Cash on hand',
   'avs.financial-revenue': 'Revenue (MRR)',
+  'ui.approval.type-label': 'Approval request',
+  'ui.approval.recorded': 'Answers recorded.',
+  'ui.recommendation.type-label': 'Recommendation',
+  'ui.insight-carousel.type-label': 'Insights',
 } as const;
 
 export type MessageKey = keyof typeof en;

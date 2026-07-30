@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
+import { DiffTable, type DiffRow } from '@/components/ui/DiffTable';
 import { useT } from '@/components/providers/LocaleProvider';
 
 type CanvasFieldName =
@@ -44,6 +45,15 @@ interface IdeaCanvasRow {
 /** JSONB string[] blocks (metrics, costs, revenues) → one display line. */
 function joinList(v: string[] | null | undefined): string {
   return (v ?? []).filter((x) => typeof x === 'string' && x.trim()).join(' · ');
+}
+
+/** The diff summary is a scan surface, not the reading surface — the full text
+ *  stays in the field below, which is why clipping here is safe. Kept short on
+ *  purpose: DiffTable caps itself at max-w-95 and its value cells don't wrap, so
+ *  a long line would be cut by the container with no ellipsis to say so. */
+function clip(s: string, max = 26): string {
+  const flat = s.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
 interface IdeaCanvasHeaderProps {
@@ -116,6 +126,45 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
     !costs &&
     !revenues &&
     Object.keys(pending).length === 0;
+
+  // Pending-changes diff — a READ-ONLY summary of the unapproved proposal
+  // payload, rendered ABOVE the fields. Deliberately additive: the per-field
+  // inline pending display, its anchors and its editing affordances are
+  // untouched, this only answers "what is waiting on me?" in one glance.
+  //
+  // Each staged field yields the applied value as a `removed` row (what the
+  // proposal would replace) and the staged value as an `added` row (what it
+  // would become). Nothing here commits: the founder-approval gate still owns
+  // the transition, and the title says so in words, not just in colour.
+  const pendingSpec: Array<[CanvasFieldName, string, string | null | undefined]> = [
+    ['problem', t('canvas.field-problem'), data?.problem],
+    ['solution', t('canvas.field-solution'), data?.solution],
+    ['target_market', t('canvas.field-target'), data?.target_market],
+    ['value_proposition', t('canvas.field-value'), data?.value_proposition],
+    ['competitive_advantage', t('canvas.field-edge'), edge || null],
+    ['channels', t('canvas.field-channels'), data?.channels],
+    ['business_model', t('canvas.field-business-model'), data?.business_model],
+  ];
+  const pendingRows: DiffRow[] = [];
+  let pendingCount = 0;
+  for (const [key, label, current] of pendingSpec) {
+    const proposed = pending[key]?.trim();
+    if (!proposed) continue;
+    pendingCount += 1;
+    if (current) {
+      pendingRows.push({
+        id: `${key}-current`,
+        change: 'removed',
+        dotColor: 'var(--clay)',
+        cells: { field: label, state: t('ui.canvas-pending.state-current'), value: clip(current) },
+      });
+    }
+    pendingRows.push({
+      id: `${key}-proposed`,
+      change: 'added',
+      cells: { field: label, state: t('ui.canvas-pending.state-proposed'), value: clip(proposed) },
+    });
+  }
 
   return (
     <div
@@ -216,6 +265,27 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
       ) : isEmpty ? (
         <div style={{ fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' }}>{t('canvas.idea-canvas-empty')}</div>
       ) : (
+        <>
+        {pendingRows.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <DiffTable
+              title={
+                pendingCount === 1
+                  ? t('ui.canvas-pending.title-one')
+                  : t('ui.canvas-pending.title-many', { count: pendingCount })
+              }
+              columns={[
+                { key: 'field', label: t('ui.canvas-pending.col-field'), kind: 'strong', width: '26%' },
+                { key: 'state', label: t('ui.canvas-pending.col-state'), kind: 'chip', width: '26%' },
+                { key: 'value', label: t('ui.canvas-pending.col-value'), kind: 'text' },
+              ]}
+              rows={pendingRows}
+            />
+            <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+              {t('ui.canvas-pending.hint')}
+            </div>
+          </div>
+        )}
         <div
           style={{
             display: 'grid',
@@ -239,6 +309,7 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
           <Field label={t('canvas.field-metrics')} value={metrics || null} anchorId="canvasfield-key_metrics" full />
           <Field label={t('canvas.field-business-model')} value={data?.business_model} pendingValue={pending.business_model} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-business_model" full />
         </div>
+        </>
       )}
     </div>
   );
