@@ -161,6 +161,32 @@ function useGatedSkills(projectId: string): Set<string> {
   return useMemo(() => new Set(data ?? []), [data]);
 }
 
+/**
+ * Artifact classification is a full regex + JSON scan of a message's content,
+ * and the canvas/inline memo below re-runs it across EVERY assistant message on
+ * every streaming paint. Completed messages never change, so their result is
+ * cached by content — the streaming message is then the only one re-parsed,
+ * turning per-frame cost from O(conversation) into O(last message).
+ *
+ * Keyed on the content string itself: identical content ⇒ identical parse.
+ * Bounded so a long session can't grow it without limit.
+ */
+const ARTIFACT_CACHE_MAX = 300;
+const artifactCache = new Map<string, { inline: Artifact[]; canvas: Artifact[] }>();
+function classifyArtifactsCached(content: string): { inline: Artifact[]; canvas: Artifact[] } {
+  const hit = artifactCache.get(content);
+  if (hit) return hit;
+  const result = classifyArtifacts(content);
+  // Evict oldest-first (Map preserves insertion order) rather than clearing,
+  // so a burst never throws away the whole warm cache at once.
+  if (artifactCache.size >= ARTIFACT_CACHE_MAX) {
+    const oldest = artifactCache.keys().next().value;
+    if (oldest !== undefined) artifactCache.delete(oldest);
+  }
+  artifactCache.set(content, result);
+  return result;
+}
+
 function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artifact[] } {
   const segments = parseMessageContent(content);
   const all = segments
@@ -775,7 +801,7 @@ export default function CopilotChatPage({
     let turnIndex = 0;
     for (const m of messages) {
       if (m.role !== 'assistant' || !m.content) continue;
-      const split = classifyArtifacts(m.content);
+      const split = classifyArtifactsCached(m.content);
       // Gate present → drop the proactive suggestion cards from this turn so the
       // Apply/Skip decision stands alone (the gate card itself stays).
       const inline = split.inline.some((a) => GATE_ARTIFACT_TYPES.has(a.type))
