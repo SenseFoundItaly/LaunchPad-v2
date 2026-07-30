@@ -10,11 +10,12 @@
 
 import { Panel, Pill, Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
 import { useStages } from '@/hooks/useStages';
 import { useLoops } from '@/hooks/useLoops';
 import { buildSpine, type PhaseDisplayStatus } from '@/lib/journey/phases';
 import {
-  loopNameKey, verdictPillKind, isOpenLoop, loopStatusKey,
+  loopNameKey, verdictPillKind, isOpenLoop, loopStatusKey, awaitedEvidenceKey,
   closedOutcome, outcomeLabelKey, isLoopImplemented, type LoopRow,
 } from '@/lib/loops/loop-display';
 
@@ -23,6 +24,33 @@ const PHASE_BG: Record<PhaseDisplayStatus, string> = {
   ahead: 'var(--paper-2)',   // evidence complete but blocked by an earlier phase
   active: 'var(--accent-wash)',
   pending: 'var(--paper-2)',
+};
+
+// Hover explainers. Native `title` is the codebase's tooltip convention
+// (DepthChip, CreditsBadge, NavRail) — no popover dependency, and it survives
+// keyboard focus and screen readers for free.
+const STATUS_TIP: Record<PhaseDisplayStatus, MessageKey> = {
+  done: 'journey-phase.tip-status-done',
+  ahead: 'journey-phase.tip-status-ahead',
+  active: 'journey-phase.tip-status-active',
+  pending: 'journey-phase.tip-status-pending',
+};
+
+// Keyed by phase number / loop number rather than built by interpolation, so a
+// number the spine doesn't cover degrades to no tooltip instead of a raw key.
+const PHASE_TIP: Record<number, MessageKey> = {
+  0: 'journey-phase.tip-phase-0',
+  1: 'journey-phase.tip-phase-1',
+  2: 'journey-phase.tip-phase-2',
+  3: 'journey-phase.tip-phase-3',
+  4: 'journey-phase.tip-phase-4',
+};
+
+const LOOP_TIP: Record<number, MessageKey> = {
+  1: 'journey-phase.tip-loop-1',
+  2: 'journey-phase.tip-loop-2',
+  3: 'journey-phase.tip-loop-3',
+  4: 'journey-phase.tip-loop-4',
 };
 
 export function PhaseSpine({ projectId }: { projectId: string }) {
@@ -42,8 +70,16 @@ export function PhaseSpine({ projectId }: { projectId: string }) {
         {spine.map((node, i) => {
           if (node.kind === 'phase') {
             const { status } = node;
+            // One tooltip for the whole row: what the phase proves, then what
+            // its evidence count and status actually mean. Blank-line separated
+            // so a native title renders it as three readable lines.
+            const phaseTip = [
+              PHASE_TIP[node.n] ? t(PHASE_TIP[node.n]) : '',
+              node.total > 0 ? t('journey-phase.tip-evidence', { passed: node.passed, total: node.total }) : '',
+              t(STATUS_TIP[status]),
+            ].filter(Boolean).join('\n\n');
             return (
-              <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-m)', background: PHASE_BG[status], padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 11 }}>
+              <div key={i} title={phaseTip} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-m)', background: PHASE_BG[status], padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 11 }}>
                 <div className="lp-mono" style={{ fontSize: 14, fontWeight: 700, color: status === 'active' ? 'var(--accent-ink)' : 'var(--ink-4)', minWidth: 16, textAlign: 'center' }}>{node.n}</div>
                 <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.2 }}>{node.label}</div>
                 {/* Evidence tally — the honest number behind the label, so a
@@ -70,7 +106,7 @@ export function PhaseSpine({ projectId }: { projectId: string }) {
 
           if (node.kind === 'module') {
             return (
-              <div key={i} style={{ marginLeft: 20, borderLeft: '2px dashed var(--accent)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+              <div key={i} title={t('journey-phase.tip-module')} style={{ marginLeft: 20, borderLeft: '2px dashed var(--accent)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
                 <Icon d={I.layers} size={13} stroke={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)' }}>{node.label}</div>
               </div>
@@ -81,8 +117,16 @@ export function PhaseSpine({ projectId }: { projectId: string }) {
           const loop = loopByNumber.get(node.loopNumber);
           const nk = loopNameKey(node.loopNumber);
           const name = nk ? t(nk) : `Loop ${node.loopNumber}`;
+          // What fires this loop, plus — when it's open — what new evidence
+          // re-opens the gate. An open loop with no escape hint is the §4
+          // dead-end this surface exists to prevent.
+          const awaitedKey = loop && isOpenLoop(loop) ? awaitedEvidenceKey(node.loopNumber) : null;
+          const loopTip = [
+            LOOP_TIP[node.loopNumber] ? t(LOOP_TIP[node.loopNumber]) : '',
+            awaitedKey ? t(awaitedKey) : '',
+          ].filter(Boolean).join('\n\n');
           return (
-            <div key={i} style={{ marginLeft: 20, borderLeft: '2px solid var(--line-2)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+            <div key={i} title={loopTip} style={{ marginLeft: 20, borderLeft: '2px solid var(--line-2)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
               <Icon d={I.history} size={13} stroke={1.6} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: 600, color: loop ? 'var(--ink-2)' : 'var(--ink-5)' }}>{name}</div>
               {loop?.verdict ? (
