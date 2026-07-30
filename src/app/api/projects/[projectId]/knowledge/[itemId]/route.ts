@@ -5,6 +5,9 @@ import { recordEvent, type EventType } from '@/lib/memory/events';
 import { AuthError } from '@/lib/auth/require-user';
 import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
+import { appendNodeTimeline, timelineEntryNow } from '@/lib/knowledge/node-timeline';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { translate } from '@/lib/i18n/messages';
 import type { ReviewedState } from '@/types/artifacts';
 import type { EcosystemAlertState } from '@/types';
 
@@ -125,6 +128,17 @@ export async function PATCH(
         editSummary ?? null,
         itemId,
       );
+      // Evolution history (#324): a founder correction is a move the node's
+      // dossier must remember — previously this edit was silent.
+      const locale = await resolveLocale(userId, projectId);
+      await appendNodeTimeline(projectId, itemId, timelineEntryNow(
+        'founder_edit',
+        translate(locale, 'node-history.edited'),
+        { fields: [
+          ...(editName !== undefined ? ['name'] : []),
+          ...(editSummary !== undefined ? ['summary'] : []),
+        ] },
+      ));
     }
     if (editMetrics !== undefined && editMetrics.length > 0) {
       // Mirror persistMetricGrid's shapes: attributes = label → {value, change},
@@ -135,12 +149,28 @@ export async function PATCH(
         return acc;
       }, {});
       const summary = editMetrics.map((m) => `${m.label}: ${m.value}${m.change ? ` (${m.change})` : ''}`).join(' · ');
+      // Replace the metric map but CARRY OVER the node's timeline — the old
+      // wholesale `attributes = ?` silently destroyed the evolution history
+      // (pre-existing data loss, surfaced by #324's wiring).
       await run(
-        'UPDATE graph_nodes SET attributes = ?, summary = ? WHERE id = ?',
+        `UPDATE graph_nodes
+            SET attributes = jsonb_set(
+              ?::jsonb, '{timeline}',
+              COALESCE(attributes -> 'timeline', '[]'::jsonb)),
+                summary = ?
+          WHERE id = ?`,
         attrs,
         summary,
         itemId,
       );
+      {
+        const locale = await resolveLocale(userId, projectId);
+        await appendNodeTimeline(projectId, itemId, timelineEntryNow(
+          'founder_edit',
+          translate(locale, 'node-history.metrics-edited'),
+          { fields: ['metrics'] },
+        ));
+      }
       // Market-themed grids also wrote research.market_size at persist time —
       // carry the correction there too, preserving the founder-approval stamp
       // keys exactly like persistMetricGrid's full-replace does.
@@ -271,6 +301,15 @@ export async function PATCH(
           creditsDebited = KNOWLEDGE_APPLY_CREDITS;
         } catch (err) {
           console.warn('[knowledge PATCH] credit debit failed (non-fatal):', (err as Error).message);
+        }
+        // Evolution history (#324): approval is a move too (graph nodes only —
+        // the other tables have no timeline surface).
+        if (table === 'graph_nodes') {
+          const locale = await resolveLocale(userId, projectId);
+          await appendNodeTimeline(projectId, itemId, timelineEntryNow(
+            'apply',
+            translate(locale, 'node-history.applied'),
+          ));
         }
       }
     } else {

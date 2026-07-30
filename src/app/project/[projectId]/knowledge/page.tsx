@@ -303,7 +303,7 @@ export default function KnowledgePage({
           // Boundary-wrapped: a d3-simulation render throw must not take the
           // whole Knowledge surface (incl. the textual list) down with it.
           <PanelBoundary resetKey={projectId}>
-            <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} onDeleteTimelineEntry={deleteTimelineEntry} showEmptyCategories initialFocusedCategory={initialCat} />
+            <KnowledgeGraph projectId={projectId} nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} onDeleteTimelineEntry={deleteTimelineEntry} showEmptyCategories initialFocusedCategory={initialCat} />
           </PanelBoundary>
         )}
         {view === 'graph' && pendingCount > 0 && (

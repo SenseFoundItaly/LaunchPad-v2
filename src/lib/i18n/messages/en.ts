@@ -300,6 +300,14 @@ export const en = {
   'knowledge.detail-empty': 'No further detail captured for this node yet. As the Co-pilot researches, attributes and sources will appear here.',
   'knowledge.detail-captured': 'Captured {date}',
   'knowledge.detail-timeline': 'Recent moves',
+  // Node evolution history (epic #324) — generated headlines, stored as data in
+  // the project locale at write time, + the node→chat handoff.
+  'node-history.edited': 'Details updated by the founder',
+  'node-history.metrics-edited': 'Metrics corrected by the founder',
+  'node-history.applied': 'Approved into the Knowledge graph',
+  'node-history.applied-edited': 'Reviewed, corrected and approved',
+  'knowledge.ask-copilot': 'Ask the co-pilot',
+  'knowledge.ask-copilot-prompt': 'Let\'s work on the Knowledge node "{name}" ({type}). Current summary: {summary} — Help me verify, deepen or update it: propose concrete improvements and apply the ones I confirm.',
   'knowledge.timeline-show-more': 'Show {count} more',
   'knowledge.timeline-show-less': 'Show less',
   'knowledge.timeline-remove': 'Remove this entry',

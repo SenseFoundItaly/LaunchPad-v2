@@ -1240,6 +1240,7 @@ async function upsertAlertGraphNode(
   const signalDate = alert.created_at ? new Date(alert.created_at) : new Date();
   const timelineEntry = {
     date: (Number.isNaN(signalDate.getTime()) ? new Date() : signalDate).toISOString(),
+    kind: 'watcher' as const, // origin tag (#324) — legacy entries have none
     headline: alert.headline,
     ...(alert.source_url ? { source_url: alert.source_url } : {}),
     relevance: alert.relevance_score,

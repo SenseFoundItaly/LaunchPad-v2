@@ -10,6 +10,8 @@ import { useLocale, useT } from '@/components/providers/LocaleProvider';
 interface KnowledgeGraphProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  /** Enables the panel's "Ask the co-pilot" node→chat handoff (#329). */
+  projectId?: string;
   onNodeClick?: (node: GraphNode) => void;
   onEdgeClick?: (edge: GraphEdge) => void;
   /** Called when a PENDING node is applied from the detail drawer — applies it to intelligence. */
@@ -69,7 +71,7 @@ const getId = (ref: string | GraphNode | SimNode | undefined): string => {
   return (ref as { id: string }).id || '';
 };
 
-export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick, onApplyNode, onDismissNode, onSaveNode, onDeleteTimelineEntry, showEmptyCategories = false, initialFocusedCategory = null }: KnowledgeGraphProps) {
+export default function KnowledgeGraph({ nodes, edges, projectId, onNodeClick, onEdgeClick, onApplyNode, onDismissNode, onSaveNode, onDeleteTimelineEntry, showEmptyCategories = false, initialFocusedCategory = null }: KnowledgeGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<d3.Simulation<SimNode, SimLink> | null>(null);
@@ -679,6 +681,7 @@ export default function KnowledgeGraph({ nodes, edges, onNodeClick, onEdgeClick,
         onSelectNeighbor={(n) => setDetailNode(n)}
         onApply={handleApply}
         onDismiss={handleDismiss}
+        projectId={projectId}
         onSaveEdit={onSaveNode}
         onDeleteTimelineEntry={onDeleteTimelineEntry}
       />
