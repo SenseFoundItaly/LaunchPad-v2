@@ -945,6 +945,14 @@ export const it: Partial<Record<MessageKey, string>> = {
   'canvas.track-1c': '1C · Fit Problema-Soluzione',
   'canvas.track-locked': 'Bloccato finché 1A + 1B non sono completi',
   'canvas.stage-locked-short': 'Bloccato',
+  // Spiegazioni al passaggio del mouse per la pipeline di validazione: cosa
+  // dimostra ogni sotto-traccia e perché una fase o una traccia è bloccata. Le 7
+  // tessere riusano le loro tagline esistenti — la spiegazione c'era già, solo
+  // non era raggiungibile dallo stepper.
+  'canvas.tip-track-1a': '1A Mercato — esiste davvero un mercato? Concorrenti, dimensionamento ed evidenze di domanda.',
+  'canvas.tip-track-1b': '1B Tecnico — sei davvero in grado di costruirlo? Fattibilità, stack e rischio tecnico.',
+  'canvas.tip-track-1c': '1C Fit Problema-Soluzione — i compratori reali confermano il problema e dicono che pagherebbero? Si sblocca quando 1A e 1B sono completi, perché il fit ha senso solo su un mercato che hai dimensionato e una soluzione che sai costruire.',
+  'canvas.tip-seq-locked': 'Bloccata finché le fasi precedenti non sono validate. Partire da qui adesso significherebbe costruire su evidenze che non hai ancora.',
   'skills.gate-1c-locked': 'Le interviste ai clienti si sbloccano quando le track 1A (Mercato) e 1B (Tecnica) sono complete. Ancora aperti: {missing}. Chiudiamo prima quelli — posso aiutarti su ciascuno.',
   'skills.stage-locked': '{skillStage} è bloccato finché non completi tutte le fasi precedenti. Sei alla Fase {blockingStage} — {blockingName} ({passed}/{total} check completati). Completala e finisci le fasi rimanenti, poi si sblocca. Non perdi nulla — completa il lavoro precedente e torna qui.',
   'skills.loop1-gated': 'Il lavoro su pricing e business model è in pausa finché la PSF Review è aperta — la disponibilità a pagare è risultata debole. Risolvi la review (o archiviala con una motivazione) prima, così costruisci il pricing su un fit confermato.',

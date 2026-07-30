@@ -963,6 +963,14 @@ export const en = {
   'canvas.track-1c': '1C · Problem-Solution Fit',
   'canvas.track-locked': 'Locked until 1A + 1B are complete',
   'canvas.stage-locked-short': 'Locked',
+  // Hover explainers for the validation pipeline: what each sub-track proves,
+  // and why a stage or track is locked. The 7 stage tiles reuse their existing
+  // taglines — the explanation already existed, it just wasn't reachable from
+  // the stepper.
+  'canvas.tip-track-1a': '1A Market — is there a real market here? Competitors, sizing and demand evidence.',
+  'canvas.tip-track-1b': '1B Technical — can you actually build it? Feasibility, stack and technical risk.',
+  'canvas.tip-track-1c': '1C Problem-Solution Fit — do real buyers confirm the problem and say they would pay? Unlocks once 1A and 1B are done, because fit only means something on a market you have sized and a solution you can build.',
+  'canvas.tip-seq-locked': 'Locked until the earlier stages are validated. Starting here now would build on evidence you do not have yet.',
   'skills.gate-1c-locked': 'Customer interviews unlock after tracks 1A (Market) and 1B (Technical) are complete. Still open: {missing}. Close those first — I can help with each one.',
   'skills.stage-locked': '{skillStage} is locked until every earlier stage is complete. You\'re on Stage {blockingStage} — {blockingName} ({passed}/{total} checks done). Finish it and any remaining stages first, then this unlocks. Nothing is lost — complete the work ahead of it and come back.',
   'skills.loop1-gated': 'Pricing and business-model work is on hold while your PSF Review is open — willingness-to-pay came back weak. Resolve the review (or dismiss it with a reason) first, so you build pricing on a confirmed fit.',
