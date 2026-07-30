@@ -15,7 +15,7 @@
  * without changing this component.
  */
 
-import { use, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, createContext, useContext } from 'react';
+import { use, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, memo, createContext, useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/api';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
@@ -172,11 +172,27 @@ function useGatedSkills(projectId: string): Set<string> {
  * Bounded so a long session can't grow it without limit.
  */
 const ARTIFACT_CACHE_MAX = 300;
-const artifactCache = new Map<string, { inline: Artifact[]; canvas: Artifact[] }>();
-function classifyArtifactsCached(content: string): { inline: Artifact[]; canvas: Artifact[] } {
+interface ClassifiedArtifacts {
+  inline: Artifact[];
+  canvas: Artifact[];
+  /** `inline` with the gate rule already applied. Computed HERE rather than in
+   *  the render memo so the array REFERENCE is stable across renders — a fresh
+   *  `.filter()` each pass would defeat React.memo on the message row. */
+  inlineForDisplay: Artifact[];
+}
+const artifactCache = new Map<string, ClassifiedArtifacts>();
+function classifyArtifactsCached(content: string): ClassifiedArtifacts {
   const hit = artifactCache.get(content);
   if (hit) return hit;
-  const result = classifyArtifacts(content);
+  const base = classifyArtifacts(content);
+  // Gate present → drop the proactive suggestion cards from this turn so the
+  // Apply/Skip decision stands alone (the gate card itself stays).
+  const result: ClassifiedArtifacts = {
+    ...base,
+    inlineForDisplay: base.inline.some((a) => GATE_ARTIFACT_TYPES.has(a.type))
+      ? base.inline.filter((a) => !SUGGESTION_ARTIFACT_TYPES.has(a.type))
+      : base.inline,
+  };
   // Evict oldest-first (Map preserves insertion order) rather than clearing,
   // so a burst never throws away the whole warm cache at once.
   if (artifactCache.size >= ARTIFACT_CACHE_MAX) {
@@ -802,11 +818,9 @@ export default function CopilotChatPage({
     for (const m of messages) {
       if (m.role !== 'assistant' || !m.content) continue;
       const split = classifyArtifactsCached(m.content);
-      // Gate present → drop the proactive suggestion cards from this turn so the
-      // Apply/Skip decision stands alone (the gate card itself stays).
-      const inline = split.inline.some((a) => GATE_ARTIFACT_TYPES.has(a.type))
-        ? split.inline.filter((a) => !SUGGESTION_ARTIFACT_TYPES.has(a.type))
-        : split.inline;
+      // Gate filtering already applied inside the cache, so this array keeps a
+      // stable reference for unchanged messages (see ClassifiedArtifacts).
+      const inline = split.inlineForDisplay;
       if (inline.length > 0) inlineMap.set(m.id, inline);
       // Accumulate canvas artifacts across all messages. Later messages
       // with the same artifact id overwrite earlier ones (e.g. solve-progress
@@ -888,6 +902,18 @@ export default function CopilotChatPage({
    * routed to sendMessage (legacy pattern) — TODO: migrate those to their
    * own server routes in v2 for symmetry.
    */
+  /**
+   * Hover focus, as ONE stable callback shared by every row (the row passes its
+   * own id back). Previously each row got two freshly-allocated arrow props per
+   * render, which alone defeated React.memo on the message row — so every
+   * streaming paint re-rendered the whole transcript.
+   */
+  const handleMessageFocus = useCallback((id: string, focused: boolean) => {
+    // On leave, only clear when THIS row is still the focused one — otherwise a
+    // fast pointer move clobbers the enter that the next row already fired.
+    setFocusedMessageId((prev) => (focused ? id : prev === id ? null : prev));
+  }, []);
+
   const handleArtifactAction = useCallback(
     async (action: string, payload: Record<string, unknown>): Promise<void> => {
       // knowledge:apply — the founder clicked Apply / Dismiss on a knowledge
@@ -1505,8 +1531,7 @@ export default function CopilotChatPage({
                       inlineArtifacts={inlineArtifactsByMsgId.get(m.id)}
                       onArtifactAction={handleArtifactAction}
                       onQuickReply={!isStreaming ? sendMessage : undefined}
-                      onMouseEnter={() => setFocusedMessageId(m.id)}
-                      onMouseLeave={() => setFocusedMessageId((prev) => prev === m.id ? null : prev)}
+                      onFocusChange={handleMessageFocus}
                       // Retry only for user messages; disabled while streaming
                       // to prevent double-sends. Reuses sendMessage so the
                       // retried turn goes through the same memory-context +
@@ -1847,7 +1872,7 @@ function ChatEmptyState({
   );
 }
 
-function Msg({
+function MsgImpl({
   messageId,
   who,
   agent,
@@ -1859,8 +1884,7 @@ function Msg({
   onArtifactAction,
   onQuickReply,
   onRetry,
-  onMouseEnter,
-  onMouseLeave,
+  onFocusChange,
 }: {
   messageId: string;
   who: 'user' | 'ai';
@@ -1880,8 +1904,9 @@ function Msg({
   /** Provided only for user messages to resubmit. Undefined while streaming. */
   onRetry?: (content: string) => void;
   /** Turn-linked canvas: hover handlers for message↔canvas linking */
-  onMouseEnter?: () => void;
-  onMouseLeave?: () => void;
+  /** Hover focus. ONE stable callback shared by every row (the row reports its
+   *  own id), so the message row stays React.memo-able. */
+  onFocusChange?: (id: string, focused: boolean) => void;
 }) {
   const t = useT();
   const [toolsExpanded, setToolsExpanded] = useState(false);
@@ -1891,8 +1916,8 @@ function Msg({
       <div
         className="lp-msg-row lp-rise"
         data-message-id={messageId}
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
+        onMouseEnter={() => onFocusChange?.(messageId, true)}
+        onMouseLeave={() => onFocusChange?.(messageId, false)}
         style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginBottom: 16 }}
       >
         <div
@@ -1914,7 +1939,7 @@ function Msg({
     );
   }
   return (
-    <div className="lp-rise" data-message-id={messageId} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ marginBottom: 18 }}>
+    <div className="lp-rise" data-message-id={messageId} onMouseEnter={() => onFocusChange?.(messageId, true)} onMouseLeave={() => onFocusChange?.(messageId, false)} style={{ marginBottom: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <span
           style={{
@@ -2044,6 +2069,18 @@ function Msg({
     </div>
   );
 }
+
+/**
+ * The message row, memoised.
+ *
+ * Streaming paints the LAST message many times per answer; without this every
+ * paint re-rendered the entire transcript. Memo works here because the props
+ * are now referentially stable for an unchanged message: `children` is a
+ * string (stripArtifacts), `inlineArtifacts` comes from the content-keyed
+ * cache, and hover is one shared callback instead of two fresh arrows per row.
+ * Default shallow comparison is therefore sufficient.
+ */
+const Msg = memo(MsgImpl);
 
 /**
  * Fallback quick-reply chips shown below any complete assistant message that
