@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  computeIRL, IRL_LADDER, IRL_MAX,
+  computeIRL, IRL_LADDER, IRL_MAX, IRL_CORE_MAX, IRL_SCORE_BAR,
   IRL_WTP_BAR, IRL_LTV_CAC_BAR, type IrlEvidence,
 } from './ladder';
 import type { StageId } from '@/lib/journey/types';
@@ -12,7 +12,7 @@ function ev(over: Partial<IrlEvidence> & { stagesDone?: StageId[]; tracks?: Arra
   return {
     stageDone: (id) => stagesDone.has(id),
     trackDone: (t) => tracks.has(t),
-    hasScore: over.hasScore ?? false,
+    score: over.score ?? null,
     wtpRate: over.wtpRate ?? null,
     ltvCacRatio: over.ltvCacRatio ?? null,
     conversionRate: over.conversionRate ?? null,
@@ -31,13 +31,13 @@ describe('computeIRL — the climb', () => {
   });
 
   it('2 with a score + Gate 1A/1B', () => {
-    const e = ev({ stagesDone: ['idea_validation'], hasScore: true, tracks: ['1A', '1B'] });
+    const e = ev({ stagesDone: ['idea_validation'], score: 70, tracks: ['1A', '1B'] });
     expect(computeIRL(e).level).toBe(2);
   });
 
   it('3 with Gate 1C + WTP at/above the 30% bar', () => {
     const e = ev({
-      stagesDone: ['idea_validation'], hasScore: true, tracks: ['1A', '1B', '1C'],
+      stagesDone: ['idea_validation'], score: 70, tracks: ['1A', '1B', '1C'],
       wtpRate: IRL_WTP_BAR,
     });
     expect(computeIRL(e).level).toBe(3);
@@ -45,7 +45,7 @@ describe('computeIRL — the climb', () => {
 
   it('4 with Business Model done + LTV:CAC at/above 3×', () => {
     const e = ev({
-      stagesDone: ['idea_validation', 'business_model'], hasScore: true, tracks: ['1A', '1B', '1C'],
+      stagesDone: ['idea_validation', 'persona', 'business_model'], score: 70, tracks: ['1A', '1B', '1C'],
       wtpRate: 0.5, ltvCacRatio: IRL_LTV_CAC_BAR,
     });
     expect(computeIRL(e).level).toBe(4);
@@ -55,7 +55,7 @@ describe('computeIRL — the climb', () => {
 describe('computeIRL — evidence gates, not verdict labels', () => {
   it('stays at 2 when WTP is below the 30% bar (a dismissed/failing Loop 1 earns no point)', () => {
     const e = ev({
-      stagesDone: ['idea_validation'], hasScore: true, tracks: ['1A', '1B', '1C'],
+      stagesDone: ['idea_validation'], score: 70, tracks: ['1A', '1B', '1C'],
       wtpRate: 0.17, // below bar — the exact "override ≠ point" case
     });
     expect(computeIRL(e).level).toBe(2);
@@ -63,14 +63,14 @@ describe('computeIRL — evidence gates, not verdict labels', () => {
 
   it('stays at 3 when LTV:CAC is viable-but-weak (< 3×) — the BM stress band', () => {
     const e = ev({
-      stagesDone: ['idea_validation', 'business_model'], hasScore: true, tracks: ['1A', '1B', '1C'],
+      stagesDone: ['idea_validation', 'persona', 'business_model'], score: 70, tracks: ['1A', '1B', '1C'],
       wtpRate: 0.5, ltvCacRatio: 2.0,
     });
     expect(computeIRL(e).level).toBe(3);
   });
 
   it('null signals never satisfy their gate (no data ≠ passing)', () => {
-    const e = ev({ stagesDone: ['idea_validation'], hasScore: true, tracks: ['1A', '1B', '1C'], wtpRate: null });
+    const e = ev({ stagesDone: ['idea_validation'], score: 70, tracks: ['1A', '1B', '1C'], wtpRate: null });
     expect(computeIRL(e).level).toBe(2);
   });
 });
@@ -79,8 +79,8 @@ describe('computeIRL — contiguity + ceiling', () => {
   it('is CONTIGUOUS: a broken lower gate caps the index even if higher evidence exists', () => {
     // Everything for level 4 EXCEPT Gate 1A/1B (level 2) → can't be > 1.
     const e = ev({
-      stagesDone: ['idea_validation', 'business_model'],
-      hasScore: true, tracks: ['1C'], // 1A/1B missing
+      stagesDone: ['idea_validation', 'persona', 'business_model'],
+      score: 70, tracks: ['1C'], // 1A/1B missing
       wtpRate: 0.5, ltvCacRatio: 5,
     });
     expect(computeIRL(e).level).toBe(1);
@@ -88,8 +88,8 @@ describe('computeIRL — contiguity + ceiling', () => {
 
   it('caps at 4 today: levels 5-9 need metric feeds / add-ons that null out', () => {
     const e = ev({
-      stagesDone: ['idea_validation', 'business_model', 'build_launch'],
-      hasScore: true, tracks: ['1A', '1B', '1C'],
+      stagesDone: ['idea_validation', 'persona', 'business_model', 'build_launch'],
+      score: 70, tracks: ['1A', '1B', '1C'],
       wtpRate: 0.6, ltvCacRatio: 5,
       // conversionRate / activationRate null, addOns empty
     });
@@ -100,8 +100,8 @@ describe('computeIRL — contiguity + ceiling', () => {
 
   it('reaches 9 when every gate (incl. add-ons) holds', () => {
     const e = ev({
-      stagesDone: ['idea_validation', 'business_model', 'build_launch'],
-      hasScore: true, tracks: ['1A', '1B', '1C'],
+      stagesDone: ['idea_validation', 'persona', 'business_model', 'build_launch'],
+      score: 70, tracks: ['1A', '1B', '1C'],
       wtpRate: 0.6, ltvCacRatio: 5, conversionRate: 0.08, activationRate: 0.25,
       addOns: new Set(['gtm_orchestration', 'fundraising_readiness', 'operations']),
     });
@@ -115,5 +115,75 @@ describe('ladder shape', () => {
   it('is exactly 9 contiguous levels', () => {
     expect(IRL_LADDER.map((l) => l.level)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(IRL_MAX).toBe(9);
+  });
+});
+
+
+// ── Regressions against the founder spec (Luca, 2026-07-23) ──────────────────
+
+/** Everything for the core 6 satisfied; add-ons vary. */
+const coreComplete = (addOns: string[] = []): IrlEvidence => ev({
+  stagesDone: ['idea_validation', 'persona', 'business_model', 'build_launch'],
+  score: 70, tracks: ['1A', '1B', '1C'],
+  wtpRate: 0.6, ltvCacRatio: 5, conversionRate: 0.08, activationRate: 0.25,
+  addOns: new Set(addOns),
+});
+
+describe('B1 — add-on modules are INDEPENDENT ("ogni modulo è un punto, ordine non vincolante")', () => {
+  it('core complete with no modules = 6', () => {
+    expect(computeIRL(coreComplete()).level).toBe(IRL_CORE_MAX);
+  });
+  it('any SINGLE module earns exactly one point, regardless of order', () => {
+    expect(computeIRL(coreComplete(['gtm_orchestration'])).level).toBe(7);
+    // Previously 6 — the contiguous walk stopped at the missing GTM gate.
+    expect(computeIRL(coreComplete(['fundraising_readiness'])).level).toBe(7);
+    expect(computeIRL(coreComplete(['operations'])).level).toBe(7);
+  });
+  it('two modules = two points even skipping the recommended first one', () => {
+    expect(computeIRL(coreComplete(['fundraising_readiness', 'operations'])).level).toBe(8);
+  });
+  it('all three = 9', () => {
+    const r = computeIRL(coreComplete(['gtm_orchestration', 'fundraising_readiness', 'operations']));
+    expect(r.level).toBe(IRL_MAX);
+    expect(r.nextKey).toBeNull();
+  });
+  it('modules do NOT count before the core 6 are earned', () => {
+    const notCore = ev({
+      stagesDone: ['idea_validation'], score: 70, tracks: ['1A', '1B'],
+      addOns: new Set(['gtm_orchestration', 'fundraising_readiness']),
+    });
+    expect(computeIRL(notCore).level).toBe(2); // not 2+2
+  });
+});
+
+describe('B2 — level 2 needs a Caution/Go score, not merely any score', () => {
+  const withScore = (score: number | null) => ev({ stagesDone: ['idea_validation'], score, tracks: ['1A', '1B'] });
+  it('a WEAK score does not earn the rung', () => {
+    expect(computeIRL(withScore(IRL_SCORE_BAR - 1)).level).toBe(1);
+    expect(computeIRL(withScore(12)).level).toBe(1); // previously earned 2
+  });
+  it('a score at/above the caution bar does', () => {
+    expect(computeIRL(withScore(IRL_SCORE_BAR)).level).toBe(2);
+    expect(computeIRL(withScore(85)).level).toBe(2);
+  });
+  it('no score at all stays at 1', () => {
+    expect(computeIRL(withScore(null)).level).toBe(1);
+  });
+});
+
+describe('B3 — level 4 matches the Business Essentials phase (persona + business_model)', () => {
+  it('business_model alone is not enough', () => {
+    const e = ev({
+      stagesDone: ['idea_validation', 'business_model'], // persona missing
+      score: 70, tracks: ['1A', '1B', '1C'], wtpRate: 0.6, ltvCacRatio: 5,
+    });
+    expect(computeIRL(e).level).toBe(3); // previously 4
+  });
+  it('persona + business_model earns it', () => {
+    const e = ev({
+      stagesDone: ['idea_validation', 'persona', 'business_model'],
+      score: 70, tracks: ['1A', '1B', '1C'], wtpRate: 0.6, ltvCacRatio: 5,
+    });
+    expect(computeIRL(e).level).toBe(4);
   });
 });

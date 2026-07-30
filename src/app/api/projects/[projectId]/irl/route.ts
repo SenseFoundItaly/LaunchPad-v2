@@ -66,7 +66,11 @@ export async function GET(
   const evidence: IrlEvidence = {
     stageDone,
     trackDone,
-    hasScore: typeof scoreRow?.overall_score === 'number' && scoreRow.overall_score > 0,
+    // 0 counts as unscored (legacy rows fabricated a literal 0 baseline); the
+    // level-2 gate applies the Caution/Go bar to the value itself.
+    score: typeof scoreRow?.overall_score === 'number' && scoreRow.overall_score > 0
+      ? scoreRow.overall_score
+      : null,
     wtpRate,
     ltvCacRatio,
     // Not yet fed from real sources — the ladder caps here until the Launch
