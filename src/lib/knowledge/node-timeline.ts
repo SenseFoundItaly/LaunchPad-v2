@@ -24,7 +24,22 @@
  */
 
 import { run } from '@/lib/db';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import type { Locale } from '@/lib/i18n/locales';
 import type { TimelineEntry, TimelineEntryKind } from '@/lib/timeline';
+
+/**
+ * Fail-open locale for history headlines: a locale-lookup failure must never
+ * abort the mutation the history documents (surfaced by the investor-pipeline
+ * tests — a throwing resolver inside a writer's try block killed the upsert).
+ */
+export async function historyLocale(userId: string | null, projectId: string | null): Promise<Locale> {
+  try {
+    return await resolveLocale(userId, projectId);
+  } catch {
+    return 'en';
+  }
+}
 
 /** Build a timeline entry stamped now. */
 export function timelineEntryNow(

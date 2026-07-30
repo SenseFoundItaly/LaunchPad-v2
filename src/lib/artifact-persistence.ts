@@ -55,6 +55,8 @@ import type {
 } from '@/types/artifacts';
 import { marketSizeFromTamSamSom } from './research-context';
 import { persistCanvasDetails } from './canvas-details';
+import { timelineEntryNow, historyLocale } from '@/lib/knowledge/node-timeline';
+import { translate } from '@/lib/i18n/messages';
 import { recordFact } from './memory/facts';
 import { createPendingAction } from './pending-actions';
 import { getCreditsRemaining } from './credits';
@@ -104,18 +106,49 @@ async function upsertGraphNodeFromArtifact(
       input.name,
     );
     if (existing) {
+      // Replace the attribute map but PRESERVE + extend the node's evolution
+      // history (#324/#327): the old wholesale `attributes = ?` silently
+      // destroyed attributes.timeline on every co-pilot enrich. The jsonb_set
+      // carries the existing timeline over and appends this enrich as a move,
+      // capped to the newest 20 — all in one atomic statement.
+      const locale = await historyLocale(ctx.userId ?? null, ctx.projectId);
+      const move = timelineEntryNow('copilot', translate(locale, 'node-history.enriched-copilot'));
       await run(
-        'UPDATE graph_nodes SET summary = ?, attributes = ?, sources = COALESCE(?, sources) WHERE id = ?',
+        `UPDATE graph_nodes
+            SET summary = ?,
+                attributes = jsonb_set(
+                  ?::jsonb, '{timeline}',
+                  (
+                    SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+                    FROM (
+                      SELECT elem, ord
+                      FROM jsonb_array_elements(
+                        COALESCE(attributes -> 'timeline', '[]'::jsonb) || ?::jsonb
+                      ) WITH ORDINALITY AS t(elem, ord)
+                      ORDER BY ord DESC
+                      LIMIT 20
+                    ) recent
+                  )
+                ),
+                sources = COALESCE(?, sources)
+          WHERE id = ?`,
         input.summary,
-        // Pass the OBJECT, not JSON.stringify(...). attributes is a JSONB column;
-      // postgres.js serializes an object correctly, whereas stringifying stores a
-      // double-encoded JSON *string* scalar that reads back as a string (which
-      // Object.entries then renders character-by-character). See pending-actions.ts:505.
-      input.attributes,
+        // OBJECT binds, never JSON.stringify (double-encode footgun — see
+        // pending-actions.ts:505).
+        input.attributes,
+        [move],
         input.srcJson,
         existing.id,
       );
       return existing.id;
+    }
+    // New node: seed its birth entry so the dossier records where it came from.
+    {
+      const locale = await historyLocale(ctx.userId ?? null, ctx.projectId);
+      input.attributes = {
+        ...(input.attributes ?? {}),
+        timeline: [timelineEntryNow('created', translate(locale, 'node-history.created-copilot'))],
+      };
     }
     const id = `node_${crypto.randomUUID().slice(0, 12)}`;
     await run(
@@ -351,11 +384,33 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     // guarantees factual artifacts arrive with sources, so this is mostly
     // a safety net against future relaxation of the rule.
     // NOTE: UPDATE preserves existing reviewed_state — don't reset to pending.
+    // PRESERVE + extend the evolution history (#324/#327): the wholesale
+    // `attributes = ?` destroyed attributes.timeline on every enrich.
+    const locale = await historyLocale(ctx.userId ?? null, ctx.projectId);
+    const move = timelineEntryNow('copilot', translate(locale, 'node-history.enriched-copilot'));
     await run(
-      'UPDATE graph_nodes SET summary = ?, attributes = ?, sources = COALESCE(?, sources) WHERE id = ?',
+      `UPDATE graph_nodes
+          SET summary = ?,
+              attributes = jsonb_set(
+                ?::jsonb, '{timeline}',
+                (
+                  SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+                  FROM (
+                    SELECT elem, ord
+                    FROM jsonb_array_elements(
+                      COALESCE(attributes -> 'timeline', '[]'::jsonb) || ?::jsonb
+                    ) WITH ORDINALITY AS t(elem, ord)
+                    ORDER BY ord DESC
+                    LIMIT 20
+                  ) recent
+                )
+              ),
+              sources = COALESCE(?, sources)
+        WHERE id = ?`,
       a.summary ?? '',
       // JSONB column — pass the object, not a stringified scalar (see above / pending-actions.ts:505).
       a.attributes ?? {},
+      [move],
       srcJson,
       existing.id,
     );
@@ -373,6 +428,12 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
 
   const nodeType = normalizeEntityType(a.entity_type);
   const id = `node_${crypto.randomUUID().slice(0, 12)}`;
+  // Seed the birth entry (#327) so the dossier records where the node came from.
+  const createdLocale = await historyLocale(ctx.userId ?? null, ctx.projectId);
+  const seededAttributes = {
+    ...(a.attributes ?? {}),
+    timeline: [timelineEntryNow('created', translate(createdLocale, 'node-history.created-copilot'))],
+  };
   await run(
     `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -382,7 +443,7 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     nodeType,
     a.summary ?? '',
     // JSONB column — pass the object, not a stringified scalar (see pending-actions.ts:505).
-    a.attributes ?? {},
+    seededAttributes,
     srcJson,
     reviewedState,
   );

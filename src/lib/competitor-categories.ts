@@ -13,6 +13,8 @@
 
 import { get, query, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
+import { appendNodeTimeline, timelineEntryNow, historyLocale } from '@/lib/knowledge/node-timeline';
+import { translate } from '@/lib/i18n/messages';
 import { coerceJson } from '@/lib/jsonb';
 import type { Source } from '@/types/artifacts';
 import {
@@ -147,6 +149,7 @@ async function upsertCompetitorNode(
     projectId,
     trimmed,
   );
+  const locale = await historyLocale(null, projectId);
   if (existing) {
     await run(
       "UPDATE graph_nodes SET summary = COALESCE(NULLIF(?, ''), summary), sources = COALESCE(?, sources) WHERE id = ?",
@@ -154,13 +157,19 @@ async function upsertCompetitorNode(
       srcJson,
       existing.id,
     );
+    // Evolution history (#327): the research enrich is a move.
+    await appendNodeTimeline(projectId, existing.id, timelineEntryNow(
+      'copilot', translate(locale, 'node-history.enriched-research'),
+    ));
     return existing.id;
   }
   const id = generateId('gnode');
   await run(
-    `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, sources, reviewed_state)
-     VALUES (?, ?, ?, 'competitor', ?, ?, 'pending')`,
-    id, projectId, trimmed, summary, srcJson,
+    `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
+     VALUES (?, ?, ?, 'competitor', ?, ?, ?, 'pending')`,
+    id, projectId, trimmed, summary,
+    { timeline: [timelineEntryNow('created', translate(locale, 'node-history.created-research'))] },
+    srcJson,
   );
   return id;
 }

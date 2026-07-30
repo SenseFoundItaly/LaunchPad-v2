@@ -10,6 +10,8 @@ import { validationTargetsFor, validationLabel, buildSpinePreview } from '@/lib/
 import { canvasIsEmpty } from '@/lib/idea-canvas-seed';
 import { digestDocument } from '@/lib/document-digest';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { timelineEntryNow, historyLocale } from '@/lib/knowledge/node-timeline';
+import { translate as translateMsg } from '@/lib/i18n/messages';
 import { LOCALE_ENGLISH_NAME, type Locale } from '@/lib/i18n/locales';
 
 // Language instruction for the single-shot extraction prompts (entities +
@@ -418,6 +420,10 @@ async function persistExtracted(
     "SELECT id FROM graph_nodes WHERE project_id = ? AND node_type = 'your_startup' LIMIT 1",
     projectId,
   );
+  // Birth entry (#327): every extracted node records which document it came
+  // from — the same provenance the panel's Sources section already names.
+  const digestLocale = await historyLocale(null, projectId);
+  const birth = [timelineEntryNow('digest', translateMsg(digestLocale, 'node-history.created-digest', { doc: filename }))];
 
   for (const e of entities) {
     const existing = await get<{ id: string }>(
@@ -429,8 +435,8 @@ async function persistExtracted(
     const id = generateId('node');
     await run(
       `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
-       VALUES (?, ?, ?, ?, ?, '{}', ?, 'pending')`,
-      id, projectId, e.name, e.node_type, e.summary, sources,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      id, projectId, e.name, e.node_type, e.summary, { timeline: birth }, sources,
     );
     if (root) {
       await run(
