@@ -22,6 +22,7 @@ import { NODE_COLORS } from '@/types/graph';
 import { nodeImportanceKey } from '@/lib/node-importance';
 import { coerceTimeline, type TimelineEntry } from '@/lib/timeline';
 import { useT } from '@/components/providers/LocaleProvider';
+import NodeChatThread from '@/components/graph/NodeChatThread';
 import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
 
 // Re-exported so existing importers (KnowledgeGraph, knowledge/page) keep
@@ -437,6 +438,12 @@ export default function NodeDetailPanel({
           >
             {t('knowledge.ask-copilot')} →
           </a>
+        )}
+        {/* Embedded per-node thread (#330). Sits under the deep-link, not in
+            place of it: the thread is for deepening THIS entity, the link is
+            for work that outgrows a side panel. */}
+        {projectId && (
+          <NodeChatThread projectId={projectId} nodeId={node.id} nodeName={node.name} />
         )}
         {/* Why this matters — a review-time pitch for WHY the founder should
             apply this proposal. Pending-only: once applied it is stale, so the

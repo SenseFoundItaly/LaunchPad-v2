@@ -32,6 +32,8 @@ import { validationTracksAB_done } from '@/lib/journey/stage-2-market-validation
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { CACHE_PREFIX_SPLIT, buildSplitUserTurn } from '@/lib/chat-cache-split';
+import { NODE_STEP_PREFIX, parseNodeStep, sessionSuffixForStep } from '@/lib/chat/node-scope';
+import { coerceTimeline } from '@/lib/timeline';
 import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
 import { pickModel, type TaskLabel } from '@/lib/llm/router';
@@ -673,9 +675,18 @@ export async function POST(request: NextRequest) {
   // "what changed since last time" signal feed (route.ts:143 freshness rule).
   let directionContext = '';
   try {
+    // Node side-threads (#330) are EXCLUDED: "what changed since last time" is
+    // about the founder's main conversation. Counting a node-panel exchange as
+    // the last chat would mark signals as already-seen that never appeared in
+    // any feed the founder read.
+    // COALESCE guards legacy rows with a NULL step, which `NOT LIKE` would
+    // otherwise evaluate to NULL and silently drop from the ordering.
     const lastRows = await query<{ created_at: string }>(
-      'SELECT created_at FROM chat_messages WHERE project_id = ? ORDER BY created_at DESC LIMIT 1',
+      `SELECT created_at FROM chat_messages
+        WHERE project_id = ? AND COALESCE(step, 'chat') NOT LIKE ?
+        ORDER BY created_at DESC LIMIT 1`,
       project_id,
+      `${NODE_STEP_PREFIX}%`,
     );
     const lastChatAt = lastRows[0]?.created_at ?? null;
     const nba = await computeNextBestAction(project_id, { lastChatAt, snapshot: snapshot ?? undefined });
@@ -710,7 +721,11 @@ export async function POST(request: NextRequest) {
   // is already fetched; '' when no sizing exists (no token cost). Reference-only
   // framing keeps it out of the validation gate.
   const researchContext = buildResearchContext((snapshot?.research ?? null) as Record<string, unknown> | null);
-  const dynamicContext = `${directionContext}${stageContext}${canvasContext}${researchContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
+  // Node-scoped side thread (#330): step = 'node:<id>' focuses the SAME agent on
+  // one knowledge entity. FIRST in the dynamic context so the focus outranks the
+  // project-wide steering. Empty string for every ordinary step — no token cost.
+  const focusNodeContext = await buildFocusNodeContext(project_id, step);
+  const dynamicContext = `${focusNodeContext}${directionContext}${stageContext}${canvasContext}${researchContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
   let systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
@@ -727,7 +742,12 @@ export async function POST(request: NextRequest) {
   // This unifies memory across the "chat" / "research" / "simulation" steps
   // within a single project — if the user asked about competitor X under
   // research, the agent remembers that when they switch to chat.
-  const sessionId = `user-${userId}-project-${project_id}`;
+  // EXCEPTION (#330): a node side-thread gets its own session. Sharing the key
+  // would leak a narrow "is this Pantone check still right?" exchange into the
+  // founder's main conversation (and vice versa) — the two threads are shown
+  // side by side, so their memories must not merge. Empty suffix for every
+  // project-wide step keeps existing sessions byte-identical.
+  const sessionId = `user-${userId}-project-${project_id}${sessionSuffixForStep(step)}`;
   const piStart = Date.now();
 
   try {
@@ -1540,6 +1560,75 @@ export async function POST(request: NextRequest) {
       'X-Accel-Buffering': 'no',
     },
   });
+}
+
+/**
+ * Focus block for a node-scoped side thread (#330).
+ *
+ * Returns '' for every ordinary step, so the project-wide chat is byte-identical
+ * to before and pays no token cost. For `step = 'node:<id>'` it loads the node
+ * SCOPED TO (id, project_id) — a forged step therefore cannot pull another
+ * project's row into the prompt — and renders the entity plus its recent
+ * history so the agent can answer "is this still right?" without re-deriving.
+ *
+ * Tolerant by design: a missing node or a failed read degrades to '' and the
+ * thread behaves as ordinary chat rather than 500-ing the founder's message.
+ */
+async function buildFocusNodeContext(projectId: string, step: string): Promise<string> {
+  const nodeId = parseNodeStep(step);
+  if (!nodeId) return '';
+
+  try {
+    const rows = await query<{
+      name: string;
+      node_type: string;
+      summary: string | null;
+      attributes: unknown;
+      reviewed_state: string | null;
+    }>(
+      `SELECT name, node_type, summary, attributes, reviewed_state
+         FROM graph_nodes WHERE id = ? AND project_id = ?`,
+      nodeId,
+      projectId,
+    );
+    const node = rows[0];
+    if (!node) return '';
+
+    const attrs = (node.attributes && typeof node.attributes === 'object'
+      ? (node.attributes as Record<string, unknown>)
+      : {}) as Record<string, unknown>;
+
+    // Recent moves give the agent the node's evolution (epic #324) so it can
+    // reason about what changed rather than treating the entity as timeless.
+    const moves = coerceTimeline(attrs.timeline)
+      .slice(-5)
+      .map((m) => `  - ${m.date ? `${m.date.slice(0, 10)} ` : ''}${m.headline}${m.kind ? ` (${m.kind})` : ''}`)
+      .join('\n');
+
+    // Everything except the timeline, which is rendered above in prose form.
+    const factEntries = Object.entries(attrs).filter(([k]) => k !== 'timeline');
+    const facts = factEntries.length > 0 ? JSON.stringify(Object.fromEntries(factEntries)) : '';
+
+    return [
+      `[FOCUS NODE — this is a side thread about ONE knowledge entity, id "${nodeId}"]`,
+      `Name: ${node.name}`,
+      `Type: ${node.node_type}`,
+      node.reviewed_state === 'pending' ? 'Status: PENDING — the founder has not applied this proposal yet.' : '',
+      node.summary ? `Summary: ${node.summary}` : '',
+      facts ? `Attributes: ${facts}` : '',
+      moves ? `Recent moves:\n${moves}` : '',
+      '',
+      'Answer about THIS entity: deepen it, challenge it, correct it, or say plainly when it looks wrong or stale.',
+      'Stay short — this renders in a narrow side panel, not the full chat column. A few sentences, no headers.',
+      'Do NOT emit :::artifact blocks here; the panel shows prose only. To CHANGE the entity, call propose_validation so the edit lands in the founder\'s inbox for approval — never claim you changed it yourself.',
+      'If the founder wants work that reaches beyond this entity, say so and point them to the main co-pilot chat.',
+      '',
+      '',
+    ].filter(Boolean).join('\n');
+  } catch {
+    /* focus read failed — degrade to ordinary chat rather than break the turn */
+    return '';
+  }
 }
 
 async function buildDirectMessages(projectId: string, step: string, messages: { role: string; content: string }[]) {
