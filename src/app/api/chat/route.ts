@@ -870,10 +870,17 @@ export async function POST(request: NextRequest) {
       systemPrompt = systemPrompt + trailingSteer;
     }
 
+    // BYOK — if the founder stored a key for whichever provider the router
+    // picks, bill their account instead of ours. Undefined ⇒ system key.
+    // Resolve the provider the same way runAgentStream will (pickModel on the
+    // same task), so we look up the key for the provider actually called.
+    const userKey = await resolveUserKey(userId, pickModel(chatTask).provider);
+
     const { stream: piStream } = runAgentStream(effectiveLastMessage, {
       sessionId,
       systemPrompt,
       seedHistory,
+      userKey,
       // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
       projectId: project_id,
       step,

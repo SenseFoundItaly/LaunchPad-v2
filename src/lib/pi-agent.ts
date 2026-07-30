@@ -77,6 +77,19 @@ function resolveModel(task?: TaskLabel) {
   return getModel(DEFAULT_PROVIDER as any, DEFAULT_MODEL_ID as any);
 }
 
+/**
+ * Key resolver handed to the Agent: the founder's own key when it matches the
+ * provider actually being called, our env key otherwise.
+ *
+ * Matching on provider matters — the router picks per task, so a founder who
+ * stored an OpenRouter key can still be routed to Anthropic, and billing that
+ * to their OpenRouter credentials would just fail the call.
+ */
+function makeGetApiKey(userKey?: { provider: string; apiKey: string }) {
+  return (provider: string) =>
+    userKey && userKey.provider === provider ? userKey.apiKey : getEnvApiKey(provider as any);
+}
+
 // ─── Lightweight JSONL session persistence ───
 // Compatible with Pi's session format but no heavy deps
 
@@ -249,6 +262,16 @@ export interface RunAgentOptions {
    * into chat instead of dumping it all at the end). Optional + side-effect-free.
    */
   onDelta?: (delta: string) => void;
+  /**
+   * BYOK — the founder's own provider key, resolved from `user_api_keys`.
+   *
+   * When the router picks a provider this key is for, the agent bills that
+   * provider account instead of ours; any other provider still falls through
+   * to `getEnvApiKey`. Omitted ⇒ system keys, which is the path every request
+   * took before this option existed (Settings collected keys that nothing
+   * read — see the 2026-07-27 audit).
+   */
+  userKey?: { provider: string; apiKey: string };
 }
 
 /**
@@ -345,7 +368,7 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
   const agent = new Agent({
     streamFn: streamSimple,
     sessionId: options.sessionId,
-    getApiKey: (provider) => getEnvApiKey(provider),
+    getApiKey: makeGetApiKey(options.userKey),
     // Explicitly request parallel tool execution. With 3-4 web_search +
     // read_url calls in a research turn, sequential execution dominates
     // latency — parallel lets them all run concurrently and finalizes
@@ -441,7 +464,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
       agent = new Agent({
         streamFn: streamSimple,
         sessionId: options.sessionId,
-        getApiKey: (provider) => getEnvApiKey(provider),
+        getApiKey: makeGetApiKey(options.userKey),
       });
 
       agent.state.model = model;
