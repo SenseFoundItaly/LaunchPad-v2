@@ -169,6 +169,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'journey-phase.status-pending': 'bloccato',
   'journey-phase.status-ahead': 'evidenza pronta',
   'journey-phase.loop-pending': 'non ancora attivato',
+  'journey-phase.loop-coming': 'in arrivo',
   'today.open-inbox': 'Apri Osservatori',
   'today.signals-awaiting-review': '{count} segnali in attesa di revisione →',
   'today.inbox': 'Da rivedere',

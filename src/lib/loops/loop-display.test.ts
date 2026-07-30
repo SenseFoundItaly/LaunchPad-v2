@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isOpenLoop, openLoopOf, loopNameKey, verdictPillKind,
   signalLabelKey, formatSignal, primaryFailingSignal, awaitedEvidenceKey,
-  closedOutcome, outcomeLabelKey,
+  closedOutcome, outcomeLabelKey, isLoopImplemented,
   type LoopRow, type LoopSignal,
 } from './loop-display';
 
@@ -89,5 +89,17 @@ describe('primaryFailingSignal', () => {
     expect(primaryFailingSignal([sig({ signal: 'a' }), sig({ signal: 'b' })])?.signal).toBe('a');
     expect(primaryFailingSignal([])).toBeNull();
     expect(primaryFailingSignal(null)).toBeNull();
+  });
+});
+
+
+describe('isLoopImplemented — never promise a trigger that cannot fire', () => {
+  it('marks the live loops implemented', () => {
+    expect(isLoopImplemented(1)).toBe(true); // PSF Review
+    expect(isLoopImplemented(2)).toBe(true); // BM Stress Test
+  });
+  it('marks loops 3-4 unimplemented (their metric feeds are not in prod)', () => {
+    expect(isLoopImplemented(3)).toBe(false); // needs landing conversion
+    expect(isLoopImplemented(4)).toBe(false); // needs MVP activation
   });
 });
