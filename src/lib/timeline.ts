@@ -5,6 +5,16 @@
  * spawning a new node per event — the graph gets richer, not longer.
  */
 
+/** Where a timeline move came from. Optional — entries written before this
+ *  field existed have no kind and render as plain moves. */
+export type TimelineEntryKind =
+  | 'watcher'       // an accepted watcher/ecosystem signal (the original writer)
+  | 'founder_edit'  // the founder corrected the node in the detail panel
+  | 'copilot'       // the co-pilot/agent enriched the node (chat, skills)
+  | 'digest'        // a document upload created/enriched the node
+  | 'apply'         // the founder approved the node into intelligence
+  | 'created';      // the node's birth entry (which surface created it)
+
 /** One dated move on an entity node. */
 export interface TimelineEntry {
   date?: string;
@@ -12,6 +22,9 @@ export interface TimelineEntry {
   source_url?: string;
   relevance?: number;
   alert_id?: string;
+  kind?: TimelineEntryKind;
+  /** For edits: which fields changed (e.g. ['name','summary'] or ['metrics']). */
+  fields?: string[];
 }
 
 /**

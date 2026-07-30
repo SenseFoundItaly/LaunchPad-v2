@@ -38,6 +38,10 @@ export interface NodeNeighbor {
 
 interface NodeDetailPanelProps {
   node: GraphNode | null;
+  /** When set, the panel shows "Ask the co-pilot" — a deep-link into the chat
+   *  with this node's context prefilled (#329). The co-pilot's entity tools
+   *  update the node, and the change lands in its evolution history. */
+  projectId?: string;
   /** One-hop neighbors, precomputed by KnowledgeGraph from the edge list. */
   neighbors: NodeNeighbor[];
   onClose: () => void;
@@ -183,6 +187,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export default function NodeDetailPanel({
   node,
+  projectId,
   neighbors,
   onClose,
   onSelectNeighbor,
@@ -410,6 +415,29 @@ export default function NodeDetailPanel({
 
       {/* Scrollable body */}
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Node → co-pilot handoff (#329): opens the chat with this node's
+            context prefilled. Works for pending nodes too (verify before
+            applying). Rendered only when the host page provides projectId. */}
+        {projectId && (
+          <a
+            href={`/project/${projectId}/chat?prefill=${encodeURIComponent(
+              t('knowledge.ask-copilot-prompt', {
+                name: node.name,
+                type: humanize(node.node_type),
+                summary: (node.summary || '—').slice(0, 280),
+              }),
+            )}`}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+              fontSize: 12, fontWeight: 500, textDecoration: 'none',
+              padding: '6px 12px', borderRadius: 999,
+              border: '1px solid var(--line-2)', color: 'var(--accent-ink)',
+              background: 'var(--accent-wash)',
+            }}
+          >
+            {t('knowledge.ask-copilot')} →
+          </a>
+        )}
         {/* Why this matters — a review-time pitch for WHY the founder should
             apply this proposal. Pending-only: once applied it is stale, so the
             box is hidden when the founder re-opens the now-solid node. */}

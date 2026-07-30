@@ -289,6 +289,14 @@ export const it: Partial<Record<MessageKey, string>> = {
   'knowledge.detail-empty': 'Nessun altro dettaglio acquisito per questo nodo. Man mano che il Co-pilot fa ricerca, attributi e fonti compariranno qui.',
   'knowledge.detail-captured': 'Acquisito {date}',
   'knowledge.detail-timeline': 'Movimenti recenti',
+  // Storia di evoluzione dei nodi (epic #324) — headline generate nel locale
+  // del progetto al momento della scrittura, + handoff nodo→chat.
+  'node-history.edited': 'Dettagli aggiornati dal founder',
+  'node-history.metrics-edited': 'Metriche corrette dal founder',
+  'node-history.applied': 'Approvata nella Conoscenza',
+  'node-history.applied-edited': 'Rivista, corretta e approvata',
+  'knowledge.ask-copilot': 'Chiedi al co-pilot',
+  'knowledge.ask-copilot-prompt': 'Lavoriamo sul nodo della Conoscenza "{name}" ({type}). Riepilogo attuale: {summary} — Aiutami a verificarlo, approfondirlo o aggiornarlo: proponi miglioramenti concreti e applica quelli che confermo.',
   'knowledge.timeline-show-more': 'Mostra altri {count}',
   'knowledge.timeline-show-less': 'Mostra meno',
   'knowledge.timeline-remove': 'Rimuovi questa voce',

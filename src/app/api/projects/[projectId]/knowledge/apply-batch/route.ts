@@ -3,6 +3,9 @@ import { json, error } from '@/lib/api-helpers';
 import { get, run } from '@/lib/db';
 import { AuthError } from '@/lib/auth/require-user';
 import { requireProjectAccess } from '@/lib/auth/require-project-access';
+import { appendNodeTimeline, timelineEntryNow } from '@/lib/knowledge/node-timeline';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { translate } from '@/lib/i18n/messages';
 import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import { recordEvent } from '@/lib/memory/events';
 
@@ -96,9 +99,37 @@ export async function POST(
         await run('UPDATE graph_nodes SET summary = ? WHERE id = ?', edit.summary, id);
       }
     }
-    if (row.reviewed_state === 'applied') continue; // already applied — no double charge
+    if (row.reviewed_state === 'applied') {
+      // Already applied by another path — but the founder's correction above is
+      // still a move worth remembering (#324).
+      if (edit) {
+        const locale = await resolveLocale(userId, projectId);
+        await appendNodeTimeline(projectId, id, timelineEntryNow(
+          'founder_edit', translate(locale, 'node-history.edited'),
+          { fields: [
+            ...(edit.name !== undefined ? ['name'] : []),
+            ...(edit.summary !== undefined ? ['summary'] : []),
+          ] },
+        ));
+      }
+      continue; // no double charge
+    }
     await run("UPDATE graph_nodes SET reviewed_state = 'applied' WHERE id = ?", id);
     appliedCount++;
+    // Evolution history (#324): ONE combined entry per node — 'reviewed,
+    // corrected and approved' when the apply carried an edit, plain approval
+    // otherwise. Two entries for one founder action would read as noise.
+    {
+      const locale = await resolveLocale(userId, projectId);
+      await appendNodeTimeline(projectId, id, timelineEntryNow(
+        'apply',
+        translate(locale, edit ? 'node-history.applied-edited' : 'node-history.applied'),
+        edit ? { fields: [
+          ...(edit.name !== undefined ? ['name'] : []),
+          ...(edit.summary !== undefined ? ['summary'] : []),
+        ] } : undefined,
+      ));
+    }
     try {
       await recordEvent({
         userId,
