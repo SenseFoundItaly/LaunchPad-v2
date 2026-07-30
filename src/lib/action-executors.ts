@@ -36,6 +36,8 @@ import { applyRevisionToAssumptions, isRevisableField, proposeArpuRevisionFromAl
 import { deriveAssumptionsForProject } from '@/lib/financial-assumptions';
 import { createPendingAction } from '@/lib/pending-actions';
 import { maybeTriggerLoop2 } from '@/lib/loops/loop2-bm';
+import { appendNodeTimeline, timelineEntryNow, historyLocale } from '@/lib/knowledge/node-timeline';
+import { translate as translateHist } from '@/lib/i18n/messages';
 import { coerceJson } from '@/lib/jsonb';
 import { resolveProjectLocale } from '@/lib/agent-prompt';
 import type { Locale } from '@/lib/agent-prompt';
@@ -375,7 +377,10 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
      ON CONFLICT (project_id, LOWER(name)) DO UPDATE SET
        node_type = EXCLUDED.node_type,
        summary = COALESCE(NULLIF(EXCLUDED.summary, ''), graph_nodes.summary),
-       attributes = COALESCE(EXCLUDED.attributes, graph_nodes.attributes),
+       attributes = jsonb_set(
+         COALESCE(EXCLUDED.attributes, graph_nodes.attributes, '{}'::jsonb),
+         '{timeline}',
+         COALESCE(graph_nodes.attributes -> 'timeline', '[]'::jsonb)),
        sources = COALESCE(EXCLUDED.sources, graph_nodes.sources),
        reviewed_state = 'applied'
      RETURNING id`,
@@ -390,6 +395,17 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
   // Resolve to the row that actually survived the conflict (its id may differ
   // from the freshly generated nodeId if an earlier node for this entity won).
   const resolvedNodeId = insertedNode[0]?.id ?? nodeId;
+
+  // Evolution history (#327): birth entry for a fresh node, an approval move
+  // for a re-approved existing one. (The conflict clause above now CARRIES the
+  // old timeline over instead of clobbering it with EXCLUDED.attributes.)
+  {
+    const histLocale = await historyLocale(null, action.project_id);
+    await appendNodeTimeline(action.project_id, resolvedNodeId, timelineEntryNow(
+      resolvedNodeId === nodeId ? 'created' : 'apply',
+      translateHist(histLocale, resolvedNodeId === nodeId ? 'node-history.created-proposal' : 'node-history.applied'),
+    ));
+  }
 
   // Alert-derived graph updates (auto-fanout routes an alert's review as
   // proposed_graph_update per its suggested_action) CLAIM the alert's FK —
@@ -1744,15 +1760,25 @@ const applyValidationProposal: ActionHandler = async (action) => {
       // Mirrors proposedGraphUpdate's competitor upsert (applied, atomic on
       // (project_id, LOWER(name)) per migration 018). sources passed RAW —
       // graph_nodes.sources is JSONB; postgres.js auto-serializes.
-      await run(
+      const compRows = await query<{ id: string }>(
         `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, sources, reviewed_state)
          VALUES (?, ?, ?, 'competitor', ?, ?, 'applied')
          ON CONFLICT (project_id, LOWER(name)) DO UPDATE SET
            summary = COALESCE(NULLIF(EXCLUDED.summary, ''), graph_nodes.summary),
            sources = COALESCE(EXCLUDED.sources, graph_nodes.sources),
-           reviewed_state = 'applied'`,
+           reviewed_state = 'applied'
+         RETURNING id`,
         nodeId, action.project_id, name, value, sources,
       );
+      // Evolution history (#327): fresh node → birth entry; existing → approval.
+      {
+        const survivorId = compRows[0]?.id ?? nodeId;
+        const histLocale = await historyLocale(null, action.project_id);
+        await appendNodeTimeline(action.project_id, survivorId, timelineEntryNow(
+          survivorId === nodeId ? 'created' : 'apply',
+          translateHist(histLocale, survivorId === nodeId ? 'node-history.created-proposal' : 'node-history.applied'),
+        ));
+      }
       applied.push(`Competitor: ${name}`);
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'market_size_fact' && ownerUserId) {

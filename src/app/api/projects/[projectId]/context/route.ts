@@ -5,6 +5,8 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { extractAssumptions } from '@/lib/assumptions';
 import { syncBusinessEssentialNodes } from '@/lib/business-essentials-sync';
 import { cleanEntityName } from '@/lib/ecosystem-alert-parser';
+import { timelineEntryNow, historyLocale } from '@/lib/knowledge/node-timeline';
+import { translate } from '@/lib/i18n/messages';
 
 /**
  * POST /api/projects/{projectId}/context
@@ -78,14 +80,18 @@ export async function POST(
     // reads applied competitor graph_nodes, never research.competitors.
     // Mirrors applyValidationProposal's competitor upsert (atomic on
     // (project_id, LOWER(name)) per migration 018).
+    const setupLocale = await historyLocale(null, projectId);
+    const setupBirth = { timeline: [timelineEntryNow('created', translate(setupLocale, 'node-history.created-setup'))] };
     for (const raw of competitors) {
       const name = cleanEntityName(raw) || raw;
+      // Birth entry (#327) rides the INSERT only — the conflict branch leaves
+      // an existing node's attributes (and its history) untouched.
       await run(
-        `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, reviewed_state)
-         VALUES (?, ?, ?, 'competitor', '', 'applied')
+        `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, reviewed_state)
+         VALUES (?, ?, ?, 'competitor', '', ?, 'applied')
          ON CONFLICT (project_id, LOWER(name)) DO UPDATE SET
            reviewed_state = 'applied'`,
-        generateId('gnode'), projectId, name,
+        generateId('gnode'), projectId, name, setupBirth,
       );
     }
   }

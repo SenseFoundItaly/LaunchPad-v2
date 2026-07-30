@@ -23,6 +23,8 @@ import { coerceJson } from '@/lib/jsonb';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { marketSizeDrift, fmtAmount } from '@/lib/market-size-coherence';
 import { persistCompetitorCategories } from '@/lib/competitor-categories';
+import { timelineEntryNow, historyLocale } from '@/lib/knowledge/node-timeline';
+import { translate } from '@/lib/i18n/messages';
 import { stageMarketSizeProposal, stageValidationItemsFromRaw, type RawValidationItem } from '@/lib/auto-stage-validation';
 import type { Source } from '@/types/artifacts';
 
@@ -133,6 +135,12 @@ async function upsertPendingNode(
     );
     if (existing?.id) return { id: existing.id, created: false }; // captured — keep it, allow category back-fill
     const id = `node_${(globalThis.crypto?.randomUUID?.() ?? `${Date.now()}${Math.round(performance.now())}`).replace(/-/g, '').slice(0, 12)}`;
+    // Birth entry (#327): record that market research created this node.
+    const locale = await historyLocale(null, projectId);
+    const seeded = {
+      ...((attributes && typeof attributes === 'object' ? attributes : {}) as Record<string, unknown>),
+      timeline: [timelineEntryNow('created', translate(locale, 'node-history.created-research'))],
+    };
     await run(
       `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
@@ -141,7 +149,7 @@ async function upsertPendingNode(
       trimmed,
       nodeType,
       summary.slice(0, 500),
-      jb(attributes),
+      jb(seeded),
       jb(sources),
     );
     return { id, created: true };

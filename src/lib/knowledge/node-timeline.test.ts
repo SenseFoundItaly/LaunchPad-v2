@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { runMock } = vi.hoisted(() => ({ runMock: vi.fn() }));
 vi.mock('@/lib/db', () => ({ run: runMock }));
 
-import { appendNodeTimeline, timelineEntryNow } from './node-timeline';
+import { appendNodeTimeline, timelineEntryNow, historyLocale } from './node-timeline';
 import { coerceTimeline } from '@/lib/timeline';
 
 beforeEach(() => { vi.clearAllMocks(); runMock.mockResolvedValue([]); });
@@ -52,5 +52,15 @@ describe('coerceTimeline with origin-tagged entries', () => {
     ]);
     expect(parsed).toHaveLength(2);
     expect(parsed[1].kind).toBe('founder_edit');
+  });
+});
+
+
+describe('historyLocale — fail-open', () => {
+  it('falls back to en when locale resolution throws (a history write must never kill the mutation)', async () => {
+    // '@/lib/db' is mocked with `run` only, so resolveLocale's internal query
+    // call blows up — exactly the failure mode that killed the investor
+    // upserts before the fail-open wrapper existed.
+    await expect(historyLocale('user_x', 'proj_x')).resolves.toBe('en');
   });
 });

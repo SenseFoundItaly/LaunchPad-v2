@@ -16,6 +16,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useT } from '@/components/providers/LocaleProvider';
 import { NODE_COLORS } from '@/types/graph';
 import type { RecentMove } from '@/app/api/projects/[projectId]/recent-moves/route';
+import type { MessageKey } from '@/lib/i18n/messages';
 
 function hostOf(url: string): string {
   try {
@@ -78,6 +79,19 @@ export default function RecentMovesFeed({ projectId }: { projectId: string }) {
               <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13, fontWeight: 650, color: 'var(--ink-2)' }}>{mv.node_name}</span>
                 {when && <span style={{ fontSize: 11, color: 'var(--ink-5)' }}>{when}</span>}
+                {/* Origin badge (#328): who made the move. Legacy entries have
+                    no kind and render unbadged. */}
+                {mv.kind && (
+                  <span
+                    style={{
+                      fontSize: 9.5, fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase',
+                      color: 'var(--ink-5)', background: 'var(--paper-2, var(--surface))',
+                      border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {t(`node-history.badge-${mv.kind}` as MessageKey)}
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: 12.5, lineHeight: 1.45, color: 'var(--ink-3)', marginTop: 2, wordBreak: 'break-word' }}>
                 {mv.headline}

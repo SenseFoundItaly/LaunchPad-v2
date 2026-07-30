@@ -534,6 +534,21 @@ export default function NodeDetailPanel({
                       <div style={{ fontSize: 12.5, lineHeight: 1.45, color: 'var(--ink-3)', wordBreak: 'break-word' }}>
                         {when && <span style={{ color: 'var(--ink-5)', fontWeight: 600 }}>{when} · </span>}
                         {mv.headline}
+                        {/* Origin badge (#328) — who made this move. Legacy
+                            entries carry no kind and render unbadged. */}
+                        {mv.kind && (
+                          <span
+                            style={{
+                              marginLeft: 6, fontSize: 9.5, fontWeight: 600, letterSpacing: 0.3,
+                              textTransform: 'uppercase', color: 'var(--ink-5)',
+                              background: 'var(--paper-2, var(--surface))',
+                              border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px',
+                              verticalAlign: 'middle', whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {t(`node-history.badge-${mv.kind}` as MessageKey)}
+                          </span>
+                        )}
                       </div>
                       {mv.source_url && (
                         <a
