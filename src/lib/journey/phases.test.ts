@@ -85,3 +85,23 @@ describe('buildSpine — CONTIGUITY (regression: real projects showed later phas
     expect(p0.total).toBeGreaterThan(0);
   });
 });
+
+// Tooltip coverage (spine hover explainers). The component maps phase and loop
+// numbers to i18n keys; a phase added here without a matching key would lose
+// its explainer silently, since a missing tooltip renders as no tooltip.
+describe('spine tooltip coverage', () => {
+  it('every phase and every interleaved loop has an explainer key in BOTH locales', async () => {
+    const { en } = await import('@/lib/i18n/messages/en');
+    const { it: itMsgs } = await import('@/lib/i18n/messages/it');
+    for (const p of PHASES) {
+      const key = `journey-phase.tip-phase-${p.n}`;
+      expect(en, `missing EN ${key}`).toHaveProperty(key);
+      expect(itMsgs, `missing IT ${key}`).toHaveProperty(key);
+      if (p.loopAfter) {
+        const lk = `journey-phase.tip-loop-${p.loopAfter}`;
+        expect(en, `missing EN ${lk}`).toHaveProperty(lk);
+        expect(itMsgs, `missing IT ${lk}`).toHaveProperty(lk);
+      }
+    }
+  });
+});
