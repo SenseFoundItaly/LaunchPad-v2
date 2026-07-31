@@ -28,7 +28,10 @@ export interface TaskStep {
 export interface TaskRow {
   id: string;
   label: string;
-  status: TaskStatus;
+  /** Agent-reported state. Omit in checklist mode, where the founder owns state. */
+  status?: TaskStatus;
+  /** Checklist mode only — whether the founder has ticked this row off. */
+  checked?: boolean;
   /** Ordinal shown inside the ring for pending/running rows (defaults to position). */
   index?: number;
   /** Secondary count, e.g. "12 suppliers". */
@@ -81,12 +84,25 @@ interface Props {
   rows: TaskRow[];
   /** 'list' = one bordered card; 'cards' = separate elevated rows. */
   variant?: 'list' | 'cards';
+  /**
+   * Checklist mode. When supplied, the leading glyph becomes a checkbox the
+   * founder can tick and clicking a row toggles it instead of expanding.
+   *
+   * The distinction matters: without this, a row's state is something the AGENT
+   * reports and the founder reads. With it, the state is the founder's own — so
+   * the component must never render an agent status that could overwrite what
+   * they ticked.
+   */
+  onToggle?: (id: string) => void;
+  /** Compact density for checklist rows nested inside another card. */
+  dense?: boolean;
 }
 
-export function TaskRows({ rows, variant = 'cards' }: Props) {
+export function TaskRows({ rows, variant = 'cards', onToggle, dense = false }: Props) {
   const t = useT();
   const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
   const list = variant === 'list';
+  const checklist = typeof onToggle === 'function';
 
   return (
     <div
@@ -127,29 +143,54 @@ export function TaskRows({ rows, variant = 'cards' }: Props) {
           >
             <button
               type="button"
-              aria-expanded={hasSteps ? open : undefined}
-              aria-label={hasSteps ? t('tasks.expand') : undefined}
-              disabled={!hasSteps}
-              onClick={() => setOpenIds((c) => ({ ...c, [row.id]: !open }))}
-              className="flex h-11 w-full items-center gap-2.5 px-2.5 text-left transition-colors duration-100 enabled:hover:bg-surface-sunk"
+              aria-expanded={!checklist && hasSteps ? open : undefined}
+              aria-pressed={checklist ? Boolean(row.checked) : undefined}
+              aria-label={!checklist && hasSteps ? t('tasks.expand') : undefined}
+              disabled={!checklist && !hasSteps}
+              onClick={() =>
+                checklist
+                  ? onToggle!(row.id)
+                  : setOpenIds((c) => ({ ...c, [row.id]: !open }))
+              }
+              className={`flex w-full items-center gap-2.5 px-2.5 text-left transition-colors duration-100 enabled:hover:bg-surface-sunk ${
+                dense ? 'h-8' : 'h-11'
+              }`}
             >
-              {/* The ring/badge is the only status signal; give it text so a
-                  screen reader gets the state, not just the ordinal. */}
+              {checklist ? (
+                <span
+                  aria-hidden="true"
+                  className={`flex size-4 shrink-0 items-center justify-center rounded-[5px] transition-colors duration-200 ${
+                    row.checked ? 'bg-ink text-paper' : 'text-transparent'
+                  }`}
+                  style={row.checked ? undefined : { boxShadow: 'inset 0 0 0 1.5px var(--line-2)' }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                </span>
+              ) : (
+                /* The ring/badge is the only status signal; give it text so a
+                   screen reader gets the state, not just the ordinal. */
+                <span
+                  role="status"
+                  aria-label={
+                    row.status === 'done' ? t('tasks.status-done')
+                    : row.status === 'failed' ? (row.retrying ? t('tasks.retrying') : t('tasks.status-failed'))
+                    : t('tasks.status-running')
+                  }
+                  className="flex size-6 shrink-0 items-center justify-center"
+                >
+                  {badge}
+                </span>
+              )}
               <span
-                role="status"
-                aria-label={
-                  row.status === 'done' ? t('tasks.status-done')
-                  : row.status === 'failed' ? (row.retrying ? t('tasks.retrying') : t('tasks.status-failed'))
-                  : t('tasks.status-running')
-                }
-                className="flex size-6 shrink-0 items-center justify-center"
+                className={`min-w-0 flex-1 truncate font-medium ${dense ? 'text-[12px]' : 'text-[13px]'} ${
+                  checklist && row.checked ? 'text-ink-4 line-through' : 'text-ink'
+                }`}
               >
-                {badge}
+                {row.label}
               </span>
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{row.label}</span>
               {row.amount && <span className="text-[12.5px] text-ink-2 tabular-nums">{row.amount}</span>}
-              {pill}
-              {hasSteps && (
+              {!checklist && pill}
+              {!checklist && hasSteps && (
                 <span aria-hidden="true" className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3">
                   <svg
                     width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"

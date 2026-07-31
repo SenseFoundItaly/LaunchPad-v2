@@ -42,6 +42,7 @@ export default function EntityCardInline({
 
   return (
     <ArtifactCardShell
+      exportArtifact={artifact}
       typeLabel={t('card.type-entity')}
       title={artifact.name}
       sources={artifact.sources}

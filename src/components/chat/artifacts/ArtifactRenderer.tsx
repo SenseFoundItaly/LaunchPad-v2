@@ -24,6 +24,9 @@ import IdeaCanvasCard from './IdeaCanvasCard';
 import TamSamSomCard from './TamSamSomCard';
 import InvestorPipelineCard from './InvestorPipelineCard';
 import WeeklyUpdateCard from './WeeklyUpdateCard';
+import ApprovalRequestCard from './ApprovalRequestCard';
+import RecommendationArtifactCard from './RecommendationArtifactCard';
+import InsightCarouselCard from './InsightCarouselCard';
 import ArtifactCardShell from './ArtifactCardShell';
 import { RadarChart, BarChart, PieChart, GaugeChart, ScoreCard } from '@/components/charts';
 import BaselineScoreCard from './BaselineScoreCard';
@@ -153,6 +156,12 @@ export default function ArtifactRenderer({
       return <InvestorPipelineCard artifact={artifact} />;
     case 'weekly-update':
       return <WeeklyUpdateCard artifact={artifact} />;
+    case 'approval-request':
+      return <ApprovalRequestCard artifact={artifact} onAction={onAction} defaultCollapsed={defaultCollapsed} />;
+    case 'recommendation':
+      return <RecommendationArtifactCard artifact={artifact} onAction={onAction} defaultCollapsed={defaultCollapsed} />;
+    case 'insight-carousel':
+      return <InsightCarouselCard artifact={artifact} defaultCollapsed={defaultCollapsed} />;
     case 'task':  // Inline-only — rendered by InlineArtifact → TaskCard in chat/page.tsx
     case 'fact':  // Server-only — intercepted by chat route, never sent to client
       return null;

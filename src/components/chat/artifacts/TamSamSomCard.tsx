@@ -74,6 +74,7 @@ export default function TamSamSomCard({ artifact }: TamSamSomCardProps) {
 
   return (
     <ArtifactCardShell
+      exportArtifact={artifact}
       typeLabel={t('tss.type-market-size')}
       title={artifact.title}
       sources={artifact.sources}

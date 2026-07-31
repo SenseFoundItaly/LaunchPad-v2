@@ -645,6 +645,31 @@ export const it: Partial<Record<MessageKey, string>> = {
   'ui.insights.next': 'Insight successivo',
   'ui.insights.segments': 'Segmenti di allocazione',
   'ui.loading.label': 'Elaborazione',
+  // ui/* primitives montati nella superficie Conoscenza (AllKnowledgePanel).
+  'ui.knowledge.view-sections': 'Sezioni',
+  'ui.knowledge.view-table': 'Tabella',
+  'ui.knowledge.col-item': 'Voce',
+  'ui.knowledge.col-kind': 'Tipo',
+  'ui.knowledge.col-provenance': 'Provenienza',
+  'ui.knowledge.detail-heading': 'Dettaglio',
+  'ui.knowledge.no-summary': 'Nessuna sintesi registrata per questa voce.',
+  'ui.knowledge.tier-abbr-founder': 'TU',
+  'ui.knowledge.tier-abbr-derived': 'SIS',
+  'ui.knowledge.tier-abbr-verified': 'VER',
+  // Artefatto comparison-table reso con RecordsTable — intestazione della colonna
+  // identità che la vecchia tabella lasciava vuota.
+  'ui.comparison.identity-column': 'Opzione',
+  // Diff delle modifiche in attesa nell'Idea Canvas. È la superficie di LETTURA
+  // del gate di approvazione del founder: deve dire "non ancora approvata" a
+  // parole, mai affidarsi al solo colore.
+  'ui.canvas-pending.title-one': 'Modifica proposta — non ancora approvata',
+  'ui.canvas-pending.title-many': '{count} modifiche proposte — non ancora approvate',
+  'ui.canvas-pending.col-field': 'Blocco',
+  'ui.canvas-pending.col-state': 'Stato',
+  'ui.canvas-pending.col-value': 'Valore',
+  'ui.canvas-pending.state-current': 'Attuale',
+  'ui.canvas-pending.state-proposed': 'Proposto',
+  'ui.canvas-pending.hint': 'Niente qui viene applicato finché non lo approvi.',
   'chat.option-show-less': 'Mostra meno',
   'chat.commit-failed': 'salvataggio non riuscito — tocca per riprovare',
   'chat.run-with-credits': 'Esegui',
@@ -1761,4 +1786,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   'avs.financial-burn': 'Burn mensile',
   'avs.financial-cash': 'Liquidità disponibile',
   'avs.financial-revenue': 'Ricavi (MRR)',
+  'ui.approval.type-label': 'Richiesta di approvazione',
+  'ui.approval.recorded': 'Risposte registrate.',
+  'ui.recommendation.type-label': 'Raccomandazione',
+  'ui.insight-carousel.type-label': 'Insight',
 };

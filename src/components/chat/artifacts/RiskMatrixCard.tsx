@@ -84,6 +84,7 @@ export default function RiskMatrixCard({ artifact }: RiskMatrixCardProps) {
 
   return (
     <ArtifactCardShell
+      exportArtifact={artifact}
       typeLabel={t('riskm.type-risk-matrix')}
       title={artifact.title}
       sources={artifact.sources}

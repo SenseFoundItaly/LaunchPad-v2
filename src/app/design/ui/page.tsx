@@ -51,6 +51,7 @@ const FX = {
   context: 'Evidence behind this verdict', // i18n-exempt — gallery fixture
   streaming:
     'Your willingness-to-pay signal is below the 30% threshold, so Loop 1 stays open and the Validation Gate will not unlock.', // i18n-exempt — gallery fixture
+  artifactNote: 'approval-request / recommendation / insight-carousel are wired into ArtifactRenderer — they render in chat and the Data Room, not here.', // i18n-exempt — gallery chrome
   heading: 'UI primitives', // i18n-exempt — gallery chrome
   subheading:
     '14 components from src/components/ui, on SenseFound tokens. Nothing here is wired to product data.', // i18n-exempt — gallery chrome
@@ -275,6 +276,10 @@ export default function UIGalleryPage() {
             },
           ]}
         />
+      </Section>
+
+      <Section name="Artifact types (new)" note="approval-request, recommendation and insight-carousel now render through ArtifactRenderer.">
+        <p className="text-[12.5px] text-ink-3">{FX.artifactNote}</p>
       </Section>
     </main>
   );
