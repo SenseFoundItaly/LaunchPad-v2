@@ -5,17 +5,25 @@
  * fields as a compact card so they're always in view while scrolling
  * department artifacts below.
  *
- * Data source: GET /api/projects/{id}/idea-canvas — returns the 5 fields
- * we surface (problem, solution, target, value, business_model). Refetches
- * on lp-actions-changed so agent updates appear seamlessly.
+ * Data source: GET /api/projects/{id}/idea-canvas — returns all 9 Lean
+ * Canvas blocks (the same set the Stage-1 checks read). Refetches on
+ * lp-actions-changed so agent updates appear seamlessly.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
+import { DiffTable, type DiffRow } from '@/components/ui/DiffTable';
 import { useT } from '@/components/providers/LocaleProvider';
 
-type CanvasFieldName = 'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model';
+type CanvasFieldName =
+  | 'problem'
+  | 'solution'
+  | 'target_market'
+  | 'value_proposition'
+  | 'business_model'
+  | 'competitive_advantage'
+  | 'channels';
 
 interface IdeaCanvasRow {
   problem?: string | null;
@@ -23,9 +31,29 @@ interface IdeaCanvasRow {
   target_market?: string | null;
   value_proposition?: string | null;
   business_model?: string | null;
+  competitive_advantage?: string | null;
+  unfair_advantage?: string | null;
+  channels?: string | null;
+  key_metrics?: string[] | null;
+  revenue_streams?: string[] | null;
+  cost_structure?: string[] | null;
   /** Staged-but-unapproved field values (open validation_proposals) — painted
    *  progressively as the agent proposes them, before the founder approves. */
   pending?: Partial<Record<CanvasFieldName, string>>;
+}
+
+/** JSONB string[] blocks (metrics, costs, revenues) → one display line. */
+function joinList(v: string[] | null | undefined): string {
+  return (v ?? []).filter((x) => typeof x === 'string' && x.trim()).join(' · ');
+}
+
+/** The diff summary is a scan surface, not the reading surface — the full text
+ *  stays in the field below, which is why clipping here is safe. Kept short on
+ *  purpose: DiffTable caps itself at max-w-95 and its value cells don't wrap, so
+ *  a long line would be cut by the container with no ellipsis to say so. */
+function clip(s: string, max = 26): string {
+  const flat = s.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
 interface IdeaCanvasHeaderProps {
@@ -59,7 +87,7 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
   // Cached via TanStack so the pinned header survives tab navigation. The
   // 'idea-canvas' topic is invalidated by the lp-actions-changed bridge, so
   // agent updates still appear seamlessly — no per-component listener needed.
-  const { data = null, isLoading } = useQuery<IdeaCanvasRow | null>({
+  const { data = null, isLoading, isFetching } = useQuery<IdeaCanvasRow | null>({
     queryKey: ['idea-canvas', projectId],
     enabled: !!projectId,
     queryFn: async () => {
@@ -76,6 +104,15 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
   const loaded = !isLoading;
 
   const pending = data?.pending ?? {};
+  // Competitive advantage folds the moat in when both exist — the Stage-1
+  // "edge" check reads them as one articulation (incl. unfair advantage).
+  const edge = [data?.competitive_advantage, data?.unfair_advantage]
+    .map((v) => v?.trim())
+    .filter(Boolean)
+    .join(' · ');
+  const metrics = joinList(data?.key_metrics);
+  const costs = joinList(data?.cost_structure);
+  const revenues = joinList(data?.revenue_streams);
   const isEmpty =
     loaded &&
     !data?.problem &&
@@ -83,7 +120,51 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
     !data?.target_market &&
     !data?.value_proposition &&
     !data?.business_model &&
+    !edge &&
+    !data?.channels &&
+    !metrics &&
+    !costs &&
+    !revenues &&
     Object.keys(pending).length === 0;
+
+  // Pending-changes diff — a READ-ONLY summary of the unapproved proposal
+  // payload, rendered ABOVE the fields. Deliberately additive: the per-field
+  // inline pending display, its anchors and its editing affordances are
+  // untouched, this only answers "what is waiting on me?" in one glance.
+  //
+  // Each staged field yields the applied value as a `removed` row (what the
+  // proposal would replace) and the staged value as an `added` row (what it
+  // would become). Nothing here commits: the founder-approval gate still owns
+  // the transition, and the title says so in words, not just in colour.
+  const pendingSpec: Array<[CanvasFieldName, string, string | null | undefined]> = [
+    ['problem', t('canvas.field-problem'), data?.problem],
+    ['solution', t('canvas.field-solution'), data?.solution],
+    ['target_market', t('canvas.field-target'), data?.target_market],
+    ['value_proposition', t('canvas.field-value'), data?.value_proposition],
+    ['competitive_advantage', t('canvas.field-edge'), edge || null],
+    ['channels', t('canvas.field-channels'), data?.channels],
+    ['business_model', t('canvas.field-business-model'), data?.business_model],
+  ];
+  const pendingRows: DiffRow[] = [];
+  let pendingCount = 0;
+  for (const [key, label, current] of pendingSpec) {
+    const proposed = pending[key]?.trim();
+    if (!proposed) continue;
+    pendingCount += 1;
+    if (current) {
+      pendingRows.push({
+        id: `${key}-current`,
+        change: 'removed',
+        dotColor: 'var(--clay)',
+        cells: { field: label, state: t('ui.canvas-pending.state-current'), value: clip(current) },
+      });
+    }
+    pendingRows.push({
+      id: `${key}-proposed`,
+      change: 'added',
+      cells: { field: label, state: t('ui.canvas-pending.state-proposed'), value: clip(proposed) },
+    });
+  }
 
   return (
     <div
@@ -106,6 +187,22 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
         <span className="lp-serif" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
           {t('canvas.idea-canvas-title')}
         </span>
+        {loaded && isFetching && (
+          // Enrichment in flight (a commit/apply just invalidated the query) —
+          // a small ambient pulse so the founder sees the canvas updating.
+          <span
+            className="lp-pulse"
+            aria-hidden
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 999,
+              background: 'var(--accent)',
+              animation: 'lp-pulse 1s ease-in-out infinite',
+              flexShrink: 0,
+            }}
+          />
+        )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           {factCount > 0 && (
             <button
@@ -168,6 +265,27 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
       ) : isEmpty ? (
         <div style={{ fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' }}>{t('canvas.idea-canvas-empty')}</div>
       ) : (
+        <>
+        {pendingRows.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <DiffTable
+              title={
+                pendingCount === 1
+                  ? t('ui.canvas-pending.title-one')
+                  : t('ui.canvas-pending.title-many', { count: pendingCount })
+              }
+              columns={[
+                { key: 'field', label: t('ui.canvas-pending.col-field'), kind: 'strong', width: '26%' },
+                { key: 'state', label: t('ui.canvas-pending.col-state'), kind: 'chip', width: '26%' },
+                { key: 'value', label: t('ui.canvas-pending.col-value'), kind: 'text' },
+              ]}
+              rows={pendingRows}
+            />
+            <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+              {t('ui.canvas-pending.hint')}
+            </div>
+          </div>
+        )}
         <div
           style={{
             display: 'grid',
@@ -181,8 +299,17 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
           <Field label={t('canvas.field-solution')} value={data?.solution} pendingValue={pending.solution} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-solution" />
           <Field label={t('canvas.field-target')} value={data?.target_market} pendingValue={pending.target_market} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-target_market" />
           <Field label={t('canvas.field-value')} value={data?.value_proposition} pendingValue={pending.value_proposition} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-value_proposition" />
+          {/* Alpha feedback 21/07: the founder can't see (or fill) the blocks the
+              Stage-1 checks require — edge, channels, costs/revenues, metrics
+              were tracked in idea_canvas but never surfaced here. */}
+          <Field label={t('canvas.field-edge')} value={edge || null} pendingValue={pending.competitive_advantage} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-competitive_advantage" />
+          <Field label={t('canvas.field-channels')} value={data?.channels} pendingValue={pending.channels} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-channels" />
+          <Field label={t('canvas.field-costs')} value={costs || null} anchorId="canvasfield-cost_structure" />
+          <Field label={t('canvas.field-revenues')} value={revenues || null} anchorId="canvasfield-revenue_streams" />
+          <Field label={t('canvas.field-metrics')} value={metrics || null} anchorId="canvasfield-key_metrics" full />
           <Field label={t('canvas.field-business-model')} value={data?.business_model} pendingValue={pending.business_model} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-business_model" full />
         </div>
+        </>
       )}
     </div>
   );
@@ -212,8 +339,30 @@ function Field({
 }) {
   const showPending = !value && !!pendingValue;
   const showPendingUpdate = !!value && !!pendingValue;
+
+  // Enrichment animation: when this field's displayed text CHANGES after the
+  // first paint (a commit landed, a proposal staged, a reshape applied), play
+  // a brief accent-wash rise so the founder sees the piece get populated.
+  // The sentinel skips the mount (opening the page must not flash every field).
+  const displayed = value || pendingValue || '';
+  const prevRef = useRef<string | null>(null);
+  const [enriching, setEnriching] = useState(false);
+  useEffect(() => {
+    if (prevRef.current === null) {
+      prevRef.current = displayed;
+      return;
+    }
+    if (displayed && displayed !== prevRef.current) {
+      prevRef.current = displayed;
+      setEnriching(true);
+      const timer = setTimeout(() => setEnriching(false), 1400);
+      return () => clearTimeout(timer);
+    }
+    prevRef.current = displayed;
+  }, [displayed]);
+
   return (
-    <div id={anchorId} style={{ gridColumn: full ? '1 / -1' : undefined, minWidth: 0, borderRadius: 4 }}>
+    <div id={anchorId} className={enriching ? 'lp-enrich' : undefined} style={{ gridColumn: full ? '1 / -1' : undefined, minWidth: 0, borderRadius: 4 }}>
       <div
         className="lp-mono"
         style={{

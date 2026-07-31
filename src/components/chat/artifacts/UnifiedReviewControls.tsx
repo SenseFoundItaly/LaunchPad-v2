@@ -13,6 +13,8 @@
  */
 
 import type { ActionLane } from '@/lib/action-lanes';
+import type { MessageKey } from '@/lib/i18n/messages';
+import { useT } from '@/components/providers/LocaleProvider';
 
 // 'monitor' lane never reaches these controls — monitors aren't pending_actions.
 // 'signal' lane never reaches them either — signal_alert rows render in the
@@ -41,28 +43,28 @@ export interface UnifiedReviewControlsProps {
 // Lane-aware labels
 // ---------------------------------------------------------------------------
 
-const APPLY_LABELS: Record<ReviewableLane, string> = {
-  approval: 'Apply',
-  todo: 'Mark done',
-  notification: 'Acknowledge',
+const APPLY_LABELS: Record<ReviewableLane, MessageKey> = {
+  approval: 'urc.apply',
+  todo: 'urc.mark-done',
+  notification: 'urc.acknowledge',
 };
 
-const REJECT_LABELS: Record<ReviewableLane, string> = {
-  approval: 'Reject',
-  todo: 'Dismiss',
-  notification: 'Dismiss',
+const REJECT_LABELS: Record<ReviewableLane, MessageKey> = {
+  approval: 'urc.reject',
+  todo: 'urc.dismiss',
+  notification: 'urc.dismiss',
 };
 
-const APPLIED_LABELS: Record<ReviewableLane, string> = {
-  approval: 'Applied',
-  todo: 'Done',
-  notification: 'Acknowledged',
+const APPLIED_LABELS: Record<ReviewableLane, MessageKey> = {
+  approval: 'urc.applied',
+  todo: 'urc.done',
+  notification: 'urc.acknowledged',
 };
 
-const REJECTED_LABELS: Record<ReviewableLane, string> = {
-  approval: 'Rejected',
-  todo: 'Dismissed',
-  notification: 'Dismissed',
+const REJECTED_LABELS: Record<ReviewableLane, MessageKey> = {
+  approval: 'urc.rejected',
+  todo: 'urc.dismissed',
+  notification: 'urc.dismissed',
 };
 
 // ---------------------------------------------------------------------------
@@ -102,6 +104,7 @@ export default function UnifiedReviewControls({
   destination,
   impactHint,
 }: UnifiedReviewControlsProps) {
+  const t = useT();
   const isFooter = variant === 'footer';
 
   // --- Applied pill -------------------------------------------------------
@@ -113,7 +116,7 @@ export default function UnifiedReviewControls({
           : 'text-[10px] px-2 py-0.5 rounded-full'
       } bg-moss-wash text-moss font-medium flex items-center gap-1.5`}>
         <CheckIcon size={isFooter ? 14 : 10} />
-        {APPLIED_LABELS[lane]}
+        {t(APPLIED_LABELS[lane])}
       </span>
     );
   }
@@ -127,7 +130,7 @@ export default function UnifiedReviewControls({
           : 'text-[10px] px-2 py-0.5 rounded-full'
       } bg-clay/20 text-clay font-medium flex items-center gap-1.5`}>
         <XIcon size={isFooter ? 14 : 10} />
-        {REJECTED_LABELS[lane]}
+        {t(REJECTED_LABELS[lane])}
       </span>
     );
   }
@@ -138,7 +141,7 @@ export default function UnifiedReviewControls({
       return (
         <div className="flex items-center justify-center gap-2 pt-3 mt-3 border-t border-line-2">
           <SpinnerIcon size={16} />
-          <span className="text-sm text-ink-4">Processing…</span>
+          <span className="text-sm text-ink-4">{t('urc.processing')}</span>
         </div>
       );
     }
@@ -167,7 +170,7 @@ export default function UnifiedReviewControls({
                 : 'text-[10px] px-2 py-0.5 rounded-full bg-moss-wash text-moss hover:bg-moss/30 font-medium'
             } transition-colors`}
           >
-            Retry
+            {t('urc.retry')}
           </button>
         </div>
       </div>
@@ -195,14 +198,14 @@ export default function UnifiedReviewControls({
           className="flex-1 text-sm px-4 py-2.5 rounded-lg inline-flex items-center justify-center gap-2 bg-moss-wash text-moss hover:bg-moss/30 transition-colors font-semibold"
         >
           <CheckIcon size={16} />
-          {APPLY_LABELS[lane]}
+          {t(APPLY_LABELS[lane])}
         </button>
         {onEdit && (
           <button
             onClick={onEdit}
             className="text-sm px-4 py-2.5 rounded-lg inline-flex items-center justify-center gap-2 bg-paper-3/60 text-ink-3 hover:bg-paper-3 transition-colors font-semibold"
           >
-            Edit
+            {t('urc.edit')}
           </button>
         )}
         {onReject && (
@@ -211,7 +214,7 @@ export default function UnifiedReviewControls({
             className="flex-1 text-sm px-4 py-2.5 rounded-lg inline-flex items-center justify-center gap-2 bg-paper-3/60 text-ink-4 hover:text-clay hover:bg-clay/15 transition-colors font-semibold"
           >
             <XIcon size={16} />
-            {REJECT_LABELS[lane]}
+            {t(REJECT_LABELS[lane])}
           </button>
         )}
         </div>
@@ -231,14 +234,14 @@ export default function UnifiedReviewControls({
         title={inlineTooltip}
         className="text-[10px] px-2 py-0.5 rounded-full bg-moss-wash text-moss hover:bg-moss/30 transition-colors font-medium"
       >
-        {APPLY_LABELS[lane]}
+        {t(APPLY_LABELS[lane])}
       </button>
       {onEdit && (
         <button
           onClick={onEdit}
           className="text-[10px] px-2 py-0.5 rounded-full bg-paper-3/50 text-ink-3 hover:bg-paper-3 transition-colors font-medium"
         >
-          Edit
+          {t('urc.edit')}
         </button>
       )}
       {onReject && (
@@ -246,7 +249,7 @@ export default function UnifiedReviewControls({
           onClick={onReject}
           className="text-[10px] px-2 py-0.5 rounded-full bg-paper-3/50 text-ink-4 hover:text-clay hover:bg-clay/20 transition-colors font-medium"
         >
-          {REJECT_LABELS[lane]}
+          {t(REJECT_LABELS[lane])}
         </button>
       )}
     </>

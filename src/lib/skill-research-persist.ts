@@ -20,9 +20,12 @@
 
 import { run, get } from '@/lib/db';
 import { coerceJson } from '@/lib/jsonb';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { marketSizeDrift, fmtAmount } from '@/lib/market-size-coherence';
 import { persistCompetitorCategories } from '@/lib/competitor-categories';
-import { stageMarketSizeProposal } from '@/lib/auto-stage-validation';
+import { timelineEntryNow, historyLocale } from '@/lib/knowledge/node-timeline';
+import { translate } from '@/lib/i18n/messages';
+import { stageMarketSizeProposal, stageValidationItemsFromRaw, type RawValidationItem } from '@/lib/auto-stage-validation';
 import type { Source } from '@/types/artifacts';
 
 // JSONB bind: pass the RAW value (postgres.js single-encodes). JSON.stringify here
@@ -74,6 +77,7 @@ export interface ResearchFields {
   marketSizing: unknown;
   competitors: ResearchObj[];
   trends: unknown[];
+  customerInsights: ResearchObj | null;
   sources: unknown;
 }
 
@@ -90,7 +94,9 @@ export function extractResearchFields(text: string): ResearchFields | null {
     if (mr && (mr.market_sizing || mr.market_size || mr.competitors || mr.competitor_profiles)) {
       const competitors = asArray(mr.competitors).length ? asArray(mr.competitors) : asArray(mr.competitor_profiles);
       const trends = asArray(mr.trends).length ? asArray(mr.trends) : asArray(mr.market_trends);
-      return { marketSizing: mr.market_sizing ?? mr.market_size ?? null, competitors: competitors as ResearchObj[], trends, sources: mr.sources ?? [] };
+      const ci = mr.customer_insights;
+      const customerInsights = ci && typeof ci === 'object' && !Array.isArray(ci) ? (ci as ResearchObj) : null;
+      return { marketSizing: mr.market_sizing ?? mr.market_size ?? null, competitors: competitors as ResearchObj[], trends, customerInsights, sources: mr.sources ?? [] };
     }
   }
   // Truncated output — recover complete sub-structures individually.
@@ -98,7 +104,9 @@ export function extractResearchFields(text: string): ResearchFields | null {
   const competitors = asArray(parseSafe(extractBalanced(text, 'competitors') ?? extractBalanced(text, 'competitor_profiles'))) as ResearchObj[];
   if (marketSizing || competitors.length) {
     const trends = asArray(parseSafe(extractBalanced(text, 'trends') ?? extractBalanced(text, 'market_trends')));
-    return { marketSizing, competitors, trends, sources: [] };
+    const ciRaw = parseSafe(extractBalanced(text, 'customer_insights'));
+    const customerInsights = ciRaw && typeof ciRaw === 'object' && !Array.isArray(ciRaw) ? (ciRaw as ResearchObj) : null;
+    return { marketSizing, competitors, trends, customerInsights, sources: [] };
   }
   return null;
 }
@@ -127,6 +135,12 @@ async function upsertPendingNode(
     );
     if (existing?.id) return { id: existing.id, created: false }; // captured — keep it, allow category back-fill
     const id = `node_${(globalThis.crypto?.randomUUID?.() ?? `${Date.now()}${Math.round(performance.now())}`).replace(/-/g, '').slice(0, 12)}`;
+    // Birth entry (#327): record that market research created this node.
+    const locale = await historyLocale(null, projectId);
+    const seeded = {
+      ...((attributes && typeof attributes === 'object' ? attributes : {}) as Record<string, unknown>),
+      timeline: [timelineEntryNow('created', translate(locale, 'node-history.created-research'))],
+    };
     await run(
       `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
@@ -135,7 +149,7 @@ async function upsertPendingNode(
       trimmed,
       nodeType,
       summary.slice(0, 500),
-      jb(attributes),
+      jb(seeded),
       jb(sources),
     );
     return { id, created: true };
@@ -223,7 +237,7 @@ export async function persistResearchFromSkillOutput(
 
   const fields = extractResearchFields(text);
   if (!fields) return NONE;
-  const { marketSizing, competitors, trends, sources } = fields;
+  const { marketSizing, competitors, trends, customerInsights, sources } = fields;
 
   // F6 — market-size drift TELEMETRY (observe-only). A market-research re-run
   // overwrites the established TAM/SAM/SOM; if the canonical keeps moving, the
@@ -296,6 +310,83 @@ export async function persistResearchFromSkillOutput(
       { tam: tierStr('tam'), sam: tierStr('sam'), som: tierStr('som') },
       Array.isArray(sources) ? (sources as Source[]) : [],
     ).catch((err) => console.warn('[skill-research-persist] market-size proposal failed (non-fatal):', (err as Error).message));
+  }
+
+  // Approve-to-green items for the Stage-2 1A trends_assessed +
+  // buyer_persona_defined checks (2026-07 alpha-feedback follow-up): those
+  // checks read memory_facts keywords, but this parser routes trends/insights
+  // into research.trends — which no check reads. Without this staging a perfect
+  // run left both checks red unless the model ALSO emitted well-phrased
+  // insight-cards. Same founder-first shape as the sizing card: the apply
+  // executor prefixes each fact with its check's verbatim keyword ('Market
+  // trend — ' / 'Buyer persona — '), so approval always closes the check.
+  {
+    const skillSources = Array.isArray(sources) ? (sources as Source[]) : [];
+    const raw: RawValidationItem[] = [];
+    // Resolve locale ONCE for this staging block (persona + differentiation
+    // both need it). Structural infixes go in the project language; the
+    // keyword that closes each check is the executor's verbatim prefix.
+    const it = (await resolveLocale('', projectId).catch(() => 'en')) === 'it';
+    for (const t of (trends as ResearchObj[]).slice(0, 3)) {
+      const name = str(t?.name);
+      if (!name) continue;
+      const dir = str(t?.direction);
+      const timeframe = str(t?.timeframe);
+      const impl = str(t?.implication ?? t?.description).slice(0, 300);
+      const value = `${name}${dir ? ` — ${dir}` : ''}${timeframe ? ` (${timeframe})` : ''}${impl ? `: ${impl}` : ''}`;
+      const tSources = Array.isArray(t?.sources) ? (t.sources as Source[]) : skillSources;
+      raw.push({ kind: 'trend_fact', value, sources: tSources });
+    }
+    if (customerInsights) {
+      const buyer = str(customerInsights.buyer_persona);
+      if (buyer) {
+        const user = str(customerInsights.user_persona);
+        const criteria = asArray(customerInsights.decision_criteria).map(str).filter(Boolean).slice(0, 3).join('; ');
+        const triggers = asArray(customerInsights.purchase_triggers).map(str).filter(Boolean).slice(0, 3).join('; ');
+        // Structural labels in the project language — the surrounding content
+        // already arrives in the skill's (project) language, and these fixed
+        // English infixes leaked into IT founder cards (i18n gap audit 21/07).
+        // 'criteri di scelta' / 'trigger di acquisto' are verbatim entries in
+        // the bilingual BUYER_PERSONA_KEYWORDS list, so the keyword match that
+        // closes the check is preserved in both languages.
+        const value = [
+          buyer,
+          user && user !== buyer ? `${it ? 'Utente quotidiano' : 'Daily user'}: ${user}` : '',
+          criteria ? `${it ? 'Criteri di scelta' : 'Decision criteria'}: ${criteria}` : '',
+          triggers ? `${it ? 'Trigger di acquisto' : 'Purchase triggers'}: ${triggers}` : '',
+        ].filter(Boolean).join('. ');
+        raw.push({ kind: 'buyer_persona_fact', value, sources: skillSources });
+      }
+    }
+
+    // Differentiation (Stage-2 1A differentiation_evidence) — the ONE 1A check
+    // with no deterministic staging: it depended on the model emitting a
+    // comparative insight-card or the chat retro-sweep firing, so a clean
+    // market-research run left it red while trends + persona greened (the gate
+    // felt "parziale"). Stage a differentiation_fact from the competitor
+    // weaknesses the skill JUST found — the opening the founder differentiates
+    // into — mirroring trends/persona. Founder-first (pending → Apply); the
+    // executor's 'Differentiator — '/'Differenziazione — ' prefix carries the
+    // keyword that closes the check.
+    const rivals = (competitors as ResearchObj[])
+      .map((c) => ({
+        name: str(c?.name ?? c?.competitor ?? c?.company),
+        weak: asArray(c?.weaknesses ?? c?.key_weaknesses).map(str).filter(Boolean).slice(0, 2),
+      }))
+      .filter((c) => c.name && c.weak.length > 0)
+      .slice(0, 3);
+    if (rivals.length > 0) {
+      const parts = rivals.map((c) => `${c.name} (${c.weak.join(', ')})`).join('; ');
+      const value = it
+        ? `Rispetto a ${parts} — questi sono i punti deboli dei concorrenti su cui differenziarsi.`
+        : `Compared to ${parts} — these competitor gaps are where you differentiate.`;
+      raw.push({ kind: 'differentiation_fact', value, sources: skillSources });
+    }
+
+    if (raw.length > 0) {
+      await stageValidationItemsFromRaw(projectId, raw, 'market-research skill').catch((err) =>
+        console.warn('[skill-research-persist] trends/persona proposal failed (non-fatal):', (err as Error).message));
+    }
   }
 
   // pending competitor nodes + their matryoshka categories (item 14)

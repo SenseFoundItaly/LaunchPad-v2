@@ -9,6 +9,7 @@ import { runAgentStream, buildSeedHistory } from '@/lib/pi-agent';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { LOCALE_ENGLISH_NAME } from '@/lib/i18n/locales';
+import { translate } from '@/lib/i18n/messages';
 import { makeProjectTools, withSourceTitles } from '@/lib/project-tools';
 import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
@@ -21,6 +22,8 @@ import { computeNextBestAction, renderDirectionForPrompt } from '@/lib/direction
 import { recordEvent, factHash } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
+import { findOptionDecision } from '@/lib/option-decision-log';
+import { sweepFounderMessageForFacts } from '@/lib/chat-fact-sweep';
 import type { FactArtifact, WorkflowCard } from '@/types/artifacts';
 import { isProjectCapped } from '@/lib/cost-meter';
 import { assertCreditsAvailable, debitCredits } from '@/lib/credits';
@@ -29,6 +32,8 @@ import { validationTracksAB_done } from '@/lib/journey/stage-2-market-validation
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { CACHE_PREFIX_SPLIT, buildSplitUserTurn } from '@/lib/chat-cache-split';
+import { NODE_STEP_PREFIX, parseNodeStep, sessionSuffixForStep } from '@/lib/chat/node-scope';
+import { coerceTimeline } from '@/lib/timeline';
 import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
 import { pickModel, type TaskLabel } from '@/lib/llm/router';
@@ -182,11 +187,14 @@ When get_project_summary shows: no Idea Canvas, overall_score=0, all stages NOT 
 1. This is a fresh project. The founder just created it.
 2. Read the project name + description carefully.
 3. IF the description provides enough signal (problem, who, what):
-   → Destructure the idea immediately: identify problem, solution, target market, and value
-     proposition from what's available. Do NOT merely present your analysis and ask the founder
+   → Destructure the idea immediately: identify problem, solution, and target market from
+     what's available. Do NOT merely present your analysis and ask the founder
      to confirm — in the SAME reply you MUST STAGE the canvas so Stage 1 can score. Use ONE
      mechanism: put a one-click COMMIT OPTION in your trailing option-set carrying every field
-     you can infer ({"id":"commit","label":"Confirm — commit to canvas","commit":{"canvas":{"problem":"…","solution":"…","target_market":"…","value_proposition":"…","channels":"…"}}}).
+     you can infer ({"id":"commit","label":"Confirm — commit to canvas","commit":{"canvas":{"problem":"…","solution":"…","target_market":"…","channels":"…"}}}).
+     EXCEPTION: never include value_proposition in this bulk commit — the USP is worked as its
+     own conversation with the founder first (see VALUE PROPOSITION IS EARNED in OPTION-SET
+     DISCIPLINE below).
      Partial canvases are fine — stage what you confidently have; the founder edits on the card.
      A brand-new-project reply that ends with only prose or questions — when the description
      already gives you problem + who + what — is BROKEN: Stage 1 stays empty and the spine never moves.
@@ -249,6 +257,7 @@ OPTION-SET DISCIPLINE — STAY ON THE FOUNDER'S WORK:
 - When the founder selects an option, DO the on-task work it implies on the very next turn (write the field, ask the one gap-closing question, or fire the mapped skill). Never answer a selection with a self-monologue or a topic switch. If you notice you have drifted off the founder's current task, snap back to the most recent open gap immediately — do not wait for the founder to redirect you.
 - COMMIT VIA A DETERMINISTIC COMMIT OPTION. When the founder has SETTLED a canvas field — problem, solution, value_proposition, target_market, competitive_advantage, or business_model (they picked one of your drafts OR typed their own wording you sharpened) — put a COMMIT OPTION in your trailing option-set that CARRIES the exact value: {"id":"commit","label":"Confirm — commit to canvas","description":"Lock in this problem statement and move to Solution","commit":{"canvas":{"problem":"<the exact agreed text>"}}}. Clicking it WRITES the field(s) straight to the canvas in one click — the click IS the founder's approval. Put EVERY settled field in ONE commit.canvas object (commit all five at once when the founder confirms the whole canvas). Canvas writes are FREE — omit "credits" on a commit option.
 - NEVER NARRATE A COMMIT. Saying "committed" / "ora registro nel canvas" / "salvato nel canvas" / "chiudo i check" WITHOUT emitting a commit option (or an applied update_idea_canvas card) is BROKEN — prose is NOT persistence; it leaves idea_canvas EMPTY and Stage 1 never scores, and if the chat later resets you fall back to that empty row. If you have a settled value, the commit OPTION is the action — emit it; do not describe the save in words.
+- VALUE PROPOSITION IS EARNED, NEVER DEFAULTED. value_proposition is the highest-leverage canvas field — the USP is what everything downstream (scoring, business model, pitch) stands on. A commit option carrying a value_proposition the founder has not SHAPED is BROKEN, even if your draft is plausible. Before EVER placing value_proposition in a commit.canvas you MUST have asked — across prior turns, one question per turn per TIER 0.25 — and received the founder's answers to: (a) for WHOM exactly (sharper than target_market — the person who feels the problem), (b) versus WHAT they use today (the real alternative, including "nothing/spreadsheet"), (c) why the founder believes they WIN against that alternative. Then draft 2-3 candidate one-liners that VISIBLY incorporate those answers and offer them as options — the founder picks or edits ONE — and only THEN emit the commit carrying the chosen wording. PERSIST EACH ANSWER THE TURN IT LANDS via save_memory_fact ("USP input — for whom: …" / "USP input — versus: …" / "USP input — edge: …") — the answers otherwise live only in this thread, and an abandoned thread loses the founder's most valuable input; with the facts saved, a later thread resumes the USP work instead of re-asking. Never draft and commit a value_proposition in the SAME turn; never fold it into a first-turn bulk canvas commit (see TIER 1.5) — carve it out and work it as its own conversation. A generic value prop that any competitor could also claim ("faster, cheaper, easier") is a signal you skipped (b) or (c) — go back and ask.
 - KNOWLEDGE ITEMS COMMIT THE SAME WAY — via "commit":{"items":[…]}. When the founder confirms a competitor or a market-size figure, carry it as a commit option's items[] (one click applies it — free): {"id":"commit","label":"Confirm — add to intelligence","description":"…","commit":{"items":[{"kind":"competitor","name":"Acme","label":"Competitor","value":"<summary>","sources":[…]},{"kind":"market_size_fact","label":"Market size","value":"<TAM/SAM/SOM statement>","sources":[…]}]}}. Each item carries its own "sources" (never a "credits" field). You MAY mix canvas + items in one commit option (commit both this turn's canvas fields AND a competitor together). Same rule as canvas: the click persists it — NEVER narrate "added the competitor" / "ho salvato il competitor" without the commit option.
 - DON'T RE-PROPOSE A COMMITTED ITEM. Once a field appears in [CURRENT IDEA CANVAS] (or a competitor/fact in the graph) it is written — do not re-offer it, pivot to it, reinterpret it as something else (a watcher, a skill), or ask the founder to re-confirm wording they already chose. Acknowledge in one line and move to the next OPEN gap.
 - update_idea_canvas / propose_validation stage a REVIEW CARD the founder must still Apply — only reach for them when you specifically want the editable batch-review card; otherwise prefer the one-click deterministic commit option (applying is free, canvas and items alike).
@@ -297,8 +306,8 @@ CHART ARTIFACTS:
 radar-chart: :::artifact{"type":"radar-chart","id":"rdr_ID"}\n{"title":"...","data":[{"subject":"Market","value":8}],"sources":[...]}\n:::
 bar-chart: :::artifact{"type":"bar-chart","id":"bar_ID"}\n{"title":"...","data":[{"name":"Q1","value":50000}],"sources":[...]}\n:::
 pie-chart: :::artifact{"type":"pie-chart","id":"pie_ID"}\n{"title":"...","data":[{"name":"Us","value":30}],"sources":[...]}\n:::
-gauge-chart: :::artifact{"type":"gauge-chart","id":"gau_ID"}\n{"title":"...","score":7.5,"maxScore":10,"verdict":"GO","sources":[...]}\n:::
-score-card: :::artifact{"type":"score-card","id":"sc_ID"}\n{"title":"...","score":8.5,"maxScore":10,"description":"...","sources":[...]}\n:::
+gauge-chart: :::artifact{"type":"gauge-chart","id":"gau_ID"}\n{"title":"...","score":75,"maxScore":100,"verdict":"GO","sources":[...]}\n:::
+score-card: :::artifact{"type":"score-card","id":"sc_ID"}\n{"title":"...","score":85,"maxScore":100,"description":"...","sources":[...]}\n:::
 metric-grid: :::artifact{"type":"metric-grid","id":"mg_ID"}\n{"title":"...","metrics":[{"label":"MRR","value":"$12K","change":"+15%"}],"sources":[...]}\n:::
 sensitivity-slider: :::artifact{"type":"sensitivity-slider","id":"ss_ID"}\n{"title":"...","variables":[{"name":"retainer","min":4000,"max":15000,"value":8000,"unit":"$"}],"output":{"label":"Monthly","formula":"retainer * 0.15"}}\n:::  (sources optional)
 
@@ -308,7 +317,7 @@ fact: :::artifact{"type":"fact","id":"fact_ID"}\n{"fact":"...","kind":"decision"
 - Facts MUST have sources.
 
 USAGE RULES:
-1) gauge-chart for overall scores with GO/NO-GO/CAUTION verdict
+1) gauge-chart for overall scores with GO/NO-GO/CAUTION verdict. Score scales are ALWAYS 0-100 (maxScore:100) on gauge-chart, score-card, and radar-chart alike — the official scoring rubric's scale; never emit 0-10 scores (a 6.8/10 next to the 0-100 Home score reads as a contradiction to the founder).
 2) radar-chart for multi-dimension scoring
 3) bar-chart for comparisons and rankings
 4) score-card for individual dimension scores
@@ -671,9 +680,18 @@ export async function POST(request: NextRequest) {
   // "what changed since last time" signal feed (route.ts:143 freshness rule).
   let directionContext = '';
   try {
+    // Node side-threads (#330) are EXCLUDED: "what changed since last time" is
+    // about the founder's main conversation. Counting a node-panel exchange as
+    // the last chat would mark signals as already-seen that never appeared in
+    // any feed the founder read.
+    // COALESCE guards legacy rows with a NULL step, which `NOT LIKE` would
+    // otherwise evaluate to NULL and silently drop from the ordering.
     const lastRows = await query<{ created_at: string }>(
-      'SELECT created_at FROM chat_messages WHERE project_id = ? ORDER BY created_at DESC LIMIT 1',
+      `SELECT created_at FROM chat_messages
+        WHERE project_id = ? AND COALESCE(step, 'chat') NOT LIKE ?
+        ORDER BY created_at DESC LIMIT 1`,
       project_id,
+      `${NODE_STEP_PREFIX}%`,
     );
     const lastChatAt = lastRows[0]?.created_at ?? null;
     const nba = await computeNextBestAction(project_id, { lastChatAt, snapshot: snapshot ?? undefined });
@@ -708,7 +726,11 @@ export async function POST(request: NextRequest) {
   // is already fetched; '' when no sizing exists (no token cost). Reference-only
   // framing keeps it out of the validation gate.
   const researchContext = buildResearchContext((snapshot?.research ?? null) as Record<string, unknown> | null);
-  const dynamicContext = `${directionContext}${stageContext}${canvasContext}${researchContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
+  // Node-scoped side thread (#330): step = 'node:<id>' focuses the SAME agent on
+  // one knowledge entity. FIRST in the dynamic context so the focus outranks the
+  // project-wide steering. Empty string for every ordinary step — no token cost.
+  const focusNodeContext = await buildFocusNodeContext(project_id, step);
+  const dynamicContext = `${focusNodeContext}${directionContext}${stageContext}${canvasContext}${researchContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
   let systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
@@ -733,7 +755,12 @@ export async function POST(request: NextRequest) {
   // This unifies memory across the "chat" / "research" / "simulation" steps
   // within a single project — if the user asked about competitor X under
   // research, the agent remembers that when they switch to chat.
-  const sessionId = `user-${userId}-project-${project_id}`;
+  // EXCEPTION (#330): a node side-thread gets its own session. Sharing the key
+  // would leak a narrow "is this Pantone check still right?" exchange into the
+  // founder's main conversation (and vice versa) — the two threads are shown
+  // side by side, so their memories must not merge. Empty suffix for every
+  // project-wide step keeps existing sessions byte-identical.
+  const sessionId = `user-${userId}-project-${project_id}${sessionSuffixForStep(step)}`;
   const piStart = Date.now();
 
   try {
@@ -876,10 +903,17 @@ export async function POST(request: NextRequest) {
       systemPrompt = systemPrompt + trailingSteer;
     }
 
+    // BYOK — if the founder stored a key for whichever provider the router
+    // picks, bill their account instead of ours. Undefined ⇒ system key.
+    // Resolve the provider the same way runAgentStream will (pickModel on the
+    // same task), so we look up the key for the provider actually called.
+    const userKey = await resolveUserKey(userId, pickModel(chatTask).provider);
+
     const { stream: piStream } = runAgentStream(effectiveLastMessage, {
       sessionId,
       systemPrompt,
       seedHistory,
+      userKey,
       // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
       projectId: project_id,
       step,
@@ -1089,18 +1123,53 @@ export async function POST(request: NextRequest) {
           // "Scelgo: …" message (the localized chat.i-choose template). Record it
           // as a structured decision event so which fork the founder took is
           // queryable (activation/dropout metrics) instead of buried in prose.
+          // The DISCARDED siblings ride the same event (option-decision-log):
+          // without them, "why did we skip option B?" had no answer in a pivot.
           try {
             const choice = lastMessage.match(/^\s*(?:I choose|Scelgo):\s*([\s\S]+)$/i);
             if (choice) {
+              const chosen = choice[1].trim();
+              let decision = null;
+              try {
+                // The click's option-set lives in a PRIOR assistant message —
+                // this turn's reply is already persisted, so scan the last 3.
+                const prevAssistant = await query<{ content: string }>(
+                  `SELECT content FROM chat_messages
+                    WHERE project_id = ? AND role = 'assistant'
+                    ORDER BY "timestamp" DESC LIMIT 3`,
+                  project_id,
+                );
+                decision = findOptionDecision(prevAssistant.map((r) => r.content), chosen);
+              } catch { /* decision context is best-effort */ }
               await recordEvent({
                 userId,
                 projectId: project_id,
                 eventType: 'option_selected',
-                payload: { choice: choice[1].trim().slice(0, 200) },
+                payload: {
+                  choice: chosen.slice(0, 200),
+                  ...(decision?.discarded.length ? { discarded: decision.discarded } : {}),
+                  ...(decision?.prompt ? { prompt: decision.prompt } : {}),
+                },
               });
             }
           } catch (err) {
             console.warn('[chat] option_selected record failed (non-fatal):', (err as Error).message);
+          }
+
+          // Deterministic capture net (chat-fact-sweep): if this founder message
+          // states spine-relevant evidence the agent did NOT capture via
+          // save_memory_fact (facts written mid-turn are already in the DB, so
+          // the sweep's already-captured guard sees them), stage it as an
+          // approve-to-green item — founder-first, same gate as doc digests.
+          try {
+            const swept = await sweepFounderMessageForFacts(project_id, lastMessage);
+            if (swept.staged > 0) {
+              // Re-use the proposal backstop below so the staged card is
+              // injected into this turn instead of waiting silently in Inbox.
+              stagedCanvasEvidence = true;
+            }
+          } catch (err) {
+            console.warn('[chat] fact sweep failed (non-fatal):', (err as Error).message);
           }
 
           const segments = parseMessageContent(fullResponse);
@@ -1314,7 +1383,7 @@ export async function POST(request: NextRequest) {
                   linked_risk_id: 'ad_hoc',
                   urls_to_track: pl.url ? [pl.url] : [],
                   pending_action_id: pa.id,
-                  sources: withSourceTitles(pl.sources),
+                  sources: withSourceTitles(pl.sources, (k, v) => translate(locale, k, v)),
                 };
                 card = `\n\n:::artifact{"type":"monitor-proposal","id":"mon_prop_${pa.id.slice(-12)}"}\n${JSON.stringify(body)}\n:::`;
               } else {
@@ -1330,7 +1399,7 @@ export async function POST(request: NextRequest) {
                   estimated_monthly_credits: pl.estimated_monthly_credits,
                   estimated_per_run_credits: pl.estimated_per_run_credits,
                   pending_action_id: pa.id,
-                  sources: withSourceTitles(rawSources),
+                  sources: withSourceTitles(rawSources, (k, v) => translate(locale, k, v)),
                 };
                 if (pl.query) body.query = pl.query;
                 if (Array.isArray(pl.urls_to_track) && pl.urls_to_track.length) body.urls_to_track = pl.urls_to_track;
@@ -1504,6 +1573,75 @@ export async function POST(request: NextRequest) {
       'X-Accel-Buffering': 'no',
     },
   });
+}
+
+/**
+ * Focus block for a node-scoped side thread (#330).
+ *
+ * Returns '' for every ordinary step, so the project-wide chat is byte-identical
+ * to before and pays no token cost. For `step = 'node:<id>'` it loads the node
+ * SCOPED TO (id, project_id) — a forged step therefore cannot pull another
+ * project's row into the prompt — and renders the entity plus its recent
+ * history so the agent can answer "is this still right?" without re-deriving.
+ *
+ * Tolerant by design: a missing node or a failed read degrades to '' and the
+ * thread behaves as ordinary chat rather than 500-ing the founder's message.
+ */
+async function buildFocusNodeContext(projectId: string, step: string): Promise<string> {
+  const nodeId = parseNodeStep(step);
+  if (!nodeId) return '';
+
+  try {
+    const rows = await query<{
+      name: string;
+      node_type: string;
+      summary: string | null;
+      attributes: unknown;
+      reviewed_state: string | null;
+    }>(
+      `SELECT name, node_type, summary, attributes, reviewed_state
+         FROM graph_nodes WHERE id = ? AND project_id = ?`,
+      nodeId,
+      projectId,
+    );
+    const node = rows[0];
+    if (!node) return '';
+
+    const attrs = (node.attributes && typeof node.attributes === 'object'
+      ? (node.attributes as Record<string, unknown>)
+      : {}) as Record<string, unknown>;
+
+    // Recent moves give the agent the node's evolution (epic #324) so it can
+    // reason about what changed rather than treating the entity as timeless.
+    const moves = coerceTimeline(attrs.timeline)
+      .slice(-5)
+      .map((m) => `  - ${m.date ? `${m.date.slice(0, 10)} ` : ''}${m.headline}${m.kind ? ` (${m.kind})` : ''}`)
+      .join('\n');
+
+    // Everything except the timeline, which is rendered above in prose form.
+    const factEntries = Object.entries(attrs).filter(([k]) => k !== 'timeline');
+    const facts = factEntries.length > 0 ? JSON.stringify(Object.fromEntries(factEntries)) : '';
+
+    return [
+      `[FOCUS NODE — this is a side thread about ONE knowledge entity, id "${nodeId}"]`,
+      `Name: ${node.name}`,
+      `Type: ${node.node_type}`,
+      node.reviewed_state === 'pending' ? 'Status: PENDING — the founder has not applied this proposal yet.' : '',
+      node.summary ? `Summary: ${node.summary}` : '',
+      facts ? `Attributes: ${facts}` : '',
+      moves ? `Recent moves:\n${moves}` : '',
+      '',
+      'Answer about THIS entity: deepen it, challenge it, correct it, or say plainly when it looks wrong or stale.',
+      'Stay short — this renders in a narrow side panel, not the full chat column. A few sentences, no headers.',
+      'Do NOT emit :::artifact blocks here; the panel shows prose only. To CHANGE the entity, call propose_validation so the edit lands in the founder\'s inbox for approval — never claim you changed it yourself.',
+      'If the founder wants work that reaches beyond this entity, say so and point them to the main co-pilot chat.',
+      '',
+      '',
+    ].filter(Boolean).join('\n');
+  } catch {
+    /* focus read failed — degrade to ordinary chat rather than break the turn */
+    return '';
+  }
 }
 
 async function buildDirectMessages(projectId: string, step: string, messages: { role: string; content: string }[]) {

@@ -12,12 +12,14 @@ utenti devi già sapere se la cosa è *costruibile*, da cosa *dipende* e se un v
 
 È pensata per validare **in modo incrementale, man mano che la chat avanza** — non serve un'unica
 esecuzione. Ogni volta che il founder discute un aspetto tecnico, catturalo come fatto durevole
-così i tre check 1B del gate (`tech_feasibility`, `key_dependencies`, `regulatory_check`) si
-chiudono progressivamente:
+così i quattro check 1B del gate (`build_approach`, `technical_risk_named`, `key_dependencies`,
+`regulatory_check`) si chiudono progressivamente:
 
-- **Fattibilità (`tech_feasibility`)** — l'approccio è tecnicamente possibile con gli strumenti di
-  oggi? Qual è l'approccio di build / architettura ad alto livello? Qual è il singolo rischio
-  tecnico maggiore?
+- **Fattibilità (`build_approach` + `technical_risk_named`)** — l'approccio è tecnicamente
+  possibile con gli strumenti di oggi? Qual è l'approccio di build / architettura ad alto livello?
+  E — come finding a sé — qual è il singolo rischio tecnico maggiore? Una sola card di fattibilità
+  copre entrambi i check, ma il suo body DEVE descrivere l'approccio di build E usare letteralmente
+  la frase "rischio tecnico" quando nomina il rischio, così entrambi i check la intercettano.
 - **Dipendenze chiave (`key_dependencies`)** — le dipendenze esterne critiche: API di terzi,
   modelli, infrastruttura, vendor, sorgenti dati, integrazioni.
 - **Regolatorio / compliance (`regulatory_check`)** — regolamenti, licenze, certificazioni o
@@ -31,7 +33,8 @@ nei memory_facts del progetto. I check **1B** del Validation Gate leggono quei f
 valutazione successiva: emettere queste card è ciò che rende verde la traccia tecnica. Emetti
 **una card per area** (fattibilità + dipendenze usano `category: "technology"`; la card
 regolatoria usa `category: "regulatory"`), con `body` con le parole-chiave che il gate
-intercetta e almeno una source:
+intercetta (il body della card di fattibilità deve contenere sia l'approccio di build sia la
+frase letterale "rischio tecnico") e almeno una source:
 
 ```
 :::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Fattibilità tecnica","body":"<verdetto fattibilità — approccio/architettura + il rischio tecnico maggiore>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"..."}]}

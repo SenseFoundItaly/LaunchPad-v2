@@ -1,12 +1,14 @@
 'use client';
 
 import type { ScoreDimension } from '@/types';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface ScoreCardProps {
   dimension: ScoreDimension;
 }
 
 export default function ScoreCard({ dimension }: ScoreCardProps) {
+  const t = useT();
   const getColor = (score: number) => {
     if (score >= 75) {return 'text-moss';}
     if (score >= 50) {return 'text-accent';}
@@ -28,13 +30,13 @@ export default function ScoreCard({ dimension }: ScoreCardProps) {
       <p className="text-xs text-ink-4 mb-2">{dimension.rationale}</p>
       {dimension.strengths.length > 0 && (
         <div className="mb-2">
-          <span className="text-xs text-moss">Strengths: </span>
+          <span className="text-xs text-moss">{t('chart.strengths')}</span>
           <span className="text-xs text-ink-4">{dimension.strengths.join(', ')}</span>
         </div>
       )}
       {dimension.risks.length > 0 && (
         <div>
-          <span className="text-xs text-clay">Risks: </span>
+          <span className="text-xs text-clay">{t('chart.risks')}</span>
           <span className="text-xs text-ink-4">{dimension.risks.join(', ')}</span>
         </div>
       )}

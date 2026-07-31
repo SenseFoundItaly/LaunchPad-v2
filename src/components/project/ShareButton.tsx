@@ -11,16 +11,18 @@
 import { useState } from 'react';
 import { IconBtn } from '@/components/design/primitives';
 import { I } from '@/components/design/icons';
+import { useT } from '@/components/providers/LocaleProvider';
 import { ShareDialog } from './ShareDialog';
 
 export function ShareButton({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false);
+  const t = useT();
   return (
     <>
       <IconBtn
         d={I.users}
-        title="Share project"
-        aria-label="Share project"
+        title={t('share.title')}
+        aria-label={t('share.title')}
         onClick={() => setOpen(true)}
       />
       {open && <ShareDialog projectId={projectId} onClose={() => setOpen(false)} />}

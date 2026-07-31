@@ -31,6 +31,7 @@ import { coerceJson } from '@/lib/jsonb';
 import { parseScoreSummary } from '@/lib/score-summary';
 import { generateId } from '@/lib/api-helpers';
 import { recordScoreHistory } from '@/lib/score-history';
+import { OVERALL_SCORE_TITLE_RE } from '@/lib/score-display';
 import type {
   Artifact,
   EntityCard,
@@ -50,10 +51,15 @@ import type {
   TamSamSomArtifact,
   IdeaCanvasArtifact,
   InvestorPipelineArtifact,
+  PersonaCard,
+  RiskMatrixArtifact,
+  WeeklyUpdateArtifact,
   Source,
 } from '@/types/artifacts';
 import { marketSizeFromTamSamSom } from './research-context';
 import { persistCanvasDetails } from './canvas-details';
+import { timelineEntryNow, historyLocale } from '@/lib/knowledge/node-timeline';
+import { translate } from '@/lib/i18n/messages';
 import { recordFact } from './memory/facts';
 import { createPendingAction } from './pending-actions';
 import { getCreditsRemaining } from './credits';
@@ -103,18 +109,49 @@ async function upsertGraphNodeFromArtifact(
       input.name,
     );
     if (existing) {
+      // Replace the attribute map but PRESERVE + extend the node's evolution
+      // history (#324/#327): the old wholesale `attributes = ?` silently
+      // destroyed attributes.timeline on every co-pilot enrich. The jsonb_set
+      // carries the existing timeline over and appends this enrich as a move,
+      // capped to the newest 20 — all in one atomic statement.
+      const locale = await historyLocale(ctx.userId ?? null, ctx.projectId);
+      const move = timelineEntryNow('copilot', translate(locale, 'node-history.enriched-copilot'));
       await run(
-        'UPDATE graph_nodes SET summary = ?, attributes = ?, sources = COALESCE(?, sources) WHERE id = ?',
+        `UPDATE graph_nodes
+            SET summary = ?,
+                attributes = jsonb_set(
+                  ?::jsonb, '{timeline}',
+                  (
+                    SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+                    FROM (
+                      SELECT elem, ord
+                      FROM jsonb_array_elements(
+                        COALESCE(attributes -> 'timeline', '[]'::jsonb) || ?::jsonb
+                      ) WITH ORDINALITY AS t(elem, ord)
+                      ORDER BY ord DESC
+                      LIMIT 20
+                    ) recent
+                  )
+                ),
+                sources = COALESCE(?, sources)
+          WHERE id = ?`,
         input.summary,
-        // Pass the OBJECT, not JSON.stringify(...). attributes is a JSONB column;
-      // postgres.js serializes an object correctly, whereas stringifying stores a
-      // double-encoded JSON *string* scalar that reads back as a string (which
-      // Object.entries then renders character-by-character). See pending-actions.ts:505.
-      input.attributes,
+        // OBJECT binds, never JSON.stringify (double-encode footgun — see
+        // pending-actions.ts:505).
+        input.attributes,
+        [move],
         input.srcJson,
         existing.id,
       );
       return existing.id;
+    }
+    // New node: seed its birth entry so the dossier records where it came from.
+    {
+      const locale = await historyLocale(ctx.userId ?? null, ctx.projectId);
+      input.attributes = {
+        ...(input.attributes ?? {}),
+        timeline: [timelineEntryNow('created', translate(locale, 'node-history.created-copilot'))],
+      };
     }
     const id = `node_${crypto.randomUUID().slice(0, 12)}`;
     await run(
@@ -263,14 +300,18 @@ export async function persistArtifact(ctx: PersistContext, artifact: Artifact): 
       // INVESTITORI satellite is fed by its highest-volume source (audit B7).
       case 'investor-pipeline':
         return await persistInvestorPipeline(ctx, artifact as InvestorPipelineArtifact);
-      // Remaining stage cards are pure VIEWS over canonical tables (persona-card
-      // → simulation.personas; risk-matrix → simulation.risk_scenarios;
-      // weekly-update → startup_updates).
-      // For a canonical persona entity, use entity-card (graph_nodes + review).
+      // These three used to be view-only no-ops on the assumption their data
+      // "lives in the canonical table" — true only for the SKILL path. A
+      // chat-inline emission (agent proposes a persona / risk matrix / weekly
+      // update in conversation) wrote nothing and the content vanished on
+      // refresh (ephemerality audit 2026-07-21). Persist into the same
+      // canonical tables the skills use, merge-not-clobber.
       case 'persona-card':
+        return await persistPersonaCard(ctx, artifact as PersonaCard);
       case 'risk-matrix':
+        return await persistRiskMatrix(ctx, artifact as RiskMatrixArtifact);
       case 'weekly-update':
-        return { type: artifact.type, persisted: false, note: 'view-only — data lives in its canonical table' };
+        return await persistWeeklyUpdate(ctx, artifact as WeeklyUpdateArtifact);
       default:
         return { type: artifact.type, persisted: false, note: 'no handler' };
     }
@@ -355,11 +396,33 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     // guarantees factual artifacts arrive with sources, so this is mostly
     // a safety net against future relaxation of the rule.
     // NOTE: UPDATE preserves existing reviewed_state — don't reset to pending.
+    // PRESERVE + extend the evolution history (#324/#327): the wholesale
+    // `attributes = ?` destroyed attributes.timeline on every enrich.
+    const locale = await historyLocale(ctx.userId ?? null, ctx.projectId);
+    const move = timelineEntryNow('copilot', translate(locale, 'node-history.enriched-copilot'));
     await run(
-      'UPDATE graph_nodes SET summary = ?, attributes = ?, sources = COALESCE(?, sources) WHERE id = ?',
+      `UPDATE graph_nodes
+          SET summary = ?,
+              attributes = jsonb_set(
+                ?::jsonb, '{timeline}',
+                (
+                  SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+                  FROM (
+                    SELECT elem, ord
+                    FROM jsonb_array_elements(
+                      COALESCE(attributes -> 'timeline', '[]'::jsonb) || ?::jsonb
+                    ) WITH ORDINALITY AS t(elem, ord)
+                    ORDER BY ord DESC
+                    LIMIT 20
+                  ) recent
+                )
+              ),
+              sources = COALESCE(?, sources)
+        WHERE id = ?`,
       a.summary ?? '',
       // JSONB column — pass the object, not a stringified scalar (see above / pending-actions.ts:505).
       a.attributes ?? {},
+      [move],
       srcJson,
       existing.id,
     );
@@ -377,6 +440,12 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
 
   const nodeType = normalizeEntityType(a.entity_type);
   const id = `node_${crypto.randomUUID().slice(0, 12)}`;
+  // Seed the birth entry (#327) so the dossier records where the node came from.
+  const createdLocale = await historyLocale(ctx.userId ?? null, ctx.projectId);
+  const seededAttributes = {
+    ...(a.attributes ?? {}),
+    timeline: [timelineEntryNow('created', translate(createdLocale, 'node-history.created-copilot'))],
+  };
   await run(
     `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -386,7 +455,7 @@ async function persistEntityCard(ctx: PersistContext, a: EntityCard): Promise<Pe
     nodeType,
     a.summary ?? '',
     // JSONB column — pass the object, not a stringified scalar (see pending-actions.ts:505).
-    a.attributes ?? {},
+    seededAttributes,
     srcJson,
     reviewedState,
   );
@@ -468,12 +537,24 @@ async function persistInvestorPipeline(ctx: PersistContext, a: InvestorPipelineA
     if (inv.stage) attributes.stage = inv.stage;
     if (inv.check_size != null) attributes.check_size = inv.check_size;
     if (a.round_type) attributes.round = a.round_type;
+    // Follow-up fields (contact, next step, notes) are the founder's working
+    // pipeline state — they were dropped before (ephemerality audit
+    // 2026-07-21) and existed nowhere once the card scrolled away.
+    if (inv.contact_name) attributes.contact_name = inv.contact_name;
+    if (inv.next_step) attributes.next_step = inv.next_step;
+    if (inv.next_step_date) attributes.next_step_date = inv.next_step_date;
+    if (inv.notes) attributes.notes = inv.notes;
+    if (a.round_target != null) attributes.round_target = a.round_target;
+    if (a.round_status) attributes.round_status = a.round_status;
+    if (a.target_close) attributes.target_close = a.target_close;
 
     const summary = [
       inv.type,
       inv.stage ? `pipeline: ${inv.stage}` : '',
       inv.check_size != null ? `check ~$${inv.check_size.toLocaleString('en-US')}` : '',
       a.round_type ? `round: ${a.round_type}` : '',
+      inv.contact_name ? `contact: ${inv.contact_name}` : '',
+      inv.next_step ? `next: ${inv.next_step}${inv.next_step_date ? ` (${inv.next_step_date})` : ''}` : '',
     ].filter(Boolean).join(' · ');
 
     // Dedup + pending insert via the shared upsert (UPDATE preserves an
@@ -551,10 +632,20 @@ async function persistInsightCard(ctx: PersistContext, a: InsightCard): Promise<
 
 // ─── gauge-chart → scores.overall_score + benchmark ──────────────────────────
 
+/** scores.* canon is the startup-scoring rubric's 0-100 scale (parseScoreSummary
+ *  already writes it). Chat artifacts are prompted with maxScore:10 examples, so
+ *  a declared maxScore wins; without one, a value ≤10 is read as the prompt's
+ *  0-10 scale (6.8 → 68) and >10 as already-canonical 0-100. Mixed scales here
+ *  were founder-visible: the copilot said 6.8 while Home said /100. */
+function normalizeScoreTo100(score: number, maxScore?: number): number {
+  const max = maxScore && maxScore > 0 ? maxScore : score <= 10 ? 10 : 100;
+  return Math.max(0, Math.min(100, (score * 100) / max));
+}
+
 async function persistGaugeChart(ctx: PersistContext, a: GaugeChartArtifact): Promise<PersistResult> {
   if (typeof a.score !== 'number') return { type: a.type, persisted: false, note: 'non-numeric score' };
 
-  const normalizedScore = a.maxScore && a.maxScore > 0 ? (a.score * 10) / a.maxScore : a.score;
+  const normalizedScore = normalizeScoreTo100(a.score, a.maxScore);
   const benchmark = a.verdict ?? null;
   const srcJson = sourcesJson(a.sources);
 
@@ -586,6 +677,9 @@ async function persistGaugeChart(ctx: PersistContext, a: GaugeChartArtifact): Pr
   return { type: a.type, persisted: true, target: 'scores (overall_score)' };
 }
 
+// OVERALL_SCORE_TITLE_RE now lives in @/lib/score-display (single source shared
+// with the in-chat baseline score card renderer) — imported at the top.
+
 // ─── radar-chart → scores.dimensions (merged JSON) ───────────────────────────
 
 async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Promise<PersistResult> {
@@ -596,7 +690,9 @@ async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Pr
   const incoming: Record<string, number> = {};
   for (const point of a.data) {
     if (point && typeof point.subject === 'string' && typeof point.value === 'number') {
-      incoming[point.subject] = point.value;
+      // Dimension values share the scores 0-100 canon (see normalizeScoreTo100);
+      // radar points declare their scale as fullMark when present.
+      incoming[point.subject] = normalizeScoreTo100(point.value, point.fullMark);
     }
   }
   if (Object.keys(incoming).length === 0) {
@@ -610,6 +706,17 @@ async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Pr
 
   const srcJson = sourcesJson(a.sources);
 
+  // When the radar IS the startup-score baseline (title-matched), derive an
+  // overall from the dimension average (already normalized to the 0-100 canon
+  // above) and BACKFILL it — never clobber a real gauge/prose overall. Without
+  // this a scoring run that renders only a radar leaves no baseline and the
+  // Stage-1 startup_scoring_baseline check can never pass.
+  const dimValues = Object.values(incoming);
+  const overallFromDims =
+    OVERALL_SCORE_TITLE_RE.test(a.title ?? '') && dimValues.length > 0
+      ? dimValues.reduce((s, v) => s + v, 0) / dimValues.length
+      : null;
+
   if (existing) {
     // coerceJson: existing.dimensions may be a legacy double-encoded STRING.
     // Spreading a string enumerates its characters into char-index keys
@@ -617,18 +724,30 @@ async function persistRadarChart(ctx: PersistContext, a: RadarChartArtifact): Pr
     const prior = coerceJson<Record<string, unknown>>(existing.dimensions) || {};
     const merged = { ...prior, ...incoming };
     await run(
-      'UPDATE scores SET dimensions = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+      `UPDATE scores SET dimensions = ?,
+         overall_score = CASE WHEN (overall_score IS NULL OR overall_score = 0) AND ?::numeric IS NOT NULL THEN ?::numeric ELSE overall_score END,
+         sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?`,
       merged,
+      overallFromDims,
+      overallFromDims,
       srcJson,
       ctx.projectId,
     );
   } else {
+    // A baseline-titled radar fills the overall; a dimensions-only artifact
+    // leaves it NULL — never a literal 0, which rendered Home as "0/100 weak"
+    // and could not be told apart from a real zero (see stage-1
+    // startup_scoring_baseline).
     await run(
-      'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, 0, ?, ?)',
+      'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, ?, ?, ?)',
       ctx.projectId,
+      overallFromDims,
       incoming,
       srcJson,
     );
+  }
+  if (overallFromDims != null && overallFromDims > 0) {
+    await recordScoreHistory(ctx.projectId, overallFromDims, 'radar-chart');
   }
 
   return { type: a.type, persisted: true, target: `scores.dimensions (+${Object.keys(incoming).length} dims)` };
@@ -647,26 +766,184 @@ async function persistScoreCard(ctx: PersistContext, a: ScoreCardArtifact): Prom
   );
   // coerceJson guards against legacy double-encoded dimensions (see persistScoreCard).
   const prior = existing ? (coerceJson<Record<string, unknown>>(existing.dimensions) || {}) : {};
-  const merged = { ...prior, [a.title]: a.score };
+  const merged = { ...prior, [a.title]: normalizeScoreTo100(a.score, a.maxScore) };
   const srcJson = sourcesJson(a.sources);
 
+  // A score-card titled as THE baseline/overall score (e.g. "DeskMate —
+  // Baseline Startup Score: 6.8") is the startup-scoring result rendered as a
+  // card instead of a gauge. Mirror persistGaugeChart: fill overall_score
+  // (normalized to the 0-100 canon), otherwise no baseline lands and the
+  // Stage-1 startup_scoring_baseline check can never pass.
+  const isOverall = OVERALL_SCORE_TITLE_RE.test(a.title);
+  const normalizedScore = normalizeScoreTo100(a.score, a.maxScore);
+
   if (existing) {
-    await run(
-      'UPDATE scores SET dimensions = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
-      merged,
-      srcJson,
-      ctx.projectId,
-    );
+    if (isOverall) {
+      await run(
+        'UPDATE scores SET dimensions = ?, overall_score = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+        merged,
+        normalizedScore,
+        srcJson,
+        ctx.projectId,
+      );
+    } else {
+      await run(
+        'UPDATE scores SET dimensions = ?, sources = COALESCE(?, sources), scored_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+        merged,
+        srcJson,
+        ctx.projectId,
+      );
+    }
   } else {
+    // Baseline-titled cards fill the overall; per-dimension cards leave it
+    // NULL, never 0 — see persistRadarChart: a fabricated zero baseline
+    // poisons Home and the stage-1 scoring check.
     await run(
-      'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, 0, ?, ?)',
+      'INSERT INTO scores (project_id, overall_score, dimensions, sources) VALUES (?, ?, ?, ?)',
       ctx.projectId,
+      isOverall ? normalizedScore : null,
       merged,
       srcJson,
     );
   }
+  if (isOverall && normalizedScore > 0) {
+    await recordScoreHistory(ctx.projectId, normalizedScore, 'score-card');
+  }
 
   return { type: a.type, persisted: true, target: `scores.dimensions["${a.title}"]` };
+}
+
+// ─── persona-card → simulation.personas (merge by name) ──────────────────────
+
+async function persistPersonaCard(ctx: PersistContext, a: PersonaCard): Promise<PersistResult> {
+  const name = (a.name ?? '').trim();
+  if (!name) return { type: a.type, persisted: false, note: 'no persona name' };
+
+  const entry: Record<string, unknown> = {
+    name,
+    archetype: a.archetype,
+    ...(a.demographics ? { demographics: a.demographics } : {}),
+    ...(Array.isArray(a.jobs_to_be_done) && a.jobs_to_be_done.length ? { jobs_to_be_done: a.jobs_to_be_done } : {}),
+    ...(Array.isArray(a.pains) && a.pains.length ? { pains: a.pains } : {}),
+    ...(Array.isArray(a.channels) && a.channels.length ? { channels: a.channels } : {}),
+    ...(a.reaction ? { reaction: a.reaction } : {}),
+    ...(typeof a.engagement_score === 'number' ? { engagement_score: a.engagement_score } : {}),
+    ...(a.quote ? { quote: a.quote } : {}),
+    ...(Array.isArray(a.sources) && a.sources.length ? { sources: a.sources } : {}),
+  };
+
+  const existing = await get<{ personas: unknown }>(
+    'SELECT personas FROM simulation WHERE project_id = ?', ctx.projectId,
+  );
+
+  if (existing) {
+    // Merge by name (case-insensitive): update-in-place keeps prior fields the
+    // card didn't restate (e.g. a Stage-2 engagement_score survives a Stage-1
+    // re-emission of the same persona); unseen names append.
+    const prior = coerceJson<Array<Record<string, unknown>>>(existing.personas);
+    const list = Array.isArray(prior) ? [...prior] : [];
+    const idx = list.findIndex((p) => typeof p?.name === 'string' && p.name.trim().toLowerCase() === name.toLowerCase());
+    if (idx >= 0) list[idx] = { ...list[idx], ...entry };
+    else list.push(entry);
+    await run(
+      'UPDATE simulation SET personas = ?, simulated_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+      list, ctx.projectId,
+    );
+  } else {
+    await run(
+      'INSERT INTO simulation (project_id, personas) VALUES (?, ?)',
+      ctx.projectId, [entry],
+    );
+  }
+  return { type: a.type, persisted: true, target: `simulation.personas ("${name}")` };
+}
+
+// ─── risk-matrix → simulation.risk_scenarios (merge by risk text) ────────────
+
+async function persistRiskMatrix(ctx: PersistContext, a: RiskMatrixArtifact): Promise<PersistResult> {
+  const risks = Array.isArray(a.risks)
+    ? a.risks.filter((r) => r && typeof r.risk === 'string' && r.risk.trim().length > 0)
+    : [];
+  if (risks.length === 0) return { type: a.type, persisted: false, note: 'no risks' };
+
+  const existing = await get<{ risk_scenarios: unknown }>(
+    'SELECT risk_scenarios FROM simulation WHERE project_id = ?', ctx.projectId,
+  );
+  const prior = existing ? coerceJson<unknown>(existing.risk_scenarios) : null;
+
+  // The risk-scoring skill's direct endpoint stores its full audit BLOB (an
+  // object) here; readers (get_risk_audit, section-scoring) expect an ARRAY.
+  // Never clobber a skill audit with a chat matrix — the audit is the richer
+  // canonical output; skip and report.
+  if (prior != null && !Array.isArray(prior)) {
+    return { type: a.type, persisted: false, note: 'skill risk audit present — chat matrix not persisted over it' };
+  }
+
+  // Merge by risk id, falling back to normalized risk text — re-emitting the
+  // matrix updates entries (mitigation/status edits) instead of duplicating.
+  const list: Array<Record<string, unknown>> = Array.isArray(prior) ? [...prior as Array<Record<string, unknown>>] : [];
+  const keyOf = (r: Record<string, unknown>): string =>
+    (typeof r.id === 'string' && r.id) || String(r.risk ?? '').trim().toLowerCase();
+  for (const r of risks) {
+    const entry = r as unknown as Record<string, unknown>;
+    const idx = list.findIndex((p) => keyOf(p) === keyOf(entry));
+    if (idx >= 0) list[idx] = { ...list[idx], ...entry };
+    else list.push(entry);
+  }
+
+  const srcJson = sourcesJson(a.sources);
+  if (existing) {
+    await run(
+      'UPDATE simulation SET risk_scenarios = ?, scenario_sources = COALESCE(?, scenario_sources), simulated_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+      list, srcJson, ctx.projectId,
+    );
+  } else {
+    await run(
+      'INSERT INTO simulation (project_id, risk_scenarios, scenario_sources) VALUES (?, ?, ?)',
+      ctx.projectId, list, srcJson,
+    );
+  }
+  return { type: a.type, persisted: true, target: `simulation.risk_scenarios (+${risks.length} risk(s))` };
+}
+
+// ─── weekly-update → startup_updates ─────────────────────────────────────────
+
+async function persistWeeklyUpdate(ctx: PersistContext, a: WeeklyUpdateArtifact): Promise<PersistResult> {
+  const period = (a.period ?? '').trim();
+  if (!period) return { type: a.type, persisted: false, note: 'no period' };
+
+  // One row per (project, period): a re-emitted update for the same week
+  // refreshes it instead of stacking duplicates in the journey feed.
+  const dup = await get<{ id: string }>(
+    'SELECT id FROM startup_updates WHERE project_id = ? AND period = ? ORDER BY date DESC LIMIT 1',
+    ctx.projectId, period,
+  );
+  // JSONB: bind raw arrays — JSON.stringify double-encodes (see src/lib/jsonb.ts).
+  const metrics = Array.isArray(a.metrics_snapshot) ? a.metrics_snapshot : [];
+  const highlights = Array.isArray(a.highlights) ? a.highlights : [];
+  const challenges = Array.isArray(a.challenges) ? a.challenges : [];
+  const asks = Array.isArray(a.asks) ? a.asks : [];
+  const morale = typeof a.morale === 'number' ? a.morale : null;
+  const summary = a.generated_summary || null;
+
+  if (dup) {
+    await run(
+      `UPDATE startup_updates SET metrics_snapshot = ?, highlights = ?, challenges = ?, asks = ?,
+              morale = COALESCE(?, morale), generated_summary = COALESCE(?, generated_summary), date = ?
+        WHERE id = ?`,
+      metrics, highlights, challenges, asks, morale, summary,
+      new Date().toISOString().split('T')[0], dup.id,
+    );
+    return { type: a.type, persisted: true, target: `startup_updates (${dup.id}, refreshed)` };
+  }
+  const id = generateId('upd');
+  await run(
+    `INSERT INTO startup_updates (id, project_id, period, metrics_snapshot, highlights, challenges, asks, morale, generated_summary, date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, ctx.projectId, period, metrics, highlights, challenges, asks, morale, summary,
+    new Date().toISOString().split('T')[0],
+  );
+  return { type: a.type, persisted: true, target: `startup_updates (${id})` };
 }
 
 // ─── metric-grid → research.market_size (when market-themed) ─────────────────
@@ -935,6 +1212,10 @@ async function persistActionSuggestion(ctx: PersistContext, a: ActionSuggestion)
       source: 'action-suggestion',
       action_label: a.action_label,
       action_type_raw: a.action_type,
+      // The structured parameters of the suggested action (query, target, …).
+      // Dropped before (ephemerality audit 2026-07-21): without them the inbox
+      // row could describe the action but never re-execute it.
+      ...(a.action_payload && typeof a.action_payload === 'object' ? { action_payload: a.action_payload } : {}),
     },
     estimated_impact: 'medium',
     // Propagate sources through to pending_actions.sources so the inbox UI

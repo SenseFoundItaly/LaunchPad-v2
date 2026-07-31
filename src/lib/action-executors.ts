@@ -35,6 +35,9 @@ import { computeFinancialModel, coerceAssumptions, defaultAssumptions } from '@/
 import { applyRevisionToAssumptions, isRevisableField, proposeArpuRevisionFromAlert } from '@/lib/financial-assumption-revision';
 import { deriveAssumptionsForProject } from '@/lib/financial-assumptions';
 import { createPendingAction } from '@/lib/pending-actions';
+import { maybeTriggerLoop2 } from '@/lib/loops/loop2-bm';
+import { appendNodeTimeline, timelineEntryNow, historyLocale } from '@/lib/knowledge/node-timeline';
+import { translate as translateHist } from '@/lib/i18n/messages';
 import { coerceJson } from '@/lib/jsonb';
 import { resolveProjectLocale } from '@/lib/agent-prompt';
 import type { Locale } from '@/lib/agent-prompt';
@@ -53,6 +56,7 @@ import { calculateNextRun } from './monitor-schedule';
 import { logSignalActivity } from './signal-activity-log';
 import { maybeProposePhase1Watchers } from './phase1-watchers';
 import { syncBusinessEssentialNodes } from './business-essentials-sync';
+import { persistCanvasDetails, type CanvasDetailsInput } from './canvas-details';
 import type {
   PendingAction,
   PendingActionType,
@@ -399,7 +403,10 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
      ON CONFLICT (project_id, LOWER(name)) DO UPDATE SET
        node_type = EXCLUDED.node_type,
        summary = COALESCE(NULLIF(EXCLUDED.summary, ''), graph_nodes.summary),
-       attributes = COALESCE(EXCLUDED.attributes, graph_nodes.attributes),
+       attributes = jsonb_set(
+         COALESCE(EXCLUDED.attributes, graph_nodes.attributes, '{}'::jsonb),
+         '{timeline}',
+         COALESCE(graph_nodes.attributes -> 'timeline', '[]'::jsonb)),
        sources = COALESCE(EXCLUDED.sources, graph_nodes.sources),
        reviewed_state = 'applied'
      RETURNING id`,
@@ -414,6 +421,17 @@ const proposedGraphUpdate: ActionHandler = async (action) => {
   // Resolve to the row that actually survived the conflict (its id may differ
   // from the freshly generated nodeId if an earlier node for this entity won).
   const resolvedNodeId = insertedNode[0]?.id ?? nodeId;
+
+  // Evolution history (#327): birth entry for a fresh node, an approval move
+  // for a re-approved existing one. (The conflict clause above now CARRIES the
+  // old timeline over instead of clobbering it with EXCLUDED.attributes.)
+  {
+    const histLocale = await historyLocale(null, action.project_id);
+    await appendNodeTimeline(action.project_id, resolvedNodeId, timelineEntryNow(
+      resolvedNodeId === nodeId ? 'created' : 'apply',
+      translateHist(histLocale, resolvedNodeId === nodeId ? 'node-history.created-proposal' : 'node-history.applied'),
+    ));
+  }
 
   // Alert-derived graph updates (auto-fanout routes an alert's review as
   // proposed_graph_update per its suggested_action) CLAIM the alert's FK —
@@ -1264,6 +1282,7 @@ async function upsertAlertGraphNode(
   const signalDate = alert.created_at ? new Date(alert.created_at) : new Date();
   const timelineEntry = {
     date: (Number.isNaN(signalDate.getTime()) ? new Date() : signalDate).toISOString(),
+    kind: 'watcher' as const, // origin tag (#324) — legacy entries have none
     headline: alert.headline,
     ...(alert.source_url ? { source_url: alert.source_url } : {}),
     relevance: alert.relevance_score,
@@ -1645,13 +1664,15 @@ const runSkillExecutor: ActionHandler = async (action) => {
     timeoutMs: 170_000,
     allowAnySkill: true,
   });
-  // Loop 1: approving the PSF-review kickoff moves the loop to 'active' so the
-  // NEXT round of interviews escalates (iteration++) or forces a verdict.
-  if (skillId === 'psf-review' && payload.loop_id) {
+  // Validation loops: approving a loop's review kickoff (Loop 1 psf-review,
+  // Loop 2 business-model, …) moves the loop to 'active' so the NEXT signal
+  // write escalates (iteration++) or forces a verdict. Keyed on loop_id, not
+  // the skill id — the UPDATE is loop-number-agnostic (by id + 'proposed').
+  if (payload.loop_id) {
     await run(
       `UPDATE validation_loops SET status = 'active' WHERE id = ? AND project_id = ? AND status = 'proposed'`,
       String(payload.loop_id), action.project_id,
-    ).catch((err) => console.warn('[run_skill] loop1 activate failed (non-fatal):', (err as Error).message));
+    ).catch((err) => console.warn('[run_skill] loop activate failed (non-fatal):', (err as Error).message));
   }
 
   // Phase-1 watcher activation — a skill run can close the last Stage-1
@@ -1659,11 +1680,18 @@ const runSkillExecutor: ActionHandler = async (action) => {
   // serverless freeze, idempotent + non-throwing inside).
   await maybeProposePhase1Watchers(action.project_id);
 
+  // Localized like every other executor narrative — this one shipped EN-only
+  // (i18n gap audit 21/07).
+  const runLocale = await localeFor(action);
+  const runSecs = Math.round(result.latency_ms / 1000);
   return {
     ok: true,
     deliverable: {
       mode: 'direct',
-      narrative: `Ran ${skillId} (${Math.round(result.latency_ms / 1000)}s, ${result.artifacts_persisted} artifact(s)). ${result.summary.slice(0, 300)}`,
+      narrative:
+        runLocale === 'it'
+          ? `Eseguita ${skillId} (${runSecs}s, ${result.artifacts_persisted} artifact). ${result.summary.slice(0, 300)}`
+          : `Ran ${skillId} (${runSecs}s, ${result.artifacts_persisted} artifact(s)). ${result.summary.slice(0, 300)}`,
       created_row_id: skillId,
     },
   };
@@ -1707,11 +1735,24 @@ const applyValidationProposal: ActionHandler = async (action) => {
     'problem', 'solution', 'target_market',
     'value_proposition', 'business_model', 'competitive_advantage', 'channels',
   ] as const;
+  // Soft Lean Canvas fields (JSONB arrays + unfair_advantage text) — written
+  // via persistCanvasDetails, not the core-canvas upsert. Array items arrive
+  // newline-joined from update_idea_canvas (and stay editable as plain text on
+  // the approval card); split back into the arrays the Stage-1
+  // cost_revenue_defined / lean_canvas_compiled checks read.
+  const SOFT_ARRAY_COLS = ['key_metrics', 'cost_structure', 'revenue_streams'] as const;
 
   const applied: string[] = [];
   const canvasFields: Record<string, string> = {};
+  const canvasDetails: CanvasDetailsInput = {};
   let creditsToDebit = 0;
   let skippedNoOwner = false; // a market_size_fact couldn't persist (project has no owner)
+  // A `pricing` item wrote pricing_state (possibly unit_econ) — the Loop-2
+  // signal. This is the THIRD pricing write path (alongside the set_pricing tool
+  // and the pricing route); all three must re-evaluate the BM Stress Test or a
+  // founder whose unit economics arrive via an approved proposal (e.g. a document
+  // digest) never gets Loop 2, and an open one never re-checks.
+  let pricingWritten = false;
 
   for (const raw of items) {
     const it = raw as {
@@ -1727,6 +1768,15 @@ const applyValidationProposal: ActionHandler = async (action) => {
     if (it.kind === 'canvas_field' && it.field && (CANVAS_COLS as readonly string[]).includes(it.field)) {
       canvasFields[it.field] = value;
       applied.push(it.label || it.field);
+    } else if (it.kind === 'canvas_field' && it.field === 'unfair_advantage') {
+      canvasDetails.unfair_advantage = value;
+      applied.push(it.label || it.field);
+    } else if (it.kind === 'canvas_field' && it.field && (SOFT_ARRAY_COLS as readonly string[]).includes(it.field)) {
+      const list = value.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (list.length > 0) {
+        canvasDetails[it.field as (typeof SOFT_ARRAY_COLS)[number]] = list;
+        applied.push(it.label || it.field);
+      }
     } else if (it.kind === 'competitor') {
       // Clean the name so it persists as an entity, not a description — the agent
       // sometimes proposes "Commercialista (incumbent non-software competitor)";
@@ -1736,15 +1786,25 @@ const applyValidationProposal: ActionHandler = async (action) => {
       // Mirrors proposedGraphUpdate's competitor upsert (applied, atomic on
       // (project_id, LOWER(name)) per migration 018). sources passed RAW —
       // graph_nodes.sources is JSONB; postgres.js auto-serializes.
-      await run(
+      const compRows = await query<{ id: string }>(
         `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, sources, reviewed_state)
          VALUES (?, ?, ?, 'competitor', ?, ?, 'applied')
          ON CONFLICT (project_id, LOWER(name)) DO UPDATE SET
            summary = COALESCE(NULLIF(EXCLUDED.summary, ''), graph_nodes.summary),
            sources = COALESCE(EXCLUDED.sources, graph_nodes.sources),
-           reviewed_state = 'applied'`,
+           reviewed_state = 'applied'
+         RETURNING id`,
         nodeId, action.project_id, name, value, sources,
       );
+      // Evolution history (#327): fresh node → birth entry; existing → approval.
+      {
+        const survivorId = compRows[0]?.id ?? nodeId;
+        const histLocale = await historyLocale(null, action.project_id);
+        await appendNodeTimeline(action.project_id, survivorId, timelineEntryNow(
+          survivorId === nodeId ? 'created' : 'apply',
+          translateHist(histLocale, survivorId === nodeId ? 'node-history.created-proposal' : 'node-history.applied'),
+        ));
+      }
       applied.push(`Competitor: ${name}`);
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'market_size_fact' && ownerUserId) {
@@ -1841,16 +1901,35 @@ const applyValidationProposal: ActionHandler = async (action) => {
         { origin: 'document_digest' },
         sources ?? [],
       );
-      applied.push(it.label || `Interview: ${it.name || 'logged'}`);
+      applied.push(
+        it.label ||
+          (locale === 'it'
+            ? `Intervista: ${it.name || 'registrata'}`
+            : `Interview: ${it.name || 'logged'}`),
+      );
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'interview') {
       skippedNoOwner = true;
-    } else if ((it.kind === 'persona_fact' || it.kind === 'channel_fact') && ownerUserId) {
-      // Stage-3 prefill: write a keyword-bearing applied memory_fact so the
-      // icp_defined / channels_identified checks (which match memory_facts on
-      // ICP/channel keywords) green. Prefix guarantees the match regardless of
-      // the founder's phrasing. Founder-first (only on Apply).
-      const prefix = it.kind === 'persona_fact' ? 'Ideal customer profile — ' : 'Acquisition channel — ';
+    } else if ((it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact') && ownerUserId) {
+      // Stage-2/3 prefill: write a keyword-bearing applied memory_fact so the
+      // matching check (icp_defined / channels_identified / trends_assessed /
+      // buyer_persona_defined — all keyword-match memory_facts) greens. The
+      // prefix guarantees the match regardless of the founder's phrasing, so
+      // the LOCALIZED prefix must itself be a verbatim entry in the bilingual
+      // keyword lists ('trend di mercato', 'cliente ideale', 'canale di
+      // acquisizione', 'differenz' stem, 'buyer persona'). Founder-first
+      // (only on Apply). Localized: these are founder-visible Knowledge facts.
+      const prefix = locale === 'it'
+        ? (it.kind === 'persona_fact' ? 'Profilo del cliente ideale — ' :
+           it.kind === 'channel_fact' ? 'Canale di acquisizione — ' :
+           it.kind === 'trend_fact' ? 'Trend di mercato — ' :
+           it.kind === 'differentiation_fact' ? 'Differenziazione — ' :
+           'Buyer persona — ')
+        : (it.kind === 'persona_fact' ? 'Ideal customer profile — ' :
+           it.kind === 'channel_fact' ? 'Acquisition channel — ' :
+           it.kind === 'trend_fact' ? 'Market trend — ' :
+           it.kind === 'differentiation_fact' ? 'Differentiator — ' :
+           'Buyer persona — ');
       await recordFact({
         userId: ownerUserId,
         projectId: action.project_id,
@@ -1858,9 +1937,17 @@ const applyValidationProposal: ActionHandler = async (action) => {
         kind: 'observation',
         sources: sources ?? undefined,
       });
-      applied.push(it.label || (it.kind === 'persona_fact' ? 'Ideal customer' : 'Acquisition channel'));
+      applied.push(it.label || (locale === 'it'
+        ? (it.kind === 'persona_fact' ? 'Cliente ideale' :
+           it.kind === 'channel_fact' ? 'Canale di acquisizione' :
+           it.kind === 'trend_fact' ? 'Trend di mercato' :
+           it.kind === 'differentiation_fact' ? 'Differenziazione' : 'Buyer persona')
+        : (it.kind === 'persona_fact' ? 'Ideal customer' :
+           it.kind === 'channel_fact' ? 'Acquisition channel' :
+           it.kind === 'trend_fact' ? 'Market trend' :
+           it.kind === 'differentiation_fact' ? 'Differentiation' : 'Buyer persona')));
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
-    } else if (it.kind === 'persona_fact' || it.kind === 'channel_fact') {
+    } else if (it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact') {
       skippedNoOwner = true;
     } else if (it.kind === 'pricing' && it.field) {
       // Stage-4 prefill: upsert one pricing_state column from the item's typed
@@ -1885,7 +1972,8 @@ const applyValidationProposal: ActionHandler = async (action) => {
               x.currency, action.project_id,
             );
           }
-          applied.push(it.label || 'Pricing');
+          pricingWritten = true;
+          applied.push(it.label || (locale === 'it' ? 'Prezzi' : 'Pricing'));
           creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
         }
       }
@@ -1978,6 +2066,12 @@ const applyValidationProposal: ActionHandler = async (action) => {
     }
   }
 
+  // Soft Lean Canvas fields (founder-approved on this card) — persistCanvasDetails
+  // COALESCEs per column, so a partial write never wipes the others.
+  if (Object.keys(canvasDetails).length > 0) {
+    await persistCanvasDetails(action.project_id, canvasDetails);
+  }
+
   // One canvas upsert for every approved canvas field.
   if (Object.keys(canvasFields).length > 0) {
     await run(
@@ -2013,8 +2107,12 @@ const applyValidationProposal: ActionHandler = async (action) => {
     return {
       ok: false,
       error: skippedNoOwner
-        ? 'Cannot persist the market-size fact: this project has no owner to scope it to.'
-        : 'No valid validation items to apply.',
+        ? (locale === 'it'
+            ? 'Impossibile salvare il fatto: questo progetto non ha un proprietario a cui associarlo.'
+            : 'Cannot persist the market-size fact: this project has no owner to scope it to.')
+        : (locale === 'it'
+            ? 'Nessun elemento di convalida valido da applicare.'
+            : 'No valid validation items to apply.'),
     };
   }
 
@@ -2026,6 +2124,14 @@ const applyValidationProposal: ActionHandler = async (action) => {
     } catch (err) {
       console.warn('[applyValidationProposal] credit debit failed (non-fatal):', (err as Error).message);
     }
+  }
+
+  // Loop 2 (BM Stress Test): approving a pricing item may have just landed the
+  // unit economics the loop gates on — open it, or close/escalate an open one.
+  // AWAITED like the watcher hook below (post-response work freezes on
+  // serverless); idempotent + non-throwing internally.
+  if (pricingWritten) {
+    await maybeTriggerLoop2(action.project_id);
   }
 
   // Phase-1 watcher activation — this approval may have just completed Stage 1

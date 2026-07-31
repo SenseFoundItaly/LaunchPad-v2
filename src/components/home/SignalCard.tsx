@@ -1,5 +1,8 @@
 'use client';
 
+import { useT } from '@/components/providers/LocaleProvider';
+import type { MessageKey } from '@/lib/i18n/messages';
+
 interface SignalCardProps {
   severity: string;
   projectName: string;
@@ -7,14 +10,14 @@ interface SignalCardProps {
   createdAt: string;
 }
 
-function timeAgo(dateStr: string): string {
+function timeAgo(dateStr: string, t: ReturnType<typeof useT>): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return t('homec.time-min-ago', { n: mins });
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return t('homec.time-hour-ago', { n: hrs });
   const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+  return t('homec.time-day-ago', { n: days });
 }
 
 const SEVERITY_STYLES: Record<string, string> = {
@@ -24,14 +27,24 @@ const SEVERITY_STYLES: Record<string, string> = {
   positive: 'bg-moss-wash text-moss border-moss/30',
 };
 
+// Founder-facing label per severity enum; unknown values render raw.
+const SEVERITY_LABEL_KEYS: Record<string, MessageKey> = {
+  critical: 'homec.sev-critical',
+  warning: 'homec.sev-warning',
+  info: 'homec.sev-info',
+  positive: 'homec.sev-positive',
+};
+
 export default function SignalCard({ severity, projectName, message, createdAt }: SignalCardProps) {
+  const t = useT();
   const style = SEVERITY_STYLES[severity] || SEVERITY_STYLES.info;
+  const severityKey = SEVERITY_LABEL_KEYS[severity];
 
   return (
     <div className={`shrink-0 w-64 border rounded-lg p-3 ${style}`}>
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[10px] font-semibold uppercase tracking-wider">{severity}</span>
-        <span className="text-[10px] text-ink-6">{timeAgo(createdAt)}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wider">{severityKey ? t(severityKey) : severity}</span>
+        <span className="text-[10px] text-ink-6">{timeAgo(createdAt, t)}</span>
       </div>
       <div className="text-[10px] text-ink-5 mb-1">{projectName}</div>
       <p className="text-xs leading-relaxed line-clamp-2">{message}</p>

@@ -9,9 +9,11 @@ import { extractTechnicalFindings } from '@/lib/auto-stage-validation';
 // can't drift from the spine sources.
 
 describe('tech_fact validation targets', () => {
-  it('maps each finding to its own 1B check', () => {
+  it('maps each finding to its 1B check(s)', () => {
+    // The feasibility finding targets BOTH split checks (2026-07: the one
+    // feasibility card carries build approach AND biggest technical risk).
     const f = validationTargetsFor('tech_fact', 'feasibility');
-    expect(f.map((t) => t.check_id)).toEqual(['tech_feasibility']);
+    expect(f.map((t) => t.check_id)).toEqual(['build_approach', 'technical_risk_named']);
     const d = validationTargetsFor('tech_fact', 'dependencies');
     expect(d.map((t) => t.check_id)).toEqual(['key_dependencies']);
     const r = validationTargetsFor('tech_fact', 'regulatory');
@@ -34,7 +36,7 @@ describe('tech_fact validation targets', () => {
   it('the exported 1B source constants are the exact check sources (drift guard)', () => {
     // If a 1B check source is renamed without updating TECH_1B_SOURCES, the
     // target lookup returns [] and this test catches the silent break.
-    expect(validationTargetsFor('tech_fact', 'feasibility')[0]?.check_id).toBe('tech_feasibility');
+    expect(validationTargetsFor('tech_fact', 'feasibility')[0]?.check_id).toBe('build_approach');
     expect(TECH_1B_SOURCES.feasibility).toContain('feasibility');
     expect(TECH_1B_SOURCES.dependencies).toContain('dependencies');
     expect(TECH_1B_SOURCES.regulatory).toContain('regulatory');

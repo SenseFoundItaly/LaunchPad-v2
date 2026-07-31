@@ -23,6 +23,7 @@ import { checkActionPrompt, checkLabel, stageLabel, stageTagline, checkGap, chec
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
 import { Icon, I } from '@/components/design/icons';
 import type { MessageKey } from '@/lib/i18n/messages';
+import { TRACK_LABEL, TRACK_TIP, TRACK_ORDER } from '@/lib/journey/tracks';
 
 interface CheckRow {
   check: { id: string; label: string; source?: string; track?: '1A' | '1B' | '1C' };
@@ -86,12 +87,8 @@ const STATE: Record<StageEval['status'], { color: string; labelKey: MessageKey }
 // tracked checks group under these headers (mirrors the Home StageCard). The
 // Validation Gate tags 1A Market + 1B Technical + 1C Problem-Solution Fit (1C
 // rows render locked until 1A+1B pass); empty groups are skipped.
-const TRACK_LABEL: Record<'1A' | '1B' | '1C', MessageKey> = {
-  '1A': 'canvas.track-1a',
-  '1B': 'canvas.track-1b',
-  '1C': 'canvas.track-1c',
-};
-const TRACK_ORDER: Array<'1A' | '1B' | '1C'> = ['1A', '1B', '1C'];
+// Labels/explainers/order live in lib so both surfaces share one definition
+// (imported at the top of the file with the rest).
 
 export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
   const t = useT();
@@ -150,6 +147,20 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
           // pending — surface a 🔒 so the founder sees WHY they can't start yet
           // (matches the run-gate + the localized "stage_locked" message).
           const isSeqLocked = e.status === 'pending' && e.stage.number >= 5;
+          // Hover explainer. The tile is a 2-line clamp of the stage name, so
+          // on its own it says nothing about what the stage PROVES — the
+          // tagline already carries that (it's the StageCard subtitle), it was
+          // just unreachable from the stepper. Evidence + state complete it.
+          const tileTagline = stageTagline(e.stage.id, e.stage.tagline, t);
+          const tileTip = [
+            // Newline, not " — ": the taglines already contain em-dashes, so a
+            // dash separator renders as a confusing double dash.
+            tileTagline
+              ? `${stageLabel(e.stage.id, e.stage.label, t)}\n${tileTagline}`
+              : stageLabel(e.stage.id, e.stage.label, t),
+            e.total > 0 ? t('canvas.evidence-count', { passed: e.passed, total: e.total }) : '',
+            isSeqLocked ? t('canvas.tip-seq-locked') : t(st.labelKey),
+          ].filter(Boolean).join('\n\n');
           return (
             <button
               key={e.stage.id}
@@ -157,7 +168,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
               onClick={() => { setUserPicked(true); setOpenStage(isOpen ? null : e.stage.id); }}
               className="lp-card"
               aria-expanded={isOpen}
-              title={stageLabel(e.stage.id, e.stage.label, t)}
+              title={tileTip}
               style={{
                 padding: '8px 8px 6px',
                 background: isOpen ? 'var(--paper-2)' : 'var(--paper)',
@@ -180,7 +191,6 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                 ) : (
                   <span
                     style={{ width: 7, height: 7, borderRadius: 4, flexShrink: 0, background: e.status === 'done' ? st.color : 'transparent', border: e.status === 'done' ? 'none' : `1.5px solid ${st.color}` }}
-                    title={t(st.labelKey)}
                   />
                 )}
               </div>
@@ -335,7 +345,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                   const done = rows.filter((r) => r.result.passed).length;
                   return (
                     <div key={tk} style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 3, paddingTop: 6, borderTop: '1px solid var(--line)' }}>
+                      <div title={t(TRACK_TIP[tk])} style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 3, paddingTop: 6, borderTop: '1px solid var(--line)' }}>
                         <span className="lp-mono" style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.5, color: 'var(--ink-5)', textTransform: 'uppercase' }}>
                           {t(TRACK_LABEL[tk])}
                         </span>

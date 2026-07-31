@@ -45,7 +45,11 @@ export function buildFinancialExport(model: unknown): FinancialExport | null {
   if (isRowArray(m.scenarios) && m.scenarios.length > 0) {
     const out: unknown[][] = [];
     for (const sc of m.scenarios) {
-      const name = (sc.name as string) || 'scenario';
+      // The engine's scenarios carry `key`/`label` ('base'/'Base'…), never
+      // `name` — so the old `sc.name` fallback labelled EVERY section
+      // "# scenario", making the three indistinguishable in Excel. Prefer the
+      // human label, then name (defensive for other shapes), then the key.
+      const name = (sc.label as string) || (sc.name as string) || (sc.key as string) || 'scenario';
       const months = (isRowArray(sc.monthly_projections) ? sc.monthly_projections
         : isRowArray(sc.projections) ? sc.projections : []) as Row[];
       if (months.length === 0) continue;

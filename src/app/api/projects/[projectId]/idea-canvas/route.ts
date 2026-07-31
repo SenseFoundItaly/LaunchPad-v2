@@ -17,8 +17,8 @@ const CANVAS_FIELDS = [
 /**
  * GET /api/projects/{projectId}/idea-canvas
  *
- * Returns the 5 idea_canvas fields surfaced in the Canvas header
- * (problem / solution / target_market / value_proposition / business_model).
+ * Returns all 9 Lean Canvas blocks surfaced in the Canvas header — the same
+ * set the Stage-1 checks read (incl. edge, channels, metrics, costs/revenues).
  * Returns null fields when no row exists yet.
  */
 

@@ -12,12 +12,14 @@ talking to users you should already know whether the thing is *buildable*, what 
 
 It is designed to validate **incrementally, as the conversation goes** — you do NOT need
 a single big run. Whenever the founder discusses a technical aspect, capture it as a
-durable fact so the gate's three 1B checks (`tech_feasibility`, `key_dependencies`,
-`regulatory_check`) close progressively:
+durable fact so the gate's four 1B checks (`build_approach`, `technical_risk_named`,
+`key_dependencies`, `regulatory_check`) close progressively:
 
-- **Feasibility (`tech_feasibility`)** — is the core approach technically possible with today's
-  tools? What is the build approach / architecture at a high level? What is the single biggest
-  technical risk?
+- **Feasibility (`build_approach` + `technical_risk_named`)** — is the core approach technically
+  possible with today's tools? What is the build approach / architecture at a high level? And —
+  as its own named finding — what is the single biggest technical risk? One feasibility card
+  covers both checks, but its body MUST state the build approach AND use the phrase
+  "technical risk" (IT: "rischio tecnico") when naming the risk, so both checks can match.
 - **Key dependencies (`key_dependencies`)** — the critical external dependencies the product
   relies on: third-party APIs, models, infrastructure, vendors, data sources, integrations.
 - **Regulatory / compliance (`regulatory_check`)** — any regulation, licensing, certification,
@@ -30,8 +32,9 @@ This skill has **no tools** — it persists by **emitting `insight-card` artifac
 runner saves to the project's memory facts. The Validation-Gate **1B** checks read those facts on
 the next evaluation, so emitting these cards is what turns the technical track green. Emit **one
 card per area** (feasibility + dependencies use `category: "technology"`; the regulatory card
-uses `category: "regulatory"`), with keyword-bearing `body` text the gate can match, and at least
-one source:
+uses `category: "regulatory"`), with keyword-bearing `body` text the gate can match (the
+feasibility card's body must carry both the build-approach wording AND the literal phrase
+"technical risk" / "rischio tecnico"), and at least one source:
 
 ```
 :::artifact{"type":"insight-card","id":"ins_<random>","category":"technology","title":"Technical feasibility","body":"<feasibility verdict — note the build approach/architecture and the single biggest technical risk>","confidence":"medium","sources":[{"type":"user","title":"founder","quote":"<what the founder said>"}]}

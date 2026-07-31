@@ -1,6 +1,8 @@
 'use client';
 
 import type { Artifact, EntityCard, WorkflowCard } from '@/types/artifacts';
+import type { ComponentProps } from 'react';
+import type { MessageKey } from '@/lib/i18n/messages';
 import OptionSetCard from './OptionSetCard';
 import InsightCard from './InsightCard';
 import ComparisonTable from './ComparisonTable';
@@ -23,8 +25,13 @@ import IdeaCanvasCard from './IdeaCanvasCard';
 import TamSamSomCard from './TamSamSomCard';
 import InvestorPipelineCard from './InvestorPipelineCard';
 import WeeklyUpdateCard from './WeeklyUpdateCard';
+import ApprovalRequestCard from './ApprovalRequestCard';
+import RecommendationArtifactCard from './RecommendationArtifactCard';
+import InsightCarouselCard from './InsightCarouselCard';
 import ArtifactCardShell from './ArtifactCardShell';
 import { RadarChart, BarChart, PieChart, GaugeChart, ScoreCard } from '@/components/charts';
+import BaselineScoreCard from './BaselineScoreCard';
+import { isBaselineScoreTitle } from '@/lib/score-display';
 import { useT } from '@/components/providers/LocaleProvider';
 
 interface ArtifactRendererProps {
@@ -43,6 +50,20 @@ interface ArtifactRendererProps {
 // NOTE: the "self-reported" metric-provenance pill was removed in the
 // 2026-06 canvas simplification (zero-chips rule). Provenance tiers remain
 // founder-visible on the Knowledge page; per-card chips were jargon.
+
+/**
+ * Shell wrapper that resolves the typeLabel i18n key WITH hooks. Kept as a
+ * child component so ArtifactRenderer itself stays hook-free — the A3
+ * fallback tests invoke ArtifactRenderer as a plain function (no React
+ * renderer), which would crash on a top-level useT().
+ */
+function KeyedShell({
+  typeKey,
+  ...rest
+}: Omit<ComponentProps<typeof ArtifactCardShell>, 'typeLabel'> & { typeKey: MessageKey }) {
+  const t = useT();
+  return <ArtifactCardShell typeLabel={t(typeKey)} {...rest} />;
+}
 
 export default function ArtifactRenderer({
   artifact,
@@ -75,33 +96,38 @@ export default function ArtifactRenderer({
       );
     case 'radar-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
+        <KeyedShell typeKey="card.type-chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <RadarChart data={artifact.data} />
-        </ArtifactCardShell>
+        </KeyedShell>
       );
     case 'bar-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
+        <KeyedShell typeKey="card.type-chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <BarChart data={artifact.data} />
-        </ArtifactCardShell>
+        </KeyedShell>
       );
     case 'pie-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
+        <KeyedShell typeKey="card.type-chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <PieChart data={artifact.data} />
-        </ArtifactCardShell>
+        </KeyedShell>
       );
     case 'gauge-chart':
       return (
-        <ArtifactCardShell typeLabel="Chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
+        <KeyedShell typeKey="card.type-chart" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
           <GaugeChart score={artifact.score} maxScore={artifact.maxScore} verdict={artifact.verdict} />
-        </ArtifactCardShell>
+        </KeyedShell>
       );
     case 'score-card':
       return (
-        <ArtifactCardShell typeLabel="Score" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
-          <ScoreCard title="" score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />
-        </ArtifactCardShell>
+        <KeyedShell typeKey="card.type-score" title={artifact.title} sources={artifact.sources} provenance={artifact.provenance} exportArtifact={artifact} defaultCollapsed={defaultCollapsed}>
+          {/* THE project baseline (title-flagged) renders the rich breakdown —
+              score/100 + per-dimension bars + verdict — from the authoritative
+              /score, matching Home. Per-dimension score-cards stay thin. */}
+          {isBaselineScoreTitle(artifact.title)
+            ? <BaselineScoreCard artifact={artifact} />
+            : <ScoreCard title="" score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />}
+        </KeyedShell>
       );
     case 'metric-grid':
       return <MetricGridCard artifact={artifact} onAction={onAction} defaultCollapsed={defaultCollapsed} />;
@@ -139,6 +165,12 @@ export default function ArtifactRenderer({
       return <SocialCalendarCard artifact={artifact} defaultCollapsed={defaultCollapsed} />;
     case 'ad-pack':
       return <AdPackCard artifact={artifact} defaultCollapsed={defaultCollapsed} />;
+    case 'approval-request':
+      return <ApprovalRequestCard artifact={artifact} onAction={onAction} defaultCollapsed={defaultCollapsed} />;
+    case 'recommendation':
+      return <RecommendationArtifactCard artifact={artifact} onAction={onAction} defaultCollapsed={defaultCollapsed} />;
+    case 'insight-carousel':
+      return <InsightCarouselCard artifact={artifact} defaultCollapsed={defaultCollapsed} />;
     case 'task':  // Inline-only — rendered by InlineArtifact → TaskCard in chat/page.tsx
     case 'fact':  // Server-only — intercepted by chat route, never sent to client
       return null;

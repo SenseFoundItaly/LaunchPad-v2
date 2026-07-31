@@ -11,11 +11,15 @@
  * dropping in `messages/<locale>.ts`, registering it here, AND adding it to
  * SUPPORTED_LOCALES. The English fallback below still protects any partial key.
  *
- * FROZEN BRAND TERMS — keep these IDENTICAL in every locale catalog (do NOT
- * translate them): **Intel** (the watcher/signal/proposal queue, nav.inbox) and
- * **Knowledge** (the graph/facts surface, nav.knowledge). Translating them
- * (e.g. it: "Posta"/"Sapere") was the source of the 17/06 naming feedback —
- * "Posta" read as email and buried the watchers. Co-pilot/Canvas are similar.
+ * SURFACE NAMES — these are translated, but deliberately and not literally.
+ * The 17/06 feedback was never "don't translate", it was "don't translate into
+ * a word that means something else": it "Posta" read as email and buried the
+ * watchers, "Sapere" read as abstract knowingness. The 2026-07-21 founder
+ * decision (alpha feedback) replaced the old blanket freeze with chosen IT
+ * names — **Knowledge → Conoscenza** (nav.knowledge) and **Intel → Osservatori**
+ * (nav.inbox, "the observers", which is what the watchers actually are).
+ * Renaming either again is a product decision, not a translation fix.
+ * Co-pilot and Canvas remain untranslated — they read the same in both.
  */
 
 import type { Locale } from '@/lib/i18n/locales';

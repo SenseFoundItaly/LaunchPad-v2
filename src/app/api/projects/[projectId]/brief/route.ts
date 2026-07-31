@@ -6,7 +6,7 @@ import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
 import { buildProjectSnapshot, evaluateAllStages } from '@/lib/journey';
-import { checkActionPrompt } from '@/lib/journey-prompts';
+import { checkActionPrompt, checkGap, checkLabel } from '@/lib/journey-prompts';
 import { needsPhase0Scoring } from '@/lib/direction';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { translate } from '@/lib/i18n/messages';
@@ -151,7 +151,11 @@ ${ctx}`;
     let options: Array<Record<string, unknown>> = openChecks.slice(0, 4).map((r, i) => ({
       id: `step_${i}`,
       label: checkActionPrompt(r.check.label, t),
-      description: r.result.gap || r.check.label,
+      // checkGap localizes the journey gap by check id — the raw evaluate()
+      // string is English at source (i18n gap audit 21/07). Fall back to the
+      // localized label, never the raw English one.
+      description:
+        checkGap(r.check.id, r.result.gap, t, locale) || checkLabel(r.check.id, r.check.label, t),
       credits: 1,
     }));
     if (scoringFirst) {

@@ -5,6 +5,9 @@ import { recordEvent, type EventType } from '@/lib/memory/events';
 import { AuthError } from '@/lib/auth/require-user';
 import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
+import { appendNodeTimeline, timelineEntryNow } from '@/lib/knowledge/node-timeline';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { translate } from '@/lib/i18n/messages';
 import type { ReviewedState } from '@/types/artifacts';
 import type { EcosystemAlertState } from '@/types';
 
@@ -81,10 +84,29 @@ export async function PATCH(
   const removeTimelineAlertId = typeof body?.remove_timeline_alert_id === 'string'
     ? body.remove_timeline_alert_id
     : undefined;
-  const hasContentEdit = editName !== undefined || editSummary !== undefined || removeTimelineAlertId !== undefined;
+  // Metric edit (MetricGridCard click-to-edit): the founder corrected metric
+  // values on a persisted metric-grid node. Replaces the node's attributes +
+  // summary with the edited set, so refresh re-renders the corrections and a
+  // later Apply commits them. Same edit-not-apply semantics as name/summary.
+  const editMetrics: Array<{ label: string; value: string; change?: string }> | undefined =
+    Array.isArray(body?.metrics)
+      ? (body.metrics as unknown[])
+          .filter((m): m is { label: string; value: string; change?: string } => {
+            const x = m as Record<string, unknown>;
+            return !!x && typeof x.label === 'string' && x.label.trim().length > 0 && typeof x.value === 'string';
+          })
+          .slice(0, 24)
+          .map((m) => ({
+            label: m.label.trim().slice(0, 120),
+            value: m.value.trim().slice(0, 120),
+            ...(typeof m.change === 'string' && m.change.trim() ? { change: m.change.trim().slice(0, 40) } : {}),
+          }))
+      : undefined;
+  const hasContentEdit = editName !== undefined || editSummary !== undefined
+    || removeTimelineAlertId !== undefined || (editMetrics !== undefined && editMetrics.length > 0);
 
   if (!state && !hasContentEdit) {
-    return error('state or content (name/summary/remove_timeline_alert_id) is required', 400);
+    return error('state or content (name/summary/metrics/remove_timeline_alert_id) is required', 400);
   }
 
   if (hasContentEdit) {
@@ -106,6 +128,71 @@ export async function PATCH(
         editSummary ?? null,
         itemId,
       );
+      // Evolution history (#324): a founder correction is a move the node's
+      // dossier must remember — previously this edit was silent.
+      const locale = await resolveLocale(userId, projectId);
+      await appendNodeTimeline(projectId, itemId, timelineEntryNow(
+        'founder_edit',
+        translate(locale, 'node-history.edited'),
+        { fields: [
+          ...(editName !== undefined ? ['name'] : []),
+          ...(editSummary !== undefined ? ['summary'] : []),
+        ] },
+      ));
+    }
+    if (editMetrics !== undefined && editMetrics.length > 0) {
+      // Mirror persistMetricGrid's shapes: attributes = label → {value, change},
+      // summary = the joined "label: value (change)" line. Bind the RAW object —
+      // attributes is JSONB and postgres.js single-encodes (double-encode class).
+      const attrs = editMetrics.reduce<Record<string, { value: string; change?: string }>>((acc, m) => {
+        acc[m.label] = { value: m.value, ...(m.change ? { change: m.change } : {}) };
+        return acc;
+      }, {});
+      const summary = editMetrics.map((m) => `${m.label}: ${m.value}${m.change ? ` (${m.change})` : ''}`).join(' · ');
+      // Replace the metric map but CARRY OVER the node's timeline — the old
+      // wholesale `attributes = ?` silently destroyed the evolution history
+      // (pre-existing data loss, surfaced by #324's wiring).
+      await run(
+        `UPDATE graph_nodes
+            SET attributes = jsonb_set(
+              ?::jsonb, '{timeline}',
+              COALESCE(attributes -> 'timeline', '[]'::jsonb)),
+                summary = ?
+          WHERE id = ?`,
+        attrs,
+        summary,
+        itemId,
+      );
+      {
+        const locale = await resolveLocale(userId, projectId);
+        await appendNodeTimeline(projectId, itemId, timelineEntryNow(
+          'founder_edit',
+          translate(locale, 'node-history.metrics-edited'),
+          { fields: ['metrics'] },
+        ));
+      }
+      // Market-themed grids also wrote research.market_size at persist time —
+      // carry the correction there too, preserving the founder-approval stamp
+      // keys exactly like persistMetricGrid's full-replace does.
+      const typed = await get<{ node_type: string }>(
+        'SELECT node_type FROM graph_nodes WHERE id = ?', itemId,
+      );
+      if (typed?.node_type === 'research_metric') {
+        await run(
+          `UPDATE research
+              SET market_size = ?::jsonb || CASE WHEN jsonb_typeof(market_size) = 'object'
+                    THEN jsonb_strip_nulls(jsonb_build_object(
+                         'approved', market_size->'approved',
+                         'approved_at', market_size->'approved_at',
+                         'approved_value', market_size->'approved_value',
+                         '_title', market_size->'_title'))
+                    ELSE '{}'::jsonb END,
+                  researched_at = CURRENT_TIMESTAMP
+            WHERE project_id = ?`,
+          attrs,
+          projectId,
+        );
+      }
     }
     if (removeTimelineAlertId !== undefined) {
       // Atomic rebuild: filter the matching alert_id out of attributes.timeline.
@@ -214,6 +301,15 @@ export async function PATCH(
           creditsDebited = KNOWLEDGE_APPLY_CREDITS;
         } catch (err) {
           console.warn('[knowledge PATCH] credit debit failed (non-fatal):', (err as Error).message);
+        }
+        // Evolution history (#324): approval is a move too (graph nodes only —
+        // the other tables have no timeline surface).
+        if (table === 'graph_nodes') {
+          const locale = await resolveLocale(userId, projectId);
+          await appendNodeTimeline(projectId, itemId, timelineEntryNow(
+            'apply',
+            translate(locale, 'node-history.applied'),
+          ));
         }
       }
     } else {

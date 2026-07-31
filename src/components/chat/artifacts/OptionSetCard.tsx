@@ -55,6 +55,7 @@ function OptionButton({
   const t = useT();
   const isSkill = typeof option.skill_id === 'string' && option.skill_id.length > 0;
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [expanded, setExpanded] = useState(false);
 
   // UI guardrail: paragraph-length labels get split (first clause → label,
   // remainder → description) and CSS-clamped so options read as buttons, not
@@ -63,6 +64,14 @@ function OptionButton({
   // back to the agent, and a clamped head like "Yes" can't disambiguate similar
   // options. Only the rendering is clamped — never the send.
   const split = splitOptionLabel(option.label, option.description);
+  // split.full !== split.label is exact (splitOptionLabel only diverges when it
+  // split); the 120-char description threshold approximates two clamped lines
+  // at text-xs in a half-width card.
+  const isClamped = split.full !== split.label || (split.description?.length ?? 0) > 120;
+  // When expanded we show split.full as the label, so the description must be
+  // the ORIGINAL one — split.description has the label overflow prepended and
+  // would duplicate it.
+  const expandedDescription = String(option.description ?? '').trim();
 
   const labelSuffix =
     state === 'running' ? ` · ${t('chat.running')}` :
@@ -111,14 +120,41 @@ function OptionButton({
       className="text-left min-w-0 bg-paper-2/50 border border-line-2 rounded-lg p-3 transition-all duration-200 hover:border-moss hover:bg-paper-2 focus:outline-none focus:ring-2 focus:ring-moss/40 disabled:opacity-60 disabled:cursor-default"
     >
       <span className="flex items-baseline gap-2">
-        <span className="block text-sm font-medium text-ink-2 truncate flex-1 min-w-0">
-          {split.label}{labelSuffix}
+        <span
+          className={`block text-sm font-medium text-ink-2 flex-1 min-w-0 ${expanded ? 'whitespace-normal' : 'truncate'}`}
+        >
+          {expanded ? split.full : split.label}{labelSuffix}
         </span>
         {/* No per-option credit chip: only a founder chat message costs a credit
             (1/message); skills, applies and commits are free. */}
       </span>
-      {split.description && (
-        <span className="block text-xs text-ink-4 mt-1 line-clamp-2">{split.description}</span>
+      {(expanded ? expandedDescription : split.description) && (
+        <span className={`block text-xs text-ink-4 mt-1 ${expanded ? '' : 'line-clamp-2'}`}>
+          {expanded ? expandedDescription : split.description}
+        </span>
+      )}
+      {isClamped && (
+        // Not a <button>: nested buttons are invalid HTML. stopPropagation +
+        // preventDefault so toggling never selects/runs the option.
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            }
+          }}
+          className="block text-xs text-ink-4 mt-1.5 underline decoration-line-2 underline-offset-2 hover:text-ink-2 cursor-pointer"
+        >
+          {expanded ? t('chat.option-show-less') : t('chat.option-show-more')}
+        </span>
       )}
       {state === 'error' && (
         <span className="block text-xs text-clay mt-1">{t('chat.run-failed')}</span>

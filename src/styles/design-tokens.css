@@ -136,6 +136,11 @@
 
 /* element primitives */
 .lp-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: var(--shadow-card); }
+/* Card actions (e.g. delete) reveal on hover; always faintly visible on touch. */
+.lp-card .lp-card-action { opacity: 0; transition: opacity .12s; }
+.lp-card:hover .lp-card-action, .lp-card .lp-card-action:focus-visible { opacity: 1; }
+.lp-card .lp-card-action:hover { color: var(--clay, var(--ink-2)); }
+@media (hover: none) { .lp-card .lp-card-action { opacity: .6; } }
 /* Home dashboard grid — wide primary (Journey) + narrower secondary column.
    minmax(0,…) lets both columns shrink so long content never overflows.
    Collapses to a single column on narrow viewports. */
@@ -172,6 +177,10 @@
 }
 .lp-flash { animation: lp-flash-bg 1.2s ease-out; border-radius: var(--r-m); }
 
+/* Canvas enrichment — a field that just got populated/updated rises in with a
+   brief accent wash, so the founder SEES the canvas being enriched. */
+.lp-enrich { animation: lp-flash-bg 1.4s ease-out, lp-rise .45s ease-out; border-radius: var(--r-m); }
+
 /* Credit deduction feedback: when a turn charges the balance, the chip pops
    (zoom in → land → zoom out, driven imperatively via WAAPI in CreditsBadge)
    and a small "−N" delta floats up and fades, so the spend is legible. */
@@ -188,6 +197,37 @@
 @keyframes lp-rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .lp-rise { animation: lp-rise .2s ease-out both; }
 
+/* Status confirmation — a check/cross badge landing on a task or approval.
+   Overshoots slightly so a resolved state reads as an event, not a repaint. */
+@keyframes lp-pop-in { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
+.lp-pop-in { animation: lp-pop-in .3s cubic-bezier(0.23, 1, 0.32, 1) both; }
+
+/* Indeterminate progress ring (task rows). Rotation only — the arc length is
+   fixed, so this reads as "working" without implying a percentage. */
+@keyframes lp-spin { to { transform: rotate(360deg); } }
+.lp-spin { animation: lp-spin 1.1s linear infinite; }
+
+/* Plain opacity entrance — for elements that shouldn't travel (status pills
+   swapping in place, where a rise would read as a new row appearing). */
+@keyframes lp-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.lp-fade-in { animation: lp-fade-in .2s ease-out both; }
+
+/* Shimmering label for long-running work. Paints a moving highlight through
+   the glyphs via background-clip — needs text-transparent on the element. */
+@keyframes lp-shimmer-text { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.lp-shimmer-text {
+  background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: lp-shimmer-text 1.4s linear infinite;
+}
+
+/* Pixel-grid loader cell — dims to a floor rather than 0 so the grid keeps its
+   shape between wavefronts. */
+@keyframes lp-pixel-on { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
+
 /* Streaming caret — blinks at the end of the assistant bubble while tokens
    arrive, removed when the turn ends. */
 @keyframes lp-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
@@ -196,7 +236,13 @@
 /* Accessibility — honour reduced-motion: drop non-essential motion (entrance,
    caret blink, ambient pulses, deltas). Functional state transitions stay. */
 @media (prefers-reduced-motion: reduce) {
-  .lp-rise, .lp-caret, .lp-credit-delta, .lp-flash, .lp-pulse { animation: none !important; }
+  .lp-rise, .lp-caret, .lp-credit-delta, .lp-flash, .lp-pulse, .lp-enrich,
+  .lp-pop-in, .lp-fade-in, .lp-shimmer-text { animation: none !important; }
+  /* The shimmer is decorative, but its gradient leaves the text transparent —
+     restore a solid colour so the label stays readable once it stops. */
+  .lp-shimmer-text { background-image: none; color: var(--ink-2); }
+  /* .lp-spin and lp-pixel-on keep animating: they are the only signal that work
+     is still in flight, so freezing them leaves an apparently-stalled UI. */
   .lp-scan::after { animation: none !important; }
 }
 

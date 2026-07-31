@@ -141,9 +141,9 @@ export default function KnowledgePage({
               gap: 5,
               fontSize: 12,
               fontWeight: 600,
-              color: 'var(--ink-2)',
-              background: 'var(--surface)',
-              border: '1px solid var(--line)',
+              color: 'var(--on-accent)',
+              background: 'var(--accent)',
+              border: 'none',
               borderRadius: 'var(--r-m)',
               padding: '5px 10px',
               cursor: 'pointer',
@@ -268,7 +268,9 @@ export default function KnowledgePage({
                 cursor: 'pointer',
                 border: 'none',
                 background: view === v ? 'var(--ink)' : 'transparent',
-                color: view === v ? 'var(--on-accent, var(--paper))' : 'var(--ink-4)',
+                // --paper is the true inverse of --ink in both themes;
+                // --on-accent is charcoal in light mode and would vanish on --ink.
+                color: view === v ? 'var(--paper)' : 'var(--ink-4)',
               }}
             >
               {t(v === 'graph' ? 'knowledge.view-graph' : v === 'list' ? 'knowledge.view-list' : 'knowledge.view-moves')}
@@ -301,7 +303,7 @@ export default function KnowledgePage({
           // Boundary-wrapped: a d3-simulation render throw must not take the
           // whole Knowledge surface (incl. the textual list) down with it.
           <PanelBoundary resetKey={projectId}>
-            <KnowledgeGraph nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} onDeleteTimelineEntry={deleteTimelineEntry} showEmptyCategories initialFocusedCategory={initialCat} />
+            <KnowledgeGraph projectId={projectId} nodes={graph.nodes} edges={graph.edges} onApplyNode={applyNode} onDismissNode={dismissNode} onSaveNode={saveNode} onDeleteTimelineEntry={deleteTimelineEntry} showEmptyCategories initialFocusedCategory={initialCat} />
           </PanelBoundary>
         )}
         {view === 'graph' && pendingCount > 0 && (

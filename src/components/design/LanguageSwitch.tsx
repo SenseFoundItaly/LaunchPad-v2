@@ -11,16 +11,17 @@
 import { useState, useRef, useEffect } from 'react';
 import api from '@/api';
 import { SUPPORTED_LOCALES, type Locale } from '@/lib/i18n/locales';
-import { useLocale } from '@/components/providers/LocaleProvider';
+import { useLocale, useT } from '@/components/providers/LocaleProvider';
 
 // Inside a project the language is frozen at creation (projects.locale takes
 // precedence over users.locale), so it's displayed read-only — no dropdown.
 function LanguageDisplay() {
   const current = useLocale();
+  const t = useT();
   return (
     <span
-      aria-label="Language"
-      title="Language"
+      aria-label={t('settings.language.title')}
+      title={t('settings.language.title')}
       style={{
         display: 'inline-flex', alignItems: 'center',
         padding: '3px 8px', borderRadius: 6,
@@ -36,6 +37,7 @@ function LanguageDisplay() {
 
 export function LanguageSwitch({ readOnly = false }: { readOnly?: boolean }) {
   const current = useLocale();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -68,8 +70,8 @@ export function LanguageSwitch({ readOnly = false }: { readOnly?: boolean }) {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-label="Language"
-        title="Language"
+        aria-label={t('settings.language.title')}
+        title={t('settings.language.title')}
         style={{
           display: 'flex', alignItems: 'center', gap: 4,
           padding: '3px 8px', borderRadius: 6,

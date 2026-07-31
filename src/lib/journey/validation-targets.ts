@@ -21,11 +21,15 @@
  */
 
 import { STAGES } from './index';
-import { MARKET_SIZE_CHECK_SOURCE, TECH_1B_SOURCES } from './stage-2-market-validation';
+import { MARKET_SIZE_CHECK_SOURCE, TECH_1B_SOURCES, MARKET_1A_SOURCES, DIFFERENTIATION_CHECK_SOURCE } from './stage-2-market-validation';
+import { translate, type MessageKey } from '@/lib/i18n/messages';
 
 export type ValidationItemKind =
   | 'canvas_field' | 'competitor' | 'market_size_fact' | 'tech_fact' | 'interview'
-  | 'persona_fact' | 'channel_fact' | 'pricing' | 'metric' | 'financial_fact' | 'brand_fact';
+  | 'persona_fact' | 'channel_fact' | 'pricing'
+  | 'trend_fact' | 'buyer_persona_fact' | 'differentiation_fact'
+  // Post-validation doc ingestion (#224): the operate-stage digest stages these.
+  | 'metric' | 'financial_fact' | 'brand_fact';
 
 /** The pricing_state column a `pricing` item fills (Stage-4 Business Model). */
 export type PricingField = 'anchor_price' | 'tiers' | 'wtp' | 'model' | 'unit_econ';
@@ -40,17 +44,23 @@ export type FinancialField = 'burn' | 'cash' | 'revenue';
 export type TechFactField = 'feasibility' | 'dependencies' | 'regulatory';
 
 /** The canvas fields that map to a spine check. Others (e.g. business_model)
- *  are context, not gated — `validationTargetsFor` returns [] for them. */
+ *  are context, not gated — `validationTargetsFor` returns [] for them.
+ *  cost_structure maps to the Stage-1 cost_revenue_defined check (its source
+ *  is `idea_canvas.cost_structure`; revenue_streams rides the same check). */
 export type CanvasFieldName =
   | 'problem'
   | 'solution'
   | 'value_proposition'
   | 'competitive_advantage'
   | 'target_market'
-  | 'channels';
+  | 'channels'
+  | 'cost_structure';
 
 export interface ValidationTarget {
   stage_number: number;
+  /** Canonical stage id (e.g. 'idea_validation') — lets clients localize via
+   *  the journey-stage.* catalog instead of shipping the EN label verbatim. */
+  stage_id: string;
   stage_label: string;
   check_id: string;
   check_label: string;
@@ -85,6 +95,17 @@ function sourceKeysFor(kind: ValidationItemKind, field?: string): string[] {
       // interviews-logged check; the verbatim-pain / WTP checks read the same
       // rows once 1A+1B unlock 1C (the lock is on the check, not the data).
       return ['interviews'];
+    case 'trend_fact':
+      // Stage 2 trends_assessed reads memory_facts matching trend keywords.
+      // Imported constant = the check's source string, drift-proof.
+      return [MARKET_1A_SOURCES.trends];
+    case 'buyer_persona_fact':
+      // Stage 2 buyer_persona_defined (preliminary sketch — distinct from the
+      // Stage 3 persona_fact / icp_defined deep persona).
+      return [MARKET_1A_SOURCES.persona];
+    case 'differentiation_fact':
+      // Stage 2 differentiation_evidence (chat retro-sweep staging).
+      return [DIFFERENTIATION_CHECK_SOURCE];
     case 'persona_fact':
       // Stage 3 icp_defined reads memory_facts matching ICP keywords.
       return ['memory_facts (ICP)'];
@@ -120,6 +141,7 @@ const CHECKS_BY_SOURCE: Map<string, ValidationTarget[]> = (() => {
     for (const check of stage.checks) {
       const target: ValidationTarget = {
         stage_number: stage.number,
+        stage_id: stage.id,
         stage_label: stage.label,
         check_id: check.id,
         check_label: check.label,
@@ -164,9 +186,16 @@ export function validationTargetsFor(
  * defined" has a 40-char bar Stage 1's existence check doesn't), so it
  * over-promised. The founder sees the real per-stage state on the live spine.
  */
-export function validationLabel(targets: ValidationTarget[]): string | null {
+export function validationLabel(targets: ValidationTarget[], locale?: 'en' | 'it'): string | null {
   if (targets.length === 0) return null;
   const primary = targets[0];
+  // Localized by check id when a locale is passed (i18n gap audit 21/07): the
+  // baked-in English check_label used to reach IT founders raw inside the
+  // localized "convalida {target}" wrapper. Callers without a locale keep EN.
+  if (locale && locale !== 'en') {
+    const localized = translate(locale, `journey-check.${primary.check_id}` as MessageKey);
+    return `${localized} — Fase ${primary.stage_number}`;
+  }
   return `${primary.check_label} — Stage ${primary.stage_number}`;
 }
 
@@ -177,4 +206,92 @@ export function validationLabel(targets: ValidationTarget[]): string | null {
  */
 export function isGatedWrite(kind: ValidationItemKind, field?: string): boolean {
   return validationTargetsFor(kind, field).length > 0;
+}
+
+// ─── spine preview (per-stage grouping) ──────────────────────────────────────
+//
+// The upload draft screen frames extraction around the spine. The flat
+// "validates X — Stage N" chips answer per-item; this grouping answers
+// per-STAGE: "Stage 1 fills 4 of 9 steps — here is the statement filling each".
+// Same primary-target discipline as validationLabel (one check per item, never
+// the over-promising source-wired fan-out).
+
+export interface SpinePreviewStatement {
+  kind: 'canvas_field' | 'entity';
+  /** Canvas field key (kind='canvas_field') — the client localizes its label. */
+  field?: string;
+  /** Entity name (kind='entity'). */
+  name?: string;
+  /** The extracted statement that would fill the check, pre-clipped by the caller. */
+  statement: string;
+}
+
+export interface SpinePreviewCheck {
+  check_id: string;
+  check_label: string;
+  statements: SpinePreviewStatement[];
+}
+
+export interface SpinePreviewStage {
+  stage_number: number;
+  stage_id: string;
+  stage_label: string;
+  /** How many checks the stage has in total — lets the UI say "fills 3 of 9". */
+  total_checks: number;
+  checks: SpinePreviewCheck[];
+}
+
+// Stable render order: checks appear in their stage-definition order, not in
+// extraction order (so Problem always precedes Channels, like the live spine).
+const CHECK_ORDER: Map<string, number> = (() => {
+  const m = new Map<string, number>();
+  for (const stage of STAGES) {
+    stage.checks.forEach((check, i) => m.set(`${stage.number}:${check.id}`, i));
+  }
+  return m;
+})();
+
+const STAGE_TOTAL_CHECKS: Map<number, number> = new Map(
+  STAGES.map((s) => [s.number, s.checks.length]),
+);
+
+/**
+ * Group extracted items by the spine stage → check they would fill. Items with
+ * no gated target are dropped (context, not validation). Pure: same input,
+ * same output — the route feeds it canvas fields + competitor entities.
+ */
+export function buildSpinePreview(
+  items: Array<SpinePreviewStatement & { target: ValidationItemKind; target_field?: string }>,
+): SpinePreviewStage[] {
+  const stages = new Map<number, SpinePreviewStage>();
+  for (const item of items) {
+    const target = validationTargetsFor(item.target, item.target_field)[0];
+    if (!target) continue;
+    let stage = stages.get(target.stage_number);
+    if (!stage) {
+      stage = {
+        stage_number: target.stage_number,
+        stage_id: target.stage_id,
+        stage_label: target.stage_label,
+        total_checks: STAGE_TOTAL_CHECKS.get(target.stage_number) ?? 0,
+        checks: [],
+      };
+      stages.set(target.stage_number, stage);
+    }
+    let check = stage.checks.find((c) => c.check_id === target.check_id);
+    if (!check) {
+      check = { check_id: target.check_id, check_label: target.check_label, statements: [] };
+      stage.checks.push(check);
+    }
+    check.statements.push({ kind: item.kind, field: item.field, name: item.name, statement: item.statement });
+  }
+  const out = [...stages.values()].sort((a, b) => a.stage_number - b.stage_number);
+  for (const stage of out) {
+    stage.checks.sort(
+      (a, b) =>
+        (CHECK_ORDER.get(`${stage.stage_number}:${a.check_id}`) ?? 0) -
+        (CHECK_ORDER.get(`${stage.stage_number}:${b.check_id}`) ?? 0),
+    );
+  }
+  return out;
 }

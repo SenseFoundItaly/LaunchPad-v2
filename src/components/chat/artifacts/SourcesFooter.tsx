@@ -18,6 +18,8 @@
 
 import { useState } from 'react';
 import type { Source } from '@/types/artifacts';
+import type { MessageKey } from '@/lib/i18n/messages';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface SourcesFooterProps {
   sources: Source[] | undefined;
@@ -35,36 +37,40 @@ interface SourcesFooterProps {
 }
 
 /** Founder-facing plain words instead of USR/INT/INF/WEB/SKL code tags. */
-const TYPE_WORDS: Record<Source['type'], string> = {
-  web: 'web',
-  skill: 'skill',
-  internal: 'internal',
-  user: 'you said',
-  inference: 'inferred',
+const TYPE_WORDS: Record<Source['type'], MessageKey> = {
+  web: 'srcs.type-web',
+  skill: 'srcs.type-skill',
+  internal: 'srcs.type-internal',
+  user: 'srcs.type-user',
+  inference: 'srcs.type-inference',
 };
 
 /**
  * Build a tooltip text for a source. Includes type, quote if available,
  * and reasoning for inference sources.
  */
-function tooltipFor(src: Source): string {
-  const parts: string[] = [`Type: ${src.type}`];
+function tooltipFor(src: Source, t: ReturnType<typeof useT>): string {
+  const parts: string[] = [t('srcs.tip-type', { type: src.type })];
   if (src.type === 'web') {
-    parts.push(`URL: ${src.url}`);
-    if (src.accessed_at) parts.push(`Accessed: ${src.accessed_at}`);
-    if (src.quote) parts.push(`Quote: "${src.quote}"`);
+    parts.push(t('srcs.tip-url', { url: src.url }));
+    if (src.accessed_at) parts.push(t('srcs.tip-accessed', { date: src.accessed_at }));
+    if (src.quote) parts.push(t('srcs.tip-quote', { quote: src.quote }));
   } else if (src.type === 'skill') {
-    parts.push(`Skill: ${src.skill_id}${src.run_id ? ` (run ${src.run_id})` : ''}`);
-    if (src.quote) parts.push(`Output: "${src.quote}"`);
+    parts.push(t('srcs.tip-skill', { skill: `${src.skill_id}${src.run_id ? ` (run ${src.run_id})` : ''}` }));
+    if (src.quote) parts.push(t('srcs.tip-output', { quote: src.quote }));
   } else if (src.type === 'internal') {
-    parts.push(`Reference: ${src.ref} (${src.ref_id})`);
-    if (src.quote) parts.push(`Quote: "${src.quote}"`);
+    parts.push(t('srcs.tip-reference', { ref: `${src.ref} (${src.ref_id})` }));
+    if (src.quote) parts.push(t('srcs.tip-quote', { quote: src.quote }));
   } else if (src.type === 'user') {
-    parts.push(`Founder quote: "${src.quote}"`);
-    if (src.chat_turn_id) parts.push(`Chat turn: ${src.chat_turn_id}`);
+    parts.push(t('srcs.tip-founder-quote', { quote: src.quote }));
+    if (src.chat_turn_id) parts.push(t('srcs.tip-chat-turn', { id: src.chat_turn_id }));
   } else if (src.type === 'inference') {
-    parts.push(`Reasoning: ${src.reasoning}`);
-    parts.push(`Derived from ${src.based_on.length} base source(s)`);
+    parts.push(t('srcs.tip-reasoning', { reasoning: src.reasoning }));
+    parts.push(
+      src.based_on.length === 1
+        ? t('srcs.tip-derived-one')
+        : t('srcs.tip-derived-other', { count: src.based_on.length }),
+    );
   }
   return parts.join('\n');
 }
@@ -90,14 +96,16 @@ function hrefFor(src: Source): string | undefined {
 
 export default function SourcesFooter({
   sources,
-  label = 'Sources',
+  label,
   compact = false,
   inferredFromResponse = false,
 }: SourcesFooterProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const visibleSources = Array.isArray(sources) ? sources : [];
   if (visibleSources.length === 0) return null;
 
+  const heading = label ?? t('srcs.sources');
   const textSize = compact ? 'text-[10px]' : 'text-[11px]';
 
   return (
@@ -108,23 +116,22 @@ export default function SourcesFooter({
         className={`${textSize} text-ink-5 hover:text-ink-3 transition-colors`}
         aria-expanded={open}
       >
-        {label} ({visibleSources.length}) {open ? '▾' : '▸'}
+        {heading} ({visibleSources.length}) {open ? '▾' : '▸'}
       </button>
       {open && (
         <div className="mt-1.5 flex flex-col gap-1">
           {inferredFromResponse && (
             <span className={`${textSize} text-ink-5 italic`}>
-              Sources inferred from the response footer — the links are real,
-              but weren&apos;t attributed to this specific card.
+              {t('srcs.inferred-note')}
             </span>
           )}
           {visibleSources.map((src, idx) => {
             const href = hrefFor(src);
-            const tooltip = tooltipFor(src);
+            const tooltip = tooltipFor(src, t);
             const line = (
               <>
                 <span className="font-mono text-ink-5 shrink-0">{idx + 1}.</span>{' '}
-                <span className="text-ink-5 shrink-0">{TYPE_WORDS[src.type]}</span>
+                <span className="text-ink-5 shrink-0">{t(TYPE_WORDS[src.type])}</span>
                 <span className="text-ink-5"> — </span>
                 <span className="text-ink-4 truncate">{src.title}</span>
               </>

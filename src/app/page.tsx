@@ -1,16 +1,18 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import api from '@/api';
+import { deleteProject } from '@/api/projects';
 import { TopBar } from '@/components/design/chrome';
 import { Pill, Icon, I } from '@/components/design/primitives';
 import { NODE_COLORS } from '@/types/graph';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
 import { SUPPORTED_LOCALES, LOCALE_NATIVE_NAME, type Locale } from '@/lib/i18n/locales';
 import type { MessageKey } from '@/lib/i18n/messages';
+import { checkLabel, stageLabel } from '@/lib/journey-prompts';
 
 
 // Lean-canvas fields the upload extractor proposes from a founder's docs.
@@ -23,6 +25,21 @@ type ProposedCanvas = {
   competitive_advantage: string;
   channels: string;
 };
+// Wire shape of the upload extractor's per-stage spine preview (stage → checks
+// filled → the statement filling each). Mirrors buildSpinePreview's output —
+// declared locally because validation-targets is server-only.
+type SpinePreviewStage = {
+  stage_number: number;
+  stage_id: string;
+  stage_label: string;
+  total_checks: number;
+  checks: Array<{
+    check_id: string;
+    check_label: string;
+    statements: Array<{ kind: 'canvas_field' | 'entity'; field?: string; name?: string; statement: string }>;
+  }>;
+};
+
 const CANVAS_FIELD_LABELS: Array<{ key: keyof ProposedCanvas; labelKey: MessageKey }> = [
   { key: 'problem', labelKey: 'home.canvas-field-problem' },
   { key: 'solution', labelKey: 'home.canvas-field-solution' },
@@ -82,6 +99,7 @@ export default function HomePage() {
   });
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -109,10 +127,14 @@ export default function HomePage() {
     canvas: ProposedCanvas | null;
     canvasValidates: Record<string, string>;
     spineSteps: number;
+    ideaBrief: string;
+    spinePreview: SpinePreviewStage[];
   } | null>(null);
   const [expandedSignals, setExpandedSignals] = useState<Set<string>>(new Set());
   const [showSignals, setShowSignals] = useState(false);
   const signalPanelRef = useRef<HTMLDivElement>(null);
+  // Hover state for the Create button's "why is this disabled" tooltip.
+  const [showNameTip, setShowNameTip] = useState(false);
 
   useEffect(() => {
     if (!showSignals) return;
@@ -124,6 +146,32 @@ export default function HomePage() {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [showSignals]);
+
+  // Tear down the full-screen create takeover and reset every create-flow field.
+  const resetCreate = useCallback(() => {
+    setShowCreate(false);
+    setNewName('');
+    setNewDesc('');
+    setNewLocale(accountLocale);
+    setCreateError(null);
+    setCreateMode('scratch');
+    setCreateFiles([]);
+    setUploadStatus(null);
+    setExtractResult(null);
+    setCreatedProjectId(null);
+    setShowNameTip(false);
+  }, [accountLocale]);
+
+  // Esc dismisses the takeover — but not mid-upload, so we don't strand an
+  // in-flight project create/extract.
+  useEffect(() => {
+    if (!showCreate) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !creating) resetCreate();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [showCreate, creating, resetCreate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -202,6 +250,8 @@ export default function HomePage() {
               proposed_canvas?: ProposedCanvas | null;
               canvas_validates?: Record<string, string>;
               spine_steps?: number;
+              idea_brief?: string;
+              spine_preview?: SpinePreviewStage[];
             };
             setExtractResult({
               ingested: d.ingested ?? 0,
@@ -210,9 +260,11 @@ export default function HomePage() {
               canvas: d.proposed_canvas ?? null,
               canvasValidates: d.canvas_validates ?? {},
               spineSteps: d.spine_steps ?? 0,
+              ideaBrief: typeof d.idea_brief === 'string' ? d.idea_brief : '',
+              spinePreview: Array.isArray(d.spine_preview) ? d.spine_preview : [],
             });
             setCreating(false);
-            return; // show the results view; route to chat on "Continue"
+            return; // show the results view; route to project Home on "Continue"
           }
           // Upload failed — surface it instead of silently routing into an
           // empty project (that silence masked a real 415 CSRF-guard bug).
@@ -236,11 +288,30 @@ export default function HomePage() {
         }
       }
 
-      router.push(`/project/${projectId}/chat`);
+      // Land on the project Home ("Start here" onboarding card), not the
+      // co-pilot — new founders need orientation before the chat.
+      router.push(`/project/${projectId}/today`);
     } catch (err) {
       setCreateError((err as Error).message || t('home.error-network'));
     }
     setCreating(false);
+  }
+
+  // Hard delete via the existing owner-only API (children CASCADE). The
+  // window.confirm + i18n-key pattern matches DataRoomPanel's delete.
+  async function handleDeleteProject(p: DashboardProject) {
+    if (deletingId) return;
+    if (!confirm(t('home.delete-confirm', { name: p.name }))) return;
+    setDeletingId(p.project_id);
+    try {
+      await deleteProject(p.project_id);
+      setProjects((prev) => prev.filter((x) => x.project_id !== p.project_id));
+      setStats((prev) => ({ ...prev, total_projects: Math.max(0, prev.total_projects - 1) }));
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+      alert(t(status === 403 ? 'home.delete-owner-only' : 'home.delete-failed'));
+    }
+    setDeletingId(null);
   }
 
   function toggleSignal(id: string) {
@@ -285,141 +356,6 @@ export default function HomePage() {
       />
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* Left projects rail */}
-        <div
-          data-tour="projects-rail"
-          style={{
-            width: 200,
-            flexShrink: 0,
-            borderRight: '1px solid var(--line)',
-            background: 'var(--paper-2)',
-            display: 'flex',
-            flexDirection: 'column',
-            padding: '12px 0',
-            gap: 2,
-          }}
-        >
-          <div
-            style={{
-              padding: '0 12px 8px',
-              fontSize: 10,
-              color: 'var(--ink-5)',
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              fontFamily: 'var(--f-mono)',
-            }}
-          >
-            {t('home.projects-heading')}
-          </div>
-
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            {projects.map((p) => (
-              <Link
-                key={p.project_id}
-                href={`/project/${p.project_id}/chat`}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '7px 12px',
-                  fontSize: 12.5,
-                  color: 'var(--ink-2)',
-                  textDecoration: 'none',
-                  borderRadius: 0,
-                  transition: 'background .1s',
-                }}
-                className="lp-rail-item"
-              >
-                <span
-                  style={{
-                    width: 22,
-                    height: 22,
-                    flexShrink: 0,
-                    borderRadius: 6,
-                    background: 'var(--surface)',
-                    border: '1px solid var(--line)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 10,
-                    fontWeight: 700,
-                    fontFamily: 'var(--f-mono)',
-                    color: 'var(--ink-3)',
-                  }}
-                >
-                  {p.name.slice(0, 2).toUpperCase()}
-                </span>
-                <span
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {p.name}
-                </span>
-                {p.access_kind === 'member' && (
-                  <span
-                    title={p.owner_email ? t('home.shared-by', { email: p.owner_email }) : t('home.shared-with-you')}
-                    className="lp-mono"
-                    style={{
-                      fontSize: 9,
-                      color: 'var(--accent-ink)',
-                      background: 'var(--accent-wash)',
-                      padding: '1px 5px',
-                      borderRadius: 999,
-                      letterSpacing: 0.3,
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    {t('home.shared')}
-                  </span>
-                )}
-                {p.weekly_alerts > 0 && (
-                  <span
-                    style={{
-                      fontSize: 9,
-                      fontFamily: 'var(--f-mono)',
-                      color: 'var(--clay)',
-                      background: 'var(--accent-wash)',
-                      padding: '1px 4px',
-                      borderRadius: 4,
-                    }}
-                  >
-                    {p.weekly_alerts}
-                  </span>
-                )}
-              </Link>
-            ))}
-          </div>
-
-          <div style={{ padding: '8px 8px 0' }}>
-            <button
-              data-tour="new-project"
-              onClick={() => setShowCreate(true)}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '7px 8px',
-                background: 'transparent',
-                border: '1px dashed var(--line-2)',
-                borderRadius: 'var(--r-m)',
-                color: 'var(--ink-4)',
-                fontSize: 12,
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                transition: 'border-color .12s, color .12s',
-              }}
-            >
-              <Icon d={I.plus} size={12} />
-              {t('home.new-project')}
-            </button>
-          </div>
-        </div>
 
         {/* Main content */}
         <div
@@ -431,7 +367,8 @@ export default function HomePage() {
             background: 'var(--paper)',
           }}
         >
-          {/* Content header */}
+          {/* Content header — hidden during the full-screen create takeover */}
+          {!showCreate && (
           <div
             style={{
               padding: '16px 24px 14px',
@@ -634,7 +571,31 @@ export default function HomePage() {
                 </div>
               )}
             </div>
+            {/* Primary CTA — moved here from the retired left projects rail
+                (the rail duplicated the main grid; feedback 2026-07-21). */}
+            <button
+              data-tour="new-project"
+              onClick={() => setShowCreate(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--on-accent)',
+                background: 'var(--accent)',
+                border: 'none',
+                borderRadius: 'var(--r-m)',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              <Icon d={I.plus} size={12} stroke={1.8} />
+              {t('home.new-project')}
+            </button>
           </div>
+          )}
 
           <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
             {loading ? (
@@ -653,10 +614,9 @@ export default function HomePage() {
                 {/* Create form */}
                 {showCreate && (
                   <div
-                    className="lp-card"
-                    style={{ padding: 16, marginBottom: 20 }}
+                    style={{ maxWidth: 720, margin: '24px auto 0', width: '100%' }}
                   >
-                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
+                    <div className="lp-serif" style={{ fontSize: 20, fontWeight: 400, letterSpacing: -0.3, marginBottom: 16 }}>
                       {t('home.new-project')}
                     </div>
 
@@ -664,8 +624,9 @@ export default function HomePage() {
                       <ExtractedKnowledgeView
                         result={extractResult}
                         projectId={createdProjectId}
+                        descriptionMissing={!newDesc.trim()}
                         onContinue={() => {
-                          if (createdProjectId) router.push(`/project/${createdProjectId}/chat`);
+                          if (createdProjectId) router.push(`/project/${createdProjectId}/today`);
                         }}
                       />
                     ) : creating && createMode === 'knowledge' && createFiles.length > 0 ? (
@@ -768,37 +729,60 @@ export default function HomePage() {
                           </option>
                         ))}
                       </select>
-                      <button
-                        onClick={handleCreate}
-                        disabled={creating || !newName.trim()}
-                        style={{
-                          padding: '7px 14px',
-                          background: 'var(--ink)',
-                          color: 'var(--paper)',
-                          border: 'none',
-                          borderRadius: 'var(--r-m)',
-                          fontSize: 12,
-                          fontWeight: 500,
-                          cursor: 'pointer',
-                          fontFamily: 'inherit',
-                          opacity: creating || !newName.trim() ? 0.5 : 1,
-                        }}
+                      <span
+                        style={{ position: 'relative', display: 'inline-flex' }}
+                        onMouseEnter={() => setShowNameTip(true)}
+                        onMouseLeave={() => setShowNameTip(false)}
                       >
-                        {creating ? (uploadStatus ? t('home.uploading') : t('home.creating')) : t('home.create')}
-                      </button>
+                        <button
+                          onClick={handleCreate}
+                          disabled={creating || !newName.trim()}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '7px 14px',
+                            background: 'var(--ink)',
+                            color: 'var(--paper)',
+                            border: 'none',
+                            borderRadius: 'var(--r-m)',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            cursor: creating || !newName.trim() ? 'default' : 'pointer',
+                            fontFamily: 'inherit',
+                            opacity: creating || !newName.trim() ? 0.5 : 1,
+                          }}
+                        >
+                          {creating && <SpinnerIcon size={12} />}
+                          {creating ? (uploadStatus ? t('home.uploading') : t('home.creating')) : t('home.create')}
+                        </button>
+                        {/* Explain why the button is disabled when it's purely a missing name */}
+                        {!creating && !newName.trim() && showNameTip && (
+                          <span
+                            role="tooltip"
+                            style={{
+                              position: 'absolute',
+                              bottom: 'calc(100% + 6px)',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              background: 'var(--ink)',
+                              color: 'var(--paper)',
+                              fontSize: 11,
+                              lineHeight: 1.3,
+                              padding: '4px 8px',
+                              borderRadius: 'var(--r-s, 4px)',
+                              whiteSpace: 'nowrap',
+                              boxShadow: 'var(--shadow-lift)',
+                              zIndex: 10,
+                              pointerEvents: 'none',
+                            }}
+                          >
+                            {t('home.create-disabled-name-tip')}
+                          </span>
+                        )}
+                      </span>
                       <button
-                        onClick={() => {
-                          setShowCreate(false);
-                          setNewName('');
-                          setNewDesc('');
-                          setNewLocale(accountLocale);
-                          setCreateError(null);
-                          setCreateMode('scratch');
-                          setCreateFiles([]);
-                          setUploadStatus(null);
-                          setExtractResult(null);
-                          setCreatedProjectId(null);
-                        }}
+                        onClick={resetCreate}
                         style={{
                           padding: '7px 10px',
                           background: 'transparent',
@@ -928,8 +912,8 @@ export default function HomePage() {
                   </div>
                 )}
 
-                {/* Projects grid */}
-                {projects.length > 0 ? (
+                {/* Projects grid — hidden during the full-screen create takeover */}
+                {!showCreate && (projects.length > 0 ? (
                   <div>
                     <div
                       style={{
@@ -944,6 +928,7 @@ export default function HomePage() {
                       {t('home.projects-heading')}
                     </div>
                     <div
+                      data-tour="projects-grid"
                       style={{
                         display: 'grid',
                         gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
@@ -1047,6 +1032,38 @@ export default function HomePage() {
                               {p.weekly_alerts > 0 && (
                                 <Pill kind="warn">{p.weekly_alerts}</Pill>
                               )}
+                              {p.access_kind !== 'member' && (
+                                <button
+                                  type="button"
+                                  className="lp-card-action"
+                                  title={t('home.delete-project')}
+                                  aria-label={t('home.delete-project')}
+                                  disabled={deletingId === p.project_id}
+                                  onClick={(e) => {
+                                    // The card is wrapped in a Link — stop both
+                                    // navigation and bubbling before deleting.
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    void handleDeleteProject(p);
+                                  }}
+                                  style={{
+                                    flexShrink: 0,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: 24,
+                                    height: 24,
+                                    padding: 0,
+                                    border: 'none',
+                                    borderRadius: 'var(--r-s)',
+                                    background: 'transparent',
+                                    color: 'var(--ink-4)',
+                                    cursor: deletingId === p.project_id ? 'default' : 'pointer',
+                                  }}
+                                >
+                                  <Icon d={I.trash} size={14} stroke={1.6} />
+                                </button>
+                              )}
                             </div>
                             <div
                               style={{
@@ -1121,7 +1138,7 @@ export default function HomePage() {
                       </button>
                     </div>
                   )
-                )}
+                ))}
               </>
             )}
           </div>
@@ -1136,6 +1153,16 @@ function safeHost(url: string): string {
 }
 
 // ─── Knowledge-populating flow (create-from-documents) ───────────────────────
+
+/** Inline busy spinner (Tailwind's built-in `animate-spin`), mirrors the
+ *  pattern used in chat/artifacts/UnifiedReviewControls. */
+function SpinnerIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill="none" className="animate-spin" aria-hidden="true">
+      <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20" strokeDashoffset="8" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 /** Shown while the upload is parsing docs + extracting entities. */
 function ExtractingView({ files, status }: { files: File[]; status: string | null }) {
@@ -1164,23 +1191,84 @@ function ExtractingView({ files, status }: { files: File[]; status: string | nul
 function ExtractedKnowledgeView({
   result,
   projectId,
+  descriptionMissing,
   onContinue,
 }: {
-  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string; validates?: string | null }>; canvas: ProposedCanvas | null; canvasValidates: Record<string, string>; spineSteps: number };
+  result: { ingested: number; skipped: number; entities: Array<{ name: string; node_type: string; summary: string; filename: string; node_id?: string; validates?: string | null }>; canvas: ProposedCanvas | null; canvasValidates: Record<string, string>; spineSteps: number; ideaBrief: string; spinePreview: SpinePreviewStage[] };
   projectId: string | null;
+  /** True when the founder left the create-form description blank — the
+   *  (possibly edited) idea brief then becomes the project description on Apply. */
+  descriptionMissing: boolean;
   onContinue: () => void;
 }) {
   const t = useT();
-  const { ingested, skipped, entities, canvas, canvasValidates, spineSteps } = result;
+  const { ingested, skipped, entities, canvas, canvasValidates, spineSteps, ideaBrief, spinePreview } = result;
   const [applying, setApplying] = useState(false);
+
+  // Everything extracted is editable in place before it lands anywhere — the
+  // founder's wording is what gets saved, not the extractor's. Edits live here;
+  // the server copies in `result` stay pristine (they key the diff on apply).
+  const [briefText, setBriefText] = useState(ideaBrief);
+  const [canvasEdits, setCanvasEdits] = useState<ProposedCanvas | null>(canvas ? { ...canvas } : null);
+  const [entityEdits, setEntityEdits] = useState<Array<{ name: string; summary: string }>>(
+    () => entities.map((e) => ({ name: e.name, summary: e.summary })),
+  );
 
   const canvasFields = canvas
     ? CANVAS_FIELD_LABELS.filter((f) => canvas[f.key]?.trim())
     : [];
 
+  // Live spine preview: statements track the founder's edits, and a check
+  // whose statement was cleared drops out (so the "fills X of Y" never
+  // over-promises what Apply will actually write).
+  const clip = (s: string, n = 280): string => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+  const entityEditByName = new Map(entities.map((e, i) => [e.name, entityEdits[i]]));
+  const liveStatement = (st: SpinePreviewStage['checks'][number]['statements'][number]): string => {
+    if (st.kind === 'canvas_field' && st.field && canvasEdits) {
+      return clip((canvasEdits[st.field as keyof ProposedCanvas] ?? '').trim());
+    }
+    if (st.kind === 'entity' && st.name) {
+      const ed = entityEditByName.get(st.name);
+      if (ed) return clip((ed.summary || ed.name).trim());
+    }
+    return st.statement;
+  };
+  const displayPreview = spinePreview
+    .map((s) => ({
+      ...s,
+      checks: s.checks
+        .map((c) => ({
+          ...c,
+          statements: c.statements
+            .map((st) => ({ ...st, statement: liveStatement(st) }))
+            .filter((st) => st.statement.length > 0),
+        }))
+        .filter((c) => c.statements.length > 0),
+    }))
+    .filter((s) => s.checks.length > 0);
+  const liveSpineSteps = spinePreview.length > 0
+    ? displayPreview.reduce((n, s) => n + s.checks.length, 0)
+    : spineSteps;
+
   // Applying is free (only a founder chat message costs a credit), so no cost
   // estimate is computed or shown on the home apply action.
   const applicableIds = entities.map((e) => e.node_id).filter((x): x is string => !!x);
+
+  // Diff the founder's inline entity edits against the extractor's originals —
+  // only real changes travel (apply-batch persists them before the state flip).
+  function collectEntityEdits(): Record<string, { name?: string; summary?: string }> {
+    const out: Record<string, { name?: string; summary?: string }> = {};
+    entities.forEach((e, i) => {
+      if (!e.node_id) return; // deduped hit — the node pre-exists, not ours to edit here
+      const ed = entityEdits[i];
+      if (!ed) return;
+      const changes: { name?: string; summary?: string } = {};
+      if (ed.name.trim() && ed.name.trim() !== e.name) changes.name = ed.name.trim();
+      if (ed.summary.trim() !== e.summary) changes.summary = ed.summary.trim();
+      if (changes.name !== undefined || changes.summary !== undefined) out[e.node_id] = changes;
+    });
+    return out;
+  }
 
   // ONE commit: canvas → entity batch-apply → into chat.
   // Every sub-action is best-effort/non-fatal — the founder always routes on.
@@ -1188,14 +1276,33 @@ function ExtractedKnowledgeView({
     if (!projectId) { onContinue(); return; }
     setApplying(true);
     try {
-      if (canvas && canvasFields.length > 0) {
+      // A fully-cleared draft skips the write (the route 400s on all-empty).
+      const editedCanvasHasContent = !!canvasEdits && Object.values(canvasEdits).some((v) => v.trim());
+      if (editedCanvasHasContent) {
         await fetch(`/api/projects/${projectId}/idea-canvas`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(canvas),
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(canvasEdits),
         }).catch(() => null);
       }
       if (applicableIds.length > 0) {
+        const editPayload = collectEntityEdits();
         await fetch(`/api/projects/${projectId}/knowledge/apply-batch`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_ids: applicableIds }),
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            Object.keys(editPayload).length > 0
+              ? { item_ids: applicableIds, edits: editPayload }
+              : { item_ids: applicableIds },
+          ),
+        }).catch(() => null);
+      }
+      // The idea brief becomes the project description when the founder left
+      // it blank at creation — Apply is the yes that lets it persist. Runs
+      // before the AI brief so the opening message can read it.
+      if (descriptionMissing && briefText.trim()) {
+        await fetch(`/api/projects/${projectId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ description: briefText.trim().slice(0, 600) }),
         }).catch(() => null);
       }
       // (Watcher suggestions at upload time were removed — 2026-07 founder
@@ -1220,12 +1327,14 @@ function ExtractedKnowledgeView({
   // a pending approval card (stage_only) so the founder can pick it up later
   // from chat/Inbox. Founder-first: staging only proposes, nothing applies.
   async function skipAndContinue() {
-    if (projectId && canvas && canvasFields.length > 0) {
+    if (projectId && canvasEdits && Object.values(canvasEdits).some((v) => v.trim())) {
       setApplying(true);
+      // Stage the founder's EDITED wording — skip defers the decision, it
+      // shouldn't discard corrections they already typed.
       await fetch(`/api/projects/${projectId}/idea-canvas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...canvas, stage_only: true }),
+        body: JSON.stringify({ ...canvasEdits, stage_only: true }),
       }).catch(() => null);
     }
     onContinue();
@@ -1252,6 +1361,15 @@ function ExtractedKnowledgeView({
     cursor: applying ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: applying ? 0.6 : 1,
   };
 
+  // Shared style for every inline-editable field on the review screen — the
+  // visible border is the "you can type here" affordance.
+  const editBoxStyle: React.CSSProperties = {
+    width: '100%', padding: '6px 8px', background: 'var(--paper)',
+    border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)',
+    fontSize: 12, color: 'var(--ink-2)', fontFamily: 'inherit', lineHeight: 1.45,
+    outline: 'none', resize: 'vertical' as const, boxSizing: 'border-box' as const,
+  };
+
   return (
     <div>
       <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 3 }}>
@@ -1271,14 +1389,76 @@ function ExtractedKnowledgeView({
           : t('home.full-text-in-knowledge')}
       </div>
 
+      {/* Everything below is editable in place before it lands anywhere. */}
+      {(ideaBrief || canvasFields.length > 0 || entities.length > 0) && (
+        <div style={{ fontSize: 11, color: 'var(--ink-5)', marginBottom: 10 }}>
+          {t('home.edit-hint')}
+        </div>
+      )}
+
+      {/* The idea in plain words — extracted alongside the canvas so the
+          founder sees WHAT we understood before reviewing field-by-field.
+          Editable; on Apply it becomes the project description when the
+          founder left that blank at creation. */}
+      {ideaBrief && (
+        <div style={{ marginBottom: 14, padding: 12, background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, fontFamily: 'var(--f-mono)', marginBottom: 6 }}>
+            {t('home.idea-brief-heading')}
+          </div>
+          <textarea
+            value={briefText}
+            onChange={(e) => setBriefText(e.target.value)}
+            rows={3}
+            style={{ ...editBoxStyle, fontSize: 12.5, lineHeight: 1.55 }}
+          />
+        </div>
+      )}
+
       {/* Spine framing — nothing turns a validation step green without the
-          founder's yes, so the draft headlines WHAT this document can validate. */}
-      {spineSteps > 0 && (
+          founder's yes, so the draft headlines WHAT this document can validate,
+          then breaks it down per stage: each check filled + the statement
+          filling it (so approval is a read of the spine, not a leap of faith). */}
+      {liveSpineSteps > 0 && (
         <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--accent-wash)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}>
           <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
-            {t('home.spine-framing-prefix')} <strong style={{ color: 'var(--ink)' }}>{spineSteps}</strong>{' '}
-            {spineSteps === 1 ? t('home.spine-framing-suffix-one') : t('home.spine-framing-suffix-many')}
+            {t('home.spine-framing-prefix')} <strong style={{ color: 'var(--ink)' }}>{liveSpineSteps}</strong>{' '}
+            {liveSpineSteps === 1 ? t('home.spine-framing-suffix-one') : t('home.spine-framing-suffix-many')}
           </div>
+          {displayPreview.map((s) => (
+            <div key={s.stage_number} style={{ marginTop: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: 0.4, fontFamily: 'var(--f-mono)' }}>
+                  {t('home.spine-stage-n', { number: s.stage_number })} · {stageLabel(s.stage_id, s.stage_label, t)}
+                </span>
+                <span style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>
+                  {s.checks.length === 1
+                    ? t('home.spine-stage-fills-one', { filled: s.checks.length, total: s.total_checks })
+                    : t('home.spine-stage-fills-many', { filled: s.checks.length, total: s.total_checks })}
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 5 }}>
+                {s.checks.map((c) => (
+                  <div key={c.check_id} style={{ paddingLeft: 9, borderLeft: '2px solid var(--line-2)' }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)' }}>
+                      ✓ {checkLabel(c.check_id, c.check_label, t)}
+                    </div>
+                    {c.statements.map((st, i) => {
+                      const fieldLabelKey = st.kind === 'canvas_field'
+                        ? CANVAS_FIELD_LABELS.find((f) => f.key === st.field)?.labelKey
+                        : undefined;
+                      const originLabel = fieldLabelKey ? t(fieldLabelKey) : st.name;
+                      return (
+                        <div key={i} style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45, marginTop: 2 }}>
+                          {originLabel && <span style={{ color: 'var(--ink-5)', fontWeight: 500 }}>{originLabel}: </span>}
+                          <span>“{st.statement}”</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -1291,13 +1471,18 @@ function ExtractedKnowledgeView({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto' }}>
             {canvasFields.map((f) => (
               <div key={f.key}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-3)' }}>{t(f.labelKey)}</div>
                   {canvasValidates[f.key] && (
                     <span style={{ fontSize: 10, color: 'var(--accent-ink)' }}>{t('home.validates', { target: canvasValidates[f.key] })}</span>
                   )}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.45 }}>{canvas![f.key]}</div>
+                <textarea
+                  value={canvasEdits?.[f.key] ?? ''}
+                  onChange={(e) => setCanvasEdits((prev) => (prev ? { ...prev, [f.key]: e.target.value } : prev))}
+                  rows={2}
+                  style={editBoxStyle}
+                />
               </div>
             ))}
           </div>
@@ -1313,16 +1498,38 @@ function ExtractedKnowledgeView({
                 style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '7px 10px', background: 'var(--paper)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)' }}
               >
                 <span className="lp-dot" style={{ background: NODE_COLORS[e.node_type] || 'var(--ink-5)', marginTop: 5, flexShrink: 0 }} />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
-                    {e.name}
-                    <span style={{ fontWeight: 400, color: 'var(--ink-5)', fontSize: 11 }}> · {e.node_type.replace(/_/g, ' ')}</span>
-                  </div>
-                  {e.validates && (
-                    <div style={{ fontSize: 10, color: 'var(--accent-ink)', marginTop: 1 }}>{t('home.validates', { target: e.validates })}</div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  {/* Editable only for nodes THIS upload created (node_id present).
+                      A dedup hit references a pre-existing node — read-only here. */}
+                  {e.node_id ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        value={entityEdits[i]?.name ?? e.name}
+                        onChange={(ev) => setEntityEdits((prev) => prev.map((x, j) => (j === i ? { ...x, name: ev.target.value } : x)))}
+                        style={{ ...editBoxStyle, resize: undefined, padding: '4px 6px', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', flex: 1, minWidth: 0 }}
+                      />
+                      <span style={{ fontWeight: 400, color: 'var(--ink-5)', fontSize: 11, flexShrink: 0 }}>{e.node_type.replace(/_/g, ' ')}</span>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+                      {e.name}
+                      <span style={{ fontWeight: 400, color: 'var(--ink-5)', fontSize: 11 }}> · {e.node_type.replace(/_/g, ' ')}</span>
+                    </div>
                   )}
-                  {e.summary && (
-                    <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 1, lineHeight: 1.4 }}>{e.summary}</div>
+                  {e.validates && (
+                    <div style={{ fontSize: 10, color: 'var(--accent-ink)', marginTop: 2 }}>{t('home.validates', { target: e.validates })}</div>
+                  )}
+                  {e.node_id ? (
+                    <textarea
+                      value={entityEdits[i]?.summary ?? e.summary}
+                      onChange={(ev) => setEntityEdits((prev) => prev.map((x, j) => (j === i ? { ...x, summary: ev.target.value } : x)))}
+                      rows={2}
+                      style={{ ...editBoxStyle, marginTop: 4, fontSize: 11 }}
+                    />
+                  ) : (
+                    e.summary && (
+                      <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 1, lineHeight: 1.4 }}>{e.summary}</div>
+                    )
                   )}
                 </div>
               </div>

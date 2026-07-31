@@ -21,9 +21,17 @@ import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import { useStages } from '@/hooks/useStages';
 import { stageLabel } from '@/lib/journey-prompts';
-import type { MessageKey } from '@/lib/i18n/messages';
+import { band, normalizeDimensions, to100 } from '@/lib/score-display';
+import ScoreTrajectory from '@/components/charts/ScoreTrajectory';
 
-interface ScoreDimensionLite { name: string; score: number }
+interface IrlResp {
+  level: number;
+  of: number;
+  next_key: string | null;
+  current_stage_id: string | null;
+  current_stage_label: string | null;
+}
+
 interface ScoreResp {
   overall_score: number | null;
   // Stored as a JSONB OBJECT MAP (name -> numeric score); older/corrupted rows
@@ -34,50 +42,14 @@ interface ScoreResp {
   scored_at: string | null;
 }
 
-// scores.dimensions is persisted as a JSONB object map (e.g. {"Problem": 7.2}),
-// NOT an array. The panel previously did Array.isArray(...) and silently rendered
-// an EMPTY breakdown for every project. Normalize the object map (and the
-// defensive array / double-encoded-string shapes) into [{name, score}].
-function normalizeDimensions(raw: unknown): ScoreDimensionLite[] {
-  let d = raw;
-  if (typeof d === 'string') {
-    try { d = JSON.parse(d); } catch { return []; }
-  }
-  if (Array.isArray(d)) {
-    return d.filter(
-      (x): x is ScoreDimensionLite =>
-        !!x && typeof x === 'object' &&
-        typeof (x as ScoreDimensionLite).name === 'string' &&
-        typeof (x as ScoreDimensionLite).score === 'number',
-    );
-  }
-  if (d && typeof d === 'object') {
-    return Object.entries(d as Record<string, unknown>)
-      .filter(([, v]) => typeof v === 'number' && Number.isFinite(v))
-      .map(([name, v]) => ({ name, score: v as number }));
-  }
-  return [];
-}
-
-// Qualitative band — aligned with the anti-sycophancy scoring guardrails
-// (70+ = strong/verified, 40-or-below = serious warning). Colors mirror the spine.
-function band(score: number): { key: MessageKey; color: string } {
-  if (score >= 70) return { key: 'score.band-strong', color: 'var(--moss)' };
-  if (score >= 55) return { key: 'score.band-promising', color: 'var(--accent)' };
-  if (score >= 40) return { key: 'score.band-caution', color: 'var(--clay)' };
-  return { key: 'score.band-weak', color: 'var(--clay)' };
-}
+// band / normalizeDimensions / to100 now live in @/lib/score-display so the
+// in-chat baseline card renders identically (imported below).
 
 interface ScoreHistoryResp {
   points: Array<{ overall_score: number; created_at: string }>;
   count: number;
   delta: number | null;
 }
-
-/** score_history rows carry mixed scales (gauge-chart writes 0-10, the prose
- *  scorer 0-100 — same duality stage-1's baselineScore10 handles). Normalize
- *  to 0-100 so the sparkline shape and the delta are scale-consistent. */
-const to100 = (v: number) => (v <= 10 ? v * 10 : v);
 
 /** Inline score-trajectory sparkline — the durable score_history series
  *  (commit 4a37fdd) finally surfaced; it was DB+API only. */
@@ -122,6 +94,19 @@ export function ScorePanel({ projectId }: { projectId: string }) {
     },
   });
 
+  // IRL — the 1-9 evidence-gated ladder (src/lib/irl/ladder.ts). Computed
+  // server-side from the snapshot; distinct from the naive done/total stage
+  // count (which still drives the auto-score trigger below).
+  const { data: irl } = useQuery<IrlResp>({
+    queryKey: ['irl', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/irl`);
+      const body = await res.json();
+      return (body?.data ?? body) as IrlResp;
+    },
+  });
+
   // IRL is derived from how many journey stages are validated. Consume the
   // canonical useStages hook (shared ['stages', projectId] cache, ONE shape —
   // the sorted evaluations array) rather than a bespoke object-shaped query,
@@ -137,7 +122,10 @@ export function ScorePanel({ projectId }: { projectId: string }) {
   const autoScoreFired = useRef(false);
   const scoreLoaded = score !== undefined;
   const stagesDone = evals.filter((e) => e.status === 'done').length;
-  const needsScore = typeof score?.overall_score !== 'number';
+  // 0 counts as unscored: legacy score-card/radar INSERTs fabricated a literal
+  // 0 baseline (now NULL at the write side) — those rows must both render as
+  // "not scored" and stay eligible for the auto-score heal below.
+  const needsScore = !(typeof score?.overall_score === 'number' && score.overall_score > 0);
   useEffect(() => {
     if (autoScoreFired.current) return;
     if (!scoreLoaded || stagesLoading) return;  // wait for both queries
@@ -157,10 +145,14 @@ export function ScorePanel({ projectId }: { projectId: string }) {
     })();
   }, [scoreLoaded, stagesLoading, needsScore, stagesDone, projectId, queryClient]);
 
-  const overall = typeof score?.overall_score === 'number' ? Math.round(score.overall_score) : null;
-  const dims = normalizeDimensions(score?.dimensions);
-  const total = evals.length || 7;
-  const done = evals.filter((e) => e.status === 'done').length;
+  const overall =
+    typeof score?.overall_score === 'number' && score.overall_score > 0
+      ? Math.round(to100(score.overall_score))
+      : null;
+  const dims = normalizeDimensions(score?.dimensions).map((d) => ({ ...d, score: to100(d.score) }));
+  // IRL now comes from the /irl ladder endpoint (the `irl` query above); the
+  // done/total stage count is no longer the readout. `active` still drives the
+  // "currently in {stage}" line.
   const active = evals.find((e) => e.status === 'active');
   const runHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(t('journey-prompt.scoring'))}`;
 
@@ -191,10 +183,11 @@ export function ScorePanel({ projectId }: { projectId: string }) {
             </div>
           ) : (
             <>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', rowGap: 4 }}>
                 <span className="lp-serif" style={{ fontSize: 30, lineHeight: 1, color: 'var(--ink)' }}>{overall}</span>
                 <span style={{ fontSize: 13, color: 'var(--ink-5)' }}>/ 100</span>
                 <span className="lp-mono" style={{ fontSize: 10, color: band(overall).color, letterSpacing: 0.3 }}>{t(band(overall).key)}</span>
+                <span style={{ marginLeft: 'auto', alignSelf: 'center' }}><ScoreTrajectory projectId={projectId} /></span>
               </div>
               {dims.length > 0 && (
                 <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -236,9 +229,9 @@ export function ScorePanel({ projectId }: { projectId: string }) {
             {t('score.irl-title')}
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span className="lp-serif" style={{ fontSize: 30, lineHeight: 1, color: 'var(--ink)' }}>{done}</span>
-            <span style={{ fontSize: 13, color: 'var(--ink-5)' }}>/ {total}</span>
-            <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', letterSpacing: 0.3 }}>{t('score.irl-stages')}</span>
+            <span className="lp-serif" style={{ fontSize: 30, lineHeight: 1, color: 'var(--ink)' }}>{irl ? irl.level : '—'}</span>
+            <span style={{ fontSize: 13, color: 'var(--ink-5)' }}>/ {irl?.of ?? 9}</span>
+            <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', letterSpacing: 0.3 }}>{t('score.irl-level')}</span>
           </div>
           {active && (
             <p style={{ margin: '10px 0 0', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.45 }}>

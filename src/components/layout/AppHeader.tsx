@@ -15,6 +15,7 @@ function getProjectName(pathname: string): string | null {
 // duplicate "SenseFound /" bar stacked on top of the TopBar.
 function isFullBleedRoute(pathname: string): boolean {
   if (pathname === '/' || pathname === '/settings') return true;
+  if (pathname === '/demo' || pathname.startsWith('/demo/')) return true;
   return /^\/project\/[^/]+/.test(pathname);
 }
 

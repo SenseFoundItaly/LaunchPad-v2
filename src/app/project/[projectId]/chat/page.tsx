@@ -15,7 +15,7 @@
  * without changing this component.
  */
 
-import { use, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, createContext, useContext } from 'react';
+import { use, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, memo, createContext, useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/api';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
@@ -25,6 +25,7 @@ import { broadcastPersistedArtifacts } from '@/hooks/usePersistedArtifact';
 import { useStages } from '@/hooks/useStages';
 import { requestRecharge } from '@/components/credits/recharge-events';
 import { useProject } from '@/hooks/useProject';
+import { useDraft } from '@/hooks/useDraft';
 import { splitOptionLabel } from '@/components/chat/option-label';
 import { IdeaShapingQuickReplies } from '@/components/chat/IdeaShapingQuickReplies';
 import { parseMessageContent, normalizeCanvasJsonFences } from '@/lib/artifact-parser';
@@ -32,6 +33,7 @@ import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
 import type { Artifact, ArtifactType, Department, ValidationProposalArtifact } from '@/types/artifacts';
 import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
 import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard';
+import BudgetProposalCard from '@/components/chat/artifacts/BudgetProposalCard';
 import { Canvas, type PendingPlaceholder } from '@/components/canvas/Canvas';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import BuildHub from '@/components/build/BuildHub';
@@ -47,6 +49,11 @@ import { buildContextMarkdown } from '@/lib/context-export';
 import { buildFinancialExport } from '@/lib/financial-export';
 import type { ContextExportData } from '@/lib/context-export';
 import { openPrintPreview } from '@/lib/print-utils';
+import { ToolChips } from '@/components/ui/ToolChips';
+import { TaskRows } from '@/components/ui/TaskRows';
+import { StreamingText } from '@/components/ui/StreamingText';
+import { LoadingState } from '@/components/ui/LoadingState';
+import type { ToolActivity } from '@/types';
 import {
   Pill,
   StatusBar,
@@ -160,6 +167,48 @@ function useGatedSkills(projectId: string): Set<string> {
     },
   });
   return useMemo(() => new Set(data ?? []), [data]);
+}
+
+/**
+ * Artifact classification is a full regex + JSON scan of a message's content,
+ * and the canvas/inline memo below re-runs it across EVERY assistant message on
+ * every streaming paint. Completed messages never change, so their result is
+ * cached by content — the streaming message is then the only one re-parsed,
+ * turning per-frame cost from O(conversation) into O(last message).
+ *
+ * Keyed on the content string itself: identical content ⇒ identical parse.
+ * Bounded so a long session can't grow it without limit.
+ */
+const ARTIFACT_CACHE_MAX = 300;
+interface ClassifiedArtifacts {
+  inline: Artifact[];
+  canvas: Artifact[];
+  /** `inline` with the gate rule already applied. Computed HERE rather than in
+   *  the render memo so the array REFERENCE is stable across renders — a fresh
+   *  `.filter()` each pass would defeat React.memo on the message row. */
+  inlineForDisplay: Artifact[];
+}
+const artifactCache = new Map<string, ClassifiedArtifacts>();
+function classifyArtifactsCached(content: string): ClassifiedArtifacts {
+  const hit = artifactCache.get(content);
+  if (hit) return hit;
+  const base = classifyArtifacts(content);
+  // Gate present → drop the proactive suggestion cards from this turn so the
+  // Apply/Skip decision stands alone (the gate card itself stays).
+  const result: ClassifiedArtifacts = {
+    ...base,
+    inlineForDisplay: base.inline.some((a) => GATE_ARTIFACT_TYPES.has(a.type))
+      ? base.inline.filter((a) => !SUGGESTION_ARTIFACT_TYPES.has(a.type))
+      : base.inline,
+  };
+  // Evict oldest-first (Map preserves insertion order) rather than clearing,
+  // so a burst never throws away the whole warm cache at once.
+  if (artifactCache.size >= ARTIFACT_CACHE_MAX) {
+    const oldest = artifactCache.keys().next().value;
+    if (oldest !== undefined) artifactCache.delete(oldest);
+  }
+  artifactCache.set(content, result);
+  return result;
 }
 
 function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artifact[] } {
@@ -453,7 +502,9 @@ export default function CopilotChatPage({
   // Nanocorp: pull server-authored agent updates into the live thread while
   // the page is visible (Builder/Marketer/Analyst narrations, loop verdicts).
   useAgentUpdatesPoll(projectId, step);
-  const [input, setInput] = useState('');
+  // Draft-persisted composer: typed-but-unsent text survives refresh/close
+  // (per-project localStorage; cleared on send).
+  const [input, setInput, clearDraft] = useDraft(`lp_chat_draft_${projectId}`);
   // Co-pilot surface tab: what the RIGHT pane shows next to the persistent
   // chat column — 'chat' (artifact canvas) | 'build' (MVP preview) | 'growth'
   // (launch panel). Deep-linkable via ?tab=build / ?tab=growth (NavRail + old
@@ -516,6 +567,8 @@ export default function CopilotChatPage({
   // flash "Loading history…" or re-fetch. Fresh mount / full refresh → false.
   const [historyLoaded, setHistoryLoaded] = useState(() => chatStoreHydrated(projectId, step));
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Focus target for the Canvas "use this prompt" handoff (see onPickPrompt).
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   // Turn-linked canvas: which chat message is hovered (null = none).
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   // "Audit document → knowledge" popup, opened from the composer "+" menu. Runs
@@ -790,12 +843,10 @@ export default function CopilotChatPage({
     let turnIndex = 0;
     for (const m of messages) {
       if (m.role !== 'assistant' || !m.content) continue;
-      const split = classifyArtifacts(m.content);
-      // Gate present → drop the proactive suggestion cards from this turn so the
-      // Apply/Skip decision stands alone (the gate card itself stays).
-      const inline = split.inline.some((a) => GATE_ARTIFACT_TYPES.has(a.type))
-        ? split.inline.filter((a) => !SUGGESTION_ARTIFACT_TYPES.has(a.type))
-        : split.inline;
+      const split = classifyArtifactsCached(m.content);
+      // Gate filtering already applied inside the cache, so this array keeps a
+      // stable reference for unchanged messages (see ClassifiedArtifacts).
+      const inline = split.inlineForDisplay;
       if (inline.length > 0) inlineMap.set(m.id, inline);
       // Accumulate canvas artifacts across all messages. Later messages
       // with the same artifact id overwrite earlier ones (e.g. solve-progress
@@ -851,7 +902,7 @@ export default function CopilotChatPage({
     const v = input.trim();
     if (!v || isStreaming) return;
     sendMessage(v);
-    setInput('');
+    clearDraft();
   }
 
   /**
@@ -877,6 +928,18 @@ export default function CopilotChatPage({
    * routed to sendMessage (legacy pattern) — TODO: migrate those to their
    * own server routes in v2 for symmetry.
    */
+  /**
+   * Hover focus, as ONE stable callback shared by every row (the row passes its
+   * own id back). Previously each row got two freshly-allocated arrow props per
+   * render, which alone defeated React.memo on the message row — so every
+   * streaming paint re-rendered the whole transcript.
+   */
+  const handleMessageFocus = useCallback((id: string, focused: boolean) => {
+    // On leave, only clear when THIS row is still the focused one — otherwise a
+    // fast pointer move clobbers the enter that the next row already fired.
+    setFocusedMessageId((prev) => (focused ? id : prev === id ? null : prev));
+  }, []);
+
   const handleArtifactAction = useCallback(
     async (action: string, payload: Record<string, unknown>): Promise<void> => {
       // knowledge:apply — the founder clicked Apply / Dismiss on a knowledge
@@ -909,6 +972,34 @@ export default function CopilotChatPage({
           if (state === 'applied') {
             window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
           }
+        }
+        return;
+      }
+
+      // metric-update — the founder click-edited a metric value on a
+      // MetricGridCard. PATCH the persisted graph_node so the correction
+      // survives refresh and is what a later Apply commits (previously this
+      // action had no handler: edits were lost and Apply committed the
+      // agent's original values). No persisted_id → nothing to update
+      // server-side (persist failed at emit time); fail soft.
+      if (action === 'metric-update') {
+        const persistedId = String(payload.persisted_id ?? '');
+        const metrics = Array.isArray(payload.metrics) ? payload.metrics : [];
+        if (!persistedId || metrics.length === 0) return;
+        const res = await fetch(
+          `/api/projects/${projectId}/knowledge/${encodeURIComponent(persistedId)}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ metrics }),
+          },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `Metric update failed with status ${res.status}`);
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('lp-knowledge-changed', { detail: { projectId } }));
         }
         return;
       }
@@ -1249,12 +1340,21 @@ export default function CopilotChatPage({
           window.dispatchEvent(new CustomEvent('lp-skills-changed', { detail: { projectId } }));
         }
         // Confirm inline — the verdict is already recorded, so no model turn is
-        // needed. Each verdict gets its own next-step guidance.
-        const confirmKey = recorded === 'GO'
-          ? 'loop1.verdict-recorded-go'
-          : recorded === 'PIVOT'
-            ? 'loop1.verdict-recorded-pivot'
-            : 'loop1.verdict-recorded-stop';
+        // needed. Each verdict gets its own next-step guidance, per loop (the
+        // option payload carries loop_number; Loop 1 = default). Loop 2's copy
+        // speaks to Phase 3 (build & GTM) instead of Phase 2 (pricing).
+        const loopN = Number(payload.loop_number) || 1;
+        const confirmKey = loopN === 2
+          ? (recorded === 'GO'
+              ? 'loop2.verdict-recorded-go'
+              : recorded === 'PIVOT'
+                ? 'loop2.verdict-recorded-pivot'
+                : 'loop2.verdict-recorded-stop')
+          : (recorded === 'GO'
+              ? 'loop1.verdict-recorded-go'
+              : recorded === 'PIVOT'
+                ? 'loop1.verdict-recorded-pivot'
+                : 'loop1.verdict-recorded-stop');
         setMessages((prev) => [
           ...prev,
           {
@@ -1318,7 +1418,7 @@ export default function CopilotChatPage({
           if (items.length > 0) window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
         }
         // Continue the conversation so the agent moves to the next gap.
-        const cLabel = typeof payload.label === 'string' ? payload.label : 'Confirm';
+        const cLabel = typeof payload.label === 'string' ? payload.label : t('chat.confirm-fallback');
         const cDesc = typeof payload.description === 'string' ? payload.description.trim() : '';
         sendMessage(t('chat.i-choose', { choice: `${cLabel}${cDesc ? ` — ${cDesc}` : ''}` }));
         return;
@@ -1332,7 +1432,7 @@ export default function CopilotChatPage({
         sendMessage(t('chat.i-choose', { choice: `${payload.label}${optDesc ? ` — ${optDesc}` : ''}` }));
       } else if (action === 'trigger-action' && typeof payload.title === 'string') {
         const desc = typeof payload.description === 'string' ? payload.description : '';
-        sendMessage(`${payload.title}${desc ? ': ' + desc : ''}. Give me a detailed step-by-step plan.`);
+        sendMessage(t('chat.trigger-action-plan', { title: `${payload.title}${desc ? ': ' + desc : ''}` }));
       }
     },
     [projectId, sendMessage, setMessages, t],
@@ -1438,8 +1538,10 @@ export default function CopilotChatPage({
               style={{ flex: 1, overflow: 'auto', padding: '16px 20px 20px' }}
             >
               {!historyLoaded && messages.length === 0 ? (
-                <div style={{ fontSize: 12, color: 'var(--ink-5)', padding: 20, textAlign: 'center' }}>
-                  {t('chat.loading-history')}
+                <div style={{ padding: 20, display: 'flex', justifyContent: 'center' }}>
+                  {/* Was bare centred text, so a slow history fetch was
+                      indistinguishable from a stalled one. */}
+                  <LoadingState label={t('chat.loading-history')} />
                 </div>
               ) : messages.length === 0 ? (
                 <ChatEmptyState
@@ -1481,8 +1583,7 @@ export default function CopilotChatPage({
                       inlineArtifacts={inlineArtifactsByMsgId.get(m.id)}
                       onArtifactAction={handleArtifactAction}
                       onQuickReply={!isStreaming ? sendMessage : undefined}
-                      onMouseEnter={() => setFocusedMessageId(m.id)}
-                      onMouseLeave={() => setFocusedMessageId((prev) => prev === m.id ? null : prev)}
+                      onFocusChange={handleMessageFocus}
                       // Retry only for user messages; disabled while streaming
                       // to prevent double-sends. Reuses sendMessage so the
                       // retried turn goes through the same memory-context +
@@ -1537,6 +1638,7 @@ export default function CopilotChatPage({
           />
 
           <ChatComposer
+            textareaRef={composerRef}
             value={input}
             onChange={setInput}
             onSend={handleSend}
@@ -1615,12 +1717,13 @@ export default function CopilotChatPage({
               // prompt into the (left-pane) composer and focus it so the founder
               // sees it ready to send. No auto-send: they review/edit + send.
               setInput(prompt);
-              if (typeof document !== 'undefined') {
-                const tas = Array.from(document.querySelectorAll('textarea')) as HTMLTextAreaElement[];
-                const composer = tas.find((t) => /co-pilot/i.test(t.placeholder)) ?? tas[0];
-                composer?.focus();
-                composer?.scrollIntoView({ block: 'nearest' });
-              }
+              // Was: scan every <textarea> and match /co-pilot/i against its
+              // placeholder. That silently fell back to tas[0] the moment the
+              // placeholder copy changed — an invisible coupling between a
+              // translated string and this handler, with no test. A ref is the
+              // same behaviour without the tripwire.
+              composerRef.current?.focus();
+              composerRef.current?.scrollIntoView({ block: 'nearest' });
             }}
           />
           )}
@@ -1856,7 +1959,46 @@ function ChatEmptyState({
   );
 }
 
-function Msg({
+/**
+ * Tool-call presentation helpers.
+ *
+ * `ToolActivity.args` has been streamed since the SSE plumbing landed and
+ * dropped on the floor by the renderer. These turn it into something a founder
+ * can read: an inline one-liner (the search query, the fact being saved) and,
+ * on expand, the full argument list.
+ */
+function toolIconFor(name: string): 'think' | 'write' | 'run' | 'read' {
+  if (/^(web_search|read_url|search|list_|get_)/.test(name)) return 'read';
+  if (/^(save_|create_|propose_|update_|record_|commit)/.test(name)) return 'write';
+  if (/^skill_/.test(name)) return 'run';
+  return 'think';
+}
+
+/** Single most descriptive argument, clamped — the chip is one line. */
+function toolArgSummary(args?: Record<string, unknown>): string | undefined {
+  if (!args) return undefined;
+  for (const key of ['query', 'url', 'name', 'title', 'fact', 'skill_id', 'content']) {
+    const v = args[key];
+    if (typeof v === 'string' && v.trim()) {
+      return v.length > 70 ? `${v.slice(0, 70)}…` : v;
+    }
+  }
+  return undefined;
+}
+
+function toolArgDetail(args?: Record<string, unknown>): { text: string }[] | undefined {
+  if (!args) return undefined;
+  const lines = Object.entries(args)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([k, v]) => {
+      const raw = typeof v === 'string' ? v : JSON.stringify(v);
+      const clamped = raw.length > 160 ? `${raw.slice(0, 160)}…` : raw;
+      return { text: `${k}: ${clamped}` };
+    });
+  return lines.length > 0 ? lines : undefined;
+}
+
+function MsgImpl({
   messageId,
   who,
   agent,
@@ -1868,14 +2010,15 @@ function Msg({
   onArtifactAction,
   onQuickReply,
   onRetry,
-  onMouseEnter,
-  onMouseLeave,
+  onFocusChange,
 }: {
   messageId: string;
   who: 'user' | 'ai';
   agent: string;
   streaming?: boolean;
-  tools?: Array<{ id: string; name: string; status: string }>;
+  // ToolActivity, not a narrowed copy: the old inline shape omitted `args`,
+  // which is why the streamed tool arguments were invisible to this renderer.
+  tools?: ToolActivity[];
   children: React.ReactNode;
   /** Raw text for clipboard + retry. User sees `children` (stripped);
    *  clipboard + retry use the original `rawContent`. */
@@ -1889,19 +2032,19 @@ function Msg({
   /** Provided only for user messages to resubmit. Undefined while streaming. */
   onRetry?: (content: string) => void;
   /** Turn-linked canvas: hover handlers for message↔canvas linking */
-  onMouseEnter?: () => void;
-  onMouseLeave?: () => void;
+  /** Hover focus. ONE stable callback shared by every row (the row reports its
+   *  own id), so the message row stays React.memo-able. */
+  onFocusChange?: (id: string, focused: boolean) => void;
 }) {
   const t = useT();
-  const [toolsExpanded, setToolsExpanded] = useState(false);
 
   if (who === 'user') {
     return (
       <div
         className="lp-msg-row lp-rise"
         data-message-id={messageId}
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
+        onMouseEnter={() => onFocusChange?.(messageId, true)}
+        onMouseLeave={() => onFocusChange?.(messageId, false)}
         style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginBottom: 16 }}
       >
         <div
@@ -1923,7 +2066,7 @@ function Msg({
     );
   }
   return (
-    <div className="lp-rise" data-message-id={messageId} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} style={{ marginBottom: 18 }}>
+    <div className="lp-rise" data-message-id={messageId} onMouseEnter={() => onFocusChange?.(messageId, true)} onMouseLeave={() => onFocusChange?.(messageId, false)} style={{ marginBottom: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <span
           style={{
@@ -1944,88 +2087,43 @@ function Msg({
         </span>
         {streaming && <Pill kind="live" dot>{t('chat.streaming')}</Pill>}
       </div>
-      {tools && tools.length === 1 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-          <span
-            className="lp-chip"
-            style={{
-              background: tools[0].status === 'running'
-                ? 'var(--accent-wash)'
-                : tools[0].status === 'error'
-                  ? 'var(--accent-wash)'
-                  : 'var(--paper-2)',
-              color: tools[0].status === 'running'
-                ? 'var(--accent-ink)'
-                : tools[0].status === 'error'
-                  ? 'var(--clay)'
-                  : 'var(--ink-4)',
-            }}
-          >
-            {tools[0].status === 'running' && (
-              <span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />
-            )}
-            {tools[0].name}
-          </span>
-        </div>
-      )}
-      {tools && tools.length > 1 && !toolsExpanded && (
-        <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-          <span
-            className="lp-chip"
-            style={{
-              background: tools.some((t) => t.status === 'running') ? 'var(--accent-wash)' : 'var(--paper-2)',
-              color: tools.some((t) => t.status === 'running') ? 'var(--accent-ink)' : 'var(--ink-4)',
-              cursor: 'pointer',
-            }}
-            onClick={() => setToolsExpanded(true)}
-          >
-            {tools.some((tool) => tool.status === 'running') && (
-              <span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />
-            )}
-            {t('chat.using-tools', { count: tools.length })}
-          </span>
-        </div>
-      )}
-      {tools && tools.length > 1 && toolsExpanded && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-          {tools.map((t) => (
-            <span
-              key={t.id}
-              className="lp-chip"
-              style={{
-                background: t.status === 'running'
-                  ? 'var(--accent-wash)'
-                  : t.status === 'error'
-                    ? 'var(--accent-wash)'
-                    : 'var(--paper-2)',
-                color: t.status === 'running'
-                  ? 'var(--accent-ink)'
-                  : t.status === 'error'
-                    ? 'var(--clay)'
-                    : 'var(--ink-4)',
-              }}
-            >
-              {t.status === 'running' && (
-                <span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />
-              )}
-              {t.name}
-            </span>
-          ))}
-          <span
-            className="lp-chip"
-            style={{ background: 'var(--paper-2)', color: 'var(--ink-4)', cursor: 'pointer' }}
-            onClick={() => setToolsExpanded(false)}
-          >
-            {t('chat.tools-collapse')}
-          </span>
+      {/* Tool activity. Previously three sibling chip blocks that showed only
+          "Using 8 tools" and, when expanded, the bare names — while useChat has
+          been streaming each call's `args` and discarding them at the renderer.
+          ToolChips surfaces those as expandable per-call detail, so the founder
+          can see WHAT the agent searched for, not just that it searched. */}
+      {tools && tools.length > 0 && (
+        <div style={{ marginBottom: 6 }}>
+          <ToolChips
+            rows={tools.map((tool) => ({
+              id: tool.id,
+              label: tool.name,
+              status: tool.status,
+              icon: toolIconFor(tool.name),
+              chip: toolArgSummary(tool.args),
+              detail: toolArgDetail(tool.args),
+              detailMono: true,
+            }))}
+            defaultOpen={tools.length === 1}
+          />
         </div>
       )}
       <div
         className="lp-msg-row lp-md"
         style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink-2)' }}
       >
-        <MdProse text={String(children ?? '')} />
-        {streaming && <span className="lp-caret" aria-hidden="true">▋</span>}
+        {/* StreamingText owns the caret and the settled/streaming distinction;
+            MdProse stays the renderer via renderText, so markdown survives —
+            without that hatch this component splits on whitespace and every
+            heading, list and bold in every reply becomes literal asterisks.
+            No action handlers are passed: copy/retry already live in MsgActions
+            below, and a second row would just duplicate them. */}
+        <StreamingText
+          className="w-full"
+          text={String(children ?? '')}
+          streaming={streaming}
+          renderText={(visible) => <MdProse text={visible} />}
+        />
       </div>
       {inlineArtifacts && inlineArtifacts.length > 0 && (() => {
         // When actionable watcher cards are present, suppress the generic
@@ -2053,6 +2151,18 @@ function Msg({
     </div>
   );
 }
+
+/**
+ * The message row, memoised.
+ *
+ * Streaming paints the LAST message many times per answer; without this every
+ * paint re-rendered the entire transcript. Memo works here because the props
+ * are now referentially stable for an unchanged message: `children` is a
+ * string (stripArtifacts), `inlineArtifacts` comes from the content-keyed
+ * cache, and hover is one shared callback instead of two fresh arrows per row.
+ * Default shallow comparison is therefore sufficient.
+ */
+const Msg = memo(MsgImpl);
 
 /**
  * Fallback quick-reply chips shown below any complete assistant message that
@@ -2305,9 +2415,17 @@ function InlineOption({
   // the title attribute. The PAYLOAD carries the FULL original label
   // (split.full), never the clamped head — a truncated "Yes" can't
   // disambiguate between similar options. Clamping is render-only.
-  const split = splitOptionLabel(option.label || `Option ${index + 1}`, option.description);
+  const split = splitOptionLabel(option.label || t('chat.option-fallback', { n: index + 1 }), option.description);
 
-  const baseLabel = split.label || t('chat.option-fallback', { n: index + 1 });
+  // Expand-in-place: the clamp made long options unreadable without selecting
+  // (alpha feedback 2026-07-15). Toggle shown only when text was actually cut;
+  // when expanded, show split.full as the label and the ORIGINAL description
+  // (split.description carries the label overflow and would duplicate it).
+  const [expanded, setExpanded] = useState(false);
+  const isClamped = split.full !== split.label || (split.description?.length ?? 0) > 120;
+  const expandedDescription = String(option.description ?? '').trim();
+
+  const baseLabel = (expanded ? split.full : split.label) || t('chat.option-fallback', { n: index + 1 });
   const labelText =
     locked ? `🔒 ${baseLabel}` :
     state === 'running' ? `${baseLabel} · ${t('chat.running')}` :
@@ -2375,7 +2493,7 @@ function InlineOption({
         await onAction?.('commit:apply', {
           canvas: commit.canvas ?? {},
           items: commit.items ?? [],
-          label: split.full || `Option ${index + 1}`,
+          label: split.full || t('chat.option-fallback', { n: index + 1 }),
           description: option.description ?? '',
         });
         setState('done');
@@ -2389,7 +2507,7 @@ function InlineOption({
     onChoose?.(); // non-commit select: lock optimistically (a text round-trip, nothing to persist-fail)
     onAction?.('select-option', {
       optionId: option.id ?? String(index),
-      label: split.full || `Option ${index + 1}`,
+      label: split.full || t('chat.option-fallback', { n: index + 1 }),
       description: option.description ?? '',
     });
   };
@@ -2425,7 +2543,7 @@ function InlineOption({
             fontWeight: 500,
             flex: 1,
             minWidth: 0,
-            whiteSpace: 'nowrap',
+            whiteSpace: expanded ? 'normal' : 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
           }}
@@ -2435,21 +2553,52 @@ function InlineOption({
         {/* No per-option credit chip: only a founder chat message costs a credit
             (1/message); running an analysis, applying, and committing are free. */}
       </div>
-      {split.description && (
+      {(expanded ? expandedDescription : split.description) && (
         <div
           style={{
             fontSize: 11,
             color: 'var(--ink-4)',
             marginTop: 2,
             lineHeight: 1.4,
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
+            ...(expanded
+              ? {}
+              : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }),
           }}
         >
-          {split.description}
+          {expanded ? expandedDescription : split.description}
         </div>
+      )}
+      {isClamped && !isDisabled && (
+        // Not a <button>: nested buttons are invalid HTML. stopPropagation +
+        // preventDefault so toggling never selects/runs the option. Hidden once
+        // the set is disabled — a disabled button suppresses child clicks anyway.
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            }
+          }}
+          style={{
+            display: 'inline-block',
+            fontSize: 11,
+            color: 'var(--ink-4)',
+            marginTop: 4,
+            textDecoration: 'underline',
+            textUnderlineOffset: 2,
+            cursor: 'pointer',
+          }}
+        >
+          {expanded ? t('chat.option-show-less') : t('chat.option-show-more')}
+        </span>
       )}
       {state === 'error' && (
         <div style={{ fontSize: 11, color: 'var(--clay, #b4513a)', marginTop: 2 }}>
@@ -2612,6 +2761,15 @@ function InlineArtifact({
   // watcher-card backstop emits monitor-proposal for BOTH topic and URL watchers.
   if (artifact.type === 'monitor-proposal') {
     return <MonitorProposalCard artifact={artifact} onAction={onAction ?? (() => {})} />;
+  }
+  // budget-proposal had the exact bug described above, still unfixed: it is in
+  // INLINE_ARTIFACT_TYPES (so classifyArtifacts keeps it out of the Canvas) and
+  // in NON_RETRIEVABLE_TYPES (so the Data Room never shows it), but had no
+  // branch here — so `propose_budget_change` emitted a card that rendered
+  // NOWHERE. BudgetProposalCard itself was only reachable via DepartmentSection,
+  // which never receives this type.
+  if (artifact.type === 'budget-proposal') {
+    return <BudgetProposalCard artifact={artifact} onAction={onAction ?? (() => {})} />;
   }
 
   return null;
@@ -3008,55 +3166,27 @@ function TaskCard({
             </div>
           )}
           {expansion.subtasks && expansion.subtasks.length > 0 && (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {expansion.subtasks.map((st, i) => {
-                const checked = checkedSubtasks.has(i);
-                return (
-                  <li
-                    key={i}
-                    onClick={() => {
-                      // UI-only check state for now (v2 may persist).
-                      setCheckedSubtasks((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(i)) next.delete(i); else next.add(i);
-                        return next;
-                      });
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 6,
-                      fontSize: 11.5,
-                      color: checked ? 'var(--ink-4)' : 'var(--ink-2)',
-                      textDecoration: checked ? 'line-through' : 'none',
-                      cursor: 'pointer',
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: 14,
-                        height: 14,
-                        flexShrink: 0,
-                        marginTop: 2,
-                        border: '1px solid var(--line-2)',
-                        borderRadius: 3,
-                        background: checked ? 'var(--ink)' : 'transparent',
-                        color: checked ? 'var(--paper)' : 'transparent',
-                        fontSize: 10,
-                        lineHeight: 1,
-                      }}
-                    >
-                      {checked ? '✓' : ''}
-                    </span>
-                    <span>{st}</span>
-                  </li>
-                );
-              })}
-            </ul>
+            /* Checklist, NOT agent status: these are the founder's own ticks,
+               so TaskRows runs in checklist mode (onToggle) and never renders a
+               status the agent could appear to have set. Check state stays
+               UI-only for now, as before. */
+            <TaskRows
+              dense
+              variant="list"
+              onToggle={(id) => {
+                const i = Number(id);
+                setCheckedSubtasks((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(i)) next.delete(i); else next.add(i);
+                  return next;
+                });
+              }}
+              rows={expansion.subtasks.map((st, i) => ({
+                id: String(i),
+                label: st,
+                checked: checkedSubtasks.has(i),
+              }))}
+            />
           )}
           {expansion.references && expansion.references.length > 0 && (
             <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -3284,6 +3414,7 @@ function ChatComposer({
   onAttachText,
   onAuditDocs,
   onSaveToDataRoom,
+  textareaRef,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -3300,6 +3431,9 @@ function ChatComposer({
    *  or null on failure. Pasted chat text is otherwise ephemeral — it never
    *  reaches the spine or skills. */
   onSaveToDataRoom?: (text: string) => Promise<{ staged: number } | null>;
+  /** Focus target for Canvas's "use this prompt" handoff (replaces a
+   *  placeholder-regex lookup that broke silently on copy changes). */
+  textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
 }) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -3365,6 +3499,7 @@ function ChatComposer({
         }}
       >
         <textarea
+          ref={textareaRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}

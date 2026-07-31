@@ -22,6 +22,7 @@ import { AuthError, requireUser } from '@/lib/auth/require-user';
 import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { recordEvent } from '@/lib/memory/events';
 import { getActiveStage } from '@/lib/journey';
+import { normalizeDimensions, to100 } from '@/lib/score-display';
 
 const RISK_SKILL_PATH = join(process.cwd(), 'launchpad-skills', 'risk-scoring', 'SKILL.md');
 
@@ -84,10 +85,17 @@ export async function POST(
   }
 
   // Pull any existing score dimensions so the auditor has scoring context.
-  const score = await get<{ overall_score: number; dimensions: string }>(
+  // `dimensions` is JSONB, so the driver hands back a parsed object — never
+  // interpolate it directly (that renders as "[object Object]").
+  const score = await get<{ overall_score: number | null; dimensions: unknown }>(
     'SELECT overall_score, dimensions FROM scores WHERE project_id = $1',
     projectId,
   );
+  // scores.* canon is 0-100; to100() lifts any legacy 0-10 row so the auditor
+  // is never told a 57 is "57/10".
+  const dims = normalizeDimensions(score?.dimensions)
+    .map((d) => `${d.name} ${Math.round(to100(d.score))}`)
+    .join(', ');
 
   // Derive the stage from the live journey evaluator, not the legacy
   // projects.current_step column (a retired 5-stage pointer that drifts).
@@ -99,8 +107,10 @@ export async function POST(
     activeStageEval
       ? `CURRENT STAGE: ${activeStageEval.stage.number}/7 — ${activeStageEval.stage.label}`
       : null,
-    score ? `OVERALL SCORE: ${score.overall_score}/10` : null,
-    score?.dimensions ? `DIMENSION SCORES: ${score.dimensions}` : null,
+    typeof score?.overall_score === 'number'
+      ? `OVERALL SCORE: ${Math.round(to100(score.overall_score))}/100`
+      : null,
+    dims ? `DIMENSION SCORES (out of 100): ${dims}` : null,
     body.context ? `FOCUS HINT: ${body.context}` : null,
   ].filter(Boolean).join('\n');
 

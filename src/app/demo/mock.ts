@@ -1,0 +1,693 @@
+/**
+ * /demo — static mock data for the vision demo. DEMO PURPOSES ONLY.
+ *
+ * MatchLens is the house example project (same startup used by every
+ * e2e-loop1-* script: AI video analysis for amateur sports clubs, competitors
+ * Veo/Pixellot/Trace, TAM €40M/SAM €16M, the weak-WTP Loop-1 story). Here it
+ * is extended FORWARD through the parts of the L2 vision that are not built
+ * yet (Loops 2-4, growth engine, build hub) so the page shows the full
+ * end-state a founder reaches after ~9 months on the platform.
+ *
+ * Everything on this page is hardcoded — no API calls, no DB reads. The
+ * numbers below are the product-vision "what success looks like" defaults;
+ * tune them freely, nothing else depends on them.
+ */
+
+export const PROJECT = {
+  name: 'MatchLens',
+  tagline: 'Analisi video AI per club sportivi dilettantistici',
+  stagePill: '4 · MVP Release & Launch',
+  irl: 'IRL 6/9',
+  age: '9 mesi',
+};
+
+export const HEADLINE_METRICS = [
+  { label: 'Punteggio progetto', value: '87/100', delta: '+6 vs Loop 4', spark: [52, 58, 55, 63, 61, 70, 74, 79, 83, 87], kind: 'ok' as const },
+  { label: 'MRR', value: '€4.2k', delta: '+18% m/m', spark: [0, 0, 0, 0.3, 0.8, 1.4, 2.1, 2.9, 3.6, 4.2], kind: 'ok' as const },
+  { label: 'Club attivi', value: '38', delta: '+7 questo mese', spark: [0, 0, 2, 5, 9, 14, 21, 27, 33, 38], kind: 'ok' as const },
+  { label: 'Runway', value: '14 mesi', delta: 'pre-seed €350k', spark: [], kind: 'n' as const },
+];
+
+// The revised flow architecture (founder 2026-07-22): 5 macro phases (0-4) +
+// 1 cross-cutting module + 4 iteration loops in the critical transitions. The
+// loops sit BETWEEN the phases; the Modulo Trasversale (Financial & Pitch
+// Assets) opens after Loop 1 and is mandatory pre-launch.
+export type SpineNode =
+  | { kind: 'phase'; n: number; label: string; sub: string; done: boolean; active?: boolean; expanded?: boolean }
+  | { kind: 'loop'; label: string; sub: string; verdict: Verdict }
+  | { kind: 'module'; label: string; sub: string; done: boolean };
+
+export const SPINE: SpineNode[] = [
+  { kind: 'phase', n: 0, label: 'Idea Canvas', sub: 'Struttura l’idea grezza · Lean Canvas + Startup Score baseline', done: true },
+  { kind: 'phase', n: 1, label: 'Validation Gate', sub: 'Mercato + Tecnica + Problem-Solution Fit · watcher attivati', done: true, expanded: true },
+  { kind: 'loop', label: 'Loop 1 · PSF Review', sub: 'trigger: score < 6/10 o WTP < 30% · max 2 iterazioni', verdict: 'GO' },
+  { kind: 'phase', n: 2, label: 'Business Essentials', sub: 'Business Model · unit economics · bozza finanziaria', done: true },
+  { kind: 'loop', label: 'Loop 2 · BM Stress Test', sub: 'trigger: LTV/CAC < 3× o score < 6/10 · max 2 iterazioni', verdict: 'GO' },
+  { kind: 'module', label: 'Modulo Trasversale · Financial & Pitch Assets', sub: 'attivabile dopo Loop 1 · obbligatorio pre-lancio', done: true },
+  { kind: 'phase', n: 3, label: 'Build & Test Sandbox', sub: 'Landing page · demo · test con warm users', done: true },
+  { kind: 'loop', label: 'Loop 3 · Market Response Review', sub: 'trigger: conversione < 5% o score < 6/10 · max 2 iterazioni', verdict: 'GO' },
+  { kind: 'phase', n: 4, label: 'MVP Release & Launch', sub: 'Build + Launch + Test con cold & warm users', done: false, active: true },
+  { kind: 'loop', label: 'Loop 4 · MVP Test Verdict', sub: 'trigger: attivazione < 20% o score < 6/10 · verdetto finale', verdict: 'LAUNCH READY' },
+];
+
+// Expanded evidence checks for the Validation Gate stage (1A ∥ 1B → 1C).
+export const GATE_TRACKS = [
+  {
+    id: '1A',
+    label: '1A · Mercato',
+    checks: [
+      { text: '3 concorrenti mappati', proof: 'Veo · Pixellot · Trace' },
+      { text: 'Dimensione del mercato approvata', proof: 'TAM €40M · SAM €16M · SOM €2.4M' },
+      { text: 'Differenziazione supportata da prove', proof: '"A differenza di Veo siamo chiavi in mano"' },
+    ],
+  },
+  {
+    id: '1B',
+    label: '1B · Tecnica',
+    checks: [
+      { text: 'Fattibilità tecnica', proof: 'computer vision possibile con gli strumenti di oggi' },
+      { text: 'Dipendenze mappate', proof: 'fornitori camere + modelli di visione' },
+      { text: 'Vincoli normativi', proof: 'GDPR per i minori ripresi — consenso federazione' },
+    ],
+  },
+  {
+    id: '1C',
+    label: '1C · Problem-Solution Fit',
+    checks: [
+      { text: '14 interviste registrate', proof: 'pain: "perdono ore ogni settimana con la revisione video manuale"' },
+      { text: 'Urgenza confermata', proof: '11/14 urgenza alta' },
+      { text: 'Segnale WTP', proof: '63% disposti a pagare €79/mese (dopo Loop 1)' },
+    ],
+  },
+];
+
+// The validation-loop history — the vision centerpiece. Loop 1 is live in the
+// product today; Loops 2-4 are the L2-walkthrough roadmap, mocked here.
+export type Verdict = 'GO' | 'PIVOT' | 'STOP' | 'LAUNCH READY';
+
+export const LOOPS: Array<{
+  id: string;
+  title: string;
+  subtitle: string;
+  trigger: string;
+  verdict: Verdict;
+  body: string[];
+  evidenceMatrix?: Array<{ signal: string; before: string; after: string }>;
+  live: boolean;
+}> = [
+  {
+    id: 'loop1',
+    title: 'Loop 1 · PSF Review',
+    subtitle: 'attivazione automatica — mese 2',
+    trigger: 'WTP 17% < soglia 30% dopo 6 interviste',
+    verdict: 'GO',
+    body: [
+      'Iterazione 1 → PIVOT: ICP troppo ampio. Ristretto a club di calcio giovanile con budget federazione; value prop riscritta intorno al risparmio di tempo dell’allenatore.',
+      'Iterazione 2 → GO: 8 nuove interviste sull’ICP ristretto, WTP salita al 63% a €79/mese. Fase 2 sbloccata.',
+    ],
+    evidenceMatrix: [
+      { signal: 'WTP', before: '17% (1/6)', after: '63% (9/14)' },
+      { signal: 'Interviste', before: '6', after: '14' },
+      { signal: 'Prezzo dichiarato', before: '€50/mese', after: '€79/mese' },
+      { signal: 'Urgenza alta', before: '3/6', after: '11/14' },
+    ],
+    live: true,
+  },
+  {
+    id: 'loop2',
+    title: 'Loop 2 · BM Stress Test',
+    subtitle: 'attivazione automatica — mese 3',
+    trigger: 'business model + prezzi compilati',
+    verdict: 'GO',
+    body: [
+      'LTV/CAC 3.2× (soglia 2×). Prezzo ancora €79/mese, ancorato alla WTP misurata in Loop 1 — nessuna micro-iterazione necessaria.',
+      'Unit economics: CAC €180 via federazioni · LTV €580 · churn stimato 3.5%/mese.',
+    ],
+    live: false,
+  },
+  {
+    id: 'loop3',
+    title: 'Loop 3 · Market Response Review',
+    subtitle: 'attivazione automatica — mese 5',
+    trigger: 'landing page live da 14 giorni',
+    verdict: 'GO',
+    body: [
+      'Conversione landing 6.8% su 2.4k visitatori (utenti warm via federazioni). Bounce 41%, tempo medio 2:10.',
+      'Feedback auto-classificato: 9 superficiali (copy/UX, risolti) · 2 intermedi (positioning prezzo, aggiornato) · 0 profondi — nessuna riapertura di Loop 1.',
+    ],
+    live: false,
+  },
+  {
+    id: 'loop4',
+    title: 'Loop 4 · MVP Test Verdict',
+    subtitle: 'verdetto finale del ciclo — mese 7',
+    trigger: '30 giorni di test con utenti cold + warm',
+    verdict: 'LAUNCH READY',
+    body: [
+      'Attivazione 74% · retention 7gg 58% · NPS post-uso 46 · WTP confermata (29 club paganti su 38 attivi).',
+      'Nessun vincolo: go-to-market esteso oltre le federazioni pilota.',
+    ],
+    live: false,
+  },
+];
+
+// Modulo Trasversale — financial & pitch assets, completed before Phase 4.
+export const DATA_ROOM = [
+  { name: 'Pitch deck', version: 'v3', meta: '12 slide · aggiornato 4 giorni fa', icon: 'file' as const },
+  { name: 'One-pager', version: 'v2', meta: 'EN + IT', icon: 'file' as const },
+  { name: 'Modello finanziario', version: 'v4', meta: 'runway 14 mesi · serve €350k pre-seed', icon: 'fund' as const },
+  { name: 'Matrice evidenze — Loop 1', version: 'v1', meta: 'allegata al verdetto GO', icon: 'layers' as const },
+  { name: 'Interviste PSF (14)', version: '—', meta: 'trascrizioni + verbatim pain', icon: 'book' as const },
+];
+export const DATA_ROOM_FOOT = 'Data room condivisa con 2 investitori · ultimo accesso ieri';
+
+// Growth engine — the W0-W5 launch pipeline (publish → campaigns → ads/social
+// → measure → growth loops), fully wired: cron proposes, founder approves,
+// executor sends, measure cron reads the results back.
+export const GROWTH_FUNNEL = [
+  { label: 'Visitatori 30gg', value: '2.4k', delta: '+12%', kind: 'ok' as const },
+  { label: 'Iscrizioni', value: '164', delta: '6.8% conv.', kind: 'ok' as const },
+  { label: 'Attivati', value: '121', delta: '74%', kind: 'ok' as const },
+  { label: 'Email inviate', value: '1.2k', delta: 'open 41% · click 12%', kind: 'ok' as const },
+];
+export const GROWTH_ITEMS = [
+  { week: 'W0', title: 'Landing pubblicata — matchlens.app', meta: 'deploy Netlify · form di iscrizione attivo, letto dal cron di misurazione', state: 'live', kind: 'ok' as const },
+  { week: 'W1', title: 'Sequenza email "Onboarding club"', meta: '5 step via Resend · 3 inviati · step 4 proposto in Inbox', state: 'attiva', kind: 'ok' as const },
+  { week: 'W2', title: 'Broadcast "Stagione primaverile"', meta: '412 destinatari · inviato dopo approvazione · 38 risposte', state: 'inviato', kind: 'ok' as const },
+  { week: 'W3', title: 'Ads — Google CSV + Meta JSON', meta: '3 ad group esportati · €14 CPA misurato', state: 'attiva', kind: 'ok' as const },
+  { week: 'W3', title: 'Social — 8 post programmati', meta: 'LinkedIn + Instagram via Ayrshare · calendario 2 settimane', state: 'in coda', kind: 'info' as const },
+  { week: 'W4', title: 'Misurazione notturna', meta: 'cron legge i Forms → metrica signups aggiornata ogni notte', state: 'attiva', kind: 'ok' as const },
+  { week: 'W5', title: 'Loop di crescita — referral allenatori', meta: 'dispatch per area · 1 club porta 0.4 club/mese', state: 'in test', kind: 'info' as const },
+];
+
+// Build hub — the MVP is built and iterated BY AGENTS (v0 + E2B drivers):
+// watcher feedback → cron proposes an iteration → founder approves → the
+// agent builds in sandbox → deploy → runtime monitored → next proposal.
+export const BUILD_APP = {
+  url: 'app.matchlens.it',
+  meta: 'build #12 live · driver v0 + sandbox E2B · monitoraggio runtime attivo',
+};
+export const BUILD_ITERATIONS = [
+  { n: 13, title: 'Highlights condivisibili su WhatsApp', meta: 'proposta dal watcher feedback allenatori · in attesa di approvazione', state: 'in Inbox', kind: 'warn' as const },
+  { n: 12, title: 'Clip automatiche per allenamento', meta: 'da feedback Loop 4 · build in sandbox E2B · deploy 2 giorni fa', state: 'live', kind: 'ok' as const },
+  { n: 11, title: 'Condivisione video con i genitori', meta: 'approvata → costruita dall’agente → deploy 9 giorni fa', state: 'live', kind: 'ok' as const },
+  { n: 10, title: 'Tagging eventi in tempo reale', meta: 'proposta dal monitoraggio errori runtime', state: 'live', kind: 'ok' as const },
+];
+
+// Agent activity — the last 48h of the machine working on its own (cron,
+// watchers, executors). Everything outbound went through founder approval.
+export const ACTIVITY = [
+  { when: 'oggi 06:00', what: 'Scansione watcher — 2 segnali concorrenti, 1 proposta in Inbox', type: 'cron' },
+  { when: 'oggi 06:02', what: 'Misurazione — +9 iscrizioni dai Forms, metrica aggiornata', type: 'cron' },
+  { when: 'oggi 06:05', what: 'Proposto invio step 4/5 della sequenza email (in Inbox)', type: 'proposta' },
+  { when: 'ieri 18:40', what: 'Broadcast "Stagione primaverile" inviato — dopo la tua approvazione', type: 'eseguito' },
+  { when: 'ieri 09:15', what: 'Proposta iterazione MVP #13 da feedback allenatori', type: 'proposta' },
+  { when: 'lun 07:00', what: 'Monday Brief generato — 3 mosse consigliate per la settimana', type: 'cron' },
+];
+
+// Intelligence — watchers + ecosystem.
+export const WATCHERS = [
+  { title: 'Concorrenti — prodotto e prezzi', meta: 'Veo · Pixellot · Trace · scansione settimanale', state: 'attivo' },
+  { title: 'Normativa — GDPR minori', meta: 'garante privacy + linee guida federazioni', state: 'attivo' },
+  { title: 'Feedback utenti — app store + email', meta: 'classificazione automatica su 3 livelli', state: 'attivo' },
+];
+export const INTEL_ALERT = {
+  title: 'Veo lancia un piano entry a €89/mese',
+  body: 'Sopra il nostro anchor di €79 — la differenziazione "chiavi in mano" regge. Proposta in Inbox: aggiornare la battlecard concorrenti.',
+};
+export const ECOSYSTEM = [
+  { label: 'Concorrenti', count: 3 },
+  { label: 'Persone', count: 2 },
+  { label: 'Partner', count: 4 },
+  { label: 'Investitori', count: 2 },
+];
+
+// Inbox preview — pending proposals awaiting founder approval.
+export const INBOX = [
+  { title: 'Approva campagna email — "Stagione primaverile"', lane: 'Approvazione', kind: 'live' as const },
+  { title: 'Metriche settimanali — report settimana 38 pronto', lane: 'Skill', kind: 'info' as const },
+  { title: 'Alert concorrenti — piano entry Veo €89/mese', lane: 'Segnale', kind: 'warn' as const },
+];
+
+export const FOOTER_NOTE =
+  'Questa è una demo statica della visione completa di LaunchPad su un progetto di esempio. ' +
+  'In produzione: la spina a 5 fasi macro + 4 loop di iterazione con 35 controlli di evidenza, le 19 skill e il Loop 1 (PSF Review). ' +
+  'In staging: Build Hub (agenti che iterano l’MVP) e Launch Pipeline (campagne, email, ads, misurazione). ' +
+  'Loop 2-4 completano la roadmap. Naviga la barra a sinistra per esplorare tutte le pagine.';
+
+// =============================================================================
+// SCORE — Project Score + IRL (mirrors src/components/home/ScorePanel.tsx)
+// =============================================================================
+
+export const SCORE = {
+  total: 87,
+  band: 'forte',
+  bandKind: 'ok' as const,
+  dimensions: [
+    { label: 'Problema & mercato', value: 92 },
+    { label: 'Soluzione & prodotto', value: 88 },
+    { label: 'Modello di business', value: 84 },
+    { label: 'Trazione & metriche', value: 86 },
+    { label: 'Team & esecuzione', value: 83 },
+  ],
+  recommendation:
+    'Trazione solida e unit economics sane. Prossima leva: allargare i canali oltre le federazioni per ridurre il rischio di concentrazione.',
+  // IRL is a 1-9 developmental ladder, NOT tied 1:1 to the 5 macro phases —
+  // each phase+loop milestone earns one point (1 Idea Canvas · 2 first score +
+  // Gate 1A/1B · 3 Gate 1C + Loop 1 · 4 Business Essentials + Loop 2 · 5 Build
+  // & Test + Loop 3 · 6 MVP Release & Launch + Loop 4); 7-9 unlock only via the
+  // paid add-on modules (GTM orchestration · Fundraising readiness ·
+  // Operations), not yet built. MatchLens cleared Loop 4 (LAUNCH READY) but
+  // hasn't activated any add-on — hence 6/9 despite an 87/100 score, the
+  // "promising, still maturing" quadrant the founder wants IRL to expose.
+  irl: { level: 6, of: 9, stage: 'MVP Release & Launch' },
+};
+
+// =============================================================================
+// INBOX — Osservatori (watchers) + Da rivedere (pending proposals)
+// mirrors actions/page.tsx + MonitorListPanel + action-lanes.ts
+// =============================================================================
+
+export const INBOX_SUBHEAD = {
+  title: 'Applica all’intelligence del tuo progetto.',
+  desc: 'Risultati degli osservatori e proposte di conoscenza. Applica o ignora — ogni elemento applicato finisce in Conoscenza.',
+};
+
+export type InboxItem = {
+  id: string;
+  typeChip: string;
+  title: string;
+  brief: string;
+  lane: string;
+  laneKind: 'live' | 'info' | 'warn' | 'ok' | 'n';
+  producer: string;
+  age: string;
+  applyLabel: string;
+  detail: Array<{ label: string; value: string }>;
+  adds: string;
+};
+
+export const INBOX_ITEMS: InboxItem[] = [
+  {
+    id: 'a1f3',
+    typeChip: 'Segnale',
+    title: 'Veo lancia un piano entry a €89/mese',
+    brief: 'Nuovo listino sul sito di Veo: piano "Club" a €89/mese, sopra il nostro anchor di €79. La differenziazione "chiavi in mano" regge.',
+    lane: 'Segnale',
+    laneKind: 'live',
+    producer: 'osservatore · concorrenti',
+    age: '2 ore fa',
+    applyLabel: 'Accetta nella conoscenza',
+    detail: [
+      { label: 'Fonte', value: 'veo.co/pricing' },
+      { label: 'Rilevato da', value: 'Osservatore concorrenti (settimanale)' },
+      { label: 'Delta prezzo', value: '€89 vs nostro €79' },
+      { label: 'Impatto', value: 'Aggiornare la battlecard concorrenti' },
+    ],
+    adds: 'Aggiunge un fatto "prezzi concorrenti" al grafo Conoscenza e aggiorna il profilo di Veo.',
+  },
+  {
+    id: 'b7c2',
+    typeChip: 'Analisi',
+    title: 'Metriche settimanali — report settimana 38 pronto',
+    brief: 'La skill weekly-metrics ha compilato il report: MRR €4.2k (+18%), 38 club attivi (+7), churn 3.1%. Nessuna anomalia.',
+    lane: 'Approvazione',
+    laneKind: 'info',
+    producer: 'skill · weekly-metrics',
+    age: '5 ore fa',
+    applyLabel: 'Applica alla conoscenza',
+    detail: [
+      { label: 'Analisi', value: 'Metriche settimanali' },
+      { label: 'Cosa ottieni', value: 'Snapshot MRR/churn/attivazione della settimana' },
+      { label: 'Durata', value: 'eseguita — pronta da applicare' },
+    ],
+    adds: 'Registra le metriche della settimana come fatti datati e aggiorna la sparkline sul dashboard.',
+  },
+  {
+    id: 'c9d4',
+    typeChip: 'Bozza email',
+    title: 'Approva invio — step 4/5 sequenza "Onboarding club"',
+    brief: 'Il cron di campagna propone l’invio del 4° step ai 38 club onboardati. Oggetto: "3 clip che i tuoi allenatori adoreranno".',
+    lane: 'Approvazione',
+    laneKind: 'warn',
+    producer: 'cron · campagne',
+    age: '6 ore fa',
+    applyLabel: 'Approva invio',
+    detail: [
+      { label: 'Campagna', value: 'Onboarding club (5 step)' },
+      { label: 'Destinatari', value: '38 club attivi' },
+      { label: 'Canale', value: 'Resend' },
+      { label: 'Oggetto', value: '3 clip che i tuoi allenatori adoreranno' },
+    ],
+    adds: 'Invia lo step 4 via Resend e registra il risultato per il cron di misurazione.',
+  },
+  {
+    id: 'd2e8',
+    typeChip: 'Nuovo osservatore',
+    title: 'Proponi osservatore — normativa AI Act sport',
+    brief: 'Dopo il segnale GDPR minori, il sistema propone un osservatore sull’AI Act applicato alle riprese sportive giovanili.',
+    lane: 'Approvazione',
+    laneKind: 'info',
+    producer: 'correlatore',
+    age: 'ieri',
+    applyLabel: 'Applica',
+    detail: [
+      { label: 'Titolo', value: 'AI Act — riprese sportive minori' },
+      { label: 'Tipo', value: 'Argomento' },
+      { label: 'Pianificazione', value: 'Settimanale' },
+      { label: 'Avvisa quando', value: 'nuove linee guida o obblighi di consenso' },
+    ],
+    adds: 'Crea un osservatore attivo che alimenta la conoscenza con segnali normativi.',
+  },
+];
+
+export type Watcher = {
+  name: string;
+  kind: 'URL' | 'Argomento';
+  status: string;
+  statusKind: 'ok' | 'n' | 'live' | 'warn';
+  cadence: string;
+  lastRun: string;
+  whatChecks: string;
+  sources: string[];
+  alertsWhen: string;
+  lastVerdict: string;
+  alerts: number;
+};
+
+export const WATCHERS_FULL: Watcher[] = [
+  {
+    name: 'Concorrenti — prodotto e prezzi',
+    kind: 'URL',
+    status: 'attivo',
+    statusKind: 'ok',
+    cadence: 'settimanale',
+    lastRun: '2 ore fa',
+    whatChecks: 'Listini e note di rilascio di Veo, Pixellot e Trace.',
+    sources: ['veo.co/pricing', 'pixellot.tv', 'traceup.com'],
+    alertsWhen: 'un concorrente cambia prezzo o lancia un piano nuovo',
+    lastVerdict: '1 segnale: Veo piano entry €89/mese',
+    alerts: 1,
+  },
+  {
+    name: 'Normativa — GDPR minori',
+    kind: 'Argomento',
+    status: 'attivo',
+    statusKind: 'ok',
+    cadence: 'settimanale',
+    lastRun: 'ieri',
+    whatChecks: 'Provvedimenti del Garante privacy e linee guida delle federazioni sulle riprese di minori.',
+    sources: ['garanteprivacy.it', 'figc.it'],
+    alertsWhen: 'nuovi obblighi di consenso o restrizioni sulle riprese',
+    lastVerdict: 'nessun nuovo segnale',
+    alerts: 0,
+  },
+  {
+    name: 'Feedback utenti — app store + email',
+    kind: 'Argomento',
+    status: 'attivo',
+    statusKind: 'ok',
+    cadence: 'giornaliera',
+    lastRun: '3 ore fa',
+    whatChecks: 'Recensioni store e risposte email, classificate su 3 livelli (superficiale/intermedio/profondo).',
+    sources: ['App Store', 'Google Play', 'email di supporto'],
+    alertsWhen: 'un cluster di feedback profondo mette in discussione l’ICP',
+    lastVerdict: '2 feedback intermedi → iterazione MVP #13 proposta',
+    alerts: 2,
+  },
+];
+
+// =============================================================================
+// KNOWLEDGE — knowledge list + moves + data room
+// mirrors AllKnowledgePanel / RecentMovesFeed
+// =============================================================================
+
+export const KNOWLEDGE_SUMMARY = {
+  total: 29,
+  kinds: [
+    { label: 'entità', count: 5 },
+    { label: 'concorrenti', count: 5 },
+    { label: 'fatti', count: 8 },
+    { label: 'segnali', count: 4 },
+    { label: 'brief', count: 2 },
+    { label: 'interviste', count: 5 },
+  ],
+  provenance: [
+    { label: 'dichiarato dal founder', kind: 'n' as const },
+    { label: 'derivato', kind: 'info' as const },
+    { label: 'verificato', kind: 'ok' as const },
+  ],
+};
+
+export type KnowledgeRow = { title: string; summary: string; prov: 'founder' | 'derived' | 'verified'; age: string };
+export const KNOWLEDGE_GROUPS: Array<{ kind: string; label: string; edge: string; rows: KnowledgeRow[] }> = [
+  {
+    kind: 'entity', label: 'Entità', edge: 'var(--sky)',
+    rows: [
+      { title: 'MatchLens — la startup', summary: 'Vende telecamere AI chiavi in mano ai club dilettantistici. Fase MVP Release & Launch, 38 club paganti, MRR €4.2k.', prov: 'verified', age: '9 mesi fa' },
+      { title: 'App MatchLens — il prodotto', summary: 'Web app + camera: registrazione, tagging eventi AI, clip automatiche, condivisione con le famiglie.', prov: 'derived', age: '6 mesi fa' },
+      { title: 'Mercato calcio dilettantistico EU', summary: 'Club giovanili e amatoriali con budget federazione. Frammentato e sottoservito dagli strumenti pro.', prov: 'verified', age: '3 mesi fa' },
+      { title: 'Federazioni regionali — canale', summary: 'Canale di acquisizione primario: 4 federazioni partner, 60% delle iscrizioni passa da qui.', prov: 'verified', age: '2 mesi fa' },
+      { title: 'Camera AI chiavi in mano — tecnologia', summary: 'Hardware chiavi in mano + computer vision. Il differenziatore rispetto ai concorrenti puramente software.', prov: 'founder', age: '8 mesi fa' },
+    ],
+  },
+  {
+    kind: 'competitor', label: 'Concorrenti', edge: 'var(--clay)',
+    rows: [
+      { title: 'Veo', summary: 'Camera AI per riprese sportive. Forte nel calcio, modello a noleggio hardware + abbonamento. Piano entry €89/mese (nuovo).', prov: 'verified', age: '2 ore fa' },
+      { title: 'Pixellot', summary: 'Sistema di produzione broadcast automatizzata, orientato a broadcaster e club professionistici. Prezzo alto.', prov: 'verified', age: '5 giorni fa' },
+      { title: 'Trace', summary: 'Focalizzato su USA e calcio giovanile. Hardware proprietario, community di allenatori forte.', prov: 'derived', age: '5 giorni fa' },
+      { title: 'Hudl', summary: 'Piattaforma US di sports performance & video, molto ampia. Non focalizzata su hardware chiavi in mano per il mercato EU.', prov: 'derived', age: '6 giorni fa' },
+      { title: 'Spiideo', summary: 'Automated video per stadi e impianti, orientato alle strutture. Meno adatto ai piccoli club dilettantistici.', prov: 'derived', age: '6 giorni fa' },
+    ],
+  },
+  {
+    kind: 'fact', label: 'Fatti', edge: 'var(--moss)',
+    rows: [
+      { title: 'TAM €40M · SAM €16M · SOM €2.4M', summary: 'Dimensionamento del mercato dei club dilettantistici EU, approvato dal founder in Validation Gate.', prov: 'verified', age: '3 mesi fa' },
+      { title: 'WTP 63% a €79/mese', summary: '9 club su 14 disposti a pagare €79/mese dopo la ristrutturazione dell’ICP in Loop 1.', prov: 'verified', age: '2 mesi fa' },
+      { title: 'LTV/CAC 3.2×', summary: 'CAC €180 via federazioni, LTV €580, churn 3.5%/mese. Confermato in Loop 2.', prov: 'derived', age: '1 mese fa' },
+      { title: 'GDPR minori — consenso federazione', summary: 'Le riprese di minori richiedono consenso raccolto tramite la federazione, non il singolo club.', prov: 'verified', age: '3 mesi fa' },
+      { title: 'Churn 3.5%/mese', summary: 'Tasso di abbandono mensile misurato sui club paganti. Stabile dopo l’iterazione #11.', prov: 'derived', age: '1 mese fa' },
+      { title: 'Attivazione 74%', summary: 'Percentuale di club che caricano la prima partita entro 7 giorni. Misurata in Loop 4.', prov: 'verified', age: '2 mesi fa' },
+      { title: 'Retention 7gg 58%', summary: 'Club ancora attivi a 7 giorni dall’onboarding. Segnale di PMF confermato.', prov: 'verified', age: '2 mesi fa' },
+      { title: 'NPS post-uso 46', summary: 'Net Promoter Score raccolto dopo il primo mese d’uso. Sopra la media SaaS B2B.', prov: 'derived', age: '2 mesi fa' },
+    ],
+  },
+  {
+    kind: 'signal', label: 'Segnali', edge: 'var(--cat-gold)',
+    rows: [
+      { title: 'Veo piano entry €89/mese', summary: 'Nuovo listino dei concorrenti sopra il nostro anchor. In attesa di applicazione in Inbox.', prov: 'derived', age: '2 ore fa' },
+      { title: 'Feedback: highlights su WhatsApp', summary: '2 richieste intermedie di condividere gli highlights via WhatsApp → iterazione MVP #13.', prov: 'derived', age: 'ieri' },
+      { title: 'Feedback: condivisione con i genitori', summary: 'Cluster di richieste per condividere le clip con le famiglie → iterazione MVP #11.', prov: 'derived', age: '10 giorni fa' },
+      { title: 'AI Act — riprese sportive minori', summary: 'Osservatore proposto: possibili obblighi dall’AI Act sulle riprese di minori. In Inbox.', prov: 'derived', age: 'ieri' },
+    ],
+  },
+  {
+    kind: 'brief', label: 'Brief', edge: 'var(--plum)',
+    rows: [
+      { title: 'Monday Brief — settimana 38', summary: '3 mosse consigliate: approvare lo step 4 della sequenza email, aggiornare la battlecard Veo, valutare l’iterazione #13.', prov: 'derived', age: 'ieri' },
+      { title: 'Market Response Review — Loop 3', summary: 'Landing al 6.8%, feedback classificato su 3 livelli, nessun pivot necessario. Verdetto GO.', prov: 'derived', age: '2 mesi fa' },
+    ],
+  },
+  {
+    kind: 'interview', label: 'Interviste', edge: 'var(--cat-teal)',
+    rows: [
+      { title: 'Allenatore U15 — ASD Rivoli', summary: 'Problema: "perdo ore ogni settimana a tagliare i video a mano". Urgenza alta. WTP €79/mese.', prov: 'founder', age: '2 mesi fa' },
+      { title: 'Direttore sportivo — Pol. Chieri', summary: 'Interessato al budget federazione. Vuole condivisione con le famiglie e clip per allenamento.', prov: 'founder', age: '2 mesi fa' },
+      { title: 'Allenatore U17 — US Grugliasco', summary: 'Vuole tagging automatico dei falli e clip difensive. Conferma WTP €79/mese.', prov: 'founder', age: '2 mesi fa' },
+      { title: 'Resp. settore giovanile — FIGC Piemonte', summary: 'Interessata al consenso GDPR gestito a livello di federazione, non di singolo club.', prov: 'founder', age: '10 settimane fa' },
+      { title: 'Genitore — ASD Rivoli', summary: 'Vuole ricevere gli highlights del figlio direttamente su WhatsApp.', prov: 'founder', age: '2 mesi fa' },
+    ],
+  },
+];
+
+export const MOVES = [
+  { type: 'competitor', name: 'Veo', date: '2 ore fa', headline: 'Ha lanciato un piano base a €89/mese', host: 'veo.co' },
+  { type: 'fact', name: 'Metriche settimana 38', date: '5 ore fa', headline: 'MRR €4.2k (+18%), 38 club attivi', host: 'weekly-metrics' },
+  { type: 'signal', name: 'Feedback allenatori', date: 'ieri', headline: '2 richieste di highlights su WhatsApp → iterazione #13', host: 'app store' },
+  { type: 'brief', name: 'Monday Brief', date: 'ieri', headline: '3 mosse consigliate per la settimana 38', host: 'cron' },
+  { type: 'competitor', name: 'Hudl', date: '6 giorni fa', headline: 'Aggiunto al grafo come concorrente USA indiretto', host: 'market-research' },
+  { type: 'interview', name: 'ASD Rivoli', date: '3 giorni fa', headline: 'Nuova intervista PSF caricata e analizzata', host: 'data room' },
+];
+
+// =============================================================================
+// FINANCIAL — deterministic 36-month projection (mirrors FinancialModelPanel)
+// =============================================================================
+
+const FIN_START_CASH = 350000, FIN_OPEX = 24000, FIN_ARPU = 79, FIN_MARGIN = 0.82, FIN_CHURN = 0.035, FIN_GROWTH = 1.11;
+
+export const FIN_ASSUMPTIONS = [
+  { label: 'Cassa iniziale (€)', value: '350.000' },
+  { label: 'Opex mensile (€/mese)', value: '24.000' },
+  { label: 'ARPU (€/mese)', value: '79' },
+  { label: 'Margine lordo (%)', value: '82' },
+  { label: 'Club iniziali', value: '38' },
+  { label: 'Nuovi club/mese (mese 1)', value: '7' },
+  { label: 'Crescita acquisizione (%/mese)', value: '11' },
+  { label: 'Churn mensile (%)', value: '3,5' },
+  { label: 'Orizzonte (mesi)', value: '36' },
+];
+
+type MonthRow = {
+  mo: number; add: number; churn: number; customers: number; mrr: number;
+  revenue: number; cogs: number; opex: number; netBurn: number; cash: number; runway: string;
+};
+type Scenario = { label: string; arr: string; breakeven: string; peakCash: string; endCash: string; endCustomers: string };
+
+function eurK(n: number): string {
+  const abs = Math.abs(n);
+  return abs >= 1_000_000 ? `€${(abs / 1_000_000).toFixed(1)}M` : `€${Math.round(abs / 1000)}k`;
+}
+
+// One deterministic run of the model. Returns the monthly rows plus a base
+// scenario summary DERIVED from those rows, so the table and the summary
+// card can never disagree.
+function computeProjection(): { rows: MonthRow[]; base: Scenario } {
+  let customers = 38, cash = FIN_START_CASH, adds = 7;
+  const rows: MonthRow[] = [];
+  let minCash = cash, breakeven = 0;
+  for (let mo = 1; mo <= 36; mo++) {
+    const churned = Math.round(customers * FIN_CHURN);
+    customers = customers - churned + adds;
+    const mrr = Math.round(customers * FIN_ARPU);
+    const revenue = mrr;
+    const cogs = Math.round(revenue * (1 - FIN_MARGIN));
+    const netBurn = FIN_OPEX + cogs - revenue; // positive = burning
+    cash = cash - netBurn;
+    if (netBurn <= 0 && !breakeven) breakeven = mo;
+    if (cash < minCash) minCash = cash;
+    const runway = netBurn > 0 && cash > 0 ? `${Math.max(0, Math.round(cash / netBurn))}mo` : netBurn <= 0 ? '∞' : '0mo';
+    rows.push({ mo, add: adds, churn: churned, customers, mrr, revenue, cogs, opex: FIN_OPEX, netBurn, cash, runway });
+    adds = Math.round(adds * FIN_GROWTH);
+  }
+  const last = rows[rows.length - 1];
+  const base: Scenario = {
+    label: 'Base',
+    arr: eurK(last.mrr * 12),
+    breakeven: breakeven ? `mese ${breakeven}` : 'oltre l’orizzonte',
+    peakCash: eurK(FIN_START_CASH - minCash),
+    endCash: eurK(last.cash),
+    endCustomers: `${last.customers}`,
+  };
+  return { rows, base };
+}
+
+const PROJECTION = computeProjection();
+
+// Optimistic / conservative are illustrative multiples of the derived base.
+export const FIN_SCENARIOS: Scenario[] = [
+  PROJECTION.base,
+  { label: 'Ottimistico', arr: '€1.2M', breakeven: 'mese 12', peakCash: '€120k', endCash: '€2.4M', endCustomers: '790' },
+  { label: 'Conservativo', arr: '€520k', breakeven: 'mese 21', peakCash: '€260k', endCash: '€640k', endCustomers: '340' },
+];
+
+export const FIN_MONTHLY = PROJECTION.rows.slice(0, 24);
+
+// =============================================================================
+// CO-PILOT — scripted chat + canvas + build tab + growth tab
+// mirrors chat/page.tsx, Canvas, BuildHub, LaunchPanel (staging)
+// =============================================================================
+
+export type ChatMsg =
+  | { role: 'user'; body: string }
+  | { role: 'ai'; agent: string; body: string; tools?: string[] };
+
+export const CHAT_MESSAGES: ChatMsg[] = [
+  { role: 'ai', agent: 'CH', body: 'Bentornato. Loop 4 ha dato **LAUNCH READY** — attivazione 74%, retention 58%, WTP confermata. Il go-to-market è aperto oltre le federazioni pilota. Vuoi che prepari il prossimo esperimento di crescita?' },
+  { role: 'user', body: 'Sì, e intanto guarda il feedback degli allenatori dell’ultima settimana.' },
+  { role: 'ai', agent: 'AN', body: 'Ho classificato 11 feedback: 9 superficiali, 2 intermedi. I due intermedi convergono su una richiesta: **condividere gli highlights su WhatsApp**. L’ho proposto come iterazione MVP #13 nel tab Build.', tools: ['read-feedback', 'classify'] },
+  { role: 'ai', agent: 'BU', body: 'Nel tab **Build & Launch** trovi la build #12 live su app.matchlens.it. L’iterazione #13 è pronta da approvare: appena la confermi la costruisco in sandbox e la vedi in anteprima qui.' },
+  { role: 'user', body: 'Perfetto. E la sequenza email di onboarding a che punto è?' },
+  { role: 'ai', agent: 'MK', body: 'Sequenza "Onboarding club": 3 step inviati, step 4 proposto nel tuo Inbox (parte dopo la tua approvazione). Aperture 41%, click 12%. Nel tab **Growth** vedi tutte le campagne e i loop di crescita attivi.', tools: ['campaigns'] },
+];
+
+export const AGENT_META: Record<string, { name: string; color: string }> = {
+  CH: { name: 'Chief', color: 'var(--sky)' },
+  AN: { name: 'Analyst', color: 'var(--cat-teal)' },
+  BU: { name: 'Builder', color: 'var(--accent)' },
+  MK: { name: 'Marketer', color: 'var(--cat-gold)' },
+};
+
+export const CANVAS_FIELDS = [
+  { label: 'Problema', value: 'I club dilettantistici perdono ore ogni settimana con la revisione video manuale e non possono permettersi strumenti pro.' },
+  { label: 'Soluzione', value: 'Telecamere AI chiavi in mano che registrano, taggano e montano le clip automaticamente.' },
+  { label: 'Mercato target', value: 'Club di calcio giovanile con budget federazione (ICP ristretto dopo Loop 1).' },
+  { label: 'Value proposition', value: 'Analisi pro a prezzo amatoriale — €79/mese, zero montaggio manuale.' },
+  { label: 'Modello di business', value: 'SaaS mensile per club, acquisizione via federazioni regionali.' },
+];
+
+export const CANVAS_DEPTS: Array<{ dept: string; artifacts: Array<{ title: string; kind: string }> }> = [
+  { dept: 'Mercato', artifacts: [
+    { title: 'Dimensionamento mercato (TAM/SAM/SOM)', kind: 'ricerca' },
+    { title: 'Battlecard Veo / Pixellot / Trace', kind: 'analisi' },
+    { title: 'Matrice concorrenti (5 player)', kind: 'analisi' },
+    { title: 'Interviste PSF (14)', kind: 'evidenza' },
+    { title: 'ICP — club calcio giovanile', kind: 'segmento' },
+    { title: 'Trend: AI Act sport minori', kind: 'segnale' },
+  ] },
+  { dept: 'Prodotto', artifacts: [
+    { title: 'Spec MVP — build #12', kind: 'prototipo' },
+    { title: 'Roadmap iterazioni #10-13', kind: 'piano' },
+    { title: 'Backlog funzionalità (18)', kind: 'backlog' },
+    { title: 'Changelog build #1-12', kind: 'storico' },
+    { title: 'Feedback utenti — 3 livelli', kind: 'evidenza' },
+  ] },
+  { dept: 'Prezzi', artifacts: [
+    { title: 'Anchor €79 + 3 tier', kind: 'prezzi' },
+    { title: 'Ricerca WTP (63%)', kind: 'evidenza' },
+    { title: 'Van Westendorp — sensibilità prezzo', kind: 'analisi' },
+    { title: 'Unit economics (LTV/CAC 3.2×)', kind: 'modello' },
+  ] },
+  { dept: 'Finanza', artifacts: [
+    { title: 'Modello finanziario v4', kind: 'modello' },
+    { title: 'Runway 14 mesi · serve €350k', kind: 'fatto' },
+    { title: 'Pitch deck v3 (12 slide)', kind: 'deck' },
+    { title: 'Cap table + scenario diluizione', kind: 'modello' },
+    { title: 'Data room investitori', kind: 'raccolta' },
+  ] },
+  { dept: 'Crescita', artifacts: [
+    { title: 'Launch pipeline W0-W5', kind: 'piano' },
+    { title: 'Strategia GTM — prima le federazioni', kind: 'strategia' },
+    { title: 'Loop di crescita referral allenatori', kind: 'esperimento' },
+    { title: 'Sequenze email (5 step)', kind: 'campagna' },
+    { title: 'Metriche funnel (2.4k → 121)', kind: 'metrica' },
+  ] },
+];
+
+// Build tab — current build + iteration thread (mirrors CurrentBuildCard/IterationTimeline)
+export const BUILD_CURRENT = {
+  iteration: 12,
+  status: 'live',
+  statusKind: 'ok' as const,
+  liveUrl: 'app.matchlens.it',
+  changes: [
+    { path: 'src/routines/AutoClips.tsx', change: 'nuovo' },
+    { path: 'src/lib/highlights.ts', change: 'modificato' },
+    { path: 'src/components/ClipCard.tsx', change: 'modificato' },
+  ],
+};
+export const BUILD_THREAD = [
+  { n: 1, label: 'Build iniziale — dashboard club + caricamento video', status: 'live' },
+  { n: 10, label: 'Tagging eventi in tempo reale', status: 'live' },
+  { n: 11, label: 'Condivisione video con i genitori', status: 'live' },
+  { n: 12, label: 'Clip automatiche per allenamento', status: 'live' },
+  { n: 13, label: 'Highlights condivisibili su WhatsApp', status: 'proposto' },
+];
+
+// Growth tab — LaunchPanel shape: assets, campaigns, loops
+export const LAUNCH_ASSETS = [
+  { title: 'Landing — MatchLens per club', signups: 164, watched: true, publisher: 'netlify', live: true },
+  { title: 'Pagina prezzi €79/mese', signups: 0, watched: false, publisher: 'netlify', live: true },
+];
+export const LAUNCH_CAMPAIGNS = [
+  { kind: 'email', title: 'Onboarding club', sent: 3, total: 5, status: 'attiva', statusKind: 'ok' as const, action: 'Pausa' },
+  { kind: 'email', title: 'Stagione primaverile (broadcast)', sent: 412, total: 412, status: 'inviato', statusKind: 'ok' as const, action: null },
+  { kind: 'social', title: 'Calendario LinkedIn + Instagram', sent: 4, total: 8, status: 'attiva', statusKind: 'ok' as const, action: 'Pausa' },
+  { kind: 'ads', title: 'Pacchetto Google + Meta', sent: 0, total: 3, status: 'bozza', statusKind: 'n' as const, action: 'Attiva' },
+];
+export const LAUNCH_LOOPS = [
+  { metric: 'Conversione landing', from: '4,1%', to: '6,8%', status: 'attiva', statusKind: 'ok' as const },
+  { metric: 'Referral allenatori', from: '0,2', to: '0,4 club/club', status: 'attiva', statusKind: 'ok' as const },
+  { metric: 'Attivazione onboarding', from: '61%', to: '74%', status: 'completata', statusKind: 'n' as const },
+];

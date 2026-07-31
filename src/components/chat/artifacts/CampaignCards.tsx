@@ -17,6 +17,7 @@
 import { useState } from 'react';
 import type { EmailSequenceArtifact, SocialCalendarArtifact, AdPackArtifact } from '@/types/artifacts';
 import { Pill, IconBtn, I } from '@/components/design/primitives';
+import { useT } from '@/components/providers/LocaleProvider';
 import { toGoogleAdsCsv, toMetaBulkJson } from '@/lib/launch/ad-export';
 import ArtifactCardShell from './ArtifactCardShell';
 
@@ -111,6 +112,7 @@ export function SocialCalendarCard({ artifact, defaultCollapsed }: { artifact: S
 }
 
 export function AdPackCard({ artifact, defaultCollapsed }: { artifact: AdPackArtifact; defaultCollapsed?: boolean }) {
+  const t = useT();
   const slug = (artifact.title || 'ad-pack').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
   return (
     <ArtifactCardShell
@@ -122,12 +124,12 @@ export function AdPackCard({ artifact, defaultCollapsed }: { artifact: AdPackArt
         <Pill kind="ok" dot>${artifact.budget?.total_monthly_usd ?? 0}/mo</Pill>
         <IconBtn
           d={I.download}
-          title="Google Ads Editor CSV"
+          title={t('adpack.export-google')}
           onClick={() => download(`${slug}-google-ads.csv`, toGoogleAdsCsv(artifact), 'text/csv')}
         />
         <IconBtn
           d={I.file}
-          title="Meta bulk JSON"
+          title={t('adpack.export-meta')}
           onClick={() => download(`${slug}-meta-bulk.json`, toMetaBulkJson(artifact), 'application/json')}
         />
       </>}

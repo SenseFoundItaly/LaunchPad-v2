@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import type { WorkflowCard, WorkflowStep } from '@/types/artifacts';
 import ArtifactCardShell from './ArtifactCardShell';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface WorkflowCardInlineProps {
   artifact: WorkflowCard;
@@ -36,6 +37,7 @@ export default function WorkflowCardInline({
 }: WorkflowCardInlineProps) {
   const params = useParams<{ projectId?: string }>();
   const projectId = typeof params?.projectId === 'string' ? params.projectId : '';
+  const t = useT();
   const discoveredRef = useRef(false);
   const [completed, setCompleted] = useState<Set<number>>(new Set());
   const [queued, setQueued] = useState<Set<number>>(new Set());
@@ -97,7 +99,8 @@ export default function WorkflowCardInline({
     // Category + priority header chips removed (2026-06 zero-chips rule);
     // the checklist, progress bar, and per-step execution are functional.
     <ArtifactCardShell
-      typeLabel="Workflow"
+      exportArtifact={artifact}
+      typeLabel={t('wfc.type-label')}
       title={artifact.title}
       sources={artifact.sources}
       provenance={artifact.provenance}
@@ -109,7 +112,7 @@ export default function WorkflowCardInline({
       {total > 0 && (
         <div className="mb-3">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-ink-5">{doneCount} of {total} completed</span>
+            <span className="text-[10px] text-ink-5">{t('wfc.progress', { done: doneCount, total })}</span>
             <span className="text-[10px] text-ink-5">{Math.round(pct)}%</span>
           </div>
           <div className="w-full h-1.5 bg-paper-3 rounded-full overflow-hidden">

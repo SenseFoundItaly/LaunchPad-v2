@@ -17,16 +17,63 @@
  * nothing to go on.
  */
 
-import { get } from '@/lib/db';
+import { get, query } from '@/lib/db';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
 import { marketSizingProse } from '@/lib/research-context';
 
 const FIELD_CAP = 600; // per-field char cap so a verbose canvas can't blow the prompt
 const MAX_FACTS = 8;
+const MAX_SIGNALS = 6;
+/** Older watcher output is history, not "what's happening in the market now". */
+const SIGNAL_WINDOW_DAYS = 90;
+
+interface SkillSignal {
+  headline: string;
+  entity: string | null;
+  source: string | null;
+  reviewed_state: string | null;
+}
+
+/**
+ * Watcher output (L1) for the skill prompt — the inbound half of the L1↔L2
+ * flywheel (#129).
+ *
+ * Until this existed, watchers collected market intelligence that the paid
+ * product never consumed: `buildSkillProjectContext` injected canvas, research,
+ * competitors and facts, and had zero references to signals. A market-research
+ * run couldn't see that a competitor had just raised, even though a watcher had
+ * logged it that morning.
+ *
+ * Ranked by relevance, not recency alone — a high-relevance alert from six weeks
+ * ago beats noise from yesterday. Mirrors the freshness/degradation contract of
+ * `freshSignals` in direction/index.ts: `ecosystem_alerts` may be absent on a
+ * stale DB, so a failure degrades to no signals rather than failing the run.
+ */
+async function recentSignals(projectId: string): Promise<SkillSignal[]> {
+  try {
+    return await query<SkillSignal>(
+      `SELECT headline, entity, source, reviewed_state
+         FROM ecosystem_alerts
+        WHERE project_id = ?
+          AND created_at > NOW() - INTERVAL '${SIGNAL_WINDOW_DAYS} days'
+        ORDER BY relevance_score DESC NULLS LAST, created_at DESC
+        LIMIT ${MAX_SIGNALS}`,
+      projectId,
+    );
+  } catch {
+    return [];
+  }
+}
 
 function clip(v: unknown, cap = FIELD_CAP): string {
   const s = typeof v === 'string' ? v.trim() : v == null ? '' : String(v);
   return s.length > cap ? `${s.slice(0, cap)}…` : s;
+}
+
+/** JSONB string[] canvas fields (key metrics, costs, revenues) → one clipped line. */
+function joinList(v: unknown): string {
+  if (!Array.isArray(v)) return '';
+  return clip(v.filter((x) => typeof x === 'string' && x.trim()).join('; '));
 }
 
 /**
@@ -44,7 +91,10 @@ export async function buildSkillProjectContext(projectId: string, skillId?: stri
     project = null;
   }
 
-  const snap = await buildProjectSnapshot(projectId).catch(() => null);
+  const [snap, signals] = await Promise.all([
+    buildProjectSnapshot(projectId).catch(() => null),
+    recentSignals(projectId),
+  ]);
   if (!snap) return '';
 
   const canvas = snap.idea_canvas as Record<string, unknown> | null;
@@ -62,6 +112,10 @@ export async function buildSkillProjectContext(projectId: string, skillId?: stri
     lines.push(`Project: ${clip(project.name, 120)}${project.description ? ` — ${clip(project.description, 240)}` : ''}`);
   }
 
+  // ALL 9 Lean Canvas blocks (stage-1 check list) — this used to stop at 7
+  // scalar fields, so even a fully-compiled canvas starved skills of metrics,
+  // moat, costs and revenues, and startup-scoring asked the founder for
+  // "more details" instead of scoring (alpha feedback 21/07).
   const canvasFields: Array<[string, unknown]> = canvas
     ? [
         ['Problem', canvas.problem],
@@ -69,8 +123,12 @@ export async function buildSkillProjectContext(projectId: string, skillId?: stri
         ['Target market', canvas.target_market],
         ['Value proposition', canvas.value_proposition],
         ['Competitive advantage', canvas.competitive_advantage],
+        ['Unfair advantage / moat', canvas.unfair_advantage],
         ['Channels', canvas.channels],
         ['Business model', canvas.business_model],
+        ['Key metrics', joinList(canvas.key_metrics)],
+        ['Cost structure', joinList(canvas.cost_structure)],
+        ['Revenue streams', joinList(canvas.revenue_streams)],
       ]
     : [];
   const filledCanvas = canvasFields.filter(([, v]) => clip(v).length > 0);
@@ -92,6 +150,26 @@ export async function buildSkillProjectContext(projectId: string, skillId?: stri
   if (facts.length > 0) {
     lines.push('', 'Founder-asserted facts:');
     for (const f of facts) lines.push(`- ${clip(f, 240)}`);
+  }
+
+  // Watcher output (#129). Review state is rendered per line on purpose: an
+  // unreviewed alert is an OBSERVATION the founder has not confirmed, and the
+  // provenance rules forbid laundering it into a sourced-looking fact. Marking
+  // it here is what lets the skill use the signal while still attributing it
+  // honestly.
+  if (signals.length > 0) {
+    lines.push('', 'Market signals from your watchers (most relevant first):');
+    for (const s of signals) {
+      const bits = [
+        s.entity ? `re: ${clip(s.entity, 60)}` : null,
+        s.source ? `via ${clip(s.source, 40)}` : null,
+        s.reviewed_state && s.reviewed_state !== 'pending' ? s.reviewed_state : 'unreviewed',
+      ].filter(Boolean);
+      lines.push(`- ${clip(s.headline, 200)} (${bits.join(' · ')})`);
+    }
+    lines.push(
+      'These are watcher observations, not founder-confirmed facts. Use them as market evidence and cite the watcher as the source; do not restate an unreviewed signal as something the founder told you.',
+    );
   }
 
   // PSF Review (Loop 1) diagnoses Problem-Solution Fit FROM the interviews, and
@@ -121,7 +199,7 @@ export async function buildSkillProjectContext(projectId: string, skillId?: stri
     '=== PROJECT CONTEXT (authoritative — USE this; do NOT ask the founder for information already present here) ===',
     ...lines,
     '',
-    'You have enough to begin. Do NOT open by asking the founder basic questions that are already answered above (what the product does, who the customer is, etc.). If a specific input is genuinely missing and essential, state a clearly-labeled assumption and proceed — never stall the deliverable to collect information you already have.',
+    'You have enough to begin. Do NOT open by asking the founder basic questions that are already answered above (what the product does, who the customer is, etc.). If a specific input is genuinely missing and essential, state a clearly-labeled assumption and proceed — never stall the deliverable to collect information you already have. Where data is thin, deliver the output anyway: treat the absence of evidence as a finding (score it low, flag it as a gap) rather than a reason to ask. A response that only asks questions is a FAILED run — it is discarded and the founder sees an error.',
     '=== END PROJECT CONTEXT ===',
   ].join('\n');
 }

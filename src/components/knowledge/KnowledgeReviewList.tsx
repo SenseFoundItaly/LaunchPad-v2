@@ -44,10 +44,10 @@ export interface KnowledgeReviewListProps {
 // Constants
 // =============================================================================
 
-const TYPE_LABELS: Record<string, string> = {
-  fact: 'Fact',
-  graph_node: 'Entity',
-  tabular_review: 'Review',
+const TYPE_LABELS: Record<string, { en: string; it: string }> = {
+  fact: { en: 'Fact', it: 'Fatto' },
+  graph_node: { en: 'Entity', it: 'Entità' },
+  tabular_review: { en: 'Review', it: 'Recensione' },
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -78,6 +78,13 @@ const STRINGS: Record<string, { en: string; it: string }> = {
   },
   viewIntelligence:   { en: 'View Intelligence \u2192', it: 'Vedi Intelligence \u2192' },
   knowledgeProposals: { en: 'AI Knowledge Proposals',   it: 'Proposte di conoscenza AI' },
+  relToday:           { en: 'today',     it: 'oggi' },
+  relYesterday:       { en: 'yesterday', it: 'ieri' },
+  relDaysAgo:         { en: '{n}d ago',  it: '{n}g fa' },
+  applyFailed:        {
+    en: '{failed} of {total} items failed to apply',
+    it: '{failed} elementi su {total} non sono stati applicati',
+  },
 };
 
 function t(key: string, locale: 'en' | 'it'): string {
@@ -85,13 +92,13 @@ function t(key: string, locale: 'en' | 'it'): string {
 }
 
 /** Short founder-facing "when" stamp: today / yesterday / 5d ago / Mar 5. */
-function relTime(iso: string): string {
+function relTime(iso: string, locale: 'en' | 'it'): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days}d ago`;
+  if (days <= 0) return t('relToday', locale);
+  if (days === 1) return t('relYesterday', locale);
+  if (days < 7) return t('relDaysAgo', locale).replace('{n}', String(days));
   return d.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -147,11 +154,13 @@ const InfoIcon = () => (
 
 function KnowledgeItemCard({
   item,
+  locale,
   isExpanded,
   onToggle,
   actions,
 }: {
   item: KnowledgeItem;
+  locale: 'en' | 'it';
   isExpanded: boolean;
   onToggle: () => void;
   actions: React.ReactNode;
@@ -173,7 +182,7 @@ function KnowledgeItemCard({
         onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
       >
         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${TYPE_COLORS[item.type] ?? 'bg-ink-5/20 text-ink-4'}`}>
-          {TYPE_LABELS[item.type] ?? item.type}
+          {TYPE_LABELS[item.type]?.[locale] ?? item.type}
         </span>
         <span
           style={{
@@ -192,7 +201,7 @@ function KnowledgeItemCard({
           className="lp-mono"
           style={{ fontSize: 10, color: 'var(--ink-5)', flexShrink: 0 }}
         >
-          {relTime(item.created_at)}
+          {relTime(item.created_at, locale)}
         </span>
         <ChevronIcon open={isExpanded} />
       </div>
@@ -466,7 +475,11 @@ export default function KnowledgeReviewList({ projectId, locale, compact, state 
       }
     }
     if (failCount > 0) {
-      setPartialError(`${failCount} of ${ids.length} items failed to apply`);
+      setPartialError(
+        t('applyFailed', locale)
+          .replace('{failed}', String(failCount))
+          .replace('{total}', String(ids.length)),
+      );
       void refetch();
     } else {
       const timerId = setTimeout(() => {
@@ -618,6 +631,7 @@ export default function KnowledgeReviewList({ projectId, locale, compact, state 
           <KnowledgeItemCard
             key={item.id}
             item={item}
+            locale={locale}
             isExpanded={expandedId === item.id}
             onToggle={() => setExpandedId(expandedId === item.id ? null : item.id)}
             actions={renderActions(item)}

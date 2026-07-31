@@ -62,8 +62,11 @@ export function buildManifest({ hasProjects }: { hasProjects: boolean }): TourSt
   return [
     // ── Chapter: workspace dashboard (/) ────────────────────────────────────
     { id: 'welcome', page: 'dashboard', titleKey: 'tour.welcome.title', descKey: 'tour.welcome.desc' },
-    { id: 'projects-rail', page: 'dashboard', target: '[data-tour="projects-rail"]', titleKey: 'tour.dash.projects.title', descKey: 'tour.dash.projects.desc', side: 'right', align: 'start' },
-    { id: 'new-project', page: 'dashboard', target: '[data-tour="new-project"]', titleKey: 'tour.dash.create.title', descKey: 'tour.dash.create.desc', side: 'right', align: 'center' },
+    // The left projects rail was retired (2026-07-21 — it duplicated the main
+    // grid); the step now points at the grid itself, and New project moved to
+    // the workspace header, top right.
+    { id: 'projects-rail', page: 'dashboard', target: '[data-tour="projects-grid"]', titleKey: 'tour.dash.projects.title', descKey: 'tour.dash.projects.desc', side: 'bottom', align: 'start' },
+    { id: 'new-project', page: 'dashboard', target: '[data-tour="new-project"]', titleKey: 'tour.dash.create.title', descKey: 'tour.dash.create.desc', side: 'bottom', align: 'end' },
     { id: 'dash-signals', page: 'dashboard', target: '[data-tour="dash-signals"]', titleKey: 'tour.dash.signals.title', descKey: 'tour.dash.signals.desc', side: 'bottom', align: 'end' },
     // ── Chapter: project Home (/today) ──────────────────────────────────────
     nav('today', 'dashboard', 'tour.home.title', 'tour.home.desc'),

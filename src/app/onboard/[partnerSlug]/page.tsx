@@ -65,9 +65,9 @@ export default function PartnerOnboardingPage({
       });
       const body: CreateProjectResponse = await res.json();
       if (!body.success || !body.data) throw new Error(body.error || 'Creazione progetto fallita');
-      // Land in the co-pilot, matching the home create flow. (The old
-      // /project/[id]/brief target is not a page route — it 404'd.)
-      router.push(`/project/${body.data.project_id}/chat`);
+      // Land on the project Home ("Start here" onboarding card), matching
+      // the home create flow. (The old /project/[id]/brief target 404'd.)
+      router.push(`/project/${body.data.project_id}/today`);
     } catch (e) {
       setError((e as Error).message);
     } finally {

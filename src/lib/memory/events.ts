@@ -50,7 +50,10 @@ export type EventType =
   | 'loop1_override'          // founder ignored the auto-trigger, with motivation
   | 'loop1_verdict'           // escalation cap reached → founder picked GO/PIVOT/STOP
   | 'asset_published'         // launch pipeline: a page went live at a real URL (founder-gated)
-  | 'campaign_message_sent';  // launch pipeline: a founder-approved campaign send executed (PR-B)
+  | 'campaign_message_sent'   // launch pipeline: a founder-approved campaign send executed (PR-B)
+  | 'loop2_review_proposed'   // Loop 2 (BM Stress Test) auto-trigger fired (LTV/CAC<3×)
+  | 'loop2_override'          // founder ignored the auto-trigger, with motivation
+  | 'loop2_verdict';          // escalation cap reached → founder picked GO/PIVOT/STOP
 
 export interface MemoryEvent {
   id: string;

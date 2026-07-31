@@ -207,6 +207,37 @@ export function useChat(projectId: string, step: string = 'chat') {
         patch(store, { messages: updated });
       };
 
+      // ── Delta coalescing ─────────────────────────────────────────────────
+      // A setLast() per token meant one React render per token, and every
+      // render re-parses artifacts across the whole conversation — so the
+      // stream started smooth and degraded as the answer and history grew.
+      // Tokens now accumulate in `fullContent` and paint at most once per
+      // animation frame: same words, evenly paced, a fraction of the renders.
+      //
+      // Declared OUTSIDE the try so the catch/finally can force a final paint:
+      // rAF is PAUSED in background tabs and a queued frame may never run, so
+      // it must never be the only path to the final state.
+      let fullContent = '';
+      let toolsList: ToolActivity[] = [];
+      let rafId: number | null = null;
+      const paint = () => {
+        setLast((m) => ({
+          ...m,
+          content: fullContent,
+          tools: toolsList.length > 0 ? [...toolsList] : undefined,
+        }));
+      };
+      const schedulePaint = () => {
+        if (rafId !== null) return; // a paint is already queued for this frame
+        if (typeof requestAnimationFrame !== 'function') { paint(); return; }
+        rafId = requestAnimationFrame(() => { rafId = null; paint(); });
+      };
+      const flushNow = () => {
+        if (rafId !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId);
+        rafId = null;
+        if (fullContent) paint(); // nothing streamed ⇒ leave the placeholder alone
+      };
+
       try {
         store.abort = new AbortController();
         const response = await fetch(`/api/chat`, {
@@ -249,8 +280,6 @@ export function useChat(projectId: string, step: string = 'chat') {
 
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
-        let fullContent = '';
-        let toolsList: ToolActivity[] = [];
         // SSE line buffer: accumulates partial lines across chunk boundaries.
         let lineBuffer = '';
 
@@ -265,11 +294,7 @@ export function useChat(projectId: string, step: string = 'chat') {
 
             if (parsed.content) {
               fullContent += parsed.content;
-              setLast((m) => ({
-                ...m,
-                content: fullContent,
-                tools: toolsList.length > 0 ? [...toolsList] : undefined,
-              }));
+              schedulePaint(); // coalesced to one render per frame
             }
 
             if (parsed.tool_start) {
@@ -282,7 +307,7 @@ export function useChat(projectId: string, step: string = 'chat') {
                   status: 'running',
                 },
               ];
-              setLast((m) => ({ ...m, content: fullContent, tools: [...toolsList] }));
+              flushNow(); // tool chips are rare + high-signal: paint at once
             }
 
             if (parsed.tool_end) {
@@ -291,7 +316,7 @@ export function useChat(projectId: string, step: string = 'chat') {
                   ? { ...t, status: parsed.tool_end.error ? 'error' as const : 'done' as const }
                   : t,
               );
-              setLast((m) => ({ ...m, content: fullContent, tools: [...toolsList] }));
+              flushNow();
             }
 
             // Broadcast persisted artifact IDs so cards can wire apply/reject
@@ -311,6 +336,7 @@ export function useChat(projectId: string, step: string = 'chat') {
 
             if (parsed.error) {
               console.error('Stream error:', parsed.error);
+              flushNow(); // land whatever streamed before surfacing the error
               setLast((m) => ({ ...m, content: fullContent + `\n\n[Error: ${parsed.error}]` }));
             }
           } catch (parseErr) {
@@ -338,9 +364,14 @@ export function useChat(projectId: string, step: string = 'chat') {
       } catch (err) {
         if (err instanceof Error && err.name !== 'AbortError') {
           console.error('Chat error:', err);
+          flushNow(); // don't lose the partial answer behind the error
           setLast((m) => ({ ...m, content: `Error: ${err instanceof Error ? err.message : 'Unknown error'}` }));
         }
       } finally {
+        // ALWAYS land the final text — a queued animation frame may never run
+        // (stream finished mid-frame, tab backgrounded, or the turn aborted),
+        // and the last tokens must not be stranded in `fullContent`.
+        flushNow();
         patch(store, { isStreaming: false });
         store.abort = null;
         // Nanocorp: agent updates that arrived mid-stream were queued — append

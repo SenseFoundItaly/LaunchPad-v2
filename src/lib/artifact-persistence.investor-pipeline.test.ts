@@ -52,7 +52,12 @@ describe('persistInvestorPipeline — investors → PENDING funding_source nodes
     expect(name).toBe('Acme Ventures');
     expect(nodeType).toBe('funding_source');
     expect(reviewedState).toBe('pending'); // founder applies — never auto-applied
-    expect(attributes).toEqual({ stage: 'contacted', check_size: 500000, round: 'Seed' });
+    // #327: a fresh node's attributes now also seed a 'created' birth entry in
+    // attributes.timeline — the evolution-history record of where it came from.
+    expect(attributes).toMatchObject({ stage: 'contacted', check_size: 500000, round: 'Seed' });
+    const tl = (attributes as { timeline?: Array<{ kind?: string; headline?: string }> }).timeline;
+    expect(tl).toHaveLength(1);
+    expect(tl![0].kind).toBe('created');
   });
 
   it('dedups on LOWER(name): an existing node is UPDATED, not re-inserted', async () => {

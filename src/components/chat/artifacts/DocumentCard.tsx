@@ -4,9 +4,11 @@ import { useState } from 'react';
 import type { DocumentArtifact } from '@/types/artifacts';
 import { IconBtn, I, Pill } from '@/components/design/primitives';
 import { openPrintPreview } from '@/lib/print-utils';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 
 export default function DocumentCard({ artifact }: { artifact: DocumentArtifact }) {
+  const t = useT();
   const [activeSection, setActiveSection] = useState(0);
   const [copied, setCopied] = useState(false);
 
@@ -14,8 +16,8 @@ export default function DocumentCard({ artifact }: { artifact: DocumentArtifact 
   const isPitchDeck = artifact.doc_type === 'pitch-deck';
 
   const DOC_TYPE_LABELS: Record<string, string> = {
-    'pitch-deck': 'Pitch Deck',
-    'one-pager': 'One-Pager',
+    'pitch-deck': t('doc.pitch-deck'),
+    'one-pager': t('doc.one-pager'),
   };
 
   function copyMarkdown() {
@@ -41,7 +43,7 @@ export default function DocumentCard({ artifact }: { artifact: DocumentArtifact 
 
   return (
     <ArtifactCardShell
-      typeLabel="Document"
+      typeLabel={t('doc.type-document')}
       title={artifact.title}
       sources={artifact.sources}
       style={{ gridColumn: 'span 6' }}
@@ -51,12 +53,14 @@ export default function DocumentCard({ artifact }: { artifact: DocumentArtifact 
         </Pill>
         {sections.length > 0 && (
           <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
-            {sections.length} {isPitchDeck ? 'slides' : 'sections'}
+            {isPitchDeck
+              ? t('doc.slides-count', { count: sections.length })
+              : t('doc.sections-count', { count: sections.length })}
           </span>
         )}
-        <IconBtn d={I.copy} title={copied ? 'Copied!' : 'Copy markdown'} onClick={copyMarkdown} />
-        <IconBtn d={I.download} title="Download .md" onClick={downloadMarkdown} />
-        <IconBtn d={I.printer} title="Print / PDF" onClick={printPdf} />
+        <IconBtn d={I.copy} title={copied ? t('doc.copied') : t('doc.copy-markdown')} onClick={copyMarkdown} />
+        <IconBtn d={I.download} title={t('doc.download-md')} onClick={downloadMarkdown} />
+        <IconBtn d={I.printer} title={t('doc.print-pdf')} onClick={printPdf} />
       </>}
     >
       <div style={{ display: 'flex', minHeight: 400, border: '1px solid var(--line)', borderRadius: 'var(--r-m)', overflow: 'hidden' }}>

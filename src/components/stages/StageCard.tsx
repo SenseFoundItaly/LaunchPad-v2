@@ -12,19 +12,11 @@ import Link from 'next/link';
 import { Panel, Pill, Icon, I } from '@/components/design/primitives';
 import { checkActionPrompt, checkLabel, stageLabel, stageTagline, checkGap, checkEvidence } from '@/lib/journey-prompts';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
-import { useStages, type StageCheckRow } from '@/hooks/useStages';
+import { useStages, type StageCheckRow, type StageEvaluation } from '@/hooks/useStages';
 import type { MessageKey } from '@/lib/i18n/messages';
-
-// L2 Validation Gate sub-track headers (walkthrough §2). Only the validation
-// stage tags its checks; everywhere else `track` is undefined → flat render.
-// i18n-keyed (mirrors SpineSection) so the headers localize on IT projects —
-// a plain-string map here leaked English while the Canvas spine rendered Italian.
-const TRACK_LABEL: Record<'1A' | '1B' | '1C', MessageKey> = {
-  '1A': 'canvas.track-1a',
-  '1B': 'canvas.track-1b',
-  '1C': 'canvas.track-1c',
-};
-const TRACK_ORDER: Array<'1A' | '1B' | '1C'> = ['1A', '1B', '1C'];
+// L2 Validation Gate sub-tracks — labels, explainers and order come from the
+// shared lib definition so this card and the Canvas spine can't drift.
+import { TRACK_LABEL, TRACK_TIP, TRACK_ORDER } from '@/lib/journey/tracks';
 
 export function StageCard({ projectId }: { projectId: string }) {
   const t = useT();
@@ -73,7 +65,12 @@ export function StageCard({ projectId }: { projectId: string }) {
       {done.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {done.map((e) => (
-            <DoneChip key={e.stage.id} number={e.stage.number} label={stageLabel(e.stage.id, e.stage.label, t)} />
+            <DoneChip
+              key={e.stage.id}
+              number={e.stage.number}
+              label={stageLabel(e.stage.id, e.stage.label, t)}
+              tip={chipTip(e, t, 'canvas.state-validated')}
+            />
           ))}
         </div>
       )}
@@ -83,7 +80,7 @@ export function StageCard({ projectId }: { projectId: string }) {
         title={
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', letterSpacing: 0.5 }}>
-              STAGE {headline.stage.number}
+              {t('stagec.stage-n', { n: headline.stage.number })}
             </span>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{stageLabel(headline.stage.id, headline.stage.label, t)}</span>
           </span>
@@ -107,7 +104,7 @@ export function StageCard({ projectId }: { projectId: string }) {
             const done = rows.filter((r) => r.result.passed).length;
             return (
               <div key={tk}>
-                <div style={{ padding: '8px 14px 2px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <div title={t(TRACK_TIP[tk])} style={{ padding: '8px 14px 2px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'baseline', gap: 8 }}>
                   <span className="lp-mono" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5, color: 'var(--ink-5)', textTransform: 'uppercase' }}>
                     {t(TRACK_LABEL[tk])}
                   </span>
@@ -143,7 +140,12 @@ export function StageCard({ projectId }: { projectId: string }) {
       {pending.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', opacity: 0.6 }}>
           {pending.map((e) => (
-            <PendingChip key={e.stage.id} number={e.stage.number} label={stageLabel(e.stage.id, e.stage.label, t)} />
+            <PendingChip
+              key={e.stage.id}
+              number={e.stage.number}
+              label={stageLabel(e.stage.id, e.stage.label, t)}
+              tip={chipTip(e, t, e.stage.number >= 5 ? 'canvas.tip-seq-locked' : 'canvas.state-not-started')}
+            />
           ))}
         </div>
       )}
@@ -217,7 +219,7 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
           {t('canvas.track-locked')}
         </span>
       ) : (
-        <Link href={prefillHref} title={`${check.source ?? ''} · ask the Co-pilot to validate this`} style={askCtaStyle}>
+        <Link href={prefillHref} title={`${check.source ?? ''} · ${t('stagec.ask-copilot-validate')}`} style={askCtaStyle}>
           {t('canvas.ask-copilot-cta')} →
         </Link>
       )}
@@ -225,9 +227,26 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
   );
 }
 
-function DoneChip({ number, label }: { number: number; label: string }) {
+/**
+ * Hover explainer for a collapsed stage chip. The chip shows only a number and
+ * a name, so on its own it never says what the stage PROVES — the tagline
+ * already carries that (it's the active card's subtitle), it just wasn't
+ * reachable from the collapsed strips.
+ */
+function chipTip(e: StageEvaluation, t: ReturnType<typeof useT>, stateKey: MessageKey): string {
+  const tagline = stageTagline(e.stage.id, e.stage.tagline, t);
+  const name = stageLabel(e.stage.id, e.stage.label, t);
+  return [
+    // Newline, not " — ": the taglines already contain em-dashes.
+    tagline ? `${name}\n${tagline}` : name,
+    e.total > 0 ? t('canvas.evidence-count', { passed: e.passed, total: e.total }) : '',
+    t(stateKey),
+  ].filter(Boolean).join('\n\n');
+}
+
+function DoneChip({ number, label, tip }: { number: number; label: string; tip?: string }) {
   return (
-    <span style={{
+    <span title={tip} style={{
       display: 'inline-flex',
       alignItems: 'center',
       gap: 4,
@@ -245,9 +264,9 @@ function DoneChip({ number, label }: { number: number; label: string }) {
   );
 }
 
-function PendingChip({ number, label }: { number: number; label: string }) {
+function PendingChip({ number, label, tip }: { number: number; label: string; tip?: string }) {
   return (
-    <span style={{
+    <span title={tip} style={{
       display: 'inline-flex',
       alignItems: 'center',
       gap: 4,

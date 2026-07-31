@@ -9,8 +9,10 @@
  *   - Once the Idea Canvas is DEFINED but no watcher is active → the watcher
  *     nudge ("activate your first weekly watcher"), the old CanvasWatcherReminder.
  *
- * At most one variant shows. Dismissal is per-project in localStorage so it
- * doesn't nag once the founder is rolling.
+ * At most one variant shows. Dismissal is per-project: localStorage is the
+ * instant/optimistic path, and it's ALSO persisted into projects.settings
+ * (onboarding_dismissed) so the founder doesn't get re-onboarded on every new
+ * device/browser. Either signal hides the card.
  *
  * Visibility is read via useSyncExternalStore (the same pattern useChat uses) so
  * it's SSR-safe and lint-clean: the server snapshot is "dismissed" (renders
@@ -55,6 +57,20 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
     () => true, // SSR + first hydration: treat as dismissed so nothing flashes.
   );
 
+  // Server-side dismissal flag (cross-device). Read via the project row —
+  // mapProject spreads the settings JSONB into the response.
+  const { data: serverDismissed } = useQuery<boolean>({
+    queryKey: ['project-onboarding-dismissed', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}`);
+      const body = await res.json();
+      const settings = (body?.data ?? body)?.settings;
+      return settings != null && typeof settings === 'object'
+        && (settings as { onboarding_dismissed?: unknown }).onboarding_dismissed === true;
+    },
+  });
+
   // Drives the watcher-nudge variant: show it once the canvas is defined
   // (solution + value_proposition) AND no watcher is active yet.
   const { data: canvas } = useQuery<CanvasShape>({
@@ -85,9 +101,16 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
       /* private mode — re-renders won't persist, but the dispatch still hides it */
     }
     window.dispatchEvent(new Event(DISMISS_EVENT));
-  }, [key]);
+    // Cross-device persistence — fire-and-forget; localStorage already hid the
+    // card, so a failed write just means this device-only fallback behavior.
+    fetch(`/api/projects/${projectId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: { onboarding_dismissed: true } }),
+    }).catch(() => {});
+  }, [key, projectId]);
 
-  if (dismissed) return null;
+  if (dismissed || serverDismissed) return null;
 
   const canvasReady = !!(canvas?.solution && canvas?.value_proposition);
   const activeWatchers = Array.isArray(monitors) ? monitors.filter((m) => m?.status === 'active').length : 0;

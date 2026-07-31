@@ -32,6 +32,7 @@ import { generateId } from '@/lib/api-helpers';
 import { checkDedup } from '@/lib/monitor-dedup';
 import { coerceJson } from '@/lib/jsonb';
 import { maybeTriggerLoop1 } from '@/lib/loops/loop1-psf';
+import { maybeTriggerLoop2 } from '@/lib/loops/loop2-bm';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { translate, type MessageKey } from '@/lib/i18n/messages';
 import type { Locale } from '@/lib/i18n/locales';
@@ -95,7 +96,12 @@ async function ctxT(ctx: ToolContext): Promise<(key: MessageKey, vars?: Record<s
  * (monitor-proposal) pass. Used by propose_monitor, propose_watch_source, and
  * the chat-route monitor-card backstop so all three emit renderable cards.
  */
-export function withSourceTitles(sources: unknown): Array<Record<string, unknown>> {
+export function withSourceTitles(
+  sources: unknown,
+  // Localized titles (i18n gap audit 21/07) — callers with a project locale
+  // pass their ctxT-bound t; external callers without one fall back to EN.
+  tr: (key: MessageKey, vars?: Record<string, string | number>) => string = (k, v) => translate('en', k, v),
+): Array<Record<string, unknown>> {
   const arr = Array.isArray(sources) ? sources : [];
   const titled = arr
     .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
@@ -103,16 +109,16 @@ export function withSourceTitles(sources: unknown): Array<Record<string, unknown
       if (typeof s.title === 'string' && s.title.length > 0) return s;
       const t = typeof s.type === 'string' ? s.type : 'source';
       const title =
-        t === 'user' ? 'Founder request'
-        : t === 'web' ? (typeof s.url === 'string' ? String(s.url) : 'Web source')
-        : t === 'skill' ? `Skill: ${s.skill_id ?? ''}`
-        : t === 'internal' ? String(s.ref ?? 'Reference')
-        : 'Source';
+        t === 'user' ? tr('src.founder-request')
+        : t === 'web' ? (typeof s.url === 'string' ? String(s.url) : tr('src.web-source'))
+        : t === 'skill' ? tr('src.skill', { id: String(s.skill_id ?? '') })
+        : t === 'internal' ? String(s.ref ?? tr('src.reference'))
+        : tr('src.source');
       return { ...s, title };
     });
   return titled.length > 0
     ? titled
-    : [{ type: 'internal', title: 'Watcher proposal', ref: 'chat', ref_id: 'chat' }];
+    : [{ type: 'internal', title: tr('src.watcher-proposal'), ref: 'chat', ref_id: 'chat' }];
 }
 
 // =============================================================================
@@ -959,8 +965,8 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
         action_type: 'configure_monitor',
         title: t('pa.configure-monitor', { name: p.name }),
         rationale: p.linked_risk_id === 'ad_hoc'
-          ? `Founder said in chat: "${p.linked_quote}"`
-          : `Derisking ${p.linked_risk_id} — alert threshold: ${p.alert_threshold}`,
+          ? t('pa.rationale-monitor-quote', { quote: String(p.linked_quote ?? '') })
+          : t('pa.rationale-monitor-derisk', { risk: String(p.linked_risk_id), threshold: String(p.alert_threshold) }),
         payload: pendingActionPayload,
         estimated_impact: 'medium',
         sources: p.sources,
@@ -998,7 +1004,7 @@ const proposeMonitorTool = (ctx: ToolContext): AgentTool => ({
       estimated_monthly_credits: creditEstimate.monthly_credits,
       estimated_per_run_credits: creditEstimate.per_run_credits,
       pending_action_id: pendingAction.id,
-      sources: withSourceTitles(p.sources),
+      sources: withSourceTitles(p.sources, t),
     };
     if (p.query) artifactBody.query = p.query;
     if (p.urls_to_track) artifactBody.urls_to_track = p.urls_to_track;
@@ -1085,7 +1091,7 @@ const editWatcherTool = (ctx: ToolContext): AgentTool => ({
       project_id: ctx.projectId,
       action_type: 'edit_monitor',
       title: t('pa.edit-watcher', { name: monitor.name }),
-      rationale: `Proposed change: ${summary}. Approve to apply.`,
+      rationale: t('pa.rationale-edit-watcher', { summary }),
       payload: { monitor_id: monitor.id, monitor_name: monitor.name, changes },
     });
     return {
@@ -1123,9 +1129,7 @@ const deleteWatcherTool = (ctx: ToolContext): AgentTool => ({
       project_id: ctx.projectId,
       action_type: 'delete_monitor',
       title: t(mode === 'delete' ? 'pa.delete-watcher' : 'pa.pause-watcher', { name: monitor.name }),
-      rationale: mode === 'delete'
-        ? 'Permanently remove this watcher and its run history. Approve to apply.'
-        : 'Stop this watcher from running (reversible — you can re-activate it later). Approve to apply.',
+      rationale: t(mode === 'delete' ? 'pa.rationale-delete-watcher' : 'pa.rationale-pause-watcher'),
       payload: { monitor_id: monitor.id, monitor_name: monitor.name, mode },
     });
     return {
@@ -1223,10 +1227,11 @@ const proposeBudgetChangeTool = (ctx: ToolContext): AgentTool => ({
 
     let pendingAction;
     try {
+      const t = await ctxT(ctx);
       pendingAction = await createPendingAction({
         project_id: ctx.projectId,
         action_type: 'configure_budget',
-        title: `Raise monthly cap: $${currentCapUsd.toFixed(2)} → $${p.proposed_cap_usd.toFixed(2)}`,
+        title: t('pa.raise-cap', { from: currentCapUsd.toFixed(2), to: p.proposed_cap_usd.toFixed(2) }),
         rationale: p.reason,
         payload: pendingActionPayload,
         estimated_impact: 'medium',
@@ -1483,7 +1488,7 @@ const proposeWatchSourceTool = (ctx: ToolContext): AgentTool => ({
       schedule: p.schedule,
       rationale: p.rationale,
       pending_action_id: pendingAction.id,
-      sources: withSourceTitles(p.sources),
+      sources: withSourceTitles(p.sources, t),
     };
 
     const artifactBlock = [
@@ -2236,12 +2241,39 @@ const CANVAS_FIELD_LABELS: Record<string, string> = {
   business_model: 'Business model',
   competitive_advantage: 'Competitive edge',
   channels: 'Channels',
+  unfair_advantage: 'Unfair advantage',
+  key_metrics: 'Key metrics',
+  cost_structure: 'Cost structure',
+  revenue_streams: 'Revenue streams',
 };
 
-function itemDisplayLabel(item: RawValidationItem): string {
-  if (item.kind === 'canvas_field') return CANVAS_FIELD_LABELS[item.field ?? ''] ?? 'Idea Canvas';
-  if (item.kind === 'competitor') return 'Competitor';
-  return 'Market size';
+// Localized display labels (i18n gap audit 21/07): canvas fields reuse the
+// client's canvas.field-* keys so card and header always agree. EN fallback
+// when no translator is passed.
+const CANVAS_FIELD_LABEL_KEYS: Record<string, MessageKey> = {
+  problem: 'canvas.field-problem',
+  solution: 'canvas.field-solution',
+  target_market: 'canvas.field-target',
+  value_proposition: 'canvas.field-value',
+  business_model: 'canvas.field-business-model',
+  competitive_advantage: 'canvas.field-edge',
+  channels: 'canvas.field-channels',
+  key_metrics: 'canvas.field-metrics',
+  cost_structure: 'canvas.field-costs',
+  revenue_streams: 'canvas.field-revenues',
+};
+
+function itemDisplayLabel(
+  item: RawValidationItem,
+  tr?: (key: MessageKey, vars?: Record<string, string | number>) => string,
+): string {
+  if (item.kind === 'canvas_field') {
+    const key = CANVAS_FIELD_LABEL_KEYS[item.field ?? ''];
+    if (key && tr) return tr(key);
+    return CANVAS_FIELD_LABELS[item.field ?? ''] ?? (tr ? tr('val.label-canvas') : 'Idea Canvas');
+  }
+  if (item.kind === 'competitor') return tr ? tr('val.label-competitor') : 'Competitor';
+  return tr ? tr('val.label-market-size') : 'Market size';
 }
 
 /** Credits to commit one item. Canvas fields are free (the founder's own idea
@@ -2275,6 +2307,11 @@ async function stageValidationProposal(
     return { ok: false, error: 'propose_validation requires at least one item with a non-empty value.' };
   }
 
+  // Localized labels/validates/title (i18n gap audit 21/07) — these persist
+  // into the pending_action payload the founder reads on the card.
+  const t = await ctxT(ctx);
+  const locale = ctx._locale;
+
   const items = cleaned.map((r, i) => {
     const targets = validationTargetsFor(r.kind, r.field);
     return {
@@ -2282,9 +2319,9 @@ async function stageValidationProposal(
       kind: r.kind,
       field: r.field,
       name: r.name,
-      label: itemDisplayLabel(r),
+      label: itemDisplayLabel(r, t),
       value: r.value,
-      validates: validationLabel(targets),
+      validates: validationLabel(targets, locale),
       targets,
       credits: itemCredits(r.kind),
       sources: Array.isArray(r.sources) ? r.sources : [],
@@ -2293,7 +2330,8 @@ async function stageValidationProposal(
 
   const combined_credits = items.reduce((s, it) => s + it.credits, 0);
   const gated = items.filter((it) => it.targets.length > 0).length;
-  const title = `Validation evidence — ${items.length} item(s)${gated > 0 ? `, ${gated} spine step(s)` : ''}`;
+  const title = t('val.proposal-title', { count: items.length }) +
+    (gated > 0 ? t('val.proposal-title-gated', { gated }) : '');
 
   let pendingAction;
   try {
@@ -2329,7 +2367,7 @@ const proposeValidationTool = (ctx: ToolContext): AgentTool => ({
     items: Type.Array(
       Type.Object({
         kind: Type.String({ description: 'One of: canvas_field, competitor, market_size_fact.' }),
-        field: Type.Optional(Type.String({ description: 'For kind=canvas_field ONLY: which canvas field — problem | solution | target_market | value_proposition | business_model | competitive_advantage.' })),
+        field: Type.Optional(Type.String({ description: 'For kind=canvas_field ONLY: which canvas field — problem | solution | target_market | value_proposition | business_model | competitive_advantage | channels | unfair_advantage | key_metrics | cost_structure | revenue_streams. For the three list fields (key_metrics, cost_structure, revenue_streams) put one entry per line in `value`.' })),
         name: Type.Optional(Type.String({ description: 'For kind=competitor ONLY: the competitor name (e.g. "HelloFresh").' })),
         value: Type.String({ description: 'The actual content to commit: the canvas field text, the competitor summary (what they do + how you differ), or the market-sizing statement (e.g. "TAM ~EUR 2.4B: 12M EU households x ...").' }),
         sources: Type.Optional(Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] provenance for this item (web/skill/user/inference). Feeds the proof shown when the founder later clicks the validated substep. Strongly recommended for competitors and market size.' })),
@@ -2370,7 +2408,7 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
   name: 'update_idea_canvas',
   label: 'Update Idea Canvas',
   description:
-    'Propose one or more Idea Canvas fields (problem, solution, target market, value proposition, business model, competitive advantage, acquisition channels) for the founder to approve onto their canvas. Call this whenever the founder has articulated — or you have synthesized — canvas content. It does NOT write directly: canvas fields turn Stage 1-3 substeps green, so they go through the founder approval gate (a validation_proposal card). Pass every field you have in ONE call so the founder sees a single card. If you are ALSO proposing competitors or market size this turn, prefer propose_validation to batch them together. Emit the returned artifact block VERBATIM so the approval card renders.',
+    'Propose one or more Idea Canvas fields (problem, solution, target market, value proposition, business model, competitive advantage, acquisition channels, unfair advantage, key metrics, cost structure, revenue streams) for the founder to approve onto their canvas. Call this whenever the founder has articulated — or you have synthesized — canvas content. It does NOT write directly: canvas fields turn Stage 1-3 substeps green, so they go through the founder approval gate (a validation_proposal card). The Stage-1 "Main cost & revenue sources" and "Lean Canvas compiled" checks read cost_structure, revenue_streams and key_metrics — propose them as soon as the founder has stated them, or Stage 1 cannot complete. Pass every field you have in ONE call so the founder sees a single card. If you are ALSO proposing competitors or market size this turn, prefer propose_validation to batch them together. Emit the returned artifact block VERBATIM so the approval card renders.',
   parameters: Type.Object({
     problem: Type.Optional(Type.String({ description: 'The specific pain the target user experiences. Concrete, not generic. Quote the founder when possible.' })),
     solution: Type.Optional(Type.String({ description: 'What you build to solve it. The "what", not the "how" — keep tech details out.' })),
@@ -2379,14 +2417,19 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
     business_model: Type.Optional(Type.String({ description: 'How it makes money — subscription, transaction, freemium, etc., plus pricing logic.' })),
     competitive_advantage: Type.Optional(Type.String({ description: 'The moat: insight, data, distribution, network effects, regulatory lock-in. Be specific about which.' })),
     channels: Type.Optional(Type.String({ description: 'Acquisition channels — how you reach customers: e.g. "founder-led LinkedIn outreach, SEO, accountant partnerships".' })),
+    unfair_advantage: Type.Optional(Type.String({ description: 'The Lean Canvas unfair advantage — what cannot be easily copied or bought.' })),
+    key_metrics: Type.Optional(Type.Array(Type.String(), { description: 'The key metrics that tell you the business is working — e.g. ["Weekly active clubs", "MRR", "Churn"]. One metric per array item.' })),
+    cost_structure: Type.Optional(Type.Array(Type.String(), { description: 'Main cost items — e.g. ["Hardware COGS", "Cloud/AI inference", "Support"]. One cost per array item.' })),
+    revenue_streams: Type.Optional(Type.Array(Type.String(), { description: 'Revenue sources — e.g. ["Monthly SaaS subscription", "Hardware rental"]. One stream per array item.' })),
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
     const p = params as Partial<Record<
-      'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model' | 'competitive_advantage' | 'channels',
+      'problem' | 'solution' | 'target_market' | 'value_proposition' | 'business_model' | 'competitive_advantage' | 'channels' | 'unfair_advantage',
       string
-    >>;
+    >> & Partial<Record<'key_metrics' | 'cost_structure' | 'revenue_streams', string[]>>;
     const clean = (v: string | undefined): string => (typeof v === 'string' ? v.trim().slice(0, 1200) : '');
-    const order = ['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage', 'channels'] as const;
+    const order = ['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage', 'channels', 'unfair_advantage'] as const;
+    const arrayFields = ['key_metrics', 'cost_structure', 'revenue_streams'] as const;
 
     // Build canvas_field items from the provided fields and route them through
     // the validation gate. The actual idea_canvas write + assumptions seeding
@@ -2395,6 +2438,15 @@ const updateIdeaCanvasTool = (ctx: ToolContext): AgentTool => ({
     for (const field of order) {
       const value = clean(p[field]);
       if (value.length > 0) rawItems.push({ kind: 'canvas_field', field, value });
+    }
+    // Array fields (Lean Canvas soft blocks) ride the same gate as one
+    // newline-joined item; applyValidationProposal splits them back into the
+    // JSONB arrays the Stage-1 cost_revenue/lean_canvas checks read.
+    for (const field of arrayFields) {
+      const list = Array.isArray(p[field])
+        ? p[field]!.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim().slice(0, 300)).slice(0, 12)
+        : [];
+      if (list.length > 0) rawItems.push({ kind: 'canvas_field', field, value: list.join('\n') });
     }
     if (rawItems.length === 0) {
       return {
@@ -2517,6 +2569,12 @@ const updatePricingTool = (ctx: ToolContext): AgentTool => ({
         ctx.projectId,
       );
     }
+
+    // Loop 2 (BM Stress Test): fresh unit economics may push LTV/CAC below the
+    // 3× stress bar. Awaited (idempotent, non-throwing, self-guards when unit
+    // econ is absent) so it isn't lost to the serverless freeze — mirror of the
+    // maybeTriggerLoop1 hook on interview writes.
+    await maybeTriggerLoop2(ctx.projectId);
 
     return {
       content: [{ type: 'text', text: `Updated pricing_state: ${Object.keys(updates).join(', ')}. Pricing tab will reflect on next render.` }],

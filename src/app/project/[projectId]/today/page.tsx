@@ -28,10 +28,13 @@ import { LoopHistoryCard } from '@/components/journey/LoopHistoryCard';
 import { OnboardingCard } from '@/components/onboarding/OnboardingCard';
 import { NotesCard } from '@/components/onboarding/NotesCard';
 import { ScorePanel } from '@/components/home/ScorePanel';
+import { LoopStatusRow } from '@/components/loops/LoopStatusRow';
+import { PhaseSpine } from '@/components/journey/PhaseSpine';
 import { EcosystemPanel } from '@/components/home/EcosystemPanel';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { laneFor, isIntelInboxType } from '@/lib/action-lanes';
 import type { PendingActionType } from '@/types';
+import { LoadingState } from '@/components/ui/LoadingState';
 
 // Mirror of the /actions Intel hide flag — keeps the Today "Intel" panel in
 // lock-step with the full surface. See actions/page.tsx + action-lanes.ts.
@@ -133,14 +136,25 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
                 <ScorePanel projectId={projectId} />
               </PanelBoundary>
 
+              {/* Loop banner — renders only when a validation loop is open, so a
+                  founder can't miss that a loop is driving the locked skills /
+                  review card. Boundary-wrapped (network-driven). */}
+              <PanelBoundary resetKey={projectId}>
+                <LoopStatusRow projectId={projectId} />
+              </PanelBoundary>
+
               {/* Two-column dashboard: wide Journey column + narrow utility column.
                   Collapses to one column under ~900px (.lp-home-grid). */}
               <div className="lp-home-grid">
                 {/* Primary — the journey/validation card (its checks ARE the
                     "next to validate" list, so no separate panel duplicates it),
-                    plus the loop-verdict history (Evidence Matrix read surface —
-                    self-hides while the project has no resolved loops). */}
+                    the 5-phase spine above it, and the loop-verdict history
+                    below (Evidence Matrix read surface — self-hides while the
+                    project has no resolved loops). */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
+                  <PanelBoundary resetKey={projectId}>
+                    <PhaseSpine projectId={projectId} />
+                  </PanelBoundary>
                   <PanelBoundary resetKey={projectId}>
                     <StageCard projectId={projectId} />
                   </PanelBoundary>
@@ -369,17 +383,12 @@ function Panel({
 
 function SkeletonRow() {
   const t = useT();
+  // Was centred mono text — a label with no sign of life, so a slow load read
+  // as a stalled one. LoadingState animates and counts, so the founder can tell
+  // "still working" from "stuck".
   return (
-    <div
-      style={{
-        padding: 24,
-        textAlign: 'center',
-        fontSize: 12,
-        color: 'var(--ink-5)',
-        fontFamily: 'var(--f-mono)',
-      }}
-    >
-      {t('today.loading-today')}
+    <div style={{ padding: 24, display: 'flex', justifyContent: 'center' }}>
+      <LoadingState label={t('today.loading-today')} />
     </div>
   );
 }

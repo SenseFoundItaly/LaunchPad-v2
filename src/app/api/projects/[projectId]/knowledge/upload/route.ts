@@ -6,9 +6,27 @@ import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { debitCredits, DOCUMENT_AUDIT_CREDITS } from '@/lib/credits';
 import { runAgent } from '@/lib/pi-agent';
 import { recordAgentUsage } from '@/lib/cost-meter';
-import { validationTargetsFor, validationLabel } from '@/lib/journey/validation-targets';
+import { validationTargetsFor, validationLabel, buildSpinePreview } from '@/lib/journey/validation-targets';
 import { canvasIsEmpty } from '@/lib/idea-canvas-seed';
 import { digestDocument } from '@/lib/document-digest';
+import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { timelineEntryNow, historyLocale } from '@/lib/knowledge/node-timeline';
+import { translate as translateMsg } from '@/lib/i18n/messages';
+import { LOCALE_ENGLISH_NAME, type Locale } from '@/lib/i18n/locales';
+
+// Language instruction for the single-shot extraction prompts (entities +
+// canvas). These prompts are English scaffolding, so without an explicit
+// directive Haiku answers in English even for an Italian project — and, absent
+// any directive, it would otherwise just echo the DOCUMENT's language (an
+// Italian doc in an English project → Italian output). We pin output to the
+// PROJECT locale for BOTH locales (the canvas/entities render in the project's
+// UI language), surgically: translate the natural-language VALUES, but keep the
+// JSON keys and node_type/enum values in English (the app parses them).
+// Mirrors src/lib/assumptions.ts's per-value language directive.
+function extractionLanguageDirective(locale: Locale): string {
+  const language = LOCALE_ENGLISH_NAME[locale];
+  return `\nWrite every natural-language value (each entity's summary, every canvas field, and idea_brief) in ${language}, regardless of the document's language. Keep the JSON keys and the node_type enum values in English.`;
+}
 
 const MAX_FILE_BYTES = 10_485_760; // 10 MiB per file — real PDFs/decks are bigger than a text note
 const MAX_FILES_PER_REQUEST = 10;
@@ -194,7 +212,7 @@ Return a JSON array. Each object: { "name": string, "node_type": string, "summar
 node_type MUST be one of: competitor, company, persona, market_segment, technology, trend, regulation, compliance, partner, risk, feature, metric, funding_source, supplier, hr_collaborator, brand_asset, gtm_strategy, business_essential.
 
 Skip generic concepts ("coffee", "the market"). Prefer named, specific entities ("Starbucks", "NYC DCWP"). If the text is too short, vague, or has no extractable entities, return [].
-
+{LANG}
 Output ONLY the JSON array — no markdown, no preamble.
 
 TEXT:
@@ -206,13 +224,16 @@ TEXT:
  * Best-effort entity extraction. Never throws — extraction failures degrade
  * silently to zero proposed entities so the upload still succeeds.
  */
-async function extractEntities(text: string, projectId: string): Promise<ExtractedEntity[]> {
+async function extractEntities(text: string, projectId: string, locale: Locale): Promise<ExtractedEntity[]> {
   // Cap input — Haiku context isn't the bottleneck but cost/latency are.
   // 16k chars covers most decks / one-pagers in full; longer docs sample the head.
   const truncated = text.length > 16000 ? text.slice(0, 16000) : text;
   try {
     const startedAt = Date.now();
-    const { text: raw, usage } = await runAgent(EXTRACT_PROMPT.replace('{TEXT}', truncated), {
+    const prompt = EXTRACT_PROMPT
+      .replace('{LANG}', extractionLanguageDirective(locale))
+      .replace('{TEXT}', truncated);
+    const { text: raw, usage } = await runAgent(prompt, {
       task: 'classify', // routes to Haiku (cheap)
       tools: false,
       timeout: 25_000,
@@ -271,20 +292,33 @@ interface ProposedCanvas {
 const CANVAS_PROMPT = `From the founder's document(s) below, draft a lean startup canvas. Use ONLY what the text actually supports — leave a field as "" when the document doesn't address it. NEVER invent.
 
 Return ONE JSON object with these string fields:
-{ "problem": "...", "solution": "...", "target_market": "...", "value_proposition": "...", "business_model": "...", "competitive_advantage": "...", "channels": "..." }
+{ "idea_brief": "...", "problem": "...", "solution": "...", "target_market": "...", "value_proposition": "...", "business_model": "...", "competitive_advantage": "...", "channels": "..." }
 
-Each field: one or two concise sentences in the founder's voice. Output ONLY the JSON object — no markdown, no preamble.
+"idea_brief": two or three plain sentences describing WHAT the idea/project is — the elevator description a stranger would need before reading anything else. Every other field: one or two concise sentences in the founder's voice.
+{LANG}
+Output ONLY the JSON object — no markdown, no preamble.
 
 DOCUMENT:
 """
 {TEXT}
 """`;
 
-async function extractCanvas(text: string, projectId: string): Promise<ProposedCanvas | null> {
+interface CanvasDraft {
+  canvas: ProposedCanvas | null;
+  /** Plain-words "what is this idea" summary shown atop the populating screen.
+   *  Display-only — never written anywhere; the founder's confirmed canvas is
+   *  the durable record. '' when the model couldn't support one. */
+  idea_brief: string;
+}
+
+async function extractCanvas(text: string, projectId: string, locale: Locale): Promise<CanvasDraft> {
   const truncated = text.length > 16000 ? text.slice(0, 16000) : text;
   try {
     const startedAt = Date.now();
-    const { text: raw, usage } = await runAgent(CANVAS_PROMPT.replace('{TEXT}', truncated), {
+    const prompt = CANVAS_PROMPT
+      .replace('{LANG}', extractionLanguageDirective(locale))
+      .replace('{TEXT}', truncated);
+    const { text: raw, usage } = await runAgent(prompt, {
       task: 'classify',
       tools: false,
       timeout: 25_000,
@@ -297,7 +331,7 @@ async function extractCanvas(text: string, projectId: string): Promise<ProposedC
       latency_ms: Date.now() - startedAt,
     });
     const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) return null;
+    if (!m) return { canvas: null, idea_brief: '' };
     const parsed = JSON.parse(m[0]) as Record<string, unknown>;
     const str = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 1200) : '');
     const canvas: ProposedCanvas = {
@@ -309,10 +343,14 @@ async function extractCanvas(text: string, projectId: string): Promise<ProposedC
       competitive_advantage: str(parsed.competitive_advantage),
       channels: str(parsed.channels),
     };
-    return Object.values(canvas).some((v) => v.length > 0) ? canvas : null;
+    const idea_brief = str(parsed.idea_brief).slice(0, 600);
+    return {
+      canvas: Object.values(canvas).some((v) => v.length > 0) ? canvas : null,
+      idea_brief,
+    };
   } catch (err) {
     console.warn('[upload/canvas] canvas extraction failed:', (err as Error).message);
-    return null;
+    return { canvas: null, idea_brief: '' };
   }
 }
 
@@ -382,6 +420,10 @@ async function persistExtracted(
     "SELECT id FROM graph_nodes WHERE project_id = ? AND node_type = 'your_startup' LIMIT 1",
     projectId,
   );
+  // Birth entry (#327): every extracted node records which document it came
+  // from — the same provenance the panel's Sources section already names.
+  const digestLocale = await historyLocale(null, projectId);
+  const birth = [timelineEntryNow('digest', translateMsg(digestLocale, 'node-history.created-digest', { doc: filename }))];
 
   for (const e of entities) {
     const existing = await get<{ id: string }>(
@@ -393,8 +435,8 @@ async function persistExtracted(
     const id = generateId('node');
     await run(
       `INSERT INTO graph_nodes (id, project_id, name, node_type, summary, attributes, sources, reviewed_state)
-       VALUES (?, ?, ?, ?, ?, '{}', ?, 'pending')`,
-      id, projectId, e.name, e.node_type, e.summary, sources,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      id, projectId, e.name, e.node_type, e.summary, { timeline: birth }, sources,
     );
     if (root) {
       await run(
@@ -454,6 +496,13 @@ export async function POST(
     if (e instanceof AuthError) return error(e.message, e.status);
     throw e;
   }
+
+  // Project locale drives the language of the extracted canvas + entities so an
+  // Italian project doesn't get an English draft (and vice-versa). The project's
+  // frozen locale (set from the create-screen selector) wins — precedence
+  // project > user > English (resolve-locale.ts). Threaded into both Haiku
+  // extraction passes below.
+  const locale = await resolveLocale(userId, projectId);
 
   // Opt-in entity extraction. Off by default so existing callers don't pay
   // the extra Haiku latency. The in-app KnowledgeUpload dropzone passes
@@ -551,7 +600,7 @@ export async function POST(
     // one slow Haiku call doesn't block the next file. A failure here never
     // unwinds the memory_facts INSERT above (the fact is already the user's).
     if (shouldExtract) {
-      const entities = await extractEntities(text, projectId);
+      const entities = await extractEntities(text, projectId, locale);
       if (entities.length > 0) {
         const { inserted, ids } = await persistExtracted(projectId, entities, id, file.name);
         result.entities_proposed = inserted;
@@ -625,9 +674,10 @@ export async function POST(
   // project already has canvas content — re-drafting over an existing canvas
   // wastes the LLM call and the draft would be discarded anyway.
   const wantCanvas = shouldExtract && ingestedTexts.length > 0 && (await canvasIsEmpty(projectId));
-  const proposedCanvas = wantCanvas
-    ? await extractCanvas(ingestedTexts.join('\n\n---\n\n'), projectId)
-    : null;
+  const canvasDraft = wantCanvas
+    ? await extractCanvas(ingestedTexts.join('\n\n---\n\n'), projectId, locale)
+    : { canvas: null, idea_brief: '' };
+  const proposedCanvas = canvasDraft.canvas;
 
   // Watcher SUGGESTIONS at upload time were removed (2026-07 founder decision):
   // watchers are a POST-Stage-2 concern (auto-proposed once the Validation Gate
@@ -642,20 +692,32 @@ export async function POST(
   const entitiesWithTargets = extractedEntities.map((e) => ({
     ...e,
     validates: e.node_type === 'competitor'
-      ? validationLabel(validationTargetsFor('competitor'))
+      ? validationLabel(validationTargetsFor('competitor'), locale)
       : null,
   }));
   const canvasValidates: Record<string, string> = {};
+  // Feeder for the per-stage spine preview: every gated statement the draft
+  // carries, tagged with the target that resolves its (stage, check).
+  const clip = (s: string, n = 280): string => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+  const previewFeed: Parameters<typeof buildSpinePreview>[0] = [];
   if (proposedCanvas) {
     const canvasRow = proposedCanvas as unknown as Record<string, unknown>;
     for (const f of ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage', 'channels'] as const) {
       const v = canvasRow[f];
       if (typeof v === 'string' && v.trim()) {
-        const label = validationLabel(validationTargetsFor('canvas_field', f));
+        const label = validationLabel(validationTargetsFor('canvas_field', f), locale);
         if (label) canvasValidates[f] = label;
+        previewFeed.push({ kind: 'canvas_field', field: f, statement: clip(v.trim()), target: 'canvas_field', target_field: f });
       }
     }
   }
+  for (const e of entitiesWithTargets) {
+    if (!e.validates) continue; // today: competitors only — mirrors the chip logic above
+    previewFeed.push({ kind: 'entity', name: e.name, statement: clip(e.summary || e.name), target: 'competitor' });
+  }
+  // Per-stage grouping (stage → checks filled → the statement filling each) so
+  // the populating screen can show WHERE on the spine the document lands.
+  const spinePreview = buildSpinePreview(previewFeed);
   // Count of distinct spine steps this document can light up — the draft's headline.
   const spineSteps = new Set<string>([
     ...Object.values(canvasValidates),
@@ -673,10 +735,14 @@ export async function POST(
     extracted_entities: entitiesWithTargets,
     // Lean-canvas draft (or null) for the founder to confirm → Stage 1.
     proposed_canvas: proposedCanvas,
+    // Plain-words "what is this idea" summary (display-only, may be '').
+    idea_brief: canvasDraft.idea_brief,
     // Per-field map: which canvas field validates which substep.
     canvas_validates: canvasValidates,
     // How many distinct spine steps this document can validate.
     spine_steps: spineSteps,
+    // Per-stage breakdown: stage → checks filled → statement filling each.
+    spine_preview: spinePreview,
     // Watcher suggestions removed at upload time (founder decision) — watchers
     // are auto-proposed after the Validation Gate completes. Kept as [] so any
     // older client that reads this field degrades cleanly.

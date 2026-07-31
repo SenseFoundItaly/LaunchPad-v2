@@ -94,3 +94,72 @@ export const I = {
 } as const;
 
 export type IconKey = keyof typeof I;
+
+// -----------------------------------------------------------------------------
+// Multi-part rail glyphs — the shared Icon renders a single <path>, but these
+// two need several sub-shapes, so they're small inline monoline SVGs that match
+// the Icon look (16x16 viewBox, stroke currentColor). Used by the NavRail
+// (Osservatori → binoculars, Co-pilot → robot) and the /demo rail replica.
+// -----------------------------------------------------------------------------
+
+export function BinocularsGlyph({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="4.4" cy="10" r="2.9" />
+      <circle cx="11.6" cy="10" r="2.9" />
+      <path d="M2.6 8.2 3.5 4.3 A1 1 0 0 1 4.5 3.5 L5.1 3.5 A1 1 0 0 1 6.1 4.4 L6.8 8.2" />
+      <path d="M13.4 8.2 12.5 4.3 A1 1 0 0 0 11.5 3.5 L10.9 3.5 A1 1 0 0 0 9.9 4.4 L9.2 8.2" />
+      <path d="M6.6 6.4 H9.4" />
+    </svg>
+  );
+}
+
+export function RobotGlyph({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="5.5" width="10" height="7.5" rx="2" />
+      <path d="M8 5.5 V3.4" />
+      <circle cx="8" cy="2.6" r="0.85" />
+      <path d="M1.7 8.5 H3 M13 8.5 H14.3" />
+      <circle cx="6.1" cy="9" r="0.95" />
+      <circle cx="9.9" cy="9" r="0.95" />
+      <path d="M6.2 11.4 H9.8" />
+    </svg>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// RailTooltip — shadcn-style hover tooltip for the 54px icon rail. A dark,
+// inverted (var(--ink) bg / var(--paper) fg) pill anchored to the right of the
+// rail item with a small arrow. Token-driven, so it re-themes with the app.
+// Pair with useRailHover() on the anchoring element (which must be positioned).
+// -----------------------------------------------------------------------------
+
+export function useRailHover() {
+  const [hover, setHover] = React.useState(false);
+  return { hover, bind: { onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false) } };
+}
+
+export function RailTooltip({ label, show }: { label: string; show: boolean }) {
+  return (
+    <span
+      role="tooltip"
+      aria-hidden={!show}
+      style={{
+        position: 'absolute', left: 'calc(100% + 10px)', top: '50%',
+        transform: `translateY(-50%) translateX(${show ? '0' : '-3px'})`,
+        whiteSpace: 'nowrap', pointerEvents: 'none',
+        background: 'var(--ink)', color: 'var(--paper)',
+        fontSize: 11, fontWeight: 600, letterSpacing: '.01em',
+        padding: '4px 8px', borderRadius: 6, boxShadow: '0 4px 14px rgba(0,0,0,0.22)',
+        opacity: show ? 1 : 0, transition: 'opacity .12s ease, transform .12s ease', zIndex: 60,
+      }}
+    >
+      {label}
+      <span aria-hidden style={{
+        position: 'absolute', left: -3, top: '50%', width: 6, height: 6,
+        transform: 'translateY(-50%) rotate(45deg)', background: 'var(--ink)', borderRadius: 1,
+      }} />
+    </span>
+  );
+}

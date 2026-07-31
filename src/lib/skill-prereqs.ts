@@ -2,6 +2,7 @@ import { get, query } from '@/lib/db';
 import { buildProjectSnapshot } from '@/lib/journey';
 import { validationTracksABMissing } from '@/lib/journey/stage-2-market-validation';
 import { hasOpenLoop1 } from '@/lib/loops/loop1-psf';
+import { hasOpenLoop2, LOOP2_GATED_SKILLS } from '@/lib/loops/loop2-bm';
 
 /**
  * Idea-canvas prerequisites for skills — the single source of truth shared by
@@ -237,6 +238,26 @@ export async function loop1RunBlocked(projectId: string, skillId: string): Promi
   if (!LOOP1_GATED_SKILLS.has(skillId)) return false;
   try {
     return await hasOpenLoop1(projectId);
+  } catch {
+    return false;
+  }
+}
+
+// ── Loop-2 (BM Stress Test) gate on Phase-3 ──────────────────────────────────
+// Same principle one phase downstream: don't invest in Build & GTM on a fragile
+// unit model. While an OPEN Loop-2 (LTV/CAC below the 3× stress bar) awaits the
+// founder, the Phase-3 build/GTM skills are gated. Resolving or overriding the
+// loop (founder-first) unblocks them.
+export function isLoop2GatedSkill(skillId: string): boolean {
+  return LOOP2_GATED_SKILLS.has(skillId);
+}
+
+/** True when `skillId` is a Phase-3 build skill AND an open Loop-2 blocks it.
+ *  Fails open on error — never hard-block a founder run on a lookup hiccup. */
+export async function loop2RunBlocked(projectId: string, skillId: string): Promise<boolean> {
+  if (!LOOP2_GATED_SKILLS.has(skillId)) return false;
+  try {
+    return await hasOpenLoop2(projectId);
   } catch {
     return false;
   }

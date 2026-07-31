@@ -69,7 +69,7 @@ export default function UsagePage({
   useSetChrome(
     {
       breadcrumb: [t('usage.breadcrumb-project'), t('usage.breadcrumb-usage')],
-      status: { heartbeatLabel: 'usage', gateway: 'pi-agent · anthropic' },
+      status: { heartbeatLabel: t('usage.heartbeat-label'), gateway: 'pi-agent · anthropic' },
     },
     [t],
   );

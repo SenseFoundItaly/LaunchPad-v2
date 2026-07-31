@@ -18,27 +18,54 @@
 import { query } from '@/lib/db';
 import { createPendingAction, updateOpenProposalPayload, rejectPendingAction } from '@/lib/pending-actions';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
-import { translate } from '@/lib/i18n/messages';
+import { translate, type MessageKey } from '@/lib/i18n/messages';
+import type { Locale } from '@/lib/i18n/locales';
 import { validationTargetsFor, validationLabel, type ValidationItemKind } from '@/lib/journey/validation-targets';
 import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import type { Artifact, IdeaCanvasArtifact, TamSamSomArtifact, Source } from '@/types/artifacts';
 
 // Mirror of project-tools.ts CANVAS_FIELD_LABELS / itemDisplayLabel / itemCredits.
+// EN fallback map — only reached for canvas fields with no canvas.field-* key
+// (unfair_advantage), same fallback discipline as project-tools.ts.
 const CANVAS_FIELD_LABELS: Record<string, string> = {
   problem: 'Problem', solution: 'Solution', target_market: 'Target market',
   value_proposition: 'Value proposition', business_model: 'Business model',
   competitive_advantage: 'Competitive edge', channels: 'Channels',
+  unfair_advantage: 'Unfair advantage', key_metrics: 'Key metrics',
+  cost_structure: 'Cost structure', revenue_streams: 'Revenue streams',
 };
 const CANVAS_FIELDS = ['problem', 'solution', 'target_market', 'value_proposition', 'competitive_advantage', 'business_model', 'channels'] as const;
-const TECH_FACT_LABELS: Record<string, string> = {
-  feasibility: 'Technical feasibility', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance',
+// Localized display labels (i18n gap audit 21/07, batch D): canvas fields reuse
+// the client's canvas.field-* keys (same map as project-tools.ts) so card and
+// canvas header agree; tech/pricing findings get avs.* keys. These labels
+// persist into the pending_action payload the founder reads — matching/dedup
+// never touches them (sameSlot keys on kind/field/name).
+const CANVAS_FIELD_LABEL_KEYS: Record<string, MessageKey> = {
+  problem: 'canvas.field-problem',
+  solution: 'canvas.field-solution',
+  target_market: 'canvas.field-target',
+  value_proposition: 'canvas.field-value',
+  business_model: 'canvas.field-business-model',
+  competitive_advantage: 'canvas.field-edge',
+  channels: 'canvas.field-channels',
+  key_metrics: 'canvas.field-metrics',
+  cost_structure: 'canvas.field-costs',
+  revenue_streams: 'canvas.field-revenues',
 };
-const PRICING_LABELS: Record<string, string> = {
-  anchor_price: 'Anchor price', tiers: 'Pricing tiers', wtp: 'Willingness to pay',
-  model: 'Revenue model', unit_econ: 'Unit economics',
+const TECH_FACT_LABEL_KEYS: Record<string, MessageKey> = {
+  feasibility: 'avs.tech-feasibility', dependencies: 'avs.tech-dependencies', regulatory: 'avs.tech-regulatory',
 };
+const PRICING_LABEL_KEYS: Record<string, MessageKey> = {
+  anchor_price: 'avs.pricing-anchor', tiers: 'avs.pricing-tiers', wtp: 'avs.pricing-wtp',
+  model: 'avs.pricing-model', unit_econ: 'avs.pricing-unit',
+};
+// Kept for external callers that read the raw English map; itemLabel routes
+// through the KEYS map below so the founder sees their project language.
 const FINANCIAL_LABELS: Record<string, string> = {
   burn: 'Monthly burn', cash: 'Cash on hand', revenue: 'Revenue (MRR)',
+};
+const FINANCIAL_LABEL_KEYS: Record<string, MessageKey> = {
+  burn: 'avs.financial-burn', cash: 'avs.financial-cash', revenue: 'avs.financial-revenue',
 };
 
 interface RawItem {
@@ -53,7 +80,44 @@ interface RawItem {
   extra?: Record<string, unknown>;
 }
 
-function buildItems(raw: RawItem[]) {
+/** Founder-facing item label in the project language (i18n gap audit 21/07,
+ *  batch D — labels persist into the proposal payload and render on the card).
+ *  EN when no locale is threaded through, so external callers keep today's
+ *  strings. */
+function itemLabel(r: RawItem, locale: Locale): string {
+  const t = (key: MessageKey, vars?: Record<string, string | number>) => translate(locale, key, vars);
+  if (r.kind === 'canvas_field') {
+    const key = CANVAS_FIELD_LABEL_KEYS[r.field ?? ''];
+    if (key) return t(key);
+    return CANVAS_FIELD_LABELS[r.field ?? ''] ?? t('val.label-canvas');
+  }
+  if (r.kind === 'competitor') return t('val.label-competitor');
+  if (r.kind === 'tech_fact') {
+    const key = TECH_FACT_LABEL_KEYS[r.field ?? ''];
+    return key ? t(key) : t('avs.label-tech-finding');
+  }
+  if (r.kind === 'interview') return t('avs.label-interview', { name: r.name ?? t('avs.label-interview-logged') });
+  if (r.kind === 'persona_fact') return t('avs.label-icp');
+  if (r.kind === 'channel_fact') return t('avs.label-channel');
+  if (r.kind === 'trend_fact') return t('avs.label-trend');
+  if (r.kind === 'buyer_persona_fact') return t('avs.label-persona');
+  if (r.kind === 'differentiation_fact') return t('avs.label-diff');
+  // #224's operate-stage digest kinds — routed through translate() like every
+  // other label, not the inline English the branch predated the refactor with.
+  if (r.kind === 'metric') return t('avs.label-metric', { name: r.name ?? t('avs.label-metric-tracked') });
+  if (r.kind === 'financial_fact') {
+    const key = FINANCIAL_LABEL_KEYS[r.field ?? ''];
+    return key ? t(key) : t('avs.label-financial');
+  }
+  if (r.kind === 'brand_fact') return t('avs.label-brand', { aspect: r.field ?? t('avs.label-brand-statement') });
+  if (r.kind === 'pricing') {
+    const key = PRICING_LABEL_KEYS[r.field ?? ''];
+    return key ? t(key) : t('avs.label-pricing');
+  }
+  return t('val.label-market-size');
+}
+
+function buildItems(raw: RawItem[], locale: Locale = 'en') {
   return raw
     .map((r) => ({ ...r, value: (r.value ?? '').trim().slice(0, 1600) }))
     .filter((r) => r.value.length > 0)
@@ -64,19 +128,9 @@ function buildItems(raw: RawItem[]) {
         kind: r.kind,
         field: r.field,
         name: r.name,
-        label: r.kind === 'canvas_field' ? (CANVAS_FIELD_LABELS[r.field ?? ''] ?? 'Idea Canvas')
-          : r.kind === 'competitor' ? 'Competitor'
-          : r.kind === 'tech_fact' ? (TECH_FACT_LABELS[r.field ?? ''] ?? 'Technical finding')
-          : r.kind === 'interview' ? `Interview — ${r.name ?? 'logged'}`
-          : r.kind === 'persona_fact' ? 'Ideal customer'
-          : r.kind === 'channel_fact' ? 'Acquisition channel'
-          : r.kind === 'pricing' ? (PRICING_LABELS[r.field ?? ''] ?? 'Pricing')
-          : r.kind === 'metric' ? `Metric — ${r.name ?? 'tracked'}`
-          : r.kind === 'financial_fact' ? (FINANCIAL_LABELS[r.field ?? ''] ?? 'Financial figure')
-          : r.kind === 'brand_fact' ? `Brand — ${r.field ?? 'statement'}`
-          : 'Market size',
+        label: itemLabel(r, locale),
         value: r.value,
-        validates: validationLabel(targets),
+        validates: validationLabel(targets, locale),
         targets,
         credits: r.kind === 'canvas_field' ? 0 : KNOWLEDGE_APPLY_CREDITS,
         sources: Array.isArray(r.sources) ? r.sources : [],
@@ -90,7 +144,7 @@ function buildItems(raw: RawItem[]) {
 /** Map a supported evidence artifact to raw validation items. Returns [] for
  *  artifact types we don't auto-capture (competitors already persist pending
  *  via persistComparisonTable; everything else is genuinely view-only). */
-function rawItemsFor(artifact: Artifact): RawItem[] {
+function rawItemsFor(artifact: Artifact, locale: Locale): RawItem[] {
   if (artifact.type === 'idea-canvas') {
     const a = artifact as IdeaCanvasArtifact;
     const items: RawItem[] = [];
@@ -104,7 +158,9 @@ function rawItemsFor(artifact: Artifact): RawItem[] {
     const a = artifact as TamSamSomArtifact;
     const parts = [a.tam?.value && `TAM ${a.tam.value}`, a.sam?.value && `SAM ${a.sam.value}`, a.som?.value && `SOM ${a.som.value}`].filter(Boolean);
     if (parts.length === 0) return [];
-    const value = `Market size — ${parts.join(' · ')}${a.timeframe ? ` (${a.timeframe})` : ''}`;
+    // Localized prefix; gate-safe in both languages — MARKET_SIZE_KEYWORDS is
+    // bilingual and the TAM/SAM/SOM tokens are locale-independent.
+    const value = `${translate(locale, 'avs.prefix-market-size')}${parts.join(' · ')}${a.timeframe ? ` (${a.timeframe})` : ''}`;
     return [{ kind: 'market_size_fact', value, sources: a.sources }];
   }
   return [];
@@ -162,10 +218,12 @@ export function sameSlot(a: Record<string, unknown>, b: StagedItem): boolean {
   if (b.kind === 'financial_fact') return a.field === b.field;
   // brand_fact: one slot per aspect (positioning / voice / visual…).
   if (b.kind === 'brand_fact') return a.field === b.field;
-  // persona_fact / channel_fact: ADDITIVE facts, never a shared slot (a founder
-  // can have several channels; distinct values coexist, exact dupes are caught
-  // by the allStagedAlready value check upstream).
-  if (b.kind === 'persona_fact' || b.kind === 'channel_fact') return false;
+  // persona_fact / channel_fact / trend_fact: ADDITIVE facts, never a shared
+  // slot (a founder can have several channels/trends; distinct values coexist,
+  // exact dupes are caught by the allStagedAlready value check upstream).
+  if (b.kind === 'persona_fact' || b.kind === 'channel_fact' || b.kind === 'trend_fact') return false;
+  // One preliminary sketch/statement slot each — a re-stage reshapes it.
+  if (b.kind === 'buyer_persona_fact' || b.kind === 'differentiation_fact') return true;
   return b.kind === 'market_size_fact'; // only market_size has one sizing slot
 }
 
@@ -194,8 +252,9 @@ async function stageOrMergeItems(
   projectId: string,
   items: StagedItem[],
   originNote: string,
+  localeHint?: Locale,
 ): Promise<{ staged: boolean; pendingActionId?: string; itemCount?: number; merged?: boolean }> {
-  const locale = await resolveLocale('', projectId);
+  const locale = localeHint ?? await resolveLocale('', projectId);
   const evidenceTitle = (count: number) => translate(locale, 'pa.validation-evidence', { count });
   const open = await openProposals(projectId);
 
@@ -259,9 +318,10 @@ export async function stageValidationItemsFromRaw(
   originNote: string,
 ): Promise<{ staged: boolean; pendingActionId?: string; itemCount?: number; merged?: boolean }> {
   try {
-    const items = buildItems(raw);
+    const locale = await resolveLocale('', projectId);
+    const items = buildItems(raw, locale);
     if (items.length === 0) return { staged: false };
-    return await stageOrMergeItems(projectId, items, originNote);
+    return await stageOrMergeItems(projectId, items, originNote, locale);
   } catch (err) {
     console.warn('[auto-stage] stageValidationItemsFromRaw failed (non-fatal):', (err as Error).message);
     return { staged: false };
@@ -273,13 +333,14 @@ export async function autoStageValidationFromArtifact(
   artifact: Artifact,
 ): Promise<{ staged: boolean; pendingActionId?: string; itemCount?: number; merged?: boolean }> {
   try {
-    const raw = rawItemsFor(artifact);
+    const locale = await resolveLocale('', projectId);
+    const raw = rawItemsFor(artifact, locale);
     if (raw.length === 0) return { staged: false };
 
-    const items = buildItems(raw).filter((it) => it.targets.length > 0);
+    const items = buildItems(raw, locale).filter((it) => it.targets.length > 0);
     if (items.length === 0) return { staged: false };
 
-    return await stageOrMergeItems(projectId, items, `${artifact.type} artifact`);
+    return await stageOrMergeItems(projectId, items, `${artifact.type} artifact`, locale);
   } catch {
     return { staged: false };
   }
@@ -305,12 +366,13 @@ export async function stageMarketSizeProposal(
       tiers.som?.trim() && `SOM ${tiers.som.trim()}`,
     ].filter(Boolean);
     if (parts.length === 0) return { staged: false };
-    const value = `Market size — ${parts.join(' · ')}${tiers.timeframe?.trim() ? ` (${tiers.timeframe.trim()})` : ''}`;
+    const locale = await resolveLocale('', projectId);
+    const value = `${translate(locale, 'avs.prefix-market-size')}${parts.join(' · ')}${tiers.timeframe?.trim() ? ` (${tiers.timeframe.trim()})` : ''}`;
 
-    const items = buildItems([{ kind: 'market_size_fact', value, sources }]).filter((it) => it.targets.length > 0);
+    const items = buildItems([{ kind: 'market_size_fact', value, sources }], locale).filter((it) => it.targets.length > 0);
     if (items.length === 0) return { staged: false };
 
-    return await stageOrMergeItems(projectId, items, 'market-research skill');
+    return await stageOrMergeItems(projectId, items, 'market-research skill', locale);
   } catch {
     return { staged: false };
   }
@@ -328,8 +390,12 @@ export async function stageMarketSizeProposal(
  *  checks, so either language closes the gate), and keeps the fact text in the
  *  project language. */
 const TECH_FINDING_PREFIX = {
-  en: { feasibility: 'Technical feasibility', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance' },
-  it: { feasibility: 'Fattibilità tecnica', dependencies: 'Dipendenze chiave', regulatory: 'Vincoli normativi / compliance' },
+  // The feasibility prefix carries BOTH split-check keywords ('technical risk' /
+  // 'rischio tecnico'): the one feasibility finding targets build_approach AND
+  // technical_risk_named, and the prefix guarantees both close even when the
+  // model's section text words the risk differently.
+  en: { feasibility: 'Technical feasibility & main technical risk', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance' },
+  it: { feasibility: 'Fattibilità tecnica e rischio tecnico principale', dependencies: 'Dipendenze chiave', regulatory: 'Vincoli normativi / compliance' },
 } as const;
 
 export function extractTechnicalFindings(
@@ -389,9 +455,9 @@ export async function stageTechnicalValidationProposal(
       { kind: 'tech_fact', field: 'feasibility', value: findings.feasibility, sources },
       { kind: 'tech_fact', field: 'dependencies', value: findings.dependencies, sources },
       { kind: 'tech_fact', field: 'regulatory', value: findings.regulatory, sources },
-    ]).filter((it) => it.targets.length > 0);
+    ], locale).filter((it) => it.targets.length > 0);
     if (items.length === 0) return { staged: false };
-    return await stageOrMergeItems(projectId, items, 'technical-validation skill');
+    return await stageOrMergeItems(projectId, items, 'technical-validation skill', locale);
   } catch {
     return { staged: false };
   }

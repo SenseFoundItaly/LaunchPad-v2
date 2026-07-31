@@ -22,6 +22,8 @@ import { NODE_COLORS } from '@/types/graph';
 import { nodeImportanceKey } from '@/lib/node-importance';
 import { coerceTimeline, type TimelineEntry } from '@/lib/timeline';
 import { useT } from '@/components/providers/LocaleProvider';
+import NodeChatThread from '@/components/graph/NodeChatThread';
+import type { MessageKey, TranslateVars } from '@/lib/i18n/messages';
 
 // Re-exported so existing importers (KnowledgeGraph, knowledge/page) keep
 // resolving TimelineEntry from here; the canonical home is @/lib/timeline.
@@ -37,6 +39,10 @@ export interface NodeNeighbor {
 
 interface NodeDetailPanelProps {
   node: GraphNode | null;
+  /** When set, the panel shows "Ask the co-pilot" — a deep-link into the chat
+   *  with this node's context prefilled (#329). The co-pilot's entity tools
+   *  update the node, and the change lands in its evolution history. */
+  projectId?: string;
   /** One-hop neighbors, precomputed by KnowledgeGraph from the edge list. */
   neighbors: NodeNeighbor[];
   onClose: () => void;
@@ -141,20 +147,23 @@ function formatAttrValue(value: unknown): string {
 }
 
 /** Build a human label + optional href for one provenance source. */
-function describeSource(src: Source): { label: string; href?: string; quote?: string } {
+function describeSource(
+  src: Source,
+  t: (key: MessageKey, vars?: TranslateVars) => string,
+): { label: string; href?: string; quote?: string } {
   switch (src.type) {
     case 'web':
       return { label: src.title || hostOf(src.url), href: src.url, quote: src.quote };
     case 'skill':
-      return { label: src.title || `Skill: ${src.skill_id}`, quote: src.quote };
+      return { label: src.title || t('kbx.source-skill', { id: src.skill_id }), quote: src.quote };
     case 'internal':
-      return { label: src.title || `${humanize(src.ref)} reference`, quote: src.quote };
+      return { label: src.title || t('kbx.source-reference', { ref: humanize(src.ref) }), quote: src.quote };
     case 'user':
-      return { label: src.title || 'Founder', quote: src.quote };
+      return { label: src.title || t('kbx.source-founder'), quote: src.quote };
     case 'inference':
-      return { label: src.title || 'Inferred', quote: src.reasoning };
+      return { label: src.title || t('kbx.source-inferred'), quote: src.reasoning };
     default:
-      return { label: 'Source' };
+      return { label: t('kbx.source-generic') };
   }
 }
 
@@ -179,6 +188,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export default function NodeDetailPanel({
   node,
+  projectId,
   neighbors,
   onClose,
   onSelectNeighbor,
@@ -271,7 +281,7 @@ export default function NodeDetailPanel({
   return (
     <aside
       role="complementary"
-      aria-label={`Details for ${node.name}`}
+      aria-label={t('kbx.details-for', { name: node.name })}
       onClick={(e) => e.stopPropagation()}
       style={{
         position: 'absolute',
@@ -358,7 +368,7 @@ export default function NodeDetailPanel({
           )}
           <button
             onClick={onClose}
-            aria-label="Close details"
+            aria-label={t('kbx.close-details')}
             style={{
               flexShrink: 0,
               background: 'none',
@@ -406,6 +416,35 @@ export default function NodeDetailPanel({
 
       {/* Scrollable body */}
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Node → co-pilot handoff (#329): opens the chat with this node's
+            context prefilled. Works for pending nodes too (verify before
+            applying). Rendered only when the host page provides projectId. */}
+        {projectId && (
+          <a
+            href={`/project/${projectId}/chat?prefill=${encodeURIComponent(
+              t('knowledge.ask-copilot-prompt', {
+                name: node.name,
+                type: humanize(node.node_type),
+                summary: (node.summary || '—').slice(0, 280),
+              }),
+            )}`}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+              fontSize: 12, fontWeight: 500, textDecoration: 'none',
+              padding: '6px 12px', borderRadius: 999,
+              border: '1px solid var(--line-2)', color: 'var(--accent-ink)',
+              background: 'var(--accent-wash)',
+            }}
+          >
+            {t('knowledge.ask-copilot')} →
+          </a>
+        )}
+        {/* Embedded per-node thread (#330). Sits under the deep-link, not in
+            place of it: the thread is for deepening THIS entity, the link is
+            for work that outgrows a side panel. */}
+        {projectId && (
+          <NodeChatThread projectId={projectId} nodeId={node.id} nodeName={node.name} />
+        )}
         {/* Why this matters — a review-time pitch for WHY the founder should
             apply this proposal. Pending-only: once applied it is stale, so the
             box is hidden when the founder re-opens the now-solid node. */}
@@ -502,6 +541,21 @@ export default function NodeDetailPanel({
                       <div style={{ fontSize: 12.5, lineHeight: 1.45, color: 'var(--ink-3)', wordBreak: 'break-word' }}>
                         {when && <span style={{ color: 'var(--ink-5)', fontWeight: 600 }}>{when} · </span>}
                         {mv.headline}
+                        {/* Origin badge (#328) — who made this move. Legacy
+                            entries carry no kind and render unbadged. */}
+                        {mv.kind && (
+                          <span
+                            style={{
+                              marginLeft: 6, fontSize: 9.5, fontWeight: 600, letterSpacing: 0.3,
+                              textTransform: 'uppercase', color: 'var(--ink-5)',
+                              background: 'var(--paper-2, var(--surface))',
+                              border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px',
+                              verticalAlign: 'middle', whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {t(`node-history.badge-${mv.kind}` as MessageKey)}
+                          </span>
+                        )}
                       </div>
                       {mv.source_url && (
                         <a
@@ -554,7 +608,7 @@ export default function NodeDetailPanel({
             <SectionLabel>{t('knowledge.detail-sources', { count: sources.length })}</SectionLabel>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {sources.map((src, i) => {
-                const { label, href, quote } = describeSource(src);
+                const { label, href, quote } = describeSource(src, t);
                 return (
                   <div key={i} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
                     {href ? (

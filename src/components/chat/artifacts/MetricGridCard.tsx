@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { MetricGrid } from '@/types/artifacts';
+import { useT } from '@/components/providers/LocaleProvider';
 import ArtifactCardShell from './ArtifactCardShell';
 import KnowledgeApplyControls from './SavedHint';
 
@@ -20,6 +21,7 @@ interface MetricGridCardProps {
  * functional and stays.
  */
 export default function MetricGridCard({ artifact, onAction, defaultCollapsed }: MetricGridCardProps) {
+  const t = useT();
   const [metrics, setMetrics] = useState(artifact.metrics);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -36,12 +38,15 @@ export default function MetricGridCard({ artifact, onAction, defaultCollapsed }:
     updated[idx] = { ...updated[idx], value: editValue };
     setMetrics(updated);
     setEditingIdx(null);
-    onAction?.('metric-update', { metrics: updated });
+    // persisted_id targets the graph_node row this grid persisted as — the
+    // handler PATCHes it so the founder's corrected values survive refresh and
+    // are what Apply commits (not the agent's originals).
+    onAction?.('metric-update', { metrics: updated, persisted_id: artifact.persisted_id });
   }
 
   return (
     <ArtifactCardShell
-      typeLabel="Metrics"
+      typeLabel={t('card.type-metrics')}
       title={artifact.title || ''}
       sources={artifact.sources}
       provenance={artifact.provenance}
@@ -75,7 +80,7 @@ export default function MetricGridCard({ artifact, onAction, defaultCollapsed }:
               <div
                 className="text-lg font-bold text-ink mt-1 cursor-pointer hover:text-moss transition-colors"
                 onClick={() => startEdit(i)}
-                title="Click to edit"
+                title={t('card.click-to-edit')}
               >
                 {m.value}
               </div>

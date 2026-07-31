@@ -13,6 +13,8 @@ export interface RecentMove {
   source_url: string | null;
   relevance: number | null;
   alert_id: string | null;
+  /** Origin of the move (#328) — null on legacy entries. */
+  kind: string | null;
 }
 
 /**
@@ -48,7 +50,8 @@ export async function GET(
             elem ->> 'date'       AS date,
             elem ->> 'source_url' AS source_url,
             (elem ->> 'relevance')::float AS relevance,
-            elem ->> 'alert_id'   AS alert_id
+            elem ->> 'alert_id'   AS alert_id,
+            elem ->> 'kind'       AS kind
        FROM graph_nodes n
        CROSS JOIN LATERAL jsonb_array_elements(
          CASE WHEN jsonb_typeof(n.attributes -> 'timeline') = 'array'

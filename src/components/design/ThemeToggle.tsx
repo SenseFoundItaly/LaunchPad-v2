@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useT } from '@/components/providers/LocaleProvider';
 import { THEME_COOKIE } from '@/lib/theme';
+import { RailTooltip, useRailHover } from '@/components/design/icons';
 
 /**
  * Light/dark theme toggle for the NavRail.
@@ -17,6 +18,7 @@ import { THEME_COOKIE } from '@/lib/theme';
 export function ThemeToggle() {
   const t = useT();
   const [dark, setDark] = useState(true);
+  const { hover, bind } = useRailHover();
 
   // Sync from the DOM after mount (SSR already applied the cookie-driven class).
   useEffect(() => {
@@ -39,39 +41,37 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      title={label}
       aria-label={label}
+      {...bind}
       style={{
         flexShrink: 0,
         width: 42,
-        padding: '7px 0',
+        height: 38,
         borderRadius: 'var(--r-m)',
         cursor: 'pointer',
         background: 'transparent',
         border: 'none',
-        color: 'var(--ink-4)',
+        color: hover ? 'var(--ink-2)' : 'var(--ink-4)',
         display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
-        gap: 3,
+        justifyContent: 'center',
         transition: 'background .12s, color .12s',
+        position: 'relative',
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--ink-2)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--ink-4)'; }}
     >
       {dark ? (
         // Sun — click to go light.
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
           <circle cx="12" cy="12" r="4" />
           <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
         </svg>
       ) : (
         // Moon — click to go dark.
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
         </svg>
       )}
-      <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.02em' }}>{t('theme.label')}</span>
+      <RailTooltip label={label} show={hover} />
     </button>
   );
 }

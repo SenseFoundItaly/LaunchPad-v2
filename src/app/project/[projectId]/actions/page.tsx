@@ -20,7 +20,7 @@
  *   - ago       ← humanized created_at
  */
 
-import { use, useEffect, useState, useMemo } from 'react';
+import { use, useEffect, useState, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -38,6 +38,7 @@ import type { Watcher } from '@/lib/watchers';
 import { laneFor, INTEL_INBOX_TYPES } from '@/lib/action-lanes';
 import MonitorListPanel from '@/components/monitors/MonitorListPanel';
 import { SkillProposalReview } from '@/components/actions/SkillProposalReview';
+import { LoopReviewCard, isLoopReview } from '@/components/loops/LoopReviewCard';
 import { PayloadSummary } from '@/components/actions/PayloadSummary';
 import { nodeImportanceKey } from '@/lib/node-importance';
 
@@ -130,6 +131,14 @@ export default function TicketsPage({
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // In-flight guard against double-firing apply/reject (#159): a fast
+  // double-click used to POST twice — and a second `apply` racing the first
+  // (before the row's status flips to sent/rejected server-side) re-runs the
+  // executor → double-charge / double-write. The ref is the SYNCHRONOUS gate
+  // (two clicks in one tick both see it); `busyIds` mirrors it to disable the
+  // buttons.
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
   // Executor narrative toast ("Signal accepted and folded into project
   // knowledge (graph node …)"). Set by transition() on a successful apply,
@@ -209,7 +218,7 @@ export default function TicketsPage({
     const c: Record<DisplayTab, number> = { inbox: 0, monitor: 0 };
     for (const a of actions) {
       if (
-        APPLY_TO_INTELLIGENCE.has(a.action_type) &&
+        (APPLY_TO_INTELLIGENCE.has(a.action_type) || isLoopReview(a)) &&
         (a.status === 'pending' || a.status === 'edited')
       ) {
         c.inbox++;
@@ -258,7 +267,10 @@ export default function TicketsPage({
   const filteredActions = useMemo(() => {
     return actions
       .filter((a) =>
-        APPLY_TO_INTELLIGENCE.has(a.action_type) &&
+        // Loop reviews (run_skill + loop_id) join the intelligence types in the
+        // one "apply or dismiss" queue — otherwise the loop's review card is
+        // unreachable (run_skill is hidden), so an open loop dead-ends.
+        (APPLY_TO_INTELLIGENCE.has(a.action_type) || isLoopReview(a)) &&
         (a.status === 'pending' || a.status === 'edited'),
       )
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -281,6 +293,11 @@ export default function TicketsPage({
   }
 
   async function transition(actionId: string, verb: 'apply' | 'reject' | 'mark_sent', extras: Record<string, unknown> = {}) {
+    // Synchronous double-fire guard — a second click in the same tick sees the
+    // id already in the ref and bails before a second POST goes out.
+    if (inFlightRef.current.has(actionId)) return;
+    inFlightRef.current.add(actionId);
+    setBusyIds(new Set(inFlightRef.current));
     try {
       const res = await fetch(`/api/projects/${projectId}/actions/${actionId}`, {
         method: 'POST',
@@ -308,6 +325,9 @@ export default function TicketsPage({
       await qc.invalidateQueries({ queryKey: ['actions', projectId] });
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      inFlightRef.current.delete(actionId);
+      setBusyIds(new Set(inFlightRef.current));
     }
   }
 
@@ -374,6 +394,7 @@ export default function TicketsPage({
               selectedId={selectedId}
               onSelect={setSelectedId}
               onTransition={transition}
+              busyIds={busyIds}
               loading={loading}
               error={error}
             />
@@ -587,6 +608,7 @@ function InboxList({
   selectedId,
   onSelect,
   onTransition,
+  busyIds,
   loading,
   error,
 }: {
@@ -594,6 +616,7 @@ function InboxList({
   selectedId: string | null;
   onSelect: (id: string) => void;
   onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
+  busyIds: Set<string>;
   loading: boolean;
   error: string | null;
 }) {
@@ -629,6 +652,7 @@ function InboxList({
           selected={r.id === selectedId}
           onSelect={onSelect}
           onTransition={onTransition}
+          busy={busyIds.has(r.id)}
         />
       ))}
     </div>
@@ -645,11 +669,13 @@ function InboxRow({
   selected,
   onSelect,
   onTransition,
+  busy,
 }: {
   action: PendingAction;
   selected: boolean;
   onSelect: (id: string) => void;
   onTransition: (id: string, verb: 'apply' | 'reject' | 'mark_sent') => Promise<void>;
+  busy: boolean;
 }) {
   const t = useT();
   // Short brief: first line of the rationale, trimmed to one tidy line.
@@ -685,15 +711,17 @@ function InboxRow({
       <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
         <button
           type="button"
+          disabled={busy}
           onClick={(e) => { e.stopPropagation(); onTransition(action.id, 'apply'); }}
-          style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--moss)', color: 'var(--paper)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--moss)', color: 'var(--paper)', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, whiteSpace: 'nowrap' }}
         >
           {t('actions.apply-credits')}
         </button>
         <button
           type="button"
+          disabled={busy}
           onClick={(e) => { e.stopPropagation(); onTransition(action.id, 'reject'); }}
-          style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-2)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-2)', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, whiteSpace: 'nowrap' }}
         >
           {t('actions.dismiss')}
         </button>
@@ -760,9 +788,13 @@ function TicketDetail({
         <MonitorProposalReview action={action} />
       ) : action.action_type === 'run_skill' ? (
         // Skill kickoffs SPEND credits on approval — they get a human card
-        // (what you'll get / cost / duration), never a raw JSON dump.
-        <SideSection title={t('actions.section-skill-run')}>
-          <SkillProposalReview action={action} />
+        // (what you'll get / cost / duration), never a raw JSON dump. A loop
+        // review (carries a loop_id) gets the loop-framed card instead so the
+        // founder sees the trigger evidence + scope, not just "run a skill".
+        <SideSection title={isLoopReview(action) ? t('actions.section-loop-review') : t('actions.section-skill-run')}>
+          {isLoopReview(action)
+            ? <LoopReviewCard action={action} projectId={action.project_id} />
+            : <SkillProposalReview action={action} />}
         </SideSection>
       ) : (
         // Everything else: tidy key→value summary; full JSON behind the

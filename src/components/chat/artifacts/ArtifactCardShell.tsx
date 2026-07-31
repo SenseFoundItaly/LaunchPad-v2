@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Artifact, Source } from '@/types/artifacts';
 import SourcesFooter from './SourcesFooter';
 import ArtifactExportButton from './ArtifactExportButton';
+import { useT } from '@/components/providers/LocaleProvider';
 
 interface ArtifactCardShellProps {
   /** Uppercase type label shown in the header (e.g. "Insight", "Entity") */
@@ -74,6 +76,7 @@ export default function ArtifactCardShell({
   exportArtifact,
   inspectable = true,
 }: ArtifactCardShellProps) {
+  const t = useT();
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [inspectorOpen, setInspectorOpen] = useState(false);
 
@@ -122,8 +125,8 @@ export default function ArtifactCardShell({
             type="button"
             onClick={() => setInspectorOpen(true)}
             className="text-ink-5 hover:text-ink-3 transition-colors p-0.5 shrink-0"
-            aria-label="Open inspector"
-            title="Open inspector"
+            aria-label={t('shell.open-inspector')}
+            title={t('shell.open-inspector')}
           >
             <svg
               width="14"
@@ -147,7 +150,7 @@ export default function ArtifactCardShell({
             type="button"
             onClick={() => setCollapsed((c) => !c)}
             className="text-ink-5 hover:text-ink-3 transition-colors p-0.5 shrink-0"
-            aria-label={collapsed ? 'Expand card' : 'Collapse card'}
+            aria-label={collapsed ? t('shell.expand-card') : t('shell.collapse-card')}
           >
             <svg
               width="14"
@@ -181,15 +184,21 @@ export default function ArtifactCardShell({
           artifacts (investor-pipeline, idea-canvas, risk-matrix) get the
           horizontal real estate the canvas grid can't always afford.
           Renders the body without re-mounting the card to keep any local
-          card state (selected stage, expanded row) preserved. */}
-      {inspectorOpen && (
+          card state (selected stage, expanded row) preserved.
+          PORTALED to document.body: the card's `lp-rise` animation uses
+          animation-fill-mode:both, which leaves a `transform: translateY(0)`
+          on the element permanently — and a non-`none` transform makes it the
+          containing block for `position: fixed` descendants. Without the
+          portal the overlay was trapped inside the ~190px card box instead of
+          the viewport (it rendered as a cramped narrow modal, not fullscreen). */}
+      {inspectorOpen && typeof document !== 'undefined' && createPortal(
         <div
           onClick={() => setInspectorOpen(false)}
           className="fixed inset-0 z-[100] flex items-center justify-center p-6"
           style={{ background: 'rgba(20, 18, 16, 0.55)' }}
           role="dialog"
           aria-modal="true"
-          aria-label={`${typeLabel} inspector`}
+          aria-label={t('shell.inspector-of', { label: typeLabel })}
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -208,8 +217,8 @@ export default function ArtifactCardShell({
                 type="button"
                 onClick={() => setInspectorOpen(false)}
                 className="text-ink-5 hover:text-ink-3 transition-colors p-1"
-                aria-label="Close inspector"
-                title="Close (Esc)"
+                aria-label={t('shell.close-inspector')}
+                title={t('shell.close-esc')}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" />
@@ -225,7 +234,8 @@ export default function ArtifactCardShell({
               <SourcesFooter sources={sources} inferredFromResponse={provenance === 'fallback'} />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

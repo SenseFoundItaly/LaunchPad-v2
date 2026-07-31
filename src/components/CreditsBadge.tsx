@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import RechargeDialog from '@/components/credits/RechargeDialog';
 import { OUT_OF_CREDITS_EVENT, type OutOfCreditsDetail } from '@/components/credits/recharge-events';
+import { useT, useLocale } from '@/components/providers/LocaleProvider';
 
 // The "+ 100 free credits" self-serve mint is a dev/E2E affordance, not a
 // founder feature — gate it so it never renders in production. Next.js inlines
@@ -55,6 +56,8 @@ interface ApiResponse {
 
 export function CreditsBadge({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
+  const t = useT();
+  const locale = useLocale();
   const [open, setOpen] = useState(false);
   const [bumping, setBumping] = useState(false);
   // Recharge modal: opened by clicking the empty badge OR by the global
@@ -185,7 +188,7 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
           style={{ background: 'var(--paper-2)', color: 'var(--ink-5)' }}
         >
           <span className="lp-dot" style={{ background: 'var(--ink-6)' }} />
-          — credits
+          {t('credits.chip-loading')}
         </span>
         {rechargeOpen && (
           <RechargeDialog remaining={rechargeRemaining} onRecharged={handleRecharged} onClose={() => setRechargeOpen(false)} />
@@ -221,13 +224,15 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
   const showUsdDetail =
     Number.isFinite(snap.used_usd) && Number.isFinite(snap.cap_usd) && snap.cap_usd > 0;
 
-  // Parse period_month (YYYY-MM) to find the reset date (1st of next month)
+  // Parse period_month (YYYY-MM) to find the reset date (1st of next month).
+  // Formatted in the PROJECT locale — "August 1" read as untranslated UI on an
+  // Italian project (alpha feedback 21/07).
   const resetLabel = (() => {
     try {
       const [y, m] = snap.period_month.split('-').map(Number);
       const next = new Date(y, m, 1); // month is 0-indexed so m (1-indexed) = next month
-      return next.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
-    } catch { return 'next month'; }
+      return next.toLocaleDateString(locale === 'it' ? 'it-IT' : 'en-US', { month: 'long', day: 'numeric' });
+    } catch { return t('credits.next-month'); }
   })();
 
   return (
@@ -260,7 +265,7 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
         style={{ background: bg, color: fg, position: 'relative', overflow: 'hidden', cursor: 'pointer' }}
       >
         <span className="lp-dot" style={{ background: dot }} />
-        {snap.remaining}/{snap.total} credits
+        {t('credits.chip', { n: String(snap.remaining), total: String(snap.total) })}
         {/* "· N today" removed — the balance is the signal; the daily delta was
             header noise the founder asked to drop. */}
         {/* Micro progress bar */}
@@ -295,24 +300,24 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
             color: 'var(--ink-2)',
           }}
         >
-          <div style={{ marginBottom: 8, fontWeight: 600 }}>Credits</div>
+          <div style={{ marginBottom: 8, fontWeight: 600 }}>{t('credits.title')}</div>
           {/* Credits are the only founder-facing money unit. The old
               "Budget: $X / $Y USD" line leaked the internal metering currency;
               the budget now reads in credits (same fields the pill uses) and
               absorbs the former "Monthly:" line, which showed the identical
               numbers. */}
           <div style={{ marginBottom: 4 }}>
-            Budget: {snap.credits_used}/{snap.total} credits used
+            {t('credits.budget-used', { used: snap.credits_used, total: snap.total })}
           </div>
           <div style={{ marginBottom: showUsdDetail ? 4 : 10 }}>
-            Resets: {resetLabel}
+            {t('credits.resets', { date: resetLabel })}
           </div>
           {/* USD kept ONLY as a muted internal detail — the snapshot already
               carries it (no extra fetch); hidden when no budget row exists
               yet (cap_usd 0 would render a meaningless $0.00 / $0.00). */}
           {showUsdDetail && (
             <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--ink-5)' }}>
-              ${snap.used_usd.toFixed(2)} / ${snap.cap_usd.toFixed(2)} USD — internal metering
+              {t('credits.internal-metering', { used: snap.used_usd.toFixed(2), cap: snap.cap_usd.toFixed(2) })}
             </div>
           )}
           {/* Deep-link to the full per-project usage & spend breakdown.
@@ -330,7 +335,7 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
               textDecoration: 'none',
             }}
           >
-            View usage &amp; spend →
+            {t('credits.view-usage')}
           </Link>
           {/* Recharge — founder-facing. Opens the (payments-stubbed) recharge
               modal. Emphasized when the pool is empty. */}
@@ -350,7 +355,7 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
               transition: 'opacity 0.15s',
             }}
           >
-            {empty ? 'Recharge credits' : 'Add credits'}
+            {empty ? t('credits.recharge') : t('credits.add')}
           </button>
           {/* Dev/E2E-only: self-serve credit mint must never reach founders. */}
           {SHOW_DEV_CREDIT_BUMP && (
@@ -373,7 +378,7 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
                 transition: 'opacity 0.15s',
               }}
             >
-              {bumping ? 'Adding...' : '+ 100 free credits'}
+              {bumping ? t('credits.bump-adding') : t('credits.bump')}
             </button>
           )}
         </div>
