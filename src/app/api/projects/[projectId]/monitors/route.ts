@@ -20,9 +20,14 @@ type MonitorRow = {
   next_run: string | null;
   created_at: string;
   // NOTE: `objective` (from supabase/migrations/20260603000000_*) is NOT
-  // selected here. The list view doesn't render it, and that migration is
-  // still pending on some environments — SELECTing the column would 500.
-  // The detail endpoint already handles its presence/absence gracefully.
+  // selected here — the list view doesn't render it, so there's nothing to
+  // gain from widening the query.
+  //
+  // The older reason given here ("that migration is still pending on some
+  // environments — SELECTing the column would 500") is no longer true: the
+  // 2026-07-27 audit confirmed `monitors.objective` exists on the live DB.
+  // Keep the column out of the SELECT because it's unused, not because it's
+  // unsafe. The detail endpoint handles its presence/absence gracefully.
 };
 
 interface MonitorStatsRow {

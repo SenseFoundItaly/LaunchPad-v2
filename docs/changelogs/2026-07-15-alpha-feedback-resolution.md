@@ -73,3 +73,63 @@ This was the blocker: after completing Idea Canvas the founder couldn't get a sc
 - **#251** — expanding the gate with *new* market/technical checks (`adoption_barriers`, `build_effort`): re-locks every in-flight alpha project; needs a product go-ahead.
 - **#162** — closed: mid-project locale change contradicts the deliberate frozen-at-creation invariant.
 - **#253** — the DeskMate-specific prod E2E walk (the scoring→gate chain was verified on throwaway projects).
+
+---
+
+## Audit 2026-07-27 — this log re-checked against `main`
+
+Every concrete claim above was traced to implementing code on `main`. **20 of 23 hold as
+written.** Corrections below; the original rows are left intact on purpose — this is a
+durable log, so the record of what we *believed* shipped is part of what it records.
+
+| Claim | Correction |
+|---|---|
+| "#252 healed legacy `scores` rows (3 junk-zeros → NULL, 3 legacy 0-10 → ×10)" | **The heal does not exist in the repo** — no migration, no script. It was presumably a one-off prod query. What actually protects the founder is read-side only: `to100()` (`score-display.ts:44`) + `baselineScore100` (`stage-1-idea-validation.ts:45`), plus the write-side zero guard (`artifact-persistence.ts:736`). The raw values are still in the table, so staging (separate Supabase) and any restore still carry them. Now scaffolded as `db/migrations/036_heal_scores_to_100.sql.todo` (the `.todo` suffix is deliberate — see the file header; the runner would otherwise record an all-comments stub as "applied" and never re-run it). |
+| Score scale unified to **0-100 everywhere** | Held in all five named places, but the sweep missed the LLM-*input* surface: `api/risk-analysis/[projectId]/route.ts:102` was still emitting `${overall_score}/10` to the risk auditor (a 57 read as "57/10"), and the next line interpolated the JSONB `dimensions` object into a template string → `[object Object]`. Fixed 2026-07-27. Lesson: a scale sweep has to grep prompt strings, not just persisters and renderers — no screen ever showed this wrong. |
+| Block 1 #4 — tab contrast "fixed via `--on-accent`" | Inverted. Commit `8c57ef5` **removed** `--on-accent` from that line (it's charcoal in light mode and vanishes on `--ink`) in favour of `--paper` on `--ink`. The fix shipped; the attribution didn't. `--on-accent` *is* used in that file — on the Add-documents CTA, which is Block 1 #3. |
+| "~230 strings localized" | Understated. Both catalogs carry **1,478 keys at exact EN↔IT parity** (0 missing either way), and a sweep for hardcoded founder-facing English in `src/` returns 0 hits outside provider brand names. |
+| "spine" → "spina dorsale" everywhere | Missed the most visible instance: `journey-phase.spine-title` was `'La Spina'` — the Home panel header — which in Italian reads as *plug/thorn*, not *backbone*. The other 8 IT strings were correct. Fixed to `'La Spina Dorsale'` 2026-07-27. |
+| #265 "fixed the fragile `differentiation_evidence`" | Reads stronger than the code. It gained deterministic *staging* (`skill-research-persist.ts:354-386` builds the fact; `action-executors.ts:1871-1879` prefixes `'Differentiator — '` / `'Differenziazione — '` on Apply) but still closes *through* the keyword matcher — as does every gate check. The guaranteed prefix mitigates the fragility; it doesn't remove it. |
+| #279 CI i18n guard | Real and it does fail the build, but it's a vitest test (`src/lib/i18n-no-hardcoded.test.ts`), not a script, and it's narrow by design: bare `placeholder`/`aria-label`/`title` literals plus one JSX-prose regex. Hardcoded `label:`/`description:` object props, `alt=`, and toast/`throw` strings are not caught. |
+
+Also cleaned up in the same pass: deleted `src/lib/extract-summary.ts` (0 importers,
+carried the last `/10` regexes) and `scripts/deploy.mjs` (a second deploy path with **no**
+freshness guard, unreferenced by `package.json`, which read `NETLIFY_AUTH_TOKEN` straight
+out of `.env.local`); corrected the frozen-brand-terms doc in `messages/index.ts`, which
+still told contributors not to translate Knowledge and Intel long after the 2026-07-21
+decision shipped `Conoscenza` and `Osservatori`.
+
+### Migration provenance — checked against the live DB, not the filesystem
+
+Chasing the missing `#252` heal turned up a wider pattern, so `_migrations` was diffed
+against `db/migrations/` directly. **The DB is fine — it is the repo that is behind.**
+
+- `chat_artifacts`, `alerts.source_url`, `monitors.objective` are all **present** on the
+  live DB. An earlier draft of this audit called them missing and predicted fresh-DB 500s;
+  that was wrong — it inferred DB state from file presence instead of querying. The
+  `supabase/migrations/` tree has no runner in the repo, but its SQL was applied
+  out-of-band.
+- `_migrations` held **37** rows against **35** files on main. The two extras —
+  `032_mvp_builds.sql`, `033_allow_mvp_build_iteration_action_type.sql` — belong to
+  **PR #218, still open**. Migrations from an unmerged branch are live in production.
+  Both files have now been restored to `db/migrations/` byte-identical, so the repo
+  matches the DB it already has (and so the `031 → 034` numbering gap is closed).
+- `035_launch_pipeline.sql` (**PR #225, also open**) is **applied but NOT recorded** in
+  `_migrations` — `campaigns`, `campaign_messages` and all four new `published_assets`
+  columns exist, and the live `pending_actions` CHECK carries its `publish_landing_page`
+  / `send_campaign_message` values, which appear in no migration file on main. If #225
+  merges, `db:migrate` will run that file against a DB that already has it. It is
+  `IF NOT EXISTS`-guarded throughout, so it should be a no-op — **verify before merging.**
+- Because #225 already owns the number `035`, the scores heal was renumbered to `036`.
+
+The rule this yields: **`_migrations` is the only trustworthy record of schema state.**
+Drift here runs in both directions — the `#252` heal was claimed but never applied, while
+#218 and #225 were applied but never merged. Neither is visible from the file tree.
+
+**Open, not fixed —** `create_tabular_review` lets the model pick a `score` column type
+(`project-tools.ts:1769`) without ever stating the scale, while `ComparisonTable.tsx:46`
+hard-clamps to 10. Now that every scoring prompt says 0-100, a model scoring competitors
+on that canon renders every value ≥10 as a full bar reading "10.0". This is the *same*
+mixed-scale confusion the founder raised in Block 4-8 ("perché copilot in decimi e home in
+centesimi?"), surviving in a surface the unification didn't cover. Needs a product call:
+tell the model 0-10, or move the renderer to 0-100.
