@@ -25,7 +25,11 @@ import { stageValidationItemsFromRaw, type RawValidationItem } from '@/lib/auto-
 import type { Source } from '@/types/artifacts';
 
 const CHUNK_CHARS = 16_000;
-const MAX_CHUNKS = 3; // stored text caps at 50k → ≤4 chunks; 3 bounds worst-case latency
+// Stored text caps at 50k → ceil(50k/16k) = 4 chunks. The retro /digest
+// endpoint runs the full cap; the upload path passes maxChunks:2 for its
+// serverless latency budget (the tail is recovered via re-digest — see the
+// partial/total accounting below).
+const MAX_CHUNKS = 4;
 const MAX_WATCHERS_PER_DOC = 2;
 
 export const DIGEST_ORIGIN = 'document_digest';
@@ -38,9 +42,13 @@ const DIGEST_PROMPT = `You are digesting a startup founder's existing document s
  "tech_facts": [{"aspect": "feasibility"|"dependencies"|"regulatory", "finding": string}],
  "watch_suggestions": [{"name": string, "topic": "competitor"|"regulation", "rationale": string}],
  "interviews": [{"person": string, "role": string|null, "segment": string|null, "summary": string, "top_pain": string|null, "urgency": "high"|"medium"|"low"|null, "wtp_amount": number|null, "wtp_currency": string|null}],
- "pricing": {"model": string|null, "anchor_price": number|null, "currency": string|null, "tiers": [string]|null, "wtp_note": string|null}
+ "pricing": {"model": string|null, "anchor_price": number|null, "currency": string|null, "tiers": [string]|null, "wtp_note": string|null},
+ "metrics": [{"name": string, "value": number, "unit": string|null, "as_of": string|null}],
+ "financials": {"monthly_burn": number|null, "cash_on_hand": number|null, "mrr": number|null, "currency": string|null},
+ "gtm": [{"channel": string, "detail": string}],
+ "brand": [{"aspect": string, "statement": string}]
 }
-Rules: canvas values are 1-3 sentences verbatim-faithful to the document (null when absent). market_size claims must contain the number AND its scope as stated. watch_suggestions only for named competitors/regulations material enough to monitor. interviews ONLY for actual customer/user interviews the founder recorded (one entry per interviewee; top_pain verbatim when quoted; wtp_amount only when a price/willingness figure is stated) — never for hypothetical personas. pricing: model = the revenue model as stated (subscription / commission / one-time / freemium…); anchor_price = the headline number only when a price is stated; tiers = named plans if any; wtp_note = any stated willingness-to-pay evidence. Null every pricing field the document doesn't state. Empty arrays when nothing qualifies.
+Rules: canvas values are 1-3 sentences verbatim-faithful to the document (null when absent). market_size claims must contain the number AND its scope as stated. watch_suggestions only for named competitors/regulations material enough to monitor. interviews ONLY for actual customer/user interviews the founder recorded (one entry per interviewee; top_pain verbatim when quoted; wtp_amount only when a price/willingness figure is stated) — never for hypothetical personas. pricing: model = the revenue model as stated (subscription / commission / one-time / freemium…); anchor_price = the headline number only when a price is stated; tiers = named plans if any; wtp_note = any stated willingness-to-pay evidence. Null every pricing field the document doesn't state. metrics: ONLY tracked KPIs stated as CURRENT/actual figures (MRR, active users, churn, signups, retention…) — never targets, projections, or goals; value is the bare number (9200, not "€9.2k"); unit = "%"|"EUR"|"users"|… as stated. financials: stated ACTUALS only (never projections) — monthly_burn = net monthly cash burn, cash_on_hand = cash in the bank, mrr = monthly recurring revenue. gtm: one entry per acquisition/marketing channel the document commits to, detail = the stated strategy for that channel in 1-2 sentences. brand: positioning/voice/visual-identity statements (aspect = "positioning"|"voice"|"visual"|…), verbatim-faithful. Empty arrays when nothing qualifies.
 
 DOCUMENT (part {PART}):
 {TEXT}`;
@@ -58,10 +66,16 @@ interface DigestFindings {
   watch_suggestions: Array<{ name: string; topic: string; rationale: string }>;
   interviews: DigestInterview[];
   pricing: { model?: string | null; anchor_price?: number | null; currency?: string | null; tiers?: string[] | null; wtp_note?: string | null };
+  // Operate-stage findings (post-validation docs: financial actuals, GTM plans,
+  // ad briefs, brand decks) — see plan happy-beacon. Same approval gate.
+  metrics: Array<{ name: string; value: number; unit?: string | null; as_of?: string | null }>;
+  financials: { monthly_burn?: number | null; cash_on_hand?: number | null; mrr?: number | null; currency?: string | null };
+  gtm: Array<{ channel: string; detail: string }>;
+  brand: Array<{ aspect: string; statement: string }>;
 }
 
 function emptyFindings(): DigestFindings {
-  return { canvas: {}, competitors: [], market_size: [], tech_facts: [], watch_suggestions: [], interviews: [], pricing: {} };
+  return { canvas: {}, competitors: [], market_size: [], tech_facts: [], watch_suggestions: [], interviews: [], pricing: {}, metrics: [], financials: {}, gtm: [], brand: [] };
 }
 
 function parseFindings(raw: string): DigestFindings {
@@ -77,6 +91,10 @@ function parseFindings(raw: string): DigestFindings {
       watch_suggestions: Array.isArray(j.watch_suggestions) ? j.watch_suggestions.filter((w) => w && typeof w.name === 'string') : [],
       interviews: Array.isArray(j.interviews) ? j.interviews.filter((iv) => iv && typeof iv.person === 'string' && typeof iv.summary === 'string') : [],
       pricing: j.pricing && typeof j.pricing === 'object' ? j.pricing : {},
+      metrics: Array.isArray(j.metrics) ? j.metrics.filter((m) => m && typeof m.name === 'string' && typeof m.value === 'number' && Number.isFinite(m.value)) : [],
+      financials: j.financials && typeof j.financials === 'object' ? j.financials : {},
+      gtm: Array.isArray(j.gtm) ? j.gtm.filter((g) => g && typeof g.channel === 'string' && typeof g.detail === 'string') : [],
+      brand: Array.isArray(j.brand) ? j.brand.filter((b) => b && typeof b.aspect === 'string' && typeof b.statement === 'string') : [],
     };
   } catch {
     return emptyFindings();
@@ -87,7 +105,7 @@ function parseFindings(raw: string): DigestFindings {
  *  lists dedup case-insensitively by name/claim. */
 function mergeFindings(parts: DigestFindings[]): DigestFindings {
   const out = emptyFindings();
-  const seen = { comp: new Set<string>(), mkt: new Set<string>(), tech: new Set<string>(), watch: new Set<string>(), iv: new Set<string>() };
+  const seen = { comp: new Set<string>(), mkt: new Set<string>(), tech: new Set<string>(), watch: new Set<string>(), iv: new Set<string>(), metric: new Set<string>(), gtm: new Set<string>(), brand: new Set<string>() };
   for (const p of parts) {
     for (const [k, v] of Object.entries(p.canvas)) {
       if (typeof v === 'string' && v.trim() && !out.canvas[k]) out.canvas[k] = v.trim();
@@ -104,6 +122,18 @@ function mergeFindings(parts: DigestFindings[]): DigestFindings {
         (out.pricing as Record<string, unknown>)[key] = v;
       }
     }
+    // Operate-stage findings: metrics dedup by name, financials first-non-null
+    // per field, gtm dedup by channel, brand dedup by aspect (all first-wins,
+    // document order — same convention as everything above).
+    for (const m of p.metrics) { const k = m.name.toLowerCase().trim(); if (!seen.metric.has(k)) { seen.metric.add(k); out.metrics.push(m); } }
+    for (const key of ['monthly_burn', 'cash_on_hand', 'mrr', 'currency'] as const) {
+      const v = (p.financials as Record<string, unknown>)[key];
+      if (v !== undefined && v !== null && (out.financials as Record<string, unknown>)[key] == null) {
+        (out.financials as Record<string, unknown>)[key] = v;
+      }
+    }
+    for (const g of p.gtm) { const k = g.channel.toLowerCase().trim(); if (!seen.gtm.has(k)) { seen.gtm.add(k); out.gtm.push(g); } }
+    for (const b of p.brand) { const k = b.aspect.toLowerCase().trim(); if (!seen.brand.has(k)) { seen.brand.add(k); out.brand.push(b); } }
   }
   return out;
 }
@@ -124,7 +154,15 @@ export interface DigestInput {
 export interface DigestResult {
   staged_items: number;
   watcher_proposals: number;
+  /** Chunks actually digested this run (≤ total_chunks). */
   chunks: number;
+  /** Chunks the FULL stored text splits into — when chunks < total_chunks the
+   *  digest is partial and the Data Room offers re-digest to cover the tail. */
+  total_chunks: number;
+  partial: boolean;
+  /** True when every chunk's extraction failed — surfaced as a retryable
+   *  failure instead of the old silent console.warn. */
+  failed: boolean;
 }
 
 /** Split into ≤MAX_CHUNKS chunks of CHUNK_CHARS (fix F3: the old extractor
@@ -140,13 +178,15 @@ export function chunkText(text: string, maxChunks: number = MAX_CHUNKS): string[
 
 export async function digestDocument(input: DigestInput): Promise<DigestResult> {
   const { projectId, factId, filename, text } = input;
-  const result: DigestResult = { staged_items: 0, watcher_proposals: 0, chunks: 0 };
+  const result: DigestResult = { staged_items: 0, watcher_proposals: 0, chunks: 0, total_chunks: 0, partial: false, failed: false };
   if (!text.trim()) return result;
 
   // 1) Chunked extraction over the FULL stored text.
   const parts: DigestFindings[] = [];
   const chunks = chunkText(text, input.maxChunks);
   result.chunks = chunks.length;
+  result.total_chunks = Math.max(1, Math.ceil(text.length / CHUNK_CHARS));
+  result.partial = result.chunks < result.total_chunks;
   for (let i = 0; i < chunks.length; i++) {
     try {
       const startedAt = Date.now();
@@ -169,6 +209,9 @@ export async function digestDocument(input: DigestInput): Promise<DigestResult> 
       console.warn(`[digest] chunk ${i + 1} failed (non-fatal):`, (err as Error).message);
     }
   }
+  // Every chunk failed → a retryable FAILURE, not a quiet zero-findings digest.
+  // Recorded on the timeline (below) so the Data Room can offer "retry".
+  result.failed = parts.length === 0 && chunks.some((c) => c.trim().length > 0);
   const findings = mergeFindings(parts);
 
   // 2) Stage canvas / competitors / market-size / tech facts through the
@@ -211,6 +254,39 @@ export async function digestDocument(input: DigestInput): Promise<DigestResult> 
   }
   if (typeof pr.wtp_note === 'string' && pr.wtp_note.trim()) {
     raw.push({ kind: 'pricing', field: 'wtp', value: pr.wtp_note, sources: [docSource], extra: { wtp: { note: pr.wtp_note } } });
+  }
+  // Operate-stage prefill (post-validation docs — financial actuals, GTM plans,
+  // ad briefs, brand decks): route metrics/financials onto the Stage-6/7 rails,
+  // per-channel GTM strategy onto the Stage-3 channel facts, brand statements
+  // as staged context. ALL founder-gated — even the ungated brand items are
+  // staged, never auto-written: a doc-derived fact written directly could
+  // keyword-green a Stage-2/3 check without the founder's yes.
+  for (const m of findings.metrics) {
+    const unit = typeof m.unit === 'string' && m.unit.trim() ? ` ${m.unit.trim()}` : '';
+    raw.push({
+      kind: 'metric',
+      name: m.name,
+      value: `${m.name} = ${m.value}${unit}${m.as_of ? ` (as of ${m.as_of})` : ''}`,
+      sources: [docSource],
+      extra: { name: m.name, current_value: m.value },
+    });
+  }
+  const fin = findings.financials;
+  const finCur = typeof fin.currency === 'string' && fin.currency.trim() ? fin.currency.trim() : '';
+  if (typeof fin.monthly_burn === 'number' && Number.isFinite(fin.monthly_burn)) {
+    raw.push({ kind: 'financial_fact', field: 'burn', value: `Monthly burn ${finCur}${fin.monthly_burn}`, sources: [docSource], extra: { monthly_burn: fin.monthly_burn } });
+  }
+  if (typeof fin.cash_on_hand === 'number' && Number.isFinite(fin.cash_on_hand)) {
+    raw.push({ kind: 'financial_fact', field: 'cash', value: `Cash on hand ${finCur}${fin.cash_on_hand}`, sources: [docSource], extra: { cash_on_hand: fin.cash_on_hand } });
+  }
+  if (typeof fin.mrr === 'number' && Number.isFinite(fin.mrr)) {
+    raw.push({ kind: 'financial_fact', field: 'revenue', value: `MRR ${finCur}${fin.mrr}`, sources: [docSource], extra: { mrr: fin.mrr } });
+  }
+  for (const g of findings.gtm) {
+    raw.push({ kind: 'channel_fact', value: `${g.channel} — ${g.detail}`, sources: [docSource] });
+  }
+  for (const b of findings.brand) {
+    raw.push({ kind: 'brand_fact', field: b.aspect.slice(0, 60), value: b.statement, sources: [docSource] });
   }
   // 1C prefill (linee guida: 5+ interviews, verbatim pain, WTP signal): each
   // interview the founder's notes record → one staged interview row. Their
@@ -286,8 +362,12 @@ export async function digestDocument(input: DigestInput): Promise<DigestResult> 
       await recordEvent({
         userId: owner[0].owner_user_id,
         projectId,
-        eventType: 'document_digested',
-        payload: { filename, fact_id: factId, staged_items: result.staged_items, watcher_proposals: result.watcher_proposals, chunks: result.chunks },
+        eventType: result.failed ? 'document_digest_failed' : 'document_digested',
+        payload: {
+          filename, fact_id: factId, staged_items: result.staged_items,
+          watcher_proposals: result.watcher_proposals, chunks: result.chunks,
+          total_chunks: result.total_chunks, partial: result.partial,
+        },
       });
     }
   } catch { /* non-fatal */ }

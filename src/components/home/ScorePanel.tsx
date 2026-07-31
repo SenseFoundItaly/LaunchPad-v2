@@ -45,6 +45,12 @@ interface ScoreResp {
 // band / normalizeDimensions / to100 now live in @/lib/score-display so the
 // in-chat baseline card renders identically (imported below).
 
+interface ScoreHistoryResp {
+  points: Array<{ overall_score: number; created_at: string }>;
+  count: number;
+  delta: number | null;
+}
+
 export function ScorePanel({ projectId }: { projectId: string }) {
   const t = useT();
 
