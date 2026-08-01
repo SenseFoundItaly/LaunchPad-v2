@@ -2382,7 +2382,12 @@ const mvpBuildIteration: ActionHandler = async (action) => {
   if (!build || build.project_id !== action.project_id) {
     return { ok: false, error: 'mvp_build_iteration: no live build to iterate' };
   }
-  const next = await generateAndApplyIteration(build);
+  // #270: the proposal payload carries the feature-shaped issue cluster the
+  // founder approved — implement exactly that (falls back to raw feedback).
+  const next = await generateAndApplyIteration(build, {
+    issueIds: Array.isArray(payload.issue_ids) ? (payload.issue_ids as string[]) : undefined,
+    feature: typeof payload.feature === 'string' ? payload.feature : undefined,
+  });
   // Nanocorp P1: the Builder reports the new iteration into the conversation.
   {
     const { postAgentUpdate } = await import('@/lib/agents/narrate');

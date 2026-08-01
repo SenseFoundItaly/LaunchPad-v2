@@ -17,6 +17,8 @@ import { assembleMvpContext, renderBuildBrief } from './assemble-context';
 import { getActiveBuilder, getBuilder } from '@/lib/builders';
 import type { BuilderAdapter, BuilderId } from '@/lib/builders/types';
 import { isProjectCapped } from '@/lib/cost-meter';
+import { meterDriverOp } from './build-costs';
+import { markIssuesShipped } from './build-issues';
 import {
   type MvpBuild,
   createBuild,
@@ -136,6 +138,7 @@ export async function startBuild(projectId: string, ownerUserId?: string): Promi
       builder.supportsAsync && builder.createAsync
         ? await builder.createAsync(ref, { prompt })
         : await builder.create(ref, { prompt });
+    await meterDriverOp(projectId, builder.id, 'create'); // #271: build spend hits the cost meter
     const updated = await updateBuild(build.id, {
       builderRef: res.builderRef,
       substrate: res.substrate ?? null,
@@ -158,11 +161,17 @@ export async function startBuild(projectId: string, ownerUserId?: string): Promi
 }
 
 /** Start an iteration: new 'building' row (iteration+1) + kick off the driver's iterate. */
-export async function startIteration(build: MvpBuild, message: string, ownerUserId?: string): Promise<MvpBuild> {
+export async function startIteration(
+  build: MvpBuild,
+  message: string,
+  ownerUserId?: string,
+  opts?: { issueIds?: string[] },
+): Promise<MvpBuild> {
   const builder = resolveBuilder(build.builder);
   if (!builder.supportsIteration) throw new Error(`Builder "${builder.id}" does not support iteration`);
   await assertBuildAllowed(build.project_id, builder);
   const ref = { projectId: build.project_id, buildId: build.id, ownerUserId };
+  const issueIds = opts?.issueIds ?? [];
   const next = await createBuild({
     projectId: build.project_id,
     builder: build.builder,
@@ -178,6 +187,7 @@ export async function startIteration(build: MvpBuild, message: string, ownerUser
       builder.supportsAsync && builder.iterateAsync
         ? await builder.iterateAsync(ref, build.builder_ref ?? '', message)
         : await builder.iterate(ref, build.builder_ref ?? '', message);
+    await meterDriverOp(build.project_id, builder.id, 'iterate'); // #271
     const updated = await updateBuild(next.id, {
       builderRef: res.builderRef || build.builder_ref,
       previewUrl: res.previewUrl ?? null,
@@ -188,6 +198,8 @@ export async function startIteration(build: MvpBuild, message: string, ownerUser
         awaitAfterVersion: res.versionRef ?? null,
         // The iteration reuses the parent's chat → same v0 project; carry it forward.
         v0ProjectId: (build.metadata as Record<string, unknown> | null)?.v0ProjectId ?? null,
+        // Issue cluster this iteration implements (#270) — the settle path marks them shipped.
+        issueIds: issueIds.length ? issueIds : null,
         logs: res.logs ?? null,
         diff: res.diff ?? null,
       },
@@ -195,6 +207,7 @@ export async function startIteration(build: MvpBuild, message: string, ownerUser
     if (res.status === 'live') {
       await supersedeOtherBuilds(build.project_id, next.id);
       await markFeedbackIncorporated(build.project_id, next.iteration, next.created_at);
+      if (issueIds.length) await markIssuesShipped(build.project_id, issueIds, next.iteration);
     }
     return updated ?? next;
   } catch (e) {
@@ -219,6 +232,7 @@ export async function publishBuild(build: MvpBuild): Promise<MvpBuild> {
   });
   const liveUrl = res.liveUrl ?? null;
   if (!liveUrl) throw new Error('Publish returned no live URL');
+  await meterDriverOp(build.project_id, builder.id, 'publish'); // #271
   const wsId = await ensureLiveAppWatch(build.project_id, liveUrl).catch(() => null);
   const updated = await updateBuild(build.id, {
     liveAppUrl: liveUrl,
@@ -277,6 +291,10 @@ export async function refreshBuild(build: MvpBuild): Promise<MvpBuild> {
     // this build so mid-build feedback carries to the next round.
     if (build.parent_build_id) {
       await markFeedbackIncorporated(build.project_id, build.iteration, build.created_at);
+      // Issue cluster this iteration implemented (#270) — threaded through
+      // startIteration's metadata; mark shipped now that the build is live.
+      const issueIds = Array.isArray(md.issueIds) ? (md.issueIds as string[]) : [];
+      if (issueIds.length) await markIssuesShipped(build.project_id, issueIds, build.iteration);
     }
   }
   return updated ?? build;

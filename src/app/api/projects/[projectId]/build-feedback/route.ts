@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
-import { addFeedback, listPendingFeedback, getCurrentBuild } from '@/lib/mvp/mvp-builds';
+import { listPendingFeedback, getCurrentBuild } from '@/lib/mvp/mvp-builds';
+import { ingestFeedback } from '@/lib/mvp/build-issues';
 
 /**
  * GET /api/projects/{projectId}/build-feedback
@@ -36,12 +37,14 @@ export async function POST(
   if (!text) return error('body is required');
 
   const current = body.build_id ? null : await getCurrentBuild(projectId);
-  const row = await addFeedback({
+  // ingestFeedback = persist the evidence row + classify it into the issue
+  // backlog (match-or-spawn, fail-open — see build-issues.ts).
+  const { feedback, issue } = await ingestFeedback({
     projectId,
     buildId: (body.build_id as string) ?? current?.id ?? null,
     source: 'founder',
     body: text.slice(0, 4000),
     severity: body.severity ? String(body.severity).slice(0, 20) : null,
   });
-  return json(row);
+  return json({ ...feedback, issue: issue ? { id: issue.id, feature: issue.feature, title: issue.title } : null });
 }

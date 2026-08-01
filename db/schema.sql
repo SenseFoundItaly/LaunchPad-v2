@@ -908,15 +908,35 @@ CREATE TABLE IF NOT EXISTS mvp_builds (
 CREATE INDEX IF NOT EXISTS idx_mvp_builds_project_iter
   ON mvp_builds(project_id, iteration DESC);
 
+-- Build Hub issue layer (037): evidence (feedback rows) → deduped issues →
+-- feature labels. Declared BEFORE mvp_build_feedback (its issue_id FK points
+-- here). See db/migrations/037_mvp_build_issues.sql for rationale.
+CREATE TABLE IF NOT EXISTS mvp_build_issues (
+  id VARCHAR PRIMARY KEY,
+  project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  feature VARCHAR NOT NULL DEFAULT 'General',   -- normalized label ("Pricing", "Onboarding")
+  title VARCHAR NOT NULL,                       -- actionable: "add a plan toggle"
+  severity VARCHAR,                             -- low | medium | high (max of evidence)
+  status VARCHAR NOT NULL DEFAULT 'open',       -- open | planned | shipped | wontfix
+  evidence_count INTEGER NOT NULL DEFAULT 0,
+  shipped_in_iteration INTEGER,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_mvp_build_issues_project_status
+  ON mvp_build_issues(project_id, status);
+
 CREATE TABLE IF NOT EXISTS mvp_build_feedback (
   id VARCHAR PRIMARY KEY,
   project_id VARCHAR NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   build_id VARCHAR REFERENCES mvp_builds(id) ON DELETE SET NULL,
-  source VARCHAR NOT NULL DEFAULT 'founder',        -- founder | interview | watcher | memory_fact | live_monitor | brief | ploy
+  source VARCHAR NOT NULL DEFAULT 'founder',        -- founder | chat | interview | watcher | memory_fact | live_monitor | brief | ploy
   source_ref_id VARCHAR,
   body TEXT NOT NULL,
   severity VARCHAR,
   incorporated_in_iteration INTEGER,               -- NULL = pending
+  issue_id VARCHAR REFERENCES mvp_build_issues(id) ON DELETE SET NULL,  -- evidence link (037)
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -924,6 +944,8 @@ CREATE INDEX IF NOT EXISTS idx_mvp_build_feedback_project_time
   ON mvp_build_feedback(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_mvp_build_feedback_pending
   ON mvp_build_feedback(project_id, incorporated_in_iteration);
+CREATE INDEX IF NOT EXISTS idx_mvp_build_feedback_issue
+  ON mvp_build_feedback(issue_id) WHERE issue_id IS NOT NULL;
 
 -- =============================================================================
 -- Signal Activity Logs (audit trail for signal pipeline events)

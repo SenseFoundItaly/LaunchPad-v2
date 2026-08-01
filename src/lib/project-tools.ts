@@ -3142,6 +3142,45 @@ const iterateMvpBuildTool = (ctx: ToolContext): AgentTool => ({
   },
 });
 
+const recordBuildFeedbackTool = (ctx: ToolContext): AgentTool => ({
+  name: 'record_build_feedback',
+  label: 'Record Build Feedback',
+  description:
+    'Queue product feedback for the MVP\'s NEXT iteration — the founder expresses a want, complaint, or user observation about their product ("users can\'t find pricing", "I want a waitlist instead of checkout", "testers found signup confusing") WITHOUT asking to change it right now. The feedback lands in the build backlog, is deduplicated into an issue under a feature, and fuels the next proposed iteration in the Inbox. Use iterate_mvp_build instead ONLY when the founder explicitly asks to apply a change immediately.',
+  parameters: Type.Object({
+    feedback: Type.String({ description: 'The product feedback, faithful to the founder\'s words.' }),
+    severity: Type.Optional(Type.String({ description: '"low" | "medium" | "high" — how much this hurts. Default medium.' })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { feedback?: string; severity?: string };
+    const body = (p.feedback ?? '').trim();
+    if (!body) {
+      return { content: [{ type: 'text', text: 'record_build_feedback needs the feedback text.' }], details: { error: 'no_feedback' } };
+    }
+    try {
+      const { ingestFeedback } = await import('@/lib/mvp/build-issues');
+      const { getCurrentBuild } = await import('@/lib/mvp/mvp-builds');
+      const current = await getCurrentBuild(ctx.projectId);
+      const sev = ['low', 'medium', 'high'].includes(p.severity ?? '') ? p.severity : 'medium';
+      const { issue } = await ingestFeedback({
+        projectId: ctx.projectId,
+        buildId: current?.id ?? null,
+        source: 'chat',
+        body: body.slice(0, 4000),
+        severity: sev,
+      });
+      return {
+        content: [{ type: 'text', text: issue
+          ? `Feedback recorded under "${issue.feature}: ${issue.title}"${issue.evidence_count > 1 ? ' (existing issue — signal strengthened)' : ' (new issue)'}. It will shape the next proposed build iteration in the Inbox.`
+          : 'Feedback recorded in the build backlog. It will shape the next proposed build iteration.' }],
+        details: { issue_id: issue?.id ?? null, feature: issue?.feature ?? null },
+      };
+    } catch (err) {
+      return { content: [{ type: 'text', text: `Could not record the feedback: ${(err as Error).message}` }], details: { error: true } };
+    }
+  },
+});
+
 const logFundraisingTool = (ctx: ToolContext): AgentTool => ({
   name: 'log_fundraising',
   label: 'Log Fundraising',
@@ -3266,5 +3305,6 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     // Build tab is render-only — the chat is the CTA (2026-07-14).
     startMvpBuildTool(ctx),
     iterateMvpBuildTool(ctx),
+    recordBuildFeedbackTool(ctx),
   ];
 }

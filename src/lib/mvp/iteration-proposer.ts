@@ -11,6 +11,8 @@
 import { get, query } from '@/lib/db';
 import { createPendingAction } from '@/lib/pending-actions';
 import { getLatestLiveBuild, listPendingFeedback } from './mvp-builds';
+import { listOpenIssues, pickTopCluster, clusterReady } from './build-issues';
+import { driverOpCostUsd } from './build-costs';
 
 export async function maybeProposeMvpIteration(projectId: string): Promise<boolean> {
   // Iterate the latest LIVE build — NOT the highest-iteration row. A failed newest
@@ -18,9 +20,6 @@ export async function maybeProposeMvpIteration(projectId: string): Promise<boole
   // version while the feedback that motivated the failed attempt stays pending.
   const build = await getLatestLiveBuild(projectId);
   if (!build) return false;
-
-  const pending = await listPendingFeedback(projectId);
-  if (pending.length === 0) return false;
 
   const open = await get<{ id: string }>(
     `SELECT id FROM pending_actions
@@ -31,19 +30,66 @@ export async function maybeProposeMvpIteration(projectId: string): Promise<boole
   );
   if (open) return false;
 
+  // Preferred path (#270): propose ONE feature-shaped cluster of deduped
+  // issues, with the changeset spelled out so the founder approves a legible
+  // plan. Falls back to raw pending feedback when no issues exist (classifier
+  // fail-open, or pre-037 rows).
+  const cost = driverOpCostUsd(build.builder);
+  const priceLine = cost > 0 ? ` Estimated cost: ~$${cost.toFixed(2)} build credit.` : '';
+
+  const issues = await listOpenIssues(projectId);
+  const cluster = pickTopCluster(issues);
+  let title: string;
+  let rationale: string;
+  let payload: Record<string, unknown>;
+  let count: number;
+
+  if (cluster) {
+    // Batching threshold (#271): only spend a credit when the cluster is worth it.
+    if (!clusterReady(cluster, Date.now())) return false;
+    const lines = cluster.issues
+      .slice(0, 8)
+      .map((i) => `• ${i.title}${i.evidence_count > 1 ? ` (${i.evidence_count} signals)` : ''}`)
+      .join('\n');
+    title = `Ship ${cluster.feature}: ${cluster.issues.length} improvement(s) (v${build.iteration} → v${build.iteration + 1})`;
+    rationale = `${lines}\nApprove to implement these in the next build iteration.${priceLine}`;
+    payload = {
+      build_id: build.id,
+      agent: 'builder',
+      feature: cluster.feature,
+      issue_ids: cluster.issues.map((i) => i.id),
+      changeset: cluster.issues.map((i) => i.title),
+    };
+    count = cluster.issues.length;
+  } else {
+    const pending = await listPendingFeedback(projectId);
+    if (pending.length === 0) return false;
+    // Raw-feedback batching: ≥2 items, any high, or the oldest waited a week.
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const ready =
+      pending.length >= 2 ||
+      pending.some((f) => f.severity === 'high') ||
+      pending.some((f) => new Date(f.created_at).getTime() <= weekAgo);
+    if (!ready) return false;
+    title = `Iterate MVP build (v${build.iteration} → v${build.iteration + 1})`;
+    rationale = `${pending.length} new feedback item(s) since the last build — approve to generate the next iteration.${priceLine}`;
+    payload = { build_id: build.id, agent: 'builder' };
+    count = pending.length;
+  }
+
   const pa = await createPendingAction({
     project_id: projectId,
     action_type: 'mvp_build_iteration',
-    title: `Iterate MVP build (v${build.iteration} → v${build.iteration + 1})`,
-    rationale: `${pending.length} new feedback item(s) since the last build — approve to generate the next iteration.`,
+    title,
+    rationale,
     estimated_impact: 'medium',
-    priority: 'medium',
-    payload: { build_id: build.id, agent: 'builder' },
+    priority: cluster?.anyHigh ? 'high' : 'medium',
+    payload,
   });
   // Nanocorp P1: decision-request voice — the Builder asks in the chat.
   const { postAgentUpdate } = await import('@/lib/agents/narrate');
   await postAgentUpdate(projectId, 'builder',
-    { key: 'agent.iterate-due', params: { count: pending.length, version: build.iteration } },
+    { key: 'agent.iterate-due', params: { count, version: build.iteration } },
     { dedupeKey: `iterprop:${pa.id}`, pane: 'build', priority: 'must' });
   return true;
 }

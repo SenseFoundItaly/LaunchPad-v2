@@ -1,0 +1,33 @@
+name: Staging cron trigger
+
+# Staging needs its own cron: the Build Hub's auto-iteration proposer and the
+# stuck-build reaper live in GET /api/cron (Phase B1/B2), and without a
+# scheduled trigger the self-iterating loop never fires on staging. Side
+# benefit: regular DB traffic keeps the free-tier staging Supabase from
+# auto-pausing (~1 week idle → INACTIVE).
+#
+# Security note: no github.event.* input is interpolated anywhere; the only
+# inputs are a repo secret (via env) and a hardcoded URL.
+
+on:
+  schedule:
+    # Every 8h at :37 — off-the-hour to dodge GitHub's top-of-hour throttling
+    # (same trick as the prod scheduled-cron workflow).
+    - cron: "37 */8 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  trigger-staging-cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run staging cron — housekeeping (build sweep + iteration proposals)
+        env:
+          CRON_SECRET: ${{ secrets.STAGING_CRON_SECRET }}
+          SITE_URL: https://launchpad-staging.netlify.app
+        run: |
+          set -euo pipefail
+          resp=$(curl -sf -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${SITE_URL}/api/cron" --max-time 120) \
+            || { echo "staging cron call failed"; exit 1; }
+          echo "$resp" | jq -c '.data | {swept_stale_runs, watch_sources_processed, build_iterations_proposed}' \
+            || echo "$resp" | head -c 400
