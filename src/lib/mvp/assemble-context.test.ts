@@ -17,6 +17,7 @@ function ctx(over: Partial<MvpContext> = {}): MvpContext {
     currentIteration: 0,
     pendingFeedback: [],
     isDelta: false,
+    activeStageNumber: 5,
     ...over,
   };
 }
@@ -54,5 +55,31 @@ describe('renderBuildBrief', () => {
   it('falls back to personas for target users when idea canvas has no target market', () => {
     const b = renderBuildBrief(ctx({ personas: ['Busy professionals', 'Students'] }));
     expect(b).toContain('Target users: Busy professionals, Students.');
+  });
+
+  // #269 — the journey stage decides WHAT the brief asks for.
+  it('pre-stage-5 renders a waitlist smoke test, not the product', () => {
+    const b = renderBuildBrief(ctx({ activeStageNumber: 2 }));
+    expect(b).toContain('VALIDATION smoke test');
+    expect(b).toContain('waitlist signup form');
+    expect(b).not.toContain('working first version');
+  });
+
+  it('stage 5 renders the working-MVP brief without launch extras', () => {
+    const b = renderBuildBrief(ctx({ activeStageNumber: 5 }));
+    expect(b.toLowerCase()).toContain('working first version');
+    expect(b).not.toContain('email-capture');
+  });
+
+  it('stage 6+ appends launch hardening (email capture + event hooks)', () => {
+    const b = renderBuildBrief(ctx({ activeStageNumber: 6 }));
+    expect(b.toLowerCase()).toContain('working first version');
+    expect(b).toContain('email-capture');
+  });
+
+  it('unknown stage fails open to the full-MVP brief', () => {
+    const b = renderBuildBrief(ctx({ activeStageNumber: null }));
+    expect(b.toLowerCase()).toContain('working first version');
+    expect(b).not.toContain('email-capture');
   });
 });

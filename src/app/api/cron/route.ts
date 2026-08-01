@@ -694,6 +694,19 @@ export async function GET(request: NextRequest) {
       console.warn('[cron] sweepBuildingBuilds failed:', (err as Error).message);
     }
 
+    // Phase B1.5 (#268): pull new intelligence into the build backlog BEFORE
+    // proposing — interview pains (post-first-build) and significant live-app
+    // watcher changes. Idempotent via source_ref_id; bounded; classifier is
+    // cheap-tier per NEW item only.
+    try {
+      const { ingestInterviewFeedback, ingestWatcherFeedback } = await import('@/lib/mvp/feedback-intake');
+      const ivN = await ingestInterviewFeedback(10);
+      const wN = await ingestWatcherFeedback(10);
+      if (ivN + wN > 0) console.log(`[cron] build backlog intake: ${ivN} interview(s), ${wN} watcher signal(s)`);
+    } catch (err) {
+      console.warn('[cron] feedback intake failed:', (err as Error).message);
+    }
+
     // Phase B2: propose MVP build iterations for projects whose live build has
     // new feedback. Cheap SELECT-driven; the expensive delta generation runs only
     // on founder approval (the mvp_build_iteration executor).

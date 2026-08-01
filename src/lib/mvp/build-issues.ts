@@ -146,11 +146,13 @@ const READY_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Batching threshold (#271): an iteration costs a real driver credit, so only
- * propose when the backlog is WORTH one — ≥2 issues in the cluster, or any
+ * propose when the backlog is WORTH one — ≥2 issues in the cluster, ≥2 evidence
+ * signals total (one issue independently reported twice is strong demand), any
  * high-severity, or the oldest issue has waited a week.
  */
 export function clusterReady(cluster: IssueCluster, nowMs: number): boolean {
   if (cluster.issues.length >= 2) return true;
+  if (cluster.evidenceTotal >= 2) return true;
   if (cluster.anyHigh) return true;
   return cluster.issues.some((i) => nowMs - new Date(i.created_at).getTime() >= READY_AGE_MS);
 }

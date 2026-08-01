@@ -39,6 +39,25 @@ export interface MvpBuildFeedback {
   created_at: string;
 }
 
+/**
+ * Client-safe projection of a build row (#275 white-label defense-in-depth):
+ * strips the vendor identity (builder, builder_ref, substrate) and internal
+ * metadata (v0ProjectId, awaitAfterVersion, issueIds) — the UI only needs
+ * render fields + {diff, error, logs}.
+ */
+export function toClientBuild(b: MvpBuild): Omit<MvpBuild, 'builder' | 'builder_ref' | 'substrate'> {
+  const { builder: _b, builder_ref: _r, substrate: _s, ...rest } = b;
+  const md = (b.metadata ?? {}) as Record<string, unknown>;
+  return {
+    ...rest,
+    metadata: {
+      ...(md.diff !== undefined ? { diff: md.diff } : {}),
+      ...(md.error !== undefined ? { error: md.error } : {}),
+      ...(md.logs !== undefined ? { logs: md.logs } : {}),
+    },
+  };
+}
+
 export async function getCurrentBuild(projectId: string): Promise<MvpBuild | undefined> {
   return get<MvpBuild>(
     'SELECT * FROM mvp_builds WHERE project_id = ? ORDER BY iteration DESC LIMIT 1',
@@ -212,23 +231,26 @@ export async function listPendingFeedback(projectId: string): Promise<MvpBuildFe
 }
 
 /**
- * Stamp pending feedback as folded into the given iteration. `before` caps it to
- * feedback that PREDATES the iteration (feedback that arrived mid-build stays
- * pending for the next round, so a build never "steals" feedback it never saw).
- * Omit `before` to stamp all pending feedback.
+ * Stamp pending feedback as folded into the given iteration. `beforeBuildId`
+ * caps it to feedback that PREDATES that build row (feedback that arrived
+ * mid-build stays pending for the next round, so a build never "steals"
+ * feedback it never saw). The cutoff is compared SERVER-SIDE against the
+ * build's own created_at — round-tripping the naive TIMESTAMP through a JS
+ * Date shifted it by the machine's UTC offset and silently matched 0 rows
+ * (caught by scripts/e2e-intel-loop.mjs). Omit to stamp all pending feedback.
  */
 export async function markFeedbackIncorporated(
   projectId: string,
   iteration: number,
-  before?: string | null,
+  beforeBuildId?: string | null,
 ): Promise<void> {
   await run(
     `UPDATE mvp_build_feedback SET incorporated_in_iteration = ?
        WHERE project_id = ? AND incorporated_in_iteration IS NULL
-         AND (?::timestamptz IS NULL OR created_at <= ?::timestamptz)`,
+         AND (?::varchar IS NULL OR created_at <= (SELECT b.created_at FROM mvp_builds b WHERE b.id = ?))`,
     iteration,
     projectId,
-    before ?? null,
-    before ?? null,
+    beforeBuildId ?? null,
+    beforeBuildId ?? null,
   );
 }

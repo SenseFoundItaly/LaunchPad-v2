@@ -62,6 +62,11 @@ describe('clusterReady (batching threshold — an iteration costs a credit)', ()
     expect(clusterReady(c, NOW)).toBe(false);
   });
 
+  it('ready when a single issue carries ≥2 evidence signals (independent reports = demand)', () => {
+    const c = pickTopCluster([issue({ id: 'a', severity: 'medium', evidence_count: 2 })])!;
+    expect(clusterReady(c, NOW)).toBe(true);
+  });
+
   it('ready when the single issue has waited a week', () => {
     const c = pickTopCluster([
       issue({ id: 'a', severity: 'low', created_at: new Date(NOW - 8 * DAY).toISOString() }),

@@ -4,9 +4,6 @@ export interface ClientBuild {
   id: string;
   project_id: string;
   lane: string;
-  builder: string;
-  substrate: string | null;
-  builder_ref: string | null;
   iteration: number;
   status: string;
   spec_prompt: string | null;
@@ -24,9 +21,8 @@ export interface ClientFeedback {
   created_at: string;
 }
 
+// #275 white-label: the API exposes CAPABILITIES only — never the vendor identity.
 export interface ActiveBuilder {
-  id: string;
-  label: string;
   supports_iteration: boolean;
   supports_async?: boolean;
   supports_deploy?: boolean;

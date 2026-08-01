@@ -206,7 +206,7 @@ export async function startIteration(
     });
     if (res.status === 'live') {
       await supersedeOtherBuilds(build.project_id, next.id);
-      await markFeedbackIncorporated(build.project_id, next.iteration, next.created_at);
+      await markFeedbackIncorporated(build.project_id, next.iteration, next.id);
       if (issueIds.length) await markIssuesShipped(build.project_id, issueIds, next.iteration);
     }
     return updated ?? next;
@@ -290,7 +290,7 @@ export async function refreshBuild(build: MvpBuild): Promise<MvpBuild> {
     // (a 2nd fresh build has iteration>1 but no parent). Cap to feedback predating
     // this build so mid-build feedback carries to the next round.
     if (build.parent_build_id) {
-      await markFeedbackIncorporated(build.project_id, build.iteration, build.created_at);
+      await markFeedbackIncorporated(build.project_id, build.iteration, build.id);
       // Issue cluster this iteration implemented (#270) — threaded through
       // startIteration's metadata; mark shipped now that the build is live.
       const issueIds = Array.isArray(md.issueIds) ? (md.issueIds as string[]) : [];
@@ -315,11 +315,15 @@ export async function sweepBuildingBuilds(opts?: {
   const maxAge = opts?.maxAgeMinutes ?? 12;
   const limit = opts?.limit ?? 20;
 
+  // Explicit casts: inside jsonb_build_object / make_interval postgres cannot
+  // infer the bind types and rejects the statement ("could not determine data
+  // type of parameter $1") — this failed silently on every tick until the
+  // intel-loop E2E surfaced it in the dev-server log.
   const reaped = await run(
     `UPDATE mvp_builds
         SET status = 'failed', updated_at = CURRENT_TIMESTAMP,
-            metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('error', ?)
-      WHERE status = 'building' AND created_at < now() - make_interval(mins => ?)`,
+            metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('error', ?::text)
+      WHERE status = 'building' AND created_at < now() - make_interval(mins => ?::int)`,
     `Timed out — no completion after ${maxAge} minutes.`,
     maxAge,
   );

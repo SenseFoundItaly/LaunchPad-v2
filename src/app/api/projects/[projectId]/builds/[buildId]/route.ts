@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
-import { getBuild, updateBuild } from '@/lib/mvp/mvp-builds';
+import { getBuild, updateBuild, toClientBuild } from '@/lib/mvp/mvp-builds';
 import { startIteration, refreshBuild, publishBuild } from '@/lib/mvp/build-runner';
 import { ensureLiveAppWatch } from '@/lib/mvp/live-app-watch';
 
@@ -21,7 +21,7 @@ export async function GET(
   const build = await getBuild(buildId);
   if (!build || build.project_id !== projectId) return error('Build not found', 404);
   const refreshed = await refreshBuild(build);
-  return json(refreshed);
+  return json(toClientBuild(refreshed));
 }
 
 /**
@@ -55,7 +55,7 @@ export async function PATCH(
         const msg = (next.metadata as Record<string, unknown> | null)?.error;
         return error(`Iteration failed to start: ${msg || 'unknown error'}`, 502);
       }
-      return json(next);
+      return json(toClientBuild(next));
     } catch (e) {
       const msg = (e as Error).message;
       if (msg.startsWith('BUILD_CAPPED:')) return error(msg.replace('BUILD_CAPPED: ', ''), 402);
@@ -68,7 +68,7 @@ export async function PATCH(
   if (body.action === 'publish') {
     try {
       const published = await publishBuild(build);
-      return json(published);
+      return json(toClientBuild(published));
     } catch (e) {
       const msg = (e as Error).message;
       if (msg.startsWith('BUILD_CAPPED:')) return error(msg.replace('BUILD_CAPPED: ', ''), 402);
@@ -90,5 +90,5 @@ export async function PATCH(
     if (wsId) patch.watchSourceId = wsId;
   }
   const updated = await updateBuild(buildId, patch);
-  return json(updated);
+  return json(updated ? toClientBuild(updated) : updated);
 }

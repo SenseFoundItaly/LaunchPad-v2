@@ -40,6 +40,9 @@ export interface MvpContext {
   currentIteration: number;
   pendingFeedback: string[];
   isDelta: boolean;
+  /** Active journey stage number (1-7) — shapes WHAT the brief asks for (#269).
+   *  null when the journey can't be evaluated (fail-open: full-MVP brief). */
+  activeStageNumber: number | null;
 }
 
 async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -71,7 +74,7 @@ export async function assembleMvpContext(projectId: string): Promise<MvpContext>
   );
   const ownerUserId = projRow?.owner_user_id ?? null;
 
-  const [snapshot, context, personasRow, assumptions, currentBuild, pendingFeedback] =
+  const [snapshot, context, personasRow, assumptions, currentBuild, pendingFeedback, activeStage] =
     await Promise.all([
       buildProjectSnapshot(projectId),
       safe(
@@ -93,6 +96,10 @@ export async function assembleMvpContext(projectId: string): Promise<MvpContext>
       ),
       safe(() => getCurrentBuild(projectId), undefined),
       safe(() => listPendingFeedback(projectId), []),
+      safe(async () => {
+        const { getActiveStage } = await import('@/lib/journey');
+        return getActiveStage(projectId);
+      }, null),
     ]);
 
   const personasArr = coerceJson<unknown[]>(personasRow?.personas) ?? [];
@@ -121,6 +128,7 @@ export async function assembleMvpContext(projectId: string): Promise<MvpContext>
     currentIteration: currentBuild?.iteration ?? 0,
     pendingFeedback: pendingFeedback.map((f) => f.body),
     isDelta: !!currentBuild,
+    activeStageNumber: activeStage?.stage?.number ?? null,
   };
 }
 
@@ -155,6 +163,29 @@ export function renderBuildBrief(ctx: MvpContext): string {
     .filter(Boolean)
     .slice(0, 3);
 
+  // Stage-aware brief (#269): the journey stage decides WHAT to build.
+  //   < 5 (validate era — only reachable if the stage gate is ever relaxed):
+  //     a demand-measuring smoke test, not the product.
+  //   5 (Build & Launch): the working MVP (default).
+  //   ≥ 6 (Fundraise/Operate): the MVP hardened for launch — analytics + email capture.
+  const stage = ctx.activeStageNumber;
+
+  if (stage !== null && stage < 5) {
+    const out: string[] = [
+      `Build a single, compelling landing page for "${name}" — a VALIDATION smoke test, not the full product.`,
+      '',
+      `What it promises: ${what}.`,
+    ];
+    if (users) out.push(`Target audience: ${users}.`);
+    if (pains.length) out.push(`Speak directly to these pain points: ${pains.join('; ')}.`);
+    out.push(
+      '',
+      'Must include: a sharp hero with the value proposition, a waitlist signup form (name + email) as the ONLY call to action, and a short "how it works" section.',
+      'Goal: measure demand. Design: clean, modern, mobile-responsive.',
+    );
+    return out.join('\n');
+  }
+
   const out: string[] = [`Build a modern, responsive web app called "${name}".`, '', `What it does: ${what}.`];
   if (users) out.push(`Target users: ${users}.`);
   if (ic?.value_proposition && ic.value_proposition.trim() !== what) out.push(`Value proposition: ${ic.value_proposition.trim()}.`);
@@ -165,6 +196,11 @@ export function renderBuildBrief(ctx: MvpContext): string {
     'Design: clean, modern, thoughtful UI, mobile-responsive.',
     'Ship a real, working first version — a usable MVP with real interactions and sensible sample data, not a static mockup.',
   );
+  if (stage !== null && stage >= 6) {
+    out.push(
+      'This app is heading to launch: include an email-capture path (newsletter or waitlist block) and lightweight client-side event hooks on the primary calls to action so engagement can be measured.',
+    );
+  }
   return out.join('\n');
 }
 

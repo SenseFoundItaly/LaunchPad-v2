@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
-import { listBuilds } from '@/lib/mvp/mvp-builds';
+import { listBuilds, toClientBuild } from '@/lib/mvp/mvp-builds';
 import { getActiveBuilder } from '@/lib/builders';
 import { startBuild, buildStageGate } from '@/lib/mvp/build-runner';
 
@@ -22,11 +22,12 @@ export async function GET(
   // Journey stage gate — the UI locks Generate until Build & Launch unlocks.
   const gate = await buildStageGate(projectId);
   return json({
-    builds,
+    // White-label defense-in-depth (#275): the payload never carries the vendor
+    // identity. builder/builder_ref/substrate are server-side concerns; the
+    // client only needs capabilities + render fields.
+    builds: builds.map(toClientBuild),
     build_gate: gate,
     active_builder: {
-      id: builder.id,
-      label: builder.label,
       supports_iteration: builder.supportsIteration,
       supports_async: !!builder.supportsAsync,
       supports_deploy: !!builder.deploy,
