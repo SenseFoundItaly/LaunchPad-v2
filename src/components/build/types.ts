@@ -28,6 +28,23 @@ export interface ActiveBuilder {
   supports_deploy?: boolean;
 }
 
+/** A deduped backlog item (mvp_build_issues) as rendered in the Build tab. */
+export interface BuildIssue {
+  id: string;
+  feature: string;
+  title: string;
+  severity: string | null;
+  status: string;
+  evidence_count: number;
+  shipped_in_iteration: number | null;
+}
+
+export interface BuildBacklog {
+  issues: BuildIssue[];
+  unclassified_pending: number;
+  open_proposal: { id: string; title: string } | null;
+}
+
 export interface BuildDiffShape {
   files?: { path: string; change: string }[];
   summary?: string;

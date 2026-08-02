@@ -56,7 +56,7 @@ export default function CurrentBuildCard({
         <span style={badge}>
           {t('build.iteration')} {build.iteration}
         </span>
-        <span style={statusBadge(build.status)}>{building ? t('build.building.title').replace('…', '') : build.status}</span>
+        <span style={statusBadge(build.status)}>{statusLabel(build.status, t)}</span>
         {/* White-label: never surface the underlying builder (v0/e2b/…) to the founder. */}
       </div>
 
@@ -115,6 +115,13 @@ export default function CurrentBuildCard({
         </a>
       )}
 
+      {diff?.summary && !diff?.files?.length ? (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 6 }}>{t('build.changes')}</div>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5 }}>{diff.summary}</p>
+        </div>
+      ) : null}
+
       {diff?.files?.length ? (
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 6 }}>{t('build.changes')}</div>
@@ -165,6 +172,18 @@ export default function CurrentBuildCard({
         </p>
       )}
 
+      {readOnly && failed && (
+        <p style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-4)' }}>
+          {t('build.retry.via-chat')}
+        </p>
+      )}
+
+      {readOnly && build.status === 'live' && !build.live_app_url && (activeBuilder?.supports_deploy ?? false) && (
+        <p style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-4)' }}>
+          {t('build.publish.via-chat')}
+        </p>
+      )}
+
       {/* Publish — deploy a shareable, hosted (white-label) version via the driver. */}
       {!readOnly && build.status === 'live' && !build.live_app_url && (activeBuilder?.supports_deploy ?? false) && (
         <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -210,6 +229,14 @@ const badge: React.CSSProperties = {
   color: 'var(--ink)',
   border: '1px solid var(--line)',
 };
+
+/** Translate the raw DB status — it used to render 'superseded'/'failed' in
+ *  English next to fully-translated labels. */
+function statusLabel(status: string, t: (k: never) => string): string {
+  const key = `build.status.${status}` as never;
+  const label = t(key);
+  return label === `build.status.${status}` ? status : label;
+}
 
 function statusBadge(status: string): React.CSSProperties {
   const live = status === 'live';

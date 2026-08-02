@@ -51,6 +51,13 @@ async function api(method, path, body) {
     const linked = await sql`SELECT count(*)::int AS n FROM mvp_build_feedback WHERE project_id = ${pid} AND issue_id IS NOT NULL`;
     ok('feedback linked to issues', linked[0].n >= 1, `${linked[0].n}/3 linked`);
 
+    // 1b. BACKLOG UI DATA — the founder-facing render of what the agent heard.
+    const bl = await api('GET', `/api/projects/${pid}/build-issues`);
+    const blData = bl.json?.data;
+    ok('backlog endpoint returns issues', bl.status === 200 && (blData?.issues?.length ?? 0) >= 1,
+       `${blData?.issues?.length ?? 0} issue(s), ${blData?.unclassified_pending ?? '?'} unsorted`);
+    ok('backlog groups by feature + carries evidence', (blData?.issues ?? []).every((i) => i.feature && typeof i.evidence_count === 'number'));
+
     // 2. PROPOSE — one cron tick fires the feature-grouped proposal.
     const cron = await fetch(`${BASE}/api/cron`, { headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` } });
     ok('cron tick', cron.status === 200, `status=${cron.status}`);
@@ -74,6 +81,11 @@ async function api(method, path, body) {
     ok('cluster issues marked shipped in v2', shipped[0].n >= 1, `${shipped[0].n} shipped`);
     const inc = await sql`SELECT count(*)::int AS n FROM mvp_build_feedback WHERE project_id = ${pid} AND incorporated_in_iteration = 2`;
     ok('feedback incorporated', inc[0].n >= 1, `${inc[0].n} rows`);
+
+    // 4b. BACKLOG reflects the ship + surfaces the proposal handoff.
+    const bl2 = await api('GET', `/api/projects/${pid}/build-issues`);
+    const shippedInBacklog = (bl2.json?.data?.issues ?? []).some((i) => i.shipped_in_iteration === 2);
+    ok('backlog shows the shipped item (progress is visible)', shippedInBacklog);
 
     // 5. METERING — the stub is FREE: no build.* cost rows may exist.
     const meter = await sql`SELECT count(*)::int AS n FROM llm_usage_logs WHERE project_id = ${pid} AND step LIKE 'build.iterate'`;

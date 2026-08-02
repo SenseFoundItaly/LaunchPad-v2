@@ -773,7 +773,10 @@ function TicketDetail({
 
       {action.rationale && (
         <SideSection title={t('actions.section-brief')}>
-          <div style={{ padding: 14, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+          {/* pre-wrap: rationales are authored multi-line (the build-iteration
+              proposal lists its changeset as bullets) — without this they
+              collapsed into a single run-on line. */}
+          <div style={{ padding: 14, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
             {action.rationale}
           </div>
         </SideSection>

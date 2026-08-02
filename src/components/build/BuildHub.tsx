@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import LaunchPanel from '@/components/launch/LaunchPanel';
 import { useT } from '@/components/providers/LocaleProvider';
-import type { ActiveBuilder, ClientBuild, ClientFeedback } from './types';
+import type { ActiveBuilder, BuildBacklog, ClientBuild, ClientFeedback } from './types';
 import CurrentBuildCard from './CurrentBuildCard';
 import IterationTimeline from './IterationTimeline';
 import BuildFeedback from './BuildFeedback';
+import BacklogPanel from './BacklogPanel';
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -30,20 +31,25 @@ export default function BuildHub({ projectId, embedded }: { projectId: string; e
   const [builds, setBuilds] = useState<ClientBuild[]>([]);
   const [feedback, setFeedback] = useState<ClientFeedback[]>([]);
   const [activeBuilder, setActiveBuilder] = useState<ActiveBuilder | null>(null);
+  const [backlog, setBacklog] = useState<BuildBacklog | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [buildsRes, fb] = await Promise.all([
+      const [buildsRes, fb, bl] = await Promise.all([
         api<{ builds: ClientBuild[]; active_builder: ActiveBuilder; build_gate?: { locked: boolean; active_stage_number: number | null; active_stage_label: string | null } }>(`/api/projects/${projectId}/builds`),
         api<ClientFeedback[]>(`/api/projects/${projectId}/build-feedback`),
+        // Backlog = the founder-facing render of what the co-pilot heard
+        // (features → deduped issues → evidence) + any waiting proposal.
+        api<BuildBacklog>(`/api/projects/${projectId}/build-issues`).catch(() => null),
       ]);
       setBuilds(buildsRes.builds);
       setActiveBuilder(buildsRes.active_builder);
       setGate(buildsRes.build_gate ?? null);
       setFeedback(fb);
+      setBacklog(bl);
       setErr(null);
     } catch (e) {
       setErr((e as Error).message);
@@ -251,6 +257,14 @@ export default function BuildHub({ projectId, embedded }: { projectId: string; e
             readOnly={embedded}
           />
           {!embedded && <BuildFeedback feedback={feedback} busy={busy} onAdd={addFeedback} />}
+          {backlog && (
+            <BacklogPanel
+              issues={backlog.issues}
+              unclassifiedPending={backlog.unclassified_pending}
+              openProposal={backlog.open_proposal}
+              projectId={projectId}
+            />
+          )}
           <IterationTimeline builds={builds} />
         </>
       )}

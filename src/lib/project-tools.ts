@@ -3181,6 +3181,73 @@ const recordBuildFeedbackTool = (ctx: ToolContext): AgentTool => ({
   },
 });
 
+const publishMvpBuildTool = (ctx: ToolContext): AgentTool => ({
+  name: 'publish_mvp_build',
+  label: 'Publish MVP Build',
+  description:
+    'Deploy the current live MVP to a shareable, hosted URL the founder can send to real users — the white-label "make it public" step. Use when the founder asks to publish / share / put the MVP live ("can I share this?", "publish it", "give me a link"). The preview in the Build tab is internal-only; THIS creates the public link and starts monitoring it. Only works once a build is live.',
+  parameters: Type.Object({}),
+  async execute(): Promise<AgentToolResult<unknown>> {
+    try {
+      const { getLatestLiveBuild } = await import('@/lib/mvp/mvp-builds');
+      const { publishBuild } = await import('@/lib/mvp/build-runner');
+      const build = await getLatestLiveBuild(ctx.projectId);
+      if (!build) {
+        return { content: [{ type: 'text', text: 'No live build to publish yet — the MVP has to finish building first.' }], details: { error: 'no_build' } };
+      }
+      if (build.live_app_url) {
+        return { content: [{ type: 'text', text: `Already published — the live app is at ${build.live_app_url}. It also appears in the Build tab.` }], details: { live_app_url: build.live_app_url } };
+      }
+      const published = await publishBuild(build);
+      return {
+        content: [{ type: 'text', text: `Published! The MVP is live at ${published.live_app_url}. It's now monitored, so changes there feed the next iteration. The link is in the Build tab too.` }],
+        details: { live_app_url: published.live_app_url },
+      };
+    } catch (err) {
+      const msg = (err as Error).message;
+      return {
+        content: [{ type: 'text', text: msg.startsWith('BUILD_CAPPED:')
+          ? `Publishing is paused: ${msg.replace('BUILD_CAPPED: ', '')}`
+          : `Could not publish the build: ${msg}` }],
+        details: { error: true },
+      };
+    }
+  },
+});
+
+const setLiveAppUrlTool = (ctx: ToolContext): AgentTool => ({
+  name: 'set_live_app_url',
+  label: 'Set Live App URL',
+  description:
+    'Record the URL where the founder\'s MVP is publicly running when they deployed it THEMSELVES (outside LaunchPad) — "it\'s live at myapp.com", "I deployed it to Vercel, here\'s the link". Registers the URL for change monitoring so what happens there feeds the next iteration. Use publish_mvp_build instead when they want US to deploy it.',
+  parameters: Type.Object({
+    url: Type.String({ description: 'The full public URL of the live app (https://…).' }),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as { url?: string };
+    const url = (p.url ?? '').trim();
+    if (!/^https?:\/\//i.test(url)) {
+      return { content: [{ type: 'text', text: 'set_live_app_url needs a full URL starting with http(s)://.' }], details: { error: 'bad_url' } };
+    }
+    try {
+      const { getLatestLiveBuild, updateBuild } = await import('@/lib/mvp/mvp-builds');
+      const { ensureLiveAppWatch } = await import('@/lib/mvp/live-app-watch');
+      const build = await getLatestLiveBuild(ctx.projectId);
+      if (!build) {
+        return { content: [{ type: 'text', text: 'No live build to attach that URL to yet.' }], details: { error: 'no_build' } };
+      }
+      const wsId = await ensureLiveAppWatch(ctx.projectId, url).catch(() => null);
+      await updateBuild(build.id, { liveAppUrl: url, ...(wsId ? { watchSourceId: wsId } : {}) });
+      return {
+        content: [{ type: 'text', text: `Recorded ${url} as the live app${wsId ? ' and started monitoring it — changes there will feed the next iteration' : ''}. It now shows in the Build tab.` }],
+        details: { live_app_url: url, monitored: !!wsId },
+      };
+    } catch (err) {
+      return { content: [{ type: 'text', text: `Could not record the live URL: ${(err as Error).message}` }], details: { error: true } };
+    }
+  },
+});
+
 const logFundraisingTool = (ctx: ToolContext): AgentTool => ({
   name: 'log_fundraising',
   label: 'Log Fundraising',
@@ -3306,5 +3373,7 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     startMvpBuildTool(ctx),
     iterateMvpBuildTool(ctx),
     recordBuildFeedbackTool(ctx),
+    publishMvpBuildTool(ctx),
+    setLiveAppUrlTool(ctx),
   ];
 }
