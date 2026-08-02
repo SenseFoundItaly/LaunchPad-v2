@@ -171,11 +171,27 @@ function extractJson(text: string): Record<string, unknown> | null {
   }
 }
 
-async function classify(
-  projectId: string,
+export interface ClassifyVerdict {
+  matchId?: string;
+  feature?: string;
+  title?: string;
+  severity?: string;
+}
+
+/** Minimal issue shape the classifier needs (eval fixtures supply just this). */
+export type ClassifiableIssue = Pick<MvpBuildIssue, 'id' | 'feature' | 'title'>;
+
+/**
+ * The match-or-spawn decision, isolated from persistence so it can be scored
+ * offline against a golden set (`build-issues.eval.test.ts`). `projectId` is
+ * optional: omit it to skip cost metering (evals must not write usage rows for
+ * a project that doesn't exist).
+ */
+export async function classifyFeedback(
   body: string,
-  openIssues: MvpBuildIssue[],
-): Promise<{ matchId?: string; feature?: string; title?: string; severity?: string }> {
+  openIssues: ClassifiableIssue[],
+  opts?: { projectId?: string },
+): Promise<ClassifyVerdict> {
   const issueList = openIssues
     .slice(0, 30)
     .map((i) => `- id=${i.id} [${i.feature}] ${i.title}`)
@@ -186,7 +202,7 @@ async function classify(
       systemPrompt:
         'You triage product feedback into a deduplicated issue backlog. Be conservative about matching: only match when the underlying request is the same, not merely the same area.',
       tools: false,
-      projectId,
+      ...(opts?.projectId ? { projectId: opts.projectId } : {}),
       step: 'build.feedback-classify',
       task: 'signal-classify',
       timeout: 20_000,
@@ -216,7 +232,7 @@ export async function ingestFeedback(
   const feedback = await addFeedback(input);
   try {
     const open = await listOpenIssues(input.projectId);
-    const verdict = await classify(input.projectId, input.body, open);
+    const verdict = await classifyFeedback(input.body, open, { projectId: input.projectId });
     if (verdict.matchId) {
       const issue =
         open.find((i) => i.id === verdict.matchId) ??
