@@ -13,6 +13,7 @@
  */
 
 import { useT } from '@/components/providers/LocaleProvider';
+import { Panel, Pill } from '@/components/design/primitives';
 import type { BuildIssue } from './types';
 
 export default function BacklogPanel({
@@ -38,10 +39,8 @@ export default function BacklogPanel({
   const nothingYet = open.length === 0 && shipped.length === 0 && unclassifiedPending === 0;
 
   return (
-    <section style={card}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 12 }}>
-        {t('build.backlog.title')}
-      </div>
+    <Panel title={t('build.backlog.title')} style={{ marginTop: 18 }}>
+      <div style={{ padding: 16 }}>
 
       {/* A decision is waiting — the Build tab is where the founder is looking,
           so the handoff to the Inbox lives here (was: no cross-surface link). */}
@@ -67,7 +66,7 @@ export default function BacklogPanel({
                 {list.map((i) => (
                   <li key={i.id} style={row}>
                     <span style={{ fontSize: 12.5, color: 'var(--ink-2)', flex: 1, minWidth: 0 }}>{i.title}</span>
-                    {i.severity === 'high' && <span style={sevPill}>{t('build.backlog.high')}</span>}
+                    {i.severity === 'high' && <Pill kind="warn" dot>{t('build.backlog.high')}</Pill>}
                     {i.evidence_count > 1 && (
                       <span style={{ fontSize: 11, color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>
                         {t('build.backlog.evidence', { count: i.evidence_count })}
@@ -102,17 +101,10 @@ export default function BacklogPanel({
           )}
         </>
       )}
-    </section>
+      </div>
+    </Panel>
   );
 }
-
-const card: React.CSSProperties = {
-  border: '1px solid var(--line)',
-  borderRadius: 12,
-  padding: 18,
-  background: 'var(--paper-2)',
-  marginTop: 18,
-};
 
 const proposalBanner: React.CSSProperties = {
   display: 'flex',
@@ -140,15 +132,4 @@ const row: React.CSSProperties = {
   alignItems: 'center',
   gap: 8,
   padding: '3px 0',
-};
-
-const sevPill: React.CSSProperties = {
-  fontSize: 10,
-  textTransform: 'uppercase',
-  letterSpacing: 0.4,
-  padding: '1px 6px',
-  borderRadius: 999,
-  border: '1px solid var(--line)',
-  color: 'var(--cat-rose, #d98a95)',
-  whiteSpace: 'nowrap',
 };

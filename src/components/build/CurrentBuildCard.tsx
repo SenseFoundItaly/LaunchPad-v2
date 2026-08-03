@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useT } from '@/components/providers/LocaleProvider';
+import { Panel, Pill } from '@/components/design/primitives';
 import type { ActiveBuilder, BuildDiffShape, ClientBuild } from './types';
 import { primaryBtn, secondaryBtn } from './BuildHub';
 
@@ -51,15 +52,14 @@ export default function CurrentBuildCard({
   useEffect(() => setFrameErr(false), [build.preview_url]);
 
   return (
-    <section style={card}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-        <span style={badge}>
-          {t('build.iteration')} {build.iteration}
-        </span>
-        <span style={statusBadge(build.status)}>{statusLabel(build.status, t)}</span>
-        {/* White-label: never surface the underlying builder (v0/e2b/…) to the founder. */}
-      </div>
-
+    // White-label: the header carries iteration + status only — never the
+    // underlying builder (v0/e2b/…).
+    <Panel
+      title={`${t('build.iteration')} ${build.iteration}`}
+      right={<Pill kind={statusPill(build.status)} dot>{statusLabel(build.status, t)}</Pill>}
+      style={{ marginBottom: 18 }}
+    >
+      <div style={{ padding: 16 }}>
       <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--ink-4)' }}>{t('build.preview')}</div>
 
       {building && !build.preview_url ? (
@@ -208,27 +208,10 @@ export default function CurrentBuildCard({
           </button>
         </div>
       )}
-    </section>
+      </div>
+    </Panel>
   );
 }
-
-const card: React.CSSProperties = {
-  border: '1px solid var(--line)',
-  borderRadius: 12,
-  padding: 18,
-  background: 'var(--paper-2)',
-  marginBottom: 18,
-};
-
-const badge: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 600,
-  padding: '3px 10px',
-  borderRadius: 6,
-  background: 'var(--surface, rgba(255,255,255,0.05))',
-  color: 'var(--ink)',
-  border: '1px solid var(--line)',
-};
 
 /** Translate the raw DB status — it used to render 'superseded'/'failed' in
  *  English next to fully-translated labels. */
@@ -238,19 +221,12 @@ function statusLabel(status: string, t: (k: never) => string): string {
   return label === `build.status.${status}` ? status : label;
 }
 
-function statusBadge(status: string): React.CSSProperties {
-  const live = status === 'live';
-  const failed = status === 'failed';
-  return {
-    fontSize: 11,
-    padding: '2px 8px',
-    borderRadius: 999,
-    background: 'transparent',
-    border: '1px solid var(--line)',
-    color: live ? 'var(--moss, #6bbf7b)' : failed ? 'var(--cat-rose, #d98a95)' : 'var(--ink-4)',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  };
+/** Build status → house Pill kind (hue lives in the dot, per the design system). */
+function statusPill(status: string): 'ok' | 'warn' | 'info' | 'n' {
+  if (status === 'live') return 'ok';
+  if (status === 'failed') return 'warn';
+  if (status === 'building') return 'info';
+  return 'n';
 }
 
 const iframeStyle: React.CSSProperties = {

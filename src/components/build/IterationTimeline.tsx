@@ -1,6 +1,7 @@
 'use client';
 
 import { useT } from '@/components/providers/LocaleProvider';
+import { Panel } from '@/components/design/primitives';
 import type { ClientBuild } from './types';
 
 /**
@@ -15,10 +16,8 @@ export default function IterationTimeline({ builds }: { builds: ClientBuild[] })
   const chronological = [...builds].reverse(); // API returns DESC; a thread reads oldest→newest
 
   return (
-    <section style={card}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 12 }}>
-        {t('build.thread.title')}
-      </div>
+    <Panel title={t('build.thread.title')} style={{ marginTop: 18 }}>
+      <div style={{ padding: 16 }}>
       <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {chronological.map((b) => {
           const label = b.iteration === 1 ? t('build.thread.initial') : b.spec_prompt?.trim() || `#${b.iteration}`;
@@ -40,17 +39,10 @@ export default function IterationTimeline({ builds }: { builds: ClientBuild[] })
           );
         })}
       </ol>
-    </section>
+      </div>
+    </Panel>
   );
 }
-
-const card: React.CSSProperties = {
-  border: '1px solid var(--line)',
-  borderRadius: 12,
-  padding: 18,
-  background: 'var(--paper-2)',
-  marginTop: 18,
-};
 
 const turn: React.CSSProperties = {
   display: 'flex',
