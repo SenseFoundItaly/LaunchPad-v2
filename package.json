@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "eval:chat-contract": "EVAL_CHAT_CONTRACT=1 vitest run src/lib/chat-contract.eval.test.ts",
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
