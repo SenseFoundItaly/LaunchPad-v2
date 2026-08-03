@@ -13,6 +13,7 @@
     "backfill:default-user": "node scripts/backfill-default-user.cjs",
     "db:migrate": "npx tsx db/migrate.ts",
     "eval:classifier": "EVAL_CLASSIFIER=1 vitest run src/lib/mvp/build-issues.eval.test.ts",
+    "eval:chat-contract": "EVAL_CHAT_CONTRACT=1 vitest run src/lib/chat-contract.eval.test.ts",
     "e2e:agent-flow": "node scripts/e2e-agent-flow.mjs",
     "deploy": "bash scripts/deploy.sh",
     "deploy:preview": "bash scripts/deploy.sh --preview",
