@@ -265,7 +265,7 @@ export default function BuildHub({ projectId, embedded }: { projectId: string; e
               projectId={projectId}
             />
           )}
-          <IterationTimeline builds={builds} />
+          <IterationTimeline builds={builds} projectId={projectId} />
         </>
       )}
       </>

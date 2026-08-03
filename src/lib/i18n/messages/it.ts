@@ -67,6 +67,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'adpack.export-google': 'CSV per Google Ads Editor',
   'adpack.export-meta': 'JSON bulk per Meta',
   'build.liveApp.open': "Apri l'app live",
+  'build.thread.changed': '{count} file modificati',
   'build.backlog.title': 'Backlog di prodotto',
   'build.backlog.empty': 'Ancora nulla in coda — di\u2019 al co-pilot cosa migliorare e comparir\u00e0 qui.',
   'build.backlog.evidence': '{count} segnali',

@@ -73,6 +73,7 @@ export const en = {
   'adpack.export-google': 'Google Ads Editor CSV',
   'adpack.export-meta': 'Meta bulk JSON',
   'build.liveApp.open': 'Open live app',
+  'build.thread.changed': '{count} file(s) changed',
   'build.backlog.title': 'Product backlog',
   'build.backlog.empty': 'Nothing queued yet — tell the co-pilot what to improve and it lands here.',
   'build.backlog.evidence': '{count} signals',

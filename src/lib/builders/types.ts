@@ -61,6 +61,16 @@ export interface BuildResult {
    *  deploy — chat must be CREATED inside it). Persisted on the build so deploy()
    *  can reference it. */
   projectRef?: string;
+  /** PERSISTENT visual snapshot of this version (v0 exposes one per version).
+   *  Unlike previewUrl — whose token expires — this survives, which is what
+   *  makes version-over-version comparison possible. Usually an authenticated
+   *  vendor URL, so it is proxied through our own origin before the founder
+   *  ever sees it (white-label + no key exposure). */
+  screenshotUrl?: string;
+  /** name → content hash for this version's files. Diffing consecutive
+   *  snapshots yields a real "what changed" list for drivers (like v0) that
+   *  don't return a diff. Hashes only — contents would bloat the row. */
+  fileHashes?: Record<string, string>;
 }
 
 export interface BuilderAdapter {

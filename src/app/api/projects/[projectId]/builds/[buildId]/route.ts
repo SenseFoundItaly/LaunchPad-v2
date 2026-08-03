@@ -11,7 +11,7 @@ import { ensureLiveAppWatch } from '@/lib/mvp/live-app-watch';
  * build's (expiring) preview URL fresh. The client polls this while status='building'.
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ projectId: string; buildId: string }> },
 ) {
   const { projectId, buildId } = await params;
@@ -20,6 +20,33 @@ export async function GET(
 
   const build = await getBuild(buildId);
   if (!build || build.project_id !== projectId) return error('Build not found', 404);
+
+  // ?screenshot=1 — WHITE-LABEL IMAGE PROXY for this version's snapshot.
+  // v0's screenshotUrl is an AUTHENTICATED api.v0.dev url: it cannot go in an
+  // <img src> (the browser has no key) and shipping it would leak both the key
+  // and the vendor origin. So we fetch it server-side and stream the bytes from
+  // OUR domain. Deliberately a query param, NOT a /screenshot sub-path —
+  // OpenNext 404s a static leaf after two dynamic segments (documented footgun).
+  if (request.nextUrl.searchParams.get('screenshot') === '1') {
+    const shot = ((build.metadata ?? {}) as Record<string, unknown>).screenshotUrl as string | undefined;
+    if (!shot) return error('No screenshot for this version', 404);
+    try {
+      const upstream = await fetch(shot, {
+        headers: process.env.V0_API_KEY ? { Authorization: `Bearer ${process.env.V0_API_KEY}` } : {},
+      });
+      if (!upstream.ok || !upstream.body) return error('Screenshot unavailable', 502);
+      return new Response(upstream.body, {
+        headers: {
+          'Content-Type': upstream.headers.get('content-type') ?? 'image/png',
+          // Immutable: a version's screenshot never changes once it exists.
+          'Cache-Control': 'private, max-age=86400, immutable',
+        },
+      });
+    } catch (e) {
+      return error(`Screenshot fetch failed: ${(e as Error).message}`, 502);
+    }
+  }
+
   const refreshed = await refreshBuild(build);
   return json(toClientBuild(refreshed));
 }

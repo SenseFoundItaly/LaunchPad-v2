@@ -19,6 +19,7 @@ import type { BuilderAdapter, BuilderId } from '@/lib/builders/types';
 import { isProjectCapped } from '@/lib/cost-meter';
 import { meterDriverOp } from './build-costs';
 import { markIssuesShipped } from './build-issues';
+import { diffFileHashes } from './build-diff';
 import {
   type MvpBuild,
   createBuild,
@@ -277,11 +278,31 @@ export async function refreshBuild(build: MvpBuild): Promise<MvpBuild> {
     }
     return build;
   }
+  // Version-over-version change list (#349): drivers like v0 report no diff,
+  // so derive one from the file fingerprints of this version vs its parent.
+  let derivedDiff = md.diff as Record<string, unknown> | undefined;
+  if (done && res.fileHashes) {
+    const parent = build.parent_build_id ? await getBuild(build.parent_build_id) : undefined;
+    const prevHashes = ((parent?.metadata ?? {}) as Record<string, unknown>).fileHashes as
+      | Record<string, string>
+      | undefined;
+    const files = diffFileHashes(prevHashes, res.fileHashes);
+    if (files.length) derivedDiff = { ...(derivedDiff ?? {}), files };
+  }
+
   const updated = await updateBuild(build.id, {
     status: failed ? 'failed' : 'live',
     previewUrl: res.previewUrl ?? build.preview_url,
     liveAppUrl: res.liveUrl ?? build.live_app_url,
-    metadata: { ...md, versionRef: res.versionRef ?? md.versionRef ?? null },
+    metadata: {
+      ...md,
+      versionRef: res.versionRef ?? md.versionRef ?? null,
+      // Persistent per-version snapshot — survives the expiring preview token,
+      // which is what makes the iteration history visual.
+      screenshotUrl: res.screenshotUrl ?? md.screenshotUrl ?? null,
+      fileHashes: res.fileHashes ?? md.fileHashes ?? null,
+      ...(derivedDiff ? { diff: derivedDiff } : {}),
+    },
   });
   if (done) {
     await supersedeOtherBuilds(build.project_id, build.id);

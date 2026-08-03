@@ -23,7 +23,30 @@ function client() {
 interface ChatLike {
   id: string;
   webUrl?: string;
-  latestVersion?: { id?: string; status?: string; demoUrl?: string };
+  latestVersion?: {
+    id?: string;
+    status?: string;
+    demoUrl?: string;
+    screenshotUrl?: string;
+    files?: Array<{ name?: string; content?: string }>;
+  };
+}
+
+/** djb2 — cheap, stable content fingerprint (we never store file contents). */
+function hashContent(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+function fileHashesOf(chat: ChatLike): Record<string, string> | undefined {
+  const files = chat.latestVersion?.files;
+  if (!Array.isArray(files) || files.length === 0) return undefined;
+  const out: Record<string, string> = {};
+  for (const f of files) {
+    if (typeof f?.name === 'string') out[f.name] = hashContent(typeof f.content === 'string' ? f.content : '');
+  }
+  return out;
 }
 
 function toResult(chat: ChatLike): BuildResult {
@@ -36,6 +59,8 @@ function toResult(chat: ChatLike): BuildResult {
     // A white-label live URL only exists after deploy() (POST /v1/deployments).
     liveUrl: undefined,
     versionRef: chat.latestVersion?.id,
+    screenshotUrl: chat.latestVersion?.screenshotUrl,
+    fileHashes: fileHashesOf(chat),
     status: status === 'failed' ? 'failed' : status === 'completed' ? 'live' : 'building',
   };
 }

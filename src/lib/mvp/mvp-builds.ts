@@ -54,6 +54,9 @@ export function toClientBuild(b: MvpBuild): Omit<MvpBuild, 'builder' | 'builder_
       ...(md.diff !== undefined ? { diff: md.diff } : {}),
       ...(md.error !== undefined ? { error: md.error } : {}),
       ...(md.logs !== undefined ? { logs: md.logs } : {}),
+      // Boolean only — the real screenshot URL is an authenticated VENDOR url;
+      // the client asks our own origin for the image instead (white-label).
+      ...(md.screenshotUrl ? { has_screenshot: true } : {}),
     },
   };
 }
