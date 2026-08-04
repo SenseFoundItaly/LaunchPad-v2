@@ -187,3 +187,63 @@ describe('B3 — level 4 matches the Business Essentials phase (persona + busine
     expect(computeIRL(e).level).toBe(4);
   });
 });
+
+
+// ── #296 — the high-water floor ──────────────────────────────────────────────
+//
+// Founder spec (2026-07-23): "l'IRL non regredisce. Potrebbe scendere solo in
+// caso di pivot pesante." The shipped ladder did the OPPOSITE — it recomputed
+// from scratch every read, so a project slid 4 -> 2 on any signal dip with no
+// pivot involved. These lock the corrected behaviour.
+
+describe('#296 — IRL does not regress without a pivot', () => {
+  /** Everything for level 4. */
+  const atFour = (over: Partial<IrlEvidence> = {}) => ({
+    ...ev({
+      stagesDone: ['idea_validation', 'persona', 'business_model'],
+      score: 70, tracks: ['1A', '1B', '1C'], wtpRate: 0.6, ltvCacRatio: 5,
+    }),
+    ...over,
+  });
+
+  it('a signal dip does NOT lower the number when a floor is held', () => {
+    // WTP collapses below the bar: level-3's gate fails, so live evidence is 2.
+    const dipped = { ...atFour(), wtpRate: 0.1 };
+    expect(computeIRL(dipped).level).toBe(2);                    // no floor: falls
+    const held = computeIRL(dipped, { level: 4 });
+    expect(held.level).toBe(4);                                  // floor: holds
+    expect(held.earned).toBe(2);                                 // …but honestly
+    expect(held.regressed).toBe(true);
+  });
+
+  it('reports the LIVE next step while regressed, not the one after the floor', () => {
+    // Told what to RESTORE (level 3's gate), never what comes after a level the
+    // evidence no longer supports.
+    const held = computeIRL({ ...atFour(), wtpRate: 0.1 }, { level: 4 });
+    expect(held.nextKey).toBe('gate_c_loop1');
+  });
+
+  it('a floor never invents a level the founder out-earns', () => {
+    const strong = computeIRL(atFour(), { level: 2 });
+    expect(strong.level).toBe(4);
+    expect(strong.earned).toBe(4);
+    expect(strong.regressed).toBe(false);
+  });
+
+  it('no floor / null floor behaves exactly as before (opt-in)', () => {
+    expect(computeIRL(atFour()).level).toBe(4);
+    expect(computeIRL(atFour(), { level: null }).level).toBe(4);
+    expect(computeIRL(atFour(), { level: 0 }).level).toBe(4);
+  });
+
+  it('clearing the floor (a PIVOT) lets the index fall to live evidence', () => {
+    const dipped = { ...atFour(), wtpRate: 0.1 };
+    expect(computeIRL(dipped, { level: 4 }).level).toBe(4);   // before the pivot
+    expect(computeIRL(dipped, { level: null }).level).toBe(2); // after
+  });
+
+  it('regressed is false when evidence merely EQUALS the floor', () => {
+    const r = computeIRL(atFour(), { level: 4 });
+    expect(r.regressed).toBe(false);
+  });
+});

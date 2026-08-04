@@ -6,6 +6,7 @@ import { buildProjectSnapshot } from '@/lib/journey/snapshot';
 import { shouldProposeGateVerdict } from '@/lib/journey/stage-2-market-validation';
 import { triggerLoop1Manual } from '@/lib/loops/loop1-psf';
 import { recordEvent } from '@/lib/memory/events';
+import { clearIrlFloor } from '@/lib/irl/floor';
 
 /**
  * POST /api/projects/{projectId}/gate-verdict
@@ -91,6 +92,12 @@ export async function POST(
     scope,
     projectId,
   );
+
+  // #296 — a PIVOT is the founder declaring the work must be redone, which is
+  // the ONLY thing that lets the IRL index fall back to live evidence. GO and
+  // STOP leave the floor alone: STOP is "I'm not continuing", not "what I
+  // proved was wrong".
+  if (verdict === 'PIVOT') await clearIrlFloor(projectId);
 
   const ownerRow = (await query<{ owner_user_id: string | null }>(
     'SELECT owner_user_id FROM projects WHERE id = ?', projectId,

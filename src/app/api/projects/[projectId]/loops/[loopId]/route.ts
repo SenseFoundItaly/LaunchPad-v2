@@ -3,6 +3,7 @@ import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { recordLoop1Verdict, overrideLoop1 } from '@/lib/loops/loop1-psf';
 import { recordLoopVerdict, overrideLoop, loopNumberFor } from '@/lib/loops/loop-core';
+import { clearIrlFloor } from '@/lib/irl/floor';
 
 /**
  * POST /api/projects/{projectId}/loops/{loopId}
@@ -38,6 +39,12 @@ export async function POST(
     const recorded = loopNumber === 1
       ? await recordLoop1Verdict(projectId, loopId, auth.session.userId, v)
       : await recordLoopVerdict(projectId, loopId, auth.session.userId, v);
+    // #296 — same rule as the gate: a PIVOT at the escalation cap is the
+    // founder saying this has to be redone, so the IRL floor is released and
+    // the index re-accumulates from live evidence. Keyed off the RECORDED
+    // verdict (recordLoop*Verdict is idempotent) so a re-submit on a reloaded
+    // card can never clear the floor a second time with a different answer.
+    if (recorded === 'PIVOT') await clearIrlFloor(projectId);
     return json({ loop_id: loopId, verdict: recorded });
   }
 

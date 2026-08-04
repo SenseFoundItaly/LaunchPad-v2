@@ -5,6 +5,7 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
 import { evaluateAllStages } from '@/lib/journey';
 import { computeIRL, type IrlEvidence } from '@/lib/irl/ladder';
+import { readIrlFloor, raiseIrlFloor } from '@/lib/irl/floor';
 import type { StageId } from '@/lib/journey/types';
 
 // The Loop-1 interview floor, inlined so the ladder stays decoupled from the
@@ -17,8 +18,13 @@ const IRL_MIN_INTERVIEWS = 5;
  *
  * The Investment Readiness Level as a 1-9 evidence-gated ladder (see
  * src/lib/irl/ladder.ts). Builds the project snapshot ONCE, derives the flat
- * evidence, and returns the computed level. Read-only: the ladder writes
- * nothing and is recomputed every call (no stored high-water-mark).
+ * evidence, and returns the level.
+ *
+ * The ladder itself is pure and recomputed every call, but the RESULT is
+ * floored by a stored high-water mark (#296) — IRL is a milestone, not a live
+ * gauge. `earned` is what today's evidence supports; `level` is what the
+ * founder sees; `regressed` says the two disagree. Only a PIVOT clears the
+ * floor (src/lib/irl/floor.ts).
  *
  * Levels 5-9 depend on metric feeds (Loops 3-4) and add-on modules that aren't
  * built yet, so their gates can't pass and the ladder caps where the built
@@ -80,13 +86,28 @@ export async function GET(
     addOns: new Set<string>(),
   };
 
-  const irl = computeIRL(evidence);
+  // High-water floor (#296): IRL is a milestone, not a live gauge, so a dip in
+  // one signal must not un-earn a level. Only a PIVOT clears the floor — see
+  // src/lib/irl/floor.ts.
+  const floor = await readIrlFloor(projectId);
+  const irl = computeIRL(evidence, floor);
+
+  // Persist upward on read. A GET that writes is unusual, but this is a
+  // monotonic GREATEST update (idempotent, concurrency-safe) and the
+  // alternative is duplicating the raise into every writer that could move the
+  // ladder — the "one write path" rule the gate checks already taught us.
+  if (irl.earned > (floor.level ?? 0)) {
+    await raiseIrlFloor(projectId, irl.earned);
+  }
+
   const active = evals.find((e) => e.status === 'active');
 
   return json({
     level: irl.level,
     of: irl.of,
     next_key: irl.nextKey,
+    earned: irl.earned,
+    regressed: irl.regressed,
     current_stage_id: active?.stage.id ?? null,
     current_stage_label: active?.stage.label ?? null,
   });
