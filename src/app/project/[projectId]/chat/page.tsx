@@ -30,6 +30,7 @@ import { splitOptionLabel } from '@/components/chat/option-label';
 import { IdeaShapingQuickReplies } from '@/components/chat/IdeaShapingQuickReplies';
 import { parseMessageContent, normalizeCanvasJsonFences } from '@/lib/artifact-parser';
 import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
+import { pickCanvasCommitFields } from '@/lib/canvas-commit';
 import type { Artifact, ArtifactType, Department, ValidationProposalArtifact } from '@/types/artifacts';
 import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
 import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard';
@@ -1399,12 +1400,13 @@ export default function CopilotChatPage({
         //                    credit debit, reusing applyValidationProposal)
         // Then forward a normal turn so the agent continues; the evidence is
         // already written, so any "committed" it then says is TRUE.
-        const CANVAS_FIELD_KEYS = ['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage', 'channels'];
         const raw = (payload.canvas && typeof payload.canvas === 'object') ? payload.canvas as Record<string, unknown> : {};
-        const fields: Record<string, string> = {};
-        for (const k of CANVAS_FIELD_KEYS) {
-          const v = raw[k];
-          if (typeof v === 'string' && v.trim()) fields[k] = v.trim();
+        const fields = pickCanvasCommitFields(raw);
+        // If the payload carried canvas keys but NONE survived the picker, the
+        // commit would write nothing while the follow-up turn narrates success
+        // (the dropped costs/revenues class) — fail into the retry state instead.
+        if (Object.keys(raw).length > 0 && Object.keys(fields).length === 0) {
+          throw new Error('Canvas commit carried no persistable fields');
         }
         if (Object.keys(fields).length > 0) {
           const res = await fetch(`/api/projects/${projectId}/idea-canvas`, {
@@ -2371,7 +2373,7 @@ function InlineOption({
   onUnchoose,
   onAction,
 }: {
-  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; gate_verdict?: 'GO' | 'PIVOT' | 'STOP'; gate_scope?: '1A' | '1B' | '1C'; commit?: { canvas?: Record<string, string>; items?: Array<Record<string, unknown>> } };
+  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; gate_verdict?: 'GO' | 'PIVOT' | 'STOP'; gate_scope?: '1A' | '1B' | '1C'; commit?: { canvas?: Record<string, string | string[]>; items?: Array<Record<string, unknown>> } };
   index: number;
   /** The whole option-set is locked (a choice was made, or a response is streaming). */
   setLocked?: boolean;

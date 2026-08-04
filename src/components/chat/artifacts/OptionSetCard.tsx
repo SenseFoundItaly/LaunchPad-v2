@@ -54,6 +54,11 @@ function OptionButton({
 }) {
   const t = useT();
   const isSkill = typeof option.skill_id === 'string' && option.skill_id.length > 0;
+  const commit = option.commit;
+  const hasCommit = !!commit && (
+    (!!commit.canvas && Object.keys(commit.canvas).length > 0) ||
+    (Array.isArray(commit.items) && commit.items.length > 0)
+  );
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [expanded, setExpanded] = useState(false);
 
@@ -119,6 +124,29 @@ function OptionButton({
       }
       return;
     }
+    // Structured commit (canvas fields and/or paid items): the click PERSISTS
+    // the evidence via the page-level commit:apply handler — same contract as
+    // the inline chat renderer (both renderers MUST handle every option field,
+    // or the option silently degrades to a narrated-but-never-performed commit).
+    if (hasCommit && commit) {
+      if (state === 'running' || state === 'done') return;
+      setState('running');
+      try {
+        // AWAIT the write: it throws on a failed /idea-canvas or
+        // /validation/commit response, so a failure shows the error line
+        // instead of a false done state.
+        await onAction('commit:apply', {
+          canvas: commit.canvas ?? {},
+          items: commit.items ?? [],
+          label: split.full,
+          description: option.description ?? '',
+        });
+        setState('done');
+      } catch {
+        setState('error');
+      }
+      return;
+    }
     // Normal option: forward label + DESCRIPTION (its stated intent) so the agent
     // EXECUTES the option rather than re-reasoning a bare label (which made
     // "Use Example A — Legal radar" get misread as a competitor watcher).
@@ -129,7 +157,7 @@ function OptionButton({
     <button
       type="button"
       title={split.full}
-      disabled={isSkill && (state === 'running' || state === 'done')}
+      disabled={(isSkill || hasCommit) && (state === 'running' || state === 'done')}
       onClick={handleClick}
       className="text-left min-w-0 bg-paper-2/50 border border-line-2 rounded-lg p-3 transition-all duration-200 hover:border-moss hover:bg-paper-2 focus:outline-none focus:ring-2 focus:ring-moss/40 disabled:opacity-60 disabled:cursor-default"
     >

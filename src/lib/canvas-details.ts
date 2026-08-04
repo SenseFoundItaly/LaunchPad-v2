@@ -8,6 +8,9 @@ import { run } from '@/lib/db';
  * emits in the idea-canvas artifact. Before this they rendered once in the chat
  * card and were dropped; now they persist directly (ungated) so the full Lean
  * Canvas survives a refresh and is queryable.
+ *
+ * The three list fields accept string | string[]: a string is newline-split
+ * into items (single line → one-element array).
  */
 export interface CanvasDetailsInput {
   unfair_advantage?: unknown;
@@ -28,8 +31,15 @@ const cleanText = (v: unknown): string | null => {
   return t.length ? t : null;
 };
 const cleanArr = (v: unknown): string[] | null => {
-  if (!Array.isArray(v)) return null;
-  const out = v
+  // The chat commit option emits these as prose STRINGS ("Dati/cloud (fisso),
+  // sviluppo prodotto…") while update_idea_canvas emits arrays. Coerce string →
+  // array by newline (same convention as the validation-proposal apply path);
+  // never split on commas — they're prose punctuation, not item separators.
+  const items = Array.isArray(v)
+    ? v
+    : typeof v === 'string' ? v.split('\n') : null;
+  if (items == null) return null;
+  const out = items
     .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
     .map((x) => x.trim().slice(0, 300))
     .slice(0, 12);

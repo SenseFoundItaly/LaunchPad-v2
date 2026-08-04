@@ -4,7 +4,7 @@ import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { readStagedCanvasFieldValues } from '@/lib/skill-prereqs';
 import { seedAssumptionsIfEmpty } from '@/lib/assumptions';
-import { persistCanvasDetails } from '@/lib/canvas-details';
+import { persistCanvasDetails, cleanCanvasDetails } from '@/lib/canvas-details';
 import { syncBusinessEssentialNodes } from '@/lib/business-essentials-sync';
 import { autoStageValidationFromArtifact, supersedeCoveredAutoProposals } from '@/lib/auto-stage-validation';
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
@@ -111,7 +111,13 @@ export async function POST(
   const fields = Object.fromEntries(CANVAS_FIELDS.map((k) => [k, clean(body[k])])) as Record<
     (typeof CANVAS_FIELDS)[number], string
   >;
-  if (CANVAS_FIELDS.every((k) => fields[k].length === 0)) {
+  // A commit may carry only the SOFT fields (cost_structure / revenue_streams /
+  // key_metrics / unfair_advantage) — e.g. the chat's final "close the canvas"
+  // one-click option after the core blocks are already filled. Valid on its own.
+  const hasCoreFields = CANVAS_FIELDS.some((k) => fields[k].length > 0);
+  const details = cleanCanvasDetails(body);
+  const hasDetailFields = Object.values(details).some((v) => v != null);
+  if (!hasCoreFields && !hasDetailFields) {
     return error('At least one non-empty canvas field is required', 400);
   }
 
@@ -143,35 +149,45 @@ export async function POST(
     }, 201);
   }
 
-  await run(
-    `INSERT INTO idea_canvas (project_id, problem, solution, target_market, value_proposition, business_model, competitive_advantage, channels)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (project_id) DO UPDATE SET
-       problem               = COALESCE(NULLIF(EXCLUDED.problem, ''),               idea_canvas.problem),
-       solution              = COALESCE(NULLIF(EXCLUDED.solution, ''),              idea_canvas.solution),
-       target_market         = COALESCE(NULLIF(EXCLUDED.target_market, ''),         idea_canvas.target_market),
-       value_proposition     = COALESCE(NULLIF(EXCLUDED.value_proposition, ''),     idea_canvas.value_proposition),
-       business_model        = COALESCE(NULLIF(EXCLUDED.business_model, ''),        idea_canvas.business_model),
-       competitive_advantage = COALESCE(NULLIF(EXCLUDED.competitive_advantage, ''), idea_canvas.competitive_advantage),
-       channels              = COALESCE(NULLIF(EXCLUDED.channels, ''),              idea_canvas.channels)`,
-    projectId,
-    fields.problem, fields.solution, fields.target_market,
-    fields.value_proposition, fields.business_model, fields.competitive_advantage, fields.channels,
-  );
+  if (hasCoreFields) {
+    await run(
+      `INSERT INTO idea_canvas (project_id, problem, solution, target_market, value_proposition, business_model, competitive_advantage, channels)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (project_id) DO UPDATE SET
+         problem               = COALESCE(NULLIF(EXCLUDED.problem, ''),               idea_canvas.problem),
+         solution              = COALESCE(NULLIF(EXCLUDED.solution, ''),              idea_canvas.solution),
+         target_market         = COALESCE(NULLIF(EXCLUDED.target_market, ''),         idea_canvas.target_market),
+         value_proposition     = COALESCE(NULLIF(EXCLUDED.value_proposition, ''),     idea_canvas.value_proposition),
+         business_model        = COALESCE(NULLIF(EXCLUDED.business_model, ''),        idea_canvas.business_model),
+         competitive_advantage = COALESCE(NULLIF(EXCLUDED.competitive_advantage, ''), idea_canvas.competitive_advantage),
+         channels              = COALESCE(NULLIF(EXCLUDED.channels, ''),              idea_canvas.channels)`,
+      projectId,
+      fields.problem, fields.solution, fields.target_market,
+      fields.value_proposition, fields.business_model, fields.competitive_advantage, fields.channels,
+    );
 
-  // Seed the assumptions/premortem registry off the freshly-committed canvas —
-  // mirrors applyValidationProposal so a deterministic commit (commit option or
-  // create-from-documents) gets the SAME seeding as the card-approval path.
-  // Best-effort + no-op once assumptions exist; never blocks the write.
-  const seedContext = CANVAS_FIELDS
-    .filter((k) => fields[k].length > 0)
-    .map((k) => `${k}: ${fields[k]}`)
-    .join('\n\n');
-  if (seedContext) void seedAssumptionsIfEmpty(projectId, seedContext);
+    // Seed the assumptions/premortem registry off the freshly-committed canvas —
+    // mirrors applyValidationProposal so a deterministic commit (commit option or
+    // create-from-documents) gets the SAME seeding as the card-approval path.
+    // Best-effort + no-op once assumptions exist; never blocks the write.
+    const seedContext = CANVAS_FIELDS
+      .filter((k) => fields[k].length > 0)
+      .map((k) => `${k}: ${fields[k]}`)
+      .join('\n\n');
+    if (seedContext) void seedAssumptionsIfEmpty(projectId, seedContext);
+  }
 
   // Soft Lean Canvas fields (unfair_advantage + the array fields) persist directly
   // (ungated) — they carry no stage gate, unlike the 6 core fields above.
-  const extras = await persistCanvasDetails(projectId, body).catch(() => [] as string[]);
+  // Best-effort only when core fields also wrote; on a soft-only commit this IS
+  // the whole write, so a failure must surface (the chat commit button retries).
+  let extras: string[] = [];
+  try {
+    extras = await persistCanvasDetails(projectId, body);
+  } catch (e) {
+    console.error('[idea-canvas] persistCanvasDetails failed', e);
+    if (!hasCoreFields) return error('Failed to persist canvas fields', 500);
+  }
 
   // Mirror the business fields into the graph's BUSINESS ESSENTIALS satellite.
   // Awaited: post-response async work is frozen on serverless (PR #182 class).
