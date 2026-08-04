@@ -585,25 +585,36 @@ describe('gate_verdict — the founder call that closes the gate', () => {
     expect(verdictResult(withVerdict('GO')).passed).toBe(true);
   });
 
-  it('NO_GO is recorded but does not green the gate', () => {
-    const r = verdictResult(withVerdict('NO_GO'));
-    expect(r.passed).toBe(false);
-    expect(r.locked).toBeFalsy();
+  it('PIVOT and STOP are recorded but do not green the gate', () => {
+    for (const v of ['PIVOT', 'STOP']) {
+      const r = verdictResult(withVerdict(v));
+      expect(r.passed, v).toBe(false);
+      expect(r.locked, v).toBeFalsy();
+    }
+  });
+
+  it('a PIVOT names the track it invalidates, so the founder knows what to redo', () => {
+    const s = evidenceComplete({
+      research: {
+        market_size: { tam: { value: '$840M', confidence: 'medium' }, approved: true },
+        gate_verdict: { verdict: 'PIVOT', decided_at: '2026-08-04T10:00:00Z', motivation: 'ICP too broad', scope: '1C' },
+      },
+    });
+    expect(verdictResult(s).gap).toContain('1C');
   });
 
   it('a malformed or absent verdict never passes (no accidental GO)', () => {
-    for (const v of ['go', 'yes', 'TRUE', '']) {
+    for (const v of ['go', 'yes', 'TRUE', 'NO_GO', '']) {
       expect(verdictResult(withVerdict(v)).passed).toBe(false);
     }
   });
 
-  it('the proposal resolves to this check — the card is not a no-op', () => {
-    // stageValidationItemsFromRaw DROPS any item whose kind resolves to zero
-    // targets, so without this mapping maybeProposeGateVerdict would silently
-    // stage nothing and the founder would never be asked.
-    const targets = validationTargetsFor('gate_verdict');
-    expect(targets.map((t) => t.check_id)).toContain('gate_verdict');
-    expect(targets[0].stage_id).toBe('market_validation');
+  it('is NOT a staged validation item — it has its own endpoint', () => {
+    // The verdict deliberately does NOT ride the validation_proposal path any
+    // more: that card is Apply/Reject, i.e. binary, and a binary cannot carry
+    // GO/PIVOT/STOP or a motivation. It is an option-set + POST /gate-verdict.
+    // If someone re-adds the item kind, this fails and they re-read why.
+    expect(validationTargetsFor('gate_verdict' as never)).toEqual([]);
   });
 
   it('shouldProposeGateVerdict fires exactly when the decision is the last step', () => {
@@ -611,7 +622,8 @@ describe('gate_verdict — the founder call that closes the gate', () => {
     expect(shouldProposeGateVerdict(snapshotWithABDone())).toBe(false);  // 1C open
     expect(shouldProposeGateVerdict(evidenceComplete())).toBe(true);     // ask now
     expect(shouldProposeGateVerdict(withVerdict('GO'))).toBe(false);     // already decided
-    expect(shouldProposeGateVerdict(withVerdict('NO_GO'))).toBe(false);  // decided, don't re-nag
+    expect(shouldProposeGateVerdict(withVerdict('PIVOT'))).toBe(false);  // decided, don't re-nag
+    expect(shouldProposeGateVerdict(withVerdict('STOP'))).toBe(false);   // decided, don't re-nag
   });
 
   it('the verdict is the ONLY thing between complete evidence and a done gate', () => {

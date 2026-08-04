@@ -105,6 +105,20 @@ function OptionButton({
       }
       return;
     }
+    // Gate verdict (GO/PIVOT/STOP): same shape as the loop verdict — the click
+    // IS the decision, so it goes straight to /gate-verdict rather than being
+    // narrated by the model.
+    if (option.gate_verdict) {
+      if (state === 'running' || state === 'done') return;
+      setState('running');
+      try {
+        await onAction('gate-verdict:record', { verdict: option.gate_verdict, scope: option.gate_scope });
+        setState('done');
+      } catch {
+        setState('error');
+      }
+      return;
+    }
     // Normal option: forward label + DESCRIPTION (its stated intent) so the agent
     // EXECUTES the option rather than re-reasoning a bare label (which made
     // "Use Example A — Legal radar" get misread as a competitor watcher).

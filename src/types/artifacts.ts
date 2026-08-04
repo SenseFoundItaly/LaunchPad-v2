@@ -142,6 +142,17 @@ export interface OptionSet extends ArtifactBase {
     proposal_id?: string;
     loop_verdict?: 'GO' | 'PIVOT' | 'STOP';
     loop_id?: string;
+    // `gate_verdict` — the founder's call on the whole Validation Gate, staged
+    // by stageGateVerdict once the gate evidence is complete. Same three words
+    // as the loop verdicts ON PURPOSE: "no-go" hides two different decisions
+    // ("this needs rework" vs "this is dead") and a system that can't tell them
+    // apart can't respond correctly to either. Posts to POST /gate-verdict.
+    //   GO    → stamp research.gate_verdict, the gate completes
+    //   PIVOT → `gate_scope` says WHICH track was weak; 1C opens Loop 1
+    //   STOP  → the idea is parked, with a reason, reversibly
+    gate_verdict?: 'GO' | 'PIVOT' | 'STOP';
+    /** Which gate track a PIVOT invalidates. Only meaningful with PIVOT. */
+    gate_scope?: '1A' | '1B' | '1C';
     commit?: {
       canvas?: Record<string, string>;
       // PAID knowledge only — canvas text always goes in `canvas` above, never

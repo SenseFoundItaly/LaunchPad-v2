@@ -537,25 +537,36 @@ const TRACK_1C_UNLOCKED: StageCheck[] = [
  *    GO / CAUTION / NOT READY); it informs this decision and must never
  *    replace it.
  *
- * NO_GO is recorded but does NOT pass: a founder who decides not to proceed
- * has answered the question honestly, and the gate stays open rather than
- * greening a stage they just rejected.
+ * The verdict is GO / PIVOT / STOP — the SAME three words as the loop verdicts,
+ * deliberately. A binary "no-go" hides two completely different decisions —
+ * "this piece needs rework" and "this idea is dead" — and a system that cannot
+ * tell them apart cannot respond correctly to either. Only GO passes; PIVOT and
+ * STOP are recorded, explained, and reversible.
  */
 const GATE_VERDICT_CHECK: StageCheck = {
   id: 'gate_verdict',
-  label: 'Go / no-go decision recorded',
+  label: 'Go / pivot / stop decision recorded',
   source: 'research.gate_verdict',
   track: '1C',
   evaluate: (s) => {
-    const gv = s.research?.gate_verdict as { verdict?: unknown; motivation?: unknown } | undefined;
+    const gv = s.research?.gate_verdict as { verdict?: unknown; scope?: unknown } | undefined;
     const verdict = gv && typeof gv === 'object' ? gv.verdict : undefined;
     if (verdict === 'GO') {
       return { passed: true, evidence: 'You reviewed the evidence and called GO on this gate.' };
     }
-    if (verdict === 'NO_GO') {
-      return { passed: false, gap: 'You called NO-GO — revisit the evidence or pivot before proceeding' };
+    if (verdict === 'PIVOT') {
+      const scope = typeof gv?.scope === 'string' ? gv.scope : null;
+      return {
+        passed: false,
+        gap: scope
+          ? `You called PIVOT on track ${scope} — rework that evidence, then make the call again`
+          : 'You called PIVOT — rework the weak evidence, then make the call again',
+      };
     }
-    return { passed: false, gap: 'Make the call — review the gate evidence and record GO or NO-GO' };
+    if (verdict === 'STOP') {
+      return { passed: false, gap: 'You called STOP on this idea — reopen the gate if you want to resume' };
+    }
+    return { passed: false, gap: 'Make the call — review the gate evidence and record GO, PIVOT or STOP' };
   },
 };
 
@@ -594,7 +605,15 @@ export function shouldProposeGateVerdict(snapshot: ProjectSnapshot): boolean {
   if (!validationTracksAB_done(snapshot)) return false;
   if (TRACK_1C_UNLOCKED.some((c) => !c.evaluate(snapshot).passed)) return false;
   const gv = snapshot.research?.gate_verdict as { verdict?: unknown } | undefined;
-  return !(gv && typeof gv === 'object' && (gv.verdict === 'GO' || gv.verdict === 'NO_GO'));
+  const decided = gv && typeof gv === 'object'
+    && (gv.verdict === 'GO' || gv.verdict === 'PIVOT' || gv.verdict === 'STOP');
+  return !decided;
+}
+
+/** True when the founder's recorded verdict is GO. */
+export function gateVerdictIsGo(snapshot: ProjectSnapshot): boolean {
+  const gv = snapshot.research?.gate_verdict as { verdict?: unknown } | undefined;
+  return !!gv && typeof gv === 'object' && gv.verdict === 'GO';
 }
 
 export const stageMarketValidation: Stage = {
