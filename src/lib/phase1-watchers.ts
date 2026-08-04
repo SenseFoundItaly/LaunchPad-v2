@@ -18,8 +18,9 @@
  */
 
 import { query } from '@/lib/db';
-import { buildProjectSnapshot, evaluateAllStages } from '@/lib/journey';
+import { buildProjectSnapshot } from '@/lib/journey';
 import type { ProjectSnapshot } from '@/lib/journey';
+import { validationEvidenceDoneExceptWatchers } from '@/lib/journey/stage-2-market-validation';
 import { proposeWatchers, type ProposedWatcher } from '@/lib/watcher-proposer';
 import { createPendingAction } from '@/lib/pending-actions';
 import { recordEvent, lastEventOfType } from '@/lib/memory/events';
@@ -31,22 +32,30 @@ import type { WatchSourceCategory } from '@/types';
 export const PHASE1_WATCHER_ORIGIN = 'phase1_auto';
 
 /**
- * Pure predicate: propose exactly when the founder has just COMPLETED the
- * Validation Gate (Stage 2 done) with no signal coverage yet.
+ * Pure predicate: propose exactly when the 1A + 1B EVIDENCE is complete and
+ * the project still has no signal coverage.
  *
- * Founder decision (2026-07): watchers are proposed AFTER Stage 2 completes,
- * not at its start — by then the market, competitors and technical validation
- * are done, so the auto-proposed watchers are far more accurate. (The founder
- * can always configure a watcher directly via chat before then; that path is
- * ungated.) This replaces the old "Stage 2 active" trigger.
+ * Founder decision (2026-07): watchers are proposed once the market,
+ * competitors and technical validation are done, so the auto-proposed watchers
+ * are accurate — not at Stage-2 start. (The founder can always configure a
+ * watcher directly via chat before then; that path is ungated.)
+ *
+ * 2026-08-04: the trigger moved from "the WHOLE gate is done" to "all 1A+1B
+ * except `monitors_set` is done". The founder asked for the `monitors_set`
+ * check back, and with a gate-done trigger that DEADLOCKS — the gate would
+ * wait on a watcher that is only proposed after the gate completes (which is
+ * exactly why the check was deleted in 2026-07). Firing on the evidence tracks
+ * keeps the original intent AND makes the check reachable: the founder is
+ * handed proposals at the moment `monitors_set` becomes the last open check.
+ *
+ * ⚠️ Do NOT widen this back to gate-done without also removing `monitors_set`.
  */
 export function shouldProposePhase1Watchers(snapshot: ProjectSnapshot): boolean {
-  const evals = evaluateAllStages(snapshot);
-  const gateDone = evals.find((e) => e.stage.id === 'market_validation')?.status === 'done';
+  const evidenceDone = validationEvidenceDoneExceptWatchers(snapshot);
   const activeWatchers =
     snapshot.monitors.filter((m) => m.status === 'active').length +
     snapshot.watch_sources.filter((w) => w.status === 'active').length;
-  return !!gateDone && activeWatchers === 0;
+  return evidenceDone && activeWatchers === 0;
 }
 
 // Watcher-proposer topics → monitor `kind` (VALID_MONITOR_KINDS taxonomy).

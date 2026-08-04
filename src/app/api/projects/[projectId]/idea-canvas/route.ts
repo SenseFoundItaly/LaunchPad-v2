@@ -8,6 +8,7 @@ import { persistCanvasDetails } from '@/lib/canvas-details';
 import { syncBusinessEssentialNodes } from '@/lib/business-essentials-sync';
 import { autoStageValidationFromArtifact, supersedeCoveredAutoProposals } from '@/lib/auto-stage-validation';
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
+import { maybeProposeGateVerdict } from '@/lib/gate-verdict';
 import type { IdeaCanvasArtifact } from '@/types/artifacts';
 
 const CANVAS_FIELDS = [
@@ -186,6 +187,7 @@ export async function POST(
   // this route wasn't). Awaited: serverless freezes post-response work.
   // Idempotent + non-throwing inside.
   await maybeProposePhase1Watchers(projectId);
+  await maybeProposeGateVerdict(projectId);
 
   return json({ applied: [...CANVAS_FIELDS.filter((k) => fields[k].length > 0), ...extras] }, 201);
 }

@@ -30,6 +30,7 @@ import { assertCreditsAvailable, debitCredits } from '@/lib/credits';
 import { canvasLacksCorePrereqs, isCanvasDependentSkill, GATE_1C_DEPENDENT_SKILLS } from '@/lib/skill-prereqs';
 import { validationTracksAB_done } from '@/lib/journey/stage-2-market-validation';
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
+import { maybeProposeGateVerdict } from '@/lib/gate-verdict';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { CACHE_PREFIX_SPLIT, buildSplitUserTurn } from '@/lib/chat-cache-split';
 import { NODE_STEP_PREFIX, parseNodeStep, sessionSuffixForStep } from '@/lib/chat/node-scope';
@@ -1489,6 +1490,7 @@ export async function POST(request: NextRequest) {
         // snapshot internally so THIS turn's persisted evidence counts — the
         // old pre-turn call used a stale snapshot. Idempotent + non-throwing.
         await maybeProposePhase1Watchers(project_id);
+        await maybeProposeGateVerdict(project_id);
         } finally {
           // Clear the safety timer — flush completed before deadline.
           clearTimeout(flushDeadline);

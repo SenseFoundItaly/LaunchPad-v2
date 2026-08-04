@@ -1781,6 +1781,26 @@ const applyValidationProposal: ActionHandler = async (action) => {
       }
       applied.push(`Competitor: ${name}`);
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
+    } else if (it.kind === 'gate_verdict') {
+      // The founder's explicit GO / NO-GO on the Validation Gate (migration
+      // 037). Apply IS the attestation — nothing else may write this column,
+      // and no AI readiness score may stand in for it.
+      // `extra.verdict` carries the decision; the item value is the motivation.
+      const decided = (it.extra?.verdict === 'NO_GO') ? 'NO_GO' : 'GO';
+      await run(
+        `UPDATE research SET gate_verdict = jsonb_build_object(
+             'verdict', ?::text,
+             'decided_at', ?::text,
+             'motivation', ?::text)
+          WHERE project_id = ?`,
+        decided,
+        new Date().toISOString(),
+        value.slice(0, 1000),
+        action.project_id,
+      );
+      applied.push(it.label || (locale === 'it'
+        ? (decided === 'GO' ? 'Verdetto: GO' : 'Verdetto: NO-GO')
+        : (decided === 'GO' ? 'Verdict: GO' : 'Verdict: NO-GO')));
     } else if (it.kind === 'market_size_fact' && ownerUserId) {
       await recordFact({
         userId: ownerUserId,
@@ -1884,7 +1904,7 @@ const applyValidationProposal: ActionHandler = async (action) => {
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'interview') {
       skippedNoOwner = true;
-    } else if ((it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact') && ownerUserId) {
+    } else if ((it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact' || it.kind === 'gtm_fact' || it.kind === 'partner_fact') && ownerUserId) {
       // Stage-2/3 prefill: write a keyword-bearing applied memory_fact so the
       // matching check (icp_defined / channels_identified / trends_assessed /
       // buyer_persona_defined — all keyword-match memory_facts) greens. The
@@ -1898,11 +1918,15 @@ const applyValidationProposal: ActionHandler = async (action) => {
            it.kind === 'channel_fact' ? 'Canale di acquisizione — ' :
            it.kind === 'trend_fact' ? 'Trend di mercato — ' :
            it.kind === 'differentiation_fact' ? 'Differenziazione — ' :
+           it.kind === 'gtm_fact' ? 'Opportunità GTM — ' :
+           it.kind === 'partner_fact' ? 'Partner potenziale — ' :
            'Buyer persona — ')
         : (it.kind === 'persona_fact' ? 'Ideal customer profile — ' :
            it.kind === 'channel_fact' ? 'Acquisition channel — ' :
            it.kind === 'trend_fact' ? 'Market trend — ' :
            it.kind === 'differentiation_fact' ? 'Differentiator — ' :
+           it.kind === 'gtm_fact' ? 'GTM opportunity — ' :
+           it.kind === 'partner_fact' ? 'Potential partner — ' :
            'Buyer persona — ');
       await recordFact({
         userId: ownerUserId,
@@ -1915,13 +1939,17 @@ const applyValidationProposal: ActionHandler = async (action) => {
         ? (it.kind === 'persona_fact' ? 'Cliente ideale' :
            it.kind === 'channel_fact' ? 'Canale di acquisizione' :
            it.kind === 'trend_fact' ? 'Trend di mercato' :
-           it.kind === 'differentiation_fact' ? 'Differenziazione' : 'Buyer persona')
+           it.kind === 'differentiation_fact' ? 'Differenziazione' :
+           it.kind === 'gtm_fact' ? 'Opportunità GTM' :
+           it.kind === 'partner_fact' ? 'Partner potenziale' : 'Buyer persona')
         : (it.kind === 'persona_fact' ? 'Ideal customer' :
            it.kind === 'channel_fact' ? 'Acquisition channel' :
            it.kind === 'trend_fact' ? 'Market trend' :
-           it.kind === 'differentiation_fact' ? 'Differentiation' : 'Buyer persona')));
+           it.kind === 'differentiation_fact' ? 'Differentiation' :
+           it.kind === 'gtm_fact' ? 'GTM opportunity' :
+           it.kind === 'partner_fact' ? 'Potential partner' : 'Buyer persona')));
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
-    } else if (it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact') {
+    } else if (it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact' || it.kind === 'gtm_fact' || it.kind === 'partner_fact') {
       skippedNoOwner = true;
     } else if (it.kind === 'pricing' && it.field) {
       // Stage-4 prefill: upsert one pricing_state column from the item's typed

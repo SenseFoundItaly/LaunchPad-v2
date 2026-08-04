@@ -27,6 +27,7 @@ import { captureChatArtifact } from '@/lib/chat-artifacts';
 import { translate } from '@/lib/i18n/messages';
 import { maybeBuildScoreReviewOptionSet } from '@/lib/score-review';
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
+import { maybeProposeGateVerdict } from '@/lib/gate-verdict';
 
 /**
  * GET: list skill completions for a project.
@@ -335,6 +336,7 @@ export async function POST(
           // result) and AWAITED (serverless freezes fire-and-forget work).
           // Idempotent + non-throwing inside.
           await maybeProposePhase1Watchers(projectId);
+          await maybeProposeGateVerdict(projectId);
         } catch (err) {
           safeEnqueue(`data: ${JSON.stringify({ error: `skill run failed: ${(err as Error).message}` })}\n\n`);
         } finally {

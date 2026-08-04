@@ -28,6 +28,9 @@ export type ValidationItemKind =
   | 'canvas_field' | 'competitor' | 'market_size_fact' | 'tech_fact' | 'interview'
   | 'persona_fact' | 'channel_fact' | 'pricing'
   | 'trend_fact' | 'buyer_persona_fact' | 'differentiation_fact'
+  // Founder-requested gate additions (2026-08-04): GTM opening/friction,
+  // partners, and the founder's explicit go/no-go on the whole gate.
+  | 'gtm_fact' | 'partner_fact' | 'gate_verdict'
   // Post-validation doc ingestion (#224): the operate-stage digest stages these.
   | 'metric' | 'financial_fact' | 'brand_fact';
 
@@ -106,6 +109,17 @@ function sourceKeysFor(kind: ValidationItemKind, field?: string): string[] {
     case 'differentiation_fact':
       // Stage 2 differentiation_evidence (chat retro-sweep staging).
       return [DIFFERENTIATION_CHECK_SOURCE];
+    case 'gtm_fact':
+      // Stage 2 gtm_opportunities — the market OPENING, distinct from the
+      // Stage-5 gtm-strategy skill (which plans execution, post-Loop-2).
+      return [MARKET_1A_SOURCES.gtm];
+    case 'partner_fact':
+      // Stage 2 partners_identified.
+      return [MARKET_1A_SOURCES.partners];
+    case 'gate_verdict':
+      // Stage 2 gate_verdict — the founder's GO/NO-GO, stamped into
+      // research.gate_verdict on Apply (migration 037).
+      return ['research.gate_verdict'];
     case 'persona_fact':
       // Stage 3 icp_defined reads memory_facts matching ICP keywords.
       return ['memory_facts (ICP)'];
