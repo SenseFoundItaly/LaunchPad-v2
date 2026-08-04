@@ -154,7 +154,11 @@ export interface OptionSet extends ArtifactBase {
     /** Which gate track a PIVOT invalidates. Only meaningful with PIVOT. */
     gate_scope?: '1A' | '1B' | '1C';
     commit?: {
-      canvas?: Record<string, string>;
+      // Any of the 11 Lean Canvas blocks — the 7 core/text fields plus the soft
+      // fields (unfair_advantage; key_metrics / revenue_streams / cost_structure
+      // as arrays, one entry per item — a prose string is newline-coerced
+      // server-side). Free, direct idea_canvas write via POST /idea-canvas.
+      canvas?: Record<string, string | string[]>;
       // PAID knowledge only — canvas text always goes in `canvas` above, never
       // here (a canvas_field item would be rejected by POST /validation/commit).
       items?: Array<{

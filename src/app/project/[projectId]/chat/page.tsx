@@ -30,6 +30,8 @@ import { splitOptionLabel } from '@/components/chat/option-label';
 import { IdeaShapingQuickReplies } from '@/components/chat/IdeaShapingQuickReplies';
 import { parseMessageContent, normalizeCanvasJsonFences } from '@/lib/artifact-parser';
 import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
+import { pickCanvasCommitFields, droppedCanvasCommitFields } from '@/lib/canvas-commit';
+import { ActionNotRun, isSilentReset } from '@/components/chat/action-errors';
 import type { Artifact, ArtifactType, Department, ValidationProposalArtifact } from '@/types/artifacts';
 import ValidationProposalCard from '@/components/chat/artifacts/ValidationProposalCard';
 import MonitorProposalCard from '@/components/chat/artifacts/MonitorProposalCard';
@@ -1158,12 +1160,14 @@ export default function CopilotChatPage({
         if (!res.ok) {
           // Hard-stop: out of credits → open the recharge modal and stop
           // gracefully (the 402 is a clean JSON body returned before the
-          // keepalive stream opens). Don't throw — that would error the card.
+          // keepalive stream opens). Silent-reset, not resolve: resolving
+          // flipped the option to "Done" and locked the whole set, so after
+          // recharging the founder could never actually run the analysis.
           if (res.status === 402) {
             const body = await res.json().catch(() => null);
             if (body?.error === 'out_of_credits') {
               requestRecharge({ remaining: body.credits_remaining ?? 0 });
-              return;
+              throw new ActionNotRun('out of credits — recharge modal opened');
             }
           }
           // Prerequisite gate: the idea canvas is too empty for this skill to
@@ -1185,7 +1189,10 @@ export default function CopilotChatPage({
                   timestamp: new Date().toISOString(),
                 },
               ]);
-              return;
+              // Silent-reset: the skill did NOT run (blocked before spend), so
+              // the option must not read "Done" — after fixing the prereqs the
+              // founder re-clicks the same option to actually run it.
+              throw new ActionNotRun(String(body.error));
             }
           }
           const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -1306,12 +1313,14 @@ export default function CopilotChatPage({
         let motivation = '';
         if (verdict !== 'GO') {
           // Same idiom + floor as LoopStatusRow's dismiss-with-motivation.
-          // Cancelling is a change of mind, NOT an error — abort silently so
-          // the card returns to its normal state instead of going red.
+          // Cancelling is a change of mind, NOT an error — but it must NOT
+          // resolve either: the renderers read resolution as "recorded" and
+          // flip the button to a false Done. Throw the silent-reset sentinel
+          // so the card returns to idle and stays clickable.
           const answer = typeof window !== 'undefined'
             ? window.prompt(t(verdict === 'PIVOT' ? 'gate.verdict-pivot-why' : 'gate.verdict-stop-why'))
             : null;
-          if (answer === null) return;
+          if (answer === null) throw new ActionNotRun('verdict prompt cancelled');
           motivation = answer.trim();
           if (motivation.length < 3) throw new Error(t('gate.verdict-needs-reason'));
         }
@@ -1399,12 +1408,15 @@ export default function CopilotChatPage({
         //                    credit debit, reusing applyValidationProposal)
         // Then forward a normal turn so the agent continues; the evidence is
         // already written, so any "committed" it then says is TRUE.
-        const CANVAS_FIELD_KEYS = ['problem', 'solution', 'target_market', 'value_proposition', 'business_model', 'competitive_advantage', 'channels'];
         const raw = (payload.canvas && typeof payload.canvas === 'object') ? payload.canvas as Record<string, unknown> : {};
-        const fields: Record<string, string> = {};
-        for (const k of CANVAS_FIELD_KEYS) {
-          const v = raw[k];
-          if (typeof v === 'string' && v.trim()) fields[k] = v.trim();
+        const fields = pickCanvasCommitFields(raw);
+        // If ANY carried-content key didn't survive the picker (aliased key,
+        // wrong shape), fail into the retry state instead of committing a
+        // partial canvas while the follow-up turn narrates success — one
+        // dropped block is the same silent-stall as the all-dropped case.
+        const dropped = droppedCanvasCommitFields(raw, fields);
+        if (dropped.length > 0) {
+          throw new Error(`Canvas commit carried unrecognized field(s): ${dropped.join(', ')}`);
         }
         if (Object.keys(fields).length > 0) {
           const res = await fetch(`/api/projects/${projectId}/idea-canvas`, {
@@ -2371,7 +2383,7 @@ function InlineOption({
   onUnchoose,
   onAction,
 }: {
-  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; gate_verdict?: 'GO' | 'PIVOT' | 'STOP'; gate_scope?: '1A' | '1B' | '1C'; commit?: { canvas?: Record<string, string>; items?: Array<Record<string, unknown>> } };
+  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; proposal_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; gate_verdict?: 'GO' | 'PIVOT' | 'STOP'; gate_scope?: '1A' | '1B' | '1C'; commit?: { canvas?: Record<string, string | string[]>; items?: Array<Record<string, unknown>> } };
   index: number;
   /** The whole option-set is locked (a choice was made, or a response is streaming). */
   setLocked?: boolean;
@@ -2437,10 +2449,15 @@ function InlineOption({
       onChoose?.(); // lock the set immediately so siblings can't also be clicked
       setState('running');
       try {
-        await onAction?.('skill:run', { skill_id: option.skill_id });
+        await onAction?.('skill:run', { skill_id: option.skill_id, proposal_id: option.proposal_id });
         setState('done');
-      } catch {
-        setState('error');
+      } catch (e) {
+        // Release the optimistic set lock either way: a blocked run (recharge
+        // modal / prerequisite gate → silent reset to idle) or a transient
+        // failure (→ error, re-clickable) must leave the set usable — a frozen
+        // set with a false "Done" was an unretryable dead-end.
+        onUnchoose?.();
+        setState(isSilentReset(e) ? 'idle' : 'error');
       }
       return;
     }
@@ -2455,8 +2472,11 @@ function InlineOption({
       try {
         await onAction?.('gate-verdict:record', { verdict: option.gate_verdict, scope: option.gate_scope });
         setState('done');
-      } catch {
-        setState('error');
+      } catch (e) {
+        // Cancelled motivation prompt = change of mind, not an error: reset to
+        // idle so the verdict stays clickable (a false "Done" left the gate
+        // undecided while the founder believed it was recorded).
+        setState(isSilentReset(e) ? 'idle' : 'error');
       }
       return;
     }
@@ -2466,9 +2486,9 @@ function InlineOption({
       try {
         await onAction?.('verdict:record', { loop_id: option.loop_id, verdict: option.loop_verdict });
         setState('done');
-      } catch {
+      } catch (e) {
         onUnchoose?.();
-        setState('error');
+        setState(isSilentReset(e) ? 'idle' : 'error');
       }
       return;
     }

@@ -359,6 +359,10 @@ function accumulateUsage(acc: Usage | undefined, incoming: unknown): Usage | und
 export interface RunAgentResult {
   text: string;
   usage?: Usage;
+  /** True when the run hit the timeout and was aborted — `text` is TRUNCATED
+   *  at the cut, so machine-readable tails (e.g. a closing ```json fence) may
+   *  be missing. Callers persisting structured output should check this. */
+  timedOut?: boolean;
 }
 
 /** Run Pi Agent and collect full response (non-streaming). */
@@ -403,7 +407,14 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
   let lastUsage: Usage | undefined;
 
   const timeout = options.timeout || 120000;
-  const timer = setTimeout(() => agent.abort(), timeout);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    // Mirror runAgentStream's timeout logging — this abort used to be fully
+    // silent, so a truncated skill run was indistinguishable from a clean one.
+    timedOut = true;
+    console.warn(`[pi-agent] timeout (${timeout}ms) — aborting buffered agent run (output truncated)`);
+    agent.abort();
+  }, timeout);
 
   agent.subscribe((event) => {
     if (event.type === 'message_update') {
@@ -430,7 +441,7 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
     clearTimeout(timer);
   }
 
-  return { text: fullText, usage: lastUsage };
+  return { text: fullText, usage: lastUsage, timedOut };
 }
 
 /**

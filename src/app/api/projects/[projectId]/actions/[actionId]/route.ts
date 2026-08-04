@@ -89,7 +89,13 @@ export async function POST(
         const result = await executeAppliedAction(updated);
         if (!result.ok) {
           updated = await markActionFailed(actionId, result.error || 'Handler returned not-ok');
-          return json({ ...updated, deliverable: null, execution_error: result.error });
+          // Fail the REQUEST, not just the row: this used to return 200
+          // {success:true} with an execution_error field no client ever read,
+          // so every Apply card rendered its success checkmark over a write
+          // that never happened. The action row is already marked 'failed'
+          // (re-armed for retry after reload); the non-2xx makes the card
+          // show its error state instead of a false ✓.
+          return error(result.error || 'Applying the action failed', 422);
         }
 
         const mode = result.deliverable?.mode;
