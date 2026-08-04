@@ -22,6 +22,7 @@ import type { MessageKey } from '@/lib/i18n/messages';
 // Deriving the rung label from it means the UI cannot drift from the engine —
 // a hand-copied key→label map would.
 import { IRL_LADDER } from '@/lib/irl/ladder';
+import { quadrantFor, quadrantMessageKey } from '@/lib/irl/quadrant';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import { useStages } from '@/hooks/useStages';
@@ -104,6 +105,12 @@ export function ScorePanel({ projectId }: { projectId: string }) {
   // debounce, so this client trigger is best-effort and safe (it no-ops server-side).
   const queryClient = useQueryClient();
   const nextRungLabelKey = IRL_LADDER.find((r) => r.key === irl?.next_key)?.labelKey ?? null;
+
+  // Score × IRL — the accelerator/VC reading. Uses the FLOORED level (what the
+  // founder is credited with), not `earned`: the quadrant is a standing
+  // characterisation of the project, and it should not flicker because one
+  // signal dipped this week. `regressed` already communicates the dip.
+  const quadrant = quadrantFor(score?.overall_score ?? null, irl?.level ?? 0);
 
   // The IRL badge is set once and was never invalidated, so it stayed stale
   // until a remount — a founder could earn a rung and watch the number not
@@ -245,6 +252,13 @@ export function ScorePanel({ projectId }: { projectId: string }) {
           {irl && irl.reachable_max < irl.of && (
             <p style={{ margin: '6px 0 0', fontSize: 10.5, color: 'var(--ink-5)', lineHeight: 1.4 }}>
               {t('score.irl-capped', { from: irl.reachable_max + 1 })}
+            </p>
+          )}
+          {/* The two-axis reading. Only rendered once a score exists — an
+              unscored project is unmeasured, not "low potential". */}
+          {quadrant && (
+            <p style={{ margin: '10px 0 0', paddingTop: 8, borderTop: '1px solid var(--line)', fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.45 }}>
+              {t(quadrantMessageKey(quadrant))}
             </p>
           )}
           <p style={{ margin: '8px 0 0', fontSize: 10.5, color: 'var(--ink-5)', lineHeight: 1.4, fontStyle: 'italic' }}>
