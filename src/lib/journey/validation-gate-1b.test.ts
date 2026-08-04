@@ -50,12 +50,16 @@ function gateChecks(snapshot: ProjectSnapshot): Record<string, boolean> {
 }
 
 describe('L2 Validation Gate · 1B Technical (incremental)', () => {
-  it('the 4 track-1B checks exist on the validation stage and are tagged 1B', () => {
+  it('the 3 track-1B checks exist on the validation stage and are tagged 1B', () => {
     // 2026-07: tech_feasibility split into build_approach + technical_risk_named
     // (one vague fact must not green both the HOW and the RISK questions).
+    // 2026-08-04: regulatory_check moved to 1A (the founder reads it as market
+    // landscape, not a build constraint) — 1B is now purely "can we build it".
     const gate = evaluateAllStages(mkSnapshot([])).find((e) => e.stage.id === 'market_validation')!;
     const oneB = gate.stage.checks.filter((c) => c.track === '1B').map((c) => c.id);
-    expect(oneB).toEqual(['build_approach', 'technical_risk_named', 'key_dependencies', 'regulatory_check']);
+    expect(oneB).toEqual(['build_approach', 'technical_risk_named', 'key_dependencies']);
+    // Still on the stage and still evaluated — just under 1A now.
+    expect(gate.stage.checks.find((c) => c.id === 'regulatory_check')?.track).toBe('1A');
   });
 
   it('1B checks are RED with no technical evidence', () => {

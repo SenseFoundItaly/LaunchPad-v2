@@ -59,6 +59,8 @@ export const TECH_1B_SOURCES = {
 export const MARKET_1A_SOURCES = {
   trends: 'memory_facts (market trends)',
   persona: 'memory_facts (buyer persona)',
+  gtm: 'memory_facts (GTM opportunities)',
+  partners: 'memory_facts (potential partners)',
 } as const;
 
 /** The differentiation check's `source` string — exported so the
@@ -112,6 +114,25 @@ export const DEPENDENCY_KEYWORDS = [
   'dipendenz', 'dipende da', 'terze parti', 'integrazion', 'infrastruttur', 'fornitor', 'si affida', 'si basa su',
 ] as const;
 
+/** gtm_opportunities (founder request 2026-08-04). 'gtm' is ≤4 chars so
+ *  keywordMatcher wraps it in a trailing \b — it matches the acronym, never a
+ *  longer word. The executor's Apply prefixes ("GTM opportunity — " /
+ *  "Opportunità GTM — ") both contain 'gtm' verbatim, so an applied item always
+ *  greens the check regardless of the founder's phrasing. */
+export const GTM_KEYWORDS = [
+  'gtm', 'go-to-market', 'go to market', 'launch channel', 'acquisition strategy', 'route to market',
+  'canale di lancio', 'strategia di acquisizione', 'come arriviamo al cliente', 'sfida di lancio',
+] as const;
+
+/** partners_identified (founder request 2026-08-04). 'partner' is the same word
+ *  in EN and IT and >4 chars, so the stem covers partner/partners/partnership/
+ *  partnership commerciale. Apply prefixes ("Potential partner — " / "Partner
+ *  potenziale — ") carry it verbatim. */
+export const PARTNERS_KEYWORDS = [
+  'partner', 'partnership', 'reseller', 'distributor', 'channel partner', 'strategic alliance',
+  'rivenditor', 'distributor', 'alleanza strategica', 'accordo commerciale', 'intesa con',
+] as const;
+
 /** regulatory_check. 'compliance'/'GDPR'/'privacy' are verbatim in Italian too. */
 export const REGULATORY_KEYWORDS = [
   'regulation', 'regulatory', 'compliance', 'GDPR', 'license', 'certification', 'data protection', 'legal constraint',
@@ -160,19 +181,9 @@ function structuredTam(research: Record<string, unknown> | null): string {
 // is REAL and the segment is right is proven by the 1C interviews, not by
 // re-reading the canvas field.
 export const VALIDATION_TRACK_1A: StageCheck[] = [
-  {
-    id: 'competitors_mapped',
-    label: '3+ competitors mapped',
-    source: 'competitor_profiles',
-    track: '1A',
-    evaluate: (s) => {
-      const n = s.competitors.length;
-      const ok = n >= 3;
-      return ok
-        ? { passed: true, evidence: `You've mapped ${n} competitors in your space.` }
-        : { passed: false, gap: `${n} of 3 — ask Co-pilot to research more` };
-    },
-  },
+  // Order is display order. market_size leads (founder request 2026-08-04):
+  // you size the space BEFORE you enumerate who is in it — mapping competitors
+  // first invites a list with no denominator.
   {
     id: 'market_size',
     label: 'Market size estimated',
@@ -192,6 +203,19 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
       return ok
         ? { passed: true, evidence: "You've sized the market (TAM/SAM/SOM)." }
         : { passed: false, gap: 'Estimate TAM/SAM with Co-pilot' };
+    },
+  },
+  {
+    id: 'competitors_mapped',
+    label: '3+ competitors mapped',
+    source: 'competitor_profiles',
+    track: '1A',
+    evaluate: (s) => {
+      const n = s.competitors.length;
+      const ok = n >= 3;
+      return ok
+        ? { passed: true, evidence: `You've mapped ${n} competitors in your space.` }
+        : { passed: false, gap: `${n} of 3 — ask Co-pilot to research more` };
     },
   },
   {
@@ -242,8 +266,80 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
         : { passed: false, gap: 'Sketch the buyer persona — who decides and what triggers the purchase' };
     },
   },
-  // NOTE (2026-07 founder decision): the old `monitors_set` ("L1 watchers
-  // active") check was REMOVED from the gate. Watchers are now a POST-Stage-2
+  // ── Founder-requested additions, 2026-08-04 ────────────────────────────────
+  // Same lockstep discipline as trends/persona: keyword family + a chat-sweep
+  // family + an executor Apply prefix that is itself verbatim in the list, so
+  // the check is always CLOSEABLE. A check with no write path is permanently
+  // red — that is the bug class #251 warns about.
+  {
+    id: 'gtm_opportunities',
+    label: 'GTM chances & challenges assessed',
+    source: MARKET_1A_SOURCES.gtm,
+    track: '1A',
+    evaluate: (s) => {
+      const n = countMemoryFactsMatching(s, [...GTM_KEYWORDS]);
+      return n > 0
+        ? { passed: true, evidence: "You've assessed how you'd reach this market — the opening and the friction." }
+        : { passed: false, gap: 'Assess the go-to-market — where the opening is and what will fight you' };
+    },
+  },
+  {
+    id: 'partners_identified',
+    label: 'Potential partners detected',
+    source: MARKET_1A_SOURCES.partners,
+    track: '1A',
+    evaluate: (s) => {
+      const n = countMemoryFactsMatching(s, [...PARTNERS_KEYWORDS]);
+      return n > 0
+        ? { passed: true, evidence: "You've identified who could carry you into this market." }
+        : { passed: false, gap: 'Name the potential partners, resellers or distributors worth approaching' };
+    },
+  },
+  {
+    // MOVED from track 1B (founder request 2026-08-04): the founder reads this
+    // as market LANDSCAPE, not as a technical constraint, and could not find it
+    // under Tecnica. Source string keeps its TECH_1B_SOURCES home so the
+    // `tech_fact(regulatory)` item mapping in validation-targets stays
+    // drift-proof — only the track and the label move. The 1A+1B UNION is
+    // unchanged, so this move re-locks nothing.
+    id: 'regulatory_check',
+    label: 'Regulatory landscape checked',
+    source: TECH_1B_SOURCES.regulatory,
+    track: '1A',
+    evaluate: (s) => {
+      const n = countMemoryFactsMatching(s, [...REGULATORY_KEYWORDS]);
+      return n > 0
+        ? { passed: true, evidence: "You've checked the regulatory/compliance landscape." }
+        : { passed: false, gap: 'Check the regulatory landscape (e.g. GDPR, licensing, certification)' };
+    },
+  },
+  {
+    // RE-ADDED 2026-08-04 at founder request ("watcher attivati"), after being
+    // removed in 2026-07 for circularity: watchers were proposed only once the
+    // WHOLE gate completed, so requiring one to complete the gate deadlocked.
+    //
+    // The circularity is broken in phase1-watchers.ts, not here: the proposer
+    // now fires as soon as every OTHER 1A/1B check is green (see
+    // `shouldProposePhase1Watchers`), which is the moment the market and
+    // technical evidence is in and the auto-proposed watchers are accurate.
+    // So the founder always gets proposals BEFORE this check is the last one
+    // standing. `monitors_set` must be the ONLY check excluded from that
+    // predicate — see WATCHER_EXCLUDED_CHECK_ID.
+    id: 'monitors_set',
+    label: 'Signal watchers active',
+    source: 'monitors + watch_sources',
+    track: '1A',
+    evaluate: (s) => {
+      const n =
+        s.monitors.filter((m) => m.status === 'active').length +
+        s.watch_sources.filter((w) => w.status === 'active').length;
+      return n > 0
+        ? { passed: true, evidence: `You have ${n} active watcher${n === 1 ? '' : 's'} on this market.` }
+        : { passed: false, gap: 'Activate a watcher — apply one of the proposals in your inbox' };
+    },
+  },
+  // NOTE (2026-07): this is where the ORIGINAL `monitors_set` was removed. See
+  // the re-added check directly above. Watchers are now a POST-Stage-2
   // concern — the system auto-proposes them only once the Validation Gate is
   // COMPLETE (so the proposals are informed by the validated market/competitors
   // and are more accurate; see phase1-watchers.ts). Requiring an active watcher
@@ -304,19 +400,8 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
         : { passed: false, gap: 'Name the key dependencies (APIs, models, infra, vendors)' };
     },
   },
-  {
-    id: 'regulatory_check',
-    label: 'Regulatory / compliance constraints checked',
-    source: TECH_1B_SOURCES.regulatory,
-    track: '1B',
-    evaluate: (s) => {
-      // Bilingual (EN + IT): "normativa", "conformità", "protezione dati".
-      const n = countMemoryFactsMatching(s, [...REGULATORY_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've checked the regulatory/compliance constraints." }
-        : { passed: false, gap: 'Check any regulatory/compliance constraints (e.g. GDPR, licensing)' };
-    },
-  },
+  // `regulatory_check` used to live here — moved to track 1A (2026-08-04), see
+  // the note on its new definition. 1B is now purely "can we build it".
 ];
 
 /** Labels of the unmet 1A/1B checks. Empty ⇒ both tracks green ⇒ 1C unlocks. */
@@ -324,6 +409,26 @@ export function validationTracksABMissing(snapshot: ProjectSnapshot): string[] {
   return [...VALIDATION_TRACK_1A, ...VALIDATION_TRACK_1B]
     .filter((c) => !c.evaluate(snapshot).passed)
     .map((c) => c.label);
+}
+
+/** The one check the watcher proposer must ignore, or it can never fire.
+ *  Exported so the exclusion is named in ONE place and testable. */
+export const WATCHER_EXCLUDED_CHECK_ID = 'monitors_set';
+
+/**
+ * True when every 1A + 1B check EXCEPT `monitors_set` passes — the moment the
+ * market and technical evidence is complete and auto-proposed watchers would
+ * be accurate.
+ *
+ * This exists to break the deadlock that got `monitors_set` deleted in 2026-07:
+ * the gate needs an active watcher, and watchers were only proposed once the
+ * gate was done. Triggering the proposer HERE means the founder is handed
+ * watcher proposals exactly when `monitors_set` becomes the last open check.
+ */
+export function validationEvidenceDoneExceptWatchers(snapshot: ProjectSnapshot): boolean {
+  return [...VALIDATION_TRACK_1A, ...VALIDATION_TRACK_1B]
+    .filter((c) => c.id !== WATCHER_EXCLUDED_CHECK_ID)
+    .every((c) => c.evaluate(snapshot).passed);
 }
 
 /** True when every 1A (Market) + 1B (Technical) check passes — the unlock
@@ -417,7 +522,80 @@ const TRACK_1C_UNLOCKED: StageCheck[] = [
   },
 ];
 
-export const VALIDATION_TRACK_1C: StageCheck[] = TRACK_1C_UNLOCKED.map(lock1C);
+/**
+ * The founder's explicit GO on the whole gate (founder request 2026-08-04:
+ * "verdict go/no go"). This is deliberately NOT an evidence check — every
+ * other check measures the world; this one records a DECISION.
+ *
+ * Two properties that matter:
+ *  - It is the LAST thing to open. Locked until every other gate check passes,
+ *    so a founder can never GO past evidence they haven't gathered.
+ *  - It is founder-attested, never inferred. `research.gate_verdict` is
+ *    stamped only by an Apply on a founder-approved proposal (migration 037) —
+ *    same discipline as `research.market_size.approved`. An AI-computed
+ *    readiness verdict already exists (stage-readiness.ts, 0-10 STRONG GO /
+ *    GO / CAUTION / NOT READY); it informs this decision and must never
+ *    replace it.
+ *
+ * NO_GO is recorded but does NOT pass: a founder who decides not to proceed
+ * has answered the question honestly, and the gate stays open rather than
+ * greening a stage they just rejected.
+ */
+const GATE_VERDICT_CHECK: StageCheck = {
+  id: 'gate_verdict',
+  label: 'Go / no-go decision recorded',
+  source: 'research.gate_verdict',
+  track: '1C',
+  evaluate: (s) => {
+    const gv = s.research?.gate_verdict as { verdict?: unknown; motivation?: unknown } | undefined;
+    const verdict = gv && typeof gv === 'object' ? gv.verdict : undefined;
+    if (verdict === 'GO') {
+      return { passed: true, evidence: 'You reviewed the evidence and called GO on this gate.' };
+    }
+    if (verdict === 'NO_GO') {
+      return { passed: false, gap: 'You called NO-GO — revisit the evidence or pivot before proceeding' };
+    }
+    return { passed: false, gap: 'Make the call — review the gate evidence and record GO or NO-GO' };
+  },
+};
+
+/** Lock wrapper for the verdict: it opens only once EVERY other gate check
+ *  (1A, 1B and the three 1C evidence checks) has passed. */
+function lockVerdict(check: StageCheck): StageCheck {
+  return {
+    ...check,
+    evaluate: (s) => {
+      const evidenceOpen =
+        !validationTracksAB_done(s) || TRACK_1C_UNLOCKED.some((c) => !c.evaluate(s).passed);
+      if (evidenceOpen) {
+        return {
+          passed: false,
+          locked: true,
+          gap: 'Locked — gather every piece of gate evidence first, then make the call',
+        };
+      }
+      return check.evaluate(s);
+    },
+  };
+}
+
+export const VALIDATION_TRACK_1C: StageCheck[] = [
+  ...TRACK_1C_UNLOCKED.map(lock1C),
+  lockVerdict(GATE_VERDICT_CHECK),
+];
+
+/**
+ * True when all gate EVIDENCE is in and only the founder's go/no-go is
+ * outstanding — i.e. the moment to propose the verdict decision to them.
+ * Mirrors `validationEvidenceDoneExceptWatchers`: a decision the founder is
+ * never prompted for is a dead end.
+ */
+export function shouldProposeGateVerdict(snapshot: ProjectSnapshot): boolean {
+  if (!validationTracksAB_done(snapshot)) return false;
+  if (TRACK_1C_UNLOCKED.some((c) => !c.evaluate(snapshot).passed)) return false;
+  const gv = snapshot.research?.gate_verdict as { verdict?: unknown } | undefined;
+  return !(gv && typeof gv === 'object' && (gv.verdict === 'GO' || gv.verdict === 'NO_GO'));
+}
 
 export const stageMarketValidation: Stage = {
   ...CANONICAL_BY_ID.market_validation,

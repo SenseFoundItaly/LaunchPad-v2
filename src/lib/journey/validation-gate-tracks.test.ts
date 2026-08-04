@@ -9,6 +9,10 @@ import {
   validationTracksABMissing,
   MARKET_SIZE_CHECK_SOURCE,
   MARKET_SIZE_KEYWORDS,
+  GTM_KEYWORDS,
+  PARTNERS_KEYWORDS,
+  MARKET_1A_SOURCES,
+  shouldProposeGateVerdict,
   stageMarketValidation,
 } from '@/lib/journey/stage-2-market-validation';
 import { validationTargetsFor } from '@/lib/journey/validation-targets';
@@ -72,7 +76,10 @@ function snapshotWithABDone(over: Partial<ProjectSnapshot> = {}): ProjectSnapsho
     },
     competitors: competitors3,
     research: { market_size: { tam: { value: '$840M', confidence: 'medium' }, approved: true } },
-    // No active monitor needed — `monitors_set` was removed from the gate (2026-07).
+    // `monitors_set` is back in 1A (2026-08-04 founder request), so a fully
+    // green 1A needs an active watcher. The proposer that makes this reachable
+    // fires one step EARLIER — see the shouldProposePhase1Watchers block.
+    monitors: [{ id: 'm-active', status: 'active' }],
     memory_facts: facts([
       'Unlike legacy desktop tools we are cloud and mobile-first.',
       'Market trend: teledentistry is a tailwind — cloud adoption among practices keeps growing.',
@@ -80,6 +87,9 @@ function snapshotWithABDone(over: Partial<ProjectSnapshot> = {}): ProjectSnapsho
       'Feasibility: the recall engine is feasible with existing calendar APIs; main technical risk is EHR integration.',
       'Key dependency: relies on the Google Calendar API and Twilio for reminders.',
       'Regulatory: patient data means GDPR applies; needs a DPA with vendors.',
+      // Founder-requested 1A checks (2026-08-04).
+      'GTM opportunity: dental software resellers are the fastest route to market; the challenge is the incumbent lock-in.',
+      'Potential partner: the national dental association and two practice-management vendors could distribute us.',
     ]),
     ...over,
   });
@@ -101,15 +111,23 @@ describe('track membership', () => {
     // 2026-07 alpha feedback: the gate was too thin — 1A gained trends +
     // buyer-persona; 1B split tech_feasibility into build_approach +
     // technical_risk_named (one vague fact must not green both questions).
+    // 2026-08-04 founder request: market_size leads (size the space before you
+    // list who is in it); 1A gained gtm_opportunities + partners_identified;
+    // regulatory_check MOVED 1B → 1A (the founder reads it as market
+    // landscape). The 1A+1B union is unchanged by the move, so 1C's unlock
+    // condition is unaffected.
     expect(VALIDATION_TRACK_1A.map((c) => c.id)).toEqual([
-      'competitors_mapped', 'market_size', 'differentiation_evidence',
+      'market_size', 'competitors_mapped', 'differentiation_evidence',
       'trends_assessed', 'buyer_persona_defined',
+      'gtm_opportunities', 'partners_identified', 'regulatory_check',
+      'monitors_set',
     ]);
     expect(VALIDATION_TRACK_1B.map((c) => c.id)).toEqual([
-      'build_approach', 'technical_risk_named', 'key_dependencies', 'regulatory_check',
+      'build_approach', 'technical_risk_named', 'key_dependencies',
     ]);
+    // gate_verdict is LAST: the founder's go/no-go closes the gate.
     expect(VALIDATION_TRACK_1C.map((c) => c.id)).toEqual([
-      'interviews_logged', 'pain_validated', 'wtp_signal',
+      'interviews_logged', 'pain_validated', 'wtp_signal', 'gate_verdict',
     ]);
   });
 
@@ -430,32 +448,180 @@ describe('wtp_signal', () => {
 });
 
 describe('shouldProposePhase1Watchers — truth table', () => {
-  // Founder decision 2026-07: propose watchers ONLY once the Validation Gate
-  // (Stage 2) is COMPLETE — so proposals are informed by validated data. The
-  // fixture completes 1A+1B+1C (5 interviews with pain + WTP close 1C).
-  const gateDone = (over: Partial<ProjectSnapshot> = {}) => snapshotWithABDone({
+  // 2026-08-04: the trigger is "all 1A+1B evidence EXCEPT monitors_set is
+  // green", not "the whole gate is done". That is what makes the re-added
+  // `monitors_set` check reachable instead of deadlocked. The fixture is
+  // therefore 1A+1B-done-minus-the-watcher.
+  const evidenceDone = (over: Partial<ProjectSnapshot> = {}) =>
+    snapshotWithABDone({ monitors: [], watch_sources: [], ...over });
+
+  it('TRUE: all market/technical evidence in, zero active watchers', () => {
+    expect(shouldProposePhase1Watchers(evidenceDone())).toBe(true);
+  });
+
+  it('TRUE without any interviews — 1C must NOT be required', () => {
+    // The old gate-done trigger waited for 1C too. It no longer does: the
+    // founder needs watcher proposals while they still have interviews to run.
+    expect(shouldProposePhase1Watchers(evidenceDone({ interviews: [] }))).toBe(true);
+  });
+
+  it('FALSE: still mid-evidence (1A/1B incomplete)', () => {
+    expect(shouldProposePhase1Watchers(mkSnapshot())).toBe(false);
+  });
+
+  it('FALSE: an active watcher already exists (monitor OR watch_source)', () => {
+    expect(shouldProposePhase1Watchers(evidenceDone({ monitors: [{ id: 'm1', status: 'active' }] }))).toBe(false);
+    expect(shouldProposePhase1Watchers(evidenceDone({ watch_sources: [{ id: 'w1', status: 'active' }] }))).toBe(false);
+  });
+
+  it('TRUE: paused watchers do not count as coverage', () => {
+    expect(shouldProposePhase1Watchers(evidenceDone({ monitors: [{ id: 'm1', status: 'paused' }] }))).toBe(true);
+  });
+
+  it('NO DEADLOCK: the proposer fires while monitors_set is the last open check', () => {
+    // The regression that got monitors_set deleted in 2026-07. If this ever
+    // goes false, the gate is unreachable: it waits on a watcher that is only
+    // proposed after the gate completes.
+    const s = evidenceDone();
+    expect(validationTracksAB_done(s)).toBe(false);            // gate still open…
+    expect(validationTracksABMissing(s)).toEqual(['Signal watchers active']); // …on exactly this
+    expect(shouldProposePhase1Watchers(s)).toBe(true);          // …and help is offered
+  });
+});
+
+
+// ── Founder-requested 1A checks, 2026-08-04 ──────────────────────────────────
+
+/**
+ * The lockstep discipline that keeps a keyword check CLOSEABLE.
+ *
+ * `applyValidationProposal` writes the applied fact as `<localized prefix><value>`.
+ * If that prefix is not itself matched by the check's own keyword family, an
+ * Apply greens nothing and the check is permanently red no matter what the
+ * founder does — the exact bug class #251 warns about. These assertions fail
+ * the build if anyone edits a prefix or a keyword list out of step.
+ */
+describe('gtm_opportunities / partners_identified — write path is closeable', () => {
+  const APPLY_PREFIXES: Array<[string, readonly string[], string]> = [
+    ['GTM opportunity — ', GTM_KEYWORDS, 'en'],
+    ['Opportunità GTM — ', GTM_KEYWORDS, 'it'],
+    ['Potential partner — ', PARTNERS_KEYWORDS, 'en'],
+    ['Partner potenziale — ', PARTNERS_KEYWORDS, 'it'],
+  ];
+
+  it('every executor Apply prefix is matched by its own keyword family', () => {
+    for (const [prefix, keywords, locale] of APPLY_PREFIXES) {
+      expect(keywordMatcher([...keywords]).test(prefix), `${locale} prefix "${prefix}"`).toBe(true);
+    }
+  });
+
+  it('the checks map to their source strings (drift-proof item targeting)', () => {
+    expect(validationTargetsFor('gtm_fact').map((t) => t.check_id)).toContain('gtm_opportunities');
+    expect(validationTargetsFor('partner_fact').map((t) => t.check_id)).toContain('partners_identified');
+    expect(VALIDATION_TRACK_1A.find((c) => c.id === 'gtm_opportunities')?.source).toBe(MARKET_1A_SOURCES.gtm);
+    expect(VALIDATION_TRACK_1A.find((c) => c.id === 'partners_identified')?.source).toBe(MARKET_1A_SOURCES.partners);
+  });
+
+  it('close on real founder prose, EN and IT', () => {
+    const gtmEn = 'Our go-to-market runs through dental resellers; the challenge is incumbent lock-in.';
+    const gtmIt = 'Il canale di lancio sono i rivenditori di software dentale.';
+    const parEn = 'A national association and two vendors are potential partners for distribution.';
+    const parIt = 'Un accordo commerciale con l’associazione di categoria ci aprirebbe il mercato.';
+    expect(keywordMatcher([...GTM_KEYWORDS]).test(gtmEn)).toBe(true);
+    expect(keywordMatcher([...GTM_KEYWORDS]).test(gtmIt)).toBe(true);
+    expect(keywordMatcher([...PARTNERS_KEYWORDS]).test(parEn)).toBe(true);
+    expect(keywordMatcher([...PARTNERS_KEYWORDS]).test(parIt)).toBe(true);
+  });
+
+  it("'gtm' is boundary-matched — it must not fire on an unrelated word", () => {
+    expect(keywordMatcher([...GTM_KEYWORDS]).test('the algorithm handles it')).toBe(false);
+    expect(keywordMatcher([...GTM_KEYWORDS]).test('GTM is the plan')).toBe(true);
+  });
+
+  it('moving regulatory_check to 1A leaves the 1C unlock condition unchanged', () => {
+    // The 1C lock reads the 1A+1B UNION, so a track move is behaviour-neutral —
+    // only the NEW checks can re-lock anything.
+    const missing = validationTracksABMissing(mkSnapshot());
+    expect(missing).toContain('Regulatory landscape checked');
+    expect(validationTracksAB_done(snapshotWithABDone())).toBe(true);
+  });
+});
+
+
+describe('gate_verdict — the founder call that closes the gate', () => {
+  /** Every evidence check green; the verdict is the only thing outstanding. */
+  const evidenceComplete = (over: Partial<ProjectSnapshot> = {}) => snapshotWithABDone({
     interviews: Array.from({ length: 5 }, (_, i) => ({
       id: `iv${i}`, person_name: `P${i}`, top_pain: 'manual recall work is painful', wtp_amount: 30, urgency: 'high',
     })),
     ...over,
   });
 
-  it('TRUE: Stage 2 complete, zero active watchers', () => {
-    expect(shouldProposePhase1Watchers(gateDone())).toBe(true);
+  const withVerdict = (verdict: string, over: Partial<ProjectSnapshot> = {}) => evidenceComplete({
+    research: {
+      market_size: { tam: { value: '$840M', confidence: 'medium' }, approved: true },
+      gate_verdict: { verdict, decided_at: '2026-08-04T10:00:00Z', motivation: 'evidence holds' },
+    },
+    ...over,
   });
 
-  it('FALSE: Stage 2 NOT complete yet (still mid-gate)', () => {
-    // 1A+1B done but no interviews → 1C open → gate not done → don't propose early.
-    expect(shouldProposePhase1Watchers(snapshotWithABDone())).toBe(false);
-    expect(shouldProposePhase1Watchers(mkSnapshot())).toBe(false);
+  const verdictResult = (s: ProjectSnapshot) =>
+    gateResults(s).find((x) => x.check.id === 'gate_verdict')!.result;
+
+  it('is LOCKED while any evidence is still open — you cannot GO past missing evidence', () => {
+    expect(verdictResult(mkSnapshot()).locked).toBe(true);
+    // 1A+1B green but 1C interviews missing → still locked.
+    expect(verdictResult(snapshotWithABDone()).locked).toBe(true);
   });
 
-  it('FALSE: gate done but an active watcher already exists (monitor OR watch_source)', () => {
-    expect(shouldProposePhase1Watchers(gateDone({ monitors: [{ id: 'm1', status: 'active' }] }))).toBe(false);
-    expect(shouldProposePhase1Watchers(gateDone({ watch_sources: [{ id: 'w1', status: 'active' }] }))).toBe(false);
+  it('unlocks — but does NOT pass — once every evidence check is green', () => {
+    const r = verdictResult(evidenceComplete());
+    expect(r.locked).toBeFalsy();
+    expect(r.passed).toBe(false);
+    expect(r.gap).toContain('GO');
   });
 
-  it('TRUE: paused watchers do not count as coverage', () => {
-    expect(shouldProposePhase1Watchers(gateDone({ monitors: [{ id: 'm1', status: 'paused' }] }))).toBe(true);
+  it('passes only on an explicit founder GO', () => {
+    expect(verdictResult(withVerdict('GO')).passed).toBe(true);
+  });
+
+  it('NO_GO is recorded but does not green the gate', () => {
+    const r = verdictResult(withVerdict('NO_GO'));
+    expect(r.passed).toBe(false);
+    expect(r.locked).toBeFalsy();
+  });
+
+  it('a malformed or absent verdict never passes (no accidental GO)', () => {
+    for (const v of ['go', 'yes', 'TRUE', '']) {
+      expect(verdictResult(withVerdict(v)).passed).toBe(false);
+    }
+  });
+
+  it('the proposal resolves to this check — the card is not a no-op', () => {
+    // stageValidationItemsFromRaw DROPS any item whose kind resolves to zero
+    // targets, so without this mapping maybeProposeGateVerdict would silently
+    // stage nothing and the founder would never be asked.
+    const targets = validationTargetsFor('gate_verdict');
+    expect(targets.map((t) => t.check_id)).toContain('gate_verdict');
+    expect(targets[0].stage_id).toBe('market_validation');
+  });
+
+  it('shouldProposeGateVerdict fires exactly when the decision is the last step', () => {
+    expect(shouldProposeGateVerdict(mkSnapshot())).toBe(false);          // evidence open
+    expect(shouldProposeGateVerdict(snapshotWithABDone())).toBe(false);  // 1C open
+    expect(shouldProposeGateVerdict(evidenceComplete())).toBe(true);     // ask now
+    expect(shouldProposeGateVerdict(withVerdict('GO'))).toBe(false);     // already decided
+    expect(shouldProposeGateVerdict(withVerdict('NO_GO'))).toBe(false);  // decided, don't re-nag
+  });
+
+  it('the verdict is the ONLY thing between complete evidence and a done gate', () => {
+    const evals = evaluateAllStages(evidenceComplete());
+    const gate = evals.find((e) => e.stage.id === 'market_validation')!;
+    expect(gate.results.filter((r) => !r.result.passed).map((r) => r.check.id)).toEqual(['gate_verdict']);
+    expect(gate.status).not.toBe('done');
+
+    const decided = evaluateAllStages(withVerdict('GO')).find((e) => e.stage.id === 'market_validation')!;
+    expect(decided.results.every((r) => r.result.passed)).toBe(true);
+    expect(decided.status).toBe('done');
   });
 });
