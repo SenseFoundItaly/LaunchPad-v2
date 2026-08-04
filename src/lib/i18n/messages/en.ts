@@ -132,6 +132,10 @@ export const en = {
   'irl.level-gtm': 'Add-on · GTM orchestration',
   'irl.level-fundraising': 'Add-on · Fundraising readiness',
   'irl.level-operations': 'Add-on · Operations',
+  'irl.quadrant-watch': 'Strong idea on solid ground — the "one to watch" quadrant.',
+  'irl.quadrant-promising_raw': 'Promising, but still raw — the idea scores well ahead of the evidence behind it.',
+  'irl.quadrant-developed_low_potential': 'Well built, but the potential is low or not yet expressed.',
+  'irl.quadrant-discard_or_pivot': 'Weak on both axes — this is a pivot conversation, not a push-harder one.',
   'score.irl-explainer': 'IRL is a 1-9 ladder of investment readiness — each level earned against evidence, distinct from the project score (which rates the idea). Levels 7-9 unlock via add-on modules.',
 
   // ── Home: Ecosystem (src/components/home/EcosystemPanel.tsx) ───────────────

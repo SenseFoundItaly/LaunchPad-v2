@@ -126,6 +126,10 @@ export const it: Partial<Record<MessageKey, string>> = {
   'irl.level-gtm': 'Add-on · GTM orchestration',
   'irl.level-fundraising': 'Add-on · Fundraising readiness',
   'irl.level-operations': 'Add-on · Operations',
+  'irl.quadrant-watch': 'Idea forte su basi solide — il quadrante "da tenere d’occhio".',
+  'irl.quadrant-promising_raw': 'Promettente ma ancora acerbo — l’idea vale più di quanto le prove dimostrino.',
+  'irl.quadrant-developed_low_potential': 'Ben sviluppata, ma il potenziale è basso o ancora inespresso.',
+  'irl.quadrant-discard_or_pivot': 'Debole su entrambi gli assi — qui si parla di pivot, non di spingere di più.',
   'score.irl-explainer': 'L’IRL è una scala 1-9 di prontezza all’investimento — ogni livello si guadagna con l’evidenza, distinto dallo score del progetto (che valuta l’idea). I livelli 7-9 si sbloccano con i moduli add-on.',
 
   // ── Home: Ecosystem (src/components/home/EcosystemPanel.tsx) ───────────────
