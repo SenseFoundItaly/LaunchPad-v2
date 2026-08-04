@@ -128,11 +128,36 @@ export const IRL_ADDON_LADDER: readonly IrlLevel[] = [
 export const IRL_LADDER: readonly IrlLevel[] = [...IRL_CORE_LADDER, ...IRL_ADDON_LADDER];
 
 export interface IrlResult {
-  /** Highest contiguous satisfied level (0 = nothing earned yet). */
+  /** The level shown to the founder — max(earned, floor). */
   level: number;
   of: number;
   /** The first unsatisfied level's key — what to earn next (null if maxed). */
   nextKey: string | null;
+  /** What the evidence supports RIGHT NOW, ignoring the floor. */
+  earned: number;
+  /**
+   * True when evidence has slipped below a level already earned — `level` is
+   * being held up by the floor. The UI says "evidenza sotto soglia" instead of
+   * moving the number: founder spec 2026-07-23, "l'IRL non regredisce; potrebbe
+   * scendere solo in caso di pivot pesante".
+   */
+  regressed: boolean;
+}
+
+/**
+ * The high-water floor. IRL is "how investable are you" — a milestone, not a
+ * live gauge — so a dip in one signal must not un-earn it. Only a PIVOT clears
+ * the floor, because that is the founder declaring the work has to be redone
+ * (founder spec: "se… costringe il founder a tornare indietro e rifare un
+ * intero stage daccapo, allora si potrebbe considerare un abbassamento").
+ *
+ * Deliberately NOT a stored level that only ever rises: the floor is cleared on
+ * PIVOT and then re-accumulates from live evidence, so it can never drift into
+ * claiming a rung the evidence never supported.
+ */
+export interface IrlFloor {
+  /** Highest level previously earned, or 0/null when none is on record. */
+  level: number | null;
 }
 
 /**
@@ -146,25 +171,28 @@ export interface IrlResult {
  *       modulo è un punto, ordine consigliato ma non vincolante"), and only
  *       once the core 6 are earned.
  */
-export function computeIRL(e: IrlEvidence): IrlResult {
-  let level = 0;
+export function computeIRL(e: IrlEvidence, floor?: IrlFloor): IrlResult {
+  let earnedLevel = 0;
   for (const rung of IRL_CORE_LADDER) {
     if (!rung.gate(e)) break;
-    level = rung.level;
+    earnedLevel = rung.level;
   }
 
-  if (level < IRL_CORE_MAX) {
-    // Still climbing the sequential ladder — the next rung is the one that failed.
-    const next = IRL_CORE_LADDER.find((r) => r.level === level + 1) ?? null;
-    return { level, of: IRL_MAX, nextKey: next ? next.key : null };
+  if (earnedLevel >= IRL_CORE_MAX) {
+    // Core complete: each finished module is a point, order-independent.
+    const mods = IRL_ADDON_LADDER.filter((r) => r.gate(e));
+    earnedLevel = Math.min(IRL_MAX, IRL_CORE_MAX + mods.length);
   }
 
-  // Core complete: each finished module is a point, order-independent.
-  const earned = IRL_ADDON_LADDER.filter((r) => r.gate(e));
-  const nextAddon = IRL_ADDON_LADDER.find((r) => !r.gate(e)) ?? null;
-  return {
-    level: Math.min(IRL_MAX, IRL_CORE_MAX + earned.length),
-    of: IRL_MAX,
-    nextKey: nextAddon ? nextAddon.key : null,
-  };
+  // The floor holds the number up; `nextKey` always describes what the LIVE
+  // evidence needs next, so a regressed project is told what to restore rather
+  // than what comes after a level it is no longer supporting.
+  const floorLevel = floor?.level ?? 0;
+  const level = Math.max(earnedLevel, floorLevel);
+
+  const nextKey = earnedLevel < IRL_CORE_MAX
+    ? (IRL_CORE_LADDER.find((r) => r.level === earnedLevel + 1)?.key ?? null)
+    : (IRL_ADDON_LADDER.find((r) => !r.gate(e))?.key ?? null);
+
+  return { level, of: IRL_MAX, nextKey, earned: earnedLevel, regressed: earnedLevel < floorLevel };
 }

@@ -121,6 +121,7 @@ export const en = {
   'score.irl-stages': 'stages validated',
   'score.irl-level': 'development level',
   'score.irl-current': 'Currently in {stage}.',
+  'score.irl-regressed': 'Evidence has slipped below level {earned} — your IRL is held at its high-water mark. Restore it, or a pivot will reset it.',
   'score.irl-explainer': 'IRL is a 1-9 ladder of investment readiness — each level earned against evidence, distinct from the project score (which rates the idea). Levels 7-9 unlock via add-on modules.',
 
   // ── Home: Ecosystem (src/components/home/EcosystemPanel.tsx) ───────────────

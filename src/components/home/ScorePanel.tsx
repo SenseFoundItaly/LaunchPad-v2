@@ -25,9 +25,14 @@ import { band, normalizeDimensions, to100 } from '@/lib/score-display';
 import ScoreTrajectory from '@/components/charts/ScoreTrajectory';
 
 interface IrlResp {
+  /** What the founder sees — max(earned, stored floor). */
   level: number;
   of: number;
   next_key: string | null;
+  /** What today's evidence supports on its own. */
+  earned: number;
+  /** level > earned: a signal has slipped below a rung already earned. */
+  regressed: boolean;
   current_stage_id: string | null;
   current_stage_label: string | null;
 }
@@ -192,6 +197,14 @@ export function ScorePanel({ projectId }: { projectId: string }) {
           {active && (
             <p style={{ margin: '10px 0 0', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.45 }}>
               {t('score.irl-current', { stage: stageLabel(active.stage.id, active.stage.label, t) })}
+            </p>
+          )}
+          {irl?.regressed && (
+            /* The number is being HELD UP by the floor. Saying so is the whole
+               point of the floor: IRL stays a milestone, but the founder still
+               learns a signal slipped — silence would be a prettier lie. */
+            <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--clay)', lineHeight: 1.45 }}>
+              {t('score.irl-regressed', { earned: irl.earned })}
             </p>
           )}
           <p style={{ margin: '8px 0 0', fontSize: 10.5, color: 'var(--ink-5)', lineHeight: 1.4, fontStyle: 'italic' }}>
