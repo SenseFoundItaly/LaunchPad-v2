@@ -1,0 +1,140 @@
+import { NextRequest } from 'next/server';
+import { query, run } from '@/lib/db';
+import { json, error } from '@/lib/api-helpers';
+import { tryProjectAccess } from '@/lib/auth/require-project-access';
+import { buildProjectSnapshot } from '@/lib/journey/snapshot';
+import { shouldProposeGateVerdict } from '@/lib/journey/stage-2-market-validation';
+import { triggerLoop1Manual } from '@/lib/loops/loop1-psf';
+import { recordEvent } from '@/lib/memory/events';
+
+/**
+ * POST /api/projects/{projectId}/gate-verdict
+ *
+ * Records the founder's call on the Validation Gate: GO / PIVOT / STOP.
+ * Mirrors POST /loops/{loopId} { action:'verdict' } — the click IS the
+ * decision, so it lands here directly rather than round-tripping a chat
+ * message the model would only narrate.
+ *
+ * The three-way split is the point. "No-go" hides two different decisions —
+ * "this piece needs rework" (PIVOT) and "this idea is dead" (STOP) — and each
+ * needs a different response. Collapsing them means the product can react
+ * correctly to neither.
+ *
+ * Guards, and why they are asymmetric:
+ *   GO    — REQUIRES complete gate evidence. You cannot approve past evidence
+ *           you never gathered.
+ *   PIVOT — needs a motivation and (optionally) the track that was weak. A 1C
+ *           pivot opens Loop 1, whose scope (ICP / value prop / problem) is
+ *           exactly the PSF surface. 1A/1B have no loop engine yet, so they are
+ *           recorded honestly rather than routed into the wrong one.
+ *   STOP  — needs a motivation, and is allowed at ANY time. A founder who has
+ *           already decided the idea is dead must not be made to tick six more
+ *           boxes before the product lets them say so (§4: never dead-end the
+ *           founder — which cuts both ways).
+ *
+ * Reversible by construction: DELETE clears the verdict so a stopped or pivoted
+ * project can resume. A decision you cannot undo is a trap, not a decision.
+ */
+
+type Verdict = 'GO' | 'PIVOT' | 'STOP';
+const VERDICTS: readonly string[] = ['GO', 'PIVOT', 'STOP'];
+const SCOPES: readonly string[] = ['1A', '1B', '1C'];
+/** Mirrors overrideLoop's motivation floor — a reason must be a reason. */
+const MIN_MOTIVATION = 3;
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> },
+) {
+  const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+
+  const body = await request.json().catch(() => ({}));
+  const verdict = String(body?.verdict ?? '') as Verdict;
+  if (!VERDICTS.includes(verdict)) {
+    return error('verdict must be GO, PIVOT or STOP', 400);
+  }
+
+  const motivation = typeof body?.motivation === 'string' ? body.motivation.trim() : '';
+  const scopeRaw = typeof body?.scope === 'string' ? body.scope : '';
+  const scope = SCOPES.includes(scopeRaw) ? scopeRaw : null;
+
+  if (verdict !== 'GO' && motivation.length < MIN_MOTIVATION) {
+    return error('PIVOT and STOP need a motivation — the reason IS the record', 400);
+  }
+
+  const snapshot = await buildProjectSnapshot(projectId);
+
+  // GO is the only verdict gated on evidence. shouldProposeGateVerdict is true
+  // exactly when every evidence check passes and no verdict is on record; a
+  // GO when it is false means either the evidence is incomplete (refuse) or a
+  // verdict already exists (idempotent re-submit on a reloaded card, allow).
+  if (verdict === 'GO') {
+    const existing = snapshot.research?.gate_verdict as { verdict?: unknown } | undefined;
+    const alreadyDecided = !!existing && typeof existing === 'object' && VERDICTS.includes(String(existing.verdict));
+    if (!shouldProposeGateVerdict(snapshot) && !alreadyDecided) {
+      return error('The gate evidence is not complete yet — you cannot call GO on evidence you have not gathered', 409);
+    }
+  }
+
+  await run(
+    `UPDATE research SET gate_verdict = jsonb_build_object(
+         'verdict', ?::text,
+         'decided_at', ?::text,
+         'motivation', ?::text,
+         'scope', ?::text)
+      WHERE project_id = ?`,
+    verdict,
+    new Date().toISOString(),
+    motivation.slice(0, 1000),
+    scope,
+    projectId,
+  );
+
+  const ownerRow = (await query<{ owner_user_id: string | null }>(
+    'SELECT owner_user_id FROM projects WHERE id = ?', projectId,
+  ))[0];
+  const ownerUserId = ownerRow?.owner_user_id || '';
+
+  // A 1C pivot IS a PSF failure, and Loop 1 is the machine for it. The manual
+  // trigger is used deliberately: the auto-trigger requires the gate to be
+  // DONE, which a PIVOT by definition prevents — auto-firing could never work
+  // here. 1A/1B pivots get no loop because none exists (#126/#127); saying so
+  // beats routing a regulatory problem into a value-proposition loop.
+  let loopOpened: string | null = null;
+  if (verdict === 'PIVOT' && scope === '1C' && ownerUserId) {
+    loopOpened = await triggerLoop1Manual(projectId, ownerUserId)
+      .catch((err) => {
+        console.warn('[gate-verdict] Loop 1 trigger failed (non-fatal):', (err as Error).message);
+        return null;
+      });
+  }
+
+  if (ownerUserId) {
+    await recordEvent({
+      userId: ownerUserId,
+      projectId,
+      eventType: 'gate_verdict_recorded',
+      payload: { verdict, scope, motivation: motivation.slice(0, 500), loop_id: loopOpened },
+    });
+  }
+
+  return json({ verdict, scope, loop_id: loopOpened });
+}
+
+/**
+ * DELETE — clear the verdict so a PIVOT/STOP project can resume, and the gate
+ * can ask again. The founder is never locked out of their own decision.
+ */
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> },
+) {
+  const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+
+  await run('UPDATE research SET gate_verdict = NULL WHERE project_id = ?', projectId);
+  return json({ cleared: true });
+}

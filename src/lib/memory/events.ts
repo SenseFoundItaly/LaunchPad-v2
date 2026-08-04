@@ -39,7 +39,8 @@ export type EventType =
   | 'artifact_rescued_by_fallback_citations'
   | 'monitor_applied'
   | 'phase1_watchers_proposed'
-  | 'gate_verdict_proposed'   // gate evidence complete → founder asked for GO/NO-GO
+  | 'gate_verdict_proposed'   // gate evidence complete → founder asked for the call
+  | 'gate_verdict_recorded'   // founder called GO / PIVOT / STOP on the gate
   | 'score_review_offered'
   | 'budget_changed'
   | 'task_expanded'

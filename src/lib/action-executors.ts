@@ -1781,26 +1781,6 @@ const applyValidationProposal: ActionHandler = async (action) => {
       }
       applied.push(`Competitor: ${name}`);
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
-    } else if (it.kind === 'gate_verdict') {
-      // The founder's explicit GO / NO-GO on the Validation Gate (migration
-      // 037). Apply IS the attestation — nothing else may write this column,
-      // and no AI readiness score may stand in for it.
-      // `extra.verdict` carries the decision; the item value is the motivation.
-      const decided = (it.extra?.verdict === 'NO_GO') ? 'NO_GO' : 'GO';
-      await run(
-        `UPDATE research SET gate_verdict = jsonb_build_object(
-             'verdict', ?::text,
-             'decided_at', ?::text,
-             'motivation', ?::text)
-          WHERE project_id = ?`,
-        decided,
-        new Date().toISOString(),
-        value.slice(0, 1000),
-        action.project_id,
-      );
-      applied.push(it.label || (locale === 'it'
-        ? (decided === 'GO' ? 'Verdetto: GO' : 'Verdetto: NO-GO')
-        : (decided === 'GO' ? 'Verdict: GO' : 'Verdict: NO-GO')));
     } else if (it.kind === 'market_size_fact' && ownerUserId) {
       await recordFact({
         userId: ownerUserId,

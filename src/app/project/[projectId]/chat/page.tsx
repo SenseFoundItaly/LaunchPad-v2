@@ -1291,6 +1291,45 @@ export default function CopilotChatPage({
       // — which records the verdict, closes the loop, and lifts the Phase-2
       // skill gate — instead of round-tripping "I choose: GO" as a chat message
       // the model would only narrate (never actually closing the loop).
+      // Gate verdict — the founder's call on the whole Validation Gate. Posts
+      // straight to /gate-verdict (which enforces the guards: GO needs complete
+      // evidence, PIVOT/STOP need a motivation) instead of round-tripping a
+      // message. A 1C PIVOT opens Loop 1 server-side.
+      if (action === 'gate-verdict:record') {
+        const verdict = String(payload.verdict ?? '');
+        if (verdict !== 'GO' && verdict !== 'PIVOT' && verdict !== 'STOP') {
+          throw new Error('gate-verdict:record needs a GO/PIVOT/STOP verdict');
+        }
+        const scope = typeof payload.scope === 'string' ? payload.scope : undefined;
+        // PIVOT and STOP require a reason — the reason IS the record. Ask for it
+        // rather than letting the server 400 back at the founder.
+        let motivation = '';
+        if (verdict !== 'GO') {
+          // Same idiom + floor as LoopStatusRow's dismiss-with-motivation.
+          // Cancelling is a change of mind, NOT an error — abort silently so
+          // the card returns to its normal state instead of going red.
+          const answer = typeof window !== 'undefined'
+            ? window.prompt(t(verdict === 'PIVOT' ? 'gate.verdict-pivot-why' : 'gate.verdict-stop-why'))
+            : null;
+          if (answer === null) return;
+          motivation = answer.trim();
+          if (motivation.length < 3) throw new Error(t('gate.verdict-needs-reason'));
+        }
+        const res = await fetch(`/api/projects/${projectId}/gate-verdict`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ verdict, motivation, scope }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `Recording the verdict failed with status ${res.status}`);
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+          window.dispatchEvent(new CustomEvent('lp-skills-changed', { detail: { projectId } }));
+        }
+        return;
+      }
       if (action === 'verdict:record') {
         const loopId = String(payload.loop_id ?? '');
         const verdict = String(payload.verdict ?? '');
@@ -2332,7 +2371,7 @@ function InlineOption({
   onUnchoose,
   onAction,
 }: {
-  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; commit?: { canvas?: Record<string, string>; items?: Array<Record<string, unknown>> } };
+  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; gate_verdict?: 'GO' | 'PIVOT' | 'STOP'; gate_scope?: '1A' | '1B' | '1C'; commit?: { canvas?: Record<string, string>; items?: Array<Record<string, unknown>> } };
   index: number;
   /** The whole option-set is locked (a choice was made, or a response is streaming). */
   setLocked?: boolean;
@@ -2410,6 +2449,17 @@ function InlineOption({
     // Phase 2) instead of sending "I choose: GO" for the model to narrate.
     // Mirrors the commit branch: optimistic lock, await, revert the lock on a
     // failed write so the founder can retry.
+    if (option.gate_verdict) {
+      if (state === 'running' || state === 'done') return;
+      setState('running');
+      try {
+        await onAction?.('gate-verdict:record', { verdict: option.gate_verdict, scope: option.gate_scope });
+        setState('done');
+      } catch {
+        setState('error');
+      }
+      return;
+    }
     if (option.loop_verdict && option.loop_id) {
       onChoose?.();
       setState('running');
@@ -2576,7 +2626,7 @@ function InlineArtifact({
   const a = artifact as unknown as Record<string, unknown>;
 
   if (artifact.type === 'option-set' && Array.isArray(a.options)) {
-    const allOptions = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number; skill_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string }>;
+    const allOptions = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number; skill_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; gate_verdict?: 'GO' | 'PIVOT' | 'STOP'; gate_scope?: '1A' | '1B' | '1C' }>;
     // Strip the idea-shaping kickoff: it re-runs from scratch and the prompt's
     // "always offer next_recommended_skill" rule made it reappear every turn
     // (the loop Luca hit). Relaunch now lives only on the Canvas button; the
