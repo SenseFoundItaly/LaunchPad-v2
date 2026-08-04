@@ -87,7 +87,10 @@ export function ScoreSection() {
           </div>
           <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>livello di sviluppo</div>
           <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45 }}>
-            Attualmente in <strong style={{ color: 'var(--ink-2)' }}>{SCORE.irl.stage}</strong> + Loop 4 (LAUNCH READY). Ogni punto si suda: fasi e loop superati — 7-9 si sbloccano con gli add-on GTM orchestration, Fundraising readiness e Operations.
+            <strong style={{ color: 'var(--ink-2)' }}>{SCORE.irl.stage}</strong> validato + Loop 4 (LAUNCH READY): la scala core è completa. Ogni punto si suda — 7-9 si sbloccano con gli add-on GTM orchestration, Fundraising readiness e Operations.
+          </p>
+          <p style={{ margin: '8px 0 0', fontSize: 10.5, color: 'var(--ink-5)', lineHeight: 1.4, fontStyle: 'italic' }}>
+            {SCORE.quadrant}
           </p>
         </div>
       </div>
@@ -96,7 +99,8 @@ export function ScoreSection() {
 }
 
 // =============================================================================
-// Spine — the 7 canonical stages, Validation Gate expanded
+// Spine — 5 macro phases + 4 loops + the cross-cutting module, Validation Gate
+// expanded; the locked IRL 7-9 add-ons close the ladder at the bottom.
 // =============================================================================
 
 export function SpineSection() {
@@ -105,7 +109,7 @@ export function SpineSection() {
   return (
     <Panel
       title={`La Spina — ${phases} fasi macro + ${loops} loop`}
-      subtitle="1 modulo trasversale · loop di iterazione nelle transizioni critiche · nulla si sblocca senza il sì del founder"
+      subtitle="1 modulo trasversale · loop di iterazione nelle transizioni critiche · 3 add-on per IRL 7-9 · nulla si sblocca senza il sì del founder"
       right={<Pill kind="live" dot>Loop 4 · Launch Ready</Pill>}
     >
       <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 7 }}>
@@ -148,6 +152,19 @@ export function SpineSection() {
                   <div style={{ fontSize: 10, color: 'var(--ink-5)' }}>{node.sub}</div>
                 </div>
                 {node.done && <Icon d={I.check} size={12} stroke={2} style={{ color: 'var(--moss)', flexShrink: 0 }} />}
+              </div>
+            );
+          }
+          // ── Paid add-on — locked, unlocks a single IRL point (7-9) ─────────
+          if (node.kind === 'addon') {
+            return (
+              <div key={i} style={{ marginLeft: 20, borderLeft: '2px dashed var(--line-2)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 34, opacity: 0.72 }}>
+                <Icon d={I.lock} size={13} stroke={1.6} style={{ color: 'var(--ink-5)', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-4)' }}>{node.label}</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-5)' }}>{node.sub}</div>
+                </div>
+                <Pill kind="n">sblocca IRL {node.irl}</Pill>
               </div>
             );
           }

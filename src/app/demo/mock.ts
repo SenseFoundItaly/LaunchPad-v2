@@ -13,11 +13,25 @@
  * tune them freely, nothing else depends on them.
  */
 
+/**
+ * IRL — the 1-9 developmental ladder, NOT tied 1:1 to the 5 macro phases. Each
+ * phase+loop milestone earns one point (1 Idea Canvas · 2 first score + Gate
+ * 1A/1B · 3 Gate 1C + Loop 1 · 4 Business Essentials + Loop 2 · 5 Build & Test
+ * + Loop 3 · 6 MVP Release & Launch + Loop 4); 7-9 unlock only via the paid
+ * add-on modules, which MatchLens has not activated — hence 6/9 despite an
+ * 87/100 score.
+ *
+ * Single source for BOTH the header pill and the Punteggio panel: these used to
+ * be two independent literals that could silently drift apart.
+ */
+export const IRL = { level: 6, of: 9, stage: 'MVP Release & Launch' };
+
 export const PROJECT = {
   name: 'MatchLens',
   tagline: 'Analisi video AI per club sportivi dilettantistici',
-  stagePill: '4 · MVP Release & Launch',
-  irl: 'IRL 6/9',
+  // The core ladder (1-6) is complete; what's left is the add-on surface.
+  stagePill: 'Core completato · add-on da attivare',
+  irl: `IRL ${IRL.level}/${IRL.of}`,
   age: '9 mesi',
 };
 
@@ -32,10 +46,15 @@ export const HEADLINE_METRICS = [
 // 1 cross-cutting module + 4 iteration loops in the critical transitions. The
 // loops sit BETWEEN the phases; the Modulo Trasversale (Financial & Pitch
 // Assets) opens after Loop 1 and is mandatory pre-launch.
+//
+// The three `addon` rows are NOT phases — they are the paid modules that unlock
+// IRL 7-9, shown locked so the 6/9 readout explains itself. Their keys mirror
+// IRL_ADDON_LADDER in src/lib/irl/ladder.ts so demo and engine can't drift.
 export type SpineNode =
   | { kind: 'phase'; n: number; label: string; sub: string; done: boolean; active?: boolean; expanded?: boolean }
   | { kind: 'loop'; label: string; sub: string; verdict: Verdict }
-  | { kind: 'module'; label: string; sub: string; done: boolean };
+  | { kind: 'module'; label: string; sub: string; done: boolean }
+  | { kind: 'addon'; key: string; label: string; sub: string; irl: number };
 
 export const SPINE: SpineNode[] = [
   { kind: 'phase', n: 0, label: 'Idea Canvas', sub: 'Struttura l’idea grezza · Lean Canvas + Startup Score baseline', done: true },
@@ -46,8 +65,11 @@ export const SPINE: SpineNode[] = [
   { kind: 'module', label: 'Modulo Trasversale · Financial & Pitch Assets', sub: 'attivabile dopo Loop 1 · obbligatorio pre-lancio', done: true },
   { kind: 'phase', n: 3, label: 'Build & Test Sandbox', sub: 'Landing page · demo · test con warm users', done: true },
   { kind: 'loop', label: 'Loop 3 · Market Response Review', sub: 'trigger: conversione < 5% o score < 6/10 · max 2 iterazioni', verdict: 'GO' },
-  { kind: 'phase', n: 4, label: 'MVP Release & Launch', sub: 'Build + Launch + Test con cold & warm users', done: false, active: true },
+  { kind: 'phase', n: 4, label: 'MVP Release & Launch', sub: 'Build + Launch + Test con cold & warm users', done: true },
   { kind: 'loop', label: 'Loop 4 · MVP Test Verdict', sub: 'trigger: attivazione < 20% o score < 6/10 · verdetto finale', verdict: 'LAUNCH READY' },
+  { kind: 'addon', key: 'gtm_orchestration', label: 'Add-on · GTM orchestration', sub: 'canali, campagne e motore di crescita orchestrati', irl: 7 },
+  { kind: 'addon', key: 'fundraising_readiness', label: 'Add-on · Fundraising readiness', sub: 'data room, pitch e pipeline investitori pronti al round', irl: 8 },
+  { kind: 'addon', key: 'operations', label: 'Add-on · Operations', sub: 'task e team management sulla macchina che gira', irl: 9 },
 ];
 
 // Expanded evidence checks for the Validation Gate stage (1A ∥ 1B → 1C).
@@ -252,15 +274,18 @@ export const SCORE = {
   ],
   recommendation:
     'Trazione solida e unit economics sane. Prossima leva: allargare i canali oltre le federazioni per ridurre il rischio di concentrazione.',
-  // IRL is a 1-9 developmental ladder, NOT tied 1:1 to the 5 macro phases —
-  // each phase+loop milestone earns one point (1 Idea Canvas · 2 first score +
-  // Gate 1A/1B · 3 Gate 1C + Loop 1 · 4 Business Essentials + Loop 2 · 5 Build
-  // & Test + Loop 3 · 6 MVP Release & Launch + Loop 4); 7-9 unlock only via the
-  // paid add-on modules (GTM orchestration · Fundraising readiness ·
-  // Operations), not yet built. MatchLens cleared Loop 4 (LAUNCH READY) but
-  // hasn't activated any add-on — hence 6/9 despite an 87/100 score, the
-  // "promising, still maturing" quadrant the founder wants IRL to expose.
-  irl: { level: 6, of: 9, stage: 'MVP Release & Launch' },
+  irl: IRL,
+  /**
+   * The Score × IRL quadrant — the reading an accelerator or a VC does at a
+   * glance. Score = quanto è promettente l'idea (volatile, si mantiene alto solo
+   * con asset di qualità ed esecuzione); IRL = quanto sei pronto a essere
+   * investito (si suda, punto per punto). I quattro casi:
+   *   alto / alto  → startup da tenere d'occhio      ← MatchLens
+   *   alto / basso → promettente ma ancora acerba
+   *   basso / alto → ben sviluppata, potenziale basso o inespresso
+   *   basso / basso→ da scartare o pivotare
+   */
+  quadrant: '87/100 con IRL 6/9 → startup da tenere d’occhio: potenziale alto su uno sviluppo maturo.',
 };
 
 // =============================================================================
