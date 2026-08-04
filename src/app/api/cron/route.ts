@@ -33,6 +33,8 @@ import {
 import { withEmissionDiscipline } from '@/lib/ecosystem-monitors';
 import { extractAlertsSecondPass } from '@/lib/monitor-extract';
 import { processWatchSourcesCron } from '@/lib/watch-source-processor';
+import { proposeMvpIterationsCron } from '@/lib/mvp/iteration-proposer';
+import { sweepBuildingBuilds } from '@/lib/mvp/build-runner';
 import type { ProcessResult as WatchSourceResult } from '@/lib/watch-source-processor';
 import {
   processCorrelations,
@@ -679,6 +681,30 @@ export async function GET(request: NextRequest) {
       watchSourceResults = await processWatchSourcesCron(10);
     } catch (err) {
       console.warn('[cron] processWatchSourcesCron failed:', (err as Error).message);
+    }
+
+    // Phase B1: advance in-flight builds (async drivers finish out-of-band) and
+    // reap rows stuck 'building' past the timeout (killed function / driver crash).
+    try {
+      const sweep = await sweepBuildingBuilds({ maxAgeMinutes: 12, limit: 20 });
+      if (sweep.advanced || sweep.reaped) {
+        console.log(`[cron] builds swept: ${sweep.advanced} advanced, ${sweep.reaped} reaped`);
+      }
+    } catch (err) {
+      console.warn('[cron] sweepBuildingBuilds failed:', (err as Error).message);
+    }
+
+    // Phase B2: propose MVP build iterations for projects whose live build has
+    // new feedback. Cheap SELECT-driven; the expensive delta generation runs only
+    // on founder approval (the mvp_build_iteration executor).
+    let buildIterationsProposed = 0;
+    try {
+      buildIterationsProposed = await proposeMvpIterationsCron(20);
+      if (buildIterationsProposed > 0) {
+        console.log(`[cron] proposed ${buildIterationsProposed} MVP build iteration(s)`);
+      }
+    } catch (err) {
+      console.warn('[cron] proposeMvpIterationsCron failed:', (err as Error).message);
     }
 
     // Housekeeping: expire stale briefs. Cheap UPDATE, runs every tick.

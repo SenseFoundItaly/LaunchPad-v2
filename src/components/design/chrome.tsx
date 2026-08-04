@@ -154,7 +154,18 @@ interface NavItem {
 const PRIMARY_ITEMS: NavItem[] = [
   { id: 'dashboard', iconKey: 'home', labelKey: 'nav.home', route: 'today',
     tooltipKey: 'nav.home.tooltip' },
+  { id: 'build', iconKey: 'bolt', labelKey: 'nav.build', route: 'build',
+    tooltipKey: 'nav.build.tooltip' },
 ];
+
+// Feature flag: the Build & Launch Hub ships behind NEXT_PUBLIC_BUILD_ENABLED so
+// it can be live on staging (=1) while staying hidden in prod until GA. Inlined at
+// build time. This only hides the NAV entry — the /build route stays reachable by
+// URL for QA.
+const BUILD_NAV_ENABLED = process.env.NEXT_PUBLIC_BUILD_ENABLED === '1';
+const VISIBLE_PRIMARY_ITEMS = PRIMARY_ITEMS.filter(
+  (it) => it.id !== 'build' || BUILD_NAV_ENABLED,
+);
 
 // Channels — cross-cutting activity surfaces shown below the divider.
 // Phase 1 consolidation (2026-06): the dedicated Signals nav was removed —
@@ -207,7 +218,7 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
         gap: 2,
       }}
     >
-      {PRIMARY_ITEMS.map((it) => (
+      {VISIBLE_PRIMARY_ITEMS.map((it) => (
         <NavRailItem
           key={it.id}
           item={it}

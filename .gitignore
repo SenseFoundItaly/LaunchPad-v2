@@ -45,3 +45,6 @@ tsconfig.tsbuildinfo
 .claude/*
 !.claude/settings.json
 !.claude/skills/
+
+# staging env (secrets — never commit)
+.env.staging
