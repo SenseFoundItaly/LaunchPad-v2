@@ -247,3 +247,23 @@ describe('#296 — IRL does not regress without a pivot', () => {
     expect(r.regressed).toBe(false);
   });
 });
+
+
+// ── Rung labels are consumed by the UI now (they were dead for weeks) ────────
+
+describe('every rung has a localized label in BOTH locales', () => {
+  it('irl.level-<labelKey> exists for all nine rungs, EN and IT', async () => {
+    const en = (await import('@/lib/i18n/messages/en')).en as Record<string, string>;
+    const it = (await import('@/lib/i18n/messages/it')).it as Record<string, string>;
+    for (const rung of IRL_LADDER) {
+      const key = `irl.level-${rung.labelKey}`;
+      expect(en[key], `EN ${key} (rung ${rung.level})`).toBeTruthy();
+      expect(it[key], `IT ${key} (rung ${rung.level})`).toBeTruthy();
+    }
+  });
+
+  it('labelKeys are unique — two rungs sharing one would mislabel the next step', () => {
+    const keys = IRL_LADDER.map((r) => r.labelKey);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
