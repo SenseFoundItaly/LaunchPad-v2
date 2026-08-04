@@ -97,11 +97,21 @@ export async function maybeProposeGateVerdict(projectId: string): Promise<boolea
       wtp,
     });
 
+    // PIVOT is split per TRACK rather than offered bare. A scope-less pivot is
+    // a labelled record that does nothing: only `1C` can open Loop 1 (its
+    // surgical scope — ICP / value prop / problem — IS the PSF surface), and
+    // 1A/1B have no loop engine yet (#126/#127). Asking "which part doesn't
+    // hold up?" at click time is what turns PIVOT from a note into a machine,
+    // and it stops a regulatory problem being routed into a value-prop loop.
     const options = [
       { id: 'gate_verdict_GO', label: translate(locale, 'gate.verdict-go'),
         description: translate(locale, 'gate.verdict-go-desc'), gate_verdict: 'GO' },
-      { id: 'gate_verdict_PIVOT', label: translate(locale, 'gate.verdict-pivot'),
-        description: translate(locale, 'gate.verdict-pivot-desc'), gate_verdict: 'PIVOT' },
+      { id: 'gate_verdict_PIVOT_1C', label: translate(locale, 'gate.verdict-pivot-1c'),
+        description: translate(locale, 'gate.verdict-pivot-1c-desc'), gate_verdict: 'PIVOT', gate_scope: '1C' },
+      { id: 'gate_verdict_PIVOT_1A', label: translate(locale, 'gate.verdict-pivot-1a'),
+        description: translate(locale, 'gate.verdict-pivot-1a-desc'), gate_verdict: 'PIVOT', gate_scope: '1A' },
+      { id: 'gate_verdict_PIVOT_1B', label: translate(locale, 'gate.verdict-pivot-1b'),
+        description: translate(locale, 'gate.verdict-pivot-1b-desc'), gate_verdict: 'PIVOT', gate_scope: '1B' },
       { id: 'gate_verdict_STOP', label: translate(locale, 'gate.verdict-stop'),
         description: translate(locale, 'gate.verdict-stop-desc'), gate_verdict: 'STOP' },
     ];

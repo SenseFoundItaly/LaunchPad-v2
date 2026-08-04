@@ -9,8 +9,26 @@ on:
 jobs:
   add-to-project:
     runs-on: ubuntu-latest
+    # Convenience automation, NOT a code gate — it must never mark a PR red.
+    #
+    # This job has failed on every PR because `PROJECT_TOKEN` is missing or
+    # lacks scope, and a permanently-red check is worse than no check: it
+    # trains everyone to ignore CI, which is how the REAL gate
+    # (typecheck-and-test) eventually gets waved through.
+    #
+    # ⚠️ This does NOT fix the token — it stops the noise. The real fix is a
+    # repo/org secret `PROJECT_TOKEN` = a PAT (classic) with `project` + `repo`
+    # scope, or a GitHub App token, able to write to
+    # https://github.com/orgs/SenseFoundItaly/projects/1. Once that exists,
+    # delete this line so a genuine failure is visible again.
+    continue-on-error: true
     steps:
-      - uses: actions/add-to-project@v1.0.2
+      # Skip cleanly when the secret is absent, so the job is genuinely GREEN
+      # rather than red-but-tolerated. `continue-on-error` alone stops the
+      # WORKFLOW failing but the job check still renders as a failure, which is
+      # the noise we are removing. Secrets are readable in a step-level `if`.
+      - if: ${{ secrets.PROJECT_TOKEN != '' }}
+        uses: actions/add-to-project@v1.0.2
         with:
           project-url: https://github.com/orgs/SenseFoundItaly/projects/1
           github-token: ${{ secrets.PROJECT_TOKEN }}
