@@ -78,18 +78,25 @@ export async function POST(
     }
   }
 
+  // UPSERT, not UPDATE: most projects have NO research row (it is only created
+  // opportunistically by the market-research skill / tam-sam-som artifacts,
+  // none of which are required to green the gate — market_size can pass via
+  // the memory_facts keyword fallback). A bare UPDATE matched 0 rows on those
+  // projects and returned 200 anyway: the founder's GO/PIVOT/STOP silently
+  // vanished and the gate_verdict check stayed red forever.
   await run(
-    `UPDATE research SET gate_verdict = jsonb_build_object(
+    `INSERT INTO research (project_id, gate_verdict)
+     VALUES (?, jsonb_build_object(
          'verdict', ?::text,
          'decided_at', ?::text,
          'motivation', ?::text,
-         'scope', ?::text)
-      WHERE project_id = ?`,
+         'scope', ?::text))
+     ON CONFLICT (project_id) DO UPDATE SET gate_verdict = EXCLUDED.gate_verdict`,
+    projectId,
     verdict,
     new Date().toISOString(),
     motivation.slice(0, 1000),
     scope,
-    projectId,
   );
 
   const ownerRow = (await query<{ owner_user_id: string | null }>(

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { OptionSet } from '@/types/artifacts';
 import { splitOptionLabel } from '@/components/chat/option-label';
+import { isSilentReset } from '@/components/chat/action-errors';
 import { useT } from '@/components/providers/LocaleProvider';
 
 interface OptionSetCardProps {
@@ -91,8 +92,10 @@ function OptionButton({
       try {
         await onAction('skill:run', { skill_id: option.skill_id, proposal_id: option.proposal_id });
         setState('done');
-      } catch {
-        setState('error');
+      } catch (e) {
+        // Silent reset (recharge modal / prerequisite gate): the run never
+        // started — back to idle, not a false Done or a false error.
+        setState(isSilentReset(e) ? 'idle' : 'error');
       }
       return;
     }
@@ -105,8 +108,8 @@ function OptionButton({
       try {
         await onAction('verdict:record', { loop_id: option.loop_id, verdict: option.loop_verdict });
         setState('done');
-      } catch {
-        setState('error');
+      } catch (e) {
+        setState(isSilentReset(e) ? 'idle' : 'error');
       }
       return;
     }
@@ -119,8 +122,9 @@ function OptionButton({
       try {
         await onAction('gate-verdict:record', { verdict: option.gate_verdict, scope: option.gate_scope });
         setState('done');
-      } catch {
-        setState('error');
+      } catch (e) {
+        // Cancelled motivation prompt → idle (still clickable), real failure → error.
+        setState(isSilentReset(e) ? 'idle' : 'error');
       }
       return;
     }

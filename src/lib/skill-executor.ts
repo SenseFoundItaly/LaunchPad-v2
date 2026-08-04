@@ -273,7 +273,7 @@ export async function runSkill(
 
   const startedAt = Date.now();
 
-  const { text, usage } = await runAgent(userMsg, {
+  const { text, usage, timedOut } = await runAgent(userMsg, {
     systemPrompt,
     timeout: opts.timeoutMs ?? 120_000,
     task: 'skill-invoke',
@@ -283,6 +283,14 @@ export async function runSkill(
     step: skillId,
   });
   const latencyMs = Date.now() - startedAt;
+  if (timedOut) {
+    // The run was cut at the budget: `text` is whatever streamed before the
+    // abort, and the machine-readable tail (scorecard ```json fence, artifact
+    // blocks — emitted LAST per the SKILL.md format) is the likely casualty.
+    // Log loudly so a truncated run is traceable when a downstream persist
+    // (score, artifacts) comes up empty.
+    console.warn(`[skill-executor] ${skillId} hit the ${opts.timeoutMs ?? 120_000}ms budget after ${latencyMs}ms — output truncated`);
+  }
 
   if (!text || !text.trim()) {
     throw new Error(`runSkill ${skillId}: empty output`);
@@ -374,7 +382,15 @@ export async function runSkill(
   if (skillId === 'startup-scoring' && !incomplete) {
     try {
       // force: a deliberate re-score must refresh the stored overall/dimensions.
-      if (await persistScoreFromSummary(projectId, text, { force: true })) artifactsPersisted++;
+      if (await persistScoreFromSummary(projectId, text, { force: true })) {
+        artifactsPersisted++;
+      } else {
+        // false = no parseable score in the output (no closed json fence, no
+        // recognizable "NN/100" phrasing — typical after a timeout truncation).
+        // Without this log the run reads 'completed' everywhere while the
+        // startup_scoring_baseline check silently stays red.
+        console.warn(`[skill-executor] startup-scoring output had no parseable score — baseline NOT persisted (timed_out=${!!timedOut})`);
+      }
     } catch (err) {
       console.warn(`[skill-executor] score fallback failed for ${skillId}:`, (err as Error).message);
     }

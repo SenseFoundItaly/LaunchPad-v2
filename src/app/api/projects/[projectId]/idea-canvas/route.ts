@@ -61,8 +61,15 @@ export async function GET(
   const staged = await readStagedCanvasFieldValues(projectId);
   const pending: Record<string, string> = {};
   for (const [field, value] of Object.entries(staged)) {
-    const appliedVal = (row as Record<string, string | null> | undefined)?.[field];
-    if (!appliedVal?.trim() || appliedVal.trim() !== value.trim()) pending[field] = value;
+    // Applied soft fields (key_metrics/revenue_streams/cost_structure) are
+    // JSONB ARRAYS while staged values are newline-joined strings — normalize
+    // before comparing, or `appliedVal.trim()` throws and the whole GET 500s
+    // (the Canvas then renders as empty over a fully intact row).
+    const appliedRaw = (row as Record<string, unknown> | undefined)?.[field];
+    const appliedStr = Array.isArray(appliedRaw)
+      ? appliedRaw.join('\n')
+      : typeof appliedRaw === 'string' ? appliedRaw : '';
+    if (!appliedStr.trim() || appliedStr.trim() !== value.trim()) pending[field] = value;
   }
 
   return json({
@@ -179,14 +186,16 @@ export async function POST(
 
   // Soft Lean Canvas fields (unfair_advantage + the array fields) persist directly
   // (ungated) — they carry no stage gate, unlike the 6 core fields above.
-  // Best-effort only when core fields also wrote; on a soft-only commit this IS
-  // the whole write, so a failure must surface (the chat commit button retries).
+  // A failure here must surface even when the core fields already wrote:
+  // returning 201 with the soft fields missing is the silent cost/revenue
+  // stall again, just on the DB-error path. The commit button shows retry,
+  // and a re-POST is idempotent (COALESCE/CASE upserts).
   let extras: string[] = [];
   try {
     extras = await persistCanvasDetails(projectId, body);
   } catch (e) {
     console.error('[idea-canvas] persistCanvasDetails failed', e);
-    if (!hasCoreFields) return error('Failed to persist canvas fields', 500);
+    return error('Failed to persist canvas fields', 500);
   }
 
   // Mirror the business fields into the graph's BUSINESS ESSENTIALS satellite.

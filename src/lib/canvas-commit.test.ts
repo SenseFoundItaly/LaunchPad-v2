@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pickCanvasCommitFields } from './canvas-commit';
+import { pickCanvasCommitFields, droppedCanvasCommitFields } from './canvas-commit';
 
 describe('pickCanvasCommitFields', () => {
   it('passes core text fields trimmed, drops unknown keys and empties', () => {
@@ -29,6 +29,33 @@ describe('pickCanvasCommitFields', () => {
 
   it('drops arrays with no usable items', () => {
     expect(pickCanvasCommitFields({ key_metrics: ['', '   ', 42] })).toEqual({});
+  });
+
+  it('droppedCanvasCommitFields flags content-carrying keys the picker discarded', () => {
+    // Aliased/localized keys (the drift mode behind the original stall) must
+    // surface as dropped so the commit fails into retry instead of narrating
+    // a complete canvas with a block missing.
+    const raw = {
+      solution: 'Radar di zona',
+      costi: 'Dati/cloud (fisso), sviluppo prodotto',
+      ricavi: ['Abbonamento mensile'],
+      note: '',
+      extra_null: null,
+      cost_structure: [{ item: 'cloud', cost: 200 }],
+    };
+    const picked = pickCanvasCommitFields(raw);
+    expect(picked).toEqual({ solution: 'Radar di zona' });
+    expect(droppedCanvasCommitFields(raw, picked).sort())
+      .toEqual(['cost_structure', 'costi', 'ricavi']);
+  });
+
+  it('droppedCanvasCommitFields is empty when everything persistable survived', () => {
+    const raw = {
+      problem: 'Lead persi',
+      key_metrics: ['MRR'],
+      empty_alias: '   ',
+    };
+    expect(droppedCanvasCommitFields(raw, pickCanvasCommitFields(raw))).toEqual([]);
   });
 
   it('regression: the LocalPulse close-the-canvas commit forwards all 3 soft strings', () => {
