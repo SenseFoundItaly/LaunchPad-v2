@@ -14,12 +14,15 @@ Next.js app (App Router) deployed to Netlify via OpenNext. Prod: launchpad.sense
 ## Product invariants
 - Skills **propose, not run**: `run_skill` pending_action + executor. A new `action_type` needs BOTH the TS union AND a DB CHECK migration.
 - Validation gate: nothing turns green without explicit founder approval (e.g. `market_size` needs an `approved: true` stamp).
-- The system must never dead-end the founder: any gating loop/review needs a dismiss/override path.
+- The system must never dead-end the founder: any gating loop/review needs a dismiss/override path — **and an exit path**: a founder who has decided to stop must not be forced to finish first.
+- A new gate check needs its **write path** too (keyword family → chat-sweep family → item kind → source mapping → executor Apply prefix, which must itself match the keyword family). A check reading a column nothing fills is permanently red.
 
 ## Footguns
 - OpenNext 404s a static leaf after two dynamic segments (`[a]/…/[b]/verb`) — fold the verb onto the dynamic leaf.
-- `schema.sql` drifts from prod — verify columns against the live DB before relying on it.
+- `schema.sql` drifts from prod — verify columns against the live DB before relying on it. `_migrations` is the only trustworthy record; **staging has no `_migrations` table at all** (schema came from `schema.sql`), so never point `db/migrate.ts` at it — it would replay 001-036 against a populated DB. Apply single migrations by hand there.
 - dev == prod: there is ONE Supabase project; local testing hits prod data.
+- **Proposer idempotency is not one-size-fits-all.** `phase1-watchers` records a permanent marker so a rejected *suggestion* sticks. Copying that onto a **required** step bricks it (reject → never re-asked → check red forever). For required steps guard on STATE ("already decided / card already open"), never history.
+- Chat option-sets have **two renderers** — `OptionSetCard.tsx` and the inline one in `chat/page.tsx`. A new option field must be handled in both or it silently no-ops in one.
 
 ## Build / test / deploy
 - Worktrees have no own `node_modules` (symlinked from the main checkout): use `node_modules/.bin/tsc` (npx false-passes) and `next build --webpack` / `next dev --webpack` (turbopack panics on the symlink).
