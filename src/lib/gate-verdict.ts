@@ -16,23 +16,54 @@
  * Apply = GO. Rejecting the card records NOTHING and leaves the gate open,
  * which is the safe direction: the gate can never green without an explicit yes.
  *
- * Idempotency mirrors phase1-watchers: a memory_events marker, recorded only
- * once a proposal was actually staged.
+ * ── Idempotency: deliberately NOT the phase1-watchers rule ──────────────────
+ * The watcher proposer records a permanent marker so a rejected proposal STICKS
+ * ("the founder said no once"). Copying that here shipped a dead end: reject
+ * writes no verdict, the marker blocks re-asking, and `gate_verdict` is red
+ * forever with no affordance — the gate becomes uncompletable.
+ *
+ * The asymmetry is the point. A watcher is a SUGGESTION, so "no" can be final.
+ * The verdict is a REQUIRED step, so "no" can only mean "not now" — otherwise
+ * declining once bricks the project (linee guida §4: the system must never
+ * dead-end the founder).
+ *
+ * So the guard is state, not history: propose unless a verdict is already
+ * recorded (`shouldProposeGateVerdict`) or a card carrying this item is already
+ * open. `stageOrMergeItems` is the real backstop — it refuses to duplicate an
+ * item already staged on an open card. The marker event is still written, but
+ * purely as an audit trail; it no longer gates anything.
  */
 
 import { query } from '@/lib/db';
 import { buildProjectSnapshot } from '@/lib/journey';
 import { shouldProposeGateVerdict } from '@/lib/journey/stage-2-market-validation';
 import { stageValidationItemsFromRaw } from '@/lib/auto-stage-validation';
-import { recordEvent, lastEventOfType } from '@/lib/memory/events';
+import { recordEvent } from '@/lib/memory/events';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 
-/** memory_events marker — one verdict proposal per project. */
+/** memory_events marker — an audit trail of when we asked. NOT an idempotency
+ *  gate: see the asymmetry note above. */
 export const GATE_VERDICT_EVENT = 'gate_verdict_proposed' as const;
+
+/** True when an unresolved card already carries the go/no-go item — don't
+ *  stack a second one on top of it. Tolerates legacy double-encoded payloads
+ *  by simply not matching (stageOrMergeItems then no-ops instead). */
+async function verdictCardAlreadyOpen(projectId: string): Promise<boolean> {
+  const rows = await query<{ id: string }>(
+    `SELECT id FROM pending_actions
+      WHERE project_id = ? AND action_type = 'validation_proposal'
+        AND status IN ('pending','edited')
+        AND (payload->'items' @> '[{"kind":"gate_verdict"}]'
+          OR edited_payload->'items' @> '[{"kind":"gate_verdict"}]')
+      LIMIT 1`,
+    projectId,
+  ).catch(() => [] as { id: string }[]);
+  return rows.length > 0;
+}
 
 /**
  * Stage the go/no-go card if (and only if) the gate evidence is complete, no
- * verdict is on record, and we have not already asked.
+ * verdict is on record, and no card is already waiting for them.
  *
  * Non-fatal by construction: every failure path returns false rather than
  * throwing, so a proposal problem can never break the caller's request.
@@ -47,7 +78,9 @@ export async function maybeProposeGateVerdict(projectId: string): Promise<boolea
     const ownerUserId = proj[0]?.owner_user_id || '';
     if (!ownerUserId) return false;
 
-    if (await lastEventOfType(ownerUserId, projectId, GATE_VERDICT_EVENT)) return false;
+    // State, not history: a card the founder already has, or a decision already
+    // made. A REJECTED card must not block a fresh ask — that was the dead end.
+    if (await verdictCardAlreadyOpen(projectId)) return false;
 
     const snapshot = await buildProjectSnapshot(projectId);
     if (!shouldProposeGateVerdict(snapshot)) return false;
@@ -73,7 +106,8 @@ export async function maybeProposeGateVerdict(projectId: string): Promise<boolea
     );
     if (!staged) return false;
 
-    // Marker only once a proposal actually landed, so a failed run can retry.
+    // Audit trail only — every ask is recorded, and re-asks are expected after
+    // a "not now". This must NOT become an idempotency gate again.
     await recordEvent({ userId: ownerUserId, projectId, eventType: GATE_VERDICT_EVENT, payload: { locale } });
     return true;
   } catch (err) {
