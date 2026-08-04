@@ -23,7 +23,12 @@ jobs:
     # delete this line so a genuine failure is visible again.
     continue-on-error: true
     steps:
-      - uses: actions/add-to-project@v1.0.2
+      # Skip cleanly when the secret is absent, so the job is genuinely GREEN
+      # rather than red-but-tolerated. `continue-on-error` alone stops the
+      # WORKFLOW failing but the job check still renders as a failure, which is
+      # the noise we are removing. Secrets are readable in a step-level `if`.
+      - if: ${{ secrets.PROJECT_TOKEN != '' }}
+        uses: actions/add-to-project@v1.0.2
         with:
           project-url: https://github.com/orgs/SenseFoundItaly/projects/1
           github-token: ${{ secrets.PROJECT_TOKEN }}
