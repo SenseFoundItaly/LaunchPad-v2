@@ -4,7 +4,7 @@ import { json } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
 import { evaluateAllStages } from '@/lib/journey';
-import { computeIRL, type IrlEvidence } from '@/lib/irl/ladder';
+import { computeIRL, IRL_MAX, IRL_CORE_MAX, type IrlEvidence } from '@/lib/irl/ladder';
 import { readIrlFloor, raiseIrlFloor } from '@/lib/irl/floor';
 import type { StageId } from '@/lib/journey/types';
 
@@ -12,6 +12,25 @@ import type { StageId } from '@/lib/journey/types';
 // loop modules — IRL reads EVIDENCE directly (raw WTP / LTV-CAC), it doesn't
 // depend on a loop having run. The passing BARS live in ladder.ts.
 const IRL_MIN_INTERVIEWS = 5;
+
+/**
+ * Which upstream metric feeds actually exist today (#338). The ladder declares
+ * all nine rungs, but levels 5-9 read evidence nothing currently produces, so
+ * showing a bare "/ 9" promises a climb the product cannot deliver.
+ *
+ * `reachable_max` is derived from these flags and rendered by the UI, so the
+ * founder is never shown a denominator they cannot reach. Flip a flag when its
+ * feed lands and the ceiling moves on its own — no UI change.
+ */
+const CONVERSION_FEED_LIVE = false; // Loop 3 / landing conversion — PR #225
+const ACTIVATION_FEED_LIVE = false; // Loop 4 / MVP activation   — PR #218
+const ADDON_MODULES_LIVE = false;   // IRL 7-9 paid modules      — #298/#299/#300
+
+function reachableMax(): number {
+  if (!CONVERSION_FEED_LIVE) return 4;            // level 5's gate can never pass
+  if (!ACTIVATION_FEED_LIVE) return 5;
+  return ADDON_MODULES_LIVE ? IRL_MAX : IRL_CORE_MAX;
+}
 
 /**
  * GET /api/projects/{projectId}/irl
@@ -106,6 +125,7 @@ export async function GET(
     level: irl.level,
     of: irl.of,
     next_key: irl.nextKey,
+    reachable_max: reachableMax(),
     earned: irl.earned,
     regressed: irl.regressed,
     current_stage_id: active?.stage.id ?? null,

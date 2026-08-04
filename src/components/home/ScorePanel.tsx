@@ -17,6 +17,11 @@
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { MessageKey } from '@/lib/i18n/messages';
+// ladder.ts is pure (zero DB/journey imports, by design) so it is client-safe.
+// Deriving the rung label from it means the UI cannot drift from the engine —
+// a hand-copied key→label map would.
+import { IRL_LADDER } from '@/lib/irl/ladder';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import { useStages } from '@/hooks/useStages';
@@ -29,6 +34,10 @@ interface IrlResp {
   level: number;
   of: number;
   next_key: string | null;
+  /** Highest level any project can currently reach — levels above this have no
+   *  evidence feed yet (#338), so "/ 9" alone would promise a climb that
+   *  cannot happen. */
+  reachable_max: number;
   /** What today's evidence supports on its own. */
   earned: number;
   /** level > earned: a signal has slipped below a rung already earned. */
@@ -94,6 +103,21 @@ export function ScorePanel({ projectId }: { projectId: string }) {
   // appears automatically — no manual click. The server enforces the real gate +
   // debounce, so this client trigger is best-effort and safe (it no-ops server-side).
   const queryClient = useQueryClient();
+  const nextRungLabelKey = IRL_LADDER.find((r) => r.key === irl?.next_key)?.labelKey ?? null;
+
+  // The IRL badge is set once and was never invalidated, so it stayed stale
+  // until a remount — a founder could earn a rung and watch the number not
+  // move. Reconcile on the same bridge every other topic uses.
+  useEffect(() => {
+    if (!projectId || typeof window === 'undefined') return;
+    const handler = () => queryClient.invalidateQueries({ queryKey: ['irl', projectId] });
+    window.addEventListener('lp-actions-changed', handler);
+    window.addEventListener('lp-skills-changed', handler);
+    return () => {
+      window.removeEventListener('lp-actions-changed', handler);
+      window.removeEventListener('lp-skills-changed', handler);
+    };
+  }, [projectId, queryClient]);
   const autoScoreFired = useRef(false);
   const scoreLoaded = score !== undefined;
   const stagesDone = evals.filter((e) => e.status === 'done').length;
@@ -205,6 +229,22 @@ export function ScorePanel({ projectId }: { projectId: string }) {
                learns a signal slipped — silence would be a prettier lie. */
             <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--clay)', lineHeight: 1.45 }}>
               {t('score.irl-regressed', { earned: irl.earned })}
+            </p>
+          )}
+          {/* What earns the NEXT point. The API has always returned next_key and
+              the UI threw it away — so a founder saw "2/9" with no idea what
+              gets them to 3, against "ogni punto si suda". */}
+          {nextRungLabelKey && (
+            <p style={{ margin: '8px 0 0', fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.45 }}>
+              {t('score.irl-next', { rung: t(`irl.level-${nextRungLabelKey}` as MessageKey) })}
+            </p>
+          )}
+          {/* Don't promise a climb the product can't deliver: levels above
+              reachable_max have no evidence feed yet (#338). Mirrors how
+              PhaseSpine marks Loops 3-4 "coming soon". */}
+          {irl && irl.reachable_max < irl.of && (
+            <p style={{ margin: '6px 0 0', fontSize: 10.5, color: 'var(--ink-5)', lineHeight: 1.4 }}>
+              {t('score.irl-capped', { from: irl.reachable_max + 1 })}
             </p>
           )}
           <p style={{ margin: '8px 0 0', fontSize: 10.5, color: 'var(--ink-5)', lineHeight: 1.4, fontStyle: 'italic' }}>
