@@ -728,6 +728,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'chat.run-with-credits': 'Esegui',
   'chat.skill-running-note': 'In esecuzione in tempo reale — al termine registra le prove di validazione.',
   'chat.skill-done-note': 'Analisi eseguita — preparazione e spina dorsale aggiornate.',
+  'chat.skill-failed-note': 'La skill non è riuscita a completare — problema tecnico, non informazioni mancanti. Riprova; segnalacelo se continua.',
   'chat.skill-incomplete-note': 'Questa analisi non ha prodotto un risultato utilizzabile — servono più dettagli sul tuo progetto. Aggiungi qualche informazione e riprova.',
   'chat.skill-locked-hint': 'Definisci prima la soluzione e la value proposition per sbloccare questa analisi.',
   // Canvas pannello destro (riga riepilogo conoscenza / intelligence + stati).

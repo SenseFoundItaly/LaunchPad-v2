@@ -293,6 +293,11 @@ export async function runSkill(
   }
 
   if (!text || !text.trim()) {
+    // Logged, not just thrown: this is the failure the founder sees as
+    // "servono più dettagli" while NOTHING is persisted (no skill_completions
+    // row at all), so without a log line the cause is invisible in prod.
+    // Luca's 4/08 scoring blocker presented exactly this way.
+    console.error(`[skill-executor] ${skillId} produced EMPTY output for project ${projectId} — no completion row will be written`);
     throw new Error(`runSkill ${skillId}: empty output`);
   }
 
