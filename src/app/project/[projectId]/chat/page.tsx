@@ -1265,9 +1265,22 @@ export default function CopilotChatPage({
         // Authoritative final content: the incomplete-note on a quality-gate fail,
         // else the full summary (replaces any partial streamed text — e.g. a
         // mid-stream artifact block — with the clean, complete final).
-        const finalContent = (runStatus === 'incomplete' || !runSummary.trim())
-          ? t('chat.skill-incomplete-note')
-          : runSummary;
+        // Two DIFFERENT failures were collapsed into one message, and the
+        // founder was told the wrong thing:
+        //   status 'incomplete'  → the skill ran and asked for more input.
+        //                          "servono più dettagli" is correct.
+        //   empty summary        → the skill did NOT complete (error / budget
+        //                          timeout). Nothing is persisted — no
+        //                          skill_completions row at all — so telling the
+        //                          founder to "add more information and retry"
+        //                          sends them to do work that cannot help, and
+        //                          hides a real failure as a content problem.
+        //                          (Luca, changelog 4/08: canvas complete, yet
+        //                          scoring "asks for more details" forever.)
+        const runFailed = runStatus !== 'incomplete' && !runSummary.trim();
+        const finalContent = runFailed
+          ? t('chat.skill-failed-note')
+          : (runStatus === 'incomplete' ? t('chat.skill-incomplete-note') : runSummary);
         if (liveStarted) {
           setMessages((prev) => prev.map((m) => (m.id === liveId ? { ...m, content: finalContent } : m)));
         } else {

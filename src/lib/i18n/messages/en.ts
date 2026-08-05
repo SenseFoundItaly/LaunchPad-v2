@@ -740,6 +740,7 @@ export const en = {
   'chat.run-with-credits': 'Run',
   'chat.skill-running-note': 'Running in real time — this writes validation evidence when it finishes.',
   'chat.skill-done-note': 'Analysis ran — readiness and the spine have been updated.',
+  'chat.skill-failed-note': 'That run didn’t finish — a technical failure, not missing information. Try it again; tell us if it keeps happening.',
   'chat.skill-incomplete-note': "That analysis didn't produce a usable result — it needs more context about your project. Add a bit more detail and run it again.",
   'chat.skill-locked-hint': 'Sketch your solution and value proposition first to unlock this analysis.',
   // Canvas right-pane (knowledge / intelligence summary row + states). The
