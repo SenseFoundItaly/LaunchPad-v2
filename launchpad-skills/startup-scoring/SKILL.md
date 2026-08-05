@@ -152,6 +152,9 @@ Consider: Key person dependencies, regulatory risk, technology risk, market timi
 
 ## Output Format
 
+Emit the COMPACT json block below **first**, before any narrative. It must be
+complete and closed. Everything the product stores is in here — keep it tight.
+
 ```json
 {
   "startup_score": {
@@ -159,72 +162,32 @@ Consider: Key person dependencies, regulatory risk, technology risk, market timi
     "overall_grade": "A+ | A | B+ | B | C+ | C | D | F",
     "summary": "2-3 sentence overall assessment",
     "dimensions": {
-      "market_opportunity": {
-        "score": 0,
-        "weight": 0.20,
-        "rationale": "Why this score",
-        "strengths": ["Specific strength"],
-        "risks": ["Specific risk"]
-      },
-      "competitive_landscape": {
-        "score": 0,
-        "weight": 0.15,
-        "rationale": "Why this score",
-        "strengths": ["Specific strength"],
-        "risks": ["Specific risk"]
-      },
-      "feasibility": {
-        "score": 0,
-        "weight": 0.15,
-        "rationale": "Why this score",
-        "strengths": ["Specific strength"],
-        "risks": ["Specific risk"]
-      },
-      "business_model_viability": {
-        "score": 0,
-        "weight": 0.20,
-        "rationale": "Why this score",
-        "strengths": ["Specific strength"],
-        "risks": ["Specific risk"]
-      },
-      "customer_demand": {
-        "score": 0,
-        "weight": 0.20,
-        "rationale": "Why this score",
-        "strengths": ["Specific strength"],
-        "risks": ["Specific risk"]
-      },
-      "execution_risk": {
-        "score": 0,
-        "weight": 0.10,
-        "rationale": "Why this score",
-        "strengths": ["Specific strength"],
-        "risks": ["Specific risk"]
-      }
-    },
-    "grade_scale": {
-      "A+": "90-100: Exceptional across all dimensions",
-      "A": "80-89: Strong with minor gaps",
-      "B+": "70-79: Promising with clear improvement areas",
-      "B": "60-69: Viable but needs significant work",
-      "C+": "50-59: Questionable, major gaps to address",
-      "C": "40-49: Weak, fundamental issues present",
-      "D": "25-39: Unlikely to succeed without major pivot",
-      "F": "0-24: Fundamentally flawed concept"
-    },
-    "top_priorities": [
-      {
-        "dimension": "Weakest dimension name",
-        "action": "Specific action to improve score",
-        "expected_impact": "How much improvement this could drive"
-      }
-    ],
-    "data_gaps": [
-      "Information the founder should gather to enable more accurate scoring"
-    ]
+      "market_opportunity": { "score": 0, "rationale": "one sentence" },
+      "competitive_landscape": { "score": 0, "rationale": "one sentence" },
+      "feasibility": { "score": 0, "rationale": "one sentence" },
+      "business_model_viability": { "score": 0, "rationale": "one sentence" },
+      "customer_demand": { "score": 0, "rationale": "one sentence" },
+      "execution_risk": { "score": 0, "rationale": "one sentence" }
+    }
   }
 }
 ```
+
+Weights are fixed and known to the system — do NOT echo them. Do NOT emit the
+grade scale: it is a constant, and re-typing it every run costs the founder
+time and money for zero information.
+
+### Then, AFTER the json block
+
+Write the analysis as prose — this is what the founder actually reads:
+
+- Per dimension: the reasoning, the specific strengths, the specific risks.
+- Top 2-3 priorities: the weakest dimensions, what to do, what it would move.
+- Data gaps: what to gather for a sharper score next time.
+
+Cite sources in this prose section. Cap it at **one source per dimension** —
+the scorecard is a judgement on the founder's own evidence, not a literature
+review.
 
 ## Examples
 

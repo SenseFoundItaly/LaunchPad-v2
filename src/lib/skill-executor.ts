@@ -61,7 +61,39 @@ export const STALE_DAYS = 14;
 
 /** Skills whose downstream persistence depends on a structured json payload in
  *  the output (parsed by persistResearchFromSkillOutput). */
-const STRUCTURED_JSON_SKILLS = new Set<string>(['market-research']);
+/**
+ * Skills whose output is PARSED downstream, with the contract that guarantees a
+ * closed, parseable json block even when the run is cut short.
+ *
+ * Both entries exist because of the same live failure: the model writes a long
+ * report, the 170s budget fires mid-sentence, the json fence never closes,
+ * JSON.parse throws, and NOTHING persists while the run still reports
+ * 'completed'. Luca's scoring blocker (#392) was exactly this — LocalPulse sat
+ * at Stage 1 8/9 with a scorecard that said 54/100 and a `scores` table that
+ * was empty.
+ *
+ * The rule that makes it survive truncation is ORDERING PLUS SIZE: a small
+ * block that CLOSES early. parseScoreJson/`persistResearchFromSkillOutput`
+ * iterate every fence and skip unparseable ones, so an early complete block is
+ * read even when a later verbose one is severed. Ordering alone does not help —
+ * an unclosed fence fails to parse no matter what came first.
+ */
+const STRUCTURED_JSON_CONTRACTS: Record<string, string> = {
+  'market-research':
+    'Your response MUST include the structured data from the "Output Format" section as a single fenced ```json code block ' +
+    '(the market_research object with market_sizing, competitors[], and trends[]). A 1-2 sentence intro is fine, but the json ' +
+    "block is mandatory — do NOT replace it with a prose-only or markdown report. This json is parsed downstream to populate " +
+    "the founder's research and knowledge graph. Keep the json COMPACT (at most 2 sources per item, at most 6 competitors) so it " +
+    "stays within length limits and closes properly; emit market_sizing and competitors FIRST.",
+  'startup-scoring':
+    'Your response MUST OPEN with the compact json block from the "Output Format" section — before any narrative, analysis or ' +
+    'preamble. It carries only overall_score, overall_grade, summary and one score + one-sentence rationale per dimension. ' +
+    'Do NOT include weights, the grade scale, strengths/risks arrays, priorities or data gaps INSIDE the json — they are not ' +
+    'read by the system and they are what pushes the run past its time budget. Write all of that as PROSE AFTER the block. ' +
+    'This ordering is not cosmetic: if the run is cut short, a small block that already CLOSED is the only thing that still ' +
+    "parses, and without it the founder's score is silently lost even though the run looks successful.",
+};
+const STRUCTURED_JSON_SKILLS = new Set<string>(Object.keys(STRUCTURED_JSON_CONTRACTS));
 
 const SKILLS_DIR = join(process.cwd(), 'launchpad-skills');
 
@@ -255,14 +287,9 @@ export async function runSkill(
   // sometimes returns a prose/markdown report instead of the SKILL.md json block,
   // which persists nothing (confirmed live). Append a hard output contract so the
   // parseable json is always present (see persistResearchFromSkillOutput).
-  if (STRUCTURED_JSON_SKILLS.has(skillId)) {
-    systemPrompt +=
-      '\n\n=== OUTPUT CONTRACT (REQUIRED) ===\n' +
-      'Your response MUST include the structured data from the "Output Format" section as a single fenced ```json code block ' +
-      '(the market_research object with market_sizing, competitors[], and trends[]). A 1-2 sentence intro is fine, but the json ' +
-      "block is mandatory — do NOT replace it with a prose-only or markdown report. This json is parsed downstream to populate " +
-      "the founder's research and knowledge graph. Keep the json COMPACT (at most 2 sources per item, at most 6 competitors) so it " +
-      "stays within length limits and closes properly; emit market_sizing and competitors FIRST.";
+  const contract = STRUCTURED_JSON_CONTRACTS[skillId];
+  if (contract) {
+    systemPrompt += '\n\n=== OUTPUT CONTRACT (REQUIRED) ===\n' + contract;
   }
 
   // Language directive LAST (after the output contract) so recency keeps it
