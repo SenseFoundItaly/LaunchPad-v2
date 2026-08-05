@@ -20,7 +20,22 @@ export function checkActionPrompt(label: string, t: TFn): string {
   // Whole-canvas / scoring checks first — their labels would otherwise fall
   // through to the broader problem/solution/advantage matches below.
   if (/lean canvas/.test(l)) return t('journey-prompt.lean-canvas');
+  // BEFORE the baseline rule: 1C's scoring step asks for a RE-score against the
+  // interview evidence. Routed to the baseline prompt it sent the founder to
+  // re-run the thing they had already done.
+  if (/scoring review|scoring reviewed|re-score/.test(l)) return t('journey-prompt.scoring-review');
   if (/scoring|baseline/.test(l)) return t('journey-prompt.scoring');
+  // The gate's own decision — before /go/-adjacent matches below.
+  if (/pivot|stop decision|verdict/.test(l)) return t('journey-prompt.gate-verdict');
+  // 1C framing steps. Both are multi-word so they can't collide with the
+  // broader /solution/ and /problem/ fallbacks at the end of the chain.
+  if (/validation strategy/.test(l)) return t('journey-prompt.validation-strategy');
+  if (/jobs-to-be-done|jobs to be done|\bjtbd\b/.test(l)) return t('journey-prompt.jtbd');
+  // 1B. Word-boundary \bip\b deliberately — a bare 'ip' matches "description",
+  // "equipment", "shipping".
+  if (/patent|trademark|freedom to operate|intellectual property|\bip\b/.test(l)) return t('journey-prompt.ip');
+  // Phrases, never a bare 'data' — that would swallow half the spine.
+  if (/data availability|data quality|dataset|data access/.test(l)) return t('journey-prompt.data-availability');
   // `/dependenc/` before feasibility: "Key technical dependencies named" matches both.
   if (/dependenc/.test(l)) return t('journey-prompt.dependencies');
   if (/feasibilit|technical/.test(l)) return t('journey-prompt.feasibility');
@@ -31,10 +46,18 @@ export function checkActionPrompt(label: string, t: TFn): string {
   if (/watcher|monitor/.test(l)) return t('journey-prompt.watcher');
   if (/market size|\btam\b|\bsam\b|\bsom\b/.test(l)) return t('journey-prompt.market-size');
   if (/pain/.test(l)) return t('journey-prompt.pain-point');
+  // 1A distribution steps, BEFORE the channels rule: "channel partner" and
+  // "distributor" would otherwise be read as an acquisition-channel ask.
+  if (/partner|reseller|distributor|alliance/.test(l)) return t('journey-prompt.partners');
+  if (/\bgtm\b|go-to-market|go to market|route to market/.test(l)) return t('journey-prompt.gtm');
   if (/channel|acquisition|reach|distribution/.test(l)) return t('journey-prompt.channels');
   // Before business-model: "Willingness-to-pay signal captured" (1C) is an
   // interview-evidence ask, not a pricing-design ask.
   if (/willingness|wtp/.test(l)) return t('journey-prompt.wtp');
+  // Stage 4 cost/projection steps, BEFORE business-model: both are money asks,
+  // but "estimate your COGS" is a different conversation from "design pricing".
+  if (/cogs|opex|operating cost|cost structure/.test(l)) return t('journey-prompt.cogs-opex');
+  if (/financial draft|financial model|projection|scenario/.test(l)) return t('journey-prompt.financial-draft');
   if (/business model|revenue|pricing|unit econ|tier|willingness|anchor price/.test(l)) return t('journey-prompt.business-model');
   if (/differentiat|competitive|edge|advantage/.test(l)) return t('journey-prompt.differentiation');
   if (/value prop/.test(l)) return t('journey-prompt.value-prop');
@@ -43,6 +66,9 @@ export function checkActionPrompt(label: string, t: TFn): string {
   if (/runway|burn/.test(l)) return t('journey-prompt.runway');
   if (/growth loop|growth/.test(l)) return t('journey-prompt.growth');
   if (/metric/.test(l)) return t('journey-prompt.metrics');
+  // Before the MVP rule: "Workflow active" is about starting the build loop,
+  // not about scoping what to build.
+  if (/workflow/.test(l)) return t('journey-prompt.workflow');
   if (/mvp|ship|launch|\bbuild\b/.test(l)) return t('journey-prompt.mvp');
   if (/capital|fundrais|round|investor/.test(l)) return t('journey-prompt.fundraise');
   if (/users/.test(l)) return t('journey-prompt.users');
