@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { evaluateAllStages, keywordMatcher } from '@/lib/journey';
 import type { ProjectSnapshot } from '@/lib/journey/types';
-import { COGS_OPEX_KEYWORDS, REVENUE_STREAM_KEYWORDS, BM_2A_SOURCES } from './stage-4-business-model';
+import { COGS_OPEX_KEYWORDS, REVENUE_STREAM_KEYWORDS, BM_2A_SOURCES, FINANCIAL_MIN_SCENARIOS, FINANCIAL_MIN_HORIZON_MONTHS } from './stage-4-business-model';
 import { validationTargetsFor } from './validation-targets';
 import { IRL_LTV_CAC_BAR } from '@/lib/irl/ladder';
 
@@ -77,5 +77,34 @@ describe('COGS & OPEX / revenue streams — closeable, and not duplicates', () =
     }), 'unit_econ_viable').passed;
     expect(at(IRL_LTV_CAC_BAR)).toBe(true);
     expect(at(1)).toBe(false);
+  });
+});
+
+
+describe('financial draft (2A) — reads the model that already existed', () => {
+  const wf = (scenarios: number, horizon: number) => ({
+    current_step: null, status: null,
+    financial_scenarios: scenarios, financial_horizon_months: horizon,
+  });
+
+  it('passes on 3 scenarios over the 5-year horizon', () => {
+    const r = check(snap([], { workflow: wf(FINANCIAL_MIN_SCENARIOS, FINANCIAL_MIN_HORIZON_MONTHS) }), 'financial_draft_defined');
+    expect(r.passed).toBe(true);
+  });
+
+  it('a single-scenario model is a projection, not a draft with downside', () => {
+    expect(check(snap([], { workflow: wf(1, 60) }), 'financial_draft_defined').passed).toBe(false);
+  });
+
+  it('does NOT silently accept the panel default of 36 months', () => {
+    // The panel ships a 36-month default; the spec says five years. The gap
+    // names the shortfall instead of failing mutely.
+    const r = check(snap([], { workflow: wf(3, 36) }), 'financial_draft_defined');
+    expect(r.passed).toBe(false);
+    expect(r.gap).toContain('36');
+  });
+
+  it('stays red with no workflow row at all', () => {
+    expect(check(snap([]), 'financial_draft_defined').passed).toBe(false);
   });
 });

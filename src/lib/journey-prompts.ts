@@ -106,6 +106,7 @@ const CHECK_LABEL_KEY: Record<string, MessageKey> = {
   model_chosen: 'journey-check.model_chosen',
   revenue_streams_defined: 'journey-check.revenue_streams_defined',
   cogs_opex_defined: 'journey-check.cogs_opex_defined',
+  financial_draft_defined: 'journey-check.financial_draft_defined',
   unit_econ_viable: 'journey-check.unit_econ_viable',
   // Stage 5 — Build & Launch
   workflow_active: 'journey-check.workflow_active',
@@ -211,6 +212,7 @@ const GAP_LABEL_KEY: Record<string, MessageKey> = {
   model_chosen: 'journey-gap.model_chosen',
   revenue_streams_defined: 'journey-gap.revenue_streams_defined',
   cogs_opex_defined: 'journey-gap.cogs_opex_defined',
+  financial_draft_defined: 'journey-gap.financial_draft_defined',
   unit_econ_viable: 'journey-gap.unit_econ_viable',
   // Stage 5 — Build & Launch
   workflow_active: 'journey-gap.workflow_active',
@@ -294,6 +296,7 @@ const EVIDENCE_LABEL_KEY: Record<string, MessageKey> = {
   model_chosen: 'journey-evidence.model_chosen',
   revenue_streams_defined: 'journey-evidence.revenue_streams_defined',
   cogs_opex_defined: 'journey-evidence.cogs_opex_defined',
+  financial_draft_defined: 'journey-evidence.financial_draft_defined',
   unit_econ_viable: 'journey-evidence.unit_econ_viable',
   // Stage 5
   workflow_active: 'journey-evidence.workflow_active',

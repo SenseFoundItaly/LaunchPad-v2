@@ -38,6 +38,21 @@ export const REVENUE_STREAM_KEYWORDS = [
   'flusso di ricav', 'flussi di ricav', 'linea di ricavo', 'linee di ricavo', 'ricavi secondari', 'ricavi aggiuntivi', 'fonti di ricavo',
 ] as const;
 
+/**
+ * Iteration Cycle 2A: "5-year financial draft — scenario base / ottimistico /
+ * pessimistico". The model was ALREADY built (FinancialModelPanel, PR #85,
+ * June) — 3 scenarios over a configurable horizon, recomputed deterministically
+ * from the founder's assumptions. Nothing on the spine read it, so a founder
+ * could fill it in and the gate stayed blind.
+ *
+ * Counts SCENARIOS, not mere presence: the spec asks for three, and a
+ * single-scenario model is a projection, not a draft with downside.
+ */
+export const FINANCIAL_MIN_SCENARIOS = 3;
+/** The spec says five years. The panel defaults to 36 months, so this is the
+ *  bar the check states — it does not silently accept a 3-year model. */
+export const FINANCIAL_MIN_HORIZON_MONTHS = 60;
+
 export const BM_2A_SOURCES = {
   cogsOpex: 'memory_facts (COGS & OPEX)',
   revenueStreams: 'memory_facts (revenue streams)',
@@ -114,6 +129,25 @@ export const stageBusinessModel: Stage = {
         return n > 0
           ? { passed: true, evidence: "You've separated what it costs to serve a customer from what it costs to run the company." }
           : { passed: false, gap: 'Define COGS & OPEX — fixed vs variable, and what it costs to serve one customer' };
+      },
+    },
+    {
+      id: 'financial_draft_defined',
+      label: '5-year financial draft (3 scenarios)',
+      source: 'workflow.financial_model',
+      evaluate: (s) => {
+        const scenarios = s.workflow?.financial_scenarios ?? 0;
+        const horizon = s.workflow?.financial_horizon_months ?? 0;
+        if (scenarios < FINANCIAL_MIN_SCENARIOS) {
+          return { passed: false, gap: 'Build the financial draft — base, optimistic and pessimistic scenarios' };
+        }
+        if (horizon < FINANCIAL_MIN_HORIZON_MONTHS) {
+          return {
+            passed: false,
+            gap: `Extend the projection horizon to ${FINANCIAL_MIN_HORIZON_MONTHS} months — it currently runs ${horizon}`,
+          };
+        }
+        return { passed: true, evidence: `Your financial draft runs ${horizon} months across ${scenarios} scenarios.` };
       },
     },
     {

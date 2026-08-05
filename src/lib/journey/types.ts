@@ -129,6 +129,12 @@ export interface ProjectSnapshot {
   workflow: {
     current_step: string | null;
     status: string | null;
+    /** How many scenarios the persisted financial model carries (0 when there
+     *  is none). Iteration Cycle 2A wants a draft with base / optimistic /
+     *  pessimistic, so the check counts scenarios rather than mere presence. */
+    financial_scenarios: number;
+    /** Projection horizon in months, 0 when absent. */
+    financial_horizon_months: number;
   } | null;
   growth_loops: Array<{ id: string; status: string | null }>;
   metrics: Array<{ id: string; name: string; current_value: number | null }>;

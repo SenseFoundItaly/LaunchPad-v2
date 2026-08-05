@@ -23,14 +23,14 @@ LaunchPad has four pillars: the **journey** (where the founder is), **skills** (
 
 ### 1. The 7-stage journey
 
-The spine of the product. `src/lib/journey/` defines a canonical 7-stage journey and evaluates it with **44 evidence gate checks** read straight from the project's data — a stage is only "done" when **every** check passes. There's no fuzzy score deciding the gate: the evidence is in the record or it isn't (most checks read structured rows; a handful match against captured memory facts).
+The spine of the product. `src/lib/journey/` defines a canonical 7-stage journey and evaluates it with **45 evidence gate checks** read straight from the project's data — a stage is only "done" when **every** check passes. There's no fuzzy score deciding the gate: the evidence is in the record or it isn't (most checks read structured rows; a handful match against captured memory facts).
 
 | # | Stage | Checks | A stage clears when… |
 |---|-------|:-----:|----------------------|
 | 1 | **Idea Validation** | 9 | the L2 Phase-0 step list 1:1 — problem · solution · target & ICP (preliminary) · value prop · competitive advantage (incl. unfair advantage/moat) · acquisition channels · cost & revenue sources · **Lean Canvas compiled** (all 9 blocks) · **Startup Scoring baseline** (0-10) |
 | 2 | **Validation Gate** | 18 | three tracks, **1A ∥ 1B → 1C** (see below) |
 | 3 | **Persona** | 2 | ICP described · acquisition channels validated (fact-based — the preliminary versions live in Stage 1) |
-| 4 | **Business Model** | 7 | anchor price set · 2+ tiers · willingness-to-pay researched · pricing model chosen · **revenue streams defined** · **COGS & OPEX defined** · **unit economics viable (LTV/CAC ≥ 3×)** |
+| 4 | **Business Model** | 8 | anchor price set · 2+ tiers · willingness-to-pay researched · pricing model chosen · **revenue streams defined** · **COGS & OPEX defined** · **5-year financial draft (3 scenarios)** · **unit economics viable (LTV/CAC ≥ 3×)** |
 | 5 | **Build & Launch** | 4 | workflow active · MVP scope defined · **something shipped** (a published asset) · 3+ early-user signals |
 | 6 | **Fundraise** | 2 | **runway ≥ 12 months** · capital plan in motion (open round or revenue metric) |
 | 7 | **Operate** | 2 | 1+ active growth loop · 3+ metrics tracked |
