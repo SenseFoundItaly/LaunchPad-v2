@@ -12,6 +12,8 @@ function emptySnapshot(): ProjectSnapshot {
     memory_facts: [], interviews: [], fundraising_round: null, investors: [],
     counts: { published_assets: 0, pending_actions: 0, knowledge_items: 0 },
     startup_score: null,
+    psf_baseline_canvas: null,
+    score_revisions_after_evidence: 0,
   } as ProjectSnapshot;
 }
 

@@ -10,6 +10,8 @@
  * checks passed, here's what's missing, here's the next action."
  */
 
+import type { CanvasPayload } from '@/lib/canvas-versions';
+
 /** Canonical stage ids — see ./canonical.ts for the id/number/label source
  *  of truth. These ids are NOT persisted in the DB (verified 2026-06-10:
  *  they only flow through API responses and prompt context), so renaming
@@ -183,4 +185,15 @@ export interface ProjectSnapshot {
     overall_score: number;
     scored_at: string | null;
   } | null;
+
+  /** The canvas as it stood before the founder's first interview. Null until
+   *  one is logged — 1C's two revision checks diff the live canvas against it,
+   *  and "no baseline" means "not comparable yet", never "unchanged". */
+  psf_baseline_canvas: CanvasPayload | null;
+
+  /** Score-history points recorded after the first interview: a startup score
+   *  re-run once real customer evidence existed, which is what 1C's scoring
+   *  review asks for. score_history drops no-change appends, so a count > 0
+   *  means the number actually moved. */
+  score_revisions_after_evidence: number;
 }

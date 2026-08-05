@@ -9,6 +9,7 @@
 import { coerceJson } from '@/lib/jsonb';
 import { query } from '@/lib/db';
 import type { ProjectSnapshot } from './types';
+import type { CanvasPayload } from '@/lib/canvas-versions';
 
 export async function buildProjectSnapshot(projectId: string): Promise<ProjectSnapshot> {
   const [
@@ -31,6 +32,8 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     pendingCountRows,
     knowledgeCountRows,
     scoreRows,
+    psfBaselineRows,
+    scoreRevisionRows,
   ] = await Promise.all([
     // Full Lean Canvas read — Stage 1 (L2 spec Phase 0) gates on the soft blocks
     // (channels, cost_structure, revenue_streams, …) too, not just the core five.
@@ -79,6 +82,25 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
       'SELECT overall_score, scored_at FROM scores WHERE project_id = ?',
       projectId,
     ).catch(() => []),
+    // The canvas as it stood before the founder's FIRST interview — the "before"
+    // the two 1C revision checks diff against. Written once by
+    // ensureCanvasBaseline; absent until an interview exists.
+    query<{ canvas: unknown }>(
+      `SELECT canvas FROM canvas_versions WHERE project_id = ? AND reason = 'psf_start'
+        ORDER BY version_number ASC LIMIT 1`,
+      projectId,
+    ).catch(() => []),
+    // Re-scorings recorded AFTER the founder started interviewing. score_history
+    // skips no-change appends, so every row here is a score that actually moved
+    // on evidence gathered from customers rather than a re-run of the baseline.
+    // Anchored on the FIRST interview, not the last, so logging one more
+    // interview can never un-green a review the founder already did.
+    query<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM score_history
+        WHERE project_id = ?
+          AND created_at > (SELECT MIN(created_at) FROM interviews WHERE project_id = ?)`,
+      projectId, projectId,
+    ).catch(() => [{ cnt: 0 }]),
   ]);
 
   // Merge competitor_profiles + applied graph_node competitors, deduplicated by
@@ -124,6 +146,9 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
       scoreRows.length > 0 && scoreRows[0].overall_score != null
         ? { overall_score: Number(scoreRows[0].overall_score), scored_at: scoreRows[0].scored_at }
         : null,
+    psf_baseline_canvas:
+      psfBaselineRows.length > 0 ? (coerceJson<CanvasPayload>(psfBaselineRows[0].canvas) ?? null) : null,
+    score_revisions_after_evidence: Number(scoreRevisionRows[0]?.cnt ?? 0),
   };
 }
 

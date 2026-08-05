@@ -64,6 +64,7 @@ import type {
 } from '@/types';
 import { getBuild, getCurrentBuild, getLatestLiveBuild } from './mvp/mvp-builds';
 import { generateAndApplyIteration } from './mvp/run-iteration';
+import { ensureCanvasBaseline } from '@/lib/canvas-versions';
 
 export interface ExecutionDeliverable {
   mode: 'click-to-send' | 'direct' | 'outbox' | 'autopilot-stub';
@@ -1877,6 +1878,12 @@ const applyValidationProposal: ActionHandler = async (action) => {
         { origin: 'document_digest' },
         sources ?? [],
       );
+      // Same pre-interview canvas snapshot the chat and API paths take. A
+      // founder whose interviews all arrive by document upload would otherwise
+      // green `interviews_logged` while the two revision checks stayed stuck on
+      // "log your first interview" — a gap they could not close. Idempotent on
+      // the reason, so repeating it per digested interview costs one SELECT.
+      await ensureCanvasBaseline(action.project_id);
       applied.push(
         it.label ||
           (locale === 'it'

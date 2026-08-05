@@ -47,6 +47,8 @@ function mkSnapshot(over: Partial<ProjectSnapshot> = {}): ProjectSnapshot {
     investors: [],
     counts: { published_assets: 0, pending_actions: 0, knowledge_items: 0 },
     startup_score: null,
+    psf_baseline_canvas: null,
+    score_revisions_after_evidence: 0,
     ...over,
   };
 }
@@ -143,7 +145,11 @@ describe('track membership', () => {
     // gate_verdict is LAST: the founder's go/no-go closes the gate.
     expect(VALIDATION_TRACK_1C.map((c) => c.id)).toEqual([
       'validation_strategy', 'jtbd_mapping', 'interviews_logged',
-      'pain_validated', 'differentiation_evidence', 'wtp_signal', 'gate_verdict',
+      'pain_validated', 'differentiation_evidence', 'wtp_signal',
+      // The three revision steps sit AFTER the evidence they revise on: you
+      // sharpen the value prop with what the interviews taught you, not before.
+      'solution_in_depth', 'value_prop_sharpened', 'scoring_review',
+      'gate_verdict',
     ]);
   });
 
@@ -568,6 +574,10 @@ describe('gate_verdict — the founder call that closes the gate', () => {
     interviews: Array.from({ length: 5 }, (_, i) => ({
       id: `iv${i}`, person_name: `P${i}`, top_pain: 'manual recall work is painful', wtp_amount: 30, urgency: 'high',
     })),
+    // The 1C revision steps: a canvas that moved since the pre-interview
+    // snapshot, and a score re-run on what the interviews produced.
+    psf_baseline_canvas: { solution: 'first guess', value_proposition: 'first pitch' },
+    score_revisions_after_evidence: 1,
     ...over,
   });
 

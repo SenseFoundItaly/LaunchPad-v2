@@ -96,6 +96,9 @@ const CHECK_LABEL_KEY: Record<string, MessageKey> = {
   interviews_logged: 'journey-check.interviews_logged',
   pain_validated: 'journey-check.pain_validated',
   wtp_signal: 'journey-check.wtp_signal',
+  solution_in_depth: 'journey-check.solution_in_depth',
+  value_prop_sharpened: 'journey-check.value_prop_sharpened',
+  scoring_review: 'journey-check.scoring_review',
   // Stage 3 — Persona
   icp_defined: 'journey-check.icp_defined',
   channels_identified: 'journey-check.channels_identified',
@@ -202,6 +205,9 @@ const GAP_LABEL_KEY: Record<string, MessageKey> = {
   interviews_logged: 'journey-gap.interviews_logged',
   pain_validated: 'journey-gap.pain_validated',
   wtp_signal: 'journey-gap.wtp_signal',
+  solution_in_depth: 'journey-gap.solution_in_depth',
+  value_prop_sharpened: 'journey-gap.value_prop_sharpened',
+  scoring_review: 'journey-gap.scoring_review',
   // Stage 3 — Persona
   icp_defined: 'journey-gap.icp_defined',
   channels_identified: 'journey-gap.channels_identified',
@@ -286,6 +292,9 @@ const EVIDENCE_LABEL_KEY: Record<string, MessageKey> = {
   interviews_logged: 'journey-evidence.interviews_logged',
   pain_validated: 'journey-evidence.pain_validated',
   wtp_signal: 'journey-evidence.wtp_signal',
+  solution_in_depth: 'journey-evidence.solution_in_depth',
+  value_prop_sharpened: 'journey-evidence.value_prop_sharpened',
+  scoring_review: 'journey-evidence.scoring_review',
   // Stage 3
   icp_defined: 'journey-evidence.icp_defined',
   channels_identified: 'journey-evidence.channels_identified',

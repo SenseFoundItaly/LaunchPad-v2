@@ -19,7 +19,8 @@
  * fallback for legacy prose-sized projects).
  */
 
-import type { Stage, StageCheck, ProjectSnapshot } from './types';
+import type { Stage, StageCheck, CheckResult, ProjectSnapshot } from './types';
+import { diffCanvas, type CanvasPayload, type VersionedCanvasField } from '@/lib/canvas-versions';
 import { CANONICAL_BY_ID } from './canonical';
 import { countMemoryFactsMatching } from './snapshot';
 import { coerceJson } from '@/lib/jsonb';
@@ -478,7 +479,9 @@ function lock1C(check: StageCheck): StageCheck {
 // that do not exist yet. Adding them as keyword checks would create checks the
 // founder cannot close, which is the exact bug class #251 warns about. Tracked
 // separately rather than faked.
-const TRACK_1C_UNLOCKED: StageCheck[] = [
+/** Exported for tests: the 1C checks WITHOUT the 1A+1B lock wrapper, so a
+ *  single check's own logic can be exercised without staging the whole gate. */
+export const TRACK_1C_UNLOCKED: StageCheck[] = [
   {
     id: 'validation_strategy',
     label: 'Validation strategy defined',
@@ -579,7 +582,81 @@ const TRACK_1C_UNLOCKED: StageCheck[] = [
         : { passed: false, gap: 'Ask interviewees what they would pay — log it with the interview' };
     },
   },
+  {
+    // Iteration Cycle 1C: "Solution described in-depth — aggiornata sulla base
+    // degli insight raccolti". The operative word is AGGIORNATA: a solution
+    // written before the founder spoke to anyone is a hypothesis, not a 1C
+    // output. So this measures a REVISION, not a word count.
+    id: 'solution_in_depth',
+    label: 'Solution updated on customer insights',
+    source: 'idea_canvas.solution vs the pre-interview snapshot',
+    track: '1C',
+    evaluate: (s) => canvasFieldRevised(
+      s, 'solution',
+      'Your solution has been rewritten since you started talking to customers.',
+      'Revise the solution with what the interviews taught you — it still reads as it did before them',
+    ),
+  },
+  {
+    // Iteration Cycle 1C: "Value proposition sharpened". Same instrument, same
+    // reason — "sharpened" is a change relative to a before.
+    id: 'value_prop_sharpened',
+    label: 'Value proposition sharpened',
+    source: 'idea_canvas.value_proposition vs the pre-interview snapshot',
+    track: '1C',
+    evaluate: (s) => canvasFieldRevised(
+      s, 'value_proposition',
+      'Your value proposition has been sharpened since the interviews began.',
+      'Sharpen the value proposition against what you heard — it is unchanged since before the interviews',
+    ),
+  },
+  {
+    // Iteration Cycle 1C: "Startup Scoring review". The baseline score is a
+    // Stage-1 check; this is the RE-score, the one that reflects real customer
+    // evidence rather than the founder's own framing of their idea.
+    //
+    // score_history drops no-change appends, so a point recorded after the
+    // first interview is a score that genuinely moved — not a re-run of the
+    // same canvas returning the same number.
+    id: 'scoring_review',
+    label: 'Startup Scoring reviewed against the evidence',
+    source: 'score_history (after the first interview)',
+    track: '1C',
+    evaluate: (s) => {
+      const n = s.score_revisions_after_evidence;
+      return n > 0
+        ? { passed: true, evidence: `Your score has been re-run ${n === 1 ? 'once' : `${n} times`} since the interviews started.` }
+        : { passed: false, gap: 'Re-run the Startup Scoring now that you have interview evidence — the baseline scored your assumptions' };
+    },
+  },
 ];
+
+/**
+ * Did a canvas field change since the pre-interview baseline?
+ *
+ * `diffCanvas` is the single definition of "changed" in this codebase —
+ * whitespace-only edits and empty-vs-null don't count — and reusing it here
+ * keeps the gate and the founder-facing v1/v2 diff from ever disagreeing about
+ * whether something moved.
+ *
+ * No baseline means NOT COMPARABLE, never "unchanged". The baseline is written
+ * on the first logged interview, and `interviews_logged` (5+) sits in the same
+ * track, so by the time a founder is working on these two the "before" exists.
+ */
+function canvasFieldRevised(
+  s: ProjectSnapshot,
+  field: VersionedCanvasField,
+  evidence: string,
+  gap: string,
+): CheckResult {
+  const before = s.psf_baseline_canvas;
+  if (!before) {
+    return { passed: false, gap: 'Log your first interview first — the canvas is snapshotted then, so the update can be seen' };
+  }
+  const after = (s.idea_canvas ?? {}) as CanvasPayload;
+  const changed = diffCanvas(before, after).some((c) => c.field === field);
+  return changed ? { passed: true, evidence } : { passed: false, gap };
+}
 
 /**
  * The founder's explicit GO on the whole gate (founder request 2026-08-04:
