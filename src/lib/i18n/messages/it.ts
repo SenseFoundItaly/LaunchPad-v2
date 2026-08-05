@@ -1472,6 +1472,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'credits.resets': 'Si azzera: {date}',
   'credits.next-month': 'il mese prossimo',
   'credits.internal-metering': '${used} / ${cap} USD — conteggio interno',
+  'credits.not-currency': 'I crediti sono una quota d’uso interna — non una valuta. Un eventuale addebito sulla carta è la fatturazione diretta della tua API key del provider, separata da questi.',
   'credits.view-usage': 'Vedi utilizzo e spesa →',
   'credits.add': 'Aggiungi crediti',
   'credits.recharge': 'Ricarica crediti',
