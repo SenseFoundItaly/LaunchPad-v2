@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  computeIRL, IRL_LADDER, IRL_MAX, IRL_CORE_MAX, IRL_SCORE_BAR,
+  computeIRL, IRL_LADDER, IRL_MAX, IRL_MIN, IRL_CORE_MAX, IRL_SCORE_BAR,
   IRL_WTP_BAR, IRL_LTV_CAC_BAR, type IrlEvidence,
 } from './ladder';
 import type { StageId } from '@/lib/journey/types';
@@ -22,8 +22,11 @@ function ev(over: Partial<IrlEvidence> & { stagesDone?: StageId[]; tracks?: Arra
 }
 
 describe('computeIRL — the climb', () => {
-  it('0 when nothing is earned', () => {
-    expect(computeIRL(ev()).level).toBe(0);
+  it('shows 1 when nothing is earned — the scale starts at 1, not 0', () => {
+    // Was `toBe(0)`. Founder 2026-08-04: "IRL va da 1 a 9, non può essere 0."
+    // `earned` still reports 0; only the displayed level is floored.
+    expect(computeIRL(ev()).level).toBe(1);
+    expect(computeIRL(ev()).earned).toBe(0);
   });
 
   it('1 once Idea Canvas is done', () => {
@@ -265,5 +268,37 @@ describe('every rung has a localized label in BOTH locales', () => {
   it('labelKeys are unique — two rungs sharing one would mislabel the next step', () => {
     const keys = IRL_LADDER.map((r) => r.labelKey);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+
+// ── The scale starts at 1 (founder, 2026-08-04) ──────────────────────────────
+
+describe('IRL is 1-9, never 0', () => {
+  const nothing = ev({});
+
+  it('a brand-new project shows 1, not 0', () => {
+    // "IRL va da 1 a 9, non può essere 0. Di default parte da 1." A new project
+    // is ON the bottom rung, not off the ladder — 0/9 read as a failing grade
+    // for having started.
+    expect(computeIRL(nothing).level).toBe(IRL_MIN);
+    expect(computeIRL(nothing).level).toBe(1);
+  });
+
+  it('`earned` stays honest at 0 so the engine still knows nothing is proven', () => {
+    const r = computeIRL(nothing);
+    expect(r.earned).toBe(0);
+    expect(r.nextKey).toBe('idea_canvas');
+  });
+
+  it('the display floor never masks a real level', () => {
+    const one = ev({ stagesDone: ['idea_validation'] });
+    expect(computeIRL(one).level).toBe(1);
+    expect(computeIRL(one).earned).toBe(1);
+  });
+
+  it('does not mark a fresh project as regressed', () => {
+    // level(1) > earned(0) by the display floor alone — that is not a regression.
+    expect(computeIRL(nothing).regressed).toBe(false);
   });
 });
