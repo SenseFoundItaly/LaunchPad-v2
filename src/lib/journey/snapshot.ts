@@ -6,6 +6,7 @@
  * a new field, add it here AND extend the type.
  */
 
+import { coerceJson } from '@/lib/jsonb';
 import { query } from '@/lib/db';
 import type { ProjectSnapshot } from './types';
 
@@ -59,7 +60,7 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     query('SELECT id, status FROM watch_sources WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT anchor_price, tiers, wtp, unit_econ, model FROM pricing_state WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT monthly_burn, cash_on_hand FROM burn_rate WHERE project_id = ?', projectId).catch(() => []),
-    query('SELECT current_step, status FROM workflow WHERE project_id = ?', projectId).catch(() => []),
+    query('SELECT current_step, status, financial_model FROM workflow WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT id, status FROM growth_loops WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT id, name, current_value FROM metrics WHERE project_id = ?', projectId).catch(() => []),
     // Carry source_type/kind alongside the content so the keyword-count path can
@@ -96,7 +97,18 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     watch_sources: watchSourceRows as ProjectSnapshot['watch_sources'],
     pricing_state: pricingRows.length > 0 ? (pricingRows[0] as ProjectSnapshot['pricing_state']) : null,
     burn_rate: burnRows.length > 0 ? (burnRows[0] as ProjectSnapshot['burn_rate']) : null,
-    workflow: workflowRows.length > 0 ? (workflowRows[0] as ProjectSnapshot['workflow']) : null,
+    workflow: workflowRows.length > 0 ? (() => {
+      const w = workflowRows[0] as { current_step: string | null; status: string | null; financial_model?: unknown };
+      // financial_model is JSONB; coerceJson tolerates the legacy
+      // double-encoded shape (a string scalar) the same way market_size does.
+      const fm = coerceJson<{ scenarios?: unknown[]; assumptions?: { horizon_months?: number } }>(w.financial_model);
+      return {
+        current_step: w.current_step,
+        status: w.status,
+        financial_scenarios: Array.isArray(fm?.scenarios) ? fm.scenarios.length : 0,
+        financial_horizon_months: typeof fm?.assumptions?.horizon_months === 'number' ? fm.assumptions.horizon_months : 0,
+      };
+    })() : null,
     growth_loops: loopRows as ProjectSnapshot['growth_loops'],
     metrics: metricRows as ProjectSnapshot['metrics'],
     memory_facts: memoryRows as ProjectSnapshot['memory_facts'],
