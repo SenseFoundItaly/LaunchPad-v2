@@ -130,7 +130,9 @@ async function applyPending(projectId) {
   // matches no row returns success and writes nothing) — the same one that made
   // gate-verdict a silent no-op on 65 of 94 projects. Written into the harness
   // by the person who had just read the warning.
-  await sql`INSERT INTO idea_canvas (id, project_id) VALUES (${'ic_' + userId}, ${projectId})
+  // project_id IS the primary key here — no `id` column (verified against the
+  // live DB, not schema.sql, which drifts).
+  await sql`INSERT INTO idea_canvas (project_id) VALUES (${projectId})
               ON CONFLICT (project_id) DO NOTHING`;
   // Bound parameters, not inline literals — an apostrophe in the Italian copy
   // ("dell'esecuzione") terminates a hand-written SQL string.
