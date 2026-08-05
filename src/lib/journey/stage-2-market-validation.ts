@@ -50,6 +50,13 @@ export const TECH_1B_SOURCES = {
   feasibility: 'memory_facts (feasibility)',
   dependencies: 'memory_facts (dependencies)',
   regulatory: 'memory_facts (regulatory)',
+  // `risk` split out of `feasibility` (2026-08-05). build_approach and
+  // technical_risk_named both pointed HERE while reading different keyword
+  // families, so one staged item greened whichever family its wording happened
+  // to hit — a gate walkthrough watched an IP finding green build_approach by
+  // accident, and technical_risk_named was unclosable on purpose because the
+  // staging hint could not name a call that targeted it alone.
+  risk: 'memory_facts (technical risk)',
 } as const;
 
 /** The 1A trends/persona check `source` strings — exported for the same
@@ -345,7 +352,7 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
   {
     id: 'technical_risk_named',
     label: 'Biggest technical risk named',
-    source: TECH_1B_SOURCES.feasibility,
+    source: TECH_1B_SOURCES.risk,
     track: '1B',
     evaluate: (s) => {
       // The auto-stage fallback's feasibility prefix carries 'technical risk' /

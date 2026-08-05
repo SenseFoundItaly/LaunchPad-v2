@@ -27,7 +27,7 @@ const STAGING_HINTS: Map<string, string> = (() => {
   const byCheck = new Map<string, Set<string>>();
   for (const kind of CHAT_PROPOSABLE_KINDS) {
     const fields = kind === 'tech_fact'
-      ? ['feasibility', 'dependencies', 'regulatory']
+      ? ['feasibility', 'dependencies', 'regulatory', 'risk']
       : [undefined];
     for (const field of fields) {
       const call = field ? `propose_validation(kind: '${kind}', field: '${field}')` : `propose_validation(kind: '${kind}')`;
