@@ -68,7 +68,7 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     // — see countMemoryFactsMatching. A document dump is not a founder assertion
     // and must not auto-satisfy any gated spine check.
     query("SELECT id, fact AS content, source_type, kind FROM memory_facts WHERE project_id = ? AND reviewed_state = 'applied'", projectId).catch(() => []),
-    query('SELECT id, person_name, top_pain, wtp_amount, urgency FROM interviews WHERE project_id = ?', projectId).catch(() => []),
+    query('SELECT id, person_name, top_pain, wtp_amount, urgency, icp_match FROM interviews WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT target_amount, raised_amount, status FROM fundraising_rounds WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT id, name, stage FROM investors WHERE project_id = ?', projectId).catch(() => []),
     query<{ cnt: number }>('SELECT COUNT(*) as cnt FROM published_assets WHERE project_id = ?', projectId).catch(() => [{ cnt: 0 }]),

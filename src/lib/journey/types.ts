@@ -160,6 +160,9 @@ export interface ProjectSnapshot {
     top_pain: string | null;
     wtp_amount: number | null;
     urgency: string | null;
+    /** Persisted ICP judgement (migration 039). NULL = not judged yet, which
+     *  is NOT "no match" — the coherence rate skips it entirely. */
+    icp_match?: boolean | null;
   }>;
   fundraising_round: {
     target_amount: number | null;

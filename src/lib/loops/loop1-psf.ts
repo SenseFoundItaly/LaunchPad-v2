@@ -23,6 +23,7 @@ import { query, get, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { createPendingAction } from '@/lib/pending-actions';
 import { captureCanvasVersion } from '@/lib/canvas-versions';
+import { icpCoherenceRate, ICP_COHERENCE_BAR } from '@/lib/icp-coherence';
 import { recordEvent } from '@/lib/memory/events';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { translate } from '@/lib/i18n/messages';
@@ -67,12 +68,21 @@ export function computeLoop1Score(interviews: Interview[]): { signals: LoopSigna
   const wtpRate = total > 0 ? withWtp / total : 0;
   const painRate = total > 0 ? withPain / total : 0;
   const urgencyRate = total > 0 ? withUrgency / total : 0;
+  const icpRate = icpCoherenceRate(interviews);
   return {
     wtpRate,
     signals: [
       { signal: 'wtp_rate', value: round2(wtpRate), threshold: LOOP1_WTP_THRESHOLD, passed: wtpRate >= LOOP1_WTP_THRESHOLD },
       { signal: 'pain_confirmed_rate', value: round2(painRate), threshold: 0.5, passed: painRate >= 0.5 },
       { signal: 'urgency_rate', value: round2(urgencyRate), threshold: 0.3, passed: urgencyRate >= 0.3 },
+      // Iteration Cycle Loop-1 signal 3: "Coerenza ICP (profilo intervistati
+      // vs ICP definito) — 20% — soglia < 60% match". Reads the PERSISTED
+      // judgement (migration 039), never a model — the loop stays
+      // deterministic. Omitted entirely when nothing has been judged: an
+      // unjudged backlog is a missing measurement, not a failing one.
+      ...(icpRate != null
+        ? [{ signal: 'icp_coherence', value: round2(icpRate), threshold: ICP_COHERENCE_BAR, passed: icpRate >= ICP_COHERENCE_BAR }]
+        : []),
     ],
   };
 }
