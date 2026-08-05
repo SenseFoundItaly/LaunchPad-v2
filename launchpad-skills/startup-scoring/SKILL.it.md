@@ -152,49 +152,43 @@ Considera: dipendenze da persone chiave, rischio regolatorio, rischio tecnologic
 
 ## Formato di Output
 
+Emetti PRIMA il blocco json compatto qui sotto, prima di qualsiasi narrativa.
+Deve essere completo e chiuso. Tutto ciò che il prodotto salva sta qui dentro —
+tienilo stretto.
+
 ```json
 {
   "startup_score": {
     "overall_score": 0,
     "overall_grade": "A+ | A | B+ | B | C+ | C | D | F",
-    "summary": "Valutazione complessiva in 2-3 frasi",
+    "summary": "valutazione complessiva in 2-3 frasi",
     "dimensions": {
-      "market_opportunity": {
-        "score": 0,
-        "weight": 0.20,
-        "rationale": "Perché questo punteggio",
-        "strengths": ["Punto di forza specifico"],
-        "risks": ["Rischio specifico"]
-      },
-      "competitive_landscape": { /* stessa struttura, weight 0.15 */ },
-      "feasibility":           { /* stessa struttura, weight 0.15 */ },
-      "business_model_viability": { /* stessa struttura, weight 0.20 */ },
-      "customer_demand":       { /* stessa struttura, weight 0.20 */ },
-      "execution_risk":        { /* stessa struttura, weight 0.10 */ }
-    },
-    "grade_scale": {
-      "A+": "90-100: Eccezionale su tutte le dimensioni",
-      "A":  "80-89: Forte con lacune minori",
-      "B+": "70-79: Promettente con aree di miglioramento chiare",
-      "B":  "60-69: Viable ma richiede lavoro significativo",
-      "C+": "50-59: Dubbia, lacune maggiori da affrontare",
-      "C":  "40-49: Debole, issue fondamentali presenti",
-      "D":  "25-39: Improbabile riuscire senza un pivot maggiore",
-      "F":  "0-24: Concetto fondamentalmente viziato"
-    },
-    "top_priorities": [
-      {
-        "dimension": "Nome della dimensione più debole",
-        "action": "Azione specifica per migliorare il punteggio",
-        "expected_impact": "Di quanto questo potrebbe guidare il miglioramento"
-      }
-    ],
-    "data_gaps": [
-      "Informazioni che il founder dovrebbe raccogliere per abilitare scoring più accurato"
-    ]
+      "market_opportunity": { "score": 0, "rationale": "una frase" },
+      "competitive_landscape": { "score": 0, "rationale": "una frase" },
+      "feasibility": { "score": 0, "rationale": "una frase" },
+      "business_model_viability": { "score": 0, "rationale": "una frase" },
+      "customer_demand": { "score": 0, "rationale": "una frase" },
+      "execution_risk": { "score": 0, "rationale": "una frase" }
+    }
   }
 }
 ```
+
+I pesi sono fissi e noti al sistema — NON ripeterli. NON emettere la scala dei
+voti: è una costante, e ri-scriverla a ogni run costa tempo e denaro al founder
+senza aggiungere nulla.
+
+### Poi, DOPO il blocco json
+
+Scrivi l'analisi in prosa — è ciò che il founder legge davvero:
+
+- Per ogni dimensione: il ragionamento, i punti di forza e i rischi specifici.
+- Le 2-3 priorità: le dimensioni più deboli, cosa fare, quanto sposterebbe.
+- Data gaps: cosa raccogliere per un punteggio più accurato la prossima volta.
+
+Cita le fonti in questa parte in prosa. Massimo **una fonte per dimensione** —
+lo scorecard è un giudizio sulle evidenze del founder, non una rassegna
+bibliografica.
 
 ## Esempi
 
