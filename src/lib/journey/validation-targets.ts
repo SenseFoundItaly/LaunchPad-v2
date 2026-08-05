@@ -31,6 +31,8 @@ export type ValidationItemKind =
   // Founder-requested gate additions (2026-08-04): GTM opening/friction,
   // partners, and the founder's explicit go/no-go on the whole gate.
   | 'gtm_fact' | 'partner_fact'
+  // Iteration Cycle 1B/1C alignment (2026-08-04).
+  | 'ip_fact' | 'data_fact' | 'validation_strategy_fact' | 'jtbd_fact'
   // Post-validation doc ingestion (#224): the operate-stage digest stages these.
   | 'metric' | 'financial_fact' | 'brand_fact';
 
@@ -116,6 +118,14 @@ function sourceKeysFor(kind: ValidationItemKind, field?: string): string[] {
     case 'partner_fact':
       // Stage 2 partners_identified.
       return [MARKET_1A_SOURCES.partners];
+    case 'ip_fact':
+      return ['memory_facts (IP analysis)'];
+    case 'data_fact':
+      return ['memory_facts (data availability)'];
+    case 'validation_strategy_fact':
+      return ['memory_facts (validation strategy)'];
+    case 'jtbd_fact':
+      return ['memory_facts (JTBD)'];
     case 'persona_fact':
       // Stage 3 icp_defined reads memory_facts matching ICP keywords.
       return ['memory_facts (ICP)'];

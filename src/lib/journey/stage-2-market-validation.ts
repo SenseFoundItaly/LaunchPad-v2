@@ -133,6 +133,32 @@ export const PARTNERS_KEYWORDS = [
   'rivenditor', 'distributor', 'alleanza strategica', 'accordo commerciale', 'intesa con',
 ] as const;
 
+/** ip_analysis (Iteration Cycle 1B). Patents / trademarks / freedom-to-operate.
+ *  'FTO' is ≤4 chars so keywordMatcher boundary-wraps it. */
+export const IP_KEYWORDS = [
+  'patent', 'trademark', 'freedom to operate', 'FTO', 'prior art', 'intellectual property',
+  'brevett', 'marchio', 'marchi registrat', 'proprietà intellettuale', 'proprieta intellettuale', 'libertà operativa',
+] as const;
+
+/** data_availability (Iteration Cycle 1B) — "critico per prodotti AI/data-driven".
+ *  Multi-word only: bare 'data'/'dati' would match nearly any fact. */
+export const DATA_AVAILABILITY_KEYWORDS = [
+  'data availability', 'training data', 'data quality', 'data source', 'dataset', 'data access',
+  'disponibilità dei dati', 'disponibilita dei dati', 'qualità dei dati', 'qualita dei dati', 'fonte dei dati', 'accesso ai dati',
+] as const;
+
+/** validation_strategy (Iteration Cycle 1C) — how the founder intends to prove it. */
+export const VALIDATION_STRATEGY_KEYWORDS = [
+  'validation strategy', 'validation plan', 'how we will validate', 'how we validate', 'test plan',
+  'strategia di validazione', 'piano di validazione', 'come validiamo', 'come validare',
+] as const;
+
+/** jtbd_mapping (Iteration Cycle 1C) — the JTBD frame behind the interviews. */
+export const JTBD_KEYWORDS = [
+  'jobs to be done', 'job to be done', 'jtbd', 'job story',
+  'lavoro da svolgere', 'lavori da svolgere',
+] as const;
+
 /** regulatory_check. 'compliance'/'GDPR'/'privacy' are verbatim in Italian too. */
 export const REGULATORY_KEYWORDS = [
   'regulation', 'regulatory', 'compliance', 'GDPR', 'license', 'certification', 'data protection', 'legal constraint',
@@ -218,54 +244,14 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
         : { passed: false, gap: `${n} of 3 — ask Co-pilot to research more` };
     },
   },
-  {
-    id: 'differentiation_evidence',
-    label: 'Differentiation evidenced',
-    source: DIFFERENTIATION_CHECK_SOURCE,
-    track: '1A',
-    evaluate: (s) => {
-      // "a differenza di" / "ci distinguiamo" / "rispetto a" are the IT prose
-      // forms (all three phrasings SKILL.it.md instructs).
-      const n = countMemoryFactsMatching(s, [...DIFFERENTIATION_KEYWORDS]);
-      const ok = n > 0;
-      return ok
-        ? { passed: true, evidence: "You've evidenced how you're different from competitors." }
-        : { passed: false, gap: 'Pin what makes you different in chat' };
-    },
-  },
-  {
-    id: 'trends_assessed',
-    label: 'Market trends assessed (tailwinds/headwinds)',
-    source: MARKET_1A_SOURCES.trends,
-    track: '1A',
-    evaluate: (s) => {
-      // 2026-07 alpha feedback: the gate's market track was too thin. The
-      // market-research skill's §3 (Market Trends) already produces this
-      // content — its staged trend_fact items, once applied, close the check.
-      // Like the rest of the keyword checks these auto-apply from chat — the
-      // founder stated the fact, which is the founder yes (only market SIZING
-      // is spine-moving-gated, see MARKET_SIZE_KEYWORDS).
-      const n = countMemoryFactsMatching(s, [...TRENDS_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've assessed the trends shaping this market." }
-        : { passed: false, gap: 'Assess the market trends — tailwinds and headwinds (run Market Research or note them in chat)' };
-    },
-  },
-  {
-    id: 'buyer_persona_defined',
-    label: 'Buyer persona sketched (who decides, what triggers)',
-    source: MARKET_1A_SOURCES.persona,
-    track: '1A',
-    evaluate: (s) => {
-      // Market-research skill §5 (Customer Insights) produces this — staged
-      // as a buyer_persona_fact item; the phrases in the list are the specific
-      // persona signals both SKILL files instruct.
-      const n = countMemoryFactsMatching(s, [...BUYER_PERSONA_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've sketched who buys and why." }
-        : { passed: false, gap: 'Sketch the buyer persona — who decides and what triggers the purchase' };
-    },
-  },
+  // NOTE (Iteration Cycle alignment, 2026-08-04): `trends_assessed` and
+  // `buyer_persona_defined` were REMOVED from the gate. The spec's 1A is
+  // market SIZE / competitors / GTM / partners / regulatory — trends and buyer
+  // persona are not gate evidence (Luca: "1A più o meno apposto, da rivedere un
+  // paio di voci"). Their keyword families + fact kinds are kept: the facts are
+  // still captured as knowledge, they simply no longer gate the stage.
+  // `differentiation_evidence` moved to 1C, where the spec puts it
+  // ("Differentiation evidenced -- vs competitive map di 1A").
   // ── Founder-requested additions, 2026-08-04 ────────────────────────────────
   // Same lockstep discipline as trends/persona: keyword family + a chat-sweep
   // family + an executor Apply prefix that is itself verbatim in the list, so
@@ -293,24 +279,6 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
       return n > 0
         ? { passed: true, evidence: "You've identified who could carry you into this market." }
         : { passed: false, gap: 'Name the potential partners, resellers or distributors worth approaching' };
-    },
-  },
-  {
-    // MOVED from track 1B (founder request 2026-08-04): the founder reads this
-    // as market LANDSCAPE, not as a technical constraint, and could not find it
-    // under Tecnica. Source string keeps its TECH_1B_SOURCES home so the
-    // `tech_fact(regulatory)` item mapping in validation-targets stays
-    // drift-proof — only the track and the label move. The 1A+1B UNION is
-    // unchanged, so this move re-locks nothing.
-    id: 'regulatory_check',
-    label: 'Regulatory landscape checked',
-    source: TECH_1B_SOURCES.regulatory,
-    track: '1A',
-    evaluate: (s) => {
-      const n = countMemoryFactsMatching(s, [...REGULATORY_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've checked the regulatory/compliance landscape." }
-        : { passed: false, gap: 'Check the regulatory landscape (e.g. GDPR, licensing, certification)' };
     },
   },
   {
@@ -400,8 +368,50 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
         : { passed: false, gap: 'Name the key dependencies (APIs, models, infra, vendors)' };
     },
   },
-  // `regulatory_check` used to live here — moved to track 1A (2026-08-04), see
-  // the note on its new definition. 1B is now purely "can we build it".
+  {
+    // RESTORED to 1B (2026-08-04). I had moved this to 1A; the Iteration Cycle
+    // spec wants regulatory in BOTH tracks at two DEPTHS — 1A carries a
+    // "regulatory landscape overview (impatto macro su GTM)" and 1B the
+    // "regulatory & compliance deep dive". Moving the deep dive out of 1B lost
+    // it entirely. The 1A overview is NOT re-added as a second keyword check:
+    // it would read the same keyword family, so one fact would green both and
+    // the split would be theatre (the tech_feasibility lesson from #240).
+    id: 'regulatory_check',
+    label: 'Regulatory & compliance deep dive',
+    source: TECH_1B_SOURCES.regulatory,
+    track: '1B',
+    evaluate: (s) => {
+      const n = countMemoryFactsMatching(s, [...REGULATORY_KEYWORDS]);
+      return n > 0
+        ? { passed: true, evidence: "You've checked the regulatory/compliance landscape." }
+        : { passed: false, gap: 'Check the regulatory landscape (e.g. GDPR, licensing, certification)' };
+    },
+  },
+
+  {
+    id: 'ip_analysis',
+    label: 'IP analysis — patents, trademarks, freedom to operate',
+    source: 'memory_facts (IP analysis)',
+    track: '1B',
+    evaluate: (s) => {
+      const n = countMemoryFactsMatching(s, [...IP_KEYWORDS]);
+      return n > 0
+        ? { passed: true, evidence: "You've checked the IP landscape and your freedom to operate." }
+        : { passed: false, gap: 'Check the IP landscape — patents, trademarks, freedom to operate in this domain' };
+    },
+  },
+  {
+    id: 'data_availability',
+    label: 'Data availability & quality assessed',
+    source: 'memory_facts (data availability)',
+    track: '1B',
+    evaluate: (s) => {
+      const n = countMemoryFactsMatching(s, [...DATA_AVAILABILITY_KEYWORDS]);
+      return n > 0
+        ? { passed: true, evidence: "You've assessed what data you need and whether you can get it." }
+        : { passed: false, gap: 'Assess data availability & quality — critical for AI/data-driven products' };
+    },
+  },
 ];
 
 /** Labels of the unmet 1A/1B checks. Empty ⇒ both tracks green ⇒ 1C unlocks. */
@@ -458,7 +468,41 @@ function lock1C(check: StageCheck): StageCheck {
 }
 
 // ── Track 1C — Problem-Solution Fit (locked until 1A + 1B are green) ────────
+//
+// Iteration Cycle 1C lists 11 steps. Implemented here are the ones with a real
+// WRITE PATH (keyword family → chat sweep → item kind → executor prefix). The
+// rest — cold users listed, interview/survey draft, cold users outreach,
+// insight synthesis + evidence tagging, solution described in-depth, value
+// proposition sharpened, startup scoring review — are ARTIFACTS, not facts:
+// they need capture surfaces (a user list, a script document, a synthesis view)
+// that do not exist yet. Adding them as keyword checks would create checks the
+// founder cannot close, which is the exact bug class #251 warns about. Tracked
+// separately rather than faked.
 const TRACK_1C_UNLOCKED: StageCheck[] = [
+  {
+    id: 'validation_strategy',
+    label: 'Validation strategy defined',
+    source: 'memory_facts (validation strategy)',
+    track: '1C',
+    evaluate: (s) => {
+      const n = countMemoryFactsMatching(s, [...VALIDATION_STRATEGY_KEYWORDS]);
+      return n > 0
+        ? { passed: true, evidence: "You've defined how you intend to validate this." }
+        : { passed: false, gap: 'Define the validation strategy — what you will test, with whom, and what would prove it' };
+    },
+  },
+  {
+    id: 'jtbd_mapping',
+    label: 'Jobs-to-be-Done mapped',
+    source: 'memory_facts (JTBD)',
+    track: '1C',
+    evaluate: (s) => {
+      const n = countMemoryFactsMatching(s, [...JTBD_KEYWORDS]);
+      return n > 0
+        ? { passed: true, evidence: "You've framed the job the customer is hiring you for." }
+        : { passed: false, gap: 'Map the Jobs-to-be-Done — the frame that structures your interviews' };
+    },
+  },
   {
     id: 'interviews_logged',
     label: '5+ customer interviews logged',
@@ -498,6 +542,21 @@ const TRACK_1C_UNLOCKED: StageCheck[] = [
       return ok
         ? { passed: true, evidence: "You've captured the top pain customers feel." }
         : { passed: false, gap: 'Pin the single biggest pain in chat' };
+    },
+  },
+  {
+    // MOVED from 1A (2026-08-04). Iteration Cycle 1C: "Differentiation
+    // evidenced -- vs competitive map di 1A" — it is a PSF conclusion drawn
+    // against the market map, not a market-desk step.
+    id: 'differentiation_evidence',
+    label: 'Differentiation evidenced',
+    source: DIFFERENTIATION_CHECK_SOURCE,
+    track: '1C',
+    evaluate: (s) => {
+      const n = countMemoryFactsMatching(s, [...DIFFERENTIATION_KEYWORDS]);
+      return n > 0
+        ? { passed: true, evidence: "You've evidenced how you're different from competitors." }
+        : { passed: false, gap: 'Pin what makes you different, against the competitive map' };
     },
   },
   {
