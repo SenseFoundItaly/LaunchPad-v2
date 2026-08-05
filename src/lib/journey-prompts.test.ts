@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkLabel, stageLabel, stageTagline, checkGap, checkEvidence } from './journey-prompts';
+import { checkLabel, stageLabel, stageTagline, checkGap, checkEvidence, checkActionPrompt } from './journey-prompts';
 import { STAGES } from '@/lib/journey';
 import { translate, type MessageKey, type TranslateVars } from '@/lib/i18n/messages';
 
@@ -110,5 +110,43 @@ describe('spine evidence i18n (checkEvidence)', () => {
 
   it('an unmapped id falls back to the English evidence — never a raw key', () => {
     expect(checkEvidence('totally_unknown_check', 'English evidence', tIt, 'it')).toBe('English evidence');
+  });
+});
+
+/**
+ * The clickable spine substeps and the chat briefing both route through
+ * checkActionPrompt, which keyword-matches the check's ENGLISH label. A check
+ * with no matching rule falls through to `journey-prompt.generic`, which
+ * interpolates that English label into an otherwise Italian sentence:
+ *
+ *   "Aiutami con: GTM chances & challenges assessed"
+ *
+ * Seven gate checks shipped that way (2026-08-05) — every one of them added
+ * for the founder's own request, so the newest work was the least guided. This
+ * fails the moment another check is added without a routing rule.
+ */
+describe('every spine check routes to a real co-pilot prompt', () => {
+  it('no check falls through to the generic English-leaking fallback', () => {
+    const unrouted: string[] = [];
+    for (const stage of STAGES) {
+      for (const check of stage.checks) {
+        // journey-prompt.generic is the ONLY prompt that interpolates the raw
+        // label, so containing it is an exact test for the fallback.
+        if (checkActionPrompt(check.label, tIt).includes(check.label)) {
+          unrouted.push(`${stage.id}/${check.id} ("${check.label}")`);
+        }
+      }
+    }
+    expect(unrouted, `add a keyword rule in checkActionPrompt for:\n  ${unrouted.join('\n  ')}`).toEqual([]);
+  });
+
+  it('routes the 1C scoring REVIEW away from the baseline prompt', () => {
+    // Both labels contain "Scoring". The review step asks the founder to
+    // re-score against interview evidence; sending them to the baseline prompt
+    // told them to redo work they had already done.
+    const review = checkActionPrompt('Startup Scoring reviewed against the evidence', tEn);
+    const baseline = checkActionPrompt('Startup Scoring baseline recorded', tEn);
+    expect(review).not.toBe(baseline);
+    expect(review.toLowerCase()).toContain('re-run');
   });
 });

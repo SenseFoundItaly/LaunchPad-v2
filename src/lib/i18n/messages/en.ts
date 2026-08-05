@@ -920,6 +920,17 @@ export const en = {
   'loop2.verdict-recorded-pivot': 'Verdict recorded: **PIVOT**. Revise your pricing, tiers or cost structure, then recompute unit economics. This stress test is now closed.',
   'loop2.verdict-recorded-stop': 'Verdict recorded: **STOP**. The unit economics don\'t hold. This stress test is closed — nothing further is required.',
   'journey-prompt.wtp': "Help me capture a willingness-to-pay signal — I'll tell you what interviewees said they'd pay.",
+  'journey-prompt.gtm': 'Help me map my go-to-market opportunities and the obstacles to reaching my first customers.',
+  'journey-prompt.partners': 'Help me identify partners, resellers or distributors who could bring me customers.',
+  'journey-prompt.ip': 'Help me assess my intellectual property — patents, trademarks and freedom to operate.',
+  'journey-prompt.data-availability': 'Help me work out which data I need, whether it is available, and at what quality.',
+  'journey-prompt.validation-strategy': 'Help me define my validation strategy — what I will test, with whom, and what would prove it.',
+  'journey-prompt.jtbd': 'Help me map the Jobs-to-be-Done — the job the customer is hiring me for.',
+  'journey-prompt.gate-verdict': "Let's review the Validation Gate evidence and help me decide: GO, PIVOT or STOP.",
+  'journey-prompt.scoring-review': 'Re-run the Startup Scoring now that I have interview evidence, and compare it with my baseline.',
+  'journey-prompt.cogs-opex': 'Help me estimate my costs — COGS and operating expenses.',
+  'journey-prompt.financial-draft': 'Help me build a 5-year financial projection draft with three scenarios.',
+  'journey-prompt.workflow': 'Help me start the build workflow and define the next step.',
   'journey-prompt.generic': 'Help me with: {label}',
   // Spine display labels — the founder-facing check-row / stage-tile / tagline
   // text, keyed by stable id and localized here (see checkLabel / stageLabel /

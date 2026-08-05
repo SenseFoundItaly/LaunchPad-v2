@@ -905,6 +905,17 @@ export const it: Partial<Record<MessageKey, string>> = {
   'loop2.verdict-recorded-pivot': 'Verdetto registrato: **PIVOT**. Rivedi pricing, tier o struttura dei costi, poi ricalcola le unit economics. Questo stress test è ora chiuso.',
   'loop2.verdict-recorded-stop': 'Verdetto registrato: **STOP**. Le unit economics non reggono. Questo stress test è chiuso — non serve altro.',
   'journey-prompt.wtp': 'Aiutami a registrare un segnale di disponibilità a pagare — ti dico cosa hanno detto gli intervistati.',
+  'journey-prompt.gtm': 'Aiutami a individuare le opportunità e gli ostacoli di go-to-market per arrivare ai primi clienti.',
+  'journey-prompt.partners': 'Aiutami a individuare partner, rivenditori o distributori che potrebbero portarmi ai clienti.',
+  'journey-prompt.ip': 'Aiutami a valutare la proprietà intellettuale — brevetti, marchi e libertà di operare.',
+  'journey-prompt.data-availability': 'Aiutami a capire quali dati mi servono, se sono disponibili e con che qualità.',
+  'journey-prompt.validation-strategy': 'Aiutami a definire la strategia di validazione — cosa testo, con chi, e cosa lo dimostrerebbe.',
+  'journey-prompt.jtbd': 'Aiutami a mappare i Jobs-to-be-Done — il lavoro per cui il cliente mi assume.',
+  'journey-prompt.gate-verdict': 'Rivediamo le prove del Validation Gate e aiutami a decidere: GO, PIVOT o STOP.',
+  'journey-prompt.scoring-review': 'Rilancia lo Startup Scoring ora che ho le evidenze dalle interviste, e confrontalo con il punteggio di partenza.',
+  'journey-prompt.cogs-opex': 'Aiutami a stimare i miei costi — COGS e spese operative.',
+  'journey-prompt.financial-draft': 'Aiutami a costruire una bozza di proiezione finanziaria a 5 anni con tre scenari.',
+  'journey-prompt.workflow': 'Aiutami ad avviare il workflow di build e a definire il prossimo passo.',
   'journey-prompt.generic': 'Aiutami con: {label}',
   // Etichette dello spine — testo delle check-row / tile di stage / tagline
   // mostrato al founder, tradotto qui (vedi checkLabel / stageLabel /
