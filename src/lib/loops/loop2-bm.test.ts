@@ -95,3 +95,89 @@ describe('LOOP2_GATED_SKILLS', () => {
     expect(LOOP2_GATED_SKILLS.has('financial-model')).toBe(false);
   });
 });
+
+
+// ── Iteration Cycle signals 2 & 3, and the Loop-2 → Loop-1 bridge ────────────
+
+import {
+  pricingWtpDelta, runwayMonths, meanInterviewWtp, pricingInvalidatesLoop1,
+  LOOP2_PRICING_WTP_DELTA_BAR, LOOP2_RUNWAY_MONTHS_BAR,
+} from './loop2-bm';
+
+function snapFor(over: Partial<ProjectSnapshot> = {}): ProjectSnapshot {
+  return {
+    idea_canvas: null, competitors: [], research: null, monitors: [], watch_sources: [],
+    pricing_state: null, burn_rate: null, workflow: null, growth_loops: [], metrics: [],
+    memory_facts: [], interviews: [], fundraising_round: null, investors: [],
+    counts: { published_assets: 0, pending_actions: 0, knowledge_items: 0 },
+    startup_score: null, ...over,
+  } as ProjectSnapshot;
+}
+const iv = (n: number, wtp: number | null) =>
+  Array.from({ length: n }, (_, i) => ({ id: `iv${i}`, person_name: `P${i}`, top_pain: null, wtp_amount: wtp, urgency: null }));
+const priced = (anchor: number | null) =>
+  ({ anchor_price: anchor, tiers: [], wtp: null, unit_econ: null, model: null }) as ProjectSnapshot['pricing_state'];
+
+describe('pricing vs interviewed WTP (Loop-2 signal 2)', () => {
+  it('measures the relative gap between anchor price and mean interviewed WTP', () => {
+    expect(meanInterviewWtp(iv(2, 50))).toBe(50);
+    // €100 anchor against €50 WTP = 100% gap.
+    expect(pricingWtpDelta(snapFor({ pricing_state: priced(100), interviews: iv(3, 50) }))).toBe(1);
+  });
+
+  it('is SYMMETRIC — pricing far BELOW stated WTP is also a divergence', () => {
+    // Underpricing is the same evidence problem: the model and the interviews
+    // have parted company, just in the founder's favour.
+    expect(pricingWtpDelta(snapFor({ pricing_state: priced(20), interviews: iv(3, 50) }))).toBe(0.6);
+  });
+
+  it('is NULL when either side is missing — no data is not a failing signal', () => {
+    expect(pricingWtpDelta(snapFor({ pricing_state: priced(100) }))).toBeNull();          // no interviews
+    expect(pricingWtpDelta(snapFor({ interviews: iv(3, 50) }))).toBeNull();               // no price
+    expect(pricingWtpDelta(snapFor({ pricing_state: priced(100), interviews: iv(3, null) }))).toBeNull();
+  });
+
+  it('omits the signal entirely rather than emitting a false failure', () => {
+    const { signals } = computeLoop2Score({ ltv: 300, cac: 100 }, snapFor());
+    expect(signals.some((s) => s.signal === 'pricing_wtp_delta')).toBe(false);
+    expect(signals.some((s) => s.signal === 'runway_months')).toBe(false);
+  });
+});
+
+describe('runway (Loop-2 signal 3)', () => {
+  it('is cash / burn, and null without both figures', () => {
+    expect(runwayMonths(snapFor({ burn_rate: { monthly_burn: 10_000, cash_on_hand: 90_000 } }))).toBe(9);
+    expect(runwayMonths(snapFor({ burn_rate: { monthly_burn: 0, cash_on_hand: 90_000 } }))).toBeNull();
+    expect(runwayMonths(snapFor())).toBeNull();
+  });
+
+  it('fails below the 6-month conservative bar', () => {
+    const { signals } = computeLoop2Score({ ltv: 300, cac: 100 },
+      snapFor({ burn_rate: { monthly_burn: 10_000, cash_on_hand: 30_000 } }));
+    const runway = signals.find((s) => s.signal === 'runway_months')!;
+    expect(runway.value).toBe(3);
+    expect(runway.threshold).toBe(LOOP2_RUNWAY_MONTHS_BAR);
+    expect(runway.passed).toBe(false);
+  });
+});
+
+describe('the Loop-2 → Loop-1 bridge', () => {
+  it('flags Loop 1 partially invalid past the 40% bar', () => {
+    // Spec: "se il pricing deve cambiare in modo significativo rispetto alla
+    // WTP rilevata nel Loop 1, il sistema segnala che il Loop 1 è parzialmente
+    // invalidato."
+    expect(LOOP2_PRICING_WTP_DELTA_BAR).toBe(0.40);
+    expect(pricingInvalidatesLoop1(snapFor({ pricing_state: priced(100), interviews: iv(3, 50) }))).toBe(true);
+  });
+
+  it('does NOT flag a price still close to the evidence', () => {
+    // 30% gap — inside the bar, the WTP evidence still supports the model.
+    expect(pricingInvalidatesLoop1(snapFor({ pricing_state: priced(65), interviews: iv(3, 50) }))).toBe(false);
+  });
+
+  it('never invalidates evidence when the delta cannot be computed', () => {
+    // An ABSENT signal must not invalidate interviews the founder actually ran.
+    expect(pricingInvalidatesLoop1(snapFor())).toBe(false);
+    expect(pricingInvalidatesLoop1(snapFor({ pricing_state: priced(100) }))).toBe(false);
+  });
+});

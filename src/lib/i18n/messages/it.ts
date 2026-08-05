@@ -886,6 +886,9 @@ export const it: Partial<Record<MessageKey, string>> = {
   'loop.signal-urgency': 'Urgenza',
   'loop.signal-ltvcac': 'LTV : CAC',
   'loop.signal-payback': 'Payback',
+  'loop.signal-pricing-wtp': 'Prezzo vs disponibilità a pagare rilevata',
+  'loop.signal-runway': 'Runway (mesi)',
+  'loop2.pricing-invalidates-loop1': 'Il prezzo si è allontanato oltre il 40% dalla disponibilità a pagare emersa dalle interviste — l’evidenza del Loop 1 non sostiene più questo modello. Meglio una breve ri-verifica PSF prima di consolidare il business model; non conterà come iterazione del Loop 1.',
   'loop.signal-margin': 'Margine lordo',
   // Loop 2 — BM Stress Test (LTV/CAC sotto la soglia 3× dopo che il modello di
   // business è compilato). Speculare a loop1.* una fase più a valle.

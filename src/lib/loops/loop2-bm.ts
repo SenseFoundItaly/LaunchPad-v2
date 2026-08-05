@@ -56,12 +56,64 @@ export const LOOP2_GATED_SKILLS = new Set<string>([
 type UnitEcon = NonNullable<ProjectSnapshot['pricing_state']>['unit_econ'];
 
 /**
+ * Iteration Cycle Loop-2 signal 2: "Pricing consistency con WTP da Loop 1 —
+ * delta > 40% tra prezzo target e WTP dichiarata".
+ *
+ * This is the signal the Loop-2 → Loop-1 bridge rides on: if the price the
+ * founder is now modelling has drifted this far from what interviewees said
+ * they would pay, the WTP evidence Loop 1 cleared is partially INVALID — the
+ * business model is being built on a number the market never confirmed.
+ */
+export const LOOP2_PRICING_WTP_DELTA_BAR = 0.40;
+
+/** Iteration Cycle Loop-2 signal 3: "Runway sufficiente per primo milestone —
+ *  soglia < 6 mesi in scenario conservativo". */
+export const LOOP2_RUNWAY_MONTHS_BAR = 6;
+
+/**
+ * Mean willingness-to-pay across interviews that carry a number. Null when no
+ * interview has one — a missing signal is NOT a failing signal (the ladder's
+ * "no data ≠ passing" rule), so the pricing-consistency check stays silent
+ * rather than firing on an absence.
+ */
+export function meanInterviewWtp(interviews: ProjectSnapshot['interviews']): number | null {
+  const amounts = (interviews ?? [])
+    .map((i) => i.wtp_amount)
+    .filter((v): v is number => typeof v === 'number' && v > 0);
+  if (amounts.length === 0) return null;
+  return amounts.reduce((a, b) => a + b, 0) / amounts.length;
+}
+
+/**
+ * Relative gap between the anchor price and interviewed WTP. Null when either
+ * side is missing. Symmetric: pricing 3× above OR far below the stated WTP is
+ * equally a signal that the model and the evidence have parted company.
+ */
+export function pricingWtpDelta(snapshot: ProjectSnapshot): number | null {
+  const anchor = snapshot.pricing_state?.anchor_price;
+  const wtp = meanInterviewWtp(snapshot.interviews);
+  if (typeof anchor !== 'number' || anchor <= 0 || wtp == null || wtp <= 0) return null;
+  return Math.abs(anchor - wtp) / wtp;
+}
+
+/** Months of runway from the burn-rate row. Null when either figure is absent. */
+export function runwayMonths(snapshot: ProjectSnapshot): number | null {
+  const burn = snapshot.burn_rate?.monthly_burn;
+  const cash = snapshot.burn_rate?.cash_on_hand;
+  if (typeof burn !== 'number' || burn <= 0 || typeof cash !== 'number') return null;
+  return cash / burn;
+}
+
+/**
  * Objective trigger evidence. LTV:CAC is the primary block; payback period and
  * gross margin ride alongside so the founder sees the full unit-economics
  * picture, not just the one ratio. Returns ratio null when LTV/CAC can't be
  * computed (no unit econ yet) — the caller treats that as "don't trigger".
  */
-export function computeLoop2Score(unitEcon: UnitEcon | null | undefined): { signals: LoopSignal[]; ltvCacRatio: number | null } {
+export function computeLoop2Score(
+  unitEcon: UnitEcon | null | undefined,
+  snapshot?: ProjectSnapshot,
+): { signals: LoopSignal[]; ltvCacRatio: number | null } {
   const ltv = unitEcon?.ltv;
   const cac = unitEcon?.cac;
   const ratio = ltv != null && cac != null && cac > 0 ? ltv / cac : null;
@@ -73,8 +125,55 @@ export function computeLoop2Score(unitEcon: UnitEcon | null | undefined): { sign
       { signal: 'ltv_cac_ratio', value: ratio != null ? round2(ratio) : 0, threshold: LOOP2_LTVCAC_THRESHOLD, passed: ratio != null && ratio >= LOOP2_LTVCAC_THRESHOLD },
       { signal: 'payback_months', value: payback != null ? round2(payback) : 0, threshold: 18, passed: payback != null && payback <= 18 },
       { signal: 'gross_margin', value: margin != null ? round2(margin) : 0, threshold: 0.5, passed: margin != null && margin >= 0.5 },
+      // Iteration Cycle signals 2 + 3. Only emitted when the snapshot is
+      // available AND the underlying data exists — a signal computed from
+      // nothing would read as a failure the founder cannot act on.
+      ...(snapshot ? loop2ContextSignals(snapshot) : []),
     ],
   };
+}
+
+/** The two snapshot-derived Loop-2 signals, omitted entirely when their data
+ *  is absent (no interviews with WTP / no burn-rate row). */
+function loop2ContextSignals(snapshot: ProjectSnapshot): LoopSignal[] {
+  const out: LoopSignal[] = [];
+  const delta = pricingWtpDelta(snapshot);
+  if (delta != null) {
+    out.push({
+      signal: 'pricing_wtp_delta',
+      value: round2(delta),
+      threshold: LOOP2_PRICING_WTP_DELTA_BAR,
+      passed: delta <= LOOP2_PRICING_WTP_DELTA_BAR,
+    });
+  }
+  const runway = runwayMonths(snapshot);
+  if (runway != null) {
+    out.push({
+      signal: 'runway_months',
+      value: round2(runway),
+      threshold: LOOP2_RUNWAY_MONTHS_BAR,
+      passed: runway >= LOOP2_RUNWAY_MONTHS_BAR,
+    });
+  }
+  return out;
+}
+
+/**
+ * The Loop-2 → Loop-1 bridge (Iteration Cycle: "Connessione critica con Loop 1").
+ *
+ * "Se il pricing deve cambiare in modo significativo rispetto alla WTP rilevata
+ * nel Loop 1, il sistema segnala che il Loop 1 è parzialmente invalidato. Viene
+ * proposta una micro-iterazione PSF prima di ri-consolidare il Business Model.
+ * Questa micro-iterazione NON viene conteggiata come iterazione aggiuntiva del
+ * Loop 1."
+ *
+ * Pure predicate — the caller decides what to do with it. Returns false when
+ * the delta cannot be computed: an absent signal must never invalidate evidence
+ * the founder actually gathered.
+ */
+export function pricingInvalidatesLoop1(snapshot: ProjectSnapshot): boolean {
+  const delta = pricingWtpDelta(snapshot);
+  return delta != null && delta > LOOP2_PRICING_WTP_DELTA_BAR;
 }
 
 /**
@@ -88,7 +187,7 @@ export function shouldTriggerLoop2(snapshot: ProjectSnapshot): boolean {
   const evals = evaluateAllStages(snapshot);
   const bmDone = evals.find((e) => e.stage.id === 'business_model')?.status === 'done';
   if (!bmDone) return false;
-  const { ltvCacRatio } = computeLoop2Score(snapshot.pricing_state?.unit_econ);
+  const { ltvCacRatio } = computeLoop2Score(snapshot.pricing_state?.unit_econ, snapshot);
   return ltvCacRatio != null && ltvCacRatio < LOOP2_LTVCAC_THRESHOLD;
 }
 
@@ -116,13 +215,21 @@ export async function hasOpenLoop2(projectId: string): Promise<boolean> {
  */
 async function proposeReview(
   projectId: string, ownerUserId: string, loopId: string, ratio: number, origin: 'loop2_auto' | 'loop2_manual', locale: 'en' | 'it',
+  snapshot?: ProjectSnapshot,
 ): Promise<string> {
   const titleKey = origin === 'loop2_manual' ? 'loop2.card-title-manual' : 'loop2.card-title';
   const rationaleKey = origin === 'loop2_manual' ? 'loop2.card-rationale-manual' : 'loop2.card-rationale';
+  // The Loop-2 -> Loop-1 bridge, surfaced. A flag nobody reads is not a bridge:
+  // if the price has drifted past the bar from interviewed WTP, the card SAYS
+  // the Loop-1 evidence no longer backs this model, and that the PSF re-check
+  // is free (it does not consume a Loop-1 iteration).
+  const bridge = snapshot && pricingInvalidatesLoop1(snapshot)
+    ? `\n\n${translate(locale, 'loop2.pricing-invalidates-loop1')}`
+    : '';
   const pa = await createPendingAction({
     project_id: projectId, action_type: 'run_skill',
     title: translate(locale, titleKey, { ratio: ratio.toFixed(1) }),
-    rationale: translate(locale, rationaleKey, { ratio: ratio.toFixed(1), threshold: LOOP2_LTVCAC_THRESHOLD }),
+    rationale: translate(locale, rationaleKey, { ratio: ratio.toFixed(1), threshold: LOOP2_LTVCAC_THRESHOLD }) + bridge,
     payload: { skill_id: 'business-model', owner_user_id: ownerUserId, loop_id: loopId, origin },
     estimated_impact: 'high', priority: 'high',
   });
@@ -136,6 +243,7 @@ async function proposeReview(
  */
 async function selfHealProposedLoop(
   loop: { id: string; pending_action_id: string | null }, projectId: string, ownerUserId: string, ratio: number, locale: 'en' | 'it',
+  snapshot?: ProjectSnapshot,
 ): Promise<void> {
   const card = loop.pending_action_id
     ? await get<{ status: string; execution_result: unknown }>(
@@ -158,7 +266,7 @@ async function selfHealProposedLoop(
     await overrideLoop(projectId, loop.id, ownerUserId, motivation);
     return;
   }
-  const pa = await proposeReview(projectId, ownerUserId, loop.id, ratio, 'loop2_auto', locale);
+  const pa = await proposeReview(projectId, ownerUserId, loop.id, ratio, 'loop2_auto', locale, snapshot);
   await run(`UPDATE validation_loops SET pending_action_id = ? WHERE id = ? AND status = 'proposed'`, pa, loop.id);
 }
 
@@ -177,7 +285,7 @@ export async function maybeTriggerLoop2(projectId: string, snapshot?: ProjectSna
   try {
     const snap = snapshot ?? (await buildProjectSnapshot(projectId));
     // Cheap guard: nothing to do until unit economics exist.
-    const { signals, ltvCacRatio } = computeLoop2Score(snap.pricing_state?.unit_econ);
+    const { signals, ltvCacRatio } = computeLoop2Score(snap.pricing_state?.unit_econ, snap);
     const loop = await openLoop(projectId, 2);
     if (ltvCacRatio == null && !loop) return;
 
@@ -192,7 +300,7 @@ export async function maybeTriggerLoop2(projectId: string, snapshot?: ProjectSna
     if (loop) {
       if (loop.status === 'in_review') return;
       if (loop.status === 'proposed') {
-        await selfHealProposedLoop(loop, projectId, ownerUserId, ratio, locale);
+        await selfHealProposedLoop(loop, projectId, ownerUserId, ratio, locale, snapshot);
         return;
       }
       // status 'active': a review ran and pricing changed.
@@ -205,7 +313,7 @@ export async function maybeTriggerLoop2(projectId: string, snapshot?: ProjectSna
       if (esc?.atCap) {
         await stageLoop2Verdict(projectId, ownerUserId, loop.id, locale, esc.evidence);
       } else if (esc) {
-        const pa = await proposeReview(projectId, ownerUserId, loop.id, ratio, 'loop2_auto', locale);
+        const pa = await proposeReview(projectId, ownerUserId, loop.id, ratio, 'loop2_auto', locale, snapshot);
         await run(`UPDATE validation_loops SET status = 'proposed', pending_action_id = ? WHERE id = ?`, pa, loop.id);
       }
       return;
@@ -238,7 +346,7 @@ export async function maybeTriggerLoop2(projectId: string, snapshot?: ProjectSna
     }
     let pa: string | undefined;
     try {
-      pa = await proposeReview(projectId, ownerUserId, loopId, ratio, 'loop2_auto', locale);
+      pa = await proposeReview(projectId, ownerUserId, loopId, ratio, 'loop2_auto', locale, snapshot);
       await run(`UPDATE validation_loops SET pending_action_id = ? WHERE id = ?`, pa, loopId);
     } catch (err) {
       await retireOrphanCard(pa);
@@ -338,7 +446,7 @@ export async function triggerLoop2Manual(projectId: string, ownerUserId: string)
   const existing = await openLoop(projectId, 2);
   if (existing) return existing.id;
   const snap = await buildProjectSnapshot(projectId);
-  const { signals, ltvCacRatio } = computeLoop2Score(snap.pricing_state?.unit_econ);
+  const { signals, ltvCacRatio } = computeLoop2Score(snap.pricing_state?.unit_econ, snap);
   const locale = await resolveLocale(ownerUserId, projectId);
   const loopId = generateId('loop');
   try {
@@ -355,7 +463,7 @@ export async function triggerLoop2Manual(projectId: string, ownerUserId: string)
   }
   let paId: string | undefined;
   try {
-    paId = await proposeReview(projectId, ownerUserId, loopId, ltvCacRatio ?? 0, 'loop2_manual', locale);
+    paId = await proposeReview(projectId, ownerUserId, loopId, ltvCacRatio ?? 0, 'loop2_manual', locale, snap);
     await run(`UPDATE validation_loops SET pending_action_id = ? WHERE id = ?`, paId, loopId);
   } catch (err) {
     await retireOrphanCard(paId);
