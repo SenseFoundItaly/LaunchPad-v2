@@ -46,7 +46,20 @@ export const IRL_CORE_MAX = 6;
 // Evidence bars — policy, SF-set, mirrored from the loop thresholds. Central so
 // the ladder and the loops can never disagree on what "passing" means.
 export const IRL_WTP_BAR = 0.30;        // Loop 1 (PSF)
-export const IRL_LTV_CAC_BAR = 3;       // Loop 2 (BM stress test)
+/**
+ * LTV/CAC viability — the SINGLE source of truth for this number.
+ *
+ * Iteration Cycle 2A: "Unit economics viable — LTV/CAC ratio (target minimo:
+ * >= 3x)". Loop 2 fires below it, IRL level 4 requires it, and the Stage-4
+ * `unit_econ_viable` check reads it. Those three USED TO DISAGREE — the stage
+ * check passed at >= 1x while the loop and the ladder demanded 3x, so a
+ * founder could turn Business Model green and be bounced by the BM Stress Test
+ * one step later. Import this constant; never re-type the number.
+ *
+ * Lives here because ladder.ts is dependency-free by design (type-only import),
+ * so journey checks and loop modules can both import it without a cycle.
+ */
+export const IRL_LTV_CAC_BAR = 3;       // Loop 2 (BM stress test) + Stage-4 gate
 export const IRL_CONVERSION_BAR = 0.05; // Loop 3 (market response)
 export const IRL_ACTIVATION_BAR = 0.20; // Loop 4 (MVP test verdict)
 /**

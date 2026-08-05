@@ -7,6 +7,7 @@
  * "Pricing"'s checks, unchanged ids and evaluator logic.
  */
 
+import { IRL_LTV_CAC_BAR } from '@/lib/irl/ladder';
 import type { Stage } from './types';
 import { CANONICAL_BY_ID } from './canonical';
 
@@ -63,7 +64,7 @@ export const stageBusinessModel: Stage = {
     },
     {
       id: 'unit_econ_viable',
-      label: 'Unit economics viable (LTV ≥ CAC)',
+      label: 'Unit economics viable (LTV/CAC ≥ 3×)',
       source: 'pricing_state.unit_econ',
       evaluate: (s) => {
         const ltv = s.pricing_state?.unit_econ?.ltv;
@@ -72,10 +73,14 @@ export const stageBusinessModel: Stage = {
           return { passed: false, gap: 'Estimate LTV and CAC' };
         }
         const ratio = ltv / cac;
-        const ok = ratio >= 1;
+        // Iteration Cycle 2A: "target minimo >= 3x". This check used to pass at
+        // >= 1x while Loop 2 and IRL level 4 both demanded 3x — so the stage
+        // went green and the BM Stress Test bounced the founder one step later.
+        // One constant now, imported (IRL_LTV_CAC_BAR).
+        const ok = ratio >= IRL_LTV_CAC_BAR;
         return ok
           ? { passed: true, evidence: `Your unit economics work — LTV is ${ratio.toFixed(2)}× your cost to acquire a customer.` }
-          : { passed: false, gap: `LTV : CAC = ${ratio.toFixed(2)}x — under 1, rework pricing or CAC` };
+          : { passed: false, gap: `LTV : CAC = ${ratio.toFixed(2)}× — under ${IRL_LTV_CAC_BAR}×, rework pricing or CAC` };
       },
     },
   ],

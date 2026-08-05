@@ -974,7 +974,7 @@ export const en = {
   'journey-check.tiers_defined': 'Tiers defined',
   'journey-check.wtp_researched': 'Willingness-to-pay researched',
   'journey-check.model_chosen': 'Pricing model chosen',
-  'journey-check.unit_econ_viable': 'Unit economics viable (LTV ≥ CAC)',
+  'journey-check.unit_econ_viable': 'Unit economics viable (LTV/CAC ≥ 3×)',
   'journey-check.workflow_active': 'Workflow active',
   'journey-check.scope_defined': 'MVP scope defined',
   'journey-check.something_shipped': 'Something shipped',
