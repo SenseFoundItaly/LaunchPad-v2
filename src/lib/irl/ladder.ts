@@ -28,6 +28,17 @@
 import type { StageId } from '@/lib/journey/types';
 
 export const IRL_MAX = 9;
+/**
+ * The scale is 1-9 — never 0 (founder, 2026-08-04: "IRL va da 1 a 9, non può
+ * essere 0. Di default parte da 1"). A new project sits ON the bottom rung, it
+ * is not off the ladder, and "0/9" read as a failing grade for simply having
+ * started.
+ *
+ * This is a DISPLAY floor only. `earned` stays honest (it can be 0) so the
+ * regression check and the floor logic keep working on real evidence — the
+ * founder sees 1, the engine still knows nothing has been proven yet.
+ */
+export const IRL_MIN = 1;
 /** The last SEQUENTIAL level. 1-6 are the phase ladder (contiguous); 7-9 are
  *  the independent paid add-on modules. */
 export const IRL_CORE_MAX = 6;
@@ -188,7 +199,8 @@ export function computeIRL(e: IrlEvidence, floor?: IrlFloor): IrlResult {
   // evidence needs next, so a regressed project is told what to restore rather
   // than what comes after a level it is no longer supporting.
   const floorLevel = floor?.level ?? 0;
-  const level = Math.max(earnedLevel, floorLevel);
+  // IRL_MIN last: the scale starts at 1, so an unproven project shows 1, not 0.
+  const level = Math.max(earnedLevel, floorLevel, IRL_MIN);
 
   const nextKey = earnedLevel < IRL_CORE_MAX
     ? (IRL_CORE_LADDER.find((r) => r.level === earnedLevel + 1)?.key ?? null)
