@@ -37,7 +37,10 @@ for (const raw of fs.readFileSync(ENV, 'utf8').split('\n')) {
 const sql = postgres(process.env.DATABASE_URL, { prepare: false, max: 1 });
 const userId = 'gatewalk-' + Math.random().toString(36).slice(2, 10);
 const out = { userId, startedAt: new Date().toISOString(), steps: [], gate: {} };
-const save = () => fs.writeFileSync('/tmp/gate-walk.json', JSON.stringify(out, null, 2));
+// One file per run. Two overlapping runs sharing /tmp/gate-walk.json clobbered
+// each other and produced an interleaved log that read like a failed fix.
+const OUT = process.env.GATE_WALK_OUT || `/tmp/gate-walk-${userId}.json`;
+const save = () => fs.writeFileSync(OUT, JSON.stringify(out, null, 2));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function api(method, path, body) {

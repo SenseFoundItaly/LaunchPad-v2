@@ -10,6 +10,43 @@
 
 import { evaluateAllStages, activeStage } from './index';
 import type { ProjectSnapshot } from './types';
+import { CHAT_PROPOSABLE_KINDS, validationTargetsFor } from './validation-targets';
+
+/**
+ * check id → the propose_validation call that closes it.
+ *
+ * DERIVED, never hand-written: it inverts the same kind→check mapping the
+ * executor and the spine already share, so a new kind or a re-pointed check
+ * updates this automatically. A hand-kept list here would be the fourth copy of
+ * the write path and the first to rot.
+ *
+ * Only checks a single kind targets get a hint. Where several kinds could close
+ * one check, naming one would be a guess presented as an instruction.
+ */
+const STAGING_HINTS: Map<string, string> = (() => {
+  const byCheck = new Map<string, Set<string>>();
+  for (const kind of CHAT_PROPOSABLE_KINDS) {
+    const fields = kind === 'tech_fact'
+      ? ['feasibility', 'dependencies', 'regulatory']
+      : [undefined];
+    for (const field of fields) {
+      const call = field ? `propose_validation(kind: '${kind}', field: '${field}')` : `propose_validation(kind: '${kind}')`;
+      for (const t of validationTargetsFor(kind, field)) {
+        if (!byCheck.has(t.check_id)) byCheck.set(t.check_id, new Set());
+        byCheck.get(t.check_id)!.add(call);
+      }
+    }
+  }
+  const out = new Map<string, string>();
+  for (const [checkId, calls] of byCheck) {
+    if (calls.size === 1) out.set(checkId, [...calls][0]);
+  }
+  return out;
+})();
+
+function stagingHintFor(checkId: string): string | null {
+  return STAGING_HINTS.get(checkId) ?? null;
+}
 
 export function formatStageContextForPrompt(snapshot: ProjectSnapshot): string {
   const evaluations = evaluateAllStages(snapshot);
@@ -40,11 +77,16 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot): string {
   const tag = (track?: string) => (track ? `[${track}] ` : '');
 
   const doneLines = byTrack(done).map((r) => `  ✓ ${tag(r.check.track)}${r.check.label}${r.result.evidence ? ` — ${r.result.evidence}` : ''}`);
-  const gapLines = byTrack(gaps).map((r) =>
-    r.result.locked
-      ? `  ○ ${tag(r.check.track)}${r.check.label} — LOCKED until every 1A + 1B check passes`
-      : `  ○ ${tag(r.check.track)}${r.check.label}${r.result.gap ? ` — GAP: ${r.result.gap}` : ''} [source: ${r.check.source}]`,
-  );
+  const gapLines = byTrack(gaps).map((r) => {
+    if (r.result.locked) return `  ○ ${tag(r.check.track)}${r.check.label} — LOCKED until every 1A + 1B check passes`;
+    // Name the exact kind that closes this check. A walkthrough measured why
+    // this is needed: the co-pilot produced real GTM / IP / regulatory analysis
+    // and staged none of it, so 18 of 21 gate checks stayed red on turns where
+    // the founder had genuinely done the work. Telling it the source is not
+    // enough — it has to be told the MOVE.
+    const how = stagingHintFor(r.check.id);
+    return `  ○ ${tag(r.check.track)}${r.check.label}${r.result.gap ? ` — GAP: ${r.result.gap}` : ''} [source: ${r.check.source}]${how ? ` → CLOSE WITH: ${how}` : ''}`;
+  });
   // ── Phase-0 guidance (founder changelog 4/08, issues #384/#386/#387) ──────
   // Four separate complaints share one root: on a brand-new project the agent
   // pushed competitor research, offered to invert the phases, and answered a
@@ -89,6 +131,15 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot): string {
     '',
     `MISSING (drive the conversation to close these):`,
     ...gapLines,
+    '',
+    `Closing a gap needs a WRITE, not an answer:`,
+    `- Analysis you only narrate leaves the check RED. The founder did the work and the`,
+    `  product forgot it — that is the single worst thing this system can do.`,
+    `- So when a turn produces the evidence a gap above asks for, call propose_validation`,
+    `  in the SAME turn, using the kind named in its CLOSE WITH hint, and emit the returned`,
+    `  artifact block verbatim so the founder can approve it.`,
+    `- One card per turn, batching everything that turn produced. The founder's approval is`,
+    `  what greens the check — never write silently, and never skip the card.`,
     '',
     `Guidance:`,
     `- Open with progress framing ("you're ${passed}/${total} on ${stage.label}") rather than generic greeting.`,

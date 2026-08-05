@@ -39,6 +39,42 @@ export type ValidationItemKind =
   // Post-validation doc ingestion (#224): the operate-stage digest stages these.
   | 'metric' | 'financial_fact' | 'brand_fact';
 
+/**
+ * The item kinds the CHAT co-pilot may stage on a validation proposal.
+ *
+ * This list existed only inside project-tools.ts, as three hardcoded strings,
+ * while the executor grew to handle all 22 kinds and sourceKeysFor mapped every
+ * one of them to a check. The chain — keyword family → item kind → source
+ * mapping → executor Apply — was complete everywhere EXCEPT the one place the
+ * founder actually talks. A gate walkthrough measured the cost: a founder who
+ * followed the product closed 3 of 21 checks, because the co-pilot could not
+ * stage GTM, partner, IP, data, JTBD, validation-strategy or technical evidence
+ * even when it had just produced it. The tool answered `Invalid item kind`, so
+ * the model fell back to prose and the founder's work evaporated.
+ *
+ * Excluded on purpose, NOT forgotten — each has a dedicated tool whose richer
+ * schema a generic {kind, value} item cannot carry:
+ *   interview → log_interview (person, segment, WTP amount, urgency)
+ *   pricing   → update_pricing (anchor/tiers/unit-econ columns)
+ *   metric    → the metric tools (name, value, unit, target)
+ *   financial_fact / brand_fact → document-digest only; no gate check reads them
+ *     from chat, so offering them here would be a write with nowhere to land.
+ *   trend_fact / buyer_persona_fact → ORPHANED. `trends_assessed` and
+ *     `buyer_persona_defined` were removed from 1A on 2026-08-04; the kinds,
+ *     their source mappings and their executor branches all survive, but no
+ *     check reads them any more. Offering them would let the co-pilot stage
+ *     evidence that greens nothing — busywork dressed as progress. Found by the
+ *     test below, not by reading the code.
+ */
+export const CHAT_PROPOSABLE_KINDS: readonly ValidationItemKind[] = [
+  'canvas_field', 'competitor', 'market_size_fact', 'tech_fact',
+  'differentiation_fact',
+  'gtm_fact', 'partner_fact',
+  'ip_fact', 'data_fact', 'validation_strategy_fact', 'jtbd_fact',
+  'cogs_opex_fact', 'revenue_stream_fact',
+  'persona_fact', 'channel_fact',
+] as const;
+
 /** The pricing_state column a `pricing` item fills (Stage-4 Business Model). */
 export type PricingField = 'anchor_price' | 'tiers' | 'wtp' | 'model' | 'unit_econ';
 
