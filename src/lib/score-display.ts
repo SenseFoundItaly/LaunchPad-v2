@@ -70,3 +70,27 @@ export const OVERALL_SCORE_TITLE_RE =
 export function isBaselineScoreTitle(title: string | undefined | null): boolean {
   return OVERALL_SCORE_TITLE_RE.test(title ?? '');
 }
+
+
+/**
+ * Present any artifact score on the 0-100 canon.
+ *
+ * Score artifacts carry their OWN `max`, so whatever scale the model emits is
+ * what the founder sees. That is how a 6.8 reached the Canvas months after the
+ * 0-100 unification (#249) — the canon was enforced on the write side and on
+ * Home, but the artifact renderers trusted the payload.
+ *
+ * Founder, 21/07: "perché copilot in decimi e home in centesimi?" — asked
+ * again on 04/08 with a screenshot. Enforcing it HERE, at the renderer, is
+ * what makes the question stop coming back: the model can emit any scale it
+ * likes and the founder still sees one.
+ *
+ * Proportional rather than a special-case for /10, so an unexpected /5 or /20
+ * is normalised too instead of rendering as a wildly wrong percentage.
+ */
+export function toScore100(score: number, max: number | undefined | null): number {
+  const m = typeof max === 'number' && max > 0 ? max : 100;
+  if (!Number.isFinite(score)) return 0;
+  const pct = score / m;
+  return Math.round(Math.max(0, Math.min(1, pct)) * 100);
+}

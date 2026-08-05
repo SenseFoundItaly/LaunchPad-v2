@@ -2,6 +2,7 @@
 
 import type { ScoreBadge as ScoreBadgeType } from '@/types/artifacts';
 import { scoreColor } from '@/lib/brand-palette';
+import { toScore100 } from '@/lib/score-display';
 
 interface ScoreBadgeProps {
   artifact: ScoreBadgeType;
@@ -13,8 +14,10 @@ function getScoreColor(score: number, max: number): string {
 }
 
 export default function ScoreBadge({ artifact }: ScoreBadgeProps) {
-  const color = getScoreColor(artifact.score, artifact.max);
-  const pct = artifact.max > 0 ? artifact.score / artifact.max : 0;
+  // 0-100 canon: the artifact's own `max` is presentation input, not truth.
+  const score100 = toScore100(artifact.score, artifact.max);
+  const color = getScoreColor(score100, 100);
+  const pct = score100 / 100;
   // SVG circle parameters for a 40x40 badge
   const radius = 15;
   const circumference = 2 * Math.PI * radius;
