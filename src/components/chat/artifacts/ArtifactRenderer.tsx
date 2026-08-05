@@ -30,6 +30,7 @@ import InsightCarouselCard from './InsightCarouselCard';
 import ArtifactCardShell from './ArtifactCardShell';
 import { RadarChart, BarChart, PieChart, GaugeChart, ScoreCard } from '@/components/charts';
 import BaselineScoreCard from './BaselineScoreCard';
+import { toScore100 } from '@/lib/score-display';
 import { isBaselineScoreTitle } from '@/lib/score-display';
 import { useT } from '@/components/providers/LocaleProvider';
 
@@ -125,7 +126,15 @@ export default function ArtifactRenderer({
               /score, matching Home. Per-dimension score-cards stay thin. */}
           {isBaselineScoreTitle(artifact.title)
             ? <BaselineScoreCard artifact={artifact} />
-            : <ScoreCard title="" score={artifact.score} maxScore={artifact.maxScore} description={artifact.description} />}
+            /* 0-100 canon enforced at the RENDERER: the artifact carries its
+               own max, so a model emitting /10 put a bare "6.8" in front of the
+               founder next to a /100 Home score. */
+            : <ScoreCard
+                title=""
+                score={toScore100(artifact.score, artifact.maxScore)}
+                maxScore={100}
+                description={artifact.description}
+              />}
         </KeyedShell>
       );
     case 'metric-grid':
