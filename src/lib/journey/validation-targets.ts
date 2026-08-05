@@ -22,6 +22,7 @@
 
 import { STAGES } from './index';
 import { MARKET_SIZE_CHECK_SOURCE, TECH_1B_SOURCES, MARKET_1A_SOURCES, DIFFERENTIATION_CHECK_SOURCE } from './stage-2-market-validation';
+import { BM_2A_SOURCES } from './stage-4-business-model';
 import { translate, type MessageKey } from '@/lib/i18n/messages';
 
 export type ValidationItemKind =
@@ -33,6 +34,8 @@ export type ValidationItemKind =
   | 'gtm_fact' | 'partner_fact'
   // Iteration Cycle 1B/1C alignment (2026-08-04).
   | 'ip_fact' | 'data_fact' | 'validation_strategy_fact' | 'jtbd_fact'
+  // Iteration Cycle 2A (Business Essentials).
+  | 'cogs_opex_fact' | 'revenue_stream_fact'
   // Post-validation doc ingestion (#224): the operate-stage digest stages these.
   | 'metric' | 'financial_fact' | 'brand_fact';
 
@@ -126,6 +129,10 @@ function sourceKeysFor(kind: ValidationItemKind, field?: string): string[] {
       return ['memory_facts (validation strategy)'];
     case 'jtbd_fact':
       return ['memory_facts (JTBD)'];
+    case 'cogs_opex_fact':
+      return [BM_2A_SOURCES.cogsOpex];
+    case 'revenue_stream_fact':
+      return [BM_2A_SOURCES.revenueStreams];
     case 'persona_fact':
       // Stage 3 icp_defined reads memory_facts matching ICP keywords.
       return ['memory_facts (ICP)'];

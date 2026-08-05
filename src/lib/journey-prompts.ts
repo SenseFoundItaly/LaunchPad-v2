@@ -104,6 +104,8 @@ const CHECK_LABEL_KEY: Record<string, MessageKey> = {
   tiers_defined: 'journey-check.tiers_defined',
   wtp_researched: 'journey-check.wtp_researched',
   model_chosen: 'journey-check.model_chosen',
+  revenue_streams_defined: 'journey-check.revenue_streams_defined',
+  cogs_opex_defined: 'journey-check.cogs_opex_defined',
   unit_econ_viable: 'journey-check.unit_econ_viable',
   // Stage 5 — Build & Launch
   workflow_active: 'journey-check.workflow_active',
@@ -207,6 +209,8 @@ const GAP_LABEL_KEY: Record<string, MessageKey> = {
   tiers_defined: 'journey-gap.tiers_defined',
   wtp_researched: 'journey-gap.wtp_researched',
   model_chosen: 'journey-gap.model_chosen',
+  revenue_streams_defined: 'journey-gap.revenue_streams_defined',
+  cogs_opex_defined: 'journey-gap.cogs_opex_defined',
   unit_econ_viable: 'journey-gap.unit_econ_viable',
   // Stage 5 — Build & Launch
   workflow_active: 'journey-gap.workflow_active',
@@ -288,6 +292,8 @@ const EVIDENCE_LABEL_KEY: Record<string, MessageKey> = {
   tiers_defined: 'journey-evidence.tiers_defined',
   wtp_researched: 'journey-evidence.wtp_researched',
   model_chosen: 'journey-evidence.model_chosen',
+  revenue_streams_defined: 'journey-evidence.revenue_streams_defined',
+  cogs_opex_defined: 'journey-evidence.cogs_opex_defined',
   unit_econ_viable: 'journey-evidence.unit_econ_viable',
   // Stage 5
   workflow_active: 'journey-evidence.workflow_active',
