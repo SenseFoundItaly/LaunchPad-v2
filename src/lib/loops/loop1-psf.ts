@@ -22,6 +22,7 @@
 import { query, get, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { createPendingAction } from '@/lib/pending-actions';
+import { captureCanvasVersion } from '@/lib/canvas-versions';
 import { recordEvent } from '@/lib/memory/events';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { translate } from '@/lib/i18n/messages';
@@ -290,6 +291,11 @@ export async function maybeTriggerLoop1(projectId: string, snapshot?: ProjectSna
       if (isUniqueViolation(err)) return;
       throw err;
     }
+    // The BEFORE state: snapshot the canvas the moment a PSF review opens, so
+    // the v1/v2 diff has something to compare against once the founder revises
+    // it. Placed AFTER the insert landed — a lost race returns above, so the
+    // race winner is the only one that snapshots.
+    await captureCanvasVersion(projectId, 'loop_1_open', loopId);
     let pa: string | undefined;
     try {
       pa = await proposeReview(projectId, ownerUserId, loopId, pct, locale);
@@ -382,9 +388,12 @@ export async function triggerLoop1Manual(projectId: string, ownerUserId: string)
     // open loop for them would silently misreport what happened.
     if (!isUniqueViolation(err)) throw err;
     const winner = await openLoop1(projectId);
+    // Resolved to the winner: it already snapshotted, so we must not add a
+    // second version for the same loop opening.
     if (winner) return winner.id;
     throw err;
   }
+  await captureCanvasVersion(projectId, 'loop_1_open', loopId);
   let paId: string | undefined;
   try {
     const pa = await createPendingAction({
@@ -517,6 +526,11 @@ export async function recordLoop1Verdict(projectId: string, loopId: string, owne
     return stored?.verdict ?? verdict;
   }
   await recordEvent({ userId: ownerUserId, projectId, eventType: 'loop1_verdict', payload: { loop_id: loopId, verdict } });
+  // Spec, "Output del Loop": PSF vN persisted with versioning + a v1/v2 diff.
+  // Captured on the LANDED update only (the block above returns early on a
+  // lost race), so a concurrent double-submit cannot create two versions for
+  // one decision. Non-fatal: losing a diff must never lose a verdict.
+  await captureCanvasVersion(projectId, 'loop_1_close', loopId);
   return verdict;
 }
 
