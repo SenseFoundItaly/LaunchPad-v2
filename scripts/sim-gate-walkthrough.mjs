@@ -120,6 +120,18 @@ async function applyPending(projectId) {
   console.log('  project', projectId);
   await sleep(3000);
   await applyPending(projectId);
+  // UPSERT, not UPDATE. The original UPDATE matched ZERO rows — a brand-new
+  // project has no idea_canvas row yet — so every walkthrough ran against a
+  // COMPLETELY EMPTY canvas while reporting that it had seeded one. The model
+  // was right to refuse 1B work on it ("Stage 1 a 0/9"), and every number this
+  // harness produced described a scenario that should not exist.
+  //
+  // This is the project's own documented footgun (CLAUDE.md: a bare UPDATE that
+  // matches no row returns success and writes nothing) — the same one that made
+  // gate-verdict a silent no-op on 65 of 94 projects. Written into the harness
+  // by the person who had just read the warning.
+  await sql`INSERT INTO idea_canvas (id, project_id) VALUES (${'ic_' + userId}, ${projectId})
+              ON CONFLICT (project_id) DO NOTHING`;
   // Bound parameters, not inline literals — an apostrophe in the Italian copy
   // ("dell'esecuzione") terminates a hand-written SQL string.
   await sql`
@@ -137,6 +149,13 @@ async function applyPending(projectId) {
               revenue_streams = ${['Abbonamento mensile per studio']},
               cost_structure = ${['Inferenza on-device', 'Supporto clinico']}
             WHERE project_id = ${projectId}`;
+
+  // Assert the seed actually landed. A harness that silently measures the wrong
+  // scenario is worse than one that crashes: it produces numbers people act on.
+  const seeded = (await sql`SELECT problem, solution, value_proposition FROM idea_canvas WHERE project_id = ${projectId}`)[0];
+  if (!seeded?.problem || !seeded?.solution || !seeded?.value_proposition) {
+    throw new Error('seed del canvas FALLITO — il walkthrough misurerebbe un founder senza Stage 1');
+  }
 
   const before = await gate(projectId);
   out.gate.initial = before;
