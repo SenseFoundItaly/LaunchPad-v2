@@ -1886,7 +1886,7 @@ const applyValidationProposal: ActionHandler = async (action) => {
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'interview') {
       skippedNoOwner = true;
-    } else if ((it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact' || it.kind === 'gtm_fact' || it.kind === 'partner_fact' || it.kind === 'ip_fact' || it.kind === 'data_fact' || it.kind === 'validation_strategy_fact' || it.kind === 'jtbd_fact') && ownerUserId) {
+    } else if ((it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact' || it.kind === 'gtm_fact' || it.kind === 'partner_fact' || it.kind === 'ip_fact' || it.kind === 'data_fact' || it.kind === 'validation_strategy_fact' || it.kind === 'jtbd_fact' || it.kind === 'cogs_opex_fact' || it.kind === 'revenue_stream_fact') && ownerUserId) {
       // Stage-2/3 prefill: write a keyword-bearing applied memory_fact so the
       // matching check (icp_defined / channels_identified / trends_assessed /
       // buyer_persona_defined — all keyword-match memory_facts) greens. The
@@ -1906,6 +1906,8 @@ const applyValidationProposal: ActionHandler = async (action) => {
            it.kind === 'data_fact' ? 'Disponibilità dei dati — ' :
            it.kind === 'validation_strategy_fact' ? 'Strategia di validazione — ' :
            it.kind === 'jtbd_fact' ? 'Jobs to be done — ' :
+           it.kind === 'cogs_opex_fact' ? 'Costi fissi e variabili — ' :
+           it.kind === 'revenue_stream_fact' ? 'Flusso di ricavo — ' :
            'Buyer persona — ')
         : (it.kind === 'persona_fact' ? 'Ideal customer profile — ' :
            it.kind === 'channel_fact' ? 'Acquisition channel — ' :
@@ -1917,6 +1919,8 @@ const applyValidationProposal: ActionHandler = async (action) => {
            it.kind === 'data_fact' ? 'Data availability — ' :
            it.kind === 'validation_strategy_fact' ? 'Validation strategy — ' :
            it.kind === 'jtbd_fact' ? 'Jobs to be done — ' :
+           it.kind === 'cogs_opex_fact' ? 'Costi fissi e variabili — ' :
+           it.kind === 'revenue_stream_fact' ? 'Flusso di ricavo — ' :
            'Buyer persona — ');
       await recordFact({
         userId: ownerUserId,
@@ -1935,7 +1939,9 @@ const applyValidationProposal: ActionHandler = async (action) => {
            it.kind === 'ip_fact' ? 'Proprietà intellettuale' :
            it.kind === 'data_fact' ? 'Disponibilità dei dati' :
            it.kind === 'validation_strategy_fact' ? 'Strategia di validazione' :
-           it.kind === 'jtbd_fact' ? 'Jobs to be done' : 'Buyer persona')
+           it.kind === 'jtbd_fact' ? 'Jobs to be done' :
+           it.kind === 'cogs_opex_fact' ? 'Costi fissi e variabili' :
+           it.kind === 'revenue_stream_fact' ? 'Flusso di ricavo' : 'Buyer persona')
         : (it.kind === 'persona_fact' ? 'Ideal customer' :
            it.kind === 'channel_fact' ? 'Acquisition channel' :
            it.kind === 'trend_fact' ? 'Market trend' :
@@ -1945,9 +1951,11 @@ const applyValidationProposal: ActionHandler = async (action) => {
            it.kind === 'ip_fact' ? 'Intellectual property' :
            it.kind === 'data_fact' ? 'Data availability' :
            it.kind === 'validation_strategy_fact' ? 'Validation strategy' :
-           it.kind === 'jtbd_fact' ? 'Jobs to be done' : 'Buyer persona')));
+           it.kind === 'jtbd_fact' ? 'Jobs to be done' :
+           it.kind === 'cogs_opex_fact' ? 'Fixed and variable cost' :
+           it.kind === 'revenue_stream_fact' ? 'Revenue stream' : 'Buyer persona')));
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
-    } else if (it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact' || it.kind === 'gtm_fact' || it.kind === 'partner_fact' || it.kind === 'ip_fact' || it.kind === 'data_fact' || it.kind === 'validation_strategy_fact' || it.kind === 'jtbd_fact') {
+    } else if (it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact' || it.kind === 'gtm_fact' || it.kind === 'partner_fact' || it.kind === 'ip_fact' || it.kind === 'data_fact' || it.kind === 'validation_strategy_fact' || it.kind === 'jtbd_fact' || it.kind === 'cogs_opex_fact' || it.kind === 'revenue_stream_fact') {
       skippedNoOwner = true;
     } else if (it.kind === 'pricing' && it.field) {
       // Stage-4 prefill: upsert one pricing_state column from the item's typed

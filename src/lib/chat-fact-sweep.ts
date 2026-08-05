@@ -41,6 +41,7 @@ import {
   DEPENDENCY_KEYWORDS,
   REGULATORY_KEYWORDS,
 } from '@/lib/journey/stage-2-market-validation';
+import { COGS_OPEX_KEYWORDS, REVENUE_STREAM_KEYWORDS } from '@/lib/journey/stage-4-business-model';
 import { stageValidationItemsFromRaw, type RawValidationItem } from '@/lib/auto-stage-validation';
 import type { Source } from '@/types/artifacts';
 
@@ -64,6 +65,8 @@ const FAMILIES: SweepFamily[] = [
   { kind: 'data_fact', keywords: DATA_AVAILABILITY_KEYWORDS },
   { kind: 'validation_strategy_fact', keywords: VALIDATION_STRATEGY_KEYWORDS },
   { kind: 'jtbd_fact', keywords: JTBD_KEYWORDS },
+  { kind: 'cogs_opex_fact', keywords: COGS_OPEX_KEYWORDS },
+  { kind: 'revenue_stream_fact', keywords: REVENUE_STREAM_KEYWORDS },
   { kind: 'tech_fact', field: 'feasibility', keywords: BUILD_APPROACH_KEYWORDS },
   { kind: 'tech_fact', field: 'feasibility', keywords: TECH_RISK_KEYWORDS },
   { kind: 'tech_fact', field: 'dependencies', keywords: DEPENDENCY_KEYWORDS },

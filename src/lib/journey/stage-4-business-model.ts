@@ -8,8 +8,40 @@
  */
 
 import { IRL_LTV_CAC_BAR } from '@/lib/irl/ladder';
+import { countMemoryFactsMatching } from './snapshot';
 import type { Stage } from './types';
 import { CANONICAL_BY_ID } from './canonical';
+
+/**
+ * cogs_opex_defined (Iteration Cycle 2A: "COGS & OPEX defined").
+ *
+ * Distinct from the Stage-1 `cost_revenue_defined` check, which reads the
+ * idea_canvas ARRAYS and only asks "have you listed your cost and revenue
+ * sources". This one asks whether the founder knows the STRUCTURE — fixed vs
+ * variable, what it costs to serve one customer. Stage 1 is a list; Stage 4 is
+ * a model.
+ */
+export const COGS_OPEX_KEYWORDS = [
+  'cogs', 'opex', 'cost of goods', 'operating expense', 'fixed cost', 'variable cost', 'gross margin', 'cost to serve',
+  'costo del venduto', 'costi fissi', 'costi variabili', 'spese operative', 'margine lordo', 'costo per servire',
+] as const;
+
+/**
+ * revenue_streams_defined (Iteration Cycle 2A: "Revenue streams defined").
+ *
+ * Distinct from `model_chosen`, which reads pricing_state.model (HOW you charge
+ * on one line). This is WHICH lines of revenue exist — a marketplace taking a
+ * fee AND selling a subscription has two, and the financial model needs both.
+ */
+export const REVENUE_STREAM_KEYWORDS = [
+  'revenue stream', 'revenue line', 'secondary revenue', 'additional revenue', 'take rate', 'revenue model',
+  'flusso di ricav', 'flussi di ricav', 'linea di ricavo', 'linee di ricavo', 'ricavi secondari', 'ricavi aggiuntivi', 'fonti di ricavo',
+] as const;
+
+export const BM_2A_SOURCES = {
+  cogsOpex: 'memory_facts (COGS & OPEX)',
+  revenueStreams: 'memory_facts (revenue streams)',
+} as const;
 
 export const stageBusinessModel: Stage = {
   ...CANONICAL_BY_ID.business_model,
@@ -60,6 +92,28 @@ export const stageBusinessModel: Stage = {
         return ok
           ? { passed: true, evidence: `You've chosen a pricing model (${s.pricing_state?.model}).` }
           : { passed: false, gap: 'Choose subscription / usage / seat / hybrid' };
+      },
+    },
+    {
+      id: 'revenue_streams_defined',
+      label: 'Revenue streams defined',
+      source: BM_2A_SOURCES.revenueStreams,
+      evaluate: (s) => {
+        const n = countMemoryFactsMatching(s, [...REVENUE_STREAM_KEYWORDS]);
+        return n > 0
+          ? { passed: true, evidence: "You've named the lines of revenue this business earns on." }
+          : { passed: false, gap: 'Name the revenue streams — which lines this business actually earns on' };
+      },
+    },
+    {
+      id: 'cogs_opex_defined',
+      label: 'COGS & OPEX defined',
+      source: BM_2A_SOURCES.cogsOpex,
+      evaluate: (s) => {
+        const n = countMemoryFactsMatching(s, [...COGS_OPEX_KEYWORDS]);
+        return n > 0
+          ? { passed: true, evidence: "You've separated what it costs to serve a customer from what it costs to run the company." }
+          : { passed: false, gap: 'Define COGS & OPEX — fixed vs variable, and what it costs to serve one customer' };
       },
     },
     {
