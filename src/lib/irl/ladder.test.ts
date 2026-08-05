@@ -302,3 +302,28 @@ describe('IRL is 1-9, never 0', () => {
     expect(computeIRL(nothing).regressed).toBe(false);
   });
 });
+
+
+// ── One LTV/CAC bar, three surfaces ─────────────────────────────────────────
+
+describe('LTV/CAC viability is a single number everywhere', () => {
+  it('the Stage-4 gate, Loop 2 and IRL level 4 all read the same bar', async () => {
+    // They disagreed: the Stage-4 check passed at >= 1x while Loop 2 and the
+    // ladder demanded 3x, so Business Model went green and the BM Stress Test
+    // bounced the founder one step later. If someone re-types the number in any
+    // of the three, this fails.
+    const { LOOP2_LTVCAC_THRESHOLD } = await import('@/lib/loops/loop2-bm');
+    const { STAGES } = await import('@/lib/journey');
+    expect(IRL_LTV_CAC_BAR).toBe(3);
+    expect(LOOP2_LTVCAC_THRESHOLD).toBe(IRL_LTV_CAC_BAR);
+
+    const check = STAGES.find((s) => s.id === 'business_model')!
+      .checks.find((c) => c.id === 'unit_econ_viable')!;
+    const at = (ratio: number) => check.evaluate({
+      pricing_state: { anchor_price: null, tiers: [], wtp: null, model: null, unit_econ: { ltv: ratio, cac: 1 } },
+    } as never).passed;
+    expect(at(IRL_LTV_CAC_BAR)).toBe(true);       // exactly on the bar passes
+    expect(at(IRL_LTV_CAC_BAR - 0.01)).toBe(false); // just under does not
+    expect(at(1)).toBe(false);                     // the OLD bar no longer passes
+  });
+});

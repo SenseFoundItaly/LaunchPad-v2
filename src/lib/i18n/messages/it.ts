@@ -958,7 +958,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'journey-check.tiers_defined': 'Fasce (tier) definite',
   'journey-check.wtp_researched': 'Disponibilità a pagare analizzata',
   'journey-check.model_chosen': 'Modello di pricing scelto',
-  'journey-check.unit_econ_viable': 'Unit economics sostenibili (LTV ≥ CAC)',
+  'journey-check.unit_econ_viable': 'Unit economics sostenibili (LTV/CAC ≥ 3×)',
   'journey-check.workflow_active': 'Workflow attivo',
   'journey-check.scope_defined': "Scope dell'MVP definito",
   'journey-check.something_shipped': 'Qualcosa rilasciato',

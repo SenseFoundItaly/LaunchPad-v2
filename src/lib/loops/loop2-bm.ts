@@ -27,6 +27,7 @@ import { generateId } from '@/lib/api-helpers';
 import { createPendingAction } from '@/lib/pending-actions';
 import { recordEvent } from '@/lib/memory/events';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
+import { IRL_LTV_CAC_BAR } from '@/lib/irl/ladder';
 import { translate } from '@/lib/i18n/messages';
 import { buildProjectSnapshot, evaluateAllStages } from '@/lib/journey';
 import type { ProjectSnapshot } from '@/lib/journey';
@@ -39,7 +40,10 @@ import {
 /** Stress-test bar (demo spine: "LTV/CAC < 3×"). The Stage-4 unit_econ_viable
  *  check is the harder floor (ratio ≥ 1 to even close the stage) — this loop is
  *  the SOFT signal for the "viable but weak" 1×–3× band. */
-export const LOOP2_LTVCAC_THRESHOLD = 3;
+/** Re-export of the ONE viability bar (src/lib/irl/ladder.ts). Kept as a named
+ *  constant so existing call sites and tests read unchanged, but it can no
+ *  longer drift from the Stage-4 gate or the IRL ladder. */
+export const LOOP2_LTVCAC_THRESHOLD = IRL_LTV_CAC_BAR;
 /** Escalation cap: at iteration > cap the system forces a verdict. */
 export const LOOP2_ITERATION_CAP = 2;
 /** Phase-3 (Build & Launch) skills gated while an open BM Stress Test awaits
