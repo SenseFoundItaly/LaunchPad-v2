@@ -1495,6 +1495,7 @@ export const en = {
   'credits.resets': 'Resets: {date}',
   'credits.next-month': 'next month',
   'credits.internal-metering': '${used} / ${cap} USD — internal metering',
+  'credits.not-currency': 'Credits are an internal usage quota — not a currency. Any card charge you see is your own provider API key being billed directly, separately from these.',
   'credits.view-usage': 'View usage & spend →',
   'credits.add': 'Add credits',
   'credits.recharge': 'Recharge credits',

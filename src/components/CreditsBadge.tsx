@@ -320,6 +320,16 @@ export function CreditsBadge({ projectId }: { projectId: string }) {
               {t('credits.internal-metering', { used: snap.used_usd.toFixed(2), cap: snap.cap_usd.toFixed(2) })}
             </div>
           )}
+          {/* The question Luca asked TWICE (15/07 and 04/08): "un addebito di 5€
+              al kickoff — quindi 50 crediti corrispondono a 5€?". It was
+              answered in chat both times and never in the product, which is
+              why it came back. Credits are an internal quota; the card charge
+              is the provider billing the owner's own API key. Two different
+              meters, and seeing one next to the other invites exactly that
+              conflation — so say it here, where the numbers are. */}
+          <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--ink-5)', lineHeight: 1.45 }}>
+            {t('credits.not-currency')}
+          </div>
           {/* Deep-link to the full per-project usage & spend breakdown.
               Closing the dropdown on click keeps it from lingering over the
               navigation. */}
