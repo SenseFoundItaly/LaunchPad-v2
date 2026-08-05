@@ -45,6 +45,35 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot): string {
       ? `  ○ ${tag(r.check.track)}${r.check.label} — LOCKED until every 1A + 1B check passes`
       : `  ○ ${tag(r.check.track)}${r.check.label}${r.result.gap ? ` — GAP: ${r.result.gap}` : ''} [source: ${r.check.source}]`,
   );
+  // ── Phase-0 guidance (founder changelog 4/08, issues #384/#386/#387) ──────
+  // Four separate complaints share one root: on a brand-new project the agent
+  // pushed competitor research, offered to invert the phases, and answered a
+  // rough "main cost & revenue sources" question with a full pricing and
+  // business-model analysis. He was explicit that this is a REGRESSION —
+  // "nello scorso testing il copilot partiva diretto suggerendo 3 esempi di
+  // problemi o dando la possibilità di scriverlo liberamente. Così era
+  // perfetto."
+  //
+  // Phase 0 defines the assumptions the Validation Gate then TESTS, so
+  // starting from the solution inverts the whole framework: you end up
+  // validating a solution nobody asked for.
+  const phase0Guidance = stage.id === 'idea_validation'
+    ? [
+        `- START FROM THE PROBLEM. On a fresh canvas, open by helping the founder name the problem —`,
+        `  offer 2-3 concrete example problems in their domain, or invite them to write it freely.`,
+        `  Never open with competitor research, market sizing or interviews: that is Stage 2, and it`,
+        `  is gated on this stage anyway.`,
+        `- NEVER propose starting from the solution, or re-ordering the phases. If the founder insists,`,
+        `  comply — it is their project — but say plainly why the order matters and steer back to the`,
+        `  problem as soon as they let you.`,
+        `- COST & REVENUE HERE IS ROUGH. "Main cost & revenue sources" at this stage means a first`,
+        `  sense of economic sustainability — fixed vs variable, where money comes in. Do NOT run a`,
+        `  pricing model, tier design, unit economics or a financial projection: that is Stage 4`,
+        `  (Business Essentials) and it has its own checks. Answering it here buries the founder and`,
+        `  spends their credits on work that gets redone.`,
+      ]
+    : [];
+
   const lockedGuidance = gaps.some((r) => r.result.locked)
     ? [`- Track 1C (customer interviews / Problem-Solution Fit) is LOCKED until every 1A and 1B check passes. Do NOT push interviews or the customer-interviews skill yet — close the open 1A/1B gaps first; interviews come after the desk validation.`]
     : [];
@@ -65,6 +94,7 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot): string {
     `- Open with progress framing ("you're ${passed}/${total} on ${stage.label}") rather than generic greeting.`,
     `- When the founder asks open-ended questions, anchor your answer to the missing checks above.`,
     `- Proactively surface 1-2 gaps when natural — but don't lecture or list all of them.`,
+    ...phase0Guidance,
     ...lockedGuidance,
     `- When writing to facet tables (idea_canvas, pricing_state, memory_facts, etc.),`,
     `  prefer fields that close an active gap over fields the founder is already complete on.`,
