@@ -137,6 +137,8 @@ const SIGNAL_LABEL_KEYS: Record<string, MessageKey> = {
   ltv_cac_ratio: 'loop.signal-ltvcac',
   payback_months: 'loop.signal-payback',
   gross_margin: 'loop.signal-margin',
+  pricing_wtp_delta: 'loop.signal-pricing-wtp',
+  runway_months: 'loop.signal-runway',
 };
 export function signalLabelKey(signal: string): MessageKey | null {
   return SIGNAL_LABEL_KEYS[signal] ?? null;

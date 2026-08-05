@@ -901,6 +901,9 @@ export const en = {
   'loop.signal-urgency': 'Urgency',
   'loop.signal-ltvcac': 'LTV : CAC',
   'loop.signal-payback': 'Payback',
+  'loop.signal-pricing-wtp': 'Pricing vs interviewed willingness-to-pay',
+  'loop.signal-runway': 'Runway (months)',
+  'loop2.pricing-invalidates-loop1': 'Your price has drifted more than 40% from the willingness-to-pay your interviews showed — the Loop-1 evidence no longer backs this model. Worth a short PSF re-check before locking the business model; it will not count against your Loop-1 iterations.',
   'loop.signal-margin': 'Gross margin',
   // Loop 2 — BM Stress Test (LTV/CAC below the 3× bar after the Business Model
   // stage is compiled). Mirror of loop1.* one phase downstream.
