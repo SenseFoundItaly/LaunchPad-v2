@@ -9,6 +9,9 @@ import {
   validationTracksABMissing,
   MARKET_SIZE_CHECK_SOURCE,
   MARKET_SIZE_KEYWORDS,
+  DIFFERENTIATION_KEYWORDS,
+  TRENDS_KEYWORDS,
+  BUYER_PERSONA_KEYWORDS,
   GTM_KEYWORDS,
   PARTNERS_KEYWORDS,
   MARKET_1A_SOURCES,
@@ -90,6 +93,14 @@ function snapshotWithABDone(over: Partial<ProjectSnapshot> = {}): ProjectSnapsho
       // Founder-requested 1A checks (2026-08-04).
       'GTM opportunity: dental software resellers are the fastest route to market; the challenge is the incumbent lock-in.',
       'Potential partner: the national dental association and two practice-management vendors could distribute us.',
+      // Iteration Cycle 1B additions (2026-08-04).
+      'IP: no blocking patent found; freedom to operate confirmed for recall scheduling.',
+      'Data availability: appointment history is exportable from the practice systems; data quality is good.',
+      // Iteration Cycle 1C additions — these live in 1C but are keyword facts,
+      // so the fixture carries them for the unlocked-1C assertions below.
+      'Validation strategy: 10 structured interviews with practice owners, pass bar is 50% confirming the pain.',
+      'Jobs to be done: the practice owner hires us to keep the chair full without chasing patients.',
+      'Unlike legacy desktop tools we are cloud and mobile-first.',
     ]),
     ...over,
   });
@@ -116,18 +127,23 @@ describe('track membership', () => {
     // regulatory_check MOVED 1B → 1A (the founder reads it as market
     // landscape). The 1A+1B union is unchanged by the move, so 1C's unlock
     // condition is unaffected.
+    // 2026-08-04 Iteration Cycle alignment: 1A is the spec's MARKET desk only
+    // (trends + buyer persona removed — not gate evidence); differentiation
+    // moved to 1C ("vs competitive map di 1A"); regulatory RESTORED to 1B as
+    // the deep dive; 1B gained IP analysis + data availability; 1C gained
+    // validation strategy + JTBD.
     expect(VALIDATION_TRACK_1A.map((c) => c.id)).toEqual([
-      'market_size', 'competitors_mapped', 'differentiation_evidence',
-      'trends_assessed', 'buyer_persona_defined',
-      'gtm_opportunities', 'partners_identified', 'regulatory_check',
-      'monitors_set',
+      'market_size', 'competitors_mapped', 'gtm_opportunities',
+      'partners_identified', 'monitors_set',
     ]);
     expect(VALIDATION_TRACK_1B.map((c) => c.id)).toEqual([
       'build_approach', 'technical_risk_named', 'key_dependencies',
+      'regulatory_check', 'ip_analysis', 'data_availability',
     ]);
     // gate_verdict is LAST: the founder's go/no-go closes the gate.
     expect(VALIDATION_TRACK_1C.map((c) => c.id)).toEqual([
-      'interviews_logged', 'pain_validated', 'wtp_signal', 'gate_verdict',
+      'validation_strategy', 'jtbd_mapping', 'interviews_logged',
+      'pain_validated', 'differentiation_evidence', 'wtp_signal', 'gate_verdict',
     ]);
   });
 
@@ -331,23 +347,32 @@ describe('keyword honesty — SKILL.it.md-instructed phrasings close the checks'
     const results = gateResults(mkSnapshot({ memory_facts: facts(contents) }));
     return results.find((x) => x.check.id === checkId)!.result.passed;
   };
+  /** For 1C checks, which only evaluate once 1A+1B are green. */
+  const unlockedCheckWithFacts = (checkId: string, contents: string[]) => {
+    const base = snapshotWithABDone();
+    const results = gateResults(snapshotWithABDone({
+      memory_facts: [...base.memory_facts, ...facts(contents)],
+    }));
+    return results.find((x) => x.check.id === checkId)!.result.passed;
+  };
 
   it('differentiation closes on "rispetto a" (market-research SKILL.it.md verbatim)', () => {
-    expect(checkWithFacts('differentiation_evidence', [
+    expect(unlockedCheckWithFacts('differentiation_evidence', [
       'Rispetto a Fatture in Cloud, il nostro onboarding richiede 5 minuti invece di 2 ore.',
     ])).toBe(true);
   });
 
   it('differentiation closes on "ci differenziamo" via the differenz stem', () => {
-    expect(checkWithFacts('differentiation_evidence', [
+    expect(unlockedCheckWithFacts('differentiation_evidence', [
       'Ci differenziamo dagli incumbent per il modello mobile-first.',
     ])).toBe(true);
   });
 
   it('differentiation does not false-positive on bare "rispetto" (non-comparative)', () => {
-    expect(checkWithFacts('differentiation_evidence', [
-      'Il team lavora con grande rispetto reciproco.',
-    ])).toBe(false);
+    // Asserted on the matcher: the unlocked fixture necessarily carries a real
+    // differentiation fact (1C only evaluates once 1A+1B are green), so a
+    // check-level assertion could no longer isolate this phrasing.
+    expect(keywordMatcher([...DIFFERENTIATION_KEYWORDS]).test('Il team lavora con grande rispetto reciproco.')).toBe(false);
   });
 
   it('key_dependencies closes on the English PLURAL "dependencies" (dependenc stem)', () => {
@@ -362,29 +387,24 @@ describe('keyword honesty — SKILL.it.md-instructed phrasings close the checks'
     ])).toBe(true);
   });
 
-  it('trends_assessed closes on Italian "trend di mercato" (market-research SKILL.it.md verbatim)', () => {
-    expect(checkWithFacts('trends_assessed', [
-      'Trend di mercato: la sanità digitale è un vento a favore per i prossimi 3 anni.',
-    ])).toBe(true);
+  // trends_assessed / buyer_persona_defined were REMOVED from the gate in the
+  // 2026-08-04 Iteration Cycle alignment (they are not spec 1A steps). Their
+  // keyword families still run — the facts are captured as knowledge and the
+  // chat sweep still stages them — so the honesty guarantee is asserted on the
+  // MATCHERS directly rather than on checks that no longer exist.
+  it('TRENDS_KEYWORDS still matches "trend di mercato" and not bare "trend"', () => {
+    const re = keywordMatcher([...TRENDS_KEYWORDS]);
+    expect(re.test('Trend di mercato: la sanità digitale è un vento a favore.')).toBe(true);
+    expect(re.test('Il trend delle iscrizioni settimanali è stabile.')).toBe(false);
   });
 
-  it('trends_assessed does NOT false-positive on bare "trend"', () => {
-    expect(checkWithFacts('trends_assessed', [
-      'Il trend delle iscrizioni settimanali è stabile.',
-    ])).toBe(false);
+  it('BUYER_PERSONA_KEYWORDS still matches "chi decide" and not bare "persona"', () => {
+    const re = keywordMatcher([...BUYER_PERSONA_KEYWORDS]);
+    expect(re.test("Chi decide l'acquisto è il titolare dello studio.")).toBe(true);
+    expect(re.test('Una persona del team segue il progetto.')).toBe(false);
   });
 
-  it('buyer_persona_defined closes on "chi decide l\'acquisto" (market-research SKILL.it.md verbatim)', () => {
-    expect(checkWithFacts('buyer_persona_defined', [
-      'Nel nostro segmento chi decide l\'acquisto è il titolare dello studio, non il dentista associato.',
-    ])).toBe(true);
-  });
 
-  it('buyer_persona_defined does NOT false-positive on bare Italian "persona"', () => {
-    expect(checkWithFacts('buyer_persona_defined', [
-      'Serve una persona dedicata al supporto clienti nel primo anno.',
-    ])).toBe(false);
-  });
 
   it('technical_risk_named closes on "rischio tecnico" but not on generic "rischio"', () => {
     expect(checkWithFacts('technical_risk_named', [
@@ -395,22 +415,14 @@ describe('keyword honesty — SKILL.it.md-instructed phrasings close the checks'
     ])).toBe(false);
   });
 
-  it('trend_fact / buyer_persona_fact items map to the new 1A checks (source key in sync)', () => {
-    expect(validationTargetsFor('trend_fact').map((t) => t.check_id)).toEqual(['trends_assessed']);
-    expect(validationTargetsFor('buyer_persona_fact').map((t) => t.check_id)).toEqual(['buyer_persona_defined']);
+  it('trend_fact / buyer_persona_fact no longer map to a gate check', () => {
+    // Removed from the gate in the Iteration Cycle alignment. The kinds are
+    // KEPT so the facts are still captured as knowledge — they simply resolve
+    // to no target, i.e. context rather than gated evidence.
+    expect(validationTargetsFor('trend_fact')).toEqual([]);
+    expect(validationTargetsFor('buyer_persona_fact')).toEqual([]);
   });
 
-  it('the apply-executor prefixes close the new 1A checks verbatim (skill-run path)', () => {
-    // action-executors prefixes staged items with 'Market trend — ' /
-    // 'Buyer persona — '; both are entries in the bilingual keyword lists, so
-    // an approved item ALWAYS closes its check regardless of body phrasing.
-    expect(checkWithFacts('trends_assessed', [
-      'Market trend — Telemedicina in Italia (favorevole): adozione in aumento post-2024.',
-    ])).toBe(true);
-    expect(checkWithFacts('buyer_persona_defined', [
-      'Buyer persona — Il titolare dello studio; Decision criteria: prezzo; Purchase triggers: richiami mancati.',
-    ])).toBe(true);
-  });
 
   it('one feasibility-card body closes BOTH split 1B checks (build_approach + technical_risk_named)', () => {
     // Mirrors the technical-validation SKILL instruction: one card, body with
@@ -538,11 +550,13 @@ describe('gtm_opportunities / partners_identified — write path is closeable', 
     expect(keywordMatcher([...GTM_KEYWORDS]).test('GTM is the plan')).toBe(true);
   });
 
-  it('moving regulatory_check to 1A leaves the 1C unlock condition unchanged', () => {
-    // The 1C lock reads the 1A+1B UNION, so a track move is behaviour-neutral —
-    // only the NEW checks can re-lock anything.
+  it('regulatory lives in 1B (the spec deep dive) and the union still gates 1C', () => {
+    // I had moved this to 1A; the Iteration Cycle wants regulatory in BOTH
+    // tracks at two depths, and moving the deep dive out of 1B lost it. The 1C
+    // lock reads the 1A+1B UNION, so where it sits is behaviour-neutral.
     const missing = validationTracksABMissing(mkSnapshot());
-    expect(missing).toContain('Regulatory landscape checked');
+    expect(missing).toContain('Regulatory & compliance deep dive');
+    expect(VALIDATION_TRACK_1B.find((c) => c.id === 'regulatory_check')).toBeTruthy();
     expect(validationTracksAB_done(snapshotWithABDone())).toBe(true);
   });
 });
@@ -600,7 +614,7 @@ describe('gate_verdict — the founder call that closes the gate', () => {
         gate_verdict: { verdict: 'PIVOT', decided_at: '2026-08-04T10:00:00Z', motivation: 'ICP too broad', scope: '1C' },
       },
     });
-    expect(verdictResult(s).gap).toContain('1C');
+    expect(verdictResult(s).gap).toContain('1C');  // scope is echoed back
   });
 
   it('a malformed or absent verdict never passes (no accidental GO)', () => {
