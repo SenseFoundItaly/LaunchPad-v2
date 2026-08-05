@@ -4,6 +4,7 @@ import { json, error, generateId } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { maybeTriggerLoop1 } from '@/lib/loops/loop1-psf';
 import { judgeProjectIcpCoherence } from '@/lib/icp-coherence';
+import { ensureCanvasBaseline } from '@/lib/canvas-versions';
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
 import { maybeProposeGateVerdict } from '@/lib/gate-verdict';
 
@@ -90,6 +91,11 @@ export async function POST(
   // persisted verdict, so an interview logged and triggered in the same request
   // would otherwise be invisible to the signal until the next write.
   // Non-fatal — a failed judgement leaves the row unjudged and the rate skips it.
+  // Freeze the pre-interview canvas the FIRST time a founder logs one. 1C's
+  // "solution updated" / "value proposition sharpened" checks diff against it,
+  // and without a before there is nothing to compare a revision to. Idempotent
+  // on the reason, so only interview #1 ever writes it.
+  await ensureCanvasBaseline(projectId);
   await judgeProjectIcpCoherence(projectId);
   await maybeTriggerLoop1(projectId);
   // Logging the interview that closes 1C completes the Validation Gate — the

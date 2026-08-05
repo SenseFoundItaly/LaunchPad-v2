@@ -54,6 +54,8 @@ function mkSnapshot(overrides: {
     investors: [],
     counts: { published_assets: 0, pending_actions: 0, knowledge_items: 0 },
     startup_score: overrides.score != null ? { overall_score: overrides.score, scored_at: '2026-07-05' } : null,
+    psf_baseline_canvas: null,
+    score_revisions_after_evidence: 0,
   };
 }
 

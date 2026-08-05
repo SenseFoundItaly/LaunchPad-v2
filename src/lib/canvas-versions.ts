@@ -34,10 +34,14 @@ export type CanvasPayload = Partial<Record<VersionedCanvasField, string | string
 /** Why a snapshot was taken. The spec asks the diff to show what changed AND
  *  why, so the reason is captured at write time — it cannot be reconstructed. */
 export type CanvasVersionReason =
+  | 'psf_start'      // the canvas as it stood BEFORE the founder talked to anyone
   | 'loop_1_open'    // before a PSF review starts revising the canvas
   | 'loop_1_close'   // after the founder's verdict, the revised state
   | 'gate_pivot'     // a Validation Gate PIVOT reopened the canvas
   | 'manual';
+
+/** The reason that anchors the 1C "aggiornata sulla base degli insight" checks. */
+export const PSF_BASELINE_REASON: CanvasVersionReason = 'psf_start';
 
 export interface CanvasVersion {
   id: string;
@@ -132,6 +136,50 @@ export async function captureCanvasVersion(
     return next;
   } catch (err) {
     console.warn('[canvas-versions] capture failed (non-fatal):', (err as Error).message);
+    return null;
+  }
+}
+
+/**
+ * Snapshot the canvas as the PSF baseline, once, on the founder's first logged
+ * interview. Two 1C checks — "Solution described in-depth" and "Value
+ * proposition sharpened" — ask whether the canvas was revised *on the basis of
+ * the insights collected*, and that question has no answer without a "before".
+ *
+ * The first interview is the honest anchor: it is the moment the founder stops
+ * reasoning about the market and starts hearing from it.
+ *
+ * Deliberately NOT routed through `captureCanvasVersion`, whose identical-to-
+ * previous dedup is right for a diff trail and wrong here: a baseline that
+ * coincides with an earlier snapshot is still the baseline, and skipping the
+ * insert would leave both checks reading a row that never gets written — the
+ * permanently-red-check failure mode this codebase keeps re-learning.
+ *
+ * Idempotent on the reason, non-fatal: losing a baseline must never cost the
+ * founder the interview they just logged.
+ */
+export async function ensureCanvasBaseline(projectId: string): Promise<number | null> {
+  try {
+    const existing = await get<{ version_number: number }>(
+      `SELECT version_number FROM canvas_versions
+        WHERE project_id = ? AND reason = ? ORDER BY version_number ASC LIMIT 1`,
+      projectId, PSF_BASELINE_REASON,
+    ).catch(() => null);
+    if (existing) return Number(existing.version_number);
+
+    const canvas = await currentCanvas(projectId);
+    if (Object.values(canvas).every((v) => normalize(v as string | string[] | null) === null)) return null;
+
+    const prev = await latestCanvasVersion(projectId);
+    const next = (prev?.version_number ?? 0) + 1;
+    await run(
+      `INSERT INTO canvas_versions (id, project_id, version_number, canvas, reason, loop_id)
+       VALUES (?, ?, ?, ?, ?, NULL)`,
+      generateId('cvers'), projectId, next, canvas, PSF_BASELINE_REASON,
+    );
+    return next;
+  } catch (err) {
+    console.warn('[canvas-versions] baseline failed (non-fatal):', (err as Error).message);
     return null;
   }
 }

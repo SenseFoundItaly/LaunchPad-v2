@@ -20,7 +20,9 @@ function snap(contents: string[], over: Partial<ProjectSnapshot> = {}): ProjectS
     memory_facts: contents.map((content, i) => ({ id: `f${i}`, content, source_type: 'chat', kind: 'observation' })),
     interviews: [], fundraising_round: null, investors: [],
     counts: { published_assets: 0, pending_actions: 0, knowledge_items: 0 },
-    startup_score: null, ...over,
+    startup_score: null,
+    psf_baseline_canvas: null,
+    score_revisions_after_evidence: 0, ...over,
   };
 }
 const check = (s: ProjectSnapshot, id: string) =>
