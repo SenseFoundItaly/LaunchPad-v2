@@ -48,7 +48,18 @@ function stagingHintFor(checkId: string): string | null {
   return STAGING_HINTS.get(checkId) ?? null;
 }
 
-export function formatStageContextForPrompt(snapshot: ProjectSnapshot): string {
+/**
+ * @param targetCheckId  The check the founder just CLICKED on the spine, when
+ *   the turn started that way. The click carried only the pre-filled sentence
+ *   before this — the id was dropped at the href — so the model received a
+ *   generic question plus a flat list of every open gap, and closed whichever
+ *   it happened to batch. A 3-run baseline showed the cost: five gate checks
+ *   green only SOMETIMES (gtm 1/3, partners 1/3, competitors 1/3, build 1/3,
+ *   dependencies 2/3). The founder does the same work and gets a different
+ *   outcome. Naming the target is not a nudge — it is the difference between
+ *   answering a question and closing the step the founder pressed.
+ */
+export function formatStageContextForPrompt(snapshot: ProjectSnapshot, targetCheckId?: string | null): string {
   const evaluations = evaluateAllStages(snapshot);
   const active = activeStage(evaluations);
   const { stage, passed, total, results } = active;
@@ -87,6 +98,23 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot): string {
     const how = stagingHintFor(r.check.id);
     return `  ○ ${tag(r.check.track)}${r.check.label}${r.result.gap ? ` — GAP: ${r.result.gap}` : ''} [source: ${r.check.source}]${how ? ` → CLOSE WITH: ${how}` : ''}`;
   });
+  // The founder pressed a specific substep. Say so, loudly, and name the exact
+  // call — a turn that answers beautifully and closes a DIFFERENT check is a
+  // turn the founder has to repeat without knowing why.
+  const target = targetCheckId ? gaps.find((r) => r.check.id === targetCheckId) : undefined;
+  const targetHint = target ? stagingHintFor(target.check.id) : null;
+  const targetLines = target && !target.result.locked
+    ? [
+        `THE FOUNDER PRESSED THIS STEP — close THIS one:`,
+        `  >> ${target.check.label}${target.result.gap ? ` — ${target.result.gap}` : ''}`,
+        targetHint ? `  >> End this turn with ${targetHint}, batched into one card.` : `  >> Stage the evidence for it before the turn ends.`,
+        `  >> Other gaps may ride along in the SAME card if this turn genuinely produced them,`,
+        `     but never INSTEAD of this one. If you cannot close it, say plainly what you still`,
+        `     need from the founder — do not quietly answer a different question.`,
+        '',
+      ]
+    : [];
+
   // ── Phase-0 guidance (founder changelog 4/08, issues #384/#386/#387) ──────
   // Four separate complaints share one root: on a brand-new project the agent
   // pushed competitor research, offered to invert the phases, and answered a
@@ -132,6 +160,7 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot): string {
     `MISSING (drive the conversation to close these):`,
     ...gapLines,
     '',
+    ...targetLines,
     `Closing a gap needs a WRITE, not an answer:`,
     `- Analysis you only narrate leaves the check RED. The founder did the work and the`,
     `  product forgot it — that is the single worst thing this system can do.`,

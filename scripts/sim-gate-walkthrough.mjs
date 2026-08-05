@@ -168,6 +168,9 @@ async function applyPending(projectId) {
     const chat = await stream('/api/chat', {
       project_id: projectId, step: 'chat',
       messages: [{ role: 'user', content: prompt }],
+      // The real UI now carries the pressed substep alongside the sentence;
+      // sending only the text would measure the OLD behaviour.
+      target_check: target.id,
     });
     const applied = await applyPending(projectId);
     await sleep(1200);

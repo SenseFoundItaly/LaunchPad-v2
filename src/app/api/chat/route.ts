@@ -452,7 +452,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { project_id, step = 'chat', messages = [], provider = 'openai' } = body;
+  const { project_id, step = 'chat', messages = [], provider = 'openai', target_check = null } = body;
 
   if (!project_id) {
     return new Response(
@@ -530,7 +530,7 @@ export async function POST(request: NextRequest) {
   let stageContext = '';
   try {
     snapshot = await buildProjectSnapshot(project_id);
-    stageContext = formatStageContextForPrompt(snapshot);
+    stageContext = formatStageContextForPrompt(snapshot, typeof target_check === 'string' ? target_check : null);
   } catch {
     /* journey snapshot failed — chat still works, just without stage framing */
   }

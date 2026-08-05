@@ -107,7 +107,11 @@ export function useChat(projectId: string, step: string = 'chat') {
   );
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    // `targetCheck` is the spine substep the founder pressed, when the turn
+    // started from a click. Without it the server sees a generic question and a
+    // flat list of open gaps, and the model closes whichever it happens to
+    // batch — five gate checks measured green only SOMETIMES.
+    async (content: string, targetCheck?: string | null) => {
       // A fresh manual send supersedes any message stashed for auto-resend.
       pendingResends.delete(keyFor(projectId, step));
       // Read the live store (not a stale closure) so concurrent mounts agree.
@@ -178,6 +182,7 @@ export function useChat(projectId: string, step: string = 'chat') {
             project_id: projectId,
             step,
             messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
+            ...(targetCheck ? { target_check: targetCheck } : {}),
           }),
           signal: store.abort.signal,
         });

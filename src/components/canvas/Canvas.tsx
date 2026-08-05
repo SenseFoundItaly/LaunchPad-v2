@@ -71,7 +71,7 @@ interface CanvasProps {
   onSkillClick?: (skillLabel: string) => void;
   /** Click an unmet Spine substep → pre-fill the chat composer with a prompt to
    *  work on it. Threaded to the chat page's setInput. */
-  onPickPrompt?: (prompt: string) => void;
+  onPickPrompt?: (prompt: string, checkId?: string) => void;
 }
 
 /** Applied memory_facts row (DB store name; founder-facing label is just

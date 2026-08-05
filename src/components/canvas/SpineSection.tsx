@@ -46,7 +46,7 @@ interface SpineSectionProps {
   onSkillClick?: (skillLabel: string) => void;
   /** Click an UNMET substep → pre-fill the chat composer with a tailored prompt
    *  to work on it (wired to the chat page's setInput). */
-  onPickPrompt?: (prompt: string) => void;
+  onPickPrompt?: (prompt: string, checkId?: string) => void;
 }
 
 // Canvas-field sources that have a VISIBLE home in the pinned IdeaCanvasHeader
@@ -253,7 +253,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
               const canPrefill = isGap && !locked && !!onPickPrompt;
               const clickable = canPrefill || hasProof;
               const onRowClick = canPrefill
-                ? () => onPickPrompt?.(checkActionPrompt(r.check.label, t))
+                ? () => onPickPrompt?.(checkActionPrompt(r.check.label, t), r.check.id)
                 : hasProof
                   ? () => setOpenProof(proofOpen ? null : rowId)
                   : undefined;
