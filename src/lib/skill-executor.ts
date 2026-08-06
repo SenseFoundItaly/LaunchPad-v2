@@ -7,12 +7,16 @@
  * for ANALYTICAL-only skills (no draft producers like pitch-coaching that
  * need founder voice).
  *
- * Usage:
- *   const stale = findStaleSkills(projectId);
- *   if (stale.length > 0) {
- *     const result = await runSkill(projectId, stale[0].skill_id, { ownerUserId });
- *     // result.summary persisted; pending_action surfaces "score X → Y" to inbox
- *   }
+ * ⚠️ The heartbeat caller in this example WAS NEVER BUILT. `findStaleSkills`
+ * has no callers anywhere in the codebase — nothing has ever auto-rerun a
+ * skill. Every real caller is founder-driven: a score request, a skill kickoff,
+ * or an approved run_skill proposal. Kept because a change-triggered version is
+ * still worth building (see below), but read as a PLAN, not as behaviour.
+ *
+ * And if it is ever wired: the trigger must be "an input this skill reads has
+ * CHANGED", not STALE_DAYS. Re-running an unchanged project reproduces the same
+ * answer at full price, and re-running one the founder abandoned violates the
+ * product's own rule that skills propose rather than run.
  *
  * Cost discipline: caller is responsible for budget gating. This module does
  * not check getCreditsRemaining — that decision belongs to the caller (the
@@ -189,6 +193,20 @@ export async function findStaleSkills(projectId: string): Promise<StaleSkill[]> 
 
 export interface RunSkillOptions {
   ownerUserId: string;
+  /**
+   * WHO asked for this run, recorded as the usage `step`.
+   *
+   * It used to be hardcoded 'heartbeat-executor' for every caller, a leftover
+   * from when this module was written for the weekly heartbeat. The heartbeat
+   * never wired it up — `findStaleSkills` has no callers to this day — so every
+   * row under that label is actually a founder pressing a button, filed under
+   * a name that reads as unattended background work.
+   *
+   * That mislabel cost a full cost review: $9.74 of founder-triggered analysis
+   * was read as waste nobody had asked for, and a recommendation to delete a
+   * feature that does not exist nearly shipped on the strength of it.
+   */
+  step?: string;
   /** Override the default kickoff prompt. */
   prompt?: string;
   /** Cap on agent wall-clock time. Defaults to 120s. */
@@ -356,7 +374,9 @@ export async function runSkill(
   await recordUsage({
     project_id: projectId,
     skill_id: skillId,
-    step: 'heartbeat-executor',
+    // Honest attribution: the caller says who it is. 'skill-run' is the neutral
+    // default — never a name that implies nobody asked.
+    step: opts.step ?? 'skill-run',
     provider,
     model,
     usage: executorUsage as typeof usage,

@@ -1640,6 +1640,9 @@ const runSkillExecutor: ActionHandler = async (action) => {
     ownerUserId,
     timeoutMs: 170_000,
     allowAnySkill: true,
+    // The founder APPROVED a proposal — the invariant path ("skills propose,
+    // not run"). Worth distinguishing from a direct kickoff in the cost view.
+    step: 'skill-run.approved',
   });
   // Validation loops: approving a loop's review kickoff (Loop 1 psf-review,
   // Loop 2 business-model, …) moves the loop to 'active' so the NEXT signal

@@ -258,6 +258,7 @@ export async function POST(
             ownerUserId,
             timeoutMs: 170_000,
             allowAnySkill: true,
+            step: 'skill-run.founder',
             // The route already ran stageSequenceLock above (returning a clean
             // localized 422 if locked), so skip the redundant internal re-check.
             bypassStageLock: true,
