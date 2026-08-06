@@ -148,6 +148,7 @@ export const STAGES: StageDef[] = [
 
 export const SKILL_KICKOFFS: Record<string, string> = {
   'idea-shaping': 'Help me structure my startup idea into a Lean Canvas. Walk me through each section.',
+  'clarity-scoring': 'Run the Clarity Score NOW on my Idea Canvas as it stands: judge only how clear and internally coherent the idea is (problem specificity, solution-problem coherence, ICP specificity, value prop articulation, differentiation logic, revenue/cost coherence). Do NOT research the market or competitors — canvas only. Deliver the scorecard with the verdict, then the single most important thing to sharpen.',
   'startup-scoring': 'Score my startup idea across all 6 dimensions NOW, using the project context provided. Where evidence is missing, score the absence (low) and name it as a gap — do not ask me questions before delivering the scorecard.',
   'market-research': 'Run a comprehensive market analysis — TAM/SAM/SOM, competitors, and trends.',
   'technical-validation': 'Validate the technical feasibility — build approach, key dependencies, and regulatory/compliance constraints.',
@@ -174,7 +175,9 @@ export const SKILL_KICKOFFS: Record<string, string> = {
 /** Contextual next steps shown in the skill detail panel after completion */
 export const SKILL_NEXT_STEPS: Record<string, { label: string; skillId: string }[]> = {
   'idea-shaping': [
-    { label: 'Score this idea across 6 dimensions', skillId: 'startup-scoring' },
+    // Stage-1 moment → Clarity, not the full rubric (changelog 4/08): the full
+    // scoring judges evidence that does not exist yet and reads as a fail.
+    { label: 'How clear is your idea? Run the Clarity Score', skillId: 'clarity-scoring' },
     { label: 'Research the market size and competitors', skillId: 'market-research' },
   ],
   'startup-scoring': [

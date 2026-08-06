@@ -5,6 +5,7 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { runSkill } from '@/lib/skill-executor';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
 import { activeStageFor } from '@/lib/journey';
+import { validationTracksAB_done } from '@/lib/journey/stage-2-market-validation';
 import { canvasRunPrereqs } from '@/lib/skill-prereqs';
 import { maybeBuildScoreReviewOptionSet } from '@/lib/score-review';
 
@@ -41,14 +42,28 @@ export async function GET(
     projectId,
   );
 
+  // Which scoring produced the current headline. The scores row is
+  // kind-agnostic on purpose (one current score per project); the kind lives in
+  // the trajectory's source column, so the newest entry names it. Lets the
+  // panel label the number honestly — a Clarity Score presented as a Startup
+  // Score would resurrect exactly the confusion the split removed.
+  const lastHist = await get<{ source: string | null }>(
+    `SELECT source FROM score_history WHERE project_id = ? ORDER BY created_at DESC LIMIT 1`,
+    projectId,
+  ).catch(() => null);
+  const kind = lastHist?.source === 'clarity-scoring' ? 'clarity' : 'startup';
+
   return json(
-    row ?? {
-      overall_score: null,
-      dimensions: null,
-      benchmark: null,
-      recommendation: null,
-      scored_at: null,
-    },
+    row
+      ? { ...row, kind }
+      : {
+          overall_score: null,
+          dimensions: null,
+          benchmark: null,
+          recommendation: null,
+          scored_at: null,
+          kind,
+        },
   );
 }
 
@@ -95,14 +110,24 @@ export async function POST(
         const ownerUserId = proj?.owner_user_id;
         if (!ownerUserId) { emit({ skipped: true, reason: 'no-owner' }); return; }
 
+        // Which scoring runs is decided by EVIDENCE, not by a founder choice
+        // (changelog 4/08). Pre-gate, market/competition/feasibility/demand are
+        // unknowable — the full rubric would score their absence and hand every
+        // founder a low number that reads as a verdict on the idea. So until
+        // tracks 1A+1B are done, the founder gets the Clarity Score (canvas-only:
+        // how clear is the idea); from 1C onward, the full Startup Scoring —
+        // which is also what the gate's scoring_review check counts.
+        const scoreSnapshot = await buildProjectSnapshot(projectId);
+        const scoringSkillId = validationTracksAB_done(scoreSnapshot) ? 'startup-scoring' : 'clarity-scoring';
+
         if (auto) {
           // Gate 1 — at least one stage completed (active stage >= 2 means Stage 1
           // is done). Combined with the canvas prereq below, this is the earliest
           // point a score is meaningful; the debounce re-scores as more lands.
-          const active = activeStageFor(await buildProjectSnapshot(projectId));
+          const active = activeStageFor(scoreSnapshot);
           if (active.stage.number < 2) { emit({ skipped: true, reason: 'pre-stage-1-complete', active_stage: active.stage.number }); return; }
           // Gate 2 — canvas prereq (startup-scoring needs solution + value_prop).
-          const prereq = await canvasRunPrereqs(projectId, 'startup-scoring');
+          const prereq = await canvasRunPrereqs(projectId, scoringSkillId);
           if (prereq.missing && prereq.missing.length > 0) { emit({ skipped: true, reason: 'canvas-prereq', missing: prereq.missing }); return; }
           // Gate 3 — debounce: score only if new evidence since the last score.
           const last = await get<{ scored_at: string | null }>(
@@ -110,14 +135,14 @@ export async function POST(
           // Exclude startup-scoring's OWN completion — else the scoring run writes
           // a skill_completion newer than scored_at and the next call re-fires forever.
           const ev = await get<{ m: string | null }>(
-            "SELECT MAX(completed_at) AS m FROM skill_completions WHERE project_id = ? AND status = 'completed' AND skill_id != 'startup-scoring'", projectId);
+            "SELECT MAX(completed_at) AS m FROM skill_completions WHERE project_id = ? AND status = 'completed' AND skill_id NOT IN ('startup-scoring', 'clarity-scoring')", projectId);
           if (last?.scored_at && ev?.m && new Date(last.scored_at) >= new Date(ev.m)) {
             emit({ skipped: true, reason: 'already-fresh' }); return;
           }
         }
 
         emit({ scoring: true });
-        const res = await runSkill(projectId, 'startup-scoring', { ownerUserId, timeoutMs: 170_000, step: 'score-request' });
+        const res = await runSkill(projectId, scoringSkillId, { ownerUserId, timeoutMs: 170_000, step: 'score-request' });
         const row = await get<{ overall_score: number | null }>(
           'SELECT overall_score FROM scores WHERE project_id = ?', projectId);
         // Road-1 weak-section review — this route's caller (Home ScorePanel)

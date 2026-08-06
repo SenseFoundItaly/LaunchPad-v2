@@ -23,7 +23,7 @@ import type { MessageKey } from '@/lib/i18n/messages';
 // a hand-copied key→label map would.
 import { IRL_LADDER } from '@/lib/irl/ladder';
 import { quadrantFor, quadrantMessageKey } from '@/lib/irl/quadrant';
-import { Icon, I } from '@/components/design/primitives';
+import { Icon, I, Pill } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import { useStages } from '@/hooks/useStages';
 import { stageLabel } from '@/lib/journey-prompts';
@@ -54,6 +54,7 @@ interface ScoreResp {
   // normalized at read time — see normalizeDimensions.
   dimensions: unknown;
   recommendation: string | null;
+  kind?: 'clarity' | 'startup';
   scored_at: string | null;
 }
 
@@ -160,6 +161,15 @@ export function ScorePanel({ projectId }: { projectId: string }) {
   // done/total stage count is no longer the readout. `active` still drives the
   // "currently in {stage}" line.
   const active = evals.find((e) => e.status === 'active');
+  // Clarity verdict rides as a prefix of the recommendation string ("GO — ...",
+  // parser contract in score-summary.ts). Peel it off for a chip; the remainder
+  // renders as the usual prose. A recommendation without the prefix (older
+  // scores, prose-parsed runs) falls through untouched.
+  const verdictMatch = score?.recommendation?.match(/^(GO|PIVOT PARZIALE|NO GO)(?: — ?| - ?)?/);
+  const verdict = verdictMatch?.[1] ?? null;
+  const recommendationText = verdictMatch
+    ? (score?.recommendation ?? '').slice(verdictMatch[0].length).trim() || null
+    : (score?.recommendation ?? null);
   const runHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(t('journey-prompt.scoring'))}`;
 
   return (
@@ -167,7 +177,7 @@ export function ScorePanel({ projectId }: { projectId: string }) {
       <header style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
         <Icon d={I.bolt} size={13} stroke={1.4} style={{ color: 'var(--ink-3)' }} />
         <h2 style={{ margin: 0, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-3)' }}>
-          {t('score.title')}
+          {score?.kind === 'clarity' ? t('score.title-clarity') : score?.kind === 'startup' && (score?.overall_score ?? 0) > 0 ? t('score.title-startup') : t('score.title')}
         </h2>
         <Link
           href={runHref}
@@ -208,8 +218,13 @@ export function ScorePanel({ projectId }: { projectId: string }) {
                   ))}
                 </div>
               )}
-              {score?.recommendation && (
-                <p style={{ margin: '10px 0 0', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.45 }}>{score.recommendation}</p>
+              {verdict && (
+                <div style={{ marginTop: 10 }}>
+                  <Pill kind={verdict === 'GO' ? 'ok' : verdict === 'NO GO' ? 'warn' : 'info'} dot>{verdict}</Pill>
+                </div>
+              )}
+              {recommendationText && (
+                <p style={{ margin: '8px 0 0', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.45 }}>{recommendationText}</p>
               )}
             </>
           )}

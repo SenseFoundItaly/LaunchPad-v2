@@ -1354,7 +1354,7 @@ async function persistDocumentArtifact(ctx: PersistContext, a: DocumentArtifact)
  * (the >0-exists guard silently dropped every second run before).
  * Returns true if it wrote.
  */
-export async function persistScoreFromSummary(projectId: string, summary: string, opts: { force?: boolean } = {}): Promise<boolean> {
+export async function persistScoreFromSummary(projectId: string, summary: string, opts: { force?: boolean; source?: string } = {}): Promise<boolean> {
   const existing = await get<{ overall_score: number | null }>(
     'SELECT overall_score FROM scores WHERE project_id = ?', projectId);
   if (!opts.force && existing && typeof existing.overall_score === 'number' && existing.overall_score > 0) return false;
@@ -1375,6 +1375,9 @@ export async function persistScoreFromSummary(projectId: string, summary: string
     );
   }
   // Append to the trajectory (score-history) so the score-over-time is durable.
-  await recordScoreHistory(projectId, overall, 'startup-scoring', recommendation);
+  // The source discriminates the score KIND in the trajectory: 'clarity-scoring'
+  // (canvas-only, pre-gate) vs 'startup-scoring' (full rubric, evidence-based).
+  // The scores row itself stays kind-agnostic — it is THE current headline.
+  await recordScoreHistory(projectId, overall, opts.source ?? 'startup-scoring', recommendation);
   return true;
 }
