@@ -10,8 +10,14 @@ import {
   markActionFailed,
 } from '@/lib/pending-actions';
 import { executeAppliedAction } from '@/lib/action-executors';
+import { CHAT_PROPOSABLE_KINDS } from '@/lib/journey/validation-targets';
 
-const VALID_KINDS = new Set(['canvas_field', 'competitor', 'market_size_fact']);
+// Imported, never re-typed. This was the THIRD hand-kept copy of the write
+// path (tool schema, ARTIFACT_INSTRUCTIONS, here) and all three had frozen at
+// the original three kinds while the executor grew to 22 — so the one-click
+// commit option, which the chat instructions tell the model to PREFER, could
+// not carry GTM / partner / IP / data / JTBD / technical evidence either.
+const VALID_KINDS = new Set<string>(CHAT_PROPOSABLE_KINDS);
 
 // Stable, order-independent fingerprint of a commit batch. Two POSTs with the
 // same items (a double-click, a retry, a React-strict-mode double render, an SSE

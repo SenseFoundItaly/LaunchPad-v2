@@ -10,10 +10,17 @@ import { extractTechnicalFindings } from '@/lib/auto-stage-validation';
 
 describe('tech_fact validation targets', () => {
   it('maps each finding to its 1B check(s)', () => {
-    // The feasibility finding targets BOTH split checks (2026-07: the one
-    // feasibility card carries build approach AND biggest technical risk).
+    // ONE check per field (2026-08-05). Feasibility used to carry
+    // technical_risk_named too, and that shared source was the bug: the two
+    // checks read DIFFERENT keyword families off the same memory_facts source,
+    // so a staged item greened whichever family its wording happened to hit —
+    // a gate walkthrough watched an IP finding green build_approach by
+    // accident while technical_risk_named stayed permanently red, because no
+    // staging hint could name a call that targeted it alone.
     const f = validationTargetsFor('tech_fact', 'feasibility');
-    expect(f.map((t) => t.check_id)).toEqual(['build_approach', 'technical_risk_named']);
+    expect(f.map((t) => t.check_id)).toEqual(['build_approach']);
+    const risk = validationTargetsFor('tech_fact', 'risk');
+    expect(risk.map((t) => t.check_id)).toEqual(['technical_risk_named']);
     const d = validationTargetsFor('tech_fact', 'dependencies');
     expect(d.map((t) => t.check_id)).toEqual(['key_dependencies']);
     const r = validationTargetsFor('tech_fact', 'regulatory');
@@ -21,7 +28,7 @@ describe('tech_fact validation targets', () => {
   });
 
   it('all three findings land in Stage 2 (Validation Gate)', () => {
-    for (const field of ['feasibility', 'dependencies', 'regulatory'] as const) {
+    for (const field of ['feasibility', 'dependencies', 'regulatory', 'risk'] as const) {
       const t = validationTargetsFor('tech_fact', field);
       expect(t[0]?.stage_number).toBe(2);
       expect(validationLabel(t)).toMatch(/Stage 2/);

@@ -10,7 +10,8 @@
  * the agent has no idea which stages are weak and falls back to generic
  * suggestions.
  *
- * Staleness mirrors the skill-executor's STALE_DAYS (14) so a skill that
+ * Staleness uses the same 14-day window the skill-executor once defined (its
+ * copy was deleted 2026-08-05 as dead code — this is now the only one) so a skill that
  * the auto-executor would refresh shows up here as 'stale' too.
  */
 import { query, get } from '@/lib/db';

@@ -162,7 +162,9 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
   // LOCKED checks (Validation Gate 1C while 1A+1B open) get neither — a lock
   // glyph + label instead, since working on them now would be premature.
   const locked = !!result.locked;
-  const prefillHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(checkActionPrompt(check.label, t))}`;
+  // `check` rides along with the prompt: the sentence alone loses WHICH substep
+  // the founder pressed, and the model then closes whichever gap it batches.
+  const prefillHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(checkActionPrompt(check.label, t))}&check=${encodeURIComponent(check.id)}`;
   return (
     <div style={{
       padding: '10px 14px',

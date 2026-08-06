@@ -1640,6 +1640,9 @@ const runSkillExecutor: ActionHandler = async (action) => {
     ownerUserId,
     timeoutMs: 170_000,
     allowAnySkill: true,
+    // The founder APPROVED a proposal — the invariant path ("skills propose,
+    // not run"). Worth distinguishing from a direct kickoff in the cost view.
+    step: 'skill-run.approved',
   });
   // Validation loops: approving a loop's review kickoff (Loop 1 psf-review,
   // Loop 2 business-model, …) moves the loop to 'active' so the NEXT signal
@@ -1821,14 +1824,30 @@ const applyValidationProposal: ActionHandler = async (action) => {
       // market_size_fact present but no project owner to scope the fact to.
       skippedNoOwner = true;
     } else if (it.kind === 'tech_fact' && ownerUserId) {
-      // Technical-validation finding (feasibility / dependencies / regulatory) —
-      // record as an applied memory_fact so the matching 1B check greens. The
-      // fact text is keyword-bearing (the check reads memory_facts). Mirrors the
-      // market_size_fact branch; founder-first (only on approval).
+      // Technical-validation finding — record as an applied memory_fact so the
+      // matching 1B check greens. Founder-first (only on approval).
+      //
+      // The PREFIX is load-bearing, exactly as for the gtm/partner/ip families:
+      // the check keyword-matches memory_facts, and without it the fact only
+      // greened when the model happened to use the right word. Every prefix
+      // below is verbatim in its check's keyword list — 'feasibility'/'fattibil'
+      // in BUILD_APPROACH_KEYWORDS, 'dependenc'/'dipendenz' in DEPENDENCY_,
+      // 'regulatory'/'normativ' in REGULATORY_, 'technical risk'/'rischio
+      // tecnico' in TECH_RISK_. Change one and you must change the other.
+      const techField = String(it.field ?? '');
+      const techPrefix = locale === 'it'
+        ? (techField === 'dependencies' ? 'Dipendenza chiave — '
+          : techField === 'regulatory' ? 'Normativa — '
+          : techField === 'risk' ? 'Rischio tecnico — '
+          : 'Fattibilità tecnica — ')
+        : (techField === 'dependencies' ? 'Key dependency — '
+          : techField === 'regulatory' ? 'Regulatory — '
+          : techField === 'risk' ? 'Technical risk — '
+          : 'Feasibility — ');
       await recordFact({
         userId: ownerUserId,
         projectId: action.project_id,
-        fact: value,
+        fact: `${techPrefix}${value}`,
         kind: 'observation',
         sources: sources ?? undefined,
       });

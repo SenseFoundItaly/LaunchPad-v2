@@ -502,6 +502,9 @@ export default function CopilotChatPage({
   // Draft-persisted composer: typed-but-unsent text survives refresh/close
   // (per-project localStorage; cleared on send).
   const [input, setInput, clearDraft] = useDraft(`lp_chat_draft_${projectId}`);
+  // The spine substep the founder pressed to start this turn, if any. Consumed
+  // by the next send and then cleared — see handleSend.
+  const [targetCheck, setTargetCheck] = useState<string | null>(null);
   // Option-set selection memory (see OptionSelectionContext): which option the
   // founder picked per set, so a chosen set locks — saved, not clickable. First
   // pick wins (later clicks on the same set are ignored).
@@ -539,6 +542,10 @@ export default function CopilotChatPage({
     const prefill = params.get('prefill');
     if (!prefill) return;
     setInput(prefill);
+    // Remember WHICH substep this came from. The founder may edit the sentence
+    // before sending; the target must survive that, because the sentence alone
+    // is what let the model close a different check than the one pressed.
+    setTargetCheck(params.get('check'));
     // Defer focus until the composer textarea has mounted this frame.
     requestAnimationFrame(() => {
       const tas = Array.from(document.querySelectorAll('textarea')) as HTMLTextAreaElement[];
@@ -547,6 +554,7 @@ export default function CopilotChatPage({
       composer?.scrollIntoView({ block: 'nearest' });
     });
     params.delete('prefill');
+    params.delete('check');
     const qs = params.toString();
     window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
   }, []);
@@ -605,9 +613,9 @@ export default function CopilotChatPage({
   // one-shot pin so the user's own turn always lands in view, even if they
   // had scrolled up. Wrapping here centralizes it instead of sprinkling the
   // flag across call sites.
-  const sendMessage = useCallback((content: string) => {
+  const sendMessage = useCallback((content: string, targetCheck?: string | null) => {
     forceScrollRef.current = true;
-    sendMessageRaw(content);
+    sendMessageRaw(content, targetCheck);
   }, [sendMessageRaw]);
 
   // Fire lp-actions-changed immediately when streaming ends so downstream
@@ -885,7 +893,11 @@ export default function CopilotChatPage({
   function handleSend() {
     const v = input.trim();
     if (!v || isStreaming) return;
-    sendMessage(v);
+    // Spend the target on THIS send only: the founder pressed one substep, and
+    // the two messages after it are a different conversation. Leaving it set
+    // would aim every later turn at a step they have moved past.
+    sendMessage(v, targetCheck);
+    setTargetCheck(null);
     clearDraft();
   }
 
@@ -1725,7 +1737,8 @@ export default function CopilotChatPage({
               // a skill: route through 'I choose: <kickoff>' click path."
               if (!isStreaming) sendMessage(t('chat.i-choose', { choice: label }));
             }}
-            onPickPrompt={(prompt) => {
+            onPickPrompt={(prompt, checkId) => {
+              setTargetCheck(checkId ?? null);
               // A substep was clicked in the (right-pane) Canvas — load the
               // prompt into the (left-pane) composer and focus it so the founder
               // sees it ready to send. No auto-send: they review/edit + send.

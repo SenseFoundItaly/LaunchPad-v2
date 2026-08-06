@@ -17,7 +17,7 @@ import { buildMemoryContext } from '@/lib/memory/context';
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
 import { buildResearchContext } from '@/lib/research-context';
 import { isClarificationOnly } from '@/lib/skill-output';
-import { formatStageContextForPrompt } from '@/lib/journey/stage-prompt';
+import { formatStageContextForPrompt, JOURNEY_RULES } from '@/lib/journey/stage-prompt';
 import { computeNextBestAction, renderDirectionForPrompt } from '@/lib/direction';
 import { recordEvent, factHash } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
@@ -261,7 +261,7 @@ OPTION-SET DISCIPLINE — STAY ON THE FOUNDER'S WORK:
 - VALUE PROPOSITION IS EARNED, NEVER DEFAULTED. value_proposition is the highest-leverage canvas field — the USP is what everything downstream (scoring, business model, pitch) stands on. A commit option carrying a value_proposition the founder has not SHAPED is BROKEN, even if your draft is plausible. Before EVER placing value_proposition in a commit.canvas you MUST have asked — across prior turns, one question per turn per TIER 0.25 — and received the founder's answers to: (a) for WHOM exactly (sharper than target_market — the person who feels the problem), (b) versus WHAT they use today (the real alternative, including "nothing/spreadsheet"), (c) why the founder believes they WIN against that alternative. Then draft 2-3 candidate one-liners that VISIBLY incorporate those answers and offer them as options — the founder picks or edits ONE — and only THEN emit the commit carrying the chosen wording. PERSIST EACH ANSWER THE TURN IT LANDS via save_memory_fact ("USP input — for whom: …" / "USP input — versus: …" / "USP input — edge: …") — the answers otherwise live only in this thread, and an abandoned thread loses the founder's most valuable input; with the facts saved, a later thread resumes the USP work instead of re-asking. Never draft and commit a value_proposition in the SAME turn; never fold it into a first-turn bulk canvas commit (see TIER 1.5) — carve it out and work it as its own conversation. A generic value prop that any competitor could also claim ("faster, cheaper, easier") is a signal you skipped (b) or (c) — go back and ask.
 - KNOWLEDGE ITEMS COMMIT THE SAME WAY — via "commit":{"items":[…]}. When the founder confirms a competitor or a market-size figure, carry it as a commit option's items[] (one click applies it — free): {"id":"commit","label":"Confirm — add to intelligence","description":"…","commit":{"items":[{"kind":"competitor","name":"Acme","label":"Competitor","value":"<summary>","sources":[…]},{"kind":"market_size_fact","label":"Market size","value":"<TAM/SAM/SOM statement>","sources":[…]}]}}. Each item carries its own "sources" (never a "credits" field). You MAY mix canvas + items in one commit option (commit both this turn's canvas fields AND a competitor together). Same rule as canvas: the click persists it — NEVER narrate "added the competitor" / "ho salvato il competitor" without the commit option.
 - DON'T RE-PROPOSE A COMMITTED ITEM. Once a field appears in [CURRENT IDEA CANVAS] (or a competitor/fact in the graph) it is written — do not re-offer it, pivot to it, reinterpret it as something else (a watcher, a skill), or ask the founder to re-confirm wording they already chose. Acknowledge in one line and move to the next OPEN gap.
-- update_idea_canvas / propose_validation stage a REVIEW CARD the founder must still Apply — only reach for them when you specifically want the editable batch-review card; otherwise prefer the one-click deterministic commit option (applying is free, canvas and items alike).
+- update_idea_canvas / propose_validation stage a REVIEW CARD the founder must still Apply. For CANVAS FIELDS and the odd single competitor, prefer the one-click commit option (applying is free, canvas and items alike) — it is less friction for the founder. But for anything you researched this turn — several competitors, a regulatory finding, a GTM opening, dependencies, IP, data availability — reach for propose_validation: it batches them into one reviewable card with per-item sources. Never let "the commit option is lighter" end a turn with the evidence uncommitted anywhere.
 - When the founder explicitly asks to run an analysis: call the skill_* tool and place the option object it returns into your trailing option-set (one click runs it). Do not emit a separate suggestion card.
 
 === TIER 4 — ARTIFACT FORMATS (reference) ===
@@ -361,6 +361,8 @@ The 7-stage spine is the founder's VALIDATED truth, so any evidence YOU produce 
   - Canvas RESHAPES go through the SAME gate: emit the reshaped canvas as an idea-canvas artifact (display) — the changed core fields are auto-staged for the founder's approval. NEVER dump a reshaped canvas as raw JSON in prose; core fields commit ONLY via the approved card.
   - Competitors mapped (Stage 2) → propose_validation, kind="competitor" (one item per competitor, with its name).
   - Market size / TAM established (Stage 2) → propose_validation, kind="market_size_fact".
+  - EVERY OTHER gate finding you produce → propose_validation with the matching kind. This list is NOT the exhaustive set of things worth staging; the [JOURNEY STAGE] block names the exact call for each open check on its "CLOSE WITH:" hint, and that hint is authoritative. The kinds: tech_fact (with field feasibility|dependencies|regulatory|risk), gtm_fact, partner_fact, ip_fact, data_fact, validation_strategy_fact, jtbd_fact, differentiation_fact, persona_fact, channel_fact, cogs_opex_fact, revenue_stream_fact.
+  - THE FAILURE TO AVOID: you research a founder's regulatory exposure, their GTM opening, their key dependencies — real work, correct analysis — and you only NARRATE it. The check stays red, the founder did the work, and the product forgot it. If a turn produced the evidence an open check asks for, that turn ends with a card. Analysis without a card is analysis the spine never sees.
 BATCH everything from THIS turn into ONE propose_validation call (one card): if you set canvas fields AND mapped competitors AND sized the market in the same turn, that is ONE card with all items — never three cards, and never split "free" canvas items from "paid" knowledge items into two cards (the card already shows per-item cost and a combined total). Give each item its sources[] (provenance powers the proof the founder sees when they later click the validated step). Emit the tool's returned artifact block VERBATIM so the inline approval card renders. The founder reviews, removes/edits items, and applies — only then does the substep go green.
 Do NOT write a prose lead-in or header before the card — no "Apply your canvas fields:" or "Apply competitors + market size:" stubs. The card is fully self-describing: it has a "Validate evidence" header and Apply/Skip buttons that state the total ("Apply 3 items"). A colon-terminated "Apply …:" line with the real content in the card below reads as broken, duplicated UI. At most one short sentence of context, then the card — never a label stub.
 Display artifacts (tam-sam-som, comparison-table, persona-card) are still fine to help DISCUSS, but they do NOT commit to the spine — the commit always goes through the gate. Generic context that doesn't move any substep keeps going to save_memory_fact, not the gate.
@@ -450,7 +452,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { project_id, step = 'chat', messages = [], provider = 'openai' } = body;
+  const { project_id, step = 'chat', messages = [], provider = 'openai', target_check = null } = body;
 
   if (!project_id) {
     return new Response(
@@ -528,7 +530,7 @@ export async function POST(request: NextRequest) {
   let stageContext = '';
   try {
     snapshot = await buildProjectSnapshot(project_id);
-    stageContext = formatStageContextForPrompt(snapshot);
+    stageContext = formatStageContextForPrompt(snapshot, typeof target_check === 'string' ? target_check : null);
   } catch {
     /* journey snapshot failed — chat still works, just without stage framing */
   }
@@ -727,10 +729,18 @@ export async function POST(request: NextRequest) {
   // project-wide steering. Empty string for every ordinary step — no token cost.
   const focusNodeContext = await buildFocusNodeContext(project_id, step);
   const dynamicContext = `${focusNodeContext}${directionContext}${stageContext}${canvasContext}${researchContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
+  // JOURNEY_RULES rides the STATIC tail, next to ARTIFACT_INSTRUCTIONS: it is
+  // byte-identical on every turn of every project, so it is cached as a READ.
+  // Only the live spine STATE goes in the dynamic context below.
+  //
+  // This is the split that the earlier all-or-nothing attempt got wrong. Moving
+  // the rules onto the user turn saved 57% and dropped the gate from 8/8/8 to
+  // 1/1/6 — a directive presented as "reference data" stops being obeyed. Rules
+  // stay system-side; only data moves.
   let systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
-    tail: ARTIFACT_INSTRUCTIONS,
+    tail: `${ARTIFACT_INSTRUCTIONS}\n\n${JOURNEY_RULES}`,
     projectContext: CACHE_PREFIX_SPLIT ? '' : dynamicContext,
   });
   // Per-turn steering (prereq gate + prior-turn nudge) accumulates here. Legacy

@@ -117,7 +117,7 @@ export async function POST(
         }
 
         emit({ scoring: true });
-        const res = await runSkill(projectId, 'startup-scoring', { ownerUserId, timeoutMs: 170_000 });
+        const res = await runSkill(projectId, 'startup-scoring', { ownerUserId, timeoutMs: 170_000, step: 'score-request' });
         const row = await get<{ overall_score: number | null }>(
           'SELECT overall_score FROM scores WHERE project_id = ?', projectId);
         // Road-1 weak-section review — this route's caller (Home ScorePanel)

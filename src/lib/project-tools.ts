@@ -42,6 +42,7 @@ import { ownerUserId } from '@/lib/cost-meter';
 import { USER_MONTHLY_LLM_USD, USER_MONTHLY_CREDITS } from '@/lib/credit-costs';
 import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readiness';
 import { getActiveStage, keywordMatcher, MARKET_SIZE_KEYWORDS } from '@/lib/journey';
+import { CHAT_PROPOSABLE_KINDS } from '@/lib/journey/validation-targets';
 import {
   validationTargetsFor,
   validationLabel,
@@ -2363,14 +2364,14 @@ const proposeValidationTool = (ctx: ToolContext): AgentTool => ({
   name: 'propose_validation',
   label: 'Propose validation evidence',
   description:
-    'Stage a BATCH of validation evidence for the founder to approve onto their spine. Call this whenever you have gathered something that would satisfy a validation substep — refined a canvas field (problem/solution/target market/value prop/competitive edge), mapped competitors, or established market size. NOTHING turns a spine step green without the founder approving it here, so this is the ONLY way to commit that evidence — never write it silently. Group everything from this turn into ONE call (one card); never fire multiple proposals in a turn. Emit the returned artifact block VERBATIM so the inline approval card renders. Generic context that does NOT move the spine goes to save_memory_fact instead, not here.',
+    'Stage a BATCH of validation evidence for the founder to approve onto their spine. Call this WHENEVER a turn produces something that satisfies a validation substep — an analysis you only narrate leaves the check RED and the founder did the work for nothing. It covers far more than the canvas: technical feasibility, dependencies, regulatory, GTM openings, potential partners, IP, data availability, validation strategy, Jobs-to-be-Done, market trends, buyer persona, differentiation, ICP, acquisition channels, COGS/opex and revenue streams — see the `kind` list. NOTHING turns a spine step green without the founder approving it here, so this is the ONLY way to commit that evidence — never write it silently. Group everything from this turn into ONE call (one card); never fire multiple proposals in a turn. Emit the returned artifact block VERBATIM so the inline approval card renders. Generic context that does NOT move the spine goes to save_memory_fact instead, not here.',
   parameters: Type.Object({
     items: Type.Array(
       Type.Object({
-        kind: Type.String({ description: 'One of: canvas_field, competitor, market_size_fact.' }),
-        field: Type.Optional(Type.String({ description: 'For kind=canvas_field ONLY: which canvas field — problem | solution | target_market | value_proposition | business_model | competitive_advantage | channels | unfair_advantage | key_metrics | cost_structure | revenue_streams. For the three list fields (key_metrics, cost_structure, revenue_streams) put one entry per line in `value`.' })),
+        kind: Type.String({ description: 'What this evidence IS — pick the one that matches the substep it closes:\ncanvas_field (needs `field`) · competitor (needs `name`) · market_size_fact\ntech_fact (needs `field`: feasibility | dependencies | regulatory | risk — risk is the BIGGEST technical risk, a different check from feasibility)\ngtm_fact (go-to-market opening / friction) · partner_fact (partners, resellers, distributors)\nip_fact (patents, trademarks, freedom to operate) · data_fact (which data, availability, quality)\nvalidation_strategy_fact (what you will test, with whom, what would prove it) · jtbd_fact (the job the customer hires you for)\ndifferentiation_fact · persona_fact (deep ICP) · channel_fact\ncogs_opex_fact · revenue_stream_fact' }),
+        field: Type.Optional(Type.String({ description: 'For kind=tech_fact: which 1B check it closes — feasibility | dependencies | regulatory | risk. For kind=canvas_field: which canvas field — problem | solution | target_market | value_proposition | business_model | competitive_advantage | channels | unfair_advantage | key_metrics | cost_structure | revenue_streams. For the three list fields (key_metrics, cost_structure, revenue_streams) put one entry per line in `value`.' })),
         name: Type.Optional(Type.String({ description: 'For kind=competitor ONLY: the competitor name (e.g. "HelloFresh").' })),
-        value: Type.String({ description: 'The actual content to commit: the canvas field text, the competitor summary (what they do + how you differ), or the market-sizing statement (e.g. "TAM ~EUR 2.4B: 12M EU households x ...").' }),
+        value: Type.String({ description: 'The actual content to commit, in the founder\'s terms: the canvas field text, the competitor summary (what they do + how you differ), the market-sizing statement (e.g. "TAM ~EUR 2.4B: 12M EU households x ..."), or — for the *_fact kinds — the finding itself as one or two concrete sentences. Write the finding, not a pointer to it: "GDPR art. 9 applies because we process health data; the physiotherapist is the controller" NOT "we discussed GDPR".' }),
         sources: Type.Optional(Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Source[] provenance for this item (web/skill/user/inference). Feeds the proof shown when the founder later clicks the validated substep. Strongly recommended for competitors and market size.' })),
       }),
       { description: 'The batch of evidence items — only what this turn actually produced.' },
@@ -2379,10 +2380,17 @@ const proposeValidationTool = (ctx: ToolContext): AgentTool => ({
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
     const p = params as { items?: RawValidationItem[] };
     const rawItems = Array.isArray(p.items) ? p.items : [];
-    const validKinds = new Set(['canvas_field', 'competitor', 'market_size_fact']);
+    // Imported, never re-typed: this list was three hardcoded strings while the
+    // executor handled 22 kinds and every one mapped to a check. The co-pilot
+    // therefore could not stage GTM/partner/IP/data/JTBD/technical evidence it
+    // had just produced — it got `Invalid item kind` and fell back to prose.
+    const validKinds = new Set<string>(CHAT_PROPOSABLE_KINDS);
     for (const it of rawItems) {
       if (!validKinds.has(it.kind)) {
-        return { content: [{ type: 'text', text: `Invalid item kind "${it.kind}". Must be canvas_field | competitor | market_size_fact.` }], details: { error: true } };
+        return { content: [{ type: 'text', text: `Invalid item kind "${it.kind}". Must be one of: ${CHAT_PROPOSABLE_KINDS.join(' | ')}.` }], details: { error: true } };
+      }
+      if (it.kind === 'tech_fact' && !['feasibility', 'dependencies', 'regulatory', 'risk'].includes(String(it.field))) {
+        return { content: [{ type: 'text', text: 'tech_fact items require a "field": feasibility | dependencies | regulatory | risk — it selects which 1B check the finding closes.' }], details: { error: true } };
       }
       if (it.kind === 'canvas_field' && !it.field) {
         return { content: [{ type: 'text', text: 'canvas_field items require a "field" (problem | solution | target_market | value_proposition | business_model | competitive_advantage).' }], details: { error: true } };

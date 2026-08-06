@@ -7,12 +7,24 @@
  * for ANALYTICAL-only skills (no draft producers like pitch-coaching that
  * need founder voice).
  *
- * Usage:
- *   const stale = findStaleSkills(projectId);
- *   if (stale.length > 0) {
- *     const result = await runSkill(projectId, stale[0].skill_id, { ownerUserId });
- *     // result.summary persisted; pending_action surfaces "score X → Y" to inbox
- *   }
+ * ⚠️ NO CALLER HAS EVER BEEN AUTOMATIC. Every caller is founder-driven: a score
+ * request, a skill kickoff, or an approved run_skill proposal. The heartbeat
+ * path this module was written for was never wired.
+ *
+ * `findStaleSkills`, `SAFE_AUTO_RERUN_SKILL_IDS` and `STALE_DAYS` lived here
+ * with no callers until 2026-08-05, describing an auto-rerun that did not
+ * exist. They were deleted because dead code that documents absent behaviour is
+ * worse than no code: a cost review read the (mislabelled) usage rows plus this
+ * header and concluded the product was silently re-running skills nobody asked
+ * for — three times, with a recommendation to delete a feature that was never
+ * built.
+ *
+ * If an auto-rerun is ever wanted, two rules it must satisfy, learned here:
+ *   - Trigger on "an input this skill READS has changed" (canvas_versions +
+ *     diffCanvas already do this), never on elapsed days. Re-running an
+ *     unchanged project reproduces the same answer at full price.
+ *   - PROPOSE, never run. "Skills propose, not run" is a product invariant, and
+ *     an analysis the founder finds already done and already billed breaks it.
  *
  * Cost discipline: caller is responsible for budget gating. This module does
  * not check getCreditsRemaining — that decision belongs to the caller (the
@@ -41,23 +53,6 @@ import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { DEFAULT_LOCALE, type Locale } from '@/lib/i18n/locales';
 import { languageDirective } from '@/lib/agent-prompt';
 
-/**
- * Whitelist — only analytical skills whose output is structured data
- * (gauge-chart, score-card, research) and contains no founder-voice prose
- * that would need editorial review. Draft producers (pitch-coaching,
- * prototype-spec, gtm-strategy, investor-relations) are EXCLUDED — their
- * output is meant for the founder to revise, not to be auto-rerun on a
- * cron and surfaced as "look what I refreshed."
- */
-export const SAFE_AUTO_RERUN_SKILL_IDS: readonly string[] = [
-  'startup-scoring',
-  'market-research',
-  'risk-scoring',
-  'simulation',
-  'scientific-validation',
-];
-
-export const STALE_DAYS = 14;
 
 /** Skills whose downstream persistence depends on a structured json payload in
  *  the output (parsed by persistResearchFromSkillOutput). */
@@ -94,6 +89,27 @@ const STRUCTURED_JSON_CONTRACTS: Record<string, string> = {
     "parses, and without it the founder's score is silently lost even though the run looks successful.",
 };
 const STRUCTURED_JSON_SKILLS = new Set<string>(Object.keys(STRUCTURED_JSON_CONTRACTS));
+
+/**
+ * The default whitelist for `runSkill`: analytical skills whose output is
+ * structured data (gauge-chart, score-card, research). Draft producers —
+ * pitch-coaching, prototype-spec, gtm-strategy, investor-relations — are
+ * excluded because their output is founder-voice prose meant to be revised.
+ *
+ * ⚠️ The name says "auto rerun" and nothing in this codebase auto-reruns
+ * anything. It is the guard for DIRECT calls: every real caller that runs a
+ * founder-chosen skill passes `allowAnySkill: true` to bypass it, so in
+ * practice this list only stops a programmatic caller from invoking a draft
+ * producer headlessly. Kept (renaming touches every caller) but read it as
+ * "safe to run without founder review", not as evidence of a cron.
+ */
+export const SAFE_AUTO_RERUN_SKILL_IDS: readonly string[] = [
+  'startup-scoring',
+  'market-research',
+  'risk-scoring',
+  'simulation',
+  'scientific-validation',
+];
 
 const SKILLS_DIR = join(process.cwd(), 'launchpad-skills');
 
@@ -142,53 +158,22 @@ function loadSkillBody(skillId: string, locale: Locale): ParsedSkillBody | null 
   return null;
 }
 
-export interface StaleSkill {
-  skill_id: string;
-  last_completed_at: string | null;
-  days_since: number | null;
-}
-
-/**
- * Return skills in the safe-rerun whitelist that are either never-run or
- * older than STALE_DAYS, ordered with never-run first then oldest first.
- */
-export async function findStaleSkills(projectId: string): Promise<StaleSkill[]> {
-  const rows = await query<{ skill_id: string; completed_at: string | null }>(
-    'SELECT skill_id, completed_at FROM skill_completions WHERE project_id = ?',
-    projectId,
-  );
-  const byId = new Map<string, string>();
-  for (const r of rows) {
-    if (r.completed_at) byId.set(r.skill_id, r.completed_at);
-  }
-
-  const cutoffMs = Date.now() - STALE_DAYS * 24 * 60 * 60 * 1000;
-  const out: StaleSkill[] = [];
-  for (const skillId of SAFE_AUTO_RERUN_SKILL_IDS) {
-    const last = byId.get(skillId);
-    if (!last) {
-      out.push({ skill_id: skillId, last_completed_at: null, days_since: null });
-      continue;
-    }
-    const lastMs = new Date(last).getTime();
-    if (lastMs < cutoffMs) {
-      const daysSince = Math.floor((Date.now() - lastMs) / (24 * 60 * 60 * 1000));
-      out.push({ skill_id: skillId, last_completed_at: last, days_since: daysSince });
-    }
-  }
-
-  // Never-run first (days_since null sorts first), then oldest first.
-  out.sort((a, b) => {
-    if (a.days_since === null && b.days_since !== null) return -1;
-    if (b.days_since === null && a.days_since !== null) return 1;
-    return (b.days_since ?? 0) - (a.days_since ?? 0);
-  });
-
-  return out;
-}
-
 export interface RunSkillOptions {
   ownerUserId: string;
+  /**
+   * WHO asked for this run, recorded as the usage `step`.
+   *
+   * It used to be hardcoded 'heartbeat-executor' for every caller, a leftover
+   * from when this module was written for the weekly heartbeat. The heartbeat
+   * never wired it up — `findStaleSkills` has no callers to this day — so every
+   * row under that label is actually a founder pressing a button, filed under
+   * a name that reads as unattended background work.
+   *
+   * That mislabel cost a full cost review: $9.74 of founder-triggered analysis
+   * was read as waste nobody had asked for, and a recommendation to delete a
+   * feature that does not exist nearly shipped on the strength of it.
+   */
+  step?: string;
   /** Override the default kickoff prompt. */
   prompt?: string;
   /** Cap on agent wall-clock time. Defaults to 120s. */
@@ -356,7 +341,9 @@ export async function runSkill(
   await recordUsage({
     project_id: projectId,
     skill_id: skillId,
-    step: 'heartbeat-executor',
+    // Honest attribution: the caller says who it is. 'skill-run' is the neutral
+    // default — never a name that implies nobody asked.
+    step: opts.step ?? 'skill-run',
     provider,
     model,
     usage: executorUsage as typeof usage,
