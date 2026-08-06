@@ -17,7 +17,7 @@ import { buildMemoryContext } from '@/lib/memory/context';
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
 import { buildResearchContext } from '@/lib/research-context';
 import { isClarificationOnly } from '@/lib/skill-output';
-import { formatStageContextForPrompt } from '@/lib/journey/stage-prompt';
+import { formatStageContextForPrompt, JOURNEY_RULES } from '@/lib/journey/stage-prompt';
 import { computeNextBestAction, renderDirectionForPrompt } from '@/lib/direction';
 import { recordEvent, factHash } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
@@ -729,10 +729,18 @@ export async function POST(request: NextRequest) {
   // project-wide steering. Empty string for every ordinary step — no token cost.
   const focusNodeContext = await buildFocusNodeContext(project_id, step);
   const dynamicContext = `${focusNodeContext}${directionContext}${stageContext}${canvasContext}${researchContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
+  // JOURNEY_RULES rides the STATIC tail, next to ARTIFACT_INSTRUCTIONS: it is
+  // byte-identical on every turn of every project, so it is cached as a READ.
+  // Only the live spine STATE goes in the dynamic context below.
+  //
+  // This is the split that the earlier all-or-nothing attempt got wrong. Moving
+  // the rules onto the user turn saved 57% and dropped the gate from 8/8/8 to
+  // 1/1/6 — a directive presented as "reference data" stops being obeyed. Rules
+  // stay system-side; only data moves.
   let systemPrompt = buildSystemPromptString({
     locale,
     context: 'chat',
-    tail: ARTIFACT_INSTRUCTIONS,
+    tail: `${ARTIFACT_INSTRUCTIONS}\n\n${JOURNEY_RULES}`,
     projectContext: CACHE_PREFIX_SPLIT ? '' : dynamicContext,
   });
   // Per-turn steering (prereq gate + prior-turn nudge) accumulates here. Legacy
