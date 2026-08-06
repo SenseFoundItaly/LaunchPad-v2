@@ -94,6 +94,8 @@ const MONITOR_TYPE_TO_TOPIC: Record<string, WatcherTopic> = {
   'ecosystem.customer_sentiment': 'sentiment',
   'ecosystem.social': 'sentiment',
   'ecosystem.ads': 'pricing',
+  // Grants are a funding concern — the inbox groups them with funding events.
+  'ecosystem.grants': 'funding',
   // Black-swan scenario watchers are risk sensors — filing them under
   // 'custom' hid them among ad-hoc founder watchers.
   'ecosystem.black_swan': 'risk',

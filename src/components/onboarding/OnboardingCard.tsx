@@ -24,6 +24,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Icon, I } from '@/components/design/primitives';
+import { relaunchTour } from '@/components/onboarding/tour-state';
 import { useT } from '@/components/providers/LocaleProvider';
 
 const dismissedKey = (projectId: string) => `lp_onboarding_dismissed_${projectId}`;
@@ -119,7 +120,12 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
   const title = watcherNudge ? t('reminder.canvas-watcher.title') : t('onboarding.title');
   const headerIcon = watcherNudge ? I.bell : I.check;
 
-  const steps = [
+  // The founder's 4-step "INIZIA DA QUI" (changelog 4/08). Step 1 relaunches
+  // the EXISTING cross-page tour (TourController) — a second tour was started
+  // here and deleted the same hour when the first one surfaced; check
+  // tour-steps.ts before ever adding another.
+  const steps: Array<{ icon: string; label: string; href?: string; onClick?: () => void }> = [
+    { icon: I.eye, label: t('onboarding.step-tour'), onClick: () => relaunchTour() },
     { icon: I.book, label: t('onboarding.step-knowledge'), href: `/project/${projectId}/knowledge` },
     { icon: I.chat, label: t('onboarding.step-canvas'), href: `/project/${projectId}/chat` },
     { icon: I.signal, label: t('onboarding.step-watcher'), href: `/project/${projectId}/actions?lane=monitor` },
@@ -193,9 +199,30 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {steps.map((s, i) => (
+              // Same visual shell for both; the tour step ACTS (relaunch) while
+              // the others NAVIGATE — Link with a fake href would break
+              // middle-click/copy-link semantics, so it branches on kind.
+              s.onClick ? (
+                <button
+                  key={s.label}
+                  onClick={s.onClick}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+                    borderRadius: 6, border: 'none', background: 'transparent',
+                    cursor: 'pointer', textAlign: 'left', width: '100%', color: 'inherit',
+                    transition: 'background .1s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--paper-2)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', width: 14 }}>{i + 1}</span>
+                  <Icon d={s.icon} size={14} stroke={1.4} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--ink-2)' }}>{s.label}</span>
+                </button>
+              ) : (
               <Link
                 key={s.href}
-                href={s.href}
+                href={s.href!}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -216,6 +243,7 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
                 <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--ink-2)' }}>{s.label}</span>
                 <Icon d={I.arrow} size={11} stroke={1.4} style={{ color: 'var(--ink-5)', flexShrink: 0 }} />
               </Link>
+              )
             ))}
           </div>
         </div>

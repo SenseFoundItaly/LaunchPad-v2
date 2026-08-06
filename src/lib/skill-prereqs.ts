@@ -35,6 +35,7 @@ import { hasOpenLoop2, LOOP2_GATED_SKILLS } from '@/lib/loops/loop2-bm';
  * idea-shaping, market-research, startup-advisor.
  */
 export const CANVAS_DEPENDENT_SKILLS = new Set<string>([
+  'clarity-scoring',
   'startup-scoring',
   'risk-scoring',
   'business-model',

@@ -154,16 +154,21 @@ export const stageIdeaValidation: Stage = {
       },
     },
     {
+      // The id predates the Clarity split and stays: renaming it would cascade
+      // through i18n keys, stage history and the prompt-routing maps for a
+      // purely cosmetic gain. Since changelog 4/08 the score this check reads
+      // at Stage 1 is the CLARITY score (canvas-only) — the full Startup
+      // Scoring runs post-gate and is counted by 1C's scoring_review.
       id: 'startup_scoring_baseline',
-      label: 'Startup Scoring baseline (0-100)',
+      label: 'Clarity Score baseline (0-100)',
       source: 'scores.overall_score',
       evaluate: (s) => {
         // > 0: chat radar-chart/score-card artifacts insert junk 0-score rows;
         // a zero baseline must not green the check with no founder-run scoring.
         const overall = s.startup_score?.overall_score;
         return overall != null && overall > 0
-          ? { passed: true, evidence: `Baseline score: ${Math.round(baselineScore100(overall))}/100 — the reference for the whole cycle.` }
-          : { passed: false, gap: 'Run the Startup Scoring analysis to set your baseline' };
+          ? { passed: true, evidence: `Clarity baseline: ${Math.round(baselineScore100(overall))}/100 — how clear the idea is on paper.` }
+          : { passed: false, gap: 'Run the Clarity Score to measure how clear your idea is' };
       },
     },
   ],

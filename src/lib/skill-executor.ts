@@ -87,6 +87,12 @@ const STRUCTURED_JSON_CONTRACTS: Record<string, string> = {
     'read by the system and they are what pushes the run past its time budget. Write all of that as PROSE AFTER the block. ' +
     'This ordering is not cosmetic: if the run is cut short, a small block that already CLOSED is the only thing that still ' +
     "parses, and without it the founder's score is silently lost even though the run looks successful.",
+  'clarity-scoring':
+    'Your response MUST OPEN with the compact json block from the "Output Format" section — before any narrative. It carries ' +
+    'overall_score, overall_grade, recommendation (GO | PIVOT PARZIALE | NO GO), summary and one score + one-sentence rationale ' +
+    'per clarity variable. Do NOT use web search — this scoring reads ONLY the Idea Canvas. Write the verdict explanation and the ' +
+    'revision suggestion as PROSE AFTER the block. A small block that already closed is the only thing that still parses if the ' +
+    "run is cut short; without it the founder's score is silently lost even though the run looks successful.",
 };
 const STRUCTURED_JSON_SKILLS = new Set<string>(Object.keys(STRUCTURED_JSON_CONTRACTS));
 
@@ -105,6 +111,7 @@ const STRUCTURED_JSON_SKILLS = new Set<string>(Object.keys(STRUCTURED_JSON_CONTR
  */
 export const SAFE_AUTO_RERUN_SKILL_IDS: readonly string[] = [
   'startup-scoring',
+  'clarity-scoring',
   'market-research',
   'risk-scoring',
   'simulation',
@@ -398,17 +405,18 @@ export async function runSkill(
   // always a gauge-chart artifact, so scores.overall_score can stay null even on a
   // good run (the Home score never appears). Persist it deterministically — fixes
   // the score landing for auto-scoring, manual runs, and cron alike.
-  if (skillId === 'startup-scoring' && !incomplete) {
+  const isScoringSkill = skillId === 'startup-scoring' || skillId === 'clarity-scoring';
+  if (isScoringSkill && !incomplete) {
     try {
       // force: a deliberate re-score must refresh the stored overall/dimensions.
-      if (await persistScoreFromSummary(projectId, text, { force: true })) {
+      if (await persistScoreFromSummary(projectId, text, { force: true, source: skillId })) {
         artifactsPersisted++;
       } else {
         // false = no parseable score in the output (no closed json fence, no
         // recognizable "NN/100" phrasing — typical after a timeout truncation).
         // Without this log the run reads 'completed' everywhere while the
         // startup_scoring_baseline check silently stays red.
-        console.warn(`[skill-executor] startup-scoring output had no parseable score — baseline NOT persisted (timed_out=${!!timedOut})`);
+        console.warn(`[skill-executor] ${skillId} output had no parseable score — baseline NOT persisted (timed_out=${!!timedOut})`);
       }
     } catch (err) {
       console.warn(`[skill-executor] score fallback failed for ${skillId}:`, (err as Error).message);

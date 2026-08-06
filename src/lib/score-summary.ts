@@ -52,10 +52,19 @@ function parseScoreJson(summary: string): ParsedScore | null {
         }
       }
     }
+    // Clarity Score (changelog 4/08) carries an explicit verdict alongside the
+    // summary. It rides as a PREFIX of the recommendation string ("GO — ...")
+    // rather than a new column: the scores schema stays untouched, prose-only
+    // outputs degrade to plain summary, and the UI can peel the leading token
+    // off for a chip. Only the three known verdicts are honored — an arbitrary
+    // string here would end up rendered as a verdict badge.
+    const verdictRaw = typeof s.recommendation === 'string' ? s.recommendation.trim().toUpperCase() : '';
+    const verdict = ['GO', 'PIVOT PARZIALE', 'NO GO'].includes(verdictRaw) ? verdictRaw : null;
+    const summaryText = typeof s.summary === 'string' && s.summary.trim() ? s.summary.trim().slice(0, 400) : null;
     return {
       overall,
       dimensions: Object.keys(dims).length > 0 ? dims : null,
-      recommendation: typeof s.summary === 'string' && s.summary.trim() ? s.summary.trim().slice(0, 400) : null,
+      recommendation: verdict ? `${verdict} — ${summaryText ?? ''}`.trim() : summaryText,
       benchmark: typeof s.overall_grade === 'string' && s.overall_grade.trim() ? `Grade ${s.overall_grade.trim()}` : null,
     };
   }

@@ -17,6 +17,7 @@ import { generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 
 export type EcosystemMonitorType =
+  | 'ecosystem.grants'
   | 'ecosystem.competitors'
   | 'ecosystem.ip'
   | 'ecosystem.trends'
@@ -489,8 +490,69 @@ Do not report minor creative refreshes — only strategic paid marketing changes
 // Registry
 // =============================================================================
 
+// =============================================================================
+// Template 9 — Grants / Bandi (founder idea, changelog 4/08)
+// =============================================================================
+// The founder's complaint about every grants platform he has used: they make
+// you type in a startup profile that is stale within weeks, because startups
+// pivot. This template's answer is ALREADY the architecture: buildPrompt runs
+// at SCAN time and injects projectContext(ctx) — the live canvas — so the
+// search criteria follow every pivot with zero founder effort. That property
+// is the feature; do not "optimize" it into a cached profile.
+//
+// Quality bar, stated imperatively in the prompt: a grant call without a
+// verifiable official URL and an explicit deadline must be DISCARDED, not
+// reported. A hallucinated deadline is worse than no result — a founder plans
+// an application around it.
+
+export const GRANTS_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.grants',
+  name: 'Ecosystem — Grants & funding calls',
+  nameIt: 'Ecosistema — Bandi e finanziamenti',
+  schedule: 'weekly',
+  defaultConfig: { keywords: [], threshold: 'all' },
+  buildPrompt: (ctx) => {
+    const header = ctx.locale === 'it'
+      ? 'SCAN SETTIMANALE — BANDI E FINANZIAMENTI'
+      : 'WEEKLY SCAN — GRANTS & PUBLIC FUNDING CALLS';
+    const body = ctx.locale === 'it'
+      ? `Cerca bandi e finanziamenti pubblici APERTI adatti a questa startup, usando il profilo
+progetto qui sopra (settore, fase, geografia) come criterio di match — NON un profilo statico.
+Fonti da preferire: nazionali italiane (MIMIT/MISE, Invitalia, CDP, bandi regionali POR-FESR)
+ed europee (portale EU Funding & Tenders, EIC Accelerator, Horizon Europe, EIT).
+
+REGOLE FERREE per ogni bando riportato:
+1. URL ufficiale della fonte — obbligatorio e verificabile.
+2. Scadenza esplicita della domanda — obbligatoria.
+3. Una riga di eleggibilità confrontata col profilo del progetto ("richiede sede in IT — ok",
+   "solo aziende costituite da >2 anni — NON eleggibile ora").
+Un bando senza URL verificabile o senza scadenza va SCARTATO, non riportato: una scadenza
+inventata è peggio di nessun risultato, perché il founder ci pianifica sopra una domanda.
+
+Per ogni bando eleggibile, emetti un ecosystem_alert con alert_type="funding_event", con
+scadenza ed ente erogatore nella headline.`
+      : `Search for OPEN grant calls and public funding suited to this startup, using the project
+profile above (sector, stage, geography) as the match criteria — NOT a static profile.
+Preferred sources: Italian national (MIMIT/MISE, Invitalia, CDP, regional POR-FESR calls)
+and EU (EU Funding & Tenders portal, EIC Accelerator, Horizon Europe, EIT).
+
+HARD RULES for every reported call:
+1. Official source URL — mandatory and verifiable.
+2. Explicit application deadline — mandatory.
+3. One eligibility line matched against the project profile ("requires IT headquarters — ok",
+   "companies older than 2 years only — NOT eligible yet").
+A call without a verifiable URL or without a deadline must be DISCARDED, not reported: a
+hallucinated deadline is worse than no result, because the founder plans an application on it.
+
+For each eligible call, emit one ecosystem_alert with alert_type="funding_event", carrying the
+deadline and the granting body in the headline.`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
 export const ECOSYSTEM_MONITOR_TEMPLATES: EcosystemMonitorTemplate[] = [
   COMPETITORS_TEMPLATE,
+  GRANTS_TEMPLATE,
   IP_TEMPLATE,
   TRENDS_TEMPLATE,
   PARTNERSHIPS_TEMPLATE,
