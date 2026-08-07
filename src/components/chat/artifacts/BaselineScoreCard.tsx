@@ -68,46 +68,66 @@ export default function BaselineScoreCard({ artifact }: { artifact: ScoreCardArt
   const recommendation = recText || artifact.description?.trim() || '';
   const kindLabel = data?.kind === 'clarity' ? t('score.title-clarity') : data?.kind === 'startup' ? t('score.title-startup') : null;
 
+  // The verdict is the card's protagonist (changelog 4/08 "più dettaglio sia
+  // nel contenuto che nell'interfaccia"): chip + narrative live together in one
+  // tinted, verdict-colored block — a GO reads green at a glance, a NO GO reads
+  // clay, and the summary explains it in the same breath instead of trailing as
+  // disconnected grey prose under the bars.
+  const verdictColor = verdict === 'GO' ? 'var(--moss)' : verdict === 'NO GO' ? 'var(--clay)' : 'var(--accent)';
+
   return (
     <div className="my-1">
       {/* Which score this IS (changelog 4/08: the founder read a Clarity-band
           number as a verdict on his idea). Naming the scale is the detail that
           disarms that misreading. */}
       {kindLabel && (
-        <div className="lp-mono text-[9.5px] uppercase tracking-wide text-ink-5 mb-1">{kindLabel}</div>
+        <div className="lp-mono text-[9.5px] uppercase tracking-wide text-ink-5 mb-1.5">{kindLabel}</div>
       )}
       {/* Headline: score / 100 + qualitative band + trajectory sparkline.
           flex-wrap so a narrow canvas card wraps the sparkline to a second
           line instead of overflowing the card's right edge. */}
       <div className="flex items-baseline gap-x-2 gap-y-1 flex-wrap">
-        <span className="lp-serif text-3xl leading-none text-ink">{overall}</span>
+        <span className="lp-serif leading-none text-ink" style={{ fontSize: 34 }}>{overall}</span>
         <span className="text-sm text-ink-5">/ 100</span>
         <span className="lp-mono text-xs tracking-wide" style={{ color: b.color }}>{t(b.key)}</span>
         <span className="ml-auto self-center"><ScoreTrajectory projectId={projectId} /></span>
       </div>
 
-      {/* Per-dimension breakdown — same bars as Home's ScorePanel */}
+      {/* Verdict story block — chip + summary as ONE unit. Absent verdict
+          (legacy startup scores, prose-parsed runs) degrades to plain prose. */}
+      {verdict ? (
+        <div
+          className="mt-3"
+          style={{
+            padding: '10px 12px',
+            borderLeft: `3px solid ${verdictColor}`,
+            borderRadius: 'var(--r-m)',
+            background: `color-mix(in srgb, ${verdictColor} 7%, transparent)`,
+          }}
+        >
+          <Pill kind={verdict === 'GO' ? 'ok' : verdict === 'NO GO' ? 'warn' : 'info'} dot>{verdict}</Pill>
+          {recommendation && (
+            <p className="mt-2 mb-0 text-[11.5px] leading-relaxed text-ink-3">{recommendation}</p>
+          )}
+        </div>
+      ) : recommendation ? (
+        <p className="mt-3 text-[11.5px] leading-relaxed text-ink-4">{recommendation}</p>
+      ) : null}
+
+      {/* Per-dimension breakdown — same bars as Home's ScorePanel, AFTER the
+          verdict: the founder reads the judgement first, the anatomy second. */}
       {dims.length > 0 && (
-        <div className="mt-3 flex flex-col gap-1.5">
+        <div className="mt-3 flex flex-col gap-[7px]">
           {dims.map((d) => (
             <div key={d.name} className="flex items-center gap-2">
               <span className="flex-1 min-w-0 text-[11px] text-ink-3 truncate">{d.name}</span>
-              <span className="w-14 h-[5px] rounded-full overflow-hidden shrink-0" style={{ background: 'var(--paper-3)' }}>
-                <span className="block h-full" style={{ width: `${Math.max(0, Math.min(100, d.score))}%`, background: band(d.score).color }} />
+              <span className="w-16 h-[6px] rounded-full overflow-hidden shrink-0" style={{ background: 'var(--paper-3)' }}>
+                <span className="block h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, d.score))}%`, background: band(d.score).color }} />
               </span>
               <span className="lp-mono w-6 text-right text-[10px] text-ink-4 shrink-0">{Math.round(d.score)}</span>
             </div>
           ))}
         </div>
-      )}
-
-      {verdict && (
-        <div className="mt-3">
-          <Pill kind={verdict === 'GO' ? 'ok' : verdict === 'NO GO' ? 'warn' : 'info'} dot>{verdict}</Pill>
-        </div>
-      )}
-      {recommendation && (
-        <p className={`${verdict ? 'mt-2' : 'mt-3'} text-[11.5px] leading-relaxed text-ink-4`}>{recommendation}</p>
       )}
     </div>
   );
