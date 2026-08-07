@@ -63,12 +63,24 @@ export const IRL_LTV_CAC_BAR = 3;       // Loop 2 (BM stress test) + Stage-4 gat
 export const IRL_CONVERSION_BAR = 0.05; // Loop 3 (market response)
 export const IRL_ACTIVATION_BAR = 0.20; // Loop 4 (MVP test verdict)
 /**
- * Level 2 needs a real first scoring — the founder spec says
- * "First scoring (Caution/Go)", i.e. the score must clear the CAUTION band, not
- * merely exist. 40 is the caution floor in score-display.ts's band(); below that
- * is "weak" and must not earn a rung ("ogni punto deve essere sudato").
+ * Rung 2's score bar — the Clarity Score GO threshold.
+ *
+ * History: this was 40 (the caution floor in score-display.ts's band()),
+ * reading the founder's "First scoring (Caution/Go)" as "clear the caution
+ * band". The Clarity/Startup split (changelog 4/08, PR #401) gave the first
+ * score explicit verdicts — GO >= 70, PIVOT PARZIALE 40-69, NO GO < 40, defined
+ * in launchpad-skills/clarity-scoring/SKILL.md — and a rung "earned" on a score
+ * whose own verdict says "fix something first" contradicts itself. Raised to
+ * the GO bar on 2026-08-07 (decision adopted with Mike; Luca can veto).
+ *
+ * Blast radius, measured before raising: 6 projects sat in the 40-69 band and
+ * NONE had tracks 1A+1B done, so no earned rung was revoked — the change is
+ * behaviour-neutral today and honest going forward. The high-water floor
+ * (#296) would have protected any that existed.
  */
-export const IRL_SCORE_BAR = 40;
+export const IRL_CLARITY_GO_BAR = 70;
+/** @deprecated old name, kept for the quadrant module's docs — same value. */
+export const IRL_SCORE_BAR = IRL_CLARITY_GO_BAR;
 
 /**
  * Everything a ladder gate reads — precomputed by the route from the snapshot,
@@ -81,7 +93,7 @@ export interface IrlEvidence {
   /** All Validation-Gate checks tagged with this track passed (≥1 exists). */
   trackDone: (track: '1A' | '1B' | '1C') => boolean;
   /** The project's 0-100 score, or null when never scored. Level 2 requires it
-   *  to clear IRL_SCORE_BAR (the "Caution/Go" bar), not merely to exist. */
+   *  to clear IRL_CLARITY_GO_BAR (a Clarity GO), not merely to exist. */
   score: number | null;
   /** Loop-1 bar: willingness-to-pay rate; null until measurable (< min interviews). */
   wtpRate: number | null;
@@ -114,7 +126,7 @@ export const IRL_CORE_LADDER: readonly IrlLevel[] = [
   // "First scoring (Caution/Go)" — the score must CLEAR the caution bar, not
   // just exist; a "weak" score is not a rung earned.
   { level: 2, key: 'first_score_gate_ab', labelKey: 'first-score',
-    gate: (e) => e.score != null && e.score >= IRL_SCORE_BAR && e.trackDone('1A') && e.trackDone('1B') },
+    gate: (e) => e.score != null && e.score >= IRL_CLARITY_GO_BAR && e.trackDone('1A') && e.trackDone('1B') },
   { level: 3, key: 'gate_c_loop1', labelKey: 'psf',
     gate: (e) => e.trackDone('1C') && e.wtpRate != null && e.wtpRate >= IRL_WTP_BAR },
   // Business Essentials is persona + business_model (mirrors the phase spine's

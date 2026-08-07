@@ -47,7 +47,7 @@ export const IRL_DEVELOPED_BAR = 4;
  * founder sees: 'strong' (≥70) and 'promising' (≥55) are high; 'caution' (≥40)
  * and 'weak' are not.
  *
- * Note this is STRICTER than IRL_SCORE_BAR (40), which only asks whether a
+ * Note: IRL rung 2 now uses the Clarity GO bar (70, see ladder.ts) — the two
  * score is real enough to earn rung 2. Clearing the floor to be counted is not
  * the same as being promising.
  */

@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { recordFact } from '@/lib/memory/facts';
+import { extractEntitiesFromNote } from '@/lib/note-entity-extract';
+import { stageValidationProposal } from '@/lib/project-tools';
 
 /**
  * POST /api/projects/{projectId}/notes
@@ -40,5 +42,36 @@ export async function POST(
   });
   if (!id) return error('Failed to save note', 500);
 
-  return json({ id }, 201);
+  // #389 — a note naming entities stages a proposal card (inbox), so the note
+  // reaches the graph through the founder's Apply instead of dying in the
+  // Elenco tab. Awaited: serverless freezes un-awaited work, and losing the
+  // extraction silently would recreate the exact complaint. Adds ~2-4s to
+  // saving a LONG note only (short notes skip via NOTE_EXTRACT_MIN_CHARS);
+  // non-fatal — a failed extraction never costs the founder their note.
+  let staged = 0;
+  try {
+    const entities = await extractEntitiesFromNote(text);
+    const items = [
+      ...entities.competitors.map((c) => ({
+        kind: 'competitor', name: c.name, value: c.summary || c.name,
+        sources: [{ type: 'user', title: 'Founder note', quote: text.slice(0, 280) }],
+      })),
+      ...entities.partners.map((pt) => ({
+        kind: 'partner_fact', value: `${pt.name} — ${pt.why || 'named as a potential partner in a founder note'}`,
+        sources: [{ type: 'user', title: 'Founder note', quote: text.slice(0, 280) }],
+      })),
+    ];
+    if (items.length > 0) {
+      const res = await stageValidationProposal(
+        { projectId, userId: auth.session.userId },
+        items as never,
+        'note',
+      );
+      if (res.ok) staged = res.itemCount;
+    }
+  } catch (err) {
+    console.warn('[notes] entity staging failed (non-fatal):', (err as Error).message);
+  }
+
+  return json({ id, staged_entities: staged }, 201);
 }

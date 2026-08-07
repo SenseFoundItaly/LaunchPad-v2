@@ -62,7 +62,7 @@ import type { PendingActionType, EcosystemAlertType, WatchSourceCategory } from 
 import { VALID_CATEGORIES } from '@/types';
 import type { Source } from '@/types/artifacts';
 
-interface ToolContext {
+export interface ToolContext {
   projectId: string;
   /** Authenticated user id. Required by tools that write to user-scoped
    *  tables (memory_facts). Optional for read-only/proposal tools that
@@ -2290,10 +2290,13 @@ function itemCredits(kind: ValidationItemKind): number {
  * the inline artifact block the agent must echo verbatim. Shared by
  * propose_validation and update_idea_canvas so both paths gate identically.
  */
-async function stageValidationProposal(
+// Exported for the notes route (#389): a founder note that names entities
+// stages the SAME proposal card chat and upload stage — one write path, three
+// origins. 'note' rides the payload so the card can say where it came from.
+export async function stageValidationProposal(
   ctx: ToolContext,
   rawItems: RawValidationItem[],
-  origin: 'chat' | 'upload',
+  origin: 'chat' | 'upload' | 'note',
 ): Promise<
   | { ok: true; artifactBlock: string; pendingActionId: string; itemCount: number }
   | { ok: false; error: string }
