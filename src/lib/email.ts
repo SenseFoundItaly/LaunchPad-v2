@@ -17,6 +17,25 @@ import { translate, type TranslateVars, type MessageKey } from '@/lib/i18n/messa
 import type { Locale } from '@/lib/i18n/locales';
 
 /**
+ * Rescue readable prose from a reflection that arrived as ONLY an artifact
+ * block (observed live: the model sometimes answers the weekly reflection with
+ * an insight-card despite the plain-text instruction). The card's sections
+ * carry the actual writing in "body"/"content"/"summary" string fields — pull
+ * those, in order, instead of shipping an email with no reflection at all.
+ * Returns '' when nothing rescuable exists; callers treat that as "no
+ * reflection", which the email template already hides gracefully.
+ */
+export function extractProseFromArtifact(raw: string): string {
+  const out: string[] = [];
+  for (const m of raw.matchAll(/"(?:body|content|summary)"\s*:\s*"((?:[^"\\]|\\.)*)"/g)) {
+    try {
+      out.push(JSON.parse(`"${m[1]}"`));
+    } catch { /* one bad escape must not cost the rest */ }
+  }
+  return out.join('\n\n').trim().slice(0, 1500);
+}
+
+/**
  * Strip `:::artifact … :::` blocks — closed AND an unterminated trailing one —
  * from LLM prose before it reaches an email. The weekly reflection sometimes
  * arrives as an insight-card artifact instead of plain text (observed live,

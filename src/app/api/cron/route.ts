@@ -16,7 +16,8 @@ import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 import { buildMemoryContext } from '@/lib/memory/context';
-import { sendBrief, stripArtifactBlocks } from '@/lib/email';
+import { sendBrief, stripArtifactBlocks, extractProseFromArtifact } from '@/lib/email';
+import { SURFACED_ACTION_TYPES } from '@/lib/action-lanes';
 import { pickModel } from '@/lib/llm/router';
 import { typesForLane } from '@/lib/pending-actions';
 import { logSignalActivity } from '@/lib/signal-activity-log';
@@ -202,7 +203,7 @@ interface ScoreDelta {
  * `skillMapToday` is returned so the caller can reuse it as a baseline before
  * the stale-skill executor (Phase E) recomputes after a fresh rerun.
  */
-async function computeScoreDelta(projectId: string): Promise<ScoreDelta> {
+async function computeScoreDelta(projectId: string, locale: 'en' | 'it' = 'en'): Promise<ScoreDelta> {
   const rows = await query<SkillCompletionRow>(
     'SELECT skill_id, summary, completed_at FROM skill_completions WHERE project_id = ?',
     projectId,
@@ -246,7 +247,15 @@ async function computeScoreDelta(projectId: string): Promise<ScoreDelta> {
   });
   const labels = recently.map((s) => s.label);
   const sign = delta > 0 ? '+' : '';
-  const line = `Score: ${yesterday.toFixed(1)} → ${today.toFixed(1)} (Δ${sign}${delta.toFixed(1)}) · last 24h: ${labels.join(', ') || 'no skills completed'}`;
+  // The reflection prompt orders the model to open with this line VERBATIM —
+  // so on an Italian project it MUST be Italian, or every Riflessione
+  // settimanale opens in English (audit 48h, cluster D). Skill labels stay as
+  // product names.
+  const none = locale === 'it' ? 'nessuna skill completata' : 'no skills completed';
+  const frame = locale === 'it'
+    ? (a: string, b: string, d: string, l: string) => `Punteggio: ${a} → ${b} (Δ${d}) · ultime 24h: ${l}`
+    : (a: string, b: string, d: string, l: string) => `Score: ${a} → ${b} (Δ${d}) · last 24h: ${l}`;
+  const line = frame(yesterday.toFixed(1), today.toFixed(1), `${sign}${delta.toFixed(1)}`, labels.join(', ') || none);
 
   return {
     yesterday,
@@ -1027,12 +1036,22 @@ async function processHeartbeats(
       // reflection. Memory context + pending + alerts give the agent the
       // facts it needs without burning tokens on re-fetching everything.
       const memCtx = await buildMemoryContext(project.owner_user_id, project.id, { maxEvents: 30 });
-      const pending = await query<{ id: string; title: string; status: string; created_at: string }>(
-        `SELECT id, title, status, created_at FROM pending_actions
+      const pending = await query<{ id: string; title: string; status: string; created_at: string; action_type: string }>(
+        `SELECT id, title, status, created_at, action_type FROM pending_actions
          WHERE project_id = ? AND status = 'pending'
          ORDER BY created_at DESC LIMIT 10`,
         project.id,
       );
+      // The EMAIL lists only actions the founder can actually accept somewhere
+      // in the UI. During the alpha, assumption_review & co. live in
+      // pending_actions with working executors but NO accept surface — an
+      // email saying "Azioni in attesa (16)" whose CTA lands on a page showing
+      // zero of them is a broken promise (audit 48h; same pathology as the
+      // "38 actions / 0 visible" badge bug). The full set still feeds the
+      // reflection prompt: the model may reason about them, the email may not
+      // promise them.
+      const surfacedPending = pending.filter((p) =>
+        (SURFACED_ACTION_TYPES as readonly string[]).includes(p.action_type));
       const alerts = await query<{ headline: string; relevance_score: number; created_at: string; source_url: string | null }>(
         `SELECT headline, relevance_score, created_at, source_url FROM ecosystem_alerts
          WHERE project_id = ? AND reviewed_state = 'pending'
@@ -1052,7 +1071,7 @@ async function processHeartbeats(
 
       // Phase D: prepend a one-line score delta so the reflection narrates
       // *why* readiness moved instead of generic "good progress" prose.
-      const scoreDelta = await computeScoreDelta(project.id);
+      const scoreDelta = await computeScoreDelta(project.id, locale);
 
       const systemPrompt = buildSystemPromptString({
         locale,
@@ -1071,7 +1090,11 @@ async function processHeartbeats(
       // 27/07). Everything downstream — the memory_events feed, the activity
       // page, the Monday Brief email — slices this string, so one strip here
       // keeps escaped JSON out of all three.
-      const reflection = stripArtifactBlocks(rawReflection);
+      let reflection = stripArtifactBlocks(rawReflection);
+      // All-artifact reflections strip to EMPTY (the model sometimes answers
+      // with ONLY the insight-card). The card's sections carry real prose —
+      // rescue it rather than shipping an email with no reflection at all.
+      if (!reflection) reflection = extractProseFromArtifact(rawReflection);
       const latencyMs = Date.now() - startedAt;
 
       // Record usage so the reflection cost counts toward budget.
@@ -1111,7 +1134,7 @@ async function processHeartbeats(
           locale,
           projectId: project.id,
           projectName: project.name,
-          pendingActions: pending.map((p) => ({ id: p.id, title: p.title })),
+          pendingActions: surfacedPending.map((p) => ({ id: p.id, title: p.title })),
           ecosystemAlerts: alerts.map((a) => ({
             headline: a.headline,
             relevance_score: a.relevance_score,

@@ -242,10 +242,15 @@ export async function computeNextBestAction(projectId: string, opts: ComputeOpts
   // but no baseline score never gets pointed at startup-scoring. Override it.
   const phase0Scoring = !cold_start && await needsPhase0Scoring(projectId);
   if (phase0Scoring) {
+    // Clarity, NOT the full rubric: phase-0 is pre-gate by construction, and
+    // the startup kickoff's "score the absence (low)" is exactly the punishing
+    // experience the #401 split removed. This override is injected into EVERY
+    // chat turn, which made it the most damaging of the four stale copies the
+    // 48h audit found.
     recommended_skill = {
-      id: 'startup-scoring',
-      label: 'Startup Score',
-      kickoff: SKILL_KICKOFFS['startup-scoring'],
+      id: 'clarity-scoring',
+      label: 'Clarity Score',
+      kickoff: SKILL_KICKOFFS['clarity-scoring'],
       stage_number: 1,
     };
   }

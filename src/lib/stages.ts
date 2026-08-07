@@ -75,7 +75,13 @@ export const STAGES: StageDef[] = [
     color: 'blue',
     skills: [
       { id: 'idea-shaping', label: 'Idea Canvas', route: 'chat?skill=idea-shaping', dataKey: 'idea_canvas' },
-      { id: 'startup-scoring', label: 'Startup Score', route: 'chat?skill=startup-scoring', dataKey: 'scores' },
+      // Stage 1's scorer is CLARITY post-split (#401). Swapping (not adding)
+      // matters: with both listed, the readiness engine would flag
+      // startup-scoring as "missing" at Stage 1 and recommend the full rubric
+      // pre-gate — the drift the 48h audit caught in three sibling copies.
+      // Legacy projects whose startup run credited Stage 1 lose that credit;
+      // accepted, it is the honest reading post-split.
+      { id: 'clarity-scoring', label: 'Clarity Score', route: 'chat?skill=clarity-scoring', dataKey: 'scores' },
     ],
   },
   {
@@ -84,6 +90,9 @@ export const STAGES: StageDef[] = [
     color: 'purple',
     skills: [
       { id: 'market-research', label: 'Market Research', route: 'chat?skill=market-research', dataKey: 'research' },
+      // The full rubric belongs where its evidence exists — and 1C's
+      // scoring_review counts exactly a startup-scoring run.
+      { id: 'startup-scoring', label: 'Startup Score', route: 'chat?skill=startup-scoring', dataKey: 'scores' },
       // L2 Validation Gate · track 1B — technical feasibility / dependencies /
       // regulatory. Validates incrementally from chat (memory_facts) and closes
       // the 1B checks in stage-2-market-validation.ts.

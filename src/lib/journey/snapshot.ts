@@ -90,14 +90,15 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
         ORDER BY version_number ASC LIMIT 1`,
       projectId,
     ).catch(() => []),
-    // Re-scorings recorded AFTER the founder started interviewing. score_history
-    // skips no-change appends, so every row here is a score that actually moved
-    // on evidence gathered from customers rather than a re-run of the baseline.
+    // FULL-RUBRIC re-scorings recorded AFTER the founder started interviewing —
+    // source-filtered, or a chat gauge artifact (source 'gauge-chart') would
+    // green 1C's scoring_review without any real evidence re-score (48h audit).
     // Anchored on the FIRST interview, not the last, so logging one more
     // interview can never un-green a review the founder already did.
     query<{ cnt: number }>(
       `SELECT COUNT(*) as cnt FROM score_history
         WHERE project_id = ?
+          AND source = 'startup-scoring'
           AND created_at > (SELECT MIN(created_at) FROM interviews WHERE project_id = ?)`,
       projectId, projectId,
     ).catch(() => [{ cnt: 0 }]),

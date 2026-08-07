@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripArtifactBlocks, renderBriefHtml } from './email';
+import { stripArtifactBlocks, renderBriefHtml, extractProseFromArtifact } from './email';
 
 /**
  * The Monday Brief goes live 2026-08-10 — the founder's FIRST-ever email from
@@ -60,5 +60,22 @@ describe('renderBriefHtml locale', () => {
     expect(html).toContain('Your Monday Brief');
     expect(html).toContain('Weekly reflection');
     expect(html).not.toContain('Daily reflection');
+  });
+});
+
+describe('extractProseFromArtifact — the all-artifact reflection rescue', () => {
+  it('pulls section prose out of an insight-card-only reply', () => {
+    const raw = ':::artifact\n```json\n' + JSON.stringify({
+      type: 'insight-card', title: 'Heartbeat',
+      content: { sections: [{ heading: 'Cosa è cambiato', body: 'Hai chiuso il canvas e avviato il mapping.' }] },
+    }) + '\n```\n:::';
+    // stripArtifactBlocks yields '' here — the guard case the audit found:
+    // heartbeat completed, email silently missing its reflection.
+    expect(stripArtifactBlocks(raw)).toBe('');
+    expect(extractProseFromArtifact(raw)).toContain('Hai chiuso il canvas');
+  });
+
+  it('returns empty on garbage instead of throwing', () => {
+    expect(extractProseFromArtifact('no json here')).toBe('');
   });
 });

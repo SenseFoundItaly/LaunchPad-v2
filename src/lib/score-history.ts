@@ -20,11 +20,15 @@ export async function recordScoreHistory(
     // would otherwise append consecutive identical values (7.1, 7.1) — sparkline
     // noise. A point is an EVENT only when the score actually moved. Rounded to
     // 2dp so float jitter doesn't count as a change.
-    const last = await get<{ overall_score: number }>(
-      `SELECT overall_score FROM score_history WHERE project_id = ? ORDER BY created_at DESC LIMIT 1`,
+    const last = await get<{ overall_score: number; source: string | null }>(
+      `SELECT overall_score, source FROM score_history WHERE project_id = ? ORDER BY created_at DESC LIMIT 1`,
       projectId,
     );
-    if (last && Math.round(last.overall_score * 100) === Math.round(overallScore * 100)) return;
+    // Skip only a TRUE no-change: same number AND same source. A startup run
+    // landing on the same integer as the old clarity run is a kind change —
+    // without a row, GET /score keeps labeling fresh Startup dimensions
+    // "Clarity Score" (48h audit).
+    if (last && Math.round(last.overall_score * 100) === Math.round(overallScore * 100) && last.source === source) return;
     await run(
       `INSERT INTO score_history (id, project_id, overall_score, recommendation, source)
        VALUES (?, ?, ?, ?, ?)`,

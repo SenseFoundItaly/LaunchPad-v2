@@ -9,10 +9,20 @@ import { recordScoreHistory, getScoreHistory } from '@/lib/score-history';
 describe('recordScoreHistory', () => {
   beforeEach(() => { runMock.mockReset(); getMock.mockReset(); getMock.mockResolvedValue(undefined); });
 
-  it('skips a no-change point (same value as the last, 2dp) — sparkline noise guard', async () => {
-    getMock.mockResolvedValueOnce({ overall_score: 7.10 });
+  it('skips a no-change point (same value AND same source, 2dp) — sparkline noise guard', async () => {
+    getMock.mockResolvedValueOnce({ overall_score: 7.10, source: 'gauge-chart' });
     await recordScoreHistory('p1', 7.104, 'gauge-chart');
     expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it('appends when the SOURCE changed even at the same value — a kind change is an event', async () => {
+    // 48h audit: a startup-scoring run landing on the same integer as the old
+    // clarity run appended nothing, so GET /score kept labeling the fresh
+    // Startup dimensions "Clarity Score". Same number, different scoring =
+    // a row, or the headline lies about what it is.
+    getMock.mockResolvedValueOnce({ overall_score: 78, source: 'clarity-scoring' });
+    await recordScoreHistory('p1', 78, 'startup-scoring');
+    expect(runMock).toHaveBeenCalledOnce();
   });
 
   it('appends when the score actually moved', async () => {
