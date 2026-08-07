@@ -30,7 +30,11 @@ function active(number: number, label = `Stage ${number}`) {
 
 describe('stageNumberForSkill', () => {
   it('maps skills to their pipeline stage', () => {
-    expect(stageNumberForSkill('startup-scoring')).toBe(1);      // stage 1
+    // Post-split (#401 + 48h audit): Stage 1's scorer is clarity; the full
+    // rubric lives at Stage 2 where its evidence exists — which also means the
+    // stage lock correctly refuses startup-scoring before Stage 1 completes.
+    expect(stageNumberForSkill('clarity-scoring')).toBe(1);
+    expect(stageNumberForSkill('startup-scoring')).toBe(2);
     expect(stageNumberForSkill('market-research')).toBe(2);      // stage 2
     expect(stageNumberForSkill('prototype-spec')).toBe(5);       // Build & Launch
     expect(stageNumberForSkill('investment-readiness')).toBe(6); // Fundraise

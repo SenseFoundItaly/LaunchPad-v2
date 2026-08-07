@@ -48,7 +48,9 @@ export async function GET(
   // panel label the number honestly — a Clarity Score presented as a Startup
   // Score would resurrect exactly the confusion the split removed.
   const lastHist = await get<{ source: string | null }>(
-    `SELECT source FROM score_history WHERE project_id = ? ORDER BY created_at DESC LIMIT 1`,
+    `SELECT source FROM score_history WHERE project_id = ?
+      AND source IN ('clarity-scoring', 'startup-scoring')
+      ORDER BY created_at DESC LIMIT 1`,
     projectId,
   ).catch(() => null);
   const kind = lastHist?.source === 'clarity-scoring' ? 'clarity' : 'startup';

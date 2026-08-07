@@ -43,7 +43,7 @@ const stores = new Map<string, ChatStore>();
 // successful recharge can re-send them automatically — the founder shouldn't
 // lose what they typed to the modal. Cleared on resend or when superseded by a
 // new manual send.
-const pendingResends = new Map<string, string>();
+const pendingResends = new Map<string, { text: string; target: string | null }>();
 
 function keyFor(projectId: string, step: string): string {
   return `${projectId}::${step}`;
@@ -198,7 +198,10 @@ export function useChat(projectId: string, step: string = 'chat') {
               // losing the message to the modal is the bug. Then drop the
               // optimistic user+assistant placeholders (the turn never started)
               // and open the recharge modal.
-              pendingResends.set(keyFor(projectId, step), content);
+              // Stash the TARGET too: a founder who pressed a spine substep,
+              // hit the credit wall and recharged must not lose the step they
+              // were closing (48h audit, cluster B).
+              pendingResends.set(keyFor(projectId, step), { text: content, target: targetCheck ?? null });
               requestRecharge({ remaining: body.credits_remaining ?? 0 });
               patch(store, { messages: currentMessages });
               return;
@@ -322,7 +325,7 @@ export function useChat(projectId: string, step: string = 'chat') {
       const pending = pendingResends.get(key);
       if (pending) {
         pendingResends.delete(key);
-        void sendRef.current(pending);
+        void sendRef.current(pending.text, pending.target);
       }
     };
     window.addEventListener(RECHARGED_EVENT, onRecharged);

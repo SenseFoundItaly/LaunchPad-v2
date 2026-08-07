@@ -118,3 +118,21 @@ describe('founder-facing copy says Clarity, both locales', () => {
     expect(stage1).toContain("label: 'Clarity Score baseline (0-100)'");
   });
 });
+
+describe('the scoring-skill decision has ONE home (48h audit, cluster A)', () => {
+  it('no phase-0 surface still hardcodes the full rubric', () => {
+    // Each of these was a stale copy the audit confirmed: a founder-facing
+    // surface labeled Clarity that ran startup-scoring pre-gate.
+    expect(read('src/app/api/projects/[projectId]/brief/route.ts')).toContain("skill_id: 'clarity-scoring'");
+    expect(read('src/lib/direction/index.ts')).toMatch(/phase0Scoring[\s\S]{0,400}'clarity-scoring'/);
+    // Stage-1 pipeline scorer is clarity; the full rubric lives at Stage 2.
+    const stages = read('src/lib/stages.ts');
+    expect(stages).toMatch(/canonicalStageLabel\(1\)[\s\S]{0,900}clarity-scoring/);
+  });
+
+  it('kind + scoring_review read only the two scoring skills', () => {
+    expect(read('src/app/api/projects/[projectId]/score/route.ts'))
+      .toContain("source IN ('clarity-scoring', 'startup-scoring')");
+    expect(read('src/lib/journey/snapshot.ts')).toMatch(/score_history[\s\S]{0,200}source = 'startup-scoring'/);
+  });
+});

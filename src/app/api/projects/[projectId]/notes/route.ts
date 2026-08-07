@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
-import { json, error } from '@/lib/api-helpers';
+import { json, error, generateId } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
+import { run, get } from '@/lib/db';
 import { recordFact } from '@/lib/memory/facts';
 import { extractEntitiesFromNote } from '@/lib/note-entity-extract';
 import { stageValidationProposal } from '@/lib/project-tools';
@@ -67,7 +68,30 @@ export async function POST(
         items as never,
         'note',
       );
-      if (res.ok) staged = res.itemCount;
+      if (res.ok) {
+        staged = res.itemCount;
+        // The card MUST land somewhere the founder can act on it. During the
+        // alpha, validation_proposal has NO inbox surface (action-lanes.ts:
+        // the 'approval' lane renders only in chat) — the first version of
+        // this route discarded res.artifactBlock, leaving an approvable card
+        // in the DB that no screen showed: the exact "handoff gap" class this
+        // codebase keeps re-finding (48h audit, cluster C). Persist it as an
+        // assistant chat message (the brief-route pattern) so the founder
+        // finds it in the co-pilot thread.
+        const msgId = generateId('msg');
+        // In-project surfaces follow project.locale — hardcoding either
+        // language here would be the exact leak class the 48h audit flagged.
+        const loc = await get<{ locale: string | null }>(
+          'SELECT locale FROM projects WHERE id = ?', projectId).catch(() => null);
+        const noteIntro = loc?.locale === 'it'
+          ? 'Ho letto la tua nota — ci ho trovato queste entità. Approvale se vuoi che entrino nella tua knowledge:'
+          : 'I read your note — it names these entities. Approve them if you want them in your knowledge:';
+        await run(
+          `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
+           VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
+          msgId, projectId, `${noteIntro}\n\n${res.artifactBlock}`, new Date().toISOString(), auth.session.userId,
+        ).catch((err) => console.warn('[notes] chat card persist failed (non-fatal):', (err as Error).message));
+      }
     }
   } catch (err) {
     console.warn('[notes] entity staging failed (non-fatal):', (err as Error).message);

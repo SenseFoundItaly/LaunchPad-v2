@@ -615,7 +615,14 @@ export default function CopilotChatPage({
   // flag across call sites.
   const sendMessage = useCallback((content: string, targetCheck?: string | null) => {
     forceScrollRef.current = true;
-    sendMessageRaw(content, targetCheck);
+    // targetCheck flows ONLY when the caller passes it explicitly (handleSend).
+    // Option clicks / quick replies / task actions call sendMessage(content)
+    // and must never inherit the latched substep — the 48h audit caught the
+    // latch riding along on an unrelated later send.
+    sendMessageRaw(content, targetCheck ?? null);
+    // Any send moves the conversation on — a latched substep from a previous
+    // click is stale after it, whoever initiated the send.
+    setTargetCheck(null);
   }, [sendMessageRaw]);
 
   // Fire lp-actions-changed immediately when streaming ends so downstream
@@ -893,11 +900,9 @@ export default function CopilotChatPage({
   function handleSend() {
     const v = input.trim();
     if (!v || isStreaming) return;
-    // Spend the target on THIS send only: the founder pressed one substep, and
-    // the two messages after it are a different conversation. Leaving it set
-    // would aim every later turn at a step they have moved past.
+    // Spend the target on THIS send only — the wrapper clears the latch after
+    // every send, whoever initiated it.
     sendMessage(v, targetCheck);
-    setTargetCheck(null);
     clearDraft();
   }
 
@@ -1580,7 +1585,7 @@ export default function CopilotChatPage({
               ) : messages.length === 0 ? (
                 <ChatEmptyState
                   projectId={projectId}
-                  onPick={(s) => setInput(s)}
+                  onPick={(s, checkId) => { setInput(s); setTargetCheck(checkId ?? null); }}
                 />
               ) : (
                 <>
@@ -1850,7 +1855,7 @@ function ChatEmptyState({
   onPick,
 }: {
   projectId: string;
-  onPick: (s: string) => void;
+  onPick: (s: string, checkId?: string) => void;
 }) {
   const t = useT();
   const locale = useLocale();
@@ -1933,7 +1938,7 @@ function ChatEmptyState({
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {openChecks.slice(0, 4).map((c) => (
-                <button key={c.check.id} onClick={() => onPick(checkActionPrompt(c.check.label, t))} style={btnStyle}>
+                <button key={c.check.id} onClick={() => onPick(checkActionPrompt(c.check.label, t), c.check.id)} style={btnStyle}>
                   <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{checkLabel(c.check.id, c.check.label, t)}</span>
                   {c.result.gap && (
                     <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-5)', marginTop: 2 }}>{checkGap(c.check.id, c.result.gap, t, locale)}</span>

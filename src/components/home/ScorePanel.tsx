@@ -164,7 +164,11 @@ export function ScorePanel({ projectId }: { projectId: string }) {
   // Shared splitter (score-display.ts) — the canvas BaselineScoreCard peels the
   // same prefix, and two inline regexes WILL drift (the OptionSetCard lesson).
   const { verdict, text: recommendationText } = splitVerdict(score?.recommendation);
-  const runHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(t('journey-prompt.scoring'))}`;
+  // The CTA must ask for the scoring the panel is SHOWING: post-gate the
+  // Clarity phrasing would replace an evidence-based Startup score with a
+  // canvas-only one (48h audit). kind comes from GET /score.
+  const runHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(
+    t(score?.kind === 'startup' ? 'journey-prompt.scoring-review' : 'journey-prompt.scoring'))}`;
 
   return (
     <section data-tour="score-panel" style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-l)', overflow: 'hidden' }}>

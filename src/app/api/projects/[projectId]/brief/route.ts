@@ -165,10 +165,14 @@ ${ctx}`;
       options = options.filter((o) => o.label !== scoringLabel);
       // NO credits field — per-action price quotes were deleted from every
       // founder surface (PR #187); the click still runs the skill via skill_id.
+      // Phase-0 IS the Clarity window by construction (canvas done, no
+      // baseline) — this button said Clarity and ran the full punishing rubric
+      // (48h audit, cluster A: the "which scoring" decision had drifted into
+      // four hand-kept copies; this was one).
       options.unshift({
-        id: 'run_startup_scoring',
+        id: 'run_clarity_scoring',
         label: scoringLabel,
-        skill_id: 'startup-scoring',
+        skill_id: 'clarity-scoring',
       });
     }
     const optArtifact = `:::artifact{"type":"option-set","id":"opt_brief"}\n${JSON.stringify({ prompt: t('brief.where-to-start'), options })}\n:::`;
