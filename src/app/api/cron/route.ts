@@ -16,7 +16,7 @@ import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { recordEvent } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
 import { buildMemoryContext } from '@/lib/memory/context';
-import { sendBrief } from '@/lib/email';
+import { sendBrief, stripArtifactBlocks } from '@/lib/email';
 import { pickModel } from '@/lib/llm/router';
 import { typesForLane } from '@/lib/pending-actions';
 import { logSignalActivity } from '@/lib/signal-activity-log';
@@ -1062,10 +1062,16 @@ async function processHeartbeats(
       });
 
       const startedAt = Date.now();
-      const { text: reflection, usage } = await runAgent(
+      const { text: rawReflection, usage } = await runAgent(
         'Run the heartbeat reflection for this project.',
         { systemPrompt, timeout: 90000, task: 'heartbeat-reflect' },
       );
+      // Strip at the SOURCE: the model sometimes emits the reflection as an
+      // insight-card artifact despite the plain-text instruction (DeskMate
+      // 27/07). Everything downstream — the memory_events feed, the activity
+      // page, the Monday Brief email — slices this string, so one strip here
+      // keeps escaped JSON out of all three.
+      const reflection = stripArtifactBlocks(rawReflection);
       const latencyMs = Date.now() - startedAt;
 
       // Record usage so the reflection cost counts toward budget.
@@ -1102,6 +1108,7 @@ async function processHeartbeats(
       try {
         const briefResult = await sendBrief({
           userId: project.owner_user_id,
+          locale,
           projectId: project.id,
           projectName: project.name,
           pendingActions: pending.map((p) => ({ id: p.id, title: p.title })),

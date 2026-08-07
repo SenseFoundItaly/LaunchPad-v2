@@ -13,6 +13,25 @@
  */
 
 import { query } from '@/lib/db';
+import { translate, type TranslateVars, type MessageKey } from '@/lib/i18n/messages';
+import type { Locale } from '@/lib/i18n/locales';
+
+/**
+ * Strip `:::artifact … :::` blocks — closed AND an unterminated trailing one —
+ * from LLM prose before it reaches an email. The weekly reflection sometimes
+ * arrives as an insight-card artifact instead of plain text (observed live,
+ * DeskMate 27/07): without this, the founder's very first Monday Brief opens
+ * with 400 characters of escaped JSON. Same two-regex idiom the monitor stream
+ * and print-utils use; exported so the cron strips at the SOURCE too (the
+ * memory_events feed had the same bug).
+ */
+export function stripArtifactBlocks(text: string): string {
+  return text
+    .replace(/:::artifact[\s\S]*?:::/g, '')
+    .replace(/:::artifact[\s\S]*$/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_ADDRESS = process.env.SENSEFOUND_MAIL_FROM || process.env.LAUNCHPAD_MAIL_FROM || 'brief@sensefound.io';
@@ -20,6 +39,9 @@ const APP_URL = process.env.SENSEFOUND_APP_URL || process.env.LAUNCHPAD_APP_URL 
 
 export interface BriefEmailInput {
   userId: string;
+  /** The PROJECT's locale — in-project surfaces follow project.locale, and an
+   *  email about a project is one. Defaults to English. */
+  locale?: Locale;
   projectId: string;
   projectName: string;
   pendingActions: { id: string; title: string; rationale?: string }[];
@@ -54,7 +76,14 @@ export async function sendBrief(input: BriefEmailInput): Promise<SendResult> {
     return { stubbed: true, ok: false, error: 'No email on file for user' };
   }
 
-  const html = renderBriefHtml(input);
+  // Defensive strip even though the cron strips at source — sendBrief must be
+  // safe for ANY caller.
+  const safeInput: BriefEmailInput = {
+    ...input,
+    heartbeatSummary: input.heartbeatSummary ? stripArtifactBlocks(input.heartbeatSummary) : undefined,
+  };
+  const html = renderBriefHtml(safeInput);
+  const locale: Locale = input.locale ?? 'en';
 
   if (!RESEND_API_KEY) {
     console.log(
@@ -78,7 +107,7 @@ export async function sendBrief(input: BriefEmailInput): Promise<SendResult> {
       body: JSON.stringify({
         from: FROM_ADDRESS,
         to,
-        subject: `Your Monday Brief — ${input.projectName}`,
+        subject: translate(locale, 'brief.email.subject', { project: input.projectName }),
         html,
       }),
     });
@@ -96,18 +125,22 @@ export async function sendBrief(input: BriefEmailInput): Promise<SendResult> {
  * SenseFound-branded HTML template. Table-based layout with inline styles
  * for consistent rendering across all mail clients.
  */
-function renderBriefHtml(input: BriefEmailInput): string {
+// Exported for the render test: the founder's first-ever brief must be provably
+// clean (no artifact markup) and in the project's language.
+export function renderBriefHtml(input: BriefEmailInput): string {
+  const locale: Locale = input.locale ?? 'en';
+  const t = (k: MessageKey, v?: TranslateVars) => translate(locale, k, v);
   const actionsBlock = input.pendingActions.length > 0
-    ? `<h3 style="font-size:15px;margin:18px 0 8px 0;color:#16140F;">Pending actions (${input.pendingActions.length})</h3>
+    ? `<h3 style="font-size:15px;margin:18px 0 8px 0;color:#16140F;">${t('brief.email.actions', { n: input.pendingActions.length })}</h3>
        <ul style="padding-left:18px;margin:0;">
          ${input.pendingActions.slice(0, 5).map(a =>
            `<li style="margin-bottom:6px;color:#2A2620;"><strong>${escapeHtml(a.title)}</strong>${a.rationale ? `<br/><span style="color:#6B6558;font-size:13px;">${escapeHtml(a.rationale)}</span>` : ''}</li>`,
          ).join('')}
        </ul>`
-    : '<p style="color:#8F897A;">No pending actions this week.</p>';
+    : `<p style="color:#8F897A;">${t('brief.email.no-actions')}</p>`;
 
   const alertsBlock = input.ecosystemAlerts.length > 0
-    ? `<h3 style="font-size:15px;margin:18px 0 8px 0;color:#16140F;">Ecosystem alerts</h3>
+    ? `<h3 style="font-size:15px;margin:18px 0 8px 0;color:#16140F;">${t('brief.email.alerts')}</h3>
        <ul style="padding-left:18px;margin:0;">
          ${input.ecosystemAlerts.slice(0, 3).map(a =>
            `<li style="margin-bottom:6px;color:#2A2620;">${escapeHtml(a.headline)} <span style="color:#8F897A;font-size:12px;">(relevance ${a.relevance_score.toFixed(2)})</span></li>`,
@@ -117,16 +150,16 @@ function renderBriefHtml(input: BriefEmailInput): string {
 
   const heartbeatBlock = input.heartbeatSummary
     ? `<div style="padding:12px 14px;background:#F5E6DC;border-radius:6px;margin:18px 0;color:#2A2620;font-size:14px;">
-         <strong style="color:#16140F;">Daily reflection</strong><br/>${escapeHtml(input.heartbeatSummary)}
+         <strong style="color:#16140F;">${t('brief.email.reflection')}</strong><br/>${escapeHtml(input.heartbeatSummary)}
        </div>`
     : '';
 
   const briefsBlock = input.intelligenceBriefs && input.intelligenceBriefs.length > 0
-    ? `<h3 style="font-size:15px;margin:18px 0 8px 0;color:#16140F;">Intelligence briefs</h3>
+    ? `<h3 style="font-size:15px;margin:18px 0 8px 0;color:#16140F;">${t('brief.email.briefs')}</h3>
        ${input.intelligenceBriefs.slice(0, 2).map(b =>
          `<div style="padding:10px 12px;background:#E8F0EB;border-radius:6px;margin-bottom:8px;border-left:3px solid #6B9B80;">
            <strong style="font-size:13px;color:#16140F;">${escapeHtml(b.title)}</strong>
-           ${b.temporal_prediction ? `<br/><span style="font-size:11px;color:#6B6558;font-style:italic;">Prediction: ${escapeHtml(b.temporal_prediction)}</span>` : ''}
+           ${b.temporal_prediction ? `<br/><span style="font-size:11px;color:#6B6558;font-style:italic;">${t('brief.email.prediction')} ${escapeHtml(b.temporal_prediction)}</span>` : ''}
            <br/><span style="font-size:12px;color:#2A2620;">${escapeHtml(b.narrative.slice(0, 200))}${b.narrative.length > 200 ? '\u2026' : ''}</span>
          </div>`,
        ).join('')}`
@@ -134,7 +167,7 @@ function renderBriefHtml(input: BriefEmailInput): string {
 
   return `
 <!DOCTYPE html>
-<html lang="en">
+<html lang="${locale}">
 <body style="margin:0;padding:0;font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:#FAF5EE;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#FAF5EE;">
     <tr>
@@ -159,8 +192,8 @@ function renderBriefHtml(input: BriefEmailInput): string {
           <!-- Content area -->
           <tr>
             <td style="padding:24px 40px 0 40px;">
-              <h1 style="font-size:22px;margin:0 0 4px 0;color:#16140F;">Your Monday Brief</h1>
-              <p style="color:#6B6558;margin:0 0 4px 0;font-size:14px;">Here's what matters for <strong style="color:#2A2620;">${escapeHtml(input.projectName)}</strong> this week.</p>
+              <h1 style="font-size:22px;margin:0 0 4px 0;color:#16140F;">${t('brief.email.title')}</h1>
+              <p style="color:#6B6558;margin:0 0 4px 0;font-size:14px;">${escapeHtml(t('brief.email.intro', { project: input.projectName }))}</p>
             </td>
           </tr>
           <tr>
@@ -172,7 +205,7 @@ function renderBriefHtml(input: BriefEmailInput): string {
               <p style="margin:24px 0 0 0;">
                 <a href="${APP_URL}/project/${input.projectId}/actions"
                    style="display:inline-block;padding:12px 24px;background:#6B9B80;color:#FFFFFF;text-decoration:none;border-radius:6px;font-size:14px;font-weight:600;">
-                  Open your workspace &#8599;
+                  ${escapeHtml(t('brief.email.cta'))}
                 </a>
               </p>
             </td>

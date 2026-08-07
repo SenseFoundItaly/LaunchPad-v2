@@ -1487,6 +1487,17 @@ export const it: Partial<Record<MessageKey, string>> = {
 
   // ── Badge crediti + popover (feedback alpha 21/07: era hardcoded EN) ───────
   'nav.usage': 'Utilizzo',
+  // ── Email Monday Brief (src/lib/email.ts) — la cornice segue project.locale ──
+  'brief.email.subject': 'La tua Monday Brief — {project}',
+  'brief.email.title': 'La tua Monday Brief',
+  'brief.email.intro': 'Cosa conta per {project} questa settimana.',
+  'brief.email.reflection': 'Riflessione settimanale',
+  'brief.email.actions': 'Azioni in attesa ({n})',
+  'brief.email.no-actions': 'Nessuna azione in attesa questa settimana.',
+  'brief.email.alerts': "Segnali dall'ecosistema",
+  'brief.email.briefs': 'Brief di intelligence',
+  'brief.email.prediction': 'Previsione:',
+  'brief.email.cta': 'Apri il tuo workspace ↗',
   'credits.chip': '{n}/{total} crediti',
   'credits.chip-loading': '— crediti',
   'credits.chip-tooltip': 'Crediti — il budget mensile del tuo progetto',

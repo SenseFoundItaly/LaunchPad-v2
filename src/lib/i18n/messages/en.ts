@@ -1510,6 +1510,17 @@ export const en = {
 
   // ── Credits badge + popover (alpha feedback 21/07: was hardcoded EN) ───────
   'nav.usage': 'Usage',
+  // ── Monday Brief email (src/lib/email.ts) — the frame follows project.locale ──
+  'brief.email.subject': 'Your Monday Brief — {project}',
+  'brief.email.title': 'Your Monday Brief',
+  'brief.email.intro': "Here's what matters for {project} this week.",
+  'brief.email.reflection': 'Weekly reflection',
+  'brief.email.actions': 'Pending actions ({n})',
+  'brief.email.no-actions': 'No pending actions this week.',
+  'brief.email.alerts': 'Ecosystem alerts',
+  'brief.email.briefs': 'Intelligence briefs',
+  'brief.email.prediction': 'Prediction:',
+  'brief.email.cta': 'Open your workspace ↗',
   'credits.chip': '{n}/{total} credits',
   'credits.chip-loading': '— credits',
   'credits.chip-tooltip': "Credits — your project's monthly budget",
