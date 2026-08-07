@@ -1716,6 +1716,9 @@ export const it: Partial<Record<MessageKey, string>> = {
   'shell.close-inspector': 'Chiudi ispettore',
   'shell.close-esc': 'Chiudi (Esc)',
   'shell.download-file': 'Scarica {file}',
+  'shell.export-doc': 'Documento di testo (.md)',
+  'shell.export-pdf': 'PDF (stampa)',
+  'shell.export-data': 'Dati grezzi ({ext})',
   // ── i18n gap audit 21/07 — artifact cards (batch B) ─────
   // Chrome comune delle card (typeLabel + click-to-edit)
   'card.type-metrics': 'Metriche',
