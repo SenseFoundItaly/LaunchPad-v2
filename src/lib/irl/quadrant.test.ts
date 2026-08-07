@@ -44,12 +44,15 @@ describe('an unscored project is unmeasured, not bad', () => {
 });
 
 describe('the score axis is stricter than the ladder\'s rung-2 bar', () => {
-  it('clearing IRL_SCORE_BAR is NOT the same as being promising', () => {
-    // 40 earns rung 2 ("a real score exists") but is the caution band — being
-    // countable is not being promising, and the quadrant must not conflate them.
-    expect(IRL_SCORE_BAR).toBe(40);
-    expect(scoreIsHigh(IRL_SCORE_BAR)).toBe(false);
-    expect(quadrantFor(IRL_SCORE_BAR, 9)).toBe('developed_low_potential');
+  it('rung 2 and the quadrant score-axis now share the GO bar', () => {
+    // History: rung 2 sat at 40 (caution floor) and this test pinned that the
+    // quadrant's "promising" axis was STRICTER. The Clarity split gave the
+    // first score explicit verdicts and rung 2 was raised to the GO bar
+    // (2026-08-07) — a rung earned on a "fix something first" score
+    // contradicts itself. The two bars now agree at 70; if either moves
+    // independently again, this is the assertion that forces the discussion.
+    expect(IRL_SCORE_BAR).toBe(70);
+    expect(scoreIsHigh(IRL_SCORE_BAR)).toBe(true);
   });
 
   it('reuses band() boundaries exactly — 55 promising, 54 not', () => {
