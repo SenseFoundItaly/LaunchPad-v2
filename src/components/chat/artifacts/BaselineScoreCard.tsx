@@ -19,8 +19,9 @@ import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { useT } from '@/components/providers/LocaleProvider';
 import { ScoreCard } from '@/components/charts';
+import { Pill } from '@/components/design/primitives';
 import ScoreTrajectory from '@/components/charts/ScoreTrajectory';
-import { band, normalizeDimensions, to100 } from '@/lib/score-display';
+import { band, normalizeDimensions, to100, splitVerdict } from '@/lib/score-display';
 import type { ScoreCardArtifact } from '@/types/artifacts';
 
 interface ScoreResp {
@@ -28,6 +29,9 @@ interface ScoreResp {
   dimensions: unknown;
   recommendation: string | null;
   scored_at: string | null;
+  /** Which scoring produced the headline — GET /score derives it from the
+   *  trajectory's newest source (clarity pre-gate, startup post-1A/1B). */
+  kind?: 'clarity' | 'startup';
 }
 
 export default function BaselineScoreCard({ artifact }: { artifact: ScoreCardArtifact }) {
@@ -58,10 +62,20 @@ export default function BaselineScoreCard({ artifact }: { artifact: ScoreCardArt
   const overall = Math.round(to100(overallRaw));
   const b = band(overall);
   const dims = normalizeDimensions(data?.dimensions).map((d) => ({ ...d, score: to100(d.score) }));
-  const recommendation = data?.recommendation?.trim() || artifact.description?.trim() || '';
+  // Same splitter as Home's ScorePanel — a Clarity verdict renders as a chip,
+  // not as the first word of the prose.
+  const { verdict, text: recText } = splitVerdict(data?.recommendation?.trim() || null);
+  const recommendation = recText || artifact.description?.trim() || '';
+  const kindLabel = data?.kind === 'clarity' ? t('score.title-clarity') : data?.kind === 'startup' ? t('score.title-startup') : null;
 
   return (
     <div className="my-1">
+      {/* Which score this IS (changelog 4/08: the founder read a Clarity-band
+          number as a verdict on his idea). Naming the scale is the detail that
+          disarms that misreading. */}
+      {kindLabel && (
+        <div className="lp-mono text-[9.5px] uppercase tracking-wide text-ink-5 mb-1">{kindLabel}</div>
+      )}
       {/* Headline: score / 100 + qualitative band + trajectory sparkline.
           flex-wrap so a narrow canvas card wraps the sparkline to a second
           line instead of overflowing the card's right edge. */}
@@ -87,8 +101,13 @@ export default function BaselineScoreCard({ artifact }: { artifact: ScoreCardArt
         </div>
       )}
 
+      {verdict && (
+        <div className="mt-3">
+          <Pill kind={verdict === 'GO' ? 'ok' : verdict === 'NO GO' ? 'warn' : 'info'} dot>{verdict}</Pill>
+        </div>
+      )}
       {recommendation && (
-        <p className="mt-3 text-[11.5px] leading-relaxed text-ink-4">{recommendation}</p>
+        <p className={`${verdict ? 'mt-2' : 'mt-3'} text-[11.5px] leading-relaxed text-ink-4`}>{recommendation}</p>
       )}
     </div>
   );

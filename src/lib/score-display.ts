@@ -94,3 +94,26 @@ export function toScore100(score: number, max: number | undefined | null): numbe
   const pct = score / m;
   return Math.round(Math.max(0, Math.min(1, pct)) * 100);
 }
+
+/**
+ * Peel the Clarity verdict off a recommendation string ("GO — ...", the
+ * score-summary.ts parser contract). ONE implementation shared by Home's
+ * ScorePanel and the canvas BaselineScoreCard — the chat option-set bug class
+ * (two renderers, one drifting) applies to any founder-facing parse like this.
+ * Only the three known verdicts match; anything else is prose, untouched.
+ */
+export function splitVerdict(recommendation: string | null | undefined): {
+  verdict: 'GO' | 'PIVOT PARZIALE' | 'NO GO' | null;
+  text: string | null;
+} {
+  const rec = recommendation ?? null;
+  // The separator (or end-of-string) is MANDATORY: with it optional, "GOAL:
+  // crescere" matched GO and rendered a verdict badge on plain prose — caught
+  // by the test the same hour the helper was extracted.
+  const m = rec?.match(/^(GO|PIVOT PARZIALE|NO GO)(?:\s*[—-]\s*|$)/);
+  if (!m) return { verdict: null, text: rec };
+  return {
+    verdict: m[1] as 'GO' | 'PIVOT PARZIALE' | 'NO GO',
+    text: rec!.slice(m[0].length).trim() || null,
+  };
+}

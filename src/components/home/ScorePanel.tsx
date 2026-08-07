@@ -27,7 +27,7 @@ import { Icon, I, Pill } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import { useStages } from '@/hooks/useStages';
 import { stageLabel } from '@/lib/journey-prompts';
-import { band, normalizeDimensions, to100 } from '@/lib/score-display';
+import { band, normalizeDimensions, to100, splitVerdict } from '@/lib/score-display';
 import ScoreTrajectory from '@/components/charts/ScoreTrajectory';
 
 interface IrlResp {
@@ -161,15 +161,9 @@ export function ScorePanel({ projectId }: { projectId: string }) {
   // done/total stage count is no longer the readout. `active` still drives the
   // "currently in {stage}" line.
   const active = evals.find((e) => e.status === 'active');
-  // Clarity verdict rides as a prefix of the recommendation string ("GO — ...",
-  // parser contract in score-summary.ts). Peel it off for a chip; the remainder
-  // renders as the usual prose. A recommendation without the prefix (older
-  // scores, prose-parsed runs) falls through untouched.
-  const verdictMatch = score?.recommendation?.match(/^(GO|PIVOT PARZIALE|NO GO)(?: — ?| - ?)?/);
-  const verdict = verdictMatch?.[1] ?? null;
-  const recommendationText = verdictMatch
-    ? (score?.recommendation ?? '').slice(verdictMatch[0].length).trim() || null
-    : (score?.recommendation ?? null);
+  // Shared splitter (score-display.ts) — the canvas BaselineScoreCard peels the
+  // same prefix, and two inline regexes WILL drift (the OptionSetCard lesson).
+  const { verdict, text: recommendationText } = splitVerdict(score?.recommendation);
   const runHref = `/project/${projectId}/chat?prefill=${encodeURIComponent(t('journey-prompt.scoring'))}`;
 
   return (

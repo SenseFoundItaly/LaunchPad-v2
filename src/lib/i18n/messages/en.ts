@@ -1739,6 +1739,9 @@ export const en = {
   'shell.close-inspector': 'Close inspector',
   'shell.close-esc': 'Close (Esc)',
   'shell.download-file': 'Download {file}',
+  'shell.export-doc': 'Text document (.md)',
+  'shell.export-pdf': 'PDF (print)',
+  'shell.export-data': 'Raw data ({ext})',
   // ── i18n gap audit 21/07 — artifact cards (batch B) ─────
   // Shared card chrome (typeLabels + click-to-edit)
   'card.type-metrics': 'Metrics',
