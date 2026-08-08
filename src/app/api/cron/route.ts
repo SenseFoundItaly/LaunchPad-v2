@@ -666,15 +666,19 @@ export async function GET(request: NextRequest) {
     // as "Run now" on Netlify, because a consumed stream keeps the function
     // alive. This endpoint stays fast (a SELECT) and never times out.
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    // Archived projects keep their monitor rows (reversible archive) but must
+    // not consume scheduled runs; "Run now" from the UI stays available.
     const due = await query<{ id: string }>(
-      `SELECT id FROM monitors WHERE status = 'active'
-       AND schedule != 'manual'
-       AND (last_run IS NULL OR last_run < ?)
+      `SELECT m.id FROM monitors m
+       JOIN projects p ON p.id = m.project_id AND p.status != 'archived'
+       WHERE m.status = 'active'
+       AND m.schedule != 'manual'
+       AND (m.last_run IS NULL OR m.last_run < ?)
        AND (
-         (next_run IS NOT NULL AND next_run <= ?)
-         OR (next_run IS NULL AND last_run IS NULL)
+         (m.next_run IS NOT NULL AND m.next_run <= ?)
+         OR (m.next_run IS NULL AND m.last_run IS NULL)
        )
-       ORDER BY next_run ASC NULLS FIRST`,
+       ORDER BY m.next_run ASC NULLS FIRST`,
       fiveMinAgo, now,
     );
     const dueMonitorIds = due.map((d) => d.id);
