@@ -46,3 +46,17 @@ describe('decideAutoflowRoute', () => {
     expect(decideAutoflowRoute({ relevance_score: AUTOFLOW_JUNK_FLOOR, entity: 'Slack' }, applied).verdict).toBe('enrich');
   });
 });
+
+describe('every routing verdict leaves a trace (audit 2026-08-08)', () => {
+  // With drop/enrich logged but inbox silent, an empty signal_activity_log was
+  // indistinguishable from autoflow never having run — telling the two apart
+  // took a four-probe audit. Pin that BOTH inbox exits (decision-inbox and the
+  // enrich-failed revert) log signal_routed_inbox, and that the union knows it.
+  it('both routeAlertAutoflow inbox exits log signal_routed_inbox', async () => {
+    const { readFileSync } = await import('fs');
+    const src = readFileSync('src/lib/signal-autoflow.ts', 'utf-8');
+    expect(src.match(/signal_routed_inbox/g)?.length).toBeGreaterThanOrEqual(2);
+    const union = readFileSync('src/lib/signal-activity-log.ts', 'utf-8');
+    expect(union).toContain("'signal_routed_inbox'");
+  });
+});

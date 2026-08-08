@@ -169,6 +169,14 @@ export async function routeAlertAutoflow(
             WHERE id = ? AND reviewed_state = 'accepted' AND graph_node_id IS NULL`,
           alertId,
         );
+        logSignalActivity({
+          project_id: projectId,
+          event_type: 'signal_routed_inbox',
+          entity_id: alertId,
+          entity_type: 'ecosystem_alert',
+          headline: 'Autoflow enrich failed — alert reverted to the inbox',
+          metadata: { reason: decision.reason, failed_verdict: decision.verdict },
+        }).catch(() => {});
         return 'inbox';
       }
       logSignalActivity({
@@ -182,6 +190,18 @@ export async function routeAlertAutoflow(
       return decision.verdict;
     }
 
+    // The default verdict must leave a trace too: with drop/enrich logged but
+    // inbox silent, an empty activity log cannot distinguish "autoflow defers
+    // everything to the founder" from "autoflow never ran" — and the deferral
+    // reasons are the labeled data for tuning the thresholds later.
+    logSignalActivity({
+      project_id: projectId,
+      event_type: 'signal_routed_inbox',
+      entity_id: alertId,
+      entity_type: 'ecosystem_alert',
+      headline: `Autoflow routed to inbox: ${decision.reason}`,
+      metadata: { reason: decision.reason },
+    }).catch(() => {});
     return 'inbox';
   } catch (err) {
     // Fail-safe: any error → inbox path (the signal is never silently lost).
