@@ -359,7 +359,7 @@ export default function TicketsPage({
 
   return (
     <div className="lp-rise" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <InboxSubhead />
+      <InboxSubhead active={tab} />
       <LaneTabs
         active={tab}
         counts={tabCounts}
@@ -458,8 +458,13 @@ export default function TicketsPage({
 // path. Uses the same surface as LaneTabs so it reads as part of the strip.
 // =============================================================================
 
-function InboxSubhead() {
+function InboxSubhead({ active }: { active: DisplayTab }) {
   const t = useT();
+  // The default landing tab is Watchers, not Inbox — the apply/dismiss copy
+  // described a queue that isn't on screen for a day-1 founder (nothing
+  // configured yet). Tab-aware text so the first read matches what's below it.
+  const titleKey = active === 'monitor' ? 'actions.subhead-title-monitor' : 'actions.subhead-title';
+  const descKey = active === 'monitor' ? 'actions.subhead-desc-monitor' : 'actions.subhead-desc';
   return (
     <div
       style={{
@@ -475,10 +480,10 @@ function InboxSubhead() {
       }}
     >
       <span style={{ color: 'var(--ink-2)', fontWeight: 500 }}>
-        {t('actions.subhead-title')}
+        {t(titleKey)}
       </span>
       <span>
-        {t('actions.subhead-desc')}
+        {t(descKey)}
       </span>
     </div>
   );

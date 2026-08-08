@@ -27,9 +27,11 @@ interface IdeaShapingQuickRepliesProps {
   projectId: string;
   /** Send a message as the founder. Undefined while streaming → strip disabled. */
   onReply?: (message: string) => void;
+  /** Has the founder sent at least one message in this thread yet? */
+  hasHistory?: boolean;
 }
 
-export function IdeaShapingQuickReplies({ projectId, onReply }: IdeaShapingQuickRepliesProps) {
+export function IdeaShapingQuickReplies({ projectId, onReply, hasHistory = true }: IdeaShapingQuickRepliesProps) {
   const t = useT();
   // null = not loaded yet (render nothing); true/false = canvas incomplete?
   const [incomplete, setIncomplete] = useState<boolean | null>(null);
@@ -66,10 +68,13 @@ export function IdeaShapingQuickReplies({ projectId, onReply }: IdeaShapingQuick
 
   if (incomplete !== true) return null;
 
+  // "Go back to the previous section" presupposes a section already underway
+  // — on the founder's very first message there is none yet, and clicking it
+  // would send the agent a factually false instruction.
   const replies = [
     { key: 'give-input', label: t('chat.qr-give-input'), message: t('chat.qr-give-input-msg') },
     { key: 'get-options', label: t('chat.qr-get-options'), message: t('chat.qr-get-options-msg') },
-    { key: 'go-back', label: t('chat.qr-go-back'), message: t('chat.qr-go-back-msg') },
+    ...(hasHistory ? [{ key: 'go-back', label: t('chat.qr-go-back'), message: t('chat.qr-go-back-msg') }] : []),
   ];
 
   return (

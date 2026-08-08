@@ -215,6 +215,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'today.breadcrumb-home': 'Home',
   'today.pending-count': '{count} in sospeso',
   'today.watchers-cadence': 'osservatori · cadenza settimanale',
+  'today.watchers-none': 'osservatori · nessuno configurato',
   'today.signals-to-review': '{count} segnali da rivedere',
   'today.watchers': 'Osservatori',
   // La spina a 5 fasi (riduzione read-only dei 7 stage + loop live).
@@ -302,6 +303,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   'actions.dismiss': 'Ignora',
   'actions.subhead-title': "Applica all'intelligence del tuo progetto.",
   'actions.subhead-desc': 'Risultati degli osservatori e proposte di conoscenza. Applica o ignora — ogni elemento applicato finisce in Conoscenza.',
+  'actions.subhead-title-monitor': 'I tuoi osservatori.',
+  'actions.subhead-desc-monitor': 'Configura cosa monitorare — i risultati arrivano qui come segnali da applicare o ignorare.',
   'actions.status-waiting': 'In attesa',
   'actions.status-edited': 'Modificato',
   'actions.status-approved': 'Approvato',

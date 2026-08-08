@@ -1674,6 +1674,7 @@ export default function CopilotChatPage({
           <IdeaShapingQuickReplies
             projectId={projectId}
             onReply={!isStreaming ? sendMessage : undefined}
+            hasHistory={messages.length > 0}
           />
 
           <ChatComposer

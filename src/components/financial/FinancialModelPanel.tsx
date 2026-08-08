@@ -79,8 +79,7 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
   const [provenance, setProvenance] = useState<Record<string, string>>({});
 
   // Cached via TanStack under the 'financial' topic so revisiting the tab is
-  // instant. Editable state below is SEEDED from this query (guarded on !dirty),
-  // never bound to it — so an in-progress edit survives a tab switch.
+  // instant.
   const { data: stored, isLoading: loading } = useQuery<FinancialModelResponse | null>({
     queryKey: ['financial', projectId],
     enabled: !!projectId,
@@ -96,13 +95,25 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
     },
   });
 
-  // Seed the editable assumptions from the stored model (or project-derived
-  // evidence) once loaded. The !dirty guard is the whole point: if the founder
-  // has unsaved edits, a re-seed (e.g. after navigating back) must not clobber
-  // them. save() updates the cache before clearing dirty, so this re-run lands
-  // on the just-saved values rather than reverting.
+  // Seed the editable assumptions from an in-progress draft, else the stored
+  // model, else project-derived evidence, once loaded.
+  //
+  // The project layout keys its content slot on pathname (a full unmount on
+  // every NavRail tab switch), which destroys this component's local state —
+  // the !dirty guard alone does NOT make an in-progress edit "survive a tab
+  // switch" (a July comment here claimed it did; it was wrong). setField
+  // below mirrors every keystroke into the ['financial-draft', projectId]
+  // query cache, which the QueryProvider (gcTime 30min) keeps alive across
+  // the remount — so a founder who switches tabs and comes back within that
+  // window gets their typed values back, marked dirty (never saved).
   useEffect(() => {
     if (loading || dirty) return;
+    const draft = qc.getQueryData<FinancialAssumptions>(['financial-draft', projectId]);
+    if (draft) {
+      setAssumptions(draft);
+      setDirty(true);
+      return;
+    }
     const model = stored?.financial_model;
     const derived = stored?.derived;
     if (model && model.assumptions) {
@@ -112,7 +123,7 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
       setAssumptions(coerceAssumptions({ ...defaultAssumptions(), ...derived.assumptions }));
       setProvenance(derived.provenance || {});
     }
-  }, [stored, loading, dirty]);
+  }, [stored, loading, dirty, projectId, qc]);
 
   // LIVE recompute — pure, instant, runs on every edit.
   const model = useMemo(() => computeFinancialModel(assumptions), [assumptions]);
@@ -120,7 +131,13 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
 
   function setField(key: keyof FinancialAssumptions, raw: string) {
     const v = key === 'currency' ? raw : Number(raw);
-    setAssumptions((a) => ({ ...a, [key]: v as never }));
+    setAssumptions((a) => {
+      const next = { ...a, [key]: v as never };
+      // Mirrored into the query cache (not just local state) so the value
+      // survives the tab-switch remount — see the seed effect above.
+      qc.setQueryData(['financial-draft', projectId], next);
+      return next;
+    });
     setDirty(true);
     // The founder just typed this value — it's no longer "from the canvas".
     setProvenance((p) => {
@@ -141,6 +158,7 @@ export default function FinancialModelPanel({ projectId }: { projectId: string }
         ...(prev ?? { derived: null }),
         financial_model: { assumptions, generated_at: generatedAt },
       }));
+      qc.removeQueries({ queryKey: ['financial-draft', projectId], exact: true });
       setSavedAt(generatedAt);
       setDirty(false);
     } catch { /* keep dirty so the founder can retry */ }
