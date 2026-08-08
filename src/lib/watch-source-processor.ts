@@ -608,12 +608,15 @@ function tryStructuralDiff(
 export async function processWatchSourcesCron(limit = 10): Promise<ProcessResult[]> {
   const now = new Date().toISOString();
 
+  // Archived projects keep their watch_sources rows (reversible archive) but
+  // must not consume scrape batches or scraping-provider spend.
   const due = await query<WatchSource>(
-    `SELECT * FROM watch_sources
-     WHERE status IN ('active', 'error')
-       AND (next_scrape_at IS NULL OR next_scrape_at <= ?)
-     ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END,
-              next_scrape_at ASC NULLS FIRST
+    `SELECT ws.* FROM watch_sources ws
+     JOIN projects p ON p.id = ws.project_id AND p.status != 'archived'
+     WHERE ws.status IN ('active', 'error')
+       AND (ws.next_scrape_at IS NULL OR ws.next_scrape_at <= ?)
+     ORDER BY CASE ws.status WHEN 'active' THEN 0 ELSE 1 END,
+              ws.next_scrape_at ASC NULLS FIRST
      LIMIT ?`,
     now,
     limit,
