@@ -20,6 +20,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
+import { loopNameKey, signalLabelKey, formatSignal } from '@/lib/loops/loop-display';
 
 interface LoopSignal { signal: string; value: number; threshold: number; passed: boolean }
 interface EvidenceMatrix {
@@ -38,16 +39,6 @@ interface LoopRow {
   closed_at: string | null;
 }
 
-const LOOP_LABEL_KEY: Record<number, MessageKey> = {
-  1: 'loops.loop1-label' as MessageKey,
-};
-
-const SIGNAL_LABEL_KEY: Record<string, MessageKey> = {
-  wtp_rate: 'loops.signal-wtp' as MessageKey,
-  pain_confirmed_rate: 'loops.signal-pain' as MessageKey,
-  urgency_rate: 'loops.signal-urgency' as MessageKey,
-};
-
 const VERDICT_COLOR: Record<string, string> = {
   GO: 'var(--moss)',
   PIVOT: 'var(--accent)',
@@ -60,7 +51,10 @@ function parseEvidence(raw: EvidenceMatrix | string | null): EvidenceMatrix | nu
   try { return JSON.parse(raw) as EvidenceMatrix; } catch { return null; }
 }
 
-const pct = (v: number) => `${Math.round(v * 100)}%`;
+// A ratio/months threshold is a MINIMUM to clear for ratios (≥3×) but a
+// MAXIMUM for a months-denominated signal like payback (≤18mo) — the fixed
+// "≥" prefix this table used to hardcode was backwards for payback_months.
+const thresholdOp = (signal: string) => (signal.includes('months') ? '≤' : '≥');
 
 export function LoopHistoryCard({ projectId }: { projectId: string }) {
   const t = useT();
@@ -112,7 +106,10 @@ export function LoopHistoryCard({ projectId }: { projectId: string }) {
                 }}
               >
                 <span style={{ fontSize: 12.5, color: 'var(--ink-1)', flex: 1, minWidth: 0 }}>
-                  {t(LOOP_LABEL_KEY[loop.loop_number] ?? ('loops.loop1-label' as MessageKey))}
+                  {(() => {
+                    const key = loopNameKey(loop.loop_number);
+                    return key ? t(key) : `Loop ${loop.loop_number}`;
+                  })()}
                 </span>
                 <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)' }}>
                   {t('loops.iterations', { count: loop.iteration })}
@@ -157,18 +154,21 @@ export function LoopHistoryCard({ projectId }: { projectId: string }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {evidence.signals.map((s) => (
+                        {evidence.signals.map((s) => {
+                          const key = signalLabelKey(s.signal);
+                          return (
                           <tr key={s.signal}>
                             <td style={{ padding: '4px 6px', color: 'var(--ink-2)' }}>
-                              {SIGNAL_LABEL_KEY[s.signal] ? t(SIGNAL_LABEL_KEY[s.signal]) : s.signal.replace(/_/g, ' ')}
+                              {key ? t(key) : s.signal.replace(/_/g, ' ')}
                             </td>
-                            <td className="lp-mono" style={{ padding: '4px 6px', color: 'var(--ink-2)' }}>{pct(s.value)}</td>
-                            <td className="lp-mono" style={{ padding: '4px 6px', color: 'var(--ink-5)' }}>≥ {pct(s.threshold)}</td>
+                            <td className="lp-mono" style={{ padding: '4px 6px', color: 'var(--ink-2)' }}>{formatSignal(s.signal, s.value)}</td>
+                            <td className="lp-mono" style={{ padding: '4px 6px', color: 'var(--ink-5)' }}>{thresholdOp(s.signal)} {formatSignal(s.signal, s.threshold)}</td>
                             <td className="lp-mono" style={{ padding: '4px 6px', color: s.passed ? 'var(--moss)' : 'var(--clay)' }}>
                               {s.passed ? '✓' : '✗'}
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   )}

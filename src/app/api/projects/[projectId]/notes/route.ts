@@ -86,11 +86,33 @@ export async function POST(
         const noteIntro = loc?.locale === 'it'
           ? 'Ho letto la tua nota — ci ho trovato queste entità. Approvale se vuoi che entrino nella tua knowledge:'
           : 'I read your note — it names these entities. Approve them if you want them in your knowledge:';
-        await run(
-          `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
-           VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
+        const chatMsgArgs = [
           msgId, projectId, `${noteIntro}\n\n${res.artifactBlock}`, new Date().toISOString(), auth.session.userId,
-        ).catch((err) => console.warn('[notes] chat card persist failed (non-fatal):', (err as Error).message));
+        ] as const;
+        try {
+          await run(
+            `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
+             VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
+            ...chatMsgArgs,
+          );
+        } catch (err) {
+          console.warn('[notes] chat card persist failed, retrying once:', (err as Error).message);
+          try {
+            await run(
+              `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
+               VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
+              ...chatMsgArgs,
+            );
+          } catch (retryErr) {
+            // No other surface can ever show this card — validation_proposal
+            // has no inbox path during the alpha (see the comment above) — so
+            // losing this insert makes the pending_action a permanent, invisible
+            // orphan. Loud on purpose; the note itself is already saved fine.
+            console.error('[notes] chat card persist failed twice — validation_proposal orphaned:', {
+              projectId, staged, error: (retryErr as Error).message,
+            });
+          }
+        }
       }
     }
   } catch (err) {

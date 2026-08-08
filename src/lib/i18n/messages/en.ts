@@ -223,6 +223,7 @@ export const en = {
   'today.breadcrumb-home': 'Home',
   'today.pending-count': '{count} pending',
   'today.watchers-cadence': 'watchers · weekly cadence',
+  'today.watchers-none': 'watchers · none configured',
   'today.signals-to-review': '{count} signals to review',
   'today.watchers': 'Watchers',
   // The 5-phase spine (read-only reduction of the 7 stages + live loops).
@@ -310,6 +311,8 @@ export const en = {
   'actions.dismiss': 'Dismiss',
   'actions.subhead-title': 'Apply to your project intelligence.',
   'actions.subhead-desc': 'Watcher findings and knowledge proposals. Apply or dismiss — each applied item lands in Knowledge.',
+  'actions.subhead-title-monitor': 'Your watchers.',
+  'actions.subhead-desc-monitor': 'Configure what to monitor — findings land here as signals to apply or dismiss.',
   'actions.status-waiting': 'Waiting',
   'actions.status-edited': 'Edited',
   'actions.status-approved': 'Approved',

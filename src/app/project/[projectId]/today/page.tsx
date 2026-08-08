@@ -79,6 +79,22 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
   const actions = intelPending.slice(0, 3);
   const signalCount = allPending.filter((a) => laneFor(a.action_type) === 'signal').length;
 
+  // Same query key MonitorListPanel below uses — shares its cache entry
+  // (no duplicate fetch) — read here only to know whether ANY watcher exists,
+  // so the StatusBar heartbeat doesn't claim a "weekly cadence" that isn't
+  // running yet (day-1 founder, zero watchers configured).
+  const { data: watchers } = useQuery<{ id: string }[]>({
+    queryKey: ['watchers', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/watchers`);
+      const body = await res.json();
+      if (!body.success || !Array.isArray(body.data)) return [];
+      return body.data as { id: string }[];
+    },
+  });
+  const hasWatchers = (watchers?.length ?? 0) > 0;
+
   // Publish this page's chrome bits to the persistent layout (TopBar breadcrumb +
   // right pill, StatusBar). No invented runtime state here — this page only knows
   // pending actions (incl. signal rows), so the bar reports exactly that plus the
@@ -90,12 +106,13 @@ export default function TodayPage({ params }: { params: Promise<{ projectId: str
     {
       breadcrumb: [t('today.breadcrumb-project'), t('today.breadcrumb-home')],
       status: {
-        heartbeatLabel: t('today.watchers-cadence'),
+        heartbeatLabel: hasWatchers ? t('today.watchers-cadence') : t('today.watchers-none'),
+        heartbeatKind: hasWatchers ? 'healthy' : 'stale',
         ctxLabel: t('today.signals-to-review', { count: signalCount }),
         budget: t('today.pending-count', { count: inboxBadge }),
       },
     },
-    [inboxBadge, signalCount, t],
+    [inboxBadge, signalCount, hasWatchers, t],
   );
 
   return (
