@@ -36,6 +36,8 @@ import { buildManifest, routeFor, type TourStep } from './tour-steps';
 import {
   TOUR_START_EVENT,
   clearTourState,
+  deferTourForSession,
+  isTourDeferred,
   readTourState,
   waitForElement,
   writeTourState,
@@ -61,6 +63,10 @@ export default function TourController() {
   // Set before a programmatic destroy that must NOT finish the tour
   // (chapter hand-off, rebuild); onDestroyed checks-and-resets it.
   const suppressFinish = useRef(false);
+  // Set before the route-change teardown so onDestroyed can tell "the founder
+  // pressed X / Esc" (a decision) from "the founder navigated away" (an
+  // interruption). Only the former spends users.onboarded.
+  const navAbandon = useRef(false);
   const autoChecked = useRef(false);
   const [tick, setTick] = useState(0);
 
@@ -76,26 +82,45 @@ export default function TourController() {
     let cancelled = false;
 
     // A live instance on route change means the user wandered off mid-tour
-    // (hand-offs destroy BEFORE pushing): tear down → onDestroyed marks done.
+    // (hand-offs destroy BEFORE pushing): tear down → onDestroyed ends the run
+    // WITHOUT spending the flag, and defers re-offering until the next session.
     if (drvRef.current) {
+      navAbandon.current = true;
       drvRef.current.destroy();
       drvRef.current = null;
     }
 
     if (pathname !== '/' && !pathname.startsWith('/project/')) return;
 
-    const markDone = () => {
+    /**
+     * End the tour. `keepOffer: true` ends THIS run without spending the
+     * durable users.onboarded flag.
+     *
+     * Why that distinction exists (2026-08-08 onboarding audit): a founder on
+     * their very first login has zero projects, so buildManifest degrades to a
+     * 2-step "welcome + create your first project" stub. Marking them onboarded
+     * at the end of that stub meant the real 18-step walkthrough — Home,
+     * Watchers, Knowledge, Financials, Co-pilot — could never auto-run for
+     * ANYONE, because the only auto-start opportunity was consumed while the
+     * account was still empty.
+     */
+    const markDone = ({ keepOffer = false } = {}) => {
       clearTourState();
+      if (keepOffer) return;
       api.patch('/api/user/preferences', { onboarded: true }).catch(() => {});
     };
 
     const buildAndDrive = (manifest: TourStep[], startIdx: number, pid: string | null) => {
+      // The zero-project stub is a prompt ("create your first project"), not
+      // the onboarding — finishing it must leave the real tour still owed.
+      const isStub = !pid;
       const steps: DriveStep[] = manifest.map((s, i) => {
         // Chapter openers hide Prev: cross-page "back" would double the
         // navigation state machine for marginal value.
         const chapterFirst = i === 0 || manifest[i - 1].page !== s.page;
         return {
           element: s.target,
+          ...(s.allowInteraction ? { disableActiveInteraction: false } : {}),
           popover: {
             title: t(s.titleKey),
             description: t(s.descKey),
@@ -172,7 +197,15 @@ export default function TourController() {
             suppressFinish.current = false;
             return;
           }
-          markDone(); // finish AND close/skip — same contract as the old tour
+          if (navAbandon.current) {
+            navAbandon.current = false;
+            deferTourForSession();
+            markDone({ keepOffer: true });
+            return;
+          }
+          // finish AND close/skip — same contract as the old tour, except the
+          // zero-project stub, which never spends the flag (see markDone).
+          markDone({ keepOffer: isStub });
         },
       });
       drvRef.current = drv;
@@ -198,13 +231,14 @@ export default function TourController() {
       const manifest = buildManifest({ hasProjects: !!pid });
       const step = manifest[state.stepIndex];
       if (!step) {
-        markDone();
+        markDone({ keepOffer: true }); // corrupt/stale index is not a decision
         return;
       }
       if (pathname !== routeFor(step.page, pid)) {
-        // Deep link / browser back mid-tour: treat as an explicit exit rather
-        // than dragging the user back to the expected page.
-        markDone();
+        // Deep link / browser back mid-tour: end this run rather than dragging
+        // the user back to the expected page — but the tour stays owed.
+        deferTourForSession();
+        markDone({ keepOffer: true });
         return;
       }
 
@@ -221,7 +255,7 @@ export default function TourController() {
       }
       if (cancelled) return;
       if (idx >= manifest.length) {
-        markDone();
+        markDone({ keepOffer: !pid });
         return;
       }
       if (manifest[idx].page !== step.page) {
@@ -239,8 +273,9 @@ export default function TourController() {
     const state = readTourState();
     if (state) {
       void resumeAt(state);
-    } else if (pathname === '/' && !autoChecked.current) {
-      // First-login auto-start: once per mount, dashboard only.
+    } else if (pathname === '/' && !autoChecked.current && !isTourDeferred()) {
+      // First-login auto-start: once per mount, dashboard only, and never in a
+      // session where the founder already walked away from a run.
       autoChecked.current = true;
       void (async () => {
         try {

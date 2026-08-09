@@ -14,6 +14,30 @@ export interface TourState {
 }
 
 const TOUR_KEY = 'lp_tour_state';
+/**
+ * Set when a run ends by NAVIGATION rather than by an explicit close. Such a
+ * run keeps the tour owed (users.onboarded stays false) but must not re-offer
+ * itself the instant the founder returns to `/`, or wandering off once would
+ * turn into a nag loop for the rest of the session.
+ */
+const TOUR_DEFERRED_KEY = 'lp_tour_deferred';
+
+export function deferTourForSession(): void {
+  try {
+    sessionStorage.setItem(TOUR_DEFERRED_KEY, '1');
+  } catch {
+    /* private mode — worst case the tour re-offers once more this session */
+  }
+}
+
+export function isTourDeferred(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return sessionStorage.getItem(TOUR_DEFERRED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 /** Fired by relaunchTour() so an already-mounted controller re-evaluates. */
 export const TOUR_START_EVENT = 'lp-tour-start';
@@ -51,12 +75,26 @@ export function clearTourState(): void {
 }
 
 /**
- * Manual replay entry point (Settings → "Replay tour"). Writes step 0 and
- * pings any mounted controller; the caller navigates to `/` where the
- * dashboard chapter starts.
+ * Manual replay entry point (Settings → "Replay tour", and the founder's
+ * "1. Take the tour" step on the project Home card).
+ *
+ * The tour's first chapter lives on `/`. Called from anywhere else the
+ * controller used to resume, find pathname !== '/', treat it as "wandered off
+ * mid-tour" and immediately mark the account onboarded — so the most prominent
+ * entry point in the product did visibly nothing AND burned the durable flag
+ * (2026-08-08 onboarding audit). Navigating here makes every call site work.
  */
 export function relaunchTour(): void {
   writeTourState({ stepIndex: 0, projectId: null });
+  try {
+    sessionStorage.removeItem(TOUR_DEFERRED_KEY); // an explicit ask overrides a deferral
+  } catch {
+    /* ignore */
+  }
+  if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+    window.location.assign('/');
+    return;
+  }
   window.dispatchEvent(new Event(TOUR_START_EVENT));
 }
 

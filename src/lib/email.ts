@@ -293,6 +293,139 @@ function resolveLocale(raw?: string): SupportedLocale {
   return code in MAGIC_LINK_STRINGS ? code as SupportedLocale : 'en';
 }
 
+/**
+ * First-login welcome. Until the 2026-08-08 onboarding audit the only email a
+ * founder ever received before the Monday Brief was a bare login link: nothing
+ * said what the product is, what to do first, or that a weekly email was
+ * coming — so the Brief landed ~6 days later full of vocabulary nobody had
+ * introduced. This is the missing first touch, and where the weekly email is
+ * announced.
+ */
+const WELCOME_STRINGS: Record<SupportedLocale, {
+  subject: string;
+  heading: string;
+  body: string;
+  steps: string[];
+  weekly: string;
+  cta: string;
+  tagline: string;
+  subtitle: string;
+}> = {
+  en: {
+    subject: 'Welcome to LaunchPad — start here',
+    heading: 'Welcome to LaunchPad',
+    body: 'LaunchPad takes you from a raw idea to validated evidence, one step at a time, with an AI co-pilot that proposes and you decide. Nothing enters your project without your approval.',
+    steps: [
+      'Open the co-pilot and describe your idea in your own words.',
+      'Fill in the Idea Canvas together — it feeds every later step.',
+      'Set up a watcher so the market keeps an eye on itself for you.',
+    ],
+    weekly: 'Every Monday we send one short email — your Monday Brief — with what moved, what needs a decision, and the next step. It only arrives when there is something worth your time.',
+    cta: 'Open LaunchPad',
+    tagline: 'Courage through clarity',
+    subtitle: 'AI-powered, human-protected',
+  },
+  it: {
+    subject: 'Benvenuto in LaunchPad — inizia da qui',
+    heading: 'Benvenuto in LaunchPad',
+    body: "LaunchPad ti porta da un'idea grezza a evidenze validate, un passo alla volta, con un co-pilota AI che propone e tu che decidi. Nulla entra nel tuo progetto senza la tua approvazione.",
+    steps: [
+      'Apri il co-pilota e racconta la tua idea con parole tue.',
+      "Compilate insieme l'Idea Canvas — alimenta ogni passo successivo.",
+      'Attiva un osservatore, così il mercato si tiene d’occhio da solo.',
+    ],
+    weekly: 'Ogni lunedì ti inviamo una sola email breve — il Monday Brief — con cosa si è mosso, cosa richiede una decisione e il prossimo passo. Arriva solo quando c’è qualcosa che vale il tuo tempo.',
+    cta: 'Apri LaunchPad',
+    tagline: 'Coraggio attraverso la chiarezza',
+    subtitle: "Potenziato dall’AI, protetto dall’uomo",
+  },
+};
+
+export function renderWelcomeHtml(locale?: string): string {
+  const lang = resolveLocale(locale);
+  const t = WELCOME_STRINGS[lang];
+  const steps = t.steps
+    .map(
+      (s, i) =>
+        `<tr><td style="padding:0 0 10px 0;font-size:14px;line-height:1.55;color:#3A362D;">` +
+        `<span style="display:inline-block;width:20px;font-weight:600;color:#6B9B80;">${i + 1}.</span>${escapeHtml(s)}</td></tr>`,
+    )
+    .join('');
+  return `<!DOCTYPE html>
+<html lang="${lang}">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
+<body style="margin:0;padding:0;font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background-color:#FAF5EE;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#FAF5EE;">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+        <table role="presentation" width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;width:100%;background-color:#FFFFFF;border:1px solid #E5DFCF;border-radius:8px;overflow:hidden;">
+          <tr><td style="height:4px;background:linear-gradient(to right,#D4896A,#FAF5EE,#6B9B80);font-size:0;line-height:0;">&nbsp;</td></tr>
+          <tr>
+            <td align="center" style="padding:32px 40px 0 40px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="font-size:28px;font-weight:300;color:#6B9B80;padding-right:6px;vertical-align:middle;font-family:Georgia,'Times New Roman',serif;">&#91;</td>
+                  <td style="font-size:15px;font-weight:600;letter-spacing:3px;color:#16140F;vertical-align:middle;">SENSEFOUND</td>
+                  <td style="font-size:28px;font-weight:300;color:#6B9B80;padding-left:6px;vertical-align:middle;font-family:Georgia,'Times New Roman',serif;">&#93;</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr><td align="center" style="padding:28px 40px 0 40px;"><h1 style="margin:0;font-size:22px;font-weight:600;color:#16140F;">${escapeHtml(t.heading)}</h1></td></tr>
+          <tr><td style="padding:14px 40px 0 40px;"><p style="margin:0;font-size:15px;line-height:1.6;color:#6B6558;">${escapeHtml(t.body)}</p></td></tr>
+          <tr><td style="padding:22px 40px 0 40px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${steps}</table></td></tr>
+          <tr>
+            <td align="center" style="padding:26px 40px 0 40px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" style="background-color:#6B9B80;border-radius:6px;">
+                    <a href="${escapeHtml(APP_URL)}" target="_blank" style="display:inline-block;padding:14px 36px;font-size:15px;font-weight:600;color:#FFFFFF;text-decoration:none;font-family:Inter,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">${escapeHtml(t.cta)} &#8599;</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr><td style="padding:26px 40px 0 40px;"><p style="margin:0;font-size:13px;line-height:1.55;color:#8F897A;">${escapeHtml(t.weekly)}</p></td></tr>
+          <tr>
+            <td style="padding:26px 40px 0 40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr><td style="border-top:1px solid #E5DFCF;font-size:0;line-height:0;">&nbsp;</td></tr>
+              </table>
+            </td>
+          </tr>
+          <tr><td align="center" style="padding:16px 40px 32px 40px;"><p style="margin:0;font-size:12px;line-height:1.5;color:#B4AE9F;">${escapeHtml(t.tagline)} &middot; ${escapeHtml(t.subtitle)}</p></td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+/** Send the first-login welcome. Stubbed (and non-fatal) without Resend. */
+export async function sendWelcomeEmail(to: string, locale?: string): Promise<SendResult> {
+  const html = renderWelcomeHtml(locale);
+  const subject = WELCOME_STRINGS[resolveLocale(locale)].subject;
+
+  if (!RESEND_API_KEY) {
+    console.log(`[email/stub] Would have sent the welcome email to ${to} (locale=${resolveLocale(locale)}).`);
+    return { stubbed: true, ok: true, to };
+  }
+
+  try {
+    const resp = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: FROM_ADDRESS, to, subject, html }),
+    });
+    if (!resp.ok) return { stubbed: false, ok: false, error: `Resend HTTP ${resp.status}`, to };
+    const data = (await resp.json()) as { id?: string };
+    return { stubbed: false, ok: true, id: data.id, to };
+  } catch (err) {
+    return { stubbed: false, ok: false, error: (err as Error).message, to };
+  }
+}
+
 export function renderMagicLinkHtml(confirmationUrl: string, locale?: string): string {
   const t = MAGIC_LINK_STRINGS[resolveLocale(locale)];
   const lang = resolveLocale(locale);
