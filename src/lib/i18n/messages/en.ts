@@ -87,7 +87,7 @@ export const en = {
   'tour.copilot.title': 'Co-Pilot',
   'tour.copilot.desc': 'Your entry point for building your startup: canvas, analyses, strategies, assets → always start here.',
   'tour.finish.title': 'Ready to go',
-  'tour.finish.desc': 'Now you know your way around. Upload your first documents or open the Co-Pilot whenever you like.',
+  'tour.finish.desc': 'Now you know your way around. Upload your first documents or open the Co-Pilot whenever you like. Every Monday you get the Monday Brief by email: what moved and what needs a decision from you.',
   // Walkthrough — dashboard chapter
   'tour.dash.projects.title': 'Your projects',
   'tour.dash.projects.desc': 'Every venture you’re validating lives here. Click a project to jump back into it.',
@@ -217,6 +217,10 @@ export const en = {
   'login.sending': 'Sending...',
   'login.sent-check-prefix': 'Check',
   'login.sent-check-suffix': '— we sent a login link. Open it on this device to finish signing in.',
+  'login.sent-spam-hint': "Can't find it? Check your spam folder — it comes from sensefound.io and expires after a few minutes.",
+  'login.resend': 'Send it again',
+  'login.change-email': 'Use a different address',
+  'login.link-failed': 'That link no longer works — it has likely expired or was already used. Request a new one below.',
 
   // ── Today (src/app/project/[projectId]/today/page.tsx) ────────────────────
   'today.breadcrumb-project': 'Project',

@@ -29,6 +29,13 @@ export interface TourStep {
    * popover when the element is missing.
    */
   optional?: boolean;
+  /**
+   * Let the founder actually CLICK the highlighted element. Interaction is
+   * disabled tour-wide (a mid-tour click on a highlighted link desyncs route
+   * vs step), but a step whose entire instruction is "press this" must not
+   * spotlight a button the overlay makes unclickable.
+   */
+  allowInteraction?: boolean;
 }
 
 export function routeFor(page: TourPage, projectId: string | null): string {
@@ -56,7 +63,9 @@ export function buildManifest({ hasProjects }: { hasProjects: boolean }): TourSt
   if (!hasProjects) {
     return [
       { id: 'welcome', page: 'dashboard', titleKey: 'tour.welcome.title', descKey: 'tour.welcome.desc' },
-      { id: 'create-empty', page: 'dashboard', target: '[data-tour="new-project"]', titleKey: 'tour.dash.empty.title', descKey: 'tour.dash.empty.desc', side: 'right', align: 'center' },
+      // allowInteraction: this step's whole point is "press New project" — with
+      // the tour-wide overlay it spotlit a button the founder couldn't click.
+      { id: 'create-empty', page: 'dashboard', target: '[data-tour="new-project"]', titleKey: 'tour.dash.empty.title', descKey: 'tour.dash.empty.desc', side: 'right', align: 'center', allowInteraction: true },
     ];
   }
   return [

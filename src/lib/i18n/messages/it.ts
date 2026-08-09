@@ -77,7 +77,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'tour.copilot.title': 'Co-Pilot',
   'tour.copilot.desc': 'Il tuo punto di accesso per creare la tua startup: canvas, analisi, strategie, asset → parti sempre da qui.',
   'tour.finish.title': 'Pronto per partire',
-  'tour.finish.desc': 'Ora sai dove sei. Carica i tuoi primi documenti o apri il Co-Pilot quando vuoi.',
+  'tour.finish.desc': 'Ora sai dove sei. Carica i tuoi primi documenti o apri il Co-Pilot quando vuoi. Ogni lunedì ricevi il Monday Brief via email: cosa si è mosso e cosa richiede una tua decisione.',
   // Tour guidato — capitolo dashboard
   'tour.dash.projects.title': 'I tuoi progetti',
   'tour.dash.projects.desc': 'Ogni venture che stai validando vive qui. Clicca un progetto per rientrarci.',
@@ -209,6 +209,10 @@ export const it: Partial<Record<MessageKey, string>> = {
   'login.sending': 'Invio in corso...',
   'login.sent-check-prefix': 'Controlla',
   'login.sent-check-suffix': "— ti abbiamo inviato un link di accesso. Aprilo su questo dispositivo per completare l'accesso.",
+  'login.sent-spam-hint': 'Non lo trovi? Controlla la posta indesiderata: arriva da sensefound.io e scade dopo pochi minuti.',
+  'login.resend': 'Invia di nuovo',
+  'login.change-email': 'Usa un altro indirizzo',
+  'login.link-failed': 'Quel link non funziona più — probabilmente è scaduto o è già stato usato. Richiedine uno nuovo qui sotto.',
 
   // ── Today ─────────────────────────────────────────────────────────────────
   'today.breadcrumb-project': 'Progetto',

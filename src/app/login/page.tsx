@@ -16,20 +16,23 @@ function LoginForm() {
   const t = useT();
   const search = useSearchParams();
   const nextPath = search.get('next') || '/';
+  // The callback redirects every auth failure here as ?error=<reason> (expired
+  // link, already-used link, opened on another device). Until the 2026-08-08
+  // audit nothing read it, so a founder in that loop saw a pristine form with
+  // no explanation and could re-request links forever.
+  const callbackError = search.get('error');
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email.trim()) return;
+  async function send(target: string) {
     setStatus('sending');
     setError(null);
     const supabase = getSupabaseBrowser();
     const redirectTo = `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(nextPath)}`;
     const locale = navigator.language.slice(0, 2);
     const { error: err } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
+      email: target,
       options: { emailRedirectTo: redirectTo, data: { locale } },
     });
     if (err) {
@@ -40,16 +43,44 @@ function LoginForm() {
     }
   }
 
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim()) return;
+    await send(email.trim());
+  }
+
   if (status === 'sent') {
     return (
-      <div className="rounded border border-moss/30 bg-moss-wash p-4 text-sm">
-        {t('login.sent-check-prefix')} <span className="font-medium">{email}</span> {t('login.sent-check-suffix')}
+      <div className="space-y-3">
+        <div className="rounded border border-moss/30 bg-moss-wash p-4 text-sm">
+          {t('login.sent-check-prefix')} <span className="font-medium">{email}</span> {t('login.sent-check-suffix')}
+        </div>
+        {/* "Check your inbox" used to be terminal: a typo'd address or a mail
+            that never arrived left no way forward but guessing at a reload. */}
+        <p className="text-xs text-ink-5">{t('login.sent-spam-hint')}</p>
+        <div className="flex gap-3 text-xs">
+          <button type="button" onClick={() => send(email)} className="text-ink-3 underline underline-offset-2">
+            {t('login.resend')}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setStatus('idle'); setError(null); }}
+            className="text-ink-3 underline underline-offset-2"
+          >
+            {t('login.change-email')}
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
+      {callbackError && !error && (
+        <div className="rounded border border-clay/30 bg-clay-wash p-3 text-sm text-ink-2">
+          {t('login.link-failed')}
+        </div>
+      )}
       <input
         type="email"
         required
