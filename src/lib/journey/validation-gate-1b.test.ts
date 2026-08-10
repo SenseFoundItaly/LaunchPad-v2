@@ -6,9 +6,15 @@ import type { ProjectSnapshot } from '@/lib/journey/types';
  * L2 Validation Gate · track 1B (Technical Validation) — integration test.
  *
  * Exercises the REAL evaluateAllStages over the validation stage so we prove the
- * "validate man mano" chain end-to-end: applied chat memory_facts (what the chat
- * co-pilot's save_memory_fact writes, or what the technical-validation skill's
- * insight-cards become once applied) flip the 1B checks green incrementally.
+ * "validate man mano" chain end-to-end: APPLIED chat memory_facts flip the 1B
+ * checks green incrementally.
+ *
+ * ⚠️ How a fact BECOMES applied changed on 2026-08-09: save_memory_fact no
+ * longer writes a gate-moving fact straight to memory — it stages an approval
+ * card, and the founder's yes is what applies it (gate-fact-families.ts). This
+ * test is unaffected because it asserts the CHECK's reading of applied facts,
+ * not the tool's write path. Do not "restore" auto-apply to make a future test
+ * pass: that is the consent hole the 2026-08-09 audit closed.
  */
 
 function mkSnapshot(

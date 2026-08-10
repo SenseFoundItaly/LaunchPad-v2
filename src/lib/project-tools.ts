@@ -41,7 +41,8 @@ import { getCreditsRemaining, KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
 import { ownerUserId } from '@/lib/cost-meter';
 import { USER_MONTHLY_LLM_USD, USER_MONTHLY_CREDITS } from '@/lib/credit-costs';
 import { getStageReadiness, formatReadinessForPrompt } from '@/lib/stage-readiness';
-import { getActiveStage, keywordMatcher, MARKET_SIZE_KEYWORDS } from '@/lib/journey';
+import { getActiveStage, keywordMatcher } from '@/lib/journey';
+import { matchGateFactFamily } from '@/lib/gate-fact-families';
 import { CHAT_PROPOSABLE_KINDS } from '@/lib/journey/validation-targets';
 import {
   validationTargetsFor,
@@ -2603,7 +2604,7 @@ const saveMemoryFactTool = (ctx: ToolContext): AgentTool => ({
   name: 'save_memory_fact',
   label: 'Save Memory Fact',
   description:
-    'Persist a single short fact about the project to memory_facts. Use for: customer interview quotes ("X said our pricing felt high"), pain-point validation ("biggest frustration is onboarding takes 3 weeks"), ICP details ("ICP = solo SaaS founders with $10-50k MRR"), market sizing notes ("EU SaaS market ~$30B"), channel hypotheses ("LinkedIn outbound is the cheapest channel"), and TECHNICAL-VALIDATION facts: feasibility ("buildable with Postgres + vector search; main technical risk is data freshness"), key technical dependencies ("relies on OpenAI API and the regional portal feeds"), and regulatory/compliance constraints ("processes EU SME data → GDPR applies"). These facts power the Stage 2 evidence checks, INCLUDING the 1B Technical Validation track (feasibility / dependencies / regulatory) — calling this for each discrete fact the founder states closes those checks incrementally ("man mano"), so prefer it over only proposing a skill when the founder has already stated the fact. Keep each fact ≤300 chars and self-contained — don\'t use it for conversation transcripts or sprawling notes.',
+    'Persist a single short fact about the project to memory_facts. Use for: customer interview quotes ("X said our pricing felt high"), pain-point validation ("biggest frustration is onboarding takes 3 weeks"), ICP details ("ICP = solo SaaS founders with $10-50k MRR"), market sizing notes ("EU SaaS market ~$30B"), channel hypotheses ("LinkedIn outbound is the cheapest channel"), and TECHNICAL-VALIDATION facts: feasibility ("buildable with Postgres + vector search; main technical risk is data freshness"), key technical dependencies ("relies on OpenAI API and the regional portal feeds"), and regulatory/compliance constraints ("processes EU SME data → GDPR applies"). Call it for each discrete fact the founder states, rather than only proposing a skill. IMPORTANT: a fact that would move a Validation Gate check (market size, differentiation, trends, buyer persona, GTM, partners, IP, data availability, validation strategy, JTBD, unit costs, revenue streams, feasibility, technical risk, dependencies, regulatory) is NOT written straight to memory — it is staged as an APPROVAL CARD, because no gate step may turn green without the founder’s explicit yes. The tool tells you when that happens: say the card is waiting for their approval, and never claim the step is complete. Keep each fact ≤300 chars and self-contained — don’t use it for conversation transcripts or sprawling notes.',
   parameters: Type.Object({
     content: Type.String({ description: 'The fact itself, ≤300 chars. Quote the founder verbatim when relevant ("Maria said: …"). Include the source category at the start when natural: "Interview: …", "Pain point: …", "ICP: …", "Channel: …", "Market size: …", "Feasibility: …", "Dependency: …", "Regulatory: …".' }),
     sources: Type.Optional(Type.Array(Type.Object({}, { additionalProperties: true }), { description: 'Optional source[] — usually a chat-turn citation. Improves provenance for stage evidence.' })),
@@ -2624,29 +2625,56 @@ const saveMemoryFactTool = (ctx: ToolContext): AgentTool => ({
       };
     }
 
-    // Spine-moving detection. MARKET_SIZE_KEYWORDS is the SAME constant the
-    // canonical Stage-2 `market_size` check counts (imported from
-    // stage-2-market-validation.ts) — a market-sizing fact, if persisted
-    // 'applied', would silently turn the "Market size estimated" substep GREEN
-    // with no founder approval, violating the 2026-06-12 invariant. A local
-    // English-only copy of the list drifted from the check's bilingual one
-    // (Italian prose slipped past the gate), hence the shared import.
-    // Matched via the SHARED keywordMatcher (whole-word/phrase, length-tuned
-    // boundaries) — NOT a bare substring. A substring `.includes('tam')` gated
-    // the acronym INSIDE unrelated words: Italian "trat·tam·ento" (= "processing",
-    // common in GDPR/regulatory facts) was wrongly flagged spine-moving and
-    // persisted PENDING, so the founder's regulatory/technical facts silently
-    // never counted toward the Stage-2 1B checks.
-    const isSpineMoving = keywordMatcher([...MARKET_SIZE_KEYWORDS]).test(content);
+    // Gate-moving detection over EVERY keyword family (shared list — see
+    // gate-fact-families.ts; never a local copy, that is how this drifted).
+    //
+    // This used to test MARKET_SIZE_KEYWORDS alone, so a fact about regulatory
+    // constraints, technical risk, dependencies, GTM, partners, IP, JTBD…
+    // persisted 'applied' and turned its Stage-2 check GREEN with no founder
+    // approval (2026-08-09 legibility audit) — while the Home spine promises
+    // the opposite in the founder's own language: "nulla viene validato senza
+    // il tuo sì". Worse, chat-fact-sweep SKIPS a family once any fact matches
+    // it, so the auto-applied fact also suppressed the approval card the
+    // founder would otherwise have seen.
+    const gateFamily = matchGateFactFamily(content);
+
+    if (gateFamily) {
+      // Stage a VISIBLE proposal instead of writing the fact.
+      //
+      // Deliberately not `recordFact({reviewedState:'pending'})`: a pending
+      // memory_fact materializes as a `proposed_graph_update` pending_action,
+      // and that type is routed OUT of the Inbox for the alpha
+      // (action-lanes.ts) — the founder would never see it, and the check
+      // would be permanently un-greenable. That is the invisible-card class
+      // this codebase keeps re-finding. stageValidationItemsFromRaw is the
+      // path the chat sweep already uses, and it renders an approval card in
+      // the co-pilot thread.
+      const { stageValidationItemsFromRaw } = await import('@/lib/auto-stage-validation');
+      const staged = await stageValidationItemsFromRaw(
+        ctx.projectId,
+        [{
+          kind: gateFamily.kind,
+          field: gateFamily.field,
+          value: content,
+          sources: p.sources ?? [{ type: 'user', title: 'Founder stated in chat', quote: content.slice(0, 300) }],
+        }],
+        'save_memory_fact (gate-moving)',
+      );
+      return {
+        content: [{
+          type: 'text',
+          text: staged.staged
+            ? `That fact moves a gate check, so it was staged as an approval card for the founder instead of being written straight to memory. Tell them it is waiting for their yes — do NOT claim the step is complete.`
+            : `That fact moves a gate check but could not be staged. Use propose_validation so the founder can approve it; do NOT claim the step is complete.`,
+        }],
+        details: { staged: staged.staged, kind: gateFamily.kind, field: gateFamily.field },
+      };
+    }
 
     // Delegate to recordFact (handles dedup, source persistence, memory_event
-    // emission). Reviewed-state split honours BOTH live decisions:
-    //   • generic context facts AUTO-APPLY (reviewed_state='applied', recordFact's
-    //     default) — preserves the "facts applied by default" decision.
-    //   • spine-moving (market-sizing) facts persist PENDING so they land in the
-    //     founder's inbox for approval and do NOT auto-count toward the Stage-2
-    //     check (snapshot.ts counts only reviewed_state='applied'). Mirrors the
-    //     knowledge-as-proposal pattern at src/app/api/chat/route.ts (fact artifact).
+    // emission). Non-gate context facts AUTO-APPLY (reviewed_state='applied',
+    // recordFact's default) — preserving the "facts applied by default"
+    // decision for everything that cannot green a check.
     // Inferred kind = 'fact'; refinement to 'observation'/'decision' can come in
     // a follow-up tool variant.
     const id = await recordFact({
@@ -2655,7 +2683,6 @@ const saveMemoryFactTool = (ctx: ToolContext): AgentTool => ({
       fact: content,
       sourceType: 'chat',
       sources: p.sources,
-      ...(isSpineMoving ? { reviewedState: 'pending' as const } : {}),
     });
 
     if (!id) {
