@@ -234,6 +234,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   // Spiegazioni al passaggio del mouse sulla Spina. Ogni fase dice cosa dimostra
   // e cosa la chiude; ogni loop dice cosa lo fa scattare. Concreti di proposito:
   // il founder non deve mai indovinare perché una riga è bloccata.
+  'journey-phase.what-is-this': 'Cos’è questa fase',
   'journey-phase.tip-phase-0': 'Idea Canvas — metti a fuoco problema, cliente e il tuo vantaggio. Si chiude quando il nucleo del canvas è compilato e arriva il primo punteggio.',
   'journey-phase.tip-phase-1': 'Validation Gate — dimostra il mercato con evidenze reali: interviste, concorrenti, dimensionamento e disponibilità a pagare. La fase più pesante, e la prima che leggono gli investitori.',
   'journey-phase.tip-phase-2': 'Business Essentials — chi compra esattamente, e i conti tornano? Persona più prezzi, costi e unit economics.',

@@ -242,6 +242,7 @@ export const en = {
   // Hover explainers for the spine. Each phase says what it proves and what
   // closes it; each loop says what fires it. Kept concrete — a founder should
   // never have to guess why a row is locked.
+  'journey-phase.what-is-this': 'What this phase is',
   'journey-phase.tip-phase-0': 'Idea Canvas — pin down the problem, the customer and your edge. Closes when the canvas core is filled and the first score lands.',
   'journey-phase.tip-phase-1': 'Validation Gate — prove the market with real evidence: interviews, competitors, sizing and willingness to pay. The heaviest phase, and the one investors read first.',
   'journey-phase.tip-phase-2': 'Business Essentials — who exactly buys, and does the money work? Persona plus pricing, costs and unit economics.',
