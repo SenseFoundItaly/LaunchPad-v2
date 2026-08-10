@@ -132,6 +132,14 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   tools?: ToolActivity[];
+  /**
+   * This turn stated an external fact (a %, a sum in millions/billions, a
+   * statute) with no `[N]` citation near it. The server has always computed
+   * this (turn-violations.ts) and used it ONLY to steer the next turn — the
+   * founder was never told, so an unsourced "€310M" read exactly like a
+   * researched one. Rendered as a caption under the message.
+   */
+  uncited_claims?: boolean;
 }
 
 export interface Task {

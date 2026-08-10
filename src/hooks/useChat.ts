@@ -260,6 +260,15 @@ export function useChat(projectId: string, step: string = 'chat') {
               broadcastPersistedArtifacts(parsed.persisted_artifacts);
             }
 
+            // The turn asserted a hard external number with no citation near it.
+            // The server has always computed this and used it only to steer the
+            // NEXT turn; showing it is what keeps an unsourced figure from
+            // reading like a researched one (2026-08-09 audit).
+            if (parsed.done && parsed.uncited_claims) {
+              setLast((m) => ({ ...m, uncited_claims: true }));
+              flushNow();
+            }
+
             // The agent mutated the inbox this turn (dismissed/proposed a watcher,
             // created a task, …). Refresh the Inbox badge + Watchers/Actions panels
             // so they don't show stale rows. Per-project detail scopes the bridge.

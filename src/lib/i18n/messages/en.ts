@@ -631,6 +631,8 @@ export const en = {
   'chat.qr-give-input-msg': "I want to fill in this section myself. Tell me exactly what input you need, I'll give it to you, and we'll refine it together — don't start over.",
   'chat.qr-get-options': 'Give me options',
   'chat.qr-get-options-msg': "Give me 2-3 concrete options for this section and let's evaluate them together to pick the best — don't start over.",
+  'chat.card-rejected': 'A card ({type}) was not shown: it failed the source rules. Ask the Co-pilot to regenerate it with sources.',
+  'chat.uncited-claim': 'This reply states figures with no source. Check them before you rely on them — ask the Co-pilot “where does this number come from?”',
   'chat.qr-go-back': 'Go back a step',
   'chat.qr-go-back-msg': "Let's go back to the previous canvas section and continue from there, without restarting from the problem definition.",
   'chat.subtask-all-validated': 'All stages validated',

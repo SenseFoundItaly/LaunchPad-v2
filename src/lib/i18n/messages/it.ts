@@ -619,6 +619,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   'chat.qr-give-input-msg': 'Voglio completare io questa sezione del canvas. Dimmi esattamente quale input ti serve, te lo fornisco e lo affiniamo insieme — non ripartire da capo.',
   'chat.qr-get-options': 'Proponimi delle opzioni',
   'chat.qr-get-options-msg': 'Proponimi 2-3 opzioni concrete per questa sezione e valutiamole insieme per scegliere la migliore — non ripartire da capo.',
+  'chat.card-rejected': 'Una scheda ({type}) non è stata mostrata: non rispettava le regole sulle fonti. Chiedi al Co-pilot di rigenerarla con le fonti.',
+  'chat.uncited-claim': 'Questa risposta cita numeri senza fonte. Verificali prima di usarli — chiedi al Co-pilot “da dove viene questo dato?”',
   'chat.qr-go-back': 'Torna al punto precedente',
   'chat.qr-go-back-msg': 'Torniamo alla sezione precedente del canvas e riprendiamo da lì, senza ripartire dalla definizione del problema.',
   'chat.subtask-all-validated': 'Tutte le tappe validate',
