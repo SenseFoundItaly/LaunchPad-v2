@@ -66,7 +66,10 @@ async function verdictCardAlreadyOpen(projectId: string): Promise<boolean> {
  * Non-fatal by construction: every failure path returns false rather than
  * throwing, so a proposal problem can never break the caller's request.
  */
-export async function maybeProposeGateVerdict(projectId: string): Promise<boolean> {
+export async function maybeProposeGateVerdict(
+  projectId: string,
+  opts: { force?: boolean } = {},
+): Promise<boolean> {
   try {
     const proj = await query<{ owner_user_id: string | null }>(
       'SELECT owner_user_id FROM projects WHERE id = ?',
@@ -75,7 +78,14 @@ export async function maybeProposeGateVerdict(projectId: string): Promise<boolea
     const ownerUserId = proj[0]?.owner_user_id || '';
     if (!ownerUserId) return false;
 
-    if (await verdictCardAlreadyOpen(projectId)) return false;
+    // `force` = the founder explicitly REOPENED the decision (DELETE
+    // /gate-verdict). Without it the history guard below finds the card he
+    // already answered and refuses to stage a new one — which is why reopening
+    // produced nothing at all, and why the check's own instruction ("rework
+    // that evidence, then make the call again") pointed at no affordance
+    // anywhere in the product. 2026-08-09 audit; see CLAUDE.md on proposer
+    // idempotency: a REQUIRED step guards on STATE, never on history.
+    if (!opts.force && (await verdictCardAlreadyOpen(projectId))) return false;
 
     const snapshot = await buildProjectSnapshot(projectId);
     if (!shouldProposeGateVerdict(snapshot)) return false;

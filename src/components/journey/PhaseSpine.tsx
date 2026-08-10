@@ -8,6 +8,7 @@
  * src/lib/journey/phases.ts. (#306; #307 is the destructive id-collapse.)
  */
 
+import { useState } from 'react';
 import { Panel, Pill, Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -26,9 +27,12 @@ const PHASE_BG: Record<PhaseDisplayStatus, string> = {
   pending: 'var(--paper-2)',
 };
 
-// Hover explainers. Native `title` is the codebase's tooltip convention
-// (DepthChip, CreditsBadge, NavRail) — no popover dependency, and it survives
-// keyboard focus and screen readers for free.
+// Phase explainers. These are well-written and fully translated, but until
+// 2026-08-09 they were reachable ONLY by resting a cursor on a non-interactive
+// <div>: no info icon, no cursor cue, nothing on touch, and nothing for
+// keyboard users (a native `title` on a non-focusable element is not the
+// accessible affordance the old comment here claimed). The title stays as a
+// hover shortcut; the button below is the real way in.
 const STATUS_TIP: Record<PhaseDisplayStatus, MessageKey> = {
   done: 'journey-phase.tip-status-done',
   ahead: 'journey-phase.tip-status-ahead',
@@ -63,6 +67,8 @@ export function PhaseSpine({ projectId }: { projectId: string }) {
   // Latest loop row per number (newest first from GET /loops).
   const loopByNumber = new Map<number, LoopRow>();
   for (const l of loops ?? []) if (!loopByNumber.has(l.loop_number)) loopByNumber.set(l.loop_number, l);
+  // Which row's explainer is expanded (index into `spine`); null = none.
+  const [openTip, setOpenTip] = useState<number | null>(null);
 
   return (
     <Panel title={t('journey-phase.spine-title')} subtitle={t('journey-phase.spine-sub')}>
@@ -78,8 +84,10 @@ export function PhaseSpine({ projectId }: { projectId: string }) {
               node.total > 0 ? t('journey-phase.tip-evidence', { passed: node.passed, total: node.total }) : '',
               t(STATUS_TIP[status]),
             ].filter(Boolean).join('\n\n');
+            const tipOpen = openTip === i;
             return (
-              <div key={i} title={phaseTip} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-m)', background: PHASE_BG[status], padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 11 }}>
+              <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-m)', background: PHASE_BG[status], overflow: 'hidden' }}>
+              <div title={phaseTip} style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 11 }}>
                 <div className="lp-mono" style={{ fontSize: 14, fontWeight: 700, color: status === 'active' ? 'var(--accent-ink)' : 'var(--ink-4)', minWidth: 16, textAlign: 'center' }}>{node.n}</div>
                 <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.2 }}>{node.label}</div>
                 {/* Evidence tally — the honest number behind the label, so a
@@ -100,6 +108,31 @@ export function PhaseSpine({ projectId }: { projectId: string }) {
                     <span style={{ color: 'var(--ink-5)' }}>{t('journey-phase.status-pending')}</span>
                   )}
                 </div>
+                {phaseTip && (
+                  <button
+                    type="button"
+                    onClick={() => setOpenTip(tipOpen ? null : i)}
+                    aria-expanded={tipOpen}
+                    aria-label={t('journey-phase.what-is-this')}
+                    title={t('journey-phase.what-is-this')}
+                    style={{
+                      flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      width: 18, height: 18, padding: 0, cursor: 'pointer',
+                      border: '1px solid var(--line-2)', borderRadius: 999,
+                      background: tipOpen ? 'var(--ink-5)' : 'transparent',
+                      color: tipOpen ? 'var(--paper)' : 'var(--ink-4)',
+                      fontFamily: 'inherit', fontSize: 10, fontWeight: 700, lineHeight: 1,
+                    }}
+                  >
+                    ?
+                  </button>
+                )}
+              </div>
+              {tipOpen && phaseTip && (
+                <div style={{ padding: '0 12px 10px 39px', fontSize: 11.5, lineHeight: 1.5, color: 'var(--ink-3)', whiteSpace: 'pre-line' }}>
+                  {phaseTip}
+                </div>
+              )}
               </div>
             );
           }

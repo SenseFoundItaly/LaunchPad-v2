@@ -7,6 +7,7 @@ import { shouldProposeGateVerdict } from '@/lib/journey/stage-2-market-validatio
 import { triggerLoop1Manual } from '@/lib/loops/loop1-psf';
 import { recordEvent } from '@/lib/memory/events';
 import { clearIrlFloor } from '@/lib/irl/floor';
+import { maybeProposeGateVerdict } from '@/lib/gate-verdict';
 
 /**
  * POST /api/projects/{projectId}/gate-verdict
@@ -150,5 +151,12 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   await run('UPDATE research SET gate_verdict = NULL WHERE project_id = ?', projectId);
-  return json({ cleared: true });
+
+  // Clearing alone left the founder with nothing to click: the verdict card is
+  // the ONLY surface that records a decision, and its staging guard matched the
+  // card he had ALREADY answered anywhere in history, so no new card could ever
+  // appear. `force` skips that guard for this explicitly founder-initiated
+  // reopen (2026-08-09 audit). Non-fatal — the clear itself already succeeded.
+  const restaged = await maybeProposeGateVerdict(projectId, { force: true }).catch(() => false);
+  return json({ cleared: true, card_staged: restaged });
 }

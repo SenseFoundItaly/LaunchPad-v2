@@ -1788,10 +1788,20 @@ const applyValidationProposal: ActionHandler = async (action) => {
       applied.push(`Competitor: ${name}`);
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
     } else if (it.kind === 'market_size_fact' && ownerUserId) {
+      // The PREFIX is load-bearing here for the same reason it is on the
+      // tech/gtm/partner/ip families below: the Stage-2 `market_size` check
+      // keyword-matches memory_facts, and this was the ONE kind applied
+      // without one. When the structured stamp below cannot land (no research
+      // row yet, or market_size still NULL) the keyword fallback is the only
+      // thing keeping the check green — so an approved, credit-charged
+      // market-sizing card left the row RED (2026-08-09 audit). Idempotent:
+      // items built by auto-stage-validation already carry it.
+      const msPrefix = translateHist(locale, 'avs.prefix-market-size');
+      const msFact = value.startsWith(msPrefix) ? value : `${msPrefix}${value}`;
       await recordFact({
         userId: ownerUserId,
         projectId: action.project_id,
-        fact: value,
+        fact: msFact,
         kind: 'fact',
         sources: sources ?? undefined,
       });
@@ -1805,18 +1815,24 @@ const applyValidationProposal: ActionHandler = async (action) => {
       // double-encoded rows (string scalar) are skipped; the applied fact
       // above covers them via the check's keyword fallback.
       await run(
-        `UPDATE research SET market_size = market_size || jsonb_build_object(
-             'approved', true,
-             'approved_at', ?::text,
-             'approved_value', jsonb_strip_nulls(jsonb_build_object(
-               'text', ?::text,
-               'tam', market_size->'tam',
-               'sam', market_size->'sam',
-               'som', market_size->'som')))
-          WHERE project_id = ? AND market_size IS NOT NULL AND jsonb_typeof(market_size) = 'object'`,
+        `INSERT INTO research (project_id, market_size)
+         VALUES (?, jsonb_build_object('approved', true, 'approved_at', ?::text,
+                                       'approved_value', jsonb_build_object('text', ?::text)))
+         ON CONFLICT (project_id) DO UPDATE SET market_size =
+           CASE WHEN jsonb_typeof(research.market_size) = 'object'
+             THEN research.market_size || jsonb_build_object(
+               'approved', true,
+               'approved_at', EXCLUDED.market_size->>'approved_at',
+               'approved_value', jsonb_strip_nulls(jsonb_build_object(
+                 'text', EXCLUDED.market_size->'approved_value'->>'text',
+                 'tam', research.market_size->'tam',
+                 'sam', research.market_size->'sam',
+                 'som', research.market_size->'som')))
+             ELSE EXCLUDED.market_size
+           END`,
+        action.project_id,
         new Date().toISOString(),
         value,
-        action.project_id,
       ).catch((err) => console.warn('[applyValidationProposal] market_size approval stamp failed (non-fatal):', (err as Error).message));
       applied.push('Market size');
       creditsToDebit += typeof it.credits === 'number' ? it.credits : KNOWLEDGE_APPLY_CREDITS;
