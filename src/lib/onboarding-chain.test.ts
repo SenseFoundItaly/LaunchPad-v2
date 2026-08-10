@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { createHmac } from 'crypto';
+import { NextRequest } from 'next/server';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { renderWelcomeHtml } from './email';
@@ -152,5 +154,82 @@ describe('the welcome email', () => {
     for (const f of ['src/lib/i18n/messages/it.ts', 'src/lib/i18n/messages/en.ts']) {
       expect(read(f)).toMatch(/'tour\.finish\.desc':[^\n]*Monday Brief/);
     }
+  });
+});
+
+describe('the hook verifies signatures the way Supabase actually signs', () => {
+  // Supabase Send Email hooks use Standard Webhooks: the signed content is
+  // `{webhook-id}.{webhook-timestamp}.{body}`, the secret is base64 behind a
+  // `whsec_` prefix, and the signature is base64. A hex-HMAC-over-the-body
+  // check (the first version of this route) rejects EVERY genuine call — i.e.
+  // 401 on every login the moment the hook is switched on. Exercise the real
+  // verifier rather than asserting on its source text.
+  const load = async (secret: string) => {
+    process.env.SUPABASE_AUTH_HOOK_SECRET = secret;
+    process.env.SENSEFOUND_APP_URL = 'https://launchpad.sensefound.io';
+    vi.resetModules();
+    return await import('@/app/api/auth/hook/send-email/route');
+  };
+
+  const rawSecret = Buffer.from('supersecretkeymaterial').toString('base64');
+  const body = JSON.stringify({
+    user: { id: 'u1', email: 'founder@example.com' },
+    email_data: {
+      token: 't', token_hash: 'th', redirect_to: '/', email_action_type: 'magiclink',
+      site_url: 'https://launchpad.sensefound.io',
+    },
+  });
+
+  const signed = (secret: string, id: string, ts: string) =>
+    createHmac('sha256', Buffer.from(secret.replace(/^whsec_/, ''), 'base64'))
+      .update(`${id}.${ts}.${body}`)
+      .digest('base64');
+
+  const post = (headers: Record<string, string>) =>
+    new NextRequest('https://launchpad.sensefound.io/api/auth/hook/send-email', {
+      method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body,
+    });
+
+  it('accepts a correctly Standard-Webhooks-signed request', async () => {
+    const { POST } = await load(`whsec_${rawSecret}`);
+    const ts = String(Math.floor(Date.now() / 1000));
+    const res = await POST(post({
+      'webhook-id': 'msg_1',
+      'webhook-timestamp': ts,
+      'webhook-signature': `v1,${signed(`whsec_${rawSecret}`, 'msg_1', ts)}`,
+    }));
+    // Past the 401 gate. Delivery itself is stubbed here (no RESEND_API_KEY),
+    // which the route reports as 500 — the point is that it is NOT rejected.
+    expect(res.status).not.toBe(401);
+  });
+
+  it('rejects a valid signature computed over a DIFFERENT id/timestamp (replay)', async () => {
+    const { POST } = await load(`whsec_${rawSecret}`);
+    const ts = String(Math.floor(Date.now() / 1000));
+    const res = await POST(post({
+      'webhook-id': 'msg_1',
+      'webhook-timestamp': ts,
+      'webhook-signature': `v1,${signed(`whsec_${rawSecret}`, 'msg_OTHER', ts)}`,
+    }));
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects a stale timestamp even when the signature matches it', async () => {
+    const { POST } = await load(`whsec_${rawSecret}`);
+    const old = String(Math.floor(Date.now() / 1000) - 3600);
+    const res = await POST(post({
+      'webhook-id': 'msg_1',
+      'webhook-timestamp': old,
+      'webhook-signature': `v1,${signed(`whsec_${rawSecret}`, 'msg_1', old)}`,
+    }));
+    expect(res.status).toBe(401);
+  });
+
+  it('refuses everything when no secret is configured', async () => {
+    delete process.env.SUPABASE_AUTH_HOOK_SECRET;
+    vi.resetModules();
+    const { POST } = await import('@/app/api/auth/hook/send-email/route');
+    const res = await POST(post({}));
+    expect(res.status).toBe(500);
   });
 });

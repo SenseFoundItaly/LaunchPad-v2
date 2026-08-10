@@ -21,11 +21,13 @@ import { createHmac, timingSafeEqual } from 'crypto';
  *   }
  * }
  *
- * Setup (ALL steps required — step 1 is enforced, the route 500s without it):
- *   1. Set SUPABASE_AUTH_HOOK_SECRET in the env (generate: openssl rand -hex 32)
- *   2. In Supabase Dashboard → Auth → Hooks → Send Email → Enable
- *   3. Set hook URL to: https://<your-domain>/api/auth/hook/send-email
- *   4. Set the HTTP hook secret to the same SUPABASE_AUTH_HOOK_SECRET value
+ * Setup — do it in THIS order (the secret is issued by Supabase, not by us):
+ *   1. Supabase Dashboard → Auth → Hooks → Send Email → Enable, URL:
+ *      https://<your-domain>/api/auth/hook/send-email
+ *   2. Copy the secret Supabase shows (looks like `v1,whsec_…`)
+ *   3. netlify env:set SUPABASE_AUTH_HOOK_SECRET '<that value>' && redeploy
+ * Until step 3 lands the route answers 500 and Supabase surfaces the failure —
+ * it never silently swallows a founder's login email.
  *
  * ⚠️ The 2026-08-08 onboarding audit found this route deployed, publicly
  * reachable and UNSIGNED (the secret was never set), i.e. an open relay that
@@ -66,21 +68,56 @@ interface HookPayload {
  */
 const HANDLED_TYPES = new Set(['magiclink', 'signup', 'recovery', 'email_change', 'invite']);
 
-function verifySignature(payload: string, signature: string | null): boolean {
-  if (!HOOK_SECRET || !signature) return false;
-  const expected = createHmac('sha256', HOOK_SECRET).update(payload).digest('hex');
-  // Standard-Webhooks style headers carry "v1,<sig>" (possibly space-separated
-  // for key rotation) — accept any listed signature that matches.
-  const candidates = signature
+/** Reject payloads older than this — a captured POST must not be replayable. */
+const TIMESTAMP_TOLERANCE_S = 5 * 60;
+
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false; // length mismatch, not an error
+  return timingSafeEqual(ab, bb);
+}
+
+/**
+ * Verify a Supabase Auth Hook request.
+ *
+ * Supabase signs Send Email hooks with **Standard Webhooks**, NOT a plain HMAC
+ * of the body: the signed content is `{webhook-id}.{webhook-timestamp}.{body}`,
+ * the secret is base64 (dashboard-issued, `whsec_`-prefixed) and the signature
+ * is base64 — so a hex-HMAC-over-the-body check (what this route did first)
+ * rejects every genuine call, i.e. 401 on every login the moment the hook is
+ * enabled. Both schemes are accepted: Standard Webhooks when the framing
+ * headers are present, plain-HMAC otherwise (self-hosted / custom callers).
+ */
+function verifySignature(req: NextRequest, payload: string): boolean {
+  if (!HOOK_SECRET) return false;
+  const signature = req.headers.get('webhook-signature') ?? req.headers.get('x-supabase-signature');
+  if (!signature) return false;
+
+  const id = req.headers.get('webhook-id');
+  const timestamp = req.headers.get('webhook-timestamp');
+
+  // Listed signatures are space-separated ("v1,<sig> v1,<sig>") during rotation.
+  const provided = signature
     .split(/\s+/)
-    .map((part) => (part.includes(',') ? part.slice(part.indexOf(',') + 1) : part));
-  return candidates.some((candidate) => {
-    try {
-      return timingSafeEqual(Buffer.from(expected), Buffer.from(candidate));
-    } catch {
-      return false; // length mismatch — not a match, not an error
-    }
-  });
+    .map((part) => (part.includes(',') ? part.slice(part.indexOf(',') + 1) : part))
+    .filter(Boolean);
+  if (provided.length === 0) return false;
+
+  if (id && timestamp) {
+    const sent = Number(timestamp);
+    if (!Number.isFinite(sent)) return false;
+    if (Math.abs(Math.floor(Date.now() / 1000) - sent) > TIMESTAMP_TOLERANCE_S) return false;
+
+    const key = Buffer.from(HOOK_SECRET.replace(/^v\d+,/, '').replace(/^whsec_/, ''), 'base64');
+    const expected = createHmac('sha256', key)
+      .update(`${id}.${timestamp}.${payload}`)
+      .digest('base64');
+    return provided.some((candidate) => safeEqual(expected, candidate));
+  }
+
+  const expectedHex = createHmac('sha256', HOOK_SECRET).update(payload).digest('hex');
+  return provided.some((candidate) => safeEqual(expectedHex, candidate));
 }
 
 export async function POST(request: NextRequest) {
@@ -92,9 +129,7 @@ export async function POST(request: NextRequest) {
   }
 
   const rawBody = await request.text();
-  const sig =
-    request.headers.get('webhook-signature') ?? request.headers.get('x-supabase-signature');
-  if (!verifySignature(rawBody, sig)) {
+  if (!verifySignature(request, rawBody)) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
