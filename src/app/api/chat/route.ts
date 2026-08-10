@@ -1044,6 +1044,11 @@ export async function POST(request: NextRequest) {
         // each retrievable card with the assistant message it came from. Stays
         // null when the message persist failed/was skipped — capture still runs.
         let assistantMessageId: string | null = null;
+        // Surfaced to the founder on the done-event: the turn asserted a hard
+        // external number with no [N] near it. Computed either way for the
+        // next-turn nudge; showing it is what stops an unsourced figure from
+        // looking researched (2026-08-09 audit).
+        let uncitedClaims = false;
         try {
           // Two rows per turn: the assistant MUST sort after its user prompt.
           // Give them distinct, ordered timestamps (user `now`, assistant +1ms)
@@ -1072,6 +1077,7 @@ export async function POST(request: NextRequest) {
                 fullResponse,
                 lastMessage,
               );
+              uncitedClaims = violations.uncited_prose_claims;
               if (violations.skill_first_violation || violations.prose_fabrication || violations.uncited_prose_claims) {
                 metaJson = JSON.stringify(violations);
               }
@@ -1474,6 +1480,9 @@ export async function POST(request: NextRequest) {
           // Include persisted artifact IDs so the client can wire apply/reject
           if (Object.keys(persistedMap).length > 0) {
             donePayload.persisted_artifacts = persistedMap;
+          }
+          if (uncitedClaims) {
+            donePayload.uncited_claims = true;
           }
           if (typeof cost === 'number' && cost > 0) {
             // Compute credits from cost using the project's budget configuration

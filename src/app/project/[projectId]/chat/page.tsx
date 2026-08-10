@@ -187,6 +187,12 @@ interface ClassifiedArtifacts {
    *  the render memo so the array REFERENCE is stable across renders — a fresh
    *  `.filter()` each pass would defeat React.memo on the message row. */
   inlineForDisplay: Artifact[];
+  /** Cards the parser REJECTED (bad JSON, failed source validation). The
+   *  parser emits these expressly so the founder is told why a card is
+   *  missing; nothing consumed them, so a rejected card vanished while the
+   *  prose kept narrating it ("qui sotto trovi la scomposizione TAM/SAM/SOM").
+   *  2026-08-09 audit. */
+  errors: Array<{ reason: string; artifact_type?: string }>;
 }
 const artifactCache = new Map<string, ClassifiedArtifacts>();
 function classifyArtifactsCached(content: string): ClassifiedArtifacts {
@@ -211,12 +217,21 @@ function classifyArtifactsCached(content: string): ClassifiedArtifacts {
   return result;
 }
 
-function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artifact[] } {
+function classifyArtifacts(content: string): {
+  inline: Artifact[]; canvas: Artifact[]; errors: Array<{ reason: string; artifact_type?: string }>;
+} {
   const segments = parseMessageContent(content);
   const all = segments
     .filter((s) => s.type === 'artifact')
     .map((s) => (s as { type: 'artifact'; artifact: Artifact }).artifact);
+  const errors = segments
+    .filter((s) => s.type === 'artifact-error')
+    .map((s) => {
+      const e = s as { reason: string; artifact_type?: string };
+      return { reason: e.reason, artifact_type: e.artifact_type };
+    });
   return {
+    errors,
     inline: all.filter((a) => INLINE_ARTIFACT_TYPES.has(a.type)),
     canvas: all.filter(
       (a) =>
@@ -229,7 +244,11 @@ function classifyArtifacts(content: string): { inline: Artifact[]; canvas: Artif
 
 interface HistoryResp {
   success: boolean;
-  data?: Array<{ id: string; role: string; content: string; timestamp: string; tools_json?: string }>;
+  data?: Array<{
+    id: string; role: string; content: string; timestamp: string; tools_json?: string;
+    /** Turn-violation flags (turn-violations.ts). Only the citation one is founder-facing. */
+    meta?: { uncited_prose_claims?: boolean } | null;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -667,6 +686,10 @@ export default function CopilotChatPage({
             content: m.content,
             timestamp: m.timestamp,
             tools: m.tools_json ? JSON.parse(m.tools_json) : undefined,
+            // The turn's uncited-number flag lives in meta (written by
+            // turn-violations.ts); carry it across a reload so the caption
+            // isn't a live-stream-only affordance.
+            uncited_claims: !!(m.meta as { uncited_prose_claims?: boolean } | null)?.uncited_prose_claims,
           }))
           : [];
         // Restored history replaces the whole thread: collapse paging, hide
@@ -836,13 +859,15 @@ export default function CopilotChatPage({
     sourceMessageId: string;
     turnIndex: number;
   }
-  const { canvasEntries, canvasArtifacts, inlineArtifactsByMsgId, pendingPlaceholders } = useMemo(() => {
+  const { canvasEntries, canvasArtifacts, inlineArtifactsByMsgId, artifactErrorsByMsgId, pendingPlaceholders } = useMemo(() => {
     const inlineMap = new Map<string, Artifact[]>();
+    const errorMap = new Map<string, Array<{ reason: string; artifact_type?: string }>>();
     const canvasById = new Map<string, CanvasEntry>();
     let turnIndex = 0;
     for (const m of messages) {
       if (m.role !== 'assistant' || !m.content) continue;
       const split = classifyArtifactsCached(m.content);
+      if (split.errors.length > 0) errorMap.set(m.id, split.errors);
       // Gate filtering already applied inside the cache, so this array keeps a
       // stable reference for unchanged messages (see ClassifiedArtifacts).
       const inline = split.inlineForDisplay;
@@ -893,6 +918,7 @@ export default function CopilotChatPage({
       canvasEntries: entries,
       canvasArtifacts: entries.map((e) => e.artifact),
       inlineArtifactsByMsgId: inlineMap,
+      artifactErrorsByMsgId: errorMap,
       pendingPlaceholders: placeholders,
     };
   }, [messages, isStreaming]);
@@ -1618,6 +1644,8 @@ export default function CopilotChatPage({
                       agent="Chief"
                       streaming={m.role === 'assistant' && isStreaming && m === messages[messages.length - 1]}
                       tools={m.tools}
+                      uncitedClaims={m.uncited_claims}
+                      artifactErrors={artifactErrorsByMsgId.get(m.id)}
                       rawContent={m.content}
                       inlineArtifacts={inlineArtifactsByMsgId.get(m.id)}
                       onArtifactAction={handleArtifactAction}
@@ -2041,6 +2069,8 @@ function MsgImpl({
   onQuickReply,
   onRetry,
   onFocusChange,
+  uncitedClaims,
+  artifactErrors,
 }: {
   messageId: string;
   who: 'user' | 'ai';
@@ -2065,6 +2095,10 @@ function MsgImpl({
   /** Hover focus. ONE stable callback shared by every row (the row reports its
    *  own id), so the message row stays React.memo-able. */
   onFocusChange?: (id: string, focused: boolean) => void;
+  /** This turn stated a hard external number with no citation near it. */
+  uncitedClaims?: boolean;
+  /** Cards the parser rejected — shown so a missing card is never silent. */
+  artifactErrors?: Array<{ reason: string; artifact_type?: string }>;
 }) {
   const t = useT();
 
@@ -2173,6 +2207,48 @@ function MsgImpl({
           </div>
         );
       })()}
+      {/* A card the parser REJECTED (bad JSON / failed source validation). The
+          parser emits these so the founder learns WHY a promised card is not
+          there; without this the card silently vanished while the prose above
+          still described it. */}
+      {!streaming && artifactErrors && artifactErrors.length > 0 && (
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {artifactErrors.map((e, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 6,
+                padding: '8px 10px', borderRadius: 'var(--r-m)',
+                border: '1px solid var(--clay)', background: 'var(--clay-wash)',
+                fontSize: 11.5, lineHeight: 1.45, color: 'var(--ink-2)',
+              }}
+            >
+              <Icon d={I.x} size={11} stroke={1.6} style={{ color: 'var(--clay)', flexShrink: 0, marginTop: 2 }} />
+              <span>{t('chat.card-rejected', { type: e.artifact_type ?? '—' })}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* The server flags a turn that asserts a hard external number with no
+          citation near it; until now it used that ONLY to steer the next turn,
+          so an unsourced "€310M" looked exactly like a researched one and could
+          be copied straight into a pitch deck (2026-08-09 audit). */}
+      {!streaming && uncitedClaims && (
+        <div
+          style={{
+            marginTop: 8,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 6,
+            fontSize: 11,
+            lineHeight: 1.45,
+            color: 'var(--ink-4)',
+          }}
+        >
+          <Icon d={I.flag} size={11} stroke={1.5} style={{ color: 'var(--clay)', flexShrink: 0, marginTop: 2 }} />
+          <span>{t('chat.uncited-claim')}</span>
+        </div>
+      )}
       {/* Fallback quick-reply chips when the model omitted an option-set */}
       {!streaming && who === 'ai' && (!inlineArtifacts || inlineArtifacts.length === 0) && (
         <QuickReplies rawContent={rawContent} onReply={onQuickReply} />
@@ -3819,5 +3895,15 @@ function ComposerMenu({
 function stripArtifacts(content: string): string {
   // Normalize first so a canvas leaked as a raw ```json fence becomes an
   // artifact block and gets stripped too — no raw JSON in the prose column.
-  return normalizeCanvasJsonFences(content).replace(/:::artifact[\s\S]*?(?::::|$)/g, '').trim();
+  return normalizeCanvasJsonFences(content)
+    .replace(/:::artifact[\s\S]*?(?::::|$)/g, '')
+    // Trailing <CITATIONS>[…]</CITATIONS>. The model is told not to emit one
+    // and mostly doesn't, but often enough that the parser keeps a rescue path
+    // that lifts those sources onto the cards (artifact-parser.ts). What was
+    // missing is this strip: unstripped, the raw JSON rendered as literal
+    // machine noise at the end of the bubble. Measured on prod 2026-08-09:
+    // 12 stored messages carry the block. Unterminated form included — a
+    // stream cut mid-block would otherwise leak the whole tail.
+    .replace(/<CITATIONS>[\s\S]*?(?:<\/CITATIONS>|$)/g, '')
+    .trim();
 }
