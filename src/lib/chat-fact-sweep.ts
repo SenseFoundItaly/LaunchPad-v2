@@ -25,53 +25,10 @@
 import { query } from '@/lib/db';
 import { keywordMatcher, activeStageFor } from '@/lib/journey';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
-import {
-  MARKET_SIZE_KEYWORDS,
-  DIFFERENTIATION_KEYWORDS,
-  TRENDS_KEYWORDS,
-  BUYER_PERSONA_KEYWORDS,
-  GTM_KEYWORDS,
-  PARTNERS_KEYWORDS,
-  IP_KEYWORDS,
-  DATA_AVAILABILITY_KEYWORDS,
-  VALIDATION_STRATEGY_KEYWORDS,
-  JTBD_KEYWORDS,
-  BUILD_APPROACH_KEYWORDS,
-  TECH_RISK_KEYWORDS,
-  DEPENDENCY_KEYWORDS,
-  REGULATORY_KEYWORDS,
-} from '@/lib/journey/stage-2-market-validation';
-import { COGS_OPEX_KEYWORDS, REVENUE_STREAM_KEYWORDS } from '@/lib/journey/stage-4-business-model';
 import { stageValidationItemsFromRaw, type RawValidationItem } from '@/lib/auto-stage-validation';
+import { GATE_FACT_FAMILIES as FAMILIES } from '@/lib/gate-fact-families';
 import type { Source } from '@/types/artifacts';
 
-interface SweepFamily {
-  kind: RawValidationItem['kind'];
-  field?: string;
-  keywords: readonly string[];
-}
-
-/** One family per keyword-matched Stage-2 check. build-approach and tech-risk
- *  both stage a `tech_fact(feasibility)` — the item targets both split checks;
- *  the verbatim message text closes whichever keyword family it matched. */
-const FAMILIES: SweepFamily[] = [
-  { kind: 'market_size_fact', keywords: MARKET_SIZE_KEYWORDS },
-  { kind: 'differentiation_fact', keywords: DIFFERENTIATION_KEYWORDS },
-  { kind: 'trend_fact', keywords: TRENDS_KEYWORDS },
-  { kind: 'buyer_persona_fact', keywords: BUYER_PERSONA_KEYWORDS },
-  { kind: 'gtm_fact', keywords: GTM_KEYWORDS },
-  { kind: 'partner_fact', keywords: PARTNERS_KEYWORDS },
-  { kind: 'ip_fact', keywords: IP_KEYWORDS },
-  { kind: 'data_fact', keywords: DATA_AVAILABILITY_KEYWORDS },
-  { kind: 'validation_strategy_fact', keywords: VALIDATION_STRATEGY_KEYWORDS },
-  { kind: 'jtbd_fact', keywords: JTBD_KEYWORDS },
-  { kind: 'cogs_opex_fact', keywords: COGS_OPEX_KEYWORDS },
-  { kind: 'revenue_stream_fact', keywords: REVENUE_STREAM_KEYWORDS },
-  { kind: 'tech_fact', field: 'feasibility', keywords: BUILD_APPROACH_KEYWORDS },
-  { kind: 'tech_fact', field: 'feasibility', keywords: TECH_RISK_KEYWORDS },
-  { kind: 'tech_fact', field: 'dependencies', keywords: DEPENDENCY_KEYWORDS },
-  { kind: 'tech_fact', field: 'regulatory', keywords: REGULATORY_KEYWORDS },
-];
 
 /** Option-click messages ("I choose: …" / "Scelgo: …") carry agent-drafted
  *  option text, not a founder statement — commits/skills are their real

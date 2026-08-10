@@ -260,10 +260,57 @@ const GAP_LABEL_KEY: Record<string, MessageKey> = {
 };
 
 /**
+ * Progress prefix the evaluators emit at the start of a counted gap/evidence
+ * string ("2 of 3 — ask Co-pilot to research more", "4 of 5 — tell the
+ * Co-pilot…"). Digits and "/" read the same in EN and IT, so carrying the
+ * prefix across needs no new message keys.
+ */
+const PROGRESS_RE = /^(\d+)\s+of\s+(\d+)\b/;
+
+/** Keep the evaluator's count in front of a localized sentence. */
+function withProgress(runtime: string, localized: string): string {
+  const m = runtime.trim().match(PROGRESS_RE);
+  return m ? `${m[1]}/${m[2]} · ${localized}` : localized;
+}
+
+/**
  * Localized gap hint for a spine check row. EN keeps the evaluator's verbatim
  * `gap` (its runtime specifics intact); non-EN locales get the localized hint
  * keyed by check id, falling back to the English gap for any unmapped id.
+ *
+ * ⚠️ The localized hint is STATIC, so it used to DELETE the evaluator's count:
+ * an Italian founder with 4 of 5 interviews logged read exactly the sentence he
+ * read at zero ("Registra almeno 5 interviste") and could not tell whether he
+ * was one interview away or five (2026-08-09 audit). The count now rides along
+ * as a locale-neutral prefix. The real fix is structured counts on CheckResult
+ * rather than parsing prose — this keeps the number honest until then, and
+ * degrades to the plain sentence when there is no count to carry.
  */
+/**
+ * A few checks emit SEVERAL distinct gap states that must not collapse into one
+ * localized sentence. gate_verdict is the load-bearing case: it says one of
+ * "you called PIVOT on track 1A", "you called PIVOT", "you called STOP", or
+ * "you haven't decided" — and IT rendered all four as "Prendi la decisione", so
+ * a founder who had recorded STOP saw the row of a founder who had decided
+ * nothing, with no trace of his own decision and no hint how to resume.
+ * Resolved off the English gap, which this repo generates itself (the verdict
+ * words are literal tokens we emit, not model prose).
+ */
+function gapKeyFor(checkId: string, gap: string): MessageKey | undefined {
+  if (checkId === 'gate_verdict') {
+    // Anchor on "You called …": the UNDECIDED sentence also contains the words
+    // PIVOT and STOP ("record GO, PIVOT or STOP"), so a bare word test read
+    // "you haven't decided" as "you chose STOP".
+    if (/^You called STOP\b/.test(gap)) return 'journey-gap.gate_verdict-stop';
+    if (/^You called PIVOT\b/.test(gap)) {
+      return /\btrack\s+\S+/.test(gap)
+        ? 'journey-gap.gate_verdict-pivot-scope'
+        : 'journey-gap.gate_verdict-pivot';
+    }
+  }
+  return GAP_LABEL_KEY[checkId];
+}
+
 export function checkGap(
   checkId: string,
   gap: string | undefined,
@@ -272,8 +319,11 @@ export function checkGap(
 ): string | undefined {
   if (gap == null) return undefined;
   if (locale !== 'en') {
-    const key = GAP_LABEL_KEY[checkId];
-    if (key) return t(key);
+    const key = gapKeyFor(checkId, gap);
+    if (key) {
+      const scope = gap.match(/\btrack\s+(\S+)/)?.[1];
+      return withProgress(gap, t(key, scope ? { scope } : undefined));
+    }
   }
   return gap;
 }
@@ -357,7 +407,7 @@ export function checkEvidence(
   if (evidence == null) return undefined;
   if (locale !== 'en') {
     const key = EVIDENCE_LABEL_KEY[checkId];
-    if (key) return t(key);
+    if (key) return withProgress(evidence, t(key));
   }
   return evidence;
 }
