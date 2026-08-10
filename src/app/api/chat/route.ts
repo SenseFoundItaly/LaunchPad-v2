@@ -21,6 +21,7 @@ import { formatStageContextForPrompt, JOURNEY_RULES } from '@/lib/journey/stage-
 import { computeNextBestAction, renderDirectionForPrompt } from '@/lib/direction';
 import { recordEvent, factHash } from '@/lib/memory/events';
 import { recordFact } from '@/lib/memory/facts';
+import { joinSystemForModel } from '@/lib/chat/cache-breakpoint';
 import { parseMessageContent, extractCitations } from '@/lib/artifact-parser';
 import { findOptionDecision } from '@/lib/option-decision-log';
 import { sweepFounderMessageForFacts } from '@/lib/chat-fact-sweep';
@@ -737,12 +738,24 @@ export async function POST(request: NextRequest) {
   // the rules onto the user turn saved 57% and dropped the gate from 8/8/8 to
   // 1/1/6 — a directive presented as "reference data" stops being obeyed. Rules
   // stay system-side; only data moves.
-  let systemPrompt = buildSystemPromptString({
+  // Built in two halves so a cache breakpoint can sit at the boundary. The
+  // static half (SOUL + AGENTS + ARTIFACT_INSTRUCTIONS + JOURNEY_RULES) was
+  // measured byte-identical on 5/5 turns at ~84,000 chars; everything after it
+  // mutates almost every turn and is ~3,800 chars. Marking the boundary lets
+  // the provider READ the 84k instead of RE-WRITING it (0.30 vs 3.75 $/M).
+  //
+  // `buildSystemPromptString` puts `tail` and `projectContext` in the same
+  // dynamic section joined by '\n\n', so building it with projectContext: ''
+  // and appending '\n\n' + dynamicContext reproduces the previous string
+  // EXACTLY — see the byte-identity assertions in cache-breakpoint.test.ts.
+  const staticSystem = buildSystemPromptString({
     locale,
     context: 'chat',
     tail: `${ARTIFACT_INSTRUCTIONS}\n\n${JOURNEY_RULES}`,
-    projectContext: CACHE_PREFIX_SPLIT ? '' : dynamicContext,
+    projectContext: '',
   });
+  const volatileSystem = CACHE_PREFIX_SPLIT || !dynamicContext ? '' : `\n\n${dynamicContext}`;
+  let systemPrompt = joinSystemForModel(staticSystem, volatileSystem);
   // Per-turn steering (prereq gate + prior-turn nudge) accumulates here. Legacy
   // folds it into systemPrompt (byte-identical to before); split rides it on the
   // user turn AFTER the context (so the nudges keep their read-recency).
@@ -865,7 +878,15 @@ export async function POST(request: NextRequest) {
             ORDER BY "timestamp" DESC LIMIT 1`,
           project_id,
         );
-        const meta = priorRows[0]?.meta;
+        // Rows written before the double-encode fix hold a jsonb STRING
+        // containing JSON rather than an object (jsonb_typeof = 'string').
+        // Those rows are why this nudge never fired in production. Accept
+        // both shapes so the feature works on historical rows too.
+        const raw = priorRows[0]?.meta;
+        let meta: unknown = raw;
+        if (typeof raw === 'string') {
+          try { meta = JSON.parse(raw); } catch { meta = null; }
+        }
         if (meta && typeof meta === 'object') {
           const prior: TurnViolations = {
             skill_first_violation: !!(meta as Record<string, unknown>).skill_first_violation,
@@ -899,6 +920,93 @@ export async function POST(request: NextRequest) {
       effectiveLastMessage = buildSplitUserTurn(dynamicContext, trailingSteer, lastMessage);
     } else {
       systemPrompt = systemPrompt + trailingSteer;
+    }
+
+    // ── Cache fingerprint (diagnostic) ────────────────────────────────────
+    // Anthropic prompt caching is a PREFIX match over tools → system →
+    // messages, so ANY change to the tool array or the system prompt re-writes
+    // the whole cached prefix at 3.75 $/M instead of reading it at 0.30 $/M.
+    //
+    // Measured on prod 2026-08-10 (30d): chat cache writes were 14.73M tokens
+    // ≈ $55 ≈ 74% of chat spend, and 84% of those writes landed on turns that
+    // arrived WITHIN 5 MINUTES of the previous turn — i.e. while the 5-min
+    // cache was still live. So the writes are prefix mutation, not expiry, and
+    // raising the TTL cannot help (1h writes cost 2× base vs 1.25×).
+    //
+    // What we don't yet know is WHICH input mutates. Fingerprint each of them
+    // per turn so `scripts/cache-fingerprint-report.mjs` can attribute the
+    // writes instead of us guessing. Cheap: two sha256s over strings we have
+    // already built. Set CHAT_CACHE_FP=0 to switch off without a deploy.
+    //
+    // Caveat: this captures the tool array as OFFERED at turn start. pi-agent
+    // also clears tools mid-turn at the tool-call cap (pi-agent.ts:626), which
+    // re-writes the prefix within a single turn and is invisible here.
+    const CHAT_CACHE_FP = process.env.CHAT_CACHE_FP !== '0';
+    let cacheFp: Record<string, unknown> | null = null;
+    if (CHAT_CACHE_FP) {
+      try {
+        const sha12 = (s: string) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 12);
+        const offeredTools = [...projectTools, ...skillTools];
+        // Sort by name so a pure REORDER doesn't read as a change; the schema
+        // hash still catches a genuine shape change to any single tool.
+        const toolSig = offeredTools
+          .map((t) => `${t.name}:${sha12(JSON.stringify(t.parameters ?? t))}`)
+          .sort()
+          .join('|');
+
+        // PER-SECTION hashes. A single whole-prompt hash proved the system
+        // prompt changes on ~100% of turns but could not say WHICH ~300 of its
+        // ~88,000 chars moved — and you cannot fix what you have not localised.
+        // Each entry is [hash, length] so the report can show both "did it
+        // move" and "how big is it", i.e. the size of each prize.
+        const sections: Record<string, [string, number]> = {
+          focusNode: [sha12(focusNodeContext), focusNodeContext.length],
+          direction: [sha12(directionContext), directionContext.length],
+          stage: [sha12(stageContext), stageContext.length],
+          canvas: [sha12(canvasContext), canvasContext.length],
+          research: [sha12(researchContext), researchContext.length],
+          commitGuard: [sha12(commitGuardContext), commitGuardContext.length],
+          watcher: [sha12(watcherContext), watcherContext.length],
+          project: [sha12(projectContext), projectContext.length],
+          memory: [sha12(memoryContext), memoryContext.length],
+          skill: [sha12(skillContext), skillContext.length],
+          locale: [sha12(localeReminder), localeReminder.length],
+          steer: [sha12(trailingSteer), trailingSteer.length],
+        };
+        // The static half, isolated: SOUL + AGENTS + ARTIFACT_INSTRUCTIONS +
+        // JOURNEY_RULES with the dynamic tail removed. If THIS ever moves, the
+        // whole premise (that the bulk of the prefix is stable and cacheable)
+        // is wrong and everything else is moot — so measure it rather than
+        // assume it.
+        const staticPrompt = buildSystemPromptString({
+          locale, context: 'chat',
+          tail: `${ARTIFACT_INSTRUCTIONS}\n\n${JOURNEY_RULES}`,
+          projectContext: '',
+        });
+        sections.STATIC = [sha12(staticPrompt), staticPrompt.length];
+
+        cacheFp = {
+          toolsFp: sha12(toolSig),
+          sysFp: sha12(systemPrompt),
+          model: pickModel(chatTask).model,
+          toolCount: offeredTools.length,
+          sysLen: systemPrompt.length,
+          task: chatTask,
+          split: CACHE_PREFIX_SPLIT,
+          sections,
+          // 20-BLOCK LOOKBACK probe. Anthropic walks back at most 20 content
+          // blocks from a breakpoint to find the previous cache entry; a turn
+          // that appends more than that silently misses even when every byte
+          // of the prefix is identical. Agentic turns emit a tool_use +
+          // tool_result pair per call, so this is the cheapest way to tell a
+          // "prefix changed" miss apart from a "walked too far back" miss.
+          // `toolCalls` is filled in after the stream completes.
+          seedBlocks: seedHistory.length,
+        };
+      } catch (err) {
+        // Diagnostic only — never let it break a founder's turn.
+        console.warn('[chat] cache fingerprint failed (non-fatal):', (err as Error).message);
+      }
     }
 
     // BYOK — if the founder stored a key for whichever provider the router
@@ -1070,7 +1178,15 @@ export async function POST(request: NextRequest) {
             // Pure + synchronous; no added latency over the existing INSERT.
             // Only persist meta when something fired — keeps the JSONB
             // surface clean and lets partial indexes stay sparse.
-            let metaJson: string | null = null;
+            //
+            // ⚠️ `meta` is JSONB. This used to bind `JSON.stringify(violations)`,
+            // which double-encodes (verified on prod: jsonb_typeof(meta) was
+            // 'string', not 'object'). Two silent consequences: the reader
+            // above tests `typeof meta === 'object'` and so NEVER fired the
+            // nudge, and the partial indexes from migration 012
+            // (`WHERE meta ? 'skill_first_violation'`) never matched, because
+            // `?` finds no keys in a jsonb string. Bind the RAW object.
+            let metaObj: Record<string, unknown> | null = null;
             try {
               const violations = analyzeTurnViolations(
                 toolsList.map((t) => ({ name: t.name })),
@@ -1079,10 +1195,32 @@ export async function POST(request: NextRequest) {
               );
               uncitedClaims = violations.uncited_prose_claims;
               if (violations.skill_first_violation || violations.prose_fabrication || violations.uncited_prose_claims) {
-                metaJson = JSON.stringify(violations);
+                metaObj = { ...violations };
               }
             } catch (err) {
               console.warn('[chat] turn-violation analysis failed (non-fatal):', err);
+            }
+            // Attach the cache fingerprint alongside the realised token counts,
+            // so one row carries both "what the prefix looked like" and "what
+            // it cost" — no join back to llm_usage_logs needed.
+            if (cacheFp) {
+              const toolCalls = toolsList.length;
+              metaObj = {
+                ...(metaObj ?? {}),
+                cacheFp: {
+                  ...cacheFp,
+                  writes: usage.cache_creation_input_tokens,
+                  reads: usage.cache_read_input_tokens,
+                  fresh: usage.input_tokens,
+                  toolCalls,
+                  // Blocks this turn appends after the cached breakpoint: the
+                  // user text, then a tool_use + tool_result pair per call.
+                  // > 20 means the NEXT turn's breakpoint cannot reach back to
+                  // this one's cache entry, and the miss has nothing to do with
+                  // the prompt bytes.
+                  appendedBlocks: 1 + toolCalls * 2,
+                },
+              };
             }
             const msgId = `msg_${crypto.randomUUID().slice(0, 12)}`;
             await run(
@@ -1092,7 +1230,7 @@ export async function POST(request: NextRequest) {
               project_id, step, fullResponse, assistantTs, userId, toolsJson,
               citationsJson ?? null,
               langfuseTraceId,
-              metaJson,
+              metaObj,
             );
             assistantMessageId = msgId;
           }

@@ -30,13 +30,51 @@ export async function buildMemoryContext(
 }
 
 /**
+ * Render proposal age for the prompt. MUST be stable across turns where nothing
+ * changed — this string sits in the cached system prefix, so a value that ticks
+ * every turn costs a full cache re-write (3.75 $/M tokens vs 0.30 $/M to read).
+ * Measured 2026-08-10: 84% of chat cache writes happen while the 5-min cache is
+ * still live, i.e. they are caused by prefix mutation like this one, not expiry.
+ *
+ * Trade-off: coarser buckets = more cache hits, less precise conversational
+ * recall. Only a bucket BOUNDARY crossing costs a write, so the win comes from
+ * how few turns cross one — not from the number of buckets as such. `LAPSED`
+ * carries the "this went stale" signal independently, so this helper does not
+ * have to.
+ *
+ * TODO(founder): pick the bucketing. The version below is a conservative
+ * placeholder chosen only to keep the build green — replace it.
+ */
+function proposalAge(turnsSince: number): string {
+  if (turnsSince === 0) return 'this turn';
+  if (turnsSince <= 2) return 'a turn or two ago';
+  if (turnsSince <= 5) return 'a few turns back';
+  return 'a while back';
+}
+
+/**
+ * Day-granularity render for timestamps that live in the cached prefix. The
+ * exact instant is never load-bearing for the model, but it mutates the prompt
+ * bytes on every rebuild. Non-ISO input passes through untouched.
+ */
+function dayOf(ts: string): string {
+  return /^\d{4}-\d{2}-\d{2}/.test(ts) ? ts.slice(0, 10) : ts;
+}
+
+/**
  * Pure formatter: converts a ProjectContext into the markdown string
  * consumed by the LLM system prompt.
+ *
+ * CACHE CONTRACT: two calls with an unchanged ProjectContext MUST return
+ * byte-identical strings. This block is concatenated into the system prompt
+ * (chat/route.ts), which pi-ai marks with `cache_control` — any per-turn drift
+ * here invalidates the whole ~20k-token cached prefix. Do not reintroduce wall
+ * clock values, elapsed-time counters, or anything else that ticks on its own.
+ * `context.stability.test.ts` guards this.
  */
 export function formatMemoryContextMarkdown(ctx: ProjectContext): string {
   const parts: string[] = [];
   parts.push('=== MEMORY CONTEXT ===');
-  parts.push(`Context as of: ${ctx.context_built_at}`);
   parts.push('');
 
   // 1. Project snapshot
@@ -86,9 +124,7 @@ export function formatMemoryContextMarkdown(ctx: ProjectContext): string {
   if (ctx.openProposals && ctx.openProposals.length > 0) {
     parts.push('## Open proposals (suggested, not yet run)');
     for (const p of ctx.openProposals) {
-      const turns = p.turns_since === 0
-        ? 'this turn'
-        : `${p.turns_since} turn${p.turns_since === 1 ? '' : 's'} ago`;
+      const turns = proposalAge(p.turns_since);
       const again = p.times_proposed > 1 ? ` · proposed ${p.times_proposed}× (still open)` : '';
       const flag = p.lapsed ? ' · LAPSED' : '';
       parts.push(`- ${p.skill_id} — suggested ${turns}${again}${flag}`);
@@ -103,7 +139,7 @@ export function formatMemoryContextMarkdown(ctx: ProjectContext): string {
   if (ctx.openKnowledgeProposals && ctx.openKnowledgeProposals.length > 0) {
     parts.push('## Open fact-suggestions (proposed, not yet applied)');
     for (const k of ctx.openKnowledgeProposals) {
-      const turns = k.turns_since === 0 ? 'this turn' : `${k.turns_since} turn${k.turns_since === 1 ? '' : 's'} ago`;
+      const turns = proposalAge(k.turns_since);
       const flag = k.lapsed ? ' · LAPSED' : '';
       parts.push(`- "${k.fact_preview}" — suggested ${turns}${flag}`);
     }
@@ -115,7 +151,7 @@ export function formatMemoryContextMarkdown(ctx: ProjectContext): string {
     parts.push('## Recent activity (most recent first)');
     for (const e of ctx.events) {
       const preview = summarizeEvent(e.event_type, e.payload);
-      parts.push(`- ${e.created_at} [${e.event_type}] ${preview}`);
+      parts.push(`- ${dayOf(e.created_at)} [${e.event_type}] ${preview}`);
     }
     parts.push('');
   } else if (ctx.failedSections.includes('events')) {

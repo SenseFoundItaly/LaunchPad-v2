@@ -1,0 +1,45 @@
+diff --git a/node_modules/@mariozechner/pi-ai/dist/providers/openai-completions.js b/node_modules/@mariozechner/pi-ai/dist/providers/openai-completions.js
+--- a/node_modules/@mariozechner/pi-ai/dist/providers/openai-completions.js
++++ b/node_modules/@mariozechner/pi-ai/dist/providers/openai-completions.js
+@@ -433,7 +433,40 @@
+     if (context.systemPrompt) {
+         const useDeveloperRole = model.reasoning && compat.supportsDeveloperRole;
+         const role = useDeveloperRole ? "developer" : "system";
+-        params.push({ role: role, content: sanitizeSurrogates(context.systemPrompt) });
++        // LaunchPad patch — prompt-cache breakpoint on the STATIC half of the
++        // system prompt. Rationale + measurements: src/lib/chat/cache-breakpoint.ts
++        //
++        // Upstream emits the system prompt as ONE plain string and puts its only
++        // cache_control on the last message, so the ~3,800 chars of per-turn
++        // context at the end invalidate the ~84,000 stable chars in front of it.
++        // Measured on prod: cache writes were 74% of chat cost ($55/mo).
++        //
++        // If the caller marked a boundary, emit two content blocks and cache the
++        // first. The marker is stripped either way, so the model receives
++        // byte-identical content in identical order: this can change billing,
++        // never behaviour.
++        const LP_CACHE_BREAKPOINT = "<<<PI_CACHE_BREAKPOINT>>>";
++        const lpRawSystem = sanitizeSurrogates(context.systemPrompt);
++        const lpIdx = lpRawSystem.indexOf(LP_CACHE_BREAKPOINT);
++        const lpAnthropicOnOpenRouter = model.provider === "openrouter" && model.id.startsWith("anthropic/");
++        if (lpIdx >= 0 && lpAnthropicOnOpenRouter) {
++            const lpStatic = lpRawSystem.slice(0, lpIdx);
++            const lpVolatile = lpRawSystem.slice(lpIdx + LP_CACHE_BREAKPOINT.length).split(LP_CACHE_BREAKPOINT).join("");
++            const lpBlocks = [
++                Object.assign({ type: "text", text: lpStatic }, { cache_control: { type: "ephemeral" } }),
++            ];
++            if (lpVolatile)
++                lpBlocks.push({ type: "text", text: lpVolatile });
++            params.push({ role: role, content: lpBlocks });
++        }
++        else {
++            // No boundary, or an unverified provider: strip any marker so it can
++            // never reach the model, then fall through to upstream behaviour.
++            params.push({
++                role: role,
++                content: lpIdx >= 0 ? lpRawSystem.split(LP_CACHE_BREAKPOINT).join("") : lpRawSystem,
++            });
++        }
+     }
+     let lastRole = null;
+     for (let i = 0; i < transformedMessages.length; i++) {
