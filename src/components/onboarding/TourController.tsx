@@ -5,8 +5,8 @@
  * NavRail-only ProductTour (changelog #1): same users.onboarded gate and
  * driver.js theming, but the tour now STARTS on the workspace dashboard (/),
  * walks its surfaces, then navigates into the first project and tours every
- * NavRail section (Home → Intel → Knowledge → Financials → Co-pilot) with
- * in-page highlights.
+ * NavRail section (Home → Knowledge → Watchers → Financials → Co-pilot,
+ * matching the changelog 4/08 mini-tour spec) with in-page highlights.
  *
  * Mounted ONCE in the root layout so it covers `/` and `/project/*` alike.
  * driver.js cannot span routes (the next page's targets don't exist yet), so
