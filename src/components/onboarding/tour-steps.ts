@@ -82,16 +82,19 @@ export function buildManifest({ hasProjects }: { hasProjects: boolean }): TourSt
     { id: 'score-panel', page: 'today', target: '[data-tour="score-panel"]', titleKey: 'tour.today.score.title', descKey: 'tour.today.score.desc', side: 'bottom', align: 'start', optional: true },
     { id: 'stage-card', page: 'today', target: '[data-tour="stage-card"]', titleKey: 'tour.today.stage.title', descKey: 'tour.today.stage.desc', side: 'right', align: 'start', optional: true },
     { id: 'watchers-panel', page: 'today', target: '[data-tour="watchers-panel"]', titleKey: 'tour.today.watchers.title', descKey: 'tour.today.watchers.desc', side: 'left', align: 'start', optional: true },
+    // ── Chapter: Knowledge graph (/knowledge) ───────────────────────────────
+    // Ordered BEFORE Watchers (changelog 4/08 mini-tour spec: Home → Knowledge
+    // → Watchers → Finance → Co-Pilot) — everything a founder uploads/produces
+    // lands here, so it's the more natural second stop than the sensor list.
+    nav('knowledge', 'knowledge', 'tour.knowledge.title', 'tour.knowledge.desc'),
+    { id: 'knowledge-graph', page: 'knowledge', target: '[data-tour="knowledge-graph"]', titleKey: 'tour.knowledge.graph.title', descKey: 'tour.knowledge.graph.desc', optional: true },
+    { id: 'add-documents', page: 'knowledge', target: '[data-tour="add-documents"]', titleKey: 'tour.knowledge.add.title', descKey: 'tour.knowledge.add.desc', side: 'bottom', align: 'end', optional: true },
     // ── Chapter: Watchers (/actions) ────────────────────────────────────────
     nav('actions', 'inbox', 'tour.watchers.title', 'tour.watchers.desc'),
     { id: 'inbox-tabs', page: 'actions', target: '[data-tour="inbox-tabs"]', titleKey: 'tour.actions.tabs.title', descKey: 'tour.actions.tabs.desc', side: 'bottom', align: 'start', optional: true },
     // Watchers is the default landing tab (Intel retired, PR #202) — highlight
     // the sensor list, not the needs-review queue that only shows on deep link.
     { id: 'watchers-list', page: 'actions', target: '[data-tour="watchers-list"]', titleKey: 'tour.actions.list.title', descKey: 'tour.actions.list.desc', optional: true },
-    // ── Chapter: Knowledge graph (/knowledge) ───────────────────────────────
-    nav('knowledge', 'knowledge', 'tour.knowledge.title', 'tour.knowledge.desc'),
-    { id: 'knowledge-graph', page: 'knowledge', target: '[data-tour="knowledge-graph"]', titleKey: 'tour.knowledge.graph.title', descKey: 'tour.knowledge.graph.desc', optional: true },
-    { id: 'add-documents', page: 'knowledge', target: '[data-tour="add-documents"]', titleKey: 'tour.knowledge.add.title', descKey: 'tour.knowledge.add.desc', side: 'bottom', align: 'end', optional: true },
     // ── Chapter: Financials (/financial) ────────────────────────────────────
     nav('financial', 'financial', 'tour.financial.title', 'tour.financial.desc'),
     { id: 'financial-model', page: 'financial', target: '[data-tour="financial-model"]', titleKey: 'tour.financial.model.title', descKey: 'tour.financial.model.desc', optional: true },
