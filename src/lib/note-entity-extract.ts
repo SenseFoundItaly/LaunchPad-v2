@@ -85,7 +85,7 @@ export function parseEntityExtraction(text: string): ExtractedEntities {
 export async function extractEntitiesFromNote(note: string): Promise<ExtractedEntities> {
   if (note.trim().length < NOTE_EXTRACT_MIN_CHARS) return { competitors: [], partners: [] };
   try {
-    const res = await runAgent(buildNoteExtractionPrompt(note), { task: 'update-generate' });
+    const res = await runAgent(buildNoteExtractionPrompt(note), { task: 'update-generate', traceName: 'note-entity-extract' });
     return parseEntityExtraction(String(res?.text ?? ''));
   } catch (err) {
     console.warn('[note-extract] failed (non-fatal):', (err as Error).message);

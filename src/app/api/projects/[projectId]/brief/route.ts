@@ -123,7 +123,10 @@ ${ctx}`;
   let prose = '';
   const startedAt = Date.now();
   try {
-    const { text, usage } = await runAgent(prompt, { task: 'chat', tools: false, timeout: 40_000 });
+    const { text, usage, langfuseTraceId } = await runAgent(prompt, {
+      task: 'chat', tools: false, timeout: 40_000,
+      userId, traceName: 'founder-brief',
+    });
     prose = (text || '').trim();
     // Meter the LLM cost. Awaited so the llm_usage_logs row + Langfuse flush
     // land before the serverless response returns and the Lambda freezes.
@@ -133,6 +136,8 @@ ${ctx}`;
       task: 'chat',
       usage,
       latency_ms: Date.now() - startedAt,
+      userId,
+      langfuseTraceId,
     });
   } catch (e) {
     return error(`Brief generation failed: ${(e as Error).message}`, 500);

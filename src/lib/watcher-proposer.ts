@@ -13,7 +13,7 @@
 
 import { runAgent } from '@/lib/pi-agent';
 import { pickModel } from '@/lib/llm/router';
-import { recordUsage } from '@/lib/cost-meter';
+import { recordUsage, ownerUserId } from '@/lib/cost-meter';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import type { WatcherTopic, WatcherKind, WatcherDepth, WatcherCadence } from '@/lib/watchers';
 
@@ -207,8 +207,10 @@ export async function proposeWatchers(ctx: ProjectContextForProposer): Promise<P
   });
 
   const startedAt = Date.now();
+  const ownerId = await ownerUserId(ctx.projectId);
   let raw = '';
   let usage;
+  let langfuseTraceId: string | null | undefined;
   try {
     const result = await runAgent('Propose watchers for this project now.', {
       systemPrompt,
@@ -216,9 +218,12 @@ export async function proposeWatchers(ctx: ProjectContextForProposer): Promise<P
       task: 'monitor-agent',
       // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
       projectId: ctx.projectId,
+      userId: ownerId ?? undefined,
+      traceName: 'watcher-propose',
     });
     raw = result.text;
     usage = result.usage;
+    langfuseTraceId = result.langfuseTraceId;
   } catch (err) {
     console.warn('[watcher-proposer] LLM call failed:', (err as Error).message);
     return { proposed: [], raw: '', skipped_reason: 'llm_failure' };
@@ -233,6 +238,8 @@ export async function proposeWatchers(ctx: ProjectContextForProposer): Promise<P
     model,
     usage,
     latency_ms: latency,
+    userId: ownerId ?? undefined,
+    langfuseTraceId,
   }).catch((err) => console.warn('[watcher-proposer] recordUsage failed:', (err as Error).message));
 
   const parsed = extractAndValidate(raw, ctx);

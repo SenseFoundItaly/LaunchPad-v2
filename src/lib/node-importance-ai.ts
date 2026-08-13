@@ -13,7 +13,7 @@
  *  - Fail-open: any error → null, and the caller keeps the template.
  */
 import { runAgent } from '@/lib/pi-agent';
-import { recordAgentUsage } from '@/lib/cost-meter';
+import { recordAgentUsage, ownerUserId } from '@/lib/cost-meter';
 import { nodeImportanceEnabled } from '@/lib/node-importance-flag';
 
 const SYSTEM = [
@@ -63,12 +63,15 @@ export async function generateNodeImportance(projectId: string, node: Importance
     ].filter(Boolean).join('\n');
 
     const startedAt = Date.now();
+    const ownerId = await ownerUserId(projectId);
     const res = await runAgent(prompt, {
       systemPrompt: SYSTEM,
       task: 'summarize', // cheap tier (Haiku)
       tools: false,
       timeout: 25000,
       maxToolCalls: 0,
+      userId: ownerId ?? undefined,
+      traceName: 'node-importance-score',
     });
     await recordAgentUsage({
       project_id: projectId,
@@ -77,6 +80,8 @@ export async function generateNodeImportance(projectId: string, node: Importance
       usage: res.usage,
       latency_ms: Date.now() - startedAt,
       skip_credit_debit: true, // absorb — the founder didn't trigger it
+      userId: ownerId ?? undefined,
+      langfuseTraceId: res.langfuseTraceId,
     });
     return cleanImportance(res.text);
   } catch (err) {

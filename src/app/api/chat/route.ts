@@ -821,7 +821,7 @@ export async function POST(request: NextRequest) {
           stageNumber: activeStageNumber,
         },
         skillManifest,
-        { topN: 3 },
+        { topN: 3, userId },
       );
       const relevantIds = new Set(relevantManifest.map((s) => s.id));
       skillTools = allSkillTools.filter((t) => {
@@ -1023,6 +1023,9 @@ export async function POST(request: NextRequest) {
       // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
       projectId: project_id,
       step,
+      // Real founder id — Langfuse trace identity/attribution.
+      userId,
+      traceName: 'chat-turn',
       extraTools: [...projectTools, ...skillTools],
       // 180s — generous for research-heavy turns but cuts off the
       // agent-stuck-in-loop case (observed turns hanging to 10+ min with
@@ -1051,6 +1054,10 @@ export async function POST(request: NextRequest) {
       total_tokens?: number;
       cost?: number;
     } | undefined;
+    // Captured from the same `done` SSE event — the live nested Langfuse trace
+    // pi-agent.ts already opened/closed for this turn (see runAgentStream).
+    // Replaces the flush() hook's own post-hoc logToLangfuse call (Part D).
+    let streamTraceId: string | null = null;
     const decoder = new TextDecoder();
     // SSE line buffer: accumulates partial lines across chunk boundaries so
     // that a `data: {...}` line split across two TCP chunks still parses.
@@ -1079,6 +1086,12 @@ export async function POST(request: NextRequest) {
                 // Capture real token usage from the `done` SSE event
                 if (payload.done && payload.usage) {
                   streamUsage = payload.usage;
+                }
+                // Capture the live Langfuse trace id pi-agent.ts opened/closed
+                // for this turn (present whenever tracing is enabled, even on
+                // the timeout/error `done` variants).
+                if (payload.done && typeof payload.langfuseTraceId === 'string') {
+                  streamTraceId = payload.langfuseTraceId;
                 }
                 // Capture tool activity for persistence
                 if (payload.tool_start) {
@@ -1134,11 +1147,10 @@ export async function POST(request: NextRequest) {
         };
         const cost = streamUsage?.cost ?? estimateCost(piProvider, piModel, usage);
         await logUsageToDb(project_id, null, step, piProvider, piModel, usage, cost, latencyMs);
-        const langfuseTraceId = await logToLangfuse(
-          { projectId: project_id, step, provider: piProvider as 'anthropic' | 'openai' | 'openrouter', model: piModel },
-          usage, cost, latencyMs,
-          lastMessage.slice(0, 1000), fullResponse.slice(0, 2000),
-        );
+        // pi-agent.ts already opened/closed a live, properly-nested Langfuse
+        // trace for this turn (runAgentStream) — reuse its id instead of
+        // logging a second, disconnected flat trace here (Part D).
+        const langfuseTraceId = streamTraceId;
 
         // Persist the turn to chat_messages so that on page refresh,
         // GET /api/chat/history can rebuild the thread. The JSONL pi-agent
@@ -1696,7 +1708,7 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: directResponseText + fallbackNotice })}\n\n`));
         await logUsageToDb(project_id, null, step, fbProvider, fbModel, dUsage, cost, latencyMs);
         await logToLangfuse(
-          { projectId: project_id, step, provider: fbProvider as 'anthropic' | 'openai' | 'openrouter', model: fbModel },
+          { projectId: project_id, step, provider: fbProvider as 'anthropic' | 'openai' | 'openrouter', model: fbModel, userId },
           dUsage, cost, latencyMs,
           lastMessage.slice(0, 1000),
           directResponseText.slice(0, 2000),

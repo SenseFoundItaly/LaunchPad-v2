@@ -6,7 +6,8 @@ import { join } from 'path';
 import { mkdirSync, readFileSync, appendFileSync, existsSync, readdirSync, statSync, rmSync } from 'fs';
 import { getTools } from './pi-tools';
 import { pickModel, type TaskLabel } from './llm/router';
-import { estimateCost } from './telemetry';
+import { getLangfuse, estimateCost, mapToLangfuseModelId, toLangfuseUsageAndCost, type TokenUsage } from './telemetry';
+import type { LangfuseTraceClient, LangfuseSpanClient } from 'langfuse';
 
 const DEFAULT_PROVIDER = (process.env.PI_PROVIDER || 'anthropic') as 'anthropic' | 'openai';
 const DEFAULT_MODEL_ID = process.env.PI_MODEL || (DEFAULT_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
@@ -272,6 +273,14 @@ export interface RunAgentOptions {
    * read — see the 2026-07-27 audit).
    */
   userKey?: { provider: string; apiKey: string };
+  /**
+   * Real founder/user id for the live Langfuse trace opened around this run
+   * (see openAgentTrace below). Omitted for system-initiated work with no
+   * attributable owner — a trace with no userId is valid, not a bug.
+   */
+  userId?: string;
+  /** Stable, verb-first Langfuse trace name (e.g. 'chat-turn', 'cron-monitor'). Default 'agent-run'. */
+  traceName?: string;
 }
 
 /**
@@ -356,6 +365,148 @@ function accumulateUsage(acc: Usage | undefined, incoming: unknown): Usage | und
   return acc;
 }
 
+// ─── Live Langfuse tracing ───
+//
+// One trace per runAgent()/runAgentStream() invocation (= one agent run, per
+// Langfuse's own best-practices guidance), opened here and closed here — NOT
+// left to callers to log post-hoc from an already-flattened usage summary.
+// Tool calls become spans, each LLM sub-call becomes its own generation, both
+// nested under the trace. All SDK calls below (trace()/span()/generation()/
+// .end()/.update()) are synchronous — they only enqueue to an in-memory batch,
+// no network I/O — so calling them inside the hot agent.subscribe() callback
+// adds no latency. Only flushAsync() does network I/O; it's awaited exactly
+// once, at the true end of the run. Gated purely on getLangfuse() !== null
+// (the existing LANGFUSE_SECRET_KEY no-op switch) — zero overhead when unset.
+
+/** Normalize pi-ai's Usage shape (which varies slightly by provider/event) to TokenUsage. */
+function toTokenUsage(u: unknown): TokenUsage {
+  if (!u || typeof u !== 'object') return {};
+  const r = u as Record<string, unknown>;
+  const num = (...keys: string[]): number => {
+    for (const k of keys) {
+      const v = r[k];
+      if (typeof v === 'number') return v;
+    }
+    return 0;
+  };
+  return {
+    input_tokens: num('input', 'inputTokens', 'input_tokens'),
+    output_tokens: num('output', 'outputTokens', 'output_tokens'),
+    cache_creation_input_tokens: num('cacheWrite', 'cacheCreation', 'cache_creation_tokens', 'cacheCreationInputTokens'),
+    cache_read_input_tokens: num('cacheRead', 'cache_read_tokens', 'cacheReadInputTokens'),
+  };
+}
+
+function resolveGenerationCost(
+  usage: TokenUsage,
+  authoritative: number | undefined,
+  provider: string,
+  model: string,
+): number {
+  return typeof authoritative === 'number' && authoritative > 0
+    ? authoritative
+    : estimateCost(provider, model, usage);
+}
+
+/** Open one trace for this agent run. Returns null when tracing is disabled or open fails (non-fatal). */
+function openAgentTrace(options: RunAgentOptions, prompt: string): LangfuseTraceClient | null {
+  const lf = getLangfuse();
+  if (!lf) return null;
+  try {
+    const tags = [options.step, options.task].filter(
+      (v, i, arr): v is string => !!v && arr.indexOf(v) === i,
+    );
+    return lf.trace({
+      name: options.traceName || 'agent-run',
+      userId: options.userId,
+      sessionId: options.sessionId,
+      input: prompt.slice(0, 2000),
+      metadata: { projectId: options.projectId, step: options.step, task: options.task },
+      tags: tags.length > 0 ? tags : undefined,
+    });
+  } catch (err) {
+    console.warn('[pi-agent] Langfuse trace open failed (non-fatal):', (err as Error).message);
+    return null;
+  }
+}
+
+/** One generation per LLM sub-call (message_end with usage), nested under the run's trace. */
+function recordGeneration(
+  trace: LangfuseTraceClient | null,
+  provider: string,
+  modelId: string,
+  incomingUsage: unknown,
+): void {
+  if (!trace || !incomingUsage) return;
+  try {
+    const tu = toTokenUsage(incomingUsage);
+    const authoritative = (incomingUsage as { cost?: { total?: number } })?.cost?.total;
+    const cost = resolveGenerationCost(tu, authoritative, provider, modelId);
+    const { usageDetails, costDetails } = toLangfuseUsageAndCost(tu, cost);
+    trace.generation({
+      name: `${provider} generation`,
+      model: mapToLangfuseModelId(modelId),
+      usageDetails,
+      costDetails,
+      endTime: new Date(),
+    });
+  } catch (err) {
+    console.warn('[pi-agent] Langfuse generation failed (non-fatal):', (err as Error).message);
+  }
+}
+
+/** One span per tool call, keyed by toolCallId so the matching end event can close it. */
+function openToolSpan(
+  trace: LangfuseTraceClient | null,
+  spans: Map<string, LangfuseSpanClient>,
+  toolCallId: string,
+  toolName: string,
+  args: unknown,
+): void {
+  if (!trace) return;
+  try {
+    spans.set(toolCallId, trace.span({
+      name: toolName,
+      input: JSON.stringify(args ?? {}).slice(0, 2000),
+    }));
+  } catch (err) {
+    console.warn('[pi-agent] Langfuse span open failed (non-fatal):', (err as Error).message);
+  }
+}
+
+function closeToolSpan(
+  spans: Map<string, LangfuseSpanClient>,
+  toolCallId: string,
+  isError: boolean,
+  result?: unknown,
+): void {
+  const span = spans.get(toolCallId);
+  if (!span) return;
+  try {
+    const output = result === undefined ? undefined : JSON.stringify(result).slice(0, 2000);
+    span.end({ output, level: isError ? 'ERROR' : 'DEFAULT' });
+  } catch (err) {
+    console.warn('[pi-agent] Langfuse span close failed (non-fatal):', (err as Error).message);
+  }
+  spans.delete(toolCallId);
+}
+
+/** Set the trace's root output and flush. Awaited exactly once, at the true end of the run. */
+async function finishAgentTrace(trace: LangfuseTraceClient | null, outputText: string): Promise<string | null> {
+  if (!trace) return null;
+  try {
+    trace.update({ output: outputText.slice(0, 2000) });
+  } catch (err) {
+    console.warn('[pi-agent] Langfuse trace update failed (non-fatal):', (err as Error).message);
+  }
+  try {
+    await getLangfuse()?.flushAsync();
+  } catch (err) {
+    console.warn('[pi-agent] Langfuse flushAsync failed (non-fatal):', (err as Error).message);
+  }
+  return trace.id;
+}
+
 export interface RunAgentResult {
   text: string;
   usage?: Usage;
@@ -363,6 +514,10 @@ export interface RunAgentResult {
    *  at the cut, so machine-readable tails (e.g. a closing ```json fence) may
    *  be missing. Callers persisting structured output should check this. */
   timedOut?: boolean;
+  /** Id of the live Langfuse trace opened for this run, when tracing is on.
+   *  Pass to recordUsage/recordAgentUsage (cost-meter.ts) so it skips its own
+   *  post-hoc flat trace — this run already has a real nested one. */
+  langfuseTraceId?: string | null;
 }
 
 /** Run Pi Agent and collect full response (non-streaming). */
@@ -387,7 +542,7 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
   // Compose tool set: base generic tools (web_search, read_url, calculate)
   // plus any project-scoped tools from makeProjectTools(projectId).
   const baseTools = options.tools !== false
-    ? getTools({ projectId: options.projectId, step: options.step ?? options.task })
+    ? getTools({ projectId: options.projectId, step: options.step ?? options.task, userId: options.userId })
     : [];
   const extraTools = options.extraTools || [];
   if (baseTools.length > 0 || extraTools.length > 0) {
@@ -405,6 +560,9 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
 
   let fullText = '';
   let lastUsage: Usage | undefined;
+
+  const trace = openAgentTrace(options, prompt);
+  const toolSpans = new Map<string, LangfuseSpanClient>();
 
   const timeout = options.timeout || 120000;
   let timedOut = false;
@@ -424,11 +582,19 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
         options.onDelta?.(evt.delta); // mirror the delta out (buffered return unchanged)
       }
     }
+    if (event.type === 'tool_execution_start') {
+      openToolSpan(trace, toolSpans, event.toolCallId, event.toolName, event.args);
+    }
+    if (event.type === 'tool_execution_end') {
+      closeToolSpan(toolSpans, event.toolCallId, event.isError, event.result);
+    }
     // message_end fires for user, toolResult, and assistant messages in order.
     // Writing here is sufficient — turn_end would double-write toolResults.
     if (event.type === 'message_end' && event.message) {
       if ('usage' in event.message) {
-        lastUsage = accumulateUsage(lastUsage, (event.message as any).usage);
+        const usage = (event.message as any).usage;
+        lastUsage = accumulateUsage(lastUsage, usage);
+        recordGeneration(trace, model.provider, model.id, usage);
       }
       if (options.sessionId) appendToSession(options.sessionId, event.message);
     }
@@ -441,7 +607,8 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
     clearTimeout(timer);
   }
 
-  return { text: fullText, usage: lastUsage, timedOut };
+  const langfuseTraceId = await finishAgentTrace(trace, fullText);
+  return { text: fullText, usage: lastUsage, timedOut, langfuseTraceId };
 }
 
 /**
@@ -483,7 +650,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
         agent.state.systemPrompt = options.systemPrompt;
       }
       const baseToolsS = options.tools !== false
-        ? getTools({ projectId: options.projectId, step: options.step ?? options.task })
+        ? getTools({ projectId: options.projectId, step: options.step ?? options.task, userId: options.userId })
         : [];
       const extraToolsS = options.extraTools || [];
       if (baseToolsS.length > 0 || extraToolsS.length > 0) {
@@ -523,6 +690,16 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
         closed = true;
         try { controller.close(); } catch { /* already closed */ }
       };
+
+      // Live Langfuse trace for this turn — see openAgentTrace/recordGeneration/
+      // openToolSpan/closeToolSpan/finishAgentTrace above. finishAgentTrace is
+      // chained via .then() (not an async callback) at each of the 3 finalize
+      // paths below (timeout, agent_end, prompt().catch) so flushAsync() always
+      // completes before safeClose() — same await this stream already had to do
+      // for Langfuse delivery, just moved from the chat route's flush() hook to
+      // here.
+      const trace = openAgentTrace(options, prompt);
+      const toolSpans = new Map<string, LangfuseSpanClient>();
 
       timer = setTimeout(() => {
         console.warn(`[pi-agent] timeout (${timeout}ms) — aborting agent and force-closing stream`);
@@ -588,9 +765,13 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
         }
         // WEAVE (port): emit the partial answer (master's fullText flush, so a
         // partial answer beats a blank "timed out" turn) AND best-effort usage
-        // (WIP's $0-on-timeout fix) through the double-close-safe enqueue.
-        safeEnqueue(encoder.encode(`data: ${JSON.stringify({ done: true, timeout: true, fullText, usage: timeoutUsage })}\n\n`));
-        safeClose();
+        // (WIP's $0-on-timeout fix) through the double-close-safe enqueue. The
+        // per-sub-call generations were already recorded live in message_end
+        // below (if any fired before the abort) — this only closes the trace.
+        finishAgentTrace(trace, fullText).then((langfuseTraceId) => {
+          safeEnqueue(encoder.encode(`data: ${JSON.stringify({ done: true, timeout: true, fullText, usage: timeoutUsage, langfuseTraceId })}\n\n`));
+          safeClose();
+        });
       }, timeout);
 
       let lastUsage: Usage | undefined;
@@ -612,6 +793,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
 
           case 'tool_execution_start': {
             toolCallCount++;
+            openToolSpan(trace, toolSpans, event.toolCallId, event.toolName, event.args);
             if (toolCallCount > maxToolCalls) {
               // FORCE SYNTHESIS instead of aborting. agent.abort() killed the
               // agent mid-loop, leaving turns with tool_results but no closing
@@ -641,6 +823,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
           }
 
           case 'tool_execution_end': {
+            closeToolSpan(toolSpans, event.toolCallId, event.isError, event.result);
             safeEnqueue(
               encoder.encode(`data: ${JSON.stringify({
                 tool_end: {
@@ -655,7 +838,9 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
 
           case 'message_end': {
             if (event.message && 'usage' in event.message) {
-              lastUsage = accumulateUsage(lastUsage, (event.message as any).usage);
+              const usage = (event.message as any).usage;
+              lastUsage = accumulateUsage(lastUsage, usage);
+              recordGeneration(trace, model.provider, model.id, usage);
             }
             // message_end fires for user, toolResult, and assistant messages in order.
             // Writing here is sufficient — turn_end would double-write toolResults.
@@ -668,23 +853,26 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
           case 'agent_end': {
             clearTimeout(timer);
             const u = lastUsage as unknown as Record<string, number | { total?: number } | undefined>;
-            safeEnqueue(
-              encoder.encode(`data: ${JSON.stringify({
-                done: true,
-                fullText,
-                usage: lastUsage ? {
-                  input_tokens: u.input as number,
-                  output_tokens: u.output as number,
-                  // pi-ai's Usage uses cacheWrite/cacheRead (see types.d.ts:111).
-                  // Map to the column names llm_usage_logs expects.
-                  cache_creation_input_tokens: (u.cacheWrite as number) || 0,
-                  cache_read_input_tokens: (u.cacheRead as number) || 0,
-                  total_tokens: u.totalTokens as number,
-                  cost: (u.cost as { total?: number } | undefined)?.total,
-                } : undefined,
-              })}\n\n`)
-            );
-            safeClose();
+            finishAgentTrace(trace, fullText).then((langfuseTraceId) => {
+              safeEnqueue(
+                encoder.encode(`data: ${JSON.stringify({
+                  done: true,
+                  fullText,
+                  usage: lastUsage ? {
+                    input_tokens: u.input as number,
+                    output_tokens: u.output as number,
+                    // pi-ai's Usage uses cacheWrite/cacheRead (see types.d.ts:111).
+                    // Map to the column names llm_usage_logs expects.
+                    cache_creation_input_tokens: (u.cacheWrite as number) || 0,
+                    cache_read_input_tokens: (u.cacheRead as number) || 0,
+                    total_tokens: u.totalTokens as number,
+                    cost: (u.cost as { total?: number } | undefined)?.total,
+                  } : undefined,
+                  langfuseTraceId,
+                })}\n\n`)
+              );
+              safeClose();
+            });
             break;
           }
         }
@@ -698,21 +886,24 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
         // Without the usage, cost extraction sees no streamUsage.done and
         // records $0.00 — the pattern observed in e2e turns 5/6/7.
         const u = lastUsage as unknown as Record<string, number | { total?: number } | undefined> | undefined;
-        safeEnqueue(
-          encoder.encode(`data: ${JSON.stringify({
-            done: true,
-            error: err.message,
-            usage: lastUsage && u ? {
-              input_tokens: u.input as number,
-              output_tokens: u.output as number,
-              cache_creation_input_tokens: (u.cacheWrite as number) || 0,
-              cache_read_input_tokens: (u.cacheRead as number) || 0,
-              total_tokens: u.totalTokens as number,
-              cost: (u.cost as { total?: number } | undefined)?.total,
-            } : undefined,
-          })}\n\n`)
-        );
-        safeClose();
+        finishAgentTrace(trace, fullText).then((langfuseTraceId) => {
+          safeEnqueue(
+            encoder.encode(`data: ${JSON.stringify({
+              done: true,
+              error: err.message,
+              usage: lastUsage && u ? {
+                input_tokens: u.input as number,
+                output_tokens: u.output as number,
+                cache_creation_input_tokens: (u.cacheWrite as number) || 0,
+                cache_read_input_tokens: (u.cacheRead as number) || 0,
+                total_tokens: u.totalTokens as number,
+                cost: (u.cost as { total?: number } | undefined)?.total,
+              } : undefined,
+              langfuseTraceId,
+            })}\n\n`)
+          );
+          safeClose();
+        });
       });
     },
     cancel() {

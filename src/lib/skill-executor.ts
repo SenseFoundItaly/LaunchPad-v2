@@ -35,7 +35,7 @@ import { join } from 'path';
 import { generateId } from '@/lib/api-helpers';
 import { query, run, get } from '@/lib/db';
 import { runAgent } from '@/lib/pi-agent';
-import { recordUsage } from '@/lib/cost-meter';
+import { recordUsage, ownerUserId } from '@/lib/cost-meter';
 import { estimateCost } from '@/lib/telemetry';
 import { pickModel } from '@/lib/llm/router';
 import { recordEvent } from '@/lib/memory/events';
@@ -291,8 +291,9 @@ export async function runSkill(
   if (directive) systemPrompt += `\n\n${directive}`;
 
   const startedAt = Date.now();
+  const ownerId = await ownerUserId(projectId);
 
-  const { text, usage, timedOut } = await runAgent(userMsg, {
+  const { text, usage, timedOut, langfuseTraceId } = await runAgent(userMsg, {
     systemPrompt,
     timeout: opts.timeoutMs ?? 120_000,
     task: 'skill-invoke',
@@ -300,6 +301,8 @@ export async function runSkill(
     // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
     projectId,
     step: skillId,
+    userId: ownerId ?? undefined,
+    traceName: 'skill-run',
   });
   const latencyMs = Date.now() - startedAt;
   if (timedOut) {
@@ -356,6 +359,8 @@ export async function runSkill(
     usage: executorUsage as typeof usage,
     latency_ms: latencyMs,
     skip_credit_debit: incomplete,
+    userId: ownerId ?? undefined,
+    langfuseTraceId,
   }).catch(err =>
     console.warn('[skill-executor] recordUsage failed:', (err as Error).message),
   );

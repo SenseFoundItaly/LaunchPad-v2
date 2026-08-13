@@ -29,6 +29,7 @@
 
 import { run, query, get } from '@/lib/db';
 import { runAgent } from '@/lib/pi-agent';
+import { ownerUserId } from '@/lib/cost-meter';
 
 /** Spec bar: below this share of matching interviewees, Loop 1's ICP signal fails. */
 export const ICP_COHERENCE_BAR = 0.60;
@@ -147,12 +148,15 @@ export async function judgeProjectIcpCoherence(projectId: string): Promise<{ jud
     if (pending.length === 0) return { judged: 0 };
 
     let judged = 0;
+    const ownerId = await ownerUserId(projectId);
     for (const iv of pending) {
       const segment = iv.person_segment?.trim();
       if (!segment) continue;
       try {
         const res = await runAgent(buildIcpJudgePrompt(icp, segment, iv.person_role), {
           task: 'update-generate',
+          userId: ownerId ?? undefined,
+          traceName: 'icp-coherence-judge',
         });
         const parsed = parseIcpJudgeReply(String(res?.text ?? ''));
         if (!parsed) continue; // unparseable -> leave NULL, retried next pass

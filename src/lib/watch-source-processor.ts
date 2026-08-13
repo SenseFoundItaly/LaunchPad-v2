@@ -11,7 +11,7 @@ import { generateId } from '@/lib/api-helpers';
 import { scrapeWithChangeTracking, type ScrapeResult } from '@/lib/firecrawl';
 import { runAgent } from '@/lib/pi-agent';
 import { pickModel } from '@/lib/llm/router';
-import { recordUsage, isProjectCapped } from '@/lib/cost-meter';
+import { recordUsage, isProjectCapped, ownerUserId } from '@/lib/cost-meter';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 import { computeDedupeHash } from '@/lib/ecosystem-monitors';
 import { isAutoflowEnabled, routeAlertAutoflow } from '@/lib/signal-autoflow';
@@ -470,12 +470,15 @@ async function classifyChange(
   ].join('\n');
 
   const startedAt = Date.now();
-  const { text, usage } = await runAgent(prompt, {
+  const ownerId = await ownerUserId(ws.project_id);
+  const { text, usage, langfuseTraceId } = await runAgent(prompt, {
     systemPrompt,
     timeout: 30_000,
     task: 'signal-classify',
     // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
     projectId: ws.project_id,
+    userId: ownerId ?? undefined,
+    traceName: 'watch-source-classify',
   });
   const latencyMs = Date.now() - startedAt;
 
@@ -489,6 +492,8 @@ async function classifyChange(
     model,
     usage,
     latency_ms: latencyMs,
+    userId: ownerId ?? undefined,
+    langfuseTraceId,
   }).catch(err =>
     console.warn('[watch-source] recordUsage failed:', (err as Error).message),
   );

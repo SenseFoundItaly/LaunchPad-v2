@@ -23,7 +23,7 @@
 import { query, run, get } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { runAgent } from '@/lib/pi-agent';
-import { recordAgentUsage } from '@/lib/cost-meter';
+import { recordAgentUsage, ownerUserId } from '@/lib/cost-meter';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 
 export type AssumptionCategory =
@@ -127,12 +127,15 @@ export async function extractAssumptions(
   const prompt = `Project context:\n\n${context}\n\nExtract assumptions. Return JSON only.${langLine}`;
 
   const startedAt = Date.now();
+  const ownerId = await ownerUserId(projectId);
   const agentResult = await runAgent(prompt, {
     systemPrompt: EXTRACTOR_SYSTEM,
     task: 'assumption-extract',
     tools: false,
     timeout: 60000,
     maxToolCalls: 0,
+    userId: ownerId ?? undefined,
+    traceName: 'assumption-extract',
   });
   await recordAgentUsage({
     project_id: projectId,
@@ -140,6 +143,8 @@ export async function extractAssumptions(
     task: 'assumption-extract',
     usage: agentResult.usage,
     latency_ms: Date.now() - startedAt,
+    userId: ownerId ?? undefined,
+    langfuseTraceId: agentResult.langfuseTraceId,
   });
 
   const parsed = parseExtractorOutput(agentResult.text);
@@ -435,6 +440,9 @@ export async function linkSkillCompletionToAssumptions(
   const open = await listAssumptions(projectId, { status: 'open' });
   if (open.length === 0) return result;
 
+  // Resolved once, outside the loop — same owner for every candidate below.
+  const ownerId = await ownerUserId(projectId);
+
   // Cap fan-out: only the top-N high-criticality opens get LLM judgement on
   // each completion. Prevents runaway cost when a project has 50+ open
   // assumptions and a chatty skill fires every few minutes.
@@ -462,6 +470,8 @@ Verdict?`;
         tools: false,
         timeout: 30000,
         maxToolCalls: 0,
+        userId: ownerId ?? undefined,
+        traceName: 'assumption-linker',
       });
       await recordAgentUsage({
         project_id: projectId,
@@ -470,6 +480,8 @@ Verdict?`;
         task: 'classify',
         usage: agentResult.usage,
         latency_ms: Date.now() - startedAt,
+        userId: ownerId ?? undefined,
+        langfuseTraceId: agentResult.langfuseTraceId,
       });
       verdict = parseLinkerVerdict(agentResult.text);
     } catch (err) {

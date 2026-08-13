@@ -5,7 +5,7 @@ import { AuthError } from '@/lib/auth/require-user';
 import { requireProjectAccess } from '@/lib/auth/require-project-access';
 import { debitCredits, DOCUMENT_AUDIT_CREDITS } from '@/lib/credits';
 import { runAgent } from '@/lib/pi-agent';
-import { recordAgentUsage } from '@/lib/cost-meter';
+import { recordAgentUsage, ownerUserId } from '@/lib/cost-meter';
 import { validationTargetsFor, validationLabel, buildSpinePreview } from '@/lib/journey/validation-targets';
 import { canvasIsEmpty } from '@/lib/idea-canvas-seed';
 import { digestDocument } from '@/lib/document-digest';
@@ -230,13 +230,16 @@ async function extractEntities(text: string, projectId: string, locale: Locale):
   const truncated = text.length > 16000 ? text.slice(0, 16000) : text;
   try {
     const startedAt = Date.now();
+    const ownerId = await ownerUserId(projectId);
     const prompt = EXTRACT_PROMPT
       .replace('{LANG}', extractionLanguageDirective(locale))
       .replace('{TEXT}', truncated);
-    const { text: raw, usage } = await runAgent(prompt, {
+    const { text: raw, usage, langfuseTraceId } = await runAgent(prompt, {
       task: 'classify', // routes to Haiku (cheap)
       tools: false,
       timeout: 25_000,
+      userId: ownerId ?? undefined,
+      traceName: 'knowledge-upload-extract',
     });
     await recordAgentUsage({
       project_id: projectId,
@@ -244,6 +247,8 @@ async function extractEntities(text: string, projectId: string, locale: Locale):
       task: 'classify',
       usage,
       latency_ms: Date.now() - startedAt,
+      userId: ownerId ?? undefined,
+      langfuseTraceId,
     });
 
     // Strip common LLM wrappers: ```json ... ``` fences, trailing prose.
@@ -315,13 +320,16 @@ async function extractCanvas(text: string, projectId: string, locale: Locale): P
   const truncated = text.length > 16000 ? text.slice(0, 16000) : text;
   try {
     const startedAt = Date.now();
+    const ownerId = await ownerUserId(projectId);
     const prompt = CANVAS_PROMPT
       .replace('{LANG}', extractionLanguageDirective(locale))
       .replace('{TEXT}', truncated);
-    const { text: raw, usage } = await runAgent(prompt, {
+    const { text: raw, usage, langfuseTraceId } = await runAgent(prompt, {
       task: 'classify',
       tools: false,
       timeout: 25_000,
+      userId: ownerId ?? undefined,
+      traceName: 'knowledge-upload-canvas',
     });
     await recordAgentUsage({
       project_id: projectId,
@@ -329,6 +337,8 @@ async function extractCanvas(text: string, projectId: string, locale: Locale): P
       task: 'classify',
       usage,
       latency_ms: Date.now() - startedAt,
+      userId: ownerId ?? undefined,
+      langfuseTraceId,
     });
     const m = raw.match(/\{[\s\S]*\}/);
     if (!m) return { canvas: null, idea_brief: '' };

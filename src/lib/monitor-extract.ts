@@ -24,7 +24,7 @@
  */
 
 import { runAgent } from '@/lib/pi-agent';
-import { recordUsage } from '@/lib/cost-meter';
+import { recordUsage, ownerUserId } from '@/lib/cost-meter';
 import { pickModel } from '@/lib/llm/router';
 import { outputInstructions } from '@/lib/ecosystem-monitors';
 import {
@@ -137,11 +137,15 @@ export async function extractAlertsSecondPass(input: SecondPassInput): Promise<S
   let text = '';
   const startedAt = Date.now();
   try {
+    const ownerId = await ownerUserId(input.projectId);
     // ONE non-streaming call, no tools — pure transcript→artifact transcription.
     const res = await runAgent(prompt, {
       tools: false,
       timeout: EXTRACT_TIMEOUT_MS,
       task: EXTRACT_TASK,
+      projectId: input.projectId,
+      userId: ownerId ?? undefined,
+      traceName: 'monitor-extract-second-pass',
     });
     text = res.text;
 
@@ -155,6 +159,8 @@ export async function extractAlertsSecondPass(input: SecondPassInput): Promise<S
       model,
       usage: res.usage as Parameters<typeof recordUsage>[0]['usage'],
       latency_ms: Date.now() - startedAt,
+      userId: ownerId ?? undefined,
+      langfuseTraceId: res.langfuseTraceId,
     }).catch(err =>
       console.warn('[monitor-extract] recordUsage failed:', (err as Error).message),
     );

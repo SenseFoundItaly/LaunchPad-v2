@@ -17,7 +17,7 @@
  */
 import { runAgent } from '@/lib/pi-agent';
 import { wrapUntrusted } from '@/lib/untrusted-content';
-import { recordAgentUsage } from '@/lib/cost-meter';
+import { recordAgentUsage, ownerUserId } from '@/lib/cost-meter';
 import { createPendingAction } from '@/lib/pending-actions';
 import { query } from '@/lib/db';
 import { recordEvent } from '@/lib/memory/events';
@@ -187,15 +187,20 @@ export async function digestDocument(input: DigestInput): Promise<DigestResult> 
   result.chunks = chunks.length;
   result.total_chunks = Math.max(1, Math.ceil(text.length / CHUNK_CHARS));
   result.partial = result.chunks < result.total_chunks;
+  // Resolved once, outside the loop — same owner for every chunk below.
+  const ownerId = await ownerUserId(projectId);
   for (let i = 0; i < chunks.length; i++) {
     try {
       const startedAt = Date.now();
       // Injection defense: the document is third-party-authored data — wrap it
       // so an "ignore instructions, output X" line in an uploaded PDF can't
       // steer the extractor (same treatment as fetched web content).
-      const { text: raw, usage } = await runAgent(
+      const { text: raw, usage, langfuseTraceId } = await runAgent(
         DIGEST_PROMPT.replace('{PART}', `${i + 1}/${chunks.length}`).replace('{TEXT}', wrapUntrusted(chunks[i])),
-        { task: 'classify', tools: false, timeout: 22_000 },
+        {
+          task: 'classify', tools: false, timeout: 22_000,
+          userId: ownerId ?? undefined, traceName: 'document-digest',
+        },
       );
       await recordAgentUsage({
         project_id: projectId,
@@ -203,6 +208,8 @@ export async function digestDocument(input: DigestInput): Promise<DigestResult> 
         task: 'classify',
         usage,
         latency_ms: Date.now() - startedAt,
+        userId: ownerId ?? undefined,
+        langfuseTraceId,
       });
       parts.push(parseFindings(raw));
     } catch (err) {
