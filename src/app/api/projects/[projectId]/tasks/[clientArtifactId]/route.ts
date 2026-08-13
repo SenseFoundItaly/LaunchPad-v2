@@ -339,6 +339,7 @@ async function handleExpand(
   const startedAt = Date.now();
   let agentText: string;
   let agentUsage;
+  let agentTraceId: string | null | undefined;
   try {
     const result = await runAgent(prompt, {
       systemPrompt: EXPAND_SYSTEM_PROMPT,
@@ -347,9 +348,12 @@ async function handleExpand(
       // No tools — the expansion is an analytical single-shot, not an
       // agent loop. Keeping tools off forces a direct JSON response.
       tools: false,
+      userId: ctx.owner_user_id ?? undefined,
+      traceName: 'task-expand',
     });
     agentText = result.text;
     agentUsage = result.usage;
+    agentTraceId = result.langfuseTraceId;
   } catch (err) {
     return error(`Expansion failed: ${(err as Error).message}`, 500);
   }
@@ -364,6 +368,8 @@ async function handleExpand(
     model,
     usage: agentUsage,
     latency_ms: latencyMs,
+    userId: ctx.owner_user_id ?? undefined,
+    langfuseTraceId: agentTraceId,
   }).catch(err =>
     console.warn('[tasks/expand] recordUsage failed:', (err as Error).message),
   );

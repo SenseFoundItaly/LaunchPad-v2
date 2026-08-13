@@ -8,13 +8,29 @@ import { MODEL_CONFIG } from './llm/models';
 // ---------------------------------------------------------------------------
 let _langfuse: Langfuse | null = null;
 
-function getLangfuse(): Langfuse | null {
+/**
+ * Environment tag attached to every trace/span/generation this client emits
+ * (a client-construction-time option, not per-call). Explicit override first,
+ * then Netlify's build/runtime CONTEXT, then NODE_ENV. Matters because dev,
+ * staging, and prod all point at the SAME Langfuse project — without this,
+ * local/staging test traces are indistinguishable from real founder traffic
+ * in the dashboard.
+ */
+export function resolveLangfuseEnvironment(): string {
+  if (process.env.LANGFUSE_ENVIRONMENT) return process.env.LANGFUSE_ENVIRONMENT;
+  if (process.env.CONTEXT === 'production') return 'production';
+  if (process.env.CONTEXT === 'deploy-preview' || process.env.CONTEXT === 'branch-deploy') return 'staging';
+  return process.env.NODE_ENV === 'production' ? 'production' : 'development';
+}
+
+export function getLangfuse(): Langfuse | null {
   if (!process.env.LANGFUSE_SECRET_KEY) return null;
   if (!_langfuse) {
     _langfuse = new Langfuse({
       publicKey: process.env.LANGFUSE_PUBLIC_KEY || '',
       secretKey: process.env.LANGFUSE_SECRET_KEY || '',
       baseUrl: process.env.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com',
+      environment: resolveLangfuseEnvironment(),
     });
   }
   return _langfuse;
@@ -31,6 +47,8 @@ export interface TelemetryContext {
   // per-call cost is metered separately from LLM token spend (see tool-spend.ts).
   provider: 'anthropic' | 'openai' | 'openrouter' | 'exa' | 'jina';
   model?: string;
+  /** Real founder/user id (falls back to projectId in logToLangfuse when absent). */
+  userId?: string;
 }
 
 export interface TokenUsage {
@@ -85,6 +103,57 @@ export function estimateCost(
 }
 
 // ---------------------------------------------------------------------------
+// Langfuse wire-shape helpers — shared by logToLangfuse (flat, post-hoc) and
+// pi-agent.ts (live, nested tracing). One place that knows how to turn a
+// (model, TokenUsage, cost) triple into what the Langfuse SDK expects.
+// ---------------------------------------------------------------------------
+
+// Map OpenRouter slugs back to the canonical Anthropic id Langfuse displays,
+// built entirely from MODEL_CONFIG so adding a model in models.ts is enough.
+// A canonical id (e.g. 'claude-sonnet-4-6') or unknown slug passes through
+// unchanged. (The old hardcoded 'sonnet'/'claude-sonnet-4' → Sonnet-4.0
+// aliases were dead — no caller ever passed those bare strings; removed
+// 2026-06-30 so the logged model can never silently misattribute to 4.0.)
+const LANGFUSE_MODEL_MAP: Record<string, string> = {};
+for (const cfg of Object.values(MODEL_CONFIG)) {
+  LANGFUSE_MODEL_MAP[cfg.openrouterId] = cfg.id;
+}
+
+export function mapToLangfuseModelId(model: string | undefined): string {
+  return LANGFUSE_MODEL_MAP[model || ''] || model || 'unknown';
+}
+
+export function toLangfuseUsageAndCost(usage: TokenUsage, cost: number): {
+  usageDetails: {
+    input: number;
+    output: number;
+    cache_creation_input_tokens: number;
+    cache_read_input_tokens: number;
+    total: number;
+  };
+  costDetails: { total: number } | undefined;
+} {
+  const promptTokens = usage.input_tokens || 0;
+  const completionTokens = usage.output_tokens || 0;
+  const cacheCreation = usage.cache_creation_input_tokens || 0;
+  const cacheRead = usage.cache_read_input_tokens || 0;
+  // Langfuse's UsageDetails.total should be the sum of all token classes
+  // billable for this call. If we only summed input + output we'd hide
+  // 60-80% of the tokens on cached calls.
+  const totalTokens = promptTokens + completionTokens + cacheCreation + cacheRead;
+  return {
+    usageDetails: {
+      input: promptTokens,
+      output: completionTokens,
+      cache_creation_input_tokens: cacheCreation,
+      cache_read_input_tokens: cacheRead,
+      total: totalTokens,
+    },
+    costDetails: cost > 0 ? { total: cost } : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // logToLangfuse — standalone Langfuse trace with full cost/model/token tracking
 // ---------------------------------------------------------------------------
 export async function logToLangfuse(
@@ -102,30 +171,14 @@ export async function logToLangfuse(
     const now = new Date();
     const startTime = new Date(now.getTime() - latencyMs);
 
-    // Map OpenRouter slugs back to the canonical Anthropic id Langfuse displays,
-    // built entirely from MODEL_CONFIG so adding a model in models.ts is enough.
-    // A canonical id (e.g. 'claude-sonnet-4-6') or unknown slug passes through
-    // unchanged. (The old hardcoded 'sonnet'/'claude-sonnet-4' → Sonnet-4.0
-    // aliases were dead — no caller ever passed those bare strings; removed
-    // 2026-06-30 so the logged model can never silently misattribute to 4.0.)
-    const modelMap: Record<string, string> = {};
-    for (const cfg of Object.values(MODEL_CONFIG)) {
-      modelMap[cfg.openrouterId] = cfg.id;
-    }
-    const langfuseModel = modelMap[ctx.model || ''] || ctx.model || 'unknown';
-
-    const promptTokens = usage.input_tokens || 0;
-    const completionTokens = usage.output_tokens || 0;
-    const cacheCreation = usage.cache_creation_input_tokens || 0;
-    const cacheRead = usage.cache_read_input_tokens || 0;
-    // Langfuse's UsageDetails.total should be the sum of all token classes
-    // billable for this call. If we only summed input + output we'd hide
-    // 60-80% of the tokens on cached calls.
-    const totalTokens = promptTokens + completionTokens + cacheCreation + cacheRead;
+    const langfuseModel = mapToLangfuseModelId(ctx.model);
+    const { usageDetails, costDetails } = toLangfuseUsageAndCost(usage, cost);
 
     const trace = lf.trace({
       name: `${ctx.provider}/${ctx.step || 'chat'}`,
-      userId: ctx.projectId,
+      // Real founder id when the caller has one; falls back to projectId for
+      // callers not yet updated to pass userId (preserves prior behavior).
+      userId: ctx.userId ?? ctx.projectId,
       sessionId: `${ctx.projectId}-${ctx.step || 'chat'}`,
       input: input?.slice(0, 2000),
       output: output?.slice(0, 2000),
@@ -156,19 +209,13 @@ export async function logToLangfuse(
       output: output?.slice(0, 2000) || '',
       startTime,
       endTime: now,
-      usageDetails: {
-        input: promptTokens,
-        output: completionTokens,
-        cache_creation_input_tokens: cacheCreation,
-        cache_read_input_tokens: cacheRead,
-        total: totalTokens,
-      },
-      costDetails: cost > 0 ? { total: cost } : undefined,
+      usageDetails,
+      costDetails,
       metadata: {
         latencyMs,
         costUsd: cost > 0 ? cost : undefined,
-        cacheCreationTokens: cacheCreation,
-        cacheReadTokens: cacheRead,
+        cacheCreationTokens: usage.cache_creation_input_tokens || 0,
+        cacheReadTokens: usage.cache_read_input_tokens || 0,
       },
     });
 

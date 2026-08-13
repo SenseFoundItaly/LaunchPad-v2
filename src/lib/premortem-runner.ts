@@ -23,7 +23,7 @@
 import { generateId } from '@/lib/api-helpers';
 import { run, get } from '@/lib/db';
 import { runAgent } from '@/lib/pi-agent';
-import { recordAgentUsage } from '@/lib/cost-meter';
+import { recordAgentUsage, ownerUserId } from '@/lib/cost-meter';
 import { logSignalActivity } from '@/lib/signal-activity-log';
 import { listAssumptions, type AssumptionRow } from '@/lib/assumptions';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
@@ -140,12 +140,15 @@ export async function runPremortemPass<TOutput>(
   const systemPrompt = config.systemPrompt + assumptionContext;
 
   const startedAt = Date.now();
+  const ownerId = await ownerUserId(projectId);
   const agentResult = await runAgent(fullPrompt, {
     systemPrompt,
     task: config.task,
     tools: false,
     timeout: config.timeoutMs ?? 90_000,
     maxToolCalls: 0,
+    userId: ownerId ?? undefined,
+    traceName: `premortem-${config.agentType}`,
   });
   await recordAgentUsage({
     project_id: projectId,
@@ -153,6 +156,8 @@ export async function runPremortemPass<TOutput>(
     task: config.task,
     usage: agentResult.usage,
     latency_ms: Date.now() - startedAt,
+    userId: ownerId ?? undefined,
+    langfuseTraceId: agentResult.langfuseTraceId,
   });
 
   const parsed = config.parse(agentResult.text);

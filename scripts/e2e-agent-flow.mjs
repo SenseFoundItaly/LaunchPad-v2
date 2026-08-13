@@ -1038,15 +1038,34 @@ step('cost report: SSE + llm_usage_logs + Langfuse', async () => {
   }
   console.log(`    DB total: $${dbTotal.toFixed(4)}`);
 
-  // (3) Langfuse — every chat-route logUsageToSQLite call is paired with a
-  //     logToLangfuse call (src/app/api/chat/route.ts:477). Traces are
-  //     keyed by projectId — go to the dashboard and filter by userId=<pid>.
+  // (3) Langfuse — pi-agent.ts (runAgentStream) now opens a LIVE, properly
+  //     nested trace per chat turn (one trace per turn, tool calls as spans,
+  //     each LLM sub-call as its own generation — see src/lib/pi-agent.ts).
+  //     `userId` on the trace is the REAL founder id (state.userId), not the
+  //     project id — that was the pre-fix behavior this section used to
+  //     document. `sessionId` is the real conversational session
+  //     (`user-${userId}-project-${pid}...`), so filtering by session groups
+  //     every turn of this run into one Langfuse "session" view.
   const lfBase = process.env.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com';
   console.log(`\n  Langfuse tracking:`);
   if (process.env.LANGFUSE_PUBLIC_KEY) {
-    console.log(`    ✓ LANGFUSE_* env vars set — every chat turn auto-logged`);
-    console.log(`    Dashboard: ${lfBase}/project/<your-langfuse-project>/traces?userId=${pid}`);
-    console.log(`    Filter on userId=${pid} to see exactly the ${usage.length} agent calls from this run`);
+    console.log(`    ✓ LANGFUSE_* env vars set — every chat turn auto-traced (one nested trace per turn)`);
+    console.log(`    Dashboard: ${lfBase}/project/<your-langfuse-project>/traces?userId=${state.userId}`);
+    console.log(`    Filter on userId=${state.userId} (the real founder id, NOT the project id) to see this run's traces`);
+    console.log(`    Or filter on sessionId to see this run's turns grouped as one conversation`);
+
+    // Verify at least one turn actually persisted a langfuseTraceId — a
+    // regression here means the live-tracing wiring silently stopped firing.
+    const tracedRow = await db()`
+      SELECT langfuse_trace_id FROM chat_messages
+      WHERE project_id = ${pid} AND langfuse_trace_id IS NOT NULL
+      ORDER BY created_at DESC LIMIT 1
+    `.catch(() => []);
+    if (tracedRow.length === 0) {
+      console.log(`    ⚠ no chat_messages row in this run has a langfuse_trace_id — live tracing may not be firing`);
+    } else {
+      console.log(`    ✓ latest turn's Langfuse trace id: ${tracedRow[0].langfuse_trace_id}`);
+    }
   } else {
     console.log(`    ✗ LANGFUSE_PUBLIC_KEY not set — chat route silently skipped Langfuse logging`);
   }

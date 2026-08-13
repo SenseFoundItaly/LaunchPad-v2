@@ -3,7 +3,7 @@ import { error, generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 import { runAgentStream } from '@/lib/pi-agent';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
-import { recordUsage } from '@/lib/cost-meter';
+import { recordUsage, ownerUserId } from '@/lib/cost-meter';
 import { recordEvent } from '@/lib/memory/events';
 import { extractEcosystemAlerts, persistEcosystemAlerts, type ParsedEcosystemAlert } from '@/lib/ecosystem-alert-parser';
 import { withEmissionDiscipline } from '@/lib/ecosystem-monitors';
@@ -60,6 +60,7 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
     : prompt;
 
   const startedAt = Date.now();
+  const ownerId = await ownerUserId(projectId);
   const { stream: piStream, cleanup } = runAgentStream(scanPrompt, {
     systemPrompt,
     // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
@@ -71,6 +72,8 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
     timeout: 180000,
     maxToolCalls: 5,
     task: 'monitor-agent',
+    userId: ownerId ?? undefined,
+    traceName: 'monitor-run-manual',
   });
   const reader = piStream.getReader();
 
@@ -112,6 +115,9 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
             // no-ops gracefully.
             const usage = payload.usage as Parameters<typeof recordUsage>[0]['usage'];
             const { provider: monProvider, model: monModel } = pickModel('monitor-agent');
+            // `done` frame carries pi-agent's langfuseTraceId too — reuse it
+            // so this doesn't create a second, disconnected flat trace.
+            const langfuseTraceId = payload.langfuseTraceId as string | null | undefined;
             await recordUsage({
               project_id: projectId,
               step: `manual.${monitorType}`,
@@ -119,6 +125,8 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
               model: monModel,
               usage,
               latency_ms: latencyMs,
+              userId: ownerId ?? undefined,
+              langfuseTraceId,
             }).catch(err =>
               console.warn('[monitor/run] recordUsage failed:', (err as Error).message),
             );

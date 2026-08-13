@@ -34,10 +34,18 @@ export interface RecordUsageInput {
   usage: Usage | undefined;
   /** Wall-clock ms from request start to response end. Optional. */
   latency_ms?: number;
+  /** Real founder/user id for Langfuse identity (falls back to project_id when absent). */
+  userId?: string;
   /** When true, still log the call (llm_usage_logs + Langfuse) but do NOT debit
    *  the per-user credit pool. Used for runs that produced no usable deliverable
    *  (clarification-only skill output) so a founder is never charged for nothing. */
   skip_credit_debit?: boolean;
+  /** Id of a live Langfuse trace pi-agent.ts already opened/closed for this
+   *  call (RunAgentResult.langfuseTraceId). When present, recordUsage skips
+   *  its own post-hoc flat Langfuse trace — that call already has a real,
+   *  properly-nested one. llm_usage_logs/project_budgets/credits are
+   *  unaffected either way. */
+  langfuseTraceId?: string | null;
 }
 
 export interface RecordUsageResult {
@@ -118,32 +126,38 @@ export async function recordUsage(input: RecordUsageInput): Promise<RecordUsageR
   const crossedWarn = false;
 
   // Mirror the call into Langfuse so cron/manual monitor runs appear in the
-  // same dashboard as chat traces. logToLangfuse lazy-inits the Langfuse
-  // client and silently no-ops when LANGFUSE_SECRET_KEY is absent, so this
-  // is safe to call unconditionally from local-dev or prod.
-  const provider = input.provider as TelemetryContext['provider'];
-  try {
-    await logToLangfuse(
-      {
-        projectId: input.project_id,
-        skillId: input.skill_id,
-        step: input.step || 'monitor',
-        provider,
-        model: input.model,
-      },
-      {
-        input_tokens: inputTokens,
-        output_tokens: outputTokens,
-        cache_creation_input_tokens: cacheCreation,
-        cache_read_input_tokens: cacheRead,
-      },
-      costUsd,
-      input.latency_ms ?? 0,
-    );
-  } catch (err) {
-    // Langfuse is best-effort observability; failure must not affect the
-    // primary cost-tracking path.
-    console.warn('cost-meter → Langfuse failed (non-fatal):', (err as Error).message);
+  // same dashboard as chat traces — UNLESS the caller already got a live,
+  // properly-nested trace from pi-agent.ts (runAgent/runAgentStream), in
+  // which case logging another flat one here would just create a second,
+  // disconnected trace for the same call. logToLangfuse lazy-inits the
+  // Langfuse client and silently no-ops when LANGFUSE_SECRET_KEY is absent,
+  // so this is safe to call unconditionally from local-dev or prod.
+  if (!input.langfuseTraceId) {
+    const provider = input.provider as TelemetryContext['provider'];
+    try {
+      await logToLangfuse(
+        {
+          projectId: input.project_id,
+          skillId: input.skill_id,
+          step: input.step || 'monitor',
+          provider,
+          model: input.model,
+          userId: input.userId,
+        },
+        {
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          cache_creation_input_tokens: cacheCreation,
+          cache_read_input_tokens: cacheRead,
+        },
+        costUsd,
+        input.latency_ms ?? 0,
+      );
+    } catch (err) {
+      // Langfuse is best-effort observability; failure must not affect the
+      // primary cost-tracking path.
+      console.warn('cost-meter → Langfuse failed (non-fatal):', (err as Error).message);
+    }
   }
 
   // Credits + cap come from the USER pool. Fallback to the per-user defaults
@@ -192,6 +206,11 @@ export async function recordAgentUsage(opts: {
   /** "Absorb" the cost — still log it (llm_usage_logs + Langfuse), but don't
    *  debit the founder's credits. For system-side niceties they didn't trigger. */
   skip_credit_debit?: boolean;
+  /** Real founder/user id for Langfuse identity (falls back to project_id when absent). */
+  userId?: string;
+  /** Id of a live Langfuse trace pi-agent.ts already opened/closed for this
+   *  call (RunAgentResult.langfuseTraceId) — see RecordUsageInput. */
+  langfuseTraceId?: string | null;
 }): Promise<void> {
   if (!opts.usage) return;
   const { provider, model } = pickModel(opts.task);
@@ -224,6 +243,8 @@ export async function recordAgentUsage(opts: {
     usage: usageToLog as Usage,
     latency_ms: opts.latency_ms,
     skip_credit_debit: opts.skip_credit_debit,
+    userId: opts.userId,
+    langfuseTraceId: opts.langfuseTraceId,
   }).catch(err =>
     console.warn(`[${opts.step}] recordUsage failed:`, (err as Error).message),
   );

@@ -44,6 +44,8 @@ export interface ToolSpendCtx {
   projectId?: string;
   /** Audit step label of the run that triggered the tool (e.g. 'chat', 'cron.competitors'). */
   step?: string;
+  /** Real founder/user id, for Langfuse identity (falls back to projectId when absent). */
+  userId?: string;
 }
 
 /**
@@ -107,7 +109,7 @@ export async function recordToolSpend(
   // cost is passed via costDetails (telemetry) so Langfuse uses our number.
   try {
     await logToLangfuse(
-      { projectId: ctx.projectId, step, provider: hit.provider, model: kind },
+      { projectId: ctx.projectId, step, provider: hit.provider, model: kind, userId: ctx.userId },
       { input_tokens: 0, output_tokens: 0 },
       hit.cost,
       0,

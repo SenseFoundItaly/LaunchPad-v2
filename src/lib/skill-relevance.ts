@@ -57,7 +57,7 @@ export async function rankSkillsForQuery(
   message: string,
   project: ProjectContext & { id: string },
   skills: SkillManifestEntry[],
-  opts: { topN?: number; timeoutMs?: number } = {},
+  opts: { topN?: number; timeoutMs?: number; userId?: string } = {},
 ): Promise<SkillManifestEntry[]> {
   const topN = opts.topN ?? 3;
   const timeoutMs = opts.timeoutMs ?? 5_000;
@@ -115,6 +115,7 @@ Return the ${topN} most relevant skill ids as a JSON array, e.g. ["market-resear
       model,
       usage: assistantMessage.usage,
       latency_ms: Date.now() - classifyStart,
+      userId: opts.userId,
     }).catch((err) => console.warn('[skill-relevance] recordUsage failed:', err));
 
     const raw = assistantMessage.content

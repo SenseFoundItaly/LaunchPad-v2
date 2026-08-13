@@ -9,6 +9,7 @@ import {
   isProjectCapped,
   reconcileProjectBudget,
   reconcileUserBudget,
+  ownerUserId,
   type BudgetReconciliation,
   type UserBudgetReconciliation,
 } from '@/lib/cost-meter';
@@ -374,7 +375,8 @@ async function runMonitor(
 
   try {
     const startedAt = Date.now();
-    const { text: result, usage } = await runAgent(prompt, {
+    const ownerId = await ownerUserId(monitor.project_id);
+    const { text: result, usage, langfuseTraceId } = await runAgent(prompt, {
       systemPrompt,
       // Budget headroom for synthesis (mirrors the manual run route): cap
       // tool calls so the agent is forced into a final text turn where the
@@ -385,6 +387,8 @@ async function runMonitor(
       // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
       projectId: monitor.project_id,
       step: `cron.${monitor.type}`,
+      userId: ownerId ?? undefined,
+      traceName: 'cron-monitor',
     });
     const latencyMs = Date.now() - startedAt;
 
@@ -399,6 +403,8 @@ async function runMonitor(
       model: monModel,
       usage,
       latency_ms: latencyMs,
+      userId: ownerId ?? undefined,
+      langfuseTraceId,
     }).catch(err =>
       console.warn('[cron] recordUsage failed:', (err as Error).message),
     );
@@ -1085,9 +1091,12 @@ async function processHeartbeats(
       });
 
       const startedAt = Date.now();
-      const { text: rawReflection, usage } = await runAgent(
+      const { text: rawReflection, usage, langfuseTraceId } = await runAgent(
         'Run the heartbeat reflection for this project.',
-        { systemPrompt, timeout: 90000, task: 'heartbeat-reflect' },
+        {
+          systemPrompt, timeout: 90000, task: 'heartbeat-reflect',
+          userId: project.owner_user_id, traceName: 'cron-heartbeat',
+        },
       );
       // Strip at the SOURCE: the model sometimes emits the reflection as an
       // insight-card artifact despite the plain-text instruction (DeskMate
@@ -1113,6 +1122,8 @@ async function processHeartbeats(
         model,
         usage,
         latency_ms: latencyMs,
+        userId: project.owner_user_id,
+        langfuseTraceId,
       }).catch(err =>
         console.warn('[heartbeat] recordUsage failed:', (err as Error).message),
       );

@@ -13,7 +13,7 @@ import { query, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { runAgent } from '@/lib/pi-agent';
 import { pickModel } from '@/lib/llm/router';
-import { recordUsage, isProjectCapped } from '@/lib/cost-meter';
+import { recordUsage, isProjectCapped, ownerUserId } from '@/lib/cost-meter';
 import { loadMonitorContext, withBriefLanguage } from '@/lib/ecosystem-monitors';
 import { linkBriefToProfile } from '@/lib/competitor-profiles';
 import type { IntelligenceBrief, RecommendedAction } from '@/types';
@@ -141,14 +141,17 @@ export async function processCorrelations(
 
   // Call LLM
   const startedAt = Date.now();
+  const ownerId = await ownerUserId(projectId);
   let correlations: CorrelationOutput[];
   try {
-    const { text, usage } = await runAgent(prompt, {
+    const { text, usage, langfuseTraceId } = await runAgent(prompt, {
       systemPrompt: CORRELATOR_SYSTEM_PROMPT,
       timeout: 120_000,
       task: 'signal-correlate',
       // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
       projectId,
+      userId: ownerId ?? undefined,
+      traceName: 'intelligence-correlate',
     });
     const latencyMs = Date.now() - startedAt;
 
@@ -162,6 +165,8 @@ export async function processCorrelations(
       model,
       usage,
       latency_ms: latencyMs,
+      userId: ownerId ?? undefined,
+      langfuseTraceId,
     }).catch(err =>
       console.warn('[correlator] recordUsage failed:', (err as Error).message),
     );

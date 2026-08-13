@@ -16,6 +16,7 @@
 // ============================================================================
 
 import { runAgent } from '@/lib/pi-agent';
+import { ownerUserId } from '@/lib/cost-meter';
 import type { BuilderAdapter, BuildContextRef, BuildResult, BuildSpec } from './types';
 import { createSiteSandbox, updateSiteSandbox, readSiteFiles, type GenFile } from './sandbox';
 
@@ -50,12 +51,15 @@ function extractJson(text: string): GenPayload | null {
 }
 
 async function generateFiles(instruction: string, projectId: string): Promise<GenFile[]> {
+  const ownerId = await ownerUserId(projectId);
   const res = await runAgent(`${instruction}\n\nReturn the JSON files object now.`, {
     systemPrompt: GEN_SYSTEM,
     tools: false,
     projectId,
     step: 'build.e2b',
     timeout: 150_000,
+    userId: ownerId ?? undefined,
+    traceName: 'mvp-build-generate',
   });
   const parsed = extractJson(res.text);
   const files = Array.isArray(parsed?.files) ? parsed!.files : [];

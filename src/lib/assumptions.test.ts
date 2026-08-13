@@ -11,7 +11,7 @@ const { runMock, getMock, generateIdMock, runAgentMock, recordUsageMock } = vi.h
 vi.mock('@/lib/db', () => ({ query: vi.fn(), run: runMock, get: getMock }));
 vi.mock('@/lib/api-helpers', () => ({ generateId: generateIdMock }));
 vi.mock('@/lib/pi-agent', () => ({ runAgent: runAgentMock }));
-vi.mock('@/lib/cost-meter', () => ({ recordAgentUsage: recordUsageMock }));
+vi.mock('@/lib/cost-meter', () => ({ recordAgentUsage: recordUsageMock, ownerUserId: vi.fn().mockResolvedValue(null) }));
 vi.mock('@/lib/i18n/resolve-locale', () => ({ resolveLocale: () => 'en' }));
 
 import { extractAssumptions } from '@/lib/assumptions';

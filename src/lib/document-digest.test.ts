@@ -10,7 +10,7 @@ const { runAgentMock, stageMock, createPaMock, queryMock, recordEventMock } = vi
   recordEventMock: vi.fn(),
 }));
 vi.mock('@/lib/pi-agent', () => ({ runAgent: runAgentMock }));
-vi.mock('@/lib/cost-meter', () => ({ recordAgentUsage: vi.fn() }));
+vi.mock('@/lib/cost-meter', () => ({ recordAgentUsage: vi.fn(), ownerUserId: vi.fn().mockResolvedValue(null) }));
 vi.mock('@/lib/pending-actions', () => ({ createPendingAction: createPaMock }));
 vi.mock('@/lib/db', () => ({ query: queryMock, run: vi.fn(), get: vi.fn() }));
 vi.mock('@/lib/memory/events', () => ({ recordEvent: recordEventMock }));
