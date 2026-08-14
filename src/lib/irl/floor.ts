@@ -13,9 +13,11 @@
  * redone. That is the trigger, and nothing else clears the floor.
  *
  * Stored in `projects.settings` (an existing JSONB bag) rather than a new
- * column, deliberately: staging has no `_migrations` ledger, so every migration
- * is a manual step there. A jsonb merge keeps other settings keys intact —
- * never assign the whole object.
+ * column. The original reason — "staging has no ledger, so every migration is
+ * a manual step there" — expires once staging is rebased from prod, but the
+ * choice stands on its own: a high-water mark is per-project scratch state, not
+ * a schema concept. A jsonb merge keeps other settings keys intact — never
+ * assign the whole object.
  */
 
 import { query, run } from '@/lib/db';

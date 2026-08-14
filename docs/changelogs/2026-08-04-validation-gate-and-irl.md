@@ -169,6 +169,14 @@ editing one out of step fails the build.
 > ⚠️ **Staging has no migration ledger at all.** Not fixed here: baselining it
 > would assert 001-036 were applied, which is unverifiable, and a ledger that
 > lies is worse than none. Needs a decision.
+>
+> **Resolved 2026-08-14 — and not the way this log assumed.** Staging's DB is
+> to be **rebased from prod**, which hands it prod's `_migrations` outright: the
+> ledger question dissolves rather than being answered, and the hand-apply
+> ritual this file prescribes stops applying. What shipped instead is a guard in
+> `db/migrate.ts` that refuses ANY populated database with an empty ledger —
+> the condition, not the environment, because a restored dump or a branch
+> database presents the same shape.
 
 Without the column the check reads undefined → red forever → no project can
 complete the gate. Additive, nullable, `IF NOT EXISTS`; `SELECT *` tolerates its
