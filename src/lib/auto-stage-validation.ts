@@ -22,6 +22,7 @@ import { translate, type MessageKey } from '@/lib/i18n/messages';
 import type { Locale } from '@/lib/i18n/locales';
 import { validationTargetsFor, validationLabel, type ValidationItemKind } from '@/lib/journey/validation-targets';
 import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credits';
+import { gateFactPrefix } from '@/lib/gate-fact-families';
 import type { Artifact, IdeaCanvasArtifact, TamSamSomArtifact, Source } from '@/types/artifacts';
 
 // Mirror of project-tools.ts CANVAS_FIELD_LABELS / itemDisplayLabel / itemCredits.
@@ -386,17 +387,28 @@ export async function stageMarketSizeProposal(
  *  substantial and on-topic; otherwise the whole summary is the body (it's
  *  keyword-bearing across all three). Returns null when the text is too thin to
  *  be a real assessment. */
-/** Label prefixes per finding — each contains its check's keyword (bilingual
- *  checks, so either language closes the gate), and keeps the fact text in the
- *  project language. */
-const TECH_FINDING_PREFIX = {
-  // The feasibility prefix carries BOTH split-check keywords ('technical risk' /
-  // 'rischio tecnico'): the one feasibility finding targets build_approach AND
-  // technical_risk_named, and the prefix guarantees both close even when the
-  // model's section text words the risk differently.
-  en: { feasibility: 'Technical feasibility & main technical risk', dependencies: 'Key dependencies', regulatory: 'Regulatory / compliance' },
-  it: { feasibility: 'Fattibilità tecnica e rischio tecnico principale', dependencies: 'Dipendenze chiave', regulatory: 'Vincoli normativi / compliance' },
-} as const;
+/**
+ * Label prefixes per finding — taken from the ONE family table, not written
+ * here (2026-08-14).
+ *
+ * They used to be their own strings, chosen when the PREFIX was what closed a
+ * check: the feasibility label deliberately carried both `build_approach` and
+ * `technical_risk_named` keywords so one finding could green both. Since the
+ * checks match on `kind`, that job belongs to the kind — `technical_risk_named`
+ * accepts `tech_feasibility_fact` explicitly — and a second labelling system
+ * only bought a DOUBLE label: the executor prefixes from the family table, so
+ * the first technical-validation run ever applied would have written
+ * `Fattibilità tecnica — Fattibilità tecnica e rischio tecnico principale — …`.
+ *
+ * Sharing the table keeps the three texts distinct (three different family
+ * labels), which is the property recordFact's exact-text dedup needs, and lets
+ * `withGateFactPrefix` recognise the label instead of stacking another.
+ */
+const techPrefixes = (locale: 'en' | 'it') => ({
+  feasibility: gateFactPrefix('tech_feasibility_fact', locale).replace(/\s*—\s*$/, ''),
+  dependencies: gateFactPrefix('tech_dependency_fact', locale).replace(/\s*—\s*$/, ''),
+  regulatory: gateFactPrefix('regulatory_fact', locale).replace(/\s*—\s*$/, ''),
+});
 
 export function extractTechnicalFindings(
   text: string,
@@ -404,7 +416,7 @@ export function extractTechnicalFindings(
 ): { feasibility: string; dependencies: string; regulatory: string } | null {
   const clean = (text ?? '').trim();
   if (clean.length < 80) return null;
-  const px = TECH_FINDING_PREFIX[locale] ?? TECH_FINDING_PREFIX.it;
+  const px = techPrefixes(locale === 'en' ? 'en' : 'it');
   const full = clean.replace(/\s+/g, ' ').trim().slice(0, 1000);
   // Capture the body under a header matching the finding, up to the NEXT
   // markdown header (## / ###) — NOT a `---` divider (the skill uses those

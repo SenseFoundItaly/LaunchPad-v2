@@ -44,7 +44,7 @@ import type { Locale } from '@/lib/agent-prompt';
 import { checkDedup, computeDedupHash } from './monitor-dedup';
 import { recordEvent } from './memory/events';
 import { recordFact } from './memory/facts';
-import { gateFactKindFor, gateFactPrefix } from '@/lib/gate-fact-families';
+import { gateFactKindFor, withGateFactPrefix } from '@/lib/gate-fact-families';
 import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from './credits';
 import { CREDITS_PER_DOLLAR } from '@/lib/credit-costs';
 import { ownerUserId as resolveOwnerUserId } from '@/lib/cost-meter';
@@ -1854,11 +1854,13 @@ const applyValidationProposal: ActionHandler = async (action) => {
       // table in gate-fact-families.ts, asserted by its test.
       const techField = String(it.field ?? '');
       const techFactKind = gateFactKindFor('tech_fact', techField) ?? 'tech_feasibility_fact';
-      const techPrefix = gateFactPrefix(techFactKind, locale);
       await recordFact({
         userId: ownerUserId,
         projectId: action.project_id,
-        fact: `${techPrefix}${value}`,
+        // ONCE. extractTechnicalFindings already labels each of its three
+        // findings, so prefixing unconditionally here wrote the label twice —
+        // prod carries `Rischio tecnico — Rischio tecnico — …`.
+        fact: withGateFactPrefix(techFactKind, locale, value),
         // Family-carried, so a regulatory finding can no longer green
         // build_approach on wording alone (gate-fact-kinds.ts).
         kind: techFactKind,
@@ -1932,11 +1934,12 @@ const applyValidationProposal: ActionHandler = async (action) => {
       // ternaries here, and they drifted (the EN branch emitted the Italian
       // strings for cogs_opex_fact and revenue_stream_fact).
       const factKind = gateFactKindFor(it.kind, it.field);
-      const prefix = factKind ? gateFactPrefix(factKind, locale) : '';
       await recordFact({
         userId: ownerUserId,
         projectId: action.project_id,
-        fact: `${prefix}${value}`.slice(0, 1600),
+        // Same once-only rule as the tech branch above: a value that already
+        // carries its family label (any locale) must not gain a second one.
+        fact: (factKind ? withGateFactPrefix(factKind, locale, value) : value).slice(0, 1600),
         // The FAMILY, not 'observation'. The founder approved this AS this
         // evidence; collapsing every kind to 'observation' threw that away and
         // left a localized text prefix as the only trace, which the check then
