@@ -124,9 +124,15 @@ export const it: Partial<Record<MessageKey, string>> = {
   'onboarding.title': 'Inizia da qui',
   'onboarding.dismiss': 'Ho capito',
   'onboarding.intro': 'LaunchPad ha due motori: Watchers + il grafo della Conoscenza monitorano e danno forma all’ecosistema della tua startup, e il Co-pilot costruisce la tua Idea Canvas e ti guida nella validazione.',
-  'onboarding.step-knowledge': 'Hai già un deck, appunti o ricerche? Aggiungi i tuoi documenti — li analizziamo per pre-compilare canvas, concorrenti, dimensione di mercato e interviste',
+  // Copy dal changelog 4/08 ("REVIEW ONBOARDING"): ogni voce è una DOMANDA
+  // breve + una riga di dettaglio. Prima il dettaglio era fuso nel titolo (voce
+  // 2) o mancava del tutto (voci 1 e 4) — e la rassicurazione che i watcher di
+  // base partono da soli, che è ciò che toglie ansia alla voce 4, non c'era.
+  'onboarding.step-knowledge': 'Hai già un deck, appunti o ricerche?',
+  'onboarding.step-knowledge-hint': 'Carica i tuoi documenti — li analizziamo per pre-compilare canvas, concorrenti, dimensione di mercato e interviste',
   'onboarding.step-canvas': 'Apri il Co-pilot per definire la tua Idea Canvas',
-  'onboarding.step-watcher': 'Crea un osservatore per monitorare concorrenti, mercato o rischi',
+  'onboarding.step-watcher': 'Vuoi già monitorare qualcosa di specifico?',
+  'onboarding.step-watcher-hint': 'Crea un osservatore personalizzato su un concorrente, un mercato o un rischio — quelli di base si attivano da soli quando entri in Validation Gate',
 
   // ── Notes (src/components/onboarding/NotesCard.tsx) ────────────────────────
   'notes.title': 'Note',
@@ -139,6 +145,7 @@ export const it: Partial<Record<MessageKey, string>> = {
 
   // ── Home: Score + IRL (src/components/home/ScorePanel.tsx) ─────────────────
   'onboarding.step-tour': "Fai un giro veloce dell'ambiente →",
+  'onboarding.step-tour-hint': 'Home, Knowledge (con graph), Watchers, Finance, Co-Pilot: 30 secondi per capire dove trovare cosa',
   'score.title': 'Score',
   'score.title-clarity': 'Clarity Score',
   'score.title-startup': 'Startup Score',
@@ -960,6 +967,17 @@ export const it: Partial<Record<MessageKey, string>> = {
   'gate.verdict-pivot-why': 'Cosa non regge? (diventa parte del record)',
   'gate.verdict-stop-why': 'Perché ti fermi? (diventa parte del record)',
   'gate.verdict-needs-reason': 'Serve una motivazione — è ciò che rende la decisione verificabile.',
+  // Uscita anticipata + riapertura. La card del gate compare solo quando ogni
+  // check è verde; questi due link servono al founder che lì non ci arriva —
+  // chi ha già deciso di fermarsi, e chi ha fatto PIVOT e vuole ridecidere.
+  'gate.exit-early': 'Mi fermo qui — non porto avanti questa idea',
+  'gate.exit-early-tip': 'Registra uno STOP con la tua motivazione, senza completare i check rimasti. Reversibile.',
+  'gate.exit-confirm': 'Questo registra uno STOP sul Validation Gate. Puoi riaprirlo quando vuoi. Procedo?',
+  'gate.reopen': 'Riapri la decisione',
+  'gate.reopen-tip': 'Cancella il verdetto registrato per poter decidere di nuovo.',
+  'gate.reopen-confirm': 'Questo cancella il tuo {verdict} registrato, così il gate può essere deciso di nuovo. Procedo?',
+  'gate.decision-recorded': 'Registrato: {verdict}',
+  'gate.decision-failed': 'Non è stato salvato — non è stato registrato nulla. Riprova.',
   'journey-check.market_size': 'Dimensione del mercato stimata',
   'journey-check.differentiation_evidence': 'Differenziazione dimostrata',
   'journey-check.trends_assessed': 'Trend di mercato valutati',

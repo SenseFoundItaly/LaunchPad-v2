@@ -130,9 +130,16 @@ export const en = {
   'onboarding.title': 'Start here',
   'onboarding.dismiss': 'Got it',
   'onboarding.intro': 'LaunchPad runs on two engines: Watchers + the Knowledge graph track and shape your startup’s ecosystem, and the Co-pilot builds your Idea Canvas and walks you through validation.',
-  'onboarding.step-knowledge': 'Already have a deck, notes or research? Add your documents — we digest them to pre-fill your canvas, competitors, market size and interviews',
+  // Copy from the 4/08 changelog ("REVIEW ONBOARDING"): each row is a short
+  // QUESTION plus one detail line. The detail used to be welded into the title
+  // (row 2) or missing entirely (rows 1 and 4) — including the reassurance that
+  // the default watchers start themselves, which is what takes the pressure off
+  // row 4.
+  'onboarding.step-knowledge': 'Already have a deck, notes or research?',
+  'onboarding.step-knowledge-hint': 'Add your documents — we digest them to pre-fill your canvas, competitors, market size and interviews',
   'onboarding.step-canvas': 'Open the Co-pilot to shape your Idea Canvas',
-  'onboarding.step-watcher': 'Create a watcher to monitor competitors, market, or risks',
+  'onboarding.step-watcher': 'Want to track something specific already?',
+  'onboarding.step-watcher-hint': 'Create a custom watcher on a competitor, a market or a risk — the default ones switch themselves on when you reach the Validation Gate',
 
   // ── Notes (src/components/onboarding/NotesCard.tsx) ────────────────────────
   'notes.title': 'Notes',
@@ -145,6 +152,7 @@ export const en = {
 
   // ── Home: Score + IRL (src/components/home/ScorePanel.tsx) ─────────────────
   'onboarding.step-tour': 'Take a quick tour of the environment →',
+  'onboarding.step-tour-hint': 'Home, Knowledge (with the graph), Watchers, Finance, Co-Pilot: 30 seconds to learn where things live',
   'score.title': 'Score',
   'score.title-clarity': 'Clarity Score',
   'score.title-startup': 'Startup Score',
@@ -976,6 +984,18 @@ export const en = {
   'gate.verdict-pivot-why': 'What does not hold up? (this becomes the record)',
   'gate.verdict-stop-why': 'Why are you stopping? (this becomes the record)',
   'gate.verdict-needs-reason': 'A reason is required — it is what makes the decision auditable.',
+  // Early exit + reopen. The gate's own card only appears once every check is
+  // green; these two links are the affordances for the founder who is NOT
+  // there — one who has already decided to stop, and one who pivoted and wants
+  // the decision back.
+  'gate.exit-early': 'Stop here — I am not taking this idea further',
+  'gate.exit-early-tip': 'Records a STOP with your reason, without finishing the remaining checks. Reversible.',
+  'gate.exit-confirm': 'This records a STOP on the Validation Gate. You can reopen it whenever you want. Continue?',
+  'gate.reopen': 'Reopen the decision',
+  'gate.reopen-tip': 'Clears the recorded verdict so you can make the call again.',
+  'gate.reopen-confirm': 'This clears your recorded {verdict} so the gate can be decided again. Continue?',
+  'gate.decision-recorded': 'Recorded: {verdict}',
+  'gate.decision-failed': 'That did not save — nothing was recorded. Try again.',
   'journey-check.market_size': 'Market size estimated',
   'journey-check.differentiation_evidence': 'Differentiation evidenced',
   'journey-check.trends_assessed': 'Market trends assessed (tailwinds/headwinds)',

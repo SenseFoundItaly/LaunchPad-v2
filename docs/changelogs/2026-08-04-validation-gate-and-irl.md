@@ -189,3 +189,49 @@ absence.
 - **#301** — per-archetype ladder, now explicitly confirmed by him
   ("AI native, tech intensive, deeptech… modularità massima indispensabile") and
   still sitting at P3.
+
+---
+
+## Audit 2026-08-14 — this log re-checked against `main`
+
+Every ⏸ and ❌ above was re-traced to code. **Two of the five open items shipped
+after this log was written and were never recorded here**, so the list below is
+what is actually outstanding.
+
+| Item as logged | Real state on `main` |
+|---|---|
+| **#296 — IRL monotonicity** "decided, not built" | ✅ **BUILT.** `src/lib/irl/floor.ts` stores a high-water mark in `projects.settings.irl_high_water` (a jsonb merge, not a new column — staging has no ledger, so every migration is a manual step there). `GET /irl` raises it; a `PIVOT` clears it, on the gate (`gate-verdict/route.ts:108`) **and** on a loop (`loops/[loopId]/route.ts:47`). GO and STOP leave it alone: STOP is "I'm not continuing", not "what I proved was wrong". Issue #296 CLOSED 04/08 |
+| **Score × IRL quadrants** "demo copy, not in the product" | ✅ **IN THE PRODUCT.** `src/lib/irl/quadrant.ts` + `ScorePanel`, both locales. Three more IRL fixes rode along: the ladder now says what earns the next point (and stops promising 9), the scale is 1-9 never 0, and rung 2 takes the Clarity GO bar (#389/#403) |
+| **Early-exit STOP** "permitted by the endpoint, not yet surfaced" | ✅ **FIXED HERE** — see below |
+| **Score decay** | ❌ Still not built, still not filed. No design exists |
+| **Staging migration ledger** | ⏸ Unchanged. Still a decision |
+| **#302** sigillo threshold · **#301** per-archetype ladder | ⏸ Both still OPEN. Founder calls |
+
+### The gate had two decisions it could make but not show
+
+Auditing the early exit surfaced a second, worse one next to it.
+
+- **Early exit.** `POST /gate-verdict` accepts `STOP` at any time *by design* —
+  that asymmetry is the §4 invariant read backwards. But the only client that
+  can send one is the chat card, and `maybeProposeGateVerdict` stages that card
+  **only once every evidence check passes**. The guard was real and unreachable.
+- **Reopen.** `DELETE /gate-verdict` has existed since #358, and #416 fixed it
+  so it restages the card — but **nothing in the client has ever called it**.
+  The check row told a founder who pivoted to "make the call again", and one who
+  stopped to "reopen the gate if you want to resume", pointing at nothing both
+  times. In practice a STOP was irreversible: exactly the trap this log said
+  `DELETE` existed to prevent.
+
+Both now sit in the Validation Gate's checklist footer (`SpineSection`), as a
+quiet text link under the evidence — reachable, not tempting. Which one shows is
+driven by `GET /gate-verdict` (new, same route file), never by matching the
+check's gap prose: `gate_verdict` reads `passed: false` for *not decided*,
+*pivoted* and *stopped* alike, and prose breaks on the first copy edit — and in
+the other locale.
+
+> ⚠️ A card staged server-side does **not** appear until a reload: the chat
+> thread is a module store hydrated once per visit. So the footer records the
+> decision directly (prompt → POST) instead of staging a card the founder would
+> not see. Any future "stage a card from outside chat" idea hits this first.
+
+20 guard tests; 833 pass, tsc + `next build --webpack` clean.

@@ -124,12 +124,33 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
   // the EXISTING cross-page tour (TourController) — a second tour was started
   // here and deleted the same hour when the first one surfaced; check
   // tour-steps.ts before ever adding another.
-  const steps: Array<{ icon: string; label: string; href?: string; onClick?: () => void }> = [
-    { icon: I.eye, label: t('onboarding.step-tour'), onClick: () => relaunchTour() },
-    { icon: I.book, label: t('onboarding.step-knowledge'), href: `/project/${projectId}/knowledge` },
+  // Each row is his shape: a short question, then the detail underneath. Row 3
+  // has no hint in his copy — the action explains itself — so `hint` is
+  // optional rather than a blank line kept for symmetry.
+  const steps: Array<{ icon: string; label: string; hint?: string; href?: string; onClick?: () => void }> = [
+    { icon: I.eye, label: t('onboarding.step-tour'), hint: t('onboarding.step-tour-hint'), onClick: () => relaunchTour() },
+    { icon: I.book, label: t('onboarding.step-knowledge'), hint: t('onboarding.step-knowledge-hint'), href: `/project/${projectId}/knowledge` },
     { icon: I.chat, label: t('onboarding.step-canvas'), href: `/project/${projectId}/chat` },
-    { icon: I.signal, label: t('onboarding.step-watcher'), href: `/project/${projectId}/actions?lane=monitor` },
+    { icon: I.signal, label: t('onboarding.step-watcher'), hint: t('onboarding.step-watcher-hint'), href: `/project/${projectId}/actions?lane=monitor` },
   ];
+
+  // Row innards, shared by the two shells below (button vs Link) so the copy
+  // can never drift between them — the same two-renderer trap the chat option
+  // sets keep falling into.
+  const stepBody = (s: { icon: string; label: string; hint?: string }, i: number) => (
+    <>
+      <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', width: 14, flexShrink: 0, marginTop: 1 }}>{i + 1}</span>
+      <Icon d={s.icon} size={14} stroke={1.4} style={{ color: 'var(--ink-3)', flexShrink: 0, marginTop: 1 }} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 12.5, color: 'var(--ink-2)' }}>{s.label}</span>
+        {s.hint && (
+          <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45, marginTop: 2 }}>
+            {s.hint}
+          </span>
+        )}
+      </span>
+    </>
+  );
 
   return (
     <section
@@ -207,7 +228,7 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
                   key={s.label}
                   onClick={s.onClick}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+                    display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 10px',
                     borderRadius: 6, border: 'none', background: 'transparent',
                     cursor: 'pointer', textAlign: 'left', width: '100%', color: 'inherit',
                     transition: 'background .1s',
@@ -215,9 +236,7 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
                   onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--paper-2)'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 >
-                  <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', width: 14 }}>{i + 1}</span>
-                  <Icon d={s.icon} size={14} stroke={1.4} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--ink-2)' }}>{s.label}</span>
+                  {stepBody(s, i)}
                 </button>
               ) : (
               <Link
@@ -225,7 +244,7 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
                 href={s.href!}
                 style={{
                   display: 'flex',
-                  alignItems: 'center',
+                  alignItems: 'flex-start',
                   gap: 10,
                   padding: '8px 10px',
                   borderRadius: 6,
@@ -236,12 +255,8 @@ export function OnboardingCard({ projectId }: { projectId: string }) {
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--paper-2)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
-                <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', width: 14 }}>
-                  {i + 1}
-                </span>
-                <Icon d={s.icon} size={14} stroke={1.4} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--ink-2)' }}>{s.label}</span>
-                <Icon d={I.arrow} size={11} stroke={1.4} style={{ color: 'var(--ink-5)', flexShrink: 0 }} />
+                {stepBody(s, i)}
+                <Icon d={I.arrow} size={11} stroke={1.4} style={{ color: 'var(--ink-5)', flexShrink: 0, marginTop: 3 }} />
               </Link>
               )
             ))}

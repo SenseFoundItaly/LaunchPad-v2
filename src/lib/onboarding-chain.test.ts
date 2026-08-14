@@ -233,3 +233,46 @@ describe('the hook verifies signatures the way Supabase actually signs', () => {
     expect(res.status).toBe(500);
   });
 });
+
+/**
+ * "INIZIA DA QUI" — the changelog 4/08 REVIEW ONBOARDING copy.
+ *
+ * The MINI TOUR half of that block shipped verbatim in #401; the checklist half
+ * did not. Row 2 had its detail welded into the title, and rows 1 and 4 lost
+ * their detail entirely — including the line that does the most work in the
+ * whole card: the default watchers switch themselves on, so creating one now is
+ * optional. These pin the SHAPE (a question + an optional detail line, in both
+ * locales), not the wording, which is the founder's to change.
+ */
+describe('the Start-here checklist follows the founder\'s two-line shape', () => {
+  const en = read('src/lib/i18n/messages/en.ts');
+  const itMsgs = read('src/lib/i18n/messages/it.ts');
+  const card = read('src/components/onboarding/OnboardingCard.tsx');
+
+  it.each(['step-tour', 'step-knowledge', 'step-watcher'])('%s carries a detail line in both locales', (row) => {
+    expect(en).toContain(`'onboarding.${row}-hint'`);
+    expect(itMsgs).toContain(`'onboarding.${row}-hint'`);
+  });
+
+  it('row 3 deliberately has no detail line — the action explains itself', () => {
+    expect(en).not.toContain("'onboarding.step-canvas-hint'");
+    expect(itMsgs).not.toContain("'onboarding.step-canvas-hint'");
+  });
+
+  it('the watcher row says the default watchers start themselves', () => {
+    // The reassurance is the point of that row: without it, "create a watcher"
+    // reads as a chore the founder must do before anything works.
+    expect(itMsgs).toMatch(/quelli di base si attivano da soli/);
+    expect(en).toMatch(/default ones switch themselves on/);
+  });
+
+  it('both row shells render the same body, so the copy cannot drift', () => {
+    // A button (relaunch tour) and a Link (navigate) — the two-renderer trap.
+    expect(card).toMatch(/const stepBody = /);
+    expect(card.match(/\{stepBody\(s, i\)\}/g)?.length).toBe(2);
+  });
+
+  it('the hint renders only when the row has one', () => {
+    expect(card).toMatch(/\{s\.hint && \(/);
+  });
+});

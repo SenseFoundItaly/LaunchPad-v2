@@ -23,6 +23,7 @@
  *   'credits'   → ['credits', projectId]            (CreditsBadge, usage/page.tsx)
  *   'usage'     → ['usage', projectId]              (usage/page.tsx)
  *   'stages'    → ['stages', projectId]             (SpineSection)
+ *   'gate-verdict' → ['gate-verdict', projectId]    (useGateVerdict, SpineSection footer)
  *   'idea-canvas' → ['idea-canvas', projectId]      (IdeaCanvasHeader)
  *   'briefs'    → ['briefs', projectId]             (useIntelligenceBriefs / Canvas)
  *   'skills'    → ['skills', projectId, 'gated']    (useGatedSkills / Co-pilot)
@@ -49,6 +50,10 @@ export const EVENT_TO_TOPICS: Record<string, string[]> = {
     'timeline',
     'credits',
     'stages',
+    // The gate verdict moves on the same signals as the stages it closes: a
+    // chat turn can stage/record it, and the spine footer dispatches this event
+    // after recording or reopening one.
+    'gate-verdict',
     'pricing',
     'burn-rate',
     'workflow',

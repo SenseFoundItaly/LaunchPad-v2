@@ -44,6 +44,34 @@ const SCOPES: readonly string[] = ['1A', '1B', '1C'];
 /** Mirrors overrideLoop's motivation floor — a reason must be a reason. */
 const MIN_MOTIVATION = 3;
 
+/**
+ * GET — the recorded verdict, or null.
+ *
+ * Exists so the founder-facing spine can offer the RIGHT affordance without
+ * guessing from a check row's gap sentence: no verdict → offer the early exit,
+ * PIVOT/STOP → offer the reopen. The `gate_verdict` check alone cannot carry
+ * that: it is `passed: false` for "not decided", "pivoted" and "stopped" alike,
+ * and string-matching its prose would break on the first copy edit (and in the
+ * other locale).
+ */
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> },
+) {
+  const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+
+  const rows = await query<{ gate_verdict: unknown }>(
+    'SELECT gate_verdict FROM research WHERE project_id = ?',
+    projectId,
+  ).catch(() => [] as { gate_verdict: unknown }[]);
+
+  const gv = rows[0]?.gate_verdict as { verdict?: unknown } | null | undefined;
+  const decided = !!gv && typeof gv === 'object' && VERDICTS.includes(String(gv.verdict));
+  return json({ gate_verdict: decided ? gv : null });
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
