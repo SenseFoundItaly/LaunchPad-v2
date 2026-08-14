@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { get, query, run } from '@/lib/db';
 import { recordEvent } from './events';
+import type { GateFactKind } from '@/lib/gate-fact-kinds';
 import type { Source, ReviewedState } from '@/types/artifacts';
 
 /**
@@ -9,7 +10,12 @@ import type { Source, ReviewedState } from '@/types/artifacts';
  * decisions, commitments, named entities, preferences, observed patterns.
  */
 
-export type FactKind = 'fact' | 'decision' | 'observation' | 'note' | 'preference';
+/** Generic kinds — context the founder or agent wanted preserved. A fact with
+ *  one of these greens a gate check only via the legacy keyword branch; see
+ *  gate-fact-kinds.ts for why approved evidence carries its family instead. */
+export type GenericFactKind = 'fact' | 'decision' | 'observation' | 'note' | 'preference';
+
+export type FactKind = GenericFactKind | GateFactKind;
 export type FactSourceType = 'chat' | 'skill' | 'monitor' | 'manual' | 'approval_inbox' | 'heartbeat' | 'workflow';
 
 export interface MemoryFact {

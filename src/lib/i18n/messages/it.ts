@@ -1054,7 +1054,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'journey-gap.gtm_opportunities': 'Valuta il go-to-market — dov’è l’apertura e cosa ti ostacolerà',
   'journey-gap.partners_identified': 'Individua i partner, rivenditori o distributori potenziali da avvicinare',
   'journey-gap.regulatory_check': 'Verifica il panorama normativo (es. GDPR, licenze, certificazioni)',
-  'journey-gap.monitors_set': 'Attiva un watcher — approva una delle proposte in inbox',
+  'journey-gap.monitors_set': 'Attiva un watcher — approva una proposta in inbox, oppure chiedi al Co-pilota di configurarne uno',
   'journey-gap.ip_analysis': 'Verifica il panorama IP — brevetti, marchi, libertà operativa nel dominio',
   'journey-gap.data_availability': 'Valuta disponibilità e qualità dei dati — critico per prodotti AI/data-driven',
   'journey-gap.validation_strategy': 'Definisci la strategia di validazione — cosa testi, con chi, e cosa lo dimostrerebbe',
@@ -1139,6 +1139,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'journey-evidence.capital_plan': 'Il tuo piano di capitale è in moto.',
   'journey-evidence.loop_active': 'Hai almeno un growth loop attivo.',
   'journey-evidence.metrics_tracked': 'Stai tracciando le tue metriche.',
+  'journey-evidence.stated-suffix': '(da una cosa che hai scritto in chat)',
   'canvas.view-in-canvas': 'Vedi nel canvas',
   'canvas.view-in-know': 'Vedi nella conoscenza',
   // Sotto-tracce del Validation Gate L2 (walkthrough §2). Solo lo stage di

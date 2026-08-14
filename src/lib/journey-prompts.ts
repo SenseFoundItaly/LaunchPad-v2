@@ -397,17 +397,27 @@ const EVIDENCE_LABEL_KEY: Record<string, MessageKey> = {
 };
 
 /** Localized evidence string for a PASSED spine check. EN keeps the evaluator's
- *  verbatim evidence; non-EN gets the localized confirmation keyed by check id. */
+ *  verbatim evidence; non-EN gets the localized confirmation keyed by check id.
+ *
+ *  `stated` marks a check that is green off unclassified chat text rather than
+ *  an approved evidence item. The sentence says so rather than claiming an
+ *  approval the founder never gave: on prod 2026-08-14 one founder's gate read
+ *  "Regulatory & compliance deep dive ✓" because a July answer about who feels
+ *  the pain contained the words "rischi di compliance". Revoking those greens
+ *  would un-do real work, so the check still passes — it just stops overstating
+ *  why. */
 export function checkEvidence(
   checkId: string,
   evidence: string | undefined,
   t: TFn,
   locale: Locale,
+  stated?: boolean,
 ): string | undefined {
   if (evidence == null) return undefined;
+  let out = evidence;
   if (locale !== 'en') {
     const key = EVIDENCE_LABEL_KEY[checkId];
-    if (key) return withProgress(evidence, t(key));
+    if (key) out = withProgress(evidence, t(key));
   }
-  return evidence;
+  return stated ? `${out} ${t('journey-evidence.stated-suffix')}` : out;
 }

@@ -13,7 +13,7 @@
 
 import type { Stage } from './types';
 import { CANONICAL_BY_ID } from './canonical';
-import { countMemoryFactsMatching } from './snapshot';
+import { countMemoryFactsMatching, countGateEvidence } from './snapshot';
 
 export const stagePersona: Stage = {
   ...CANONICAL_BY_ID.persona,
@@ -27,13 +27,12 @@ export const stagePersona: Stage = {
         // Bilingual EN+IT (keyword-gate discipline, same as the Stage-2 lists) —
         // these were EN-only, so an Italian founder stating their ICP could
         // never green the check (i18n gap audit 21/07). 'persona' matches both.
-        const n = countMemoryFactsMatching(s, [
+        const { count, approved } = countGateEvidence(s, [
           'ICP', 'ideal customer', 'persona', 'beachhead',
           'cliente ideale', 'profilo del cliente', 'cliente tipo',
-        ]);
-        const ok = n > 0;
-        return ok
-          ? { passed: true, evidence: "You've described your ideal customer." }
+        ], ['persona_fact', 'buyer_persona_fact']);
+        return count > 0
+          ? { passed: true, stated: !approved, evidence: "You've described your ideal customer." }
           : { passed: false, gap: 'Describe the ideal customer profile' };
       },
     },
@@ -43,13 +42,12 @@ export const stagePersona: Stage = {
       source: 'memory_facts (channels)',
       evaluate: (s) => {
         // Bilingual EN+IT — see icp_defined above.
-        const n = countMemoryFactsMatching(s, [
+        const { count, approved } = countGateEvidence(s, [
           'channel', 'acquisition', 'reach customers', 'outreach', 'distribution',
           'canale', 'canali', 'acquisizione', 'distribuzione',
-        ]);
-        const ok = n > 0;
-        return ok
-          ? { passed: true, evidence: "You've identified how you'll reach customers." }
+        ], ['channel_fact']);
+        return count > 0
+          ? { passed: true, stated: !approved, evidence: "You've identified how you'll reach customers." }
           : { passed: false, gap: 'Identify at least one acquisition channel' };
       },
     },

@@ -3,6 +3,7 @@ import { evaluateAllStages, keywordMatcher } from '@/lib/journey';
 import type { ProjectSnapshot } from '@/lib/journey/types';
 import { COGS_OPEX_KEYWORDS, REVENUE_STREAM_KEYWORDS, BM_2A_SOURCES, FINANCIAL_MIN_SCENARIOS, FINANCIAL_MIN_HORIZON_MONTHS } from './stage-4-business-model';
 import { validationTargetsFor } from './validation-targets';
+import { gateFactPrefix } from '@/lib/gate-fact-families';
 import { IRL_LTV_CAC_BAR } from '@/lib/irl/ladder';
 
 /**
@@ -36,15 +37,20 @@ describe('COGS & OPEX / revenue streams — closeable, and not duplicates', () =
     expect(check(snap(['Abbiamo due flussi di ricavo: canone mensile e commissione sulle prenotazioni.']), 'revenue_streams_defined').passed).toBe(true);
   });
 
-  it('the executor Apply prefixes are matched by their own keyword families', () => {
-    // Same lockstep guarantee as the gate checks: if a prefix is edited out of
-    // step with its family, an Apply greens nothing and the check is stuck red.
-    for (const p of ['Fixed cost and variable cost — ', 'Costi fissi e variabili — ']) {
-      expect(keywordMatcher([...COGS_OPEX_KEYWORDS]).test(p), p).toBe(true);
+  it('the prefixes the EXECUTOR actually emits are matched by their own families', () => {
+    // This used to assert hand-written strings against the keyword lists, which
+    // proves nothing about what Apply writes: the EN branch emitted the ITALIAN
+    // prefix for both of these kinds and the test stayed green, because the
+    // keyword lists are bilingual. Read the real table instead.
+    for (const locale of ['en', 'it'] as const) {
+      expect(keywordMatcher([...COGS_OPEX_KEYWORDS]).test(gateFactPrefix('cogs_opex_fact', locale))).toBe(true);
+      expect(keywordMatcher([...REVENUE_STREAM_KEYWORDS]).test(gateFactPrefix('revenue_stream_fact', locale))).toBe(true);
     }
-    for (const p of ['Revenue stream — ', 'Flusso di ricavo — ']) {
-      expect(keywordMatcher([...REVENUE_STREAM_KEYWORDS]).test(p), p).toBe(true);
-    }
+    // …and each locale gets its OWN language, not the other's.
+    expect(gateFactPrefix('cogs_opex_fact', 'en')).toBe('Fixed cost and variable cost — ');
+    expect(gateFactPrefix('revenue_stream_fact', 'en')).toBe('Revenue stream — ');
+    expect(gateFactPrefix('cogs_opex_fact', 'it')).toBe('Costi fissi e variabili — ');
+    expect(gateFactPrefix('revenue_stream_fact', 'it')).toBe('Flusso di ricavo — ');
   });
 
   it('the item kinds resolve to these checks (a staged item is not a no-op)', () => {

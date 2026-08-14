@@ -8,7 +8,7 @@
  */
 
 import { IRL_LTV_CAC_BAR } from '@/lib/irl/ladder';
-import { countMemoryFactsMatching } from './snapshot';
+import { countMemoryFactsMatching, countGateEvidence } from './snapshot';
 import type { Stage } from './types';
 import { CANONICAL_BY_ID } from './canonical';
 
@@ -114,9 +114,9 @@ export const stageBusinessModel: Stage = {
       label: 'Revenue streams defined',
       source: BM_2A_SOURCES.revenueStreams,
       evaluate: (s) => {
-        const n = countMemoryFactsMatching(s, [...REVENUE_STREAM_KEYWORDS]);
-        return n > 0
-          ? { passed: true, evidence: "You've named the lines of revenue this business earns on." }
+        const { count, approved } = countGateEvidence(s, [...REVENUE_STREAM_KEYWORDS], ['revenue_stream_fact']);
+        return count > 0
+          ? { passed: true, stated: !approved, evidence: "You've named the lines of revenue this business earns on." }
           : { passed: false, gap: 'Name the revenue streams — which lines this business actually earns on' };
       },
     },
@@ -125,9 +125,9 @@ export const stageBusinessModel: Stage = {
       label: 'COGS & OPEX defined',
       source: BM_2A_SOURCES.cogsOpex,
       evaluate: (s) => {
-        const n = countMemoryFactsMatching(s, [...COGS_OPEX_KEYWORDS]);
-        return n > 0
-          ? { passed: true, evidence: "You've separated what it costs to serve a customer from what it costs to run the company." }
+        const { count, approved } = countGateEvidence(s, [...COGS_OPEX_KEYWORDS], ['cogs_opex_fact']);
+        return count > 0
+          ? { passed: true, stated: !approved, evidence: "You've separated what it costs to serve a customer from what it costs to run the company." }
           : { passed: false, gap: 'Define COGS & OPEX — fixed vs variable, and what it costs to serve one customer' };
       },
     },

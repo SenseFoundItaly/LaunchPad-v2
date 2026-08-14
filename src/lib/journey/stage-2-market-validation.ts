@@ -22,7 +22,8 @@
 import type { Stage, StageCheck, CheckResult, ProjectSnapshot } from './types';
 import { diffCanvas, type CanvasPayload, type VersionedCanvasField } from '@/lib/canvas-versions';
 import { CANONICAL_BY_ID } from './canonical';
-import { countMemoryFactsMatching } from './snapshot';
+import { countMemoryFactsMatching, countGateEvidence } from './snapshot';
+import type { GateFactKind } from '@/lib/gate-fact-kinds';
 import { coerceJson } from '@/lib/jsonb';
 
 /** The market_size check's `source` string. validation-targets.ts keys the
@@ -214,6 +215,30 @@ function structuredTam(research: Record<string, unknown> | null): string {
 // the market itself (competitors, sizing, differentiation); whether the problem
 // is REAL and the segment is right is proven by the 1C interviews, not by
 // re-reading the canvas field.
+/**
+ * One gate-family check: green when the family has evidence, and honest about
+ * WHERE that evidence came from.
+ *
+ * `countGateEvidence` applies the ownership rule — a fact approved as family X
+ * counts for X and nothing else — so a GTM finding that mentions partnerships
+ * no longer greens `partners_identified` (18 such false greens measured on prod
+ * 2026-08-14). When the only match is unclassified text, the check still
+ * passes (revoking legacy greens would un-do real founder work) but carries
+ * `stated: true` so the UI says so instead of claiming an approval.
+ */
+function familyCheck(
+  s: ProjectSnapshot,
+  keywords: readonly string[],
+  factKinds: readonly GateFactKind[],
+  evidence: string,
+  gap: string,
+): CheckResult {
+  const { count, approved } = countGateEvidence(s, [...keywords], factKinds);
+  return count > 0
+    ? { passed: true, evidence, stated: !approved }
+    : { passed: false, gap };
+}
+
 export const VALIDATION_TRACK_1A: StageCheck[] = [
   // Order is display order. market_size leads (founder request 2026-08-04):
   // you size the space BEFORE you enumerate who is in it — mapping competitors
@@ -232,11 +257,11 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
       }
       // Keyword fallback (bilingual EN + IT) for projects that sized the
       // market in prose (approved market_size_fact → memory_facts).
-      const n = countMemoryFactsMatching(s, [...MARKET_SIZE_KEYWORDS]);
-      const ok = n > 0;
-      return ok
-        ? { passed: true, evidence: "You've sized the market (TAM/SAM/SOM)." }
-        : { passed: false, gap: 'Estimate TAM/SAM with Co-pilot' };
+      return familyCheck(
+        s, MARKET_SIZE_KEYWORDS, ['market_size_fact'],
+        "You've sized the market (TAM/SAM/SOM).",
+        'Estimate TAM/SAM with Co-pilot',
+      );
     },
   },
   {
@@ -271,10 +296,11 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
     source: MARKET_1A_SOURCES.gtm,
     track: '1A',
     evaluate: (s) => {
-      const n = countMemoryFactsMatching(s, [...GTM_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've assessed how you'd reach this market — the opening and the friction." }
-        : { passed: false, gap: 'Assess the go-to-market — where the opening is and what will fight you' };
+      return familyCheck(
+        s, GTM_KEYWORDS, ['gtm_fact'],
+        "You've assessed how you'd reach this market — the opening and the friction.",
+        'Assess the go-to-market — where the opening is and what will fight you',
+      );
     },
   },
   {
@@ -283,10 +309,11 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
     source: MARKET_1A_SOURCES.partners,
     track: '1A',
     evaluate: (s) => {
-      const n = countMemoryFactsMatching(s, [...PARTNERS_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've identified who could carry you into this market." }
-        : { passed: false, gap: 'Name the potential partners, resellers or distributors worth approaching' };
+      return familyCheck(
+        s, PARTNERS_KEYWORDS, ['partner_fact'],
+        "You've identified who could carry you into this market.",
+        'Name the potential partners, resellers or distributors worth approaching',
+      );
     },
   },
   {
@@ -311,7 +338,7 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
         s.watch_sources.filter((w) => w.status === 'active').length;
       return n > 0
         ? { passed: true, evidence: `You have ${n} active watcher${n === 1 ? '' : 's'} on this market.` }
-        : { passed: false, gap: 'Activate a watcher — apply one of the proposals in your inbox' };
+        : { passed: false, gap: 'Activate a watcher — apply a proposal in your inbox, or ask the Co-pilot to set one up' };
     },
   },
   // NOTE (2026-07): this is where the ORIGINAL `monitors_set` was removed. See
@@ -343,10 +370,11 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
     evaluate: (s) => {
       // Bilingual (EN + IT): founders chat in Italian, so the check must read
       // Italian facts too.
-      const n = countMemoryFactsMatching(s, [...BUILD_APPROACH_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've sketched how the core approach would be built." }
-        : { passed: false, gap: 'Sketch the build approach — architecture, stack (run Technical Validation or note it in chat)' };
+      return familyCheck(
+        s, BUILD_APPROACH_KEYWORDS, ['tech_feasibility_fact'],
+        "You've sketched how the core approach would be built.",
+        'Sketch the build approach — architecture, stack (run Technical Validation or note it in chat)',
+      );
     },
   },
   {
@@ -355,12 +383,18 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
     source: TECH_1B_SOURCES.risk,
     track: '1B',
     evaluate: (s) => {
-      // The auto-stage fallback's feasibility prefix carries 'technical risk' /
-      // 'rischio tecnico' verbatim so a real skill run always closes this.
-      const n = countMemoryFactsMatching(s, [...TECH_RISK_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've named the single biggest technical risk." }
-        : { passed: false, gap: 'Name the single biggest technical risk' };
+      // Accepts the feasibility kind too, and that is DELIBERATE — not the
+      // cross-family bleed the ownership rule exists to stop. The
+      // technical-validation fallback stages ONE card labelled "Technical
+      // feasibility & main technical risk" (auto-stage-validation.ts:397) that
+      // carries both findings by instruction. An IP or partner fact greening
+      // this check was the accident; a card that literally contains the risk
+      // is the intended path.
+      return familyCheck(
+        s, TECH_RISK_KEYWORDS, ['tech_risk_fact', 'tech_feasibility_fact'],
+        "You've named the single biggest technical risk.",
+        'Name the single biggest technical risk',
+      );
     },
   },
   {
@@ -370,10 +404,11 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
     track: '1B',
     evaluate: (s) => {
       // Bilingual (EN + IT): "Dipendenze chiave", "si affida a", "terze parti".
-      const n = countMemoryFactsMatching(s, [...DEPENDENCY_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've named the critical external dependencies." }
-        : { passed: false, gap: 'Name the key dependencies (APIs, models, infra, vendors)' };
+      return familyCheck(
+        s, DEPENDENCY_KEYWORDS, ['tech_dependency_fact'],
+        "You've named the critical external dependencies.",
+        'Name the key dependencies (APIs, models, infra, vendors)',
+      );
     },
   },
   {
@@ -389,10 +424,11 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
     source: TECH_1B_SOURCES.regulatory,
     track: '1B',
     evaluate: (s) => {
-      const n = countMemoryFactsMatching(s, [...REGULATORY_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've checked the regulatory/compliance landscape." }
-        : { passed: false, gap: 'Check the regulatory landscape (e.g. GDPR, licensing, certification)' };
+      return familyCheck(
+        s, REGULATORY_KEYWORDS, ['regulatory_fact'],
+        "You've checked the regulatory/compliance landscape.",
+        'Check the regulatory landscape (e.g. GDPR, licensing, certification)',
+      );
     },
   },
 
@@ -402,10 +438,11 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
     source: 'memory_facts (IP analysis)',
     track: '1B',
     evaluate: (s) => {
-      const n = countMemoryFactsMatching(s, [...IP_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've checked the IP landscape and your freedom to operate." }
-        : { passed: false, gap: 'Check the IP landscape — patents, trademarks, freedom to operate in this domain' };
+      return familyCheck(
+        s, IP_KEYWORDS, ['ip_fact'],
+        "You've checked the IP landscape and your freedom to operate.",
+        'Check the IP landscape — patents, trademarks, freedom to operate in this domain',
+      );
     },
   },
   {
@@ -414,10 +451,11 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
     source: 'memory_facts (data availability)',
     track: '1B',
     evaluate: (s) => {
-      const n = countMemoryFactsMatching(s, [...DATA_AVAILABILITY_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've assessed what data you need and whether you can get it." }
-        : { passed: false, gap: 'Assess data availability & quality — critical for AI/data-driven products' };
+      return familyCheck(
+        s, DATA_AVAILABILITY_KEYWORDS, ['data_fact'],
+        "You've assessed what data you need and whether you can get it.",
+        'Assess data availability & quality — critical for AI/data-driven products',
+      );
     },
   },
 ];
@@ -495,10 +533,11 @@ export const TRACK_1C_UNLOCKED: StageCheck[] = [
     source: 'memory_facts (validation strategy)',
     track: '1C',
     evaluate: (s) => {
-      const n = countMemoryFactsMatching(s, [...VALIDATION_STRATEGY_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've defined how you intend to validate this." }
-        : { passed: false, gap: 'Define the validation strategy — what you will test, with whom, and what would prove it' };
+      return familyCheck(
+        s, VALIDATION_STRATEGY_KEYWORDS, ['validation_strategy_fact'],
+        "You've defined how you intend to validate this.",
+        'Define the validation strategy — what you will test, with whom, and what would prove it',
+      );
     },
   },
   {
@@ -507,10 +546,11 @@ export const TRACK_1C_UNLOCKED: StageCheck[] = [
     source: 'memory_facts (JTBD)',
     track: '1C',
     evaluate: (s) => {
-      const n = countMemoryFactsMatching(s, [...JTBD_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've framed the job the customer is hiring you for." }
-        : { passed: false, gap: 'Map the Jobs-to-be-Done — the frame that structures your interviews' };
+      return familyCheck(
+        s, JTBD_KEYWORDS, ['jtbd_fact'],
+        "You've framed the job the customer is hiring you for.",
+        'Map the Jobs-to-be-Done — the frame that structures your interviews',
+      );
     },
   },
   {
@@ -563,10 +603,11 @@ export const TRACK_1C_UNLOCKED: StageCheck[] = [
     source: DIFFERENTIATION_CHECK_SOURCE,
     track: '1C',
     evaluate: (s) => {
-      const n = countMemoryFactsMatching(s, [...DIFFERENTIATION_KEYWORDS]);
-      return n > 0
-        ? { passed: true, evidence: "You've evidenced how you're different from competitors." }
-        : { passed: false, gap: 'Pin what makes you different, against the competitive map' };
+      return familyCheck(
+        s, DIFFERENTIATION_KEYWORDS, ['differentiation_fact'],
+        "You've evidenced how you're different from competitors.",
+        'Pin what makes you different, against the competitive map',
+      );
     },
   },
   {

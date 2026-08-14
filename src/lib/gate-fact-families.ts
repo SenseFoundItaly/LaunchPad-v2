@@ -33,34 +33,60 @@ import {
   REGULATORY_KEYWORDS,
 } from '@/lib/journey/stage-2-market-validation';
 import { COGS_OPEX_KEYWORDS, REVENUE_STREAM_KEYWORDS } from '@/lib/journey/stage-4-business-model';
+import { isGateFactKind, type GateFactKind } from '@/lib/gate-fact-kinds';
 import type { RawValidationItem } from '@/lib/auto-stage-validation';
 
 export interface GateFactFamily {
   kind: RawValidationItem['kind'];
   field?: string;
+  /** The `memory_facts.kind` an APPROVED item of this family is written with,
+   *  and the only kind its check counts. See gate-fact-kinds.ts. */
+  factKind: GateFactKind;
   keywords: readonly string[];
 }
 
-/** One family per keyword-matched gate check. build-approach and tech-risk
- *  both stage a `tech_fact(feasibility)` — the item targets both split checks;
- *  the verbatim message text closes whichever keyword family it matched. */
+/** (staging kind, field) → the fact kind the executor writes on Apply. The
+ *  executor and the checks both resolve through here, so the two can't drift. */
+export function gateFactKindFor(
+  kind: RawValidationItem['kind'],
+  field?: string,
+): GateFactKind | null {
+  if (kind === 'tech_fact') {
+    switch (field) {
+      case 'dependencies': return 'tech_dependency_fact';
+      case 'regulatory': return 'regulatory_fact';
+      case 'risk': return 'tech_risk_fact';
+      case 'feasibility': return 'tech_feasibility_fact';
+      default: return null;
+    }
+  }
+  return isGateFactKind(kind) ? kind : null;
+}
+
+/** One family per keyword-matched gate check.
+ *
+ *  Tech-risk now stages `tech_fact(risk)`, not `tech_fact(feasibility)`.
+ *  TECH_1B_SOURCES split `risk` out of `feasibility` on 2026-08-05 precisely so
+ *  `technical_risk_named` could be closed on its own, but this list still
+ *  collapsed both into one feasibility item — so the sweep could never target
+ *  the risk check, and a feasibility item greened it by wording alone. */
 export const GATE_FACT_FAMILIES: readonly GateFactFamily[] = [
-  { kind: 'market_size_fact', keywords: MARKET_SIZE_KEYWORDS },
-  { kind: 'differentiation_fact', keywords: DIFFERENTIATION_KEYWORDS },
-  { kind: 'trend_fact', keywords: TRENDS_KEYWORDS },
-  { kind: 'buyer_persona_fact', keywords: BUYER_PERSONA_KEYWORDS },
-  { kind: 'gtm_fact', keywords: GTM_KEYWORDS },
-  { kind: 'partner_fact', keywords: PARTNERS_KEYWORDS },
-  { kind: 'ip_fact', keywords: IP_KEYWORDS },
-  { kind: 'data_fact', keywords: DATA_AVAILABILITY_KEYWORDS },
-  { kind: 'validation_strategy_fact', keywords: VALIDATION_STRATEGY_KEYWORDS },
-  { kind: 'jtbd_fact', keywords: JTBD_KEYWORDS },
-  { kind: 'cogs_opex_fact', keywords: COGS_OPEX_KEYWORDS },
-  { kind: 'revenue_stream_fact', keywords: REVENUE_STREAM_KEYWORDS },
-  { kind: 'tech_fact', field: 'feasibility', keywords: BUILD_APPROACH_KEYWORDS },
-  { kind: 'tech_fact', field: 'feasibility', keywords: TECH_RISK_KEYWORDS },
-  { kind: 'tech_fact', field: 'dependencies', keywords: DEPENDENCY_KEYWORDS },
-  { kind: 'tech_fact', field: 'regulatory', keywords: REGULATORY_KEYWORDS },
+  { kind: 'market_size_fact', factKind: 'market_size_fact', keywords: MARKET_SIZE_KEYWORDS },
+  { kind: 'differentiation_fact', factKind: 'differentiation_fact', keywords: DIFFERENTIATION_KEYWORDS },
+  { kind: 'trend_fact', factKind: 'trend_fact', keywords: TRENDS_KEYWORDS },
+  { kind: 'buyer_persona_fact', factKind: 'buyer_persona_fact', keywords: BUYER_PERSONA_KEYWORDS },
+  { kind: 'gtm_fact', factKind: 'gtm_fact', keywords: GTM_KEYWORDS },
+  { kind: 'partner_fact', factKind: 'partner_fact', keywords: PARTNERS_KEYWORDS },
+  { kind: 'ip_fact', factKind: 'ip_fact', keywords: IP_KEYWORDS },
+  { kind: 'data_fact', factKind: 'data_fact', keywords: DATA_AVAILABILITY_KEYWORDS },
+  { kind: 'validation_strategy_fact', factKind: 'validation_strategy_fact', keywords: VALIDATION_STRATEGY_KEYWORDS },
+  { kind: 'jtbd_fact', factKind: 'jtbd_fact', keywords: JTBD_KEYWORDS },
+  { kind: 'cogs_opex_fact', factKind: 'cogs_opex_fact', keywords: COGS_OPEX_KEYWORDS },
+  { kind: 'revenue_stream_fact', factKind: 'revenue_stream_fact', keywords: REVENUE_STREAM_KEYWORDS },
+  { kind: 'tech_fact', field: 'feasibility', factKind: 'tech_feasibility_fact', keywords: BUILD_APPROACH_KEYWORDS },
+  { kind: 'tech_fact', field: 'risk', factKind: 'tech_risk_fact', keywords: TECH_RISK_KEYWORDS },
+  { kind: 'tech_fact', field: 'dependencies', factKind: 'tech_dependency_fact', keywords: DEPENDENCY_KEYWORDS },
+  { kind: 'tech_fact', field: 'regulatory', factKind: 'regulatory_fact', keywords: REGULATORY_KEYWORDS },
 ];
 
 /**
@@ -84,3 +110,48 @@ export function matchGateFactFamily(content: string): GateFactFamily | null {
 export function isGateMovingFact(content: string): boolean {
   return matchGateFactFamily(content) !== null;
 }
+
+/**
+ * Founder-visible label prefixed to an approved fact ("Regulatory — GDPR…").
+ *
+ * This lived as two parallel nested-ternary tables inside action-executors.ts,
+ * hand-kept in step. They drifted: the EN branch emitted the ITALIAN strings
+ * for cogs_opex_fact and revenue_stream_fact ('Costi fissi e variabili — ',
+ * 'Flusso di ricavo — ') while the confirmation label twenty lines below said
+ * "Fixed and variable cost" — so an English founder approved one thing and
+ * found another in their Knowledge page. A hand-copied table is a table that
+ * drifts; this is the single home.
+ *
+ * The prefix is no longer load-bearing for the gate — `kind` carries the family
+ * now — but it stays the sentence the founder reads, so it must be in their
+ * language and must still sit inside its own keyword family (asserted in
+ * gate-fact-families.test.ts) for the legacy keyword branch.
+ */
+const GATE_FACT_PREFIX: Record<GateFactKind, { en: string; it: string }> = {
+  market_size_fact: { en: 'Market size — ', it: 'Dimensione del mercato — ' },
+  differentiation_fact: { en: 'Differentiator — ', it: 'Differenziazione — ' },
+  trend_fact: { en: 'Market trend — ', it: 'Trend di mercato — ' },
+  buyer_persona_fact: { en: 'Buyer persona — ', it: 'Buyer persona — ' },
+  gtm_fact: { en: 'GTM opportunity — ', it: 'Opportunità GTM — ' },
+  partner_fact: { en: 'Potential partner — ', it: 'Partner potenziale — ' },
+  ip_fact: { en: 'Intellectual property — ', it: 'Proprietà intellettuale — ' },
+  data_fact: { en: 'Data availability — ', it: 'Disponibilità dei dati — ' },
+  validation_strategy_fact: { en: 'Validation strategy — ', it: 'Strategia di validazione — ' },
+  jtbd_fact: { en: 'Jobs to be done — ', it: 'Jobs to be done — ' },
+  cogs_opex_fact: { en: 'Fixed cost and variable cost — ', it: 'Costi fissi e variabili — ' },
+  revenue_stream_fact: { en: 'Revenue stream — ', it: 'Flusso di ricavo — ' },
+  persona_fact: { en: 'Ideal customer profile — ', it: 'Profilo del cliente ideale — ' },
+  channel_fact: { en: 'Acquisition channel — ', it: 'Canale di acquisizione — ' },
+  tech_feasibility_fact: { en: 'Feasibility — ', it: 'Fattibilità tecnica — ' },
+  tech_risk_fact: { en: 'Technical risk — ', it: 'Rischio tecnico — ' },
+  tech_dependency_fact: { en: 'Key dependency — ', it: 'Dipendenza chiave — ' },
+  regulatory_fact: { en: 'Regulatory — ', it: 'Normativa — ' },
+};
+
+export function gateFactPrefix(factKind: GateFactKind, locale: string): string {
+  const row = GATE_FACT_PREFIX[factKind];
+  return locale === 'it' ? row.it : row.en;
+}
+
+/** Exported for the drift test — every prefix, both locales. */
+export const GATE_FACT_PREFIXES = GATE_FACT_PREFIX;

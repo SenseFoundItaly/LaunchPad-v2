@@ -28,7 +28,7 @@ import { TRACK_LABEL, TRACK_TIP, TRACK_ORDER } from '@/lib/journey/tracks';
 
 interface CheckRow {
   check: { id: string; label: string; source?: string; track?: '1A' | '1B' | '1C' };
-  result: { passed: boolean; evidence?: string; gap?: string; proof?: string; locked?: boolean };
+  result: { passed: boolean; evidence?: string; gap?: string; proof?: string; locked?: boolean; stated?: boolean };
 }
 
 interface StageEval {
@@ -314,7 +314,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
               const ok = r.result.passed;
               const isGap = !ok;
               const locked = !!r.result.locked;
-              const detail = ok ? checkEvidence(r.check.id, r.result.evidence, t, locale) : locked ? undefined : checkGap(r.check.id, r.result.gap, t, locale);
+              const detail = ok ? checkEvidence(r.check.id, r.result.evidence, t, locale, r.result.stated) : locked ? undefined : checkGap(r.check.id, r.result.gap, t, locale);
               const rowId = r.check.id;
               const hasProof = ok && !!r.result.proof;
               const proofOpen = openProof === rowId;

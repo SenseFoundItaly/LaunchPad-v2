@@ -21,16 +21,20 @@ describe('planFactSweep', () => {
     );
     const kinds = items.map((i) => `${i.kind}${i.field ? `:${i.field}` : ''}`);
     expect(kinds).toContain('differentiation_fact');
-    expect(kinds).toContain('tech_fact:feasibility');
+    expect(kinds).toContain('tech_fact:risk');
     expect(kinds).toContain('tech_fact:dependencies');
   });
 
-  it('build-approach and tech-risk collapse into ONE feasibility item', () => {
+  it('build-approach and tech-risk stage SEPARATE items, one per 1B check', () => {
+    // They used to collapse into one feasibility item, so `technical_risk_named`
+    // had no staging call that targeted it and greened only when a feasibility
+    // fact's wording happened to hit the risk keywords. One item per check.
     const items = planFactSweep(
       'Architettura a microservizi con stack tecnico Node; il rischio tecnico è la latenza.',
       [],
     );
     expect(items.filter((i) => i.kind === 'tech_fact' && i.field === 'feasibility')).toHaveLength(1);
+    expect(items.filter((i) => i.kind === 'tech_fact' && i.field === 'risk')).toHaveLength(1);
   });
 
   it('skips a family already captured by an existing fact (applied OR pending)', () => {

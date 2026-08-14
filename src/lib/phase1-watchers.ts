@@ -8,11 +8,17 @@
  * `configure_watch_source` pending_actions — nothing activates until the
  * founder applies one (Watchers tab "Proposed" rows / inbox card).
  *
- * Idempotency (both must clear before the LLM call):
- *   1. memory_events marker `phase1_watchers_proposed` — recorded once,
- *      only when ≥1 proposal was actually created.
+ * Idempotency — ask ONCE (both must clear before the LLM call):
+ *   1. memory_events marker `phase1_watchers_proposed` — recorded once, only
+ *      when ≥1 proposal was actually created.
  *   2. ANY-status pending_action with payload->>'origin'='phase1_auto' —
  *      a rejected/dismissed proposal must stick; the founder said no once.
+ *
+ * ⚠️ Do NOT "fix" #367 by dropping these so the REQUIRED `monitors_set` check
+ * can be re-proposed: this runs on every chat turn, so a founder who declined
+ * would be re-asked (and re-billed for the LLM call) every turn. `monitors_set`
+ * stays reachable via the ungated `propose_monitor` chat tool — the dead end
+ * was the gap COPY naming only the inbox, and that is where it is fixed.
  *
  * First real caller of watcher-proposer.ts (previously dead code).
  */
@@ -111,11 +117,25 @@ export async function maybeProposePhase1Watchers(
     const ownerUserId = proj?.owner_user_id || '';
     if (!ownerUserId) return; // the marker event needs a user to scope to
 
-    // Idempotency 1 — the marker means we already proposed for this project.
+    // ── Idempotency: ask ONCE (#367 considered and rejected) ────────────────
+    // The obvious read of #367 — "a rejection bricks the REQUIRED monitors_set
+    // check, so re-ask" — is wrong on both halves.
+    //
+    // It does not brick: `propose_monitor` is an ungated chat tool, so the
+    // founder can ask the co-pilot for a watcher at any time and Apply it. The
+    // dead end was in the COPY, which named only the inbox; that is fixed in
+    // journey-gap.monitors_set, not here.
+    //
+    // And re-asking is worse than the disease: this runs on EVERY chat turn
+    // (chat/route.ts), so dropping the guard means a founder who declined once
+    // gets a fresh LLM call and a fresh set of inbox cards every single turn.
+    // "Not now" answered by asking again immediately is not respect for the
+    // decision, it is nagging — and it bills them for it.
+    //
+    // So the rejection sticks, exactly as it did before, and the founder keeps
+    // a path they can take when they want one.
     if (await lastEventOfType(ownerUserId, projectId, 'phase1_watchers_proposed')) return;
 
-    // Idempotency 2 — ANY-status phase1_auto pending_action (belt-and-braces
-    // for pre-marker crashes AND for rejected proposals, which must stick).
     const prior = await query<{ id: string }>(
       "SELECT id FROM pending_actions WHERE project_id = ? AND payload->>'origin' = ? LIMIT 1",
       projectId,
