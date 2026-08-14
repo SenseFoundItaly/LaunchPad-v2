@@ -739,14 +739,27 @@ export const VALIDATION_TRACK_1C: StageCheck[] = [
 ];
 
 /**
+ * True when every gate EVIDENCE check passes — regardless of what the founder
+ * has already decided.
+ *
+ * Split out from `shouldProposeGateVerdict` because the two questions are not
+ * the same and conflating them cost the invariant. "Should we ASK?" is
+ * evidence-complete AND undecided. "May a GO be RECORDED?" is evidence-complete,
+ * full stop — an existing verdict must never be what unlocks it.
+ */
+export function validationGateEvidenceComplete(snapshot: ProjectSnapshot): boolean {
+  if (!validationTracksAB_done(snapshot)) return false;
+  return TRACK_1C_UNLOCKED.every((c) => c.evaluate(snapshot).passed);
+}
+
+/**
  * True when all gate EVIDENCE is in and only the founder's go/no-go is
  * outstanding — i.e. the moment to propose the verdict decision to them.
  * Mirrors `validationEvidenceDoneExceptWatchers`: a decision the founder is
  * never prompted for is a dead end.
  */
 export function shouldProposeGateVerdict(snapshot: ProjectSnapshot): boolean {
-  if (!validationTracksAB_done(snapshot)) return false;
-  if (TRACK_1C_UNLOCKED.some((c) => !c.evaluate(snapshot).passed)) return false;
+  if (!validationGateEvidenceComplete(snapshot)) return false;
   const gv = snapshot.research?.gate_verdict as { verdict?: unknown } | undefined;
   const decided = gv && typeof gv === 'object'
     && (gv.verdict === 'GO' || gv.verdict === 'PIVOT' || gv.verdict === 'STOP');

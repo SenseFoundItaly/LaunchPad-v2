@@ -22,13 +22,21 @@ import { join } from 'path';
  * indistinguishable, to the founder, from a feature that does not exist.
  */
 
-const { queryMock, runMock } = vi.hoisted(() => ({ queryMock: vi.fn(), runMock: vi.fn() }));
+const { queryMock, runMock, evidenceMock } = vi.hoisted(() => ({
+  queryMock: vi.fn(), runMock: vi.fn(), evidenceMock: vi.fn(),
+}));
 vi.mock('@/lib/db', () => ({ query: queryMock, run: runMock, get: vi.fn() }));
 vi.mock('@/lib/auth/require-project-access', () => ({
-  tryProjectAccess: vi.fn(async () => ({ ok: true })),
+  tryProjectAccess: vi.fn(async () => ({ ok: true, session: { userId: 'u1' } })),
 }));
+vi.mock('@/lib/journey/snapshot', () => ({ buildProjectSnapshot: vi.fn(async () => ({})) }));
+vi.mock('@/lib/journey/stage-2-market-validation', () => ({ validationGateEvidenceComplete: evidenceMock }));
+vi.mock('@/lib/loops/loop1-psf', () => ({ triggerLoop1Manual: vi.fn(async () => null) }));
+vi.mock('@/lib/memory/events', () => ({ recordEvent: vi.fn(async () => {}) }));
+vi.mock('@/lib/irl/floor', () => ({ clearIrlFloor: vi.fn(async () => {}) }));
+vi.mock('@/lib/gate-verdict', () => ({ maybeProposeGateVerdict: vi.fn(async () => false) }));
 
-import { GET } from '@/app/api/projects/[projectId]/gate-verdict/route';
+import { GET, POST } from '@/app/api/projects/[projectId]/gate-verdict/route';
 
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf-8');
 const callGet = async () => {
@@ -132,5 +140,57 @@ describe('the query-event bridge knows the new topic', () => {
     // the hook and the topic must ship together.
     expect(bridge).toContain("'gate-verdict'");
     expect(read('src/hooks/useGateVerdict.ts')).toContain("queryKey: ['gate-verdict', projectId]");
+  });
+});
+
+/**
+ * The hole the post-deploy walk found on 2026-08-14, live against prod data.
+ *
+ * The GO guard used to read `shouldProposeGateVerdict(s) || alreadyDecided`.
+ * The second half was meant as an idempotent re-submit from a reloaded card,
+ * but it never checked WHICH verdict was on record — so ANY verdict unlocked
+ * GO. Surfacing the early exit made that reachable in one move: STOP with the
+ * gate deliberately incomplete (§4), then GO, and the gate greens on evidence
+ * nobody gathered — the exact invariant the product leads with.
+ *
+ * GO is now gated on the evidence ALONE.
+ */
+describe('GO is gated on evidence, never on a verdict already being on record', () => {
+  const callPost = async (body: Record<string, unknown>) => {
+    const req = { json: async () => body } as never;
+    const res = await POST(req, { params: Promise.resolve({ projectId: 'proj_1' }) });
+    return res.status;
+  };
+
+  beforeEach(() => {
+    queryMock.mockReset(); runMock.mockReset(); evidenceMock.mockReset();
+    queryMock.mockResolvedValue([{ owner_user_id: 'u1' }]);
+    runMock.mockResolvedValue(undefined);
+  });
+
+  it('REGRESSION: an early STOP does not unlock GO on an incomplete gate', async () => {
+    evidenceMock.mockReturnValue(false);
+    expect(await callPost({ verdict: 'STOP', motivation: 'I am stopping here' })).toBe(200);
+    expect(await callPost({ verdict: 'GO' })).toBe(409);
+  });
+
+  it('GO passes once the evidence is actually complete', async () => {
+    evidenceMock.mockReturnValue(true);
+    expect(await callPost({ verdict: 'GO' })).toBe(200);
+  });
+
+  it('a founder can still change PIVOT → GO when the evidence is in', async () => {
+    // The case the old escape hatch existed for. It must keep working: the
+    // fix narrows the guard to the evidence, it does not lock a decision in.
+    evidenceMock.mockReturnValue(true);
+    expect(await callPost({ verdict: 'PIVOT', motivation: 'ICP is wrong', scope: '1C' })).toBe(200);
+    expect(await callPost({ verdict: 'GO' })).toBe(200);
+  });
+
+  it('PIVOT and STOP stay allowed at any time, with a reason', async () => {
+    evidenceMock.mockReturnValue(false);
+    expect(await callPost({ verdict: 'STOP', motivation: 'done with this' })).toBe(200);
+    expect(await callPost({ verdict: 'PIVOT', motivation: 'market is wrong', scope: '1A' })).toBe(200);
+    expect(await callPost({ verdict: 'STOP', motivation: 'no' })).toBe(400);
   });
 });

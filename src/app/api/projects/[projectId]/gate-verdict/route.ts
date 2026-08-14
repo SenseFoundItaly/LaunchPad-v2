@@ -3,7 +3,7 @@ import { query, run } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
-import { shouldProposeGateVerdict } from '@/lib/journey/stage-2-market-validation';
+import { validationGateEvidenceComplete } from '@/lib/journey/stage-2-market-validation';
 import { triggerLoop1Manual } from '@/lib/loops/loop1-psf';
 import { recordEvent } from '@/lib/memory/events';
 import { clearIrlFloor } from '@/lib/irl/floor';
@@ -96,16 +96,23 @@ export async function POST(
 
   const snapshot = await buildProjectSnapshot(projectId);
 
-  // GO is the only verdict gated on evidence. shouldProposeGateVerdict is true
-  // exactly when every evidence check passes and no verdict is on record; a
-  // GO when it is false means either the evidence is incomplete (refuse) or a
-  // verdict already exists (idempotent re-submit on a reloaded card, allow).
-  if (verdict === 'GO') {
-    const existing = snapshot.research?.gate_verdict as { verdict?: unknown } | undefined;
-    const alreadyDecided = !!existing && typeof existing === 'object' && VERDICTS.includes(String(existing.verdict));
-    if (!shouldProposeGateVerdict(snapshot) && !alreadyDecided) {
-      return error('The gate evidence is not complete yet — you cannot call GO on evidence you have not gathered', 409);
-    }
+  // GO is the only verdict gated on evidence, and it is gated on the EVIDENCE
+  // ALONE — never on whether a verdict already exists.
+  //
+  // It used to fall back to `shouldProposeGateVerdict(...) || alreadyDecided`,
+  // meaning any recorded verdict unlocked GO. The intent was an idempotent
+  // re-submit from a reloaded card, but the escape hatch didn't check WHICH
+  // verdict, so an early STOP — recorded with the gate deliberately incomplete
+  // (§4) — then let a GO through on evidence nobody had gathered, greening the
+  // gate. Caught by the post-deploy walk on 2026-08-14; the surfaced early exit
+  // is what made it reachable, and evidence that regresses after a GO could
+  // reach it before that.
+  //
+  // Evidence-complete is the whole test: a genuine re-submit still passes (the
+  // evidence is complete in that scenario), and a founder changing PIVOT → GO
+  // with the evidence in still passes.
+  if (verdict === 'GO' && !validationGateEvidenceComplete(snapshot)) {
+    return error('The gate evidence is not complete yet — you cannot call GO on evidence you have not gathered', 409);
   }
 
   // UPSERT, not UPDATE: most projects have NO research row (it is only created
