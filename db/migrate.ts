@@ -44,7 +44,56 @@ if (!DATABASE_URL) {
 
 const sql = postgres(DATABASE_URL, { prepare: false, max: 1 });
 
+/**
+ * Staging has NO `_migrations` table: its schema came from `schema.sql`, not
+ * from this runner. Point this script at it and the ledger reads empty, so it
+ * replays 001-0NN — including data heals like `036_heal_scores_to_100` —
+ * against a populated database.
+ *
+ * The standing answer to that has been "remember not to do it", which is not a
+ * guard. Baselining staging isn't the fix either: it would assert 001-036 ran
+ * when nobody can verify they did, and a ledger that lies is worse than none.
+ *
+ * So: refuse. An EMPTY ledger on a database that already has tables is the
+ * signature of a schema built some other way — exactly staging's situation —
+ * and it is indistinguishable from a fresh DB only when the DB is genuinely
+ * fresh (no tables), which this check allows through untouched.
+ *
+ * `--i-know-the-ledger-is-empty` is the deliberate override, for the one case
+ * where it's correct: adopting a hand-built database on purpose.
+ */
+const ACK_EMPTY_LEDGER = process.argv.includes('--i-know-the-ledger-is-empty');
+
+async function refuseIfUnledgeredButPopulated() {
+  const hasLedger = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = '_migrations'`;
+  if (hasLedger[0].n > 0) return; // ledger exists — normal path
+
+  const tables = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`;
+  if (tables[0].n === 0) return; // genuinely empty DB — a first run, let it go
+
+  if (ACK_EMPTY_LEDGER) {
+    console.warn(`[migrate] WARNING: no _migrations ledger and ${tables[0].n} existing tables — proceeding because --i-know-the-ledger-is-empty was passed.`);
+    return;
+  }
+
+  console.error(
+    `\n✗ REFUSING TO RUN.\n\n` +
+    `  This database has ${tables[0].n} tables but NO _migrations ledger, so every\n` +
+    `  migration would be replayed against populated data (staging is exactly this:\n` +
+    `  its schema came from schema.sql).\n\n` +
+    `  Apply the single migration you need by hand there, or pass\n` +
+    `  --i-know-the-ledger-is-empty if you are deliberately adopting this database.\n`,
+  );
+  process.exit(1);
+}
+
 async function main() {
+  await refuseIfUnledgeredButPopulated();
+
   // Ensure migrations tracking table exists
   await sql`
     CREATE TABLE IF NOT EXISTS _migrations (
