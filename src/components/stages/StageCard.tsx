@@ -203,7 +203,7 @@ function CheckRowView({ projectId, check, result }: { projectId: string; check: 
             marginTop: 2,
             letterSpacing: 0.2,
           }}>
-            {checkEvidence(check.id, result.evidence, t, locale) ?? checkGap(check.id, result.gap, t, locale)}
+            {checkEvidence(check.id, result.evidence, t, locale, result.stated) ?? checkGap(check.id, result.gap, t, locale)}
           </div>
         )}
       </div>

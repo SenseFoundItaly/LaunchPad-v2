@@ -8,6 +8,7 @@
 
 import { coerceJson } from '@/lib/jsonb';
 import { query } from '@/lib/db';
+import { isGateFactKind } from '@/lib/gate-fact-kinds';
 import type { ProjectSnapshot } from './types';
 import type { CanvasPayload } from '@/lib/canvas-versions';
 
@@ -242,14 +243,75 @@ export function countMemoryFactsMatching(
 ): number {
   const re = keywordMatcher(keywords);
   return snapshot.memory_facts.filter(
-    (f) =>
-      f.source_type !== 'file' &&
-      f.kind !== 'file_upload' &&
-      f.source_type !== 'monitor' &&
-      f.source_type !== 'approval_inbox' &&
-      f.source_type !== 'workflow' &&
-      re.test(f.content),
+    (f) => isCountableFact(f) && re.test(f.content),
   ).length;
+}
+
+/** The provenance exclusions documented above, shared by both counters. */
+function isCountableFact(f: ProjectSnapshot['memory_facts'][number]): boolean {
+  return (
+    f.source_type !== 'file' &&
+    f.kind !== 'file_upload' &&
+    f.source_type !== 'monitor' &&
+    f.source_type !== 'approval_inbox' &&
+    f.source_type !== 'workflow' &&
+    // Agent-authored workflow breadcrumbs. The source_type guard above is the
+    // real fix (workflow-capture.ts, 2026-07-11), but 48 rows written BEFORE it
+    // carry source_type='chat' and sailed through — greening gtm_opportunities
+    // on 5 projects off text like `Agent proposed workflow "90-Day GTM Plan"`.
+    // Migration 040 re-sources them; this belt keeps the braces honest for any
+    // row the migration misses, and for staging (which has no _migrations).
+    !AGENT_WORKFLOW_TRACE.test(f.content)
+  );
+}
+
+const AGENT_WORKFLOW_TRACE = /^Agent proposed workflow\b/i;
+
+/** How a gate check came to be satisfied — the distinction the founder is
+ *  entitled to see (option C, 2026-08-14). */
+export interface GateEvidenceCount {
+  /** Facts that count for this family under the ownership rule. */
+  count: number;
+  /** True when at least one counting fact carries the family's own kind, i.e.
+   *  the founder approved it AS this evidence. False means the check is green
+   *  only off unclassified text — real, but not an approval. */
+  approved: boolean;
+}
+
+/**
+ * Count the evidence for ONE gate family.
+ *
+ * The ownership rule (see gate-fact-kinds.ts): a fact carrying a gate kind
+ * counts for its own family and no other — so an approved GTM finding whose
+ * prose mentions partnerships can no longer green `partners_identified`. A
+ * fact carrying no gate kind is legacy free text and still counts by keyword,
+ * so nothing a founder already earned is revoked.
+ *
+ * The keyword is NOT re-checked on a kind-carrying fact: the kind is the
+ * stronger signal, and requiring both would put the executor's localized Apply
+ * prefix back on the critical path — which is exactly what made a UI string
+ * load-bearing evidence plumbing in the first place.
+ */
+export function countGateEvidence(
+  snapshot: ProjectSnapshot,
+  keywords: string[],
+  factKinds: readonly string[],
+): GateEvidenceCount {
+  const re = keywordMatcher(keywords);
+  const owned = new Set(factKinds);
+  let count = 0;
+  let approved = false;
+  for (const f of snapshot.memory_facts) {
+    if (!isCountableFact(f)) continue;
+    if (isGateFactKind(f.kind)) {
+      if (!owned.has(f.kind)) continue; // belongs to another family
+      count++;
+      approved = true;
+    } else if (re.test(f.content)) {
+      count++;
+    }
+  }
+  return { count, approved };
 }
 
 /**

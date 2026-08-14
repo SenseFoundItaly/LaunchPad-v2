@@ -1139,6 +1139,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'journey-evidence.capital_plan': 'Il tuo piano di capitale è in moto.',
   'journey-evidence.loop_active': 'Hai almeno un growth loop attivo.',
   'journey-evidence.metrics_tracked': 'Stai tracciando le tue metriche.',
+  'journey-evidence.stated-suffix': '(da una cosa che hai scritto in chat)',
   'canvas.view-in-canvas': 'Vedi nel canvas',
   'canvas.view-in-know': 'Vedi nella conoscenza',
   // Sotto-tracce del Validation Gate L2 (walkthrough §2). Solo lo stage di

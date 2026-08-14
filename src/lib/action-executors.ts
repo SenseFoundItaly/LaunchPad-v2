@@ -44,6 +44,7 @@ import type { Locale } from '@/lib/agent-prompt';
 import { checkDedup, computeDedupHash } from './monitor-dedup';
 import { recordEvent } from './memory/events';
 import { recordFact } from './memory/facts';
+import { gateFactKindFor, gateFactPrefix } from '@/lib/gate-fact-families';
 import { debitCredits, KNOWLEDGE_APPLY_CREDITS } from './credits';
 import { CREDITS_PER_DOLLAR } from '@/lib/credit-costs';
 import { ownerUserId as resolveOwnerUserId } from '@/lib/cost-meter';
@@ -1843,28 +1844,20 @@ const applyValidationProposal: ActionHandler = async (action) => {
       // Technical-validation finding — record as an applied memory_fact so the
       // matching 1B check greens. Founder-first (only on approval).
       //
-      // The PREFIX is load-bearing, exactly as for the gtm/partner/ip families:
-      // the check keyword-matches memory_facts, and without it the fact only
-      // greened when the model happened to use the right word. Every prefix
-      // below is verbatim in its check's keyword list — 'feasibility'/'fattibil'
-      // in BUILD_APPROACH_KEYWORDS, 'dependenc'/'dipendenz' in DEPENDENCY_,
-      // 'regulatory'/'normativ' in REGULATORY_, 'technical risk'/'rischio
-      // tecnico' in TECH_RISK_. Change one and you must change the other.
+      // The prefix is no longer what closes the check — `kind` is (2026-08-14).
+      // It stays the founder-visible sentence, and stays inside its own keyword
+      // family for facts written before the migration; both live in the one
+      // table in gate-fact-families.ts, asserted by its test.
       const techField = String(it.field ?? '');
-      const techPrefix = locale === 'it'
-        ? (techField === 'dependencies' ? 'Dipendenza chiave — '
-          : techField === 'regulatory' ? 'Normativa — '
-          : techField === 'risk' ? 'Rischio tecnico — '
-          : 'Fattibilità tecnica — ')
-        : (techField === 'dependencies' ? 'Key dependency — '
-          : techField === 'regulatory' ? 'Regulatory — '
-          : techField === 'risk' ? 'Technical risk — '
-          : 'Feasibility — ');
+      const techFactKind = gateFactKindFor('tech_fact', techField) ?? 'tech_feasibility_fact';
+      const techPrefix = gateFactPrefix(techFactKind, locale);
       await recordFact({
         userId: ownerUserId,
         projectId: action.project_id,
         fact: `${techPrefix}${value}`,
-        kind: 'observation',
+        // Family-carried, so a regulatory finding can no longer green
+        // build_approach on wording alone (gate-fact-kinds.ts).
+        kind: techFactKind,
         sources: sources ?? undefined,
       });
       applied.push(it.label || 'Technical finding');
@@ -1929,46 +1922,23 @@ const applyValidationProposal: ActionHandler = async (action) => {
     } else if (it.kind === 'interview') {
       skippedNoOwner = true;
     } else if ((it.kind === 'persona_fact' || it.kind === 'channel_fact' || it.kind === 'trend_fact' || it.kind === 'buyer_persona_fact' || it.kind === 'differentiation_fact' || it.kind === 'gtm_fact' || it.kind === 'partner_fact' || it.kind === 'ip_fact' || it.kind === 'data_fact' || it.kind === 'validation_strategy_fact' || it.kind === 'jtbd_fact' || it.kind === 'cogs_opex_fact' || it.kind === 'revenue_stream_fact') && ownerUserId) {
-      // Stage-2/3 prefill: write a keyword-bearing applied memory_fact so the
-      // matching check (icp_defined / channels_identified / trends_assessed /
-      // buyer_persona_defined — all keyword-match memory_facts) greens. The
-      // prefix guarantees the match regardless of the founder's phrasing, so
-      // the LOCALIZED prefix must itself be a verbatim entry in the bilingual
-      // keyword lists ('trend di mercato', 'cliente ideale', 'canale di
-      // acquisizione', 'differenz' stem, 'buyer persona'). Founder-first
-      // (only on Apply). Localized: these are founder-visible Knowledge facts.
-      const prefix = locale === 'it'
-        ? (it.kind === 'persona_fact' ? 'Profilo del cliente ideale — ' :
-           it.kind === 'channel_fact' ? 'Canale di acquisizione — ' :
-           it.kind === 'trend_fact' ? 'Trend di mercato — ' :
-           it.kind === 'differentiation_fact' ? 'Differenziazione — ' :
-           it.kind === 'gtm_fact' ? 'Opportunità GTM — ' :
-           it.kind === 'partner_fact' ? 'Partner potenziale — ' :
-           it.kind === 'ip_fact' ? 'Proprietà intellettuale — ' :
-           it.kind === 'data_fact' ? 'Disponibilità dei dati — ' :
-           it.kind === 'validation_strategy_fact' ? 'Strategia di validazione — ' :
-           it.kind === 'jtbd_fact' ? 'Jobs to be done — ' :
-           it.kind === 'cogs_opex_fact' ? 'Costi fissi e variabili — ' :
-           it.kind === 'revenue_stream_fact' ? 'Flusso di ricavo — ' :
-           'Buyer persona — ')
-        : (it.kind === 'persona_fact' ? 'Ideal customer profile — ' :
-           it.kind === 'channel_fact' ? 'Acquisition channel — ' :
-           it.kind === 'trend_fact' ? 'Market trend — ' :
-           it.kind === 'differentiation_fact' ? 'Differentiator — ' :
-           it.kind === 'gtm_fact' ? 'GTM opportunity — ' :
-           it.kind === 'partner_fact' ? 'Potential partner — ' :
-           it.kind === 'ip_fact' ? 'Intellectual property — ' :
-           it.kind === 'data_fact' ? 'Data availability — ' :
-           it.kind === 'validation_strategy_fact' ? 'Validation strategy — ' :
-           it.kind === 'jtbd_fact' ? 'Jobs to be done — ' :
-           it.kind === 'cogs_opex_fact' ? 'Costi fissi e variabili — ' :
-           it.kind === 'revenue_stream_fact' ? 'Flusso di ricavo — ' :
-           'Buyer persona — ');
+      // Stage-2/3 prefill: write the approved evidence as a family-kinded fact
+      // so its check greens. The founder-visible prefix comes from the single
+      // table in gate-fact-families.ts — it used to be two hand-kept nested
+      // ternaries here, and they drifted (the EN branch emitted the Italian
+      // strings for cogs_opex_fact and revenue_stream_fact).
+      const factKind = gateFactKindFor(it.kind, it.field);
+      const prefix = factKind ? gateFactPrefix(factKind, locale) : '';
       await recordFact({
         userId: ownerUserId,
         projectId: action.project_id,
         fact: `${prefix}${value}`.slice(0, 1600),
-        kind: 'observation',
+        // The FAMILY, not 'observation'. The founder approved this AS this
+        // evidence; collapsing every kind to 'observation' threw that away and
+        // left a localized text prefix as the only trace, which the check then
+        // re-derived by keyword — so an approved GTM fact whose prose mentioned
+        // partnerships also greened partners_identified. See gate-fact-kinds.ts.
+        kind: factKind ?? 'observation',
         sources: sources ?? undefined,
       });
       applied.push(it.label || (locale === 'it'

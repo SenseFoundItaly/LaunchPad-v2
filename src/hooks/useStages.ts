@@ -17,7 +17,9 @@ export interface StageCheckRow {
   check: { id: string; label: string; source?: string; track?: '1A' | '1B' | '1C' };
   // `locked` marks a Validation-Gate 1C check that isn't actionable yet (1A+1B
   // still open) — StageCard renders it with a lock glyph instead of a CTA.
-  result: { passed: boolean; evidence?: string; gap?: string; proof?: string; locked?: boolean };
+  // `stated` marks a green whose only evidence is unclassified chat text, not
+  // an approved item — the evidence sentence says so (checkEvidence).
+  result: { passed: boolean; evidence?: string; gap?: string; proof?: string; locked?: boolean; stated?: boolean };
 }
 
 export interface StageEvaluation {

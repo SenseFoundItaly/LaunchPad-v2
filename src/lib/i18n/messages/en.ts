@@ -1159,6 +1159,9 @@ export const en = {
   'journey-evidence.capital_plan': 'Your capital plan is in motion.',
   'journey-evidence.loop_active': "You have at least one growth loop running.",
   'journey-evidence.metrics_tracked': "You're tracking your metrics.",
+  // Appended to a green check whose only evidence is unclassified chat text —
+  // real, but never approved AS this evidence. See checkEvidence().
+  'journey-evidence.stated-suffix': '(from something you said in chat)',
   'canvas.view-in-canvas': 'View in canvas',
   'canvas.view-in-know': 'View in knowledge',
   // L2 Validation-Gate sub-track headers (walkthrough §2). Only the validation

@@ -27,10 +27,14 @@ describe('the gate family list has exactly one home', () => {
     for (const k of ['market_size_fact', 'tech_fact', 'gtm_fact', 'jtbd_fact', 'revenue_stream_fact']) {
       expect(kinds.has(k), `family ${k} must be in the shared list`).toBe(true);
     }
-    // tech_fact splits across three checks by `field` — losing a field silently
-    // drops feasibility / dependencies / regulatory from the consent gate.
+    // tech_fact splits across FOUR checks by `field` — losing a field silently
+    // drops that finding from the consent gate. `risk` joined on 2026-08-14:
+    // TECH_1B_SOURCES split it out of `feasibility` on 08-05 so
+    // technical_risk_named could be closed on its own, but this list still
+    // collapsed both into one feasibility item, so the sweep could never
+    // target the risk check.
     const techFields = GATE_FACT_FAMILIES.filter((f) => f.kind === 'tech_fact').map((f) => f.field);
-    expect(new Set(techFields)).toEqual(new Set(['feasibility', 'dependencies', 'regulatory']));
+    expect(new Set(techFields)).toEqual(new Set(['feasibility', 'risk', 'dependencies', 'regulatory']));
   });
 
   it('chat-fact-sweep derives from it instead of keeping a copy', () => {

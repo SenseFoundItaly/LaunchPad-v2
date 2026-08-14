@@ -54,6 +54,11 @@ export interface CheckResult {
    *  1A+1B have open gaps): not actionable yet — the UI suppresses its CTA
    *  and renders a lock instead of an open circle. */
   locked?: boolean;
+  /** Passed, but off unclassified text rather than an approved evidence item —
+   *  the founder said something that matched, they never approved it AS this
+   *  evidence. The UI appends "from something you said in chat" so a green
+   *  never overstates what happened. Only gate-family checks set it. */
+  stated?: boolean;
   /** The ACTUAL content that satisfied the check — the real canvas field text,
    *  competitor list, etc., resolved from the check's `source`. Lets the UI
    *  expand a passed substep to show the founder its concrete proof, not just
