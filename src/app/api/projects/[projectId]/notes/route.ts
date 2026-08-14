@@ -52,14 +52,21 @@ export async function POST(
   let staged = 0;
   try {
     const entities = await extractEntitiesFromNote(text);
+    // The note itself is the source on every item: an approval card whose
+    // provenance reads "Founder note" + the sentence it came from is the
+    // difference between evidence and an assertion.
+    const noteSource = [{ type: 'user', title: 'Founder note', quote: text.slice(0, 280) }];
     const items = [
+      // `competitor` is the one kind carrying a name — the executor writes a
+      // profile row (and, on Apply, the graph entity that was #389's complaint).
       ...entities.competitors.map((c) => ({
-        kind: 'competitor', name: c.name, value: c.summary || c.name,
-        sources: [{ type: 'user', title: 'Founder note', quote: text.slice(0, 280) }],
+        kind: 'competitor', name: c.name, value: c.summary || c.name, sources: noteSource,
       })),
-      ...entities.partners.map((pt) => ({
-        kind: 'partner_fact', value: `${pt.name} — ${pt.why || 'named as a potential partner in a founder note'}`,
-        sources: [{ type: 'user', title: 'Founder note', quote: text.slice(0, 280) }],
+      // Everything else is a {kind, field?, value} fact. `field` is passed
+      // through untouched: for tech_fact it selects WHICH 1B check the item
+      // closes, and dropping it here would send the fact to no check at all.
+      ...entities.facts.map((f) => ({
+        kind: f.kind, ...(f.field ? { field: f.field } : {}), value: f.value, sources: noteSource,
       })),
     ];
     if (items.length > 0) {
