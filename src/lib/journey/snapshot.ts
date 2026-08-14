@@ -9,6 +9,7 @@
 import { coerceJson } from '@/lib/jsonb';
 import { query } from '@/lib/db';
 import { isGateFactKind, type GateFactKind } from '@/lib/gate-fact-kinds';
+import { interviewStatus, isConducted } from '@/lib/interview-status';
 import type { ProjectSnapshot } from './types';
 import type { CanvasPayload } from '@/lib/canvas-versions';
 
@@ -72,7 +73,11 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     // — see countMemoryFactsMatching. A document dump is not a founder assertion
     // and must not auto-satisfy any gated spine check.
     query("SELECT id, fact AS content, source_type, kind FROM memory_facts WHERE project_id = ? AND reviewed_state = 'applied'", projectId).catch(() => []),
-    query('SELECT id, person_name, top_pain, wtp_amount, urgency, icp_match FROM interviews WHERE project_id = ?', projectId).catch(() => []),
+    // `status` (migration 040) is what separates a PROSPECT from a conducted
+    // interview. It is selected, never coalesced here: the NULL → 'done'
+    // reading lives in one place (interviewStatus) so a second copy of that
+    // default can't drift from it.
+    query('SELECT id, person_name, top_pain, wtp_amount, urgency, icp_match, status FROM interviews WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT target_amount, raised_amount, status FROM fundraising_rounds WHERE project_id = ?', projectId).catch(() => []),
     query('SELECT id, name, stage FROM investors WHERE project_id = ?', projectId).catch(() => []),
     query<{ cnt: number }>('SELECT COUNT(*) as cnt FROM published_assets WHERE project_id = ?', projectId).catch(() => [{ cnt: 0 }]),
@@ -136,7 +141,18 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     growth_loops: loopRows as ProjectSnapshot['growth_loops'],
     metrics: metricRows as ProjectSnapshot['metrics'],
     memory_facts: memoryRows as ProjectSnapshot['memory_facts'],
-    interviews: interviewRows as ProjectSnapshot['interviews'],
+    // `interviews` keeps meaning CONDUCTED interviews — the meaning it has had
+    // since it existed, and which eight consumers depend on: Loop-1 triggers on
+    // its length and computes the WTP rate over it, the gate-verdict card
+    // summarises it, skill/MVP context quotes it. Migration 040 introduced
+    // PROSPECT rows into the same table, so filtering here is what keeps every
+    // one of those correct without touching them: a founder listing 5 cold
+    // users must not fire a PSF review or green "5+ interviews logged".
+    interviews: (interviewRows as ProjectSnapshot['interviews'])
+      .filter((iv) => isConducted(iv.status)),
+    // The pipeline, all states — what the two new 1C checks count.
+    interview_pipeline: (interviewRows as ProjectSnapshot['interviews'])
+      .map((iv) => ({ id: iv.id, status: interviewStatus(iv.status) })),
     fundraising_round: roundRows.length > 0 ? (roundRows[0] as ProjectSnapshot['fundraising_round']) : null,
     investors: investorRows as ProjectSnapshot['investors'],
     counts: {

@@ -144,7 +144,9 @@ describe('track membership', () => {
     ]);
     // gate_verdict is LAST: the founder's go/no-go closes the gate.
     expect(VALIDATION_TRACK_1C.map((c) => c.id)).toEqual([
-      'validation_strategy', 'jtbd_mapping', 'interviews_logged',
+      'validation_strategy', 'jtbd_mapping',
+      // #398: the pipeline BEFORE the interview — list, then contact, then talk.
+      'cold_users_listed', 'cold_users_outreach', 'interviews_logged',
       'pain_validated', 'differentiation_evidence', 'wtp_signal',
       // The three revision steps sit AFTER the evidence they revise on: you
       // sharpen the value prop with what the interviews taught you, not before.
@@ -574,6 +576,9 @@ describe('gate_verdict — the founder call that closes the gate', () => {
     interviews: Array.from({ length: 5 }, (_, i) => ({
       id: `iv${i}`, person_name: `P${i}`, top_pain: 'manual recall work is painful', wtp_amount: 30, urgency: 'high',
     })),
+    // #398: you cannot have interviewed someone you never listed or contacted,
+    // so a complete-evidence fixture carries the pipeline the interviews imply.
+    interview_pipeline: Array.from({ length: 5 }, (_, i) => ({ id: `iv${i}`, status: 'done' })),
     // The 1C revision steps: a canvas that moved since the pre-interview
     // snapshot, and a score re-run on what the interviews produced.
     psf_baseline_canvas: { solution: 'first guess', value_proposition: 'first pitch' },

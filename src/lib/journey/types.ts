@@ -170,7 +170,21 @@ export interface ProjectSnapshot {
     /** Persisted ICP judgement (migration 039). NULL = not judged yet, which
      *  is NOT "no match" — the coherence rate skips it entirely. */
     icp_match?: boolean | null;
+    /** Pipeline state (migration 040): listed | contacted | scheduled | done.
+     *  NULL reads as 'done' — every writer predating 040 logs a CONDUCTED
+     *  interview. Read it through `interviewStatus`, never raw. */
+    status?: string | null;
   }>;
+  /**
+   * The interview pipeline in EVERY state, including prospects nobody has
+   * spoken to yet (#398). Separate from `interviews` on purpose: that array
+   * means CONDUCTED interviews and is what Loop-1 triggering, the WTP rate and
+   * the gate-verdict summary all read. Only the two pipeline checks look here.
+   *
+   * Optional so a hand-built snapshot (every stage test fixture) stays valid;
+   * read it as `?? []`. buildProjectSnapshot always populates it.
+   */
+  interview_pipeline?: Array<{ id: string; status: string }>;
   fundraising_round: {
     target_amount: number | null;
     raised_amount: number | null;
