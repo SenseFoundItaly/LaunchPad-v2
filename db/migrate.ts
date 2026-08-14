@@ -45,19 +45,21 @@ if (!DATABASE_URL) {
 const sql = postgres(DATABASE_URL, { prepare: false, max: 1 });
 
 /**
- * Staging has NO `_migrations` table: its schema came from `schema.sql`, not
- * from this runner. Point this script at it and the ledger reads empty, so it
- * replays 001-0NN — including data heals like `036_heal_scores_to_100` —
- * against a populated database.
+ * An EMPTY ledger on a database that already has tables means the schema was
+ * built some other way — from `schema.sql`, or by hand. Run this script there
+ * and it replays 001-0NN, including data heals like `036_heal_scores_to_100`,
+ * over populated data.
  *
- * The standing answer to that has been "remember not to do it", which is not a
- * guard. Baselining staging isn't the fix either: it would assert 001-036 ran
- * when nobody can verify they did, and a ledger that lies is worse than none.
+ * Staging was the live example (its schema came from `schema.sql`), and the
+ * standing answer was "remember not to point the runner at it" — which is not
+ * a guard. Baselining wasn't the fix either: it would assert 001-0NN ran when
+ * nobody can verify they did, and a ledger that lies is worse than none.
  *
- * So: refuse. An EMPTY ledger on a database that already has tables is the
- * signature of a schema built some other way — exactly staging's situation —
- * and it is indistinguishable from a fresh DB only when the DB is genuinely
- * fresh (no tables), which this check allows through untouched.
+ * Staging is to be rebased from prod, which hands it prod's `_migrations` and
+ * makes this check a no-op there. The guard stays because the CONDITION is what
+ * matters, not the environment that happened to exhibit it: any restored dump,
+ * hand-built DB or fresh branch database can present the same shape. A
+ * genuinely fresh database (no tables) passes through untouched.
  *
  * `--i-know-the-ledger-is-empty` is the deliberate override, for the one case
  * where it's correct: adopting a hand-built database on purpose.
