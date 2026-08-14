@@ -1803,7 +1803,11 @@ const applyValidationProposal: ActionHandler = async (action) => {
         userId: ownerUserId,
         projectId: action.project_id,
         fact: msFact,
-        kind: 'fact',
+        // Family-carried like every other approved item. This branch wrote
+        // kind:'fact' while the rest wrote 'observation', which is why
+        // migration 040's `kind='observation'` guard missed all 13 prod rows —
+        // fixed forward here, backfilled by 041.
+        kind: 'market_size_fact',
         sources: sources ?? undefined,
       });
       // Stamp the founder's approval into research.market_size — the Stage-2

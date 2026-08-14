@@ -4,6 +4,7 @@ import { countGateEvidence } from './snapshot';
 import { gateFactKindFor, gateFactPrefix, GATE_FACT_FAMILIES, GATE_FACT_PREFIXES } from '@/lib/gate-fact-families';
 import { GATE_FACT_KINDS } from '@/lib/gate-fact-kinds';
 import { keywordMatcher } from '@/lib/journey';
+import { translate } from '@/lib/i18n/messages';
 import type { ProjectSnapshot } from './types';
 
 /**
@@ -135,6 +136,14 @@ describe('the family ↔ fact-kind ↔ prefix chain is complete', () => {
         expect(keywordMatcher([...fam.keywords]).test(prefix), `${k}/${locale}: "${prefix}"`).toBe(true);
       }
     }
+  });
+
+  it('the market-size Apply prefix agrees with the shared table (two writers, one string)', () => {
+    // action-executors' market_size_fact branch prefixes from the i18n key
+    // `avs.prefix-market-size` while every other family reads GATE_FACT_PREFIXES.
+    // Two sources for one string is how they drift; pin them equal.
+    expect(translate('en', 'avs.prefix-market-size')).toBe(gateFactPrefix('market_size_fact', 'en'));
+    expect(translate('it', 'avs.prefix-market-size')).toBe(gateFactPrefix('market_size_fact', 'it'));
   });
 
   it('countGateEvidence reports approval, not just a count', () => {
