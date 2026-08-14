@@ -18,6 +18,7 @@
 
 import { useMemo, useState } from 'react';
 import { useStages } from '@/hooks/useStages';
+import { useGateVerdict } from '@/hooks/useGateVerdict';
 import { useRouter } from 'next/navigation';
 import { checkActionPrompt, checkLabel, stageLabel, stageTagline, checkGap, checkEvidence } from '@/lib/journey-prompts';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
@@ -105,6 +106,77 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
   // chat turn that advances the pipeline still refreshes it.
   const { data: evals = [], isLoading } = useStages(projectId);
   const loaded = !isLoading;
+
+  // The founder's recorded call, or null. Drives the decision footer below —
+  // see the block comment there for why the gate needs an exit that does not
+  // wait for every check to go green.
+  const { data: gateVerdict = null } = useGateVerdict(projectId);
+  const [decisionBusy, setDecisionBusy] = useState(false);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+
+  // Both writes refresh the same surfaces a chat-recorded verdict does: the
+  // check row, the gated skills it unlocks, and this footer.
+  const afterDecision = () => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+    window.dispatchEvent(new CustomEvent('lp-skills-changed', { detail: { projectId } }));
+  };
+
+  /**
+   * Early exit. The gate's GO/PIVOT/STOP card is staged only once every check
+   * passes, so a founder who has already decided to stop had no way to say so
+   * — the endpoint accepted STOP at any time, but nothing in the product could
+   * send it. That is the §4 dead-end read backwards: never dead-end the
+   * founder INCLUDES never forcing one who has stopped to finish first.
+   *
+   * One dialog, not two: the consequence and the question are the same prompt,
+   * and cancelling it is a change of mind rather than an error (the same
+   * contract the chat card's motivation prompt uses).
+   */
+  const recordEarlyStop = async () => {
+    if (decisionBusy || typeof window === 'undefined') return;
+    const answer = window.prompt(`${t('gate.exit-confirm')}\n\n${t('gate.verdict-stop-why')}`);
+    if (answer === null) return;
+    const motivation = answer.trim();
+    if (motivation.length < 3) { setDecisionError(t('gate.verdict-needs-reason')); return; }
+    setDecisionBusy(true);
+    setDecisionError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/gate-verdict`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verdict: 'STOP', motivation }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      afterDecision();
+    } catch {
+      setDecisionError(t('gate.decision-failed'));
+    } finally {
+      setDecisionBusy(false);
+    }
+  };
+
+  /**
+   * Reopen. DELETE /gate-verdict has existed since #358 and restages the card
+   * since #416 — but no surface ever called it, so the check row telling a
+   * founder who pivoted to "make the call again" pointed at nothing, and a
+   * STOP was in practice permanent. A decision you cannot undo is a trap.
+   */
+  const reopenDecision = async () => {
+    if (decisionBusy || typeof window === 'undefined' || !gateVerdict) return;
+    if (!window.confirm(t('gate.reopen-confirm', { verdict: gateVerdict.verdict }))) return;
+    setDecisionBusy(true);
+    setDecisionError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/gate-verdict`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(String(res.status));
+      afterDecision();
+    } catch {
+      setDecisionError(t('gate.decision-failed'));
+    } finally {
+      setDecisionBusy(false);
+    }
+  };
 
   // The first not-yet-validated step — the founder's current focus.
   const activeId = useMemo(
@@ -363,6 +435,46 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
               </div>
             );
           })()}
+
+          {/* Decision footer — Validation Gate only (the stage that owns the
+              gate_verdict check). Two affordances that existed as endpoints but
+              had no way in: the early exit, and the reopen. Deliberately quiet
+              (a text link, under the evidence, never a button competing with
+              the work) — the point is that it is REACHABLE, not that it is
+              tempting. */}
+          {openEval.results.some((r) => r.check.id === 'gate_verdict') && (
+            <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {gateVerdict ? (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                  <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-5)' }}>
+                    {t('gate.decision-recorded', { verdict: gateVerdict.verdict })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={reopenDecision}
+                    disabled={decisionBusy}
+                    title={t('gate.reopen-tip')}
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: decisionBusy ? 'default' : 'pointer', fontFamily: 'var(--f-mono)', fontSize: 9.5, color: 'var(--accent)', opacity: decisionBusy ? 0.5 : 1 }}
+                  >
+                    {t('gate.reopen')}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={recordEarlyStop}
+                  disabled={decisionBusy}
+                  title={t('gate.exit-early-tip')}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: decisionBusy ? 'default' : 'pointer', fontFamily: 'var(--f-mono)', fontSize: 9.5, color: 'var(--ink-5)', textAlign: 'left', opacity: decisionBusy ? 0.5 : 1 }}
+                >
+                  {t('gate.exit-early')}
+                </button>
+              )}
+              {decisionError && (
+                <span style={{ fontSize: 10.5, color: 'var(--clay)' }}>{decisionError}</span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
