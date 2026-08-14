@@ -33,6 +33,7 @@ import { checkDedup } from '@/lib/monitor-dedup';
 import { coerceJson } from '@/lib/jsonb';
 import { maybeTriggerLoop1 } from '@/lib/loops/loop1-psf';
 import { ensureCanvasBaseline } from '@/lib/canvas-versions';
+import { INTERVIEW_STATUSES, interviewStatus } from '@/lib/interview-status';
 import { maybeTriggerLoop2 } from '@/lib/loops/loop2-bm';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { translate, type MessageKey } from '@/lib/i18n/messages';
@@ -2793,6 +2794,104 @@ const logInterviewTool = (ctx: ToolContext): AgentTool => ({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// list_prospects — the interview PIPELINE before the interview (#398)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Separate from `log_interview` on purpose. That tool means "this conversation
+ * HAPPENED": it demands a summary, freezes the PSF canvas baseline, and can
+ * trigger a Loop-1 review. A prospect is none of those things — and the two
+ * 1C steps that count prospects were unbuildable until migration 040 let a row
+ * exist without a summary.
+ *
+ * One tool covers both steps because "listed" and "contacted" are the same
+ * record moving forward. Status is FORWARD-ONLY: re-listing someone you have
+ * already interviewed must never demote them out of `interviews_logged`.
+ */
+const listProspectsTool = (ctx: ToolContext): AgentTool => ({
+  name: 'list_prospects',
+  label: 'List Prospects',
+  description:
+    'Record the people the founder PLANS to interview, or has reached out to but not yet interviewed. Use when they name who they intend to talk to ("I want to interview 5 physiotherapists, starting with Marco and Giulia") or report outreach ("I messaged 6 of them on LinkedIn"). Do NOT use this for conversations that already happened — that is log_interview, which needs what was said. Status: listed (planned) | contacted (reached out) | scheduled (a date is set). Closes the 1C "cold users listed" and "cold users contacted" steps.',
+  parameters: Type.Object({
+    people: Type.Array(
+      Type.Object({
+        name: Type.String({ description: 'Who. First name or full name, ≤200 chars.' }),
+        role: Type.Optional(Type.String({ description: 'Their job title or role, if the founder said it.' })),
+        segment: Type.Optional(Type.String({ description: 'Which ICP / segment they map to.' })),
+      }),
+      { description: 'The people, one entry each. Only those the founder actually named or counted.' },
+    ),
+    status: Type.Optional(Type.String({ description: "listed (default) | contacted | scheduled. Use 'contacted' only when the founder says they reached out." })),
+  }),
+  async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    const p = params as Record<string, unknown>;
+    const people = Array.isArray(p.people) ? p.people : [];
+    // The model may omit status entirely; interviewStatus would then read it
+    // as 'done', which this tool must never write. Default to 'listed' first.
+    const status = interviewStatus(typeof p.status === 'string' ? p.status : 'listed');
+    if (!ctx.userId) {
+      return { content: [{ type: 'text', text: 'list_prospects unavailable — tool context missing userId.' }], details: { error: 'no_user' } };
+    }
+    if (people.length === 0) {
+      return { content: [{ type: 'text', text: 'list_prospects needs at least one person. Ask the founder who they plan to talk to.' }], details: { error: 'no_people' } };
+    }
+    // 'done' means a conversation happened, which this tool cannot attest to.
+    if (status === 'done') {
+      return {
+        content: [{ type: 'text', text: 'An interview that already happened goes through log_interview, with what was said — list_prospects only records who is lined up.' }],
+        details: { error: 'use_log_interview' },
+      };
+    }
+
+    const now = new Date().toISOString();
+    let added = 0;
+    let advanced = 0;
+    for (const raw of people.slice(0, 50)) {
+      const person = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+      const name = String(person.name ?? '').trim().slice(0, 200);
+      if (!name) continue;
+
+      const existing = await get<{ id: string; status: string | null }>(
+        'SELECT id, status FROM interviews WHERE project_id = ? AND lower(person_name) = lower(?) LIMIT 1',
+        ctx.projectId, name,
+      ).catch(() => null);
+
+      if (existing) {
+        // Forward-only. Someone already interviewed stays interviewed; the
+        // alternative silently un-greens evidence the founder already earned.
+        const rank = (s: string) => INTERVIEW_STATUSES.indexOf(interviewStatus(s));
+        if (rank(status) > rank(existing.status ?? '')) {
+          await run('UPDATE interviews SET status = ?, updated_at = ? WHERE id = ?', status, now, existing.id);
+          advanced++;
+        }
+        continue;
+      }
+
+      await run(
+        `INSERT INTO interviews
+           (id, project_id, user_id, person_name, person_role, person_segment, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        generateId('iv'), ctx.projectId, ctx.userId, name,
+        person.role ? String(person.role).slice(0, 200) : null,
+        person.segment ? String(person.segment).slice(0, 200) : null,
+        status, now, now,
+      );
+      added++;
+    }
+
+    // Deliberately NOT ensureCanvasBaseline: the PSF baseline freezes "the
+    // canvas before the conversations", and nobody has had one yet. Listing
+    // people you intend to call must not close the window on the canvas you
+    // are still shaping (#398's own warning).
+    return {
+      content: [{ type: 'text', text: `Recorded ${added} new ${added === 1 ? 'person' : 'people'}${advanced ? `, moved ${advanced} to ${status}` : ''}. The 1C pipeline steps will recount on the next refresh.` }],
+      details: { added, advanced, status },
+    };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stage 5 (Build & Launch) + stages 6-7 (Fundraise/Operate) facet writers.
 //
 // These six tools let a founder who actually HAS an MVP, metrics, runway, and
@@ -3232,6 +3331,7 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     updatePricingTool(ctx),
     saveMemoryFactTool(ctx),
     logInterviewTool(ctx),
+    listProspectsTool(ctx),
     // Stage 5 (Build & Launch) + stages 6-7 (Fundraise/Operate) facet writers — give the founder a
     // chat path to close the build/metrics/runway/capital evidence gates.
     updateWorkflowTool(ctx),

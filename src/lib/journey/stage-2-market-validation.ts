@@ -25,6 +25,7 @@ import { CANONICAL_BY_ID } from './canonical';
 import { countMemoryFactsMatching, countGateEvidence } from './snapshot';
 import type { GateFactKind } from '@/lib/gate-fact-kinds';
 import { coerceJson } from '@/lib/jsonb';
+import { hasBeenContacted } from '@/lib/interview-status';
 
 /** The market_size check's `source` string. validation-targets.ts keys the
  *  `market_size_fact` reverse-map on this EXACT string — import it there,
@@ -75,6 +76,12 @@ export const MARKET_1A_SOURCES = {
 /** The differentiation check's `source` string — exported so the
  *  `differentiation_fact` item kind (chat retro-sweep) maps drift-proof. */
 export const DIFFERENTIATION_CHECK_SOURCE = 'memory_facts (vs. competitors)';
+
+/** How many cold users the pipeline steps expect. Same 5 as
+ *  `interviews_logged`, on purpose: the funnel is list → contact → interview,
+ *  so a lower bar here would let the gate ask for more interviews than the
+ *  founder was ever asked to line up. */
+export const COLD_USER_TARGET = 5;
 
 // ── Exported keyword lists ───────────────────────────────────────────────────
 // One named constant per keyword-matched check, used BOTH by the check's
@@ -551,6 +558,41 @@ export const TRACK_1C_UNLOCKED: StageCheck[] = [
         "You've framed the job the customer is hiring you for.",
         'Map the Jobs-to-be-Done — the frame that structures your interviews',
       );
+    },
+  },
+  // ── The interview PIPELINE (#398, Iteration Cycle 1C) ─────────────────────
+  // Two of the three remaining artifact steps. They were unbuildable, not
+  // unwritten: `interviews.summary` was NOT NULL, so a prospect you have not
+  // spoken to had no row to be counted in — the checks would have read a
+  // column nothing could fill, which is the permanently-red bug class #251
+  // warned about. Migration 040 gives the record a `status`, and both steps
+  // become row counts over the same table.
+  {
+    id: 'cold_users_listed',
+    label: 'Cold users listed',
+    source: 'interviews.status',
+    track: '1C',
+    evaluate: (s) => {
+      const n = (s.interview_pipeline ?? []).length;
+      const ok = n >= COLD_USER_TARGET;
+      return ok
+        ? { passed: true, evidence: `You've lined up ${n} people to talk to.` }
+        : { passed: false, gap: `${n} of ${COLD_USER_TARGET} — tell the Co-pilot who you plan to interview` };
+    },
+  },
+  {
+    id: 'cold_users_outreach',
+    label: 'Cold users contacted',
+    source: 'interviews.status',
+    track: '1C',
+    evaluate: (s) => {
+      // A conducted interview implies outreach — you cannot have interviewed
+      // someone you never reached — so `done` counts here too.
+      const n = (s.interview_pipeline ?? []).filter((iv) => hasBeenContacted(iv.status)).length;
+      const ok = n >= COLD_USER_TARGET;
+      return ok
+        ? { passed: true, evidence: `You've reached out to ${n} of them.` }
+        : { passed: false, gap: `${n} of ${COLD_USER_TARGET} contacted — reaching out is the step, not the reply` };
     },
   },
   {
