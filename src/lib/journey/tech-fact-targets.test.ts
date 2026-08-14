@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { validationTargetsFor, validationLabel } from './validation-targets';
 import { TECH_1B_SOURCES } from './stage-2-market-validation';
 import { extractTechnicalFindings } from '@/lib/auto-stage-validation';
+import { GATE_FACT_PREFIXES, withGateFactPrefix } from '@/lib/gate-fact-families';
 
 // The technical-validation deterministic fallback (cert 2026-07-07) stages
 // `tech_fact` items so the three 1B checks can close even when the model emits
@@ -89,11 +90,24 @@ Il Garante Privacy impone il consenso per i minori; GDPR sulla ripresa video.`;
     expect(f.feasibility).toMatch(/computer vision|consolidat/i);
   });
 
-  it('English locale uses English prefixes (still keyword-bearing)', () => {
+  it('labels come from the ONE family table, in the project language', () => {
+    // 2026-08-14: these used to be their own strings, from when the PREFIX
+    // closed the check. The executor also labels from the family table, so two
+    // systems meant a DOUBLE label on the first run ever applied. Asserted
+    // against the table itself — a copy here would be the same drift again.
     const f = extractTechnicalFindings('A substantial technical assessment of feasibility, dependencies and regulatory constraints for the product build.', 'en')!;
-    expect(f.feasibility).toMatch(/Technical feasibility/);
-    expect(f.dependencies).toMatch(/Key dependencies/);
-    expect(f.regulatory).toMatch(/Regulatory/);
+    expect(f.feasibility.startsWith(GATE_FACT_PREFIXES.tech_feasibility_fact.en.replace(/\s*—\s*$/, ''))).toBe(true);
+    expect(f.dependencies.startsWith(GATE_FACT_PREFIXES.tech_dependency_fact.en.replace(/\s*—\s*$/, ''))).toBe(true);
+    expect(f.regulatory.startsWith(GATE_FACT_PREFIXES.regulatory_fact.en.replace(/\s*—\s*$/, ''))).toBe(true);
+  });
+
+  it('the label the splitter writes is the one the executor would add — so it adds none', () => {
+    // The property that makes the two systems one: withGateFactPrefix must
+    // RECOGNISE the splitter's output, or the founder sees the label twice.
+    const f = extractTechnicalFindings('A substantial technical assessment of feasibility, dependencies and regulatory constraints for the product build.', 'en')!;
+    expect(withGateFactPrefix('tech_feasibility_fact', 'en', f.feasibility)).toBe(f.feasibility);
+    expect(withGateFactPrefix('tech_dependency_fact', 'en', f.dependencies)).toBe(f.dependencies);
+    expect(withGateFactPrefix('regulatory_fact', 'en', f.regulatory)).toBe(f.regulatory);
   });
 
   it('returns null for thin / clarification-only output', () => {

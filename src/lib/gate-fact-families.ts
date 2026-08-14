@@ -153,5 +153,29 @@ export function gateFactPrefix(factKind: GateFactKind, locale: string): string {
   return locale === 'it' ? row.it : row.en;
 }
 
+/**
+ * Prefix a fact with its family label, ONCE.
+ *
+ * Several producers already prefix their value before it ever reaches the
+ * executor — `extractTechnicalFindings` labels each of its three findings, and
+ * the chat sweep carries the founder's own sentence. The executor then prefixed
+ * again unconditionally, so prod contains rows reading
+ * `Rischio tecnico — Rischio tecnico — …`: the founder sees the label twice in
+ * their own Knowledge.
+ *
+ * BOTH locales are checked, not just the project's. A fact prefixed in English
+ * and re-applied under an Italian project would otherwise become
+ * `Rischio tecnico — Technical risk — …` — the cross-locale version of the same
+ * bug, which the single-locale guard on `market_size` would not have caught.
+ * Comparison is case-insensitive: the prefix is display text, and matching it
+ * loosely can only ever prevent a duplicate, never create one.
+ */
+export function withGateFactPrefix(factKind: GateFactKind, locale: string, value: string): string {
+  const row = GATE_FACT_PREFIX[factKind];
+  const head = value.trimStart().toLowerCase();
+  if (head.startsWith(row.en.toLowerCase()) || head.startsWith(row.it.toLowerCase())) return value;
+  return `${gateFactPrefix(factKind, locale)}${value}`;
+}
+
 /** Exported for the drift test — every prefix, both locales. */
 export const GATE_FACT_PREFIXES = GATE_FACT_PREFIX;
