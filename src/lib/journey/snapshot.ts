@@ -8,7 +8,7 @@
 
 import { coerceJson } from '@/lib/jsonb';
 import { query } from '@/lib/db';
-import { isGateFactKind } from '@/lib/gate-fact-kinds';
+import { isGateFactKind, type GateFactKind } from '@/lib/gate-fact-kinds';
 import type { ProjectSnapshot } from './types';
 import type { CanvasPayload } from '@/lib/canvas-versions';
 
@@ -295,7 +295,10 @@ export interface GateEvidenceCount {
 export function countGateEvidence(
   snapshot: ProjectSnapshot,
   keywords: string[],
-  factKinds: readonly string[],
+  // Typed, not `string[]`: a mistyped kind here would silently match nothing
+  // and the check would go quietly red — the exact failure mode (a list that
+  // drifts from the thing it points at) this whole change exists to remove.
+  factKinds: readonly GateFactKind[],
 ): GateEvidenceCount {
   const re = keywordMatcher(keywords);
   const owned = new Set(factKinds);

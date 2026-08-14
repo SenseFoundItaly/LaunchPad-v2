@@ -338,7 +338,7 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
         s.watch_sources.filter((w) => w.status === 'active').length;
       return n > 0
         ? { passed: true, evidence: `You have ${n} active watcher${n === 1 ? '' : 's'} on this market.` }
-        : { passed: false, gap: 'Activate a watcher — apply one of the proposals in your inbox' };
+        : { passed: false, gap: 'Activate a watcher — apply a proposal in your inbox, or ask the Co-pilot to set one up' };
     },
   },
   // NOTE (2026-07): this is where the ORIGINAL `monitors_set` was removed. See

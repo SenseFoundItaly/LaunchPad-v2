@@ -1073,7 +1073,10 @@ export const en = {
   'journey-gap.gtm_opportunities': 'Assess the go-to-market — where the opening is and what will fight you',
   'journey-gap.partners_identified': 'Name the potential partners, resellers or distributors worth approaching',
   'journey-gap.regulatory_check': 'Check the regulatory landscape (e.g. GDPR, licensing, certification)',
-  'journey-gap.monitors_set': 'Activate a watcher — apply one of the proposals in your inbox',
+  // Names BOTH paths on purpose: once the founder declines the auto-proposals
+  // they are not re-offered (phase1-watchers asks once), so an inbox-only hint
+  // reads as a dead end on a REQUIRED check. `propose_monitor` is ungated.
+  'journey-gap.monitors_set': 'Activate a watcher — apply a proposal in your inbox, or ask the Co-pilot to set one up',
   'journey-gap.ip_analysis': 'Check the IP landscape — patents, trademarks, freedom to operate in this domain',
   'journey-gap.data_availability': 'Assess data availability & quality — critical for AI/data-driven products',
   'journey-gap.validation_strategy': 'Define the validation strategy — what you will test, with whom, and what would prove it',

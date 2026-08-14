@@ -8,12 +8,17 @@
  * `configure_watch_source` pending_actions — nothing activates until the
  * founder applies one (Watchers tab "Proposed" rows / inbox card).
  *
- * Idempotency is on STATE, never history (#367): bail only while an UNANSWERED
- * `phase1_auto` proposal is still open, or once a watcher is actually active.
- * The old rule (permanent marker + any-status prior) made a single rejection
- * permanent — fine for a suggestion, fatal for `monitors_set`, which has been a
- * REQUIRED gate check since 2026-08-04 and went red forever. The marker event
- * is still written as an audit trail; it gates nothing.
+ * Idempotency — ask ONCE (both must clear before the LLM call):
+ *   1. memory_events marker `phase1_watchers_proposed` — recorded once, only
+ *      when ≥1 proposal was actually created.
+ *   2. ANY-status pending_action with payload->>'origin'='phase1_auto' —
+ *      a rejected/dismissed proposal must stick; the founder said no once.
+ *
+ * ⚠️ Do NOT "fix" #367 by dropping these so the REQUIRED `monitors_set` check
+ * can be re-proposed: this runs on every chat turn, so a founder who declined
+ * would be re-asked (and re-billed for the LLM call) every turn. `monitors_set`
+ * stays reachable via the ungated `propose_monitor` chat tool — the dead end
+ * was the gap COPY naming only the inbox, and that is where it is fixed.
  *
  * First real caller of watcher-proposer.ts (previously dead code).
  */
@@ -24,7 +29,7 @@ import type { ProjectSnapshot } from '@/lib/journey';
 import { validationEvidenceDoneExceptWatchers } from '@/lib/journey/stage-2-market-validation';
 import { proposeWatchers, type ProposedWatcher } from '@/lib/watcher-proposer';
 import { createPendingAction } from '@/lib/pending-actions';
-import { recordEvent } from '@/lib/memory/events';
+import { recordEvent, lastEventOfType } from '@/lib/memory/events';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import type { WatcherTopic } from '@/lib/watchers';
 import type { WatchSourceCategory } from '@/types';
@@ -112,27 +117,31 @@ export async function maybeProposePhase1Watchers(
     const ownerUserId = proj?.owner_user_id || '';
     if (!ownerUserId) return; // the marker event needs a user to scope to
 
-    // ── Idempotency: STATE, not history (#367) ──────────────────────────────
-    // This used to bail on a permanent marker event and on an ANY-STATUS prior
-    // proposal, so "the founder said no once" stuck forever. That rule is right
-    // for a SUGGESTION and wrong here: since 2026-08-04 `monitors_set` is a
-    // REQUIRED gate check, so one rejection left it red with nothing left to
-    // click — the §4 dead-end, and the same trap `gate-verdict.ts` already
-    // documents ("a watcher is a suggestion, so 'no' can be final; a required
-    // step's 'no' can only mean 'not now'").
+    // ── Idempotency: ask ONCE (#367 considered and rejected) ────────────────
+    // The obvious read of #367 — "a rejection bricks the REQUIRED monitors_set
+    // check, so re-ask" — is wrong on both halves.
     //
-    // So: don't stack a card that is still waiting, and don't re-ask once the
-    // founder has an active watcher (shouldProposePhase1Watchers covers that).
-    // A rejected proposal no longer blocks — the check must stay closeable.
-    // The marker event survives as an audit trail; it gates nothing.
-    const open = await query<{ id: string }>(
-      `SELECT id FROM pending_actions
-        WHERE project_id = ? AND payload->>'origin' = ?
-          AND status IN ('pending','edited') LIMIT 1`,
+    // It does not brick: `propose_monitor` is an ungated chat tool, so the
+    // founder can ask the co-pilot for a watcher at any time and Apply it. The
+    // dead end was in the COPY, which named only the inbox; that is fixed in
+    // journey-gap.monitors_set, not here.
+    //
+    // And re-asking is worse than the disease: this runs on EVERY chat turn
+    // (chat/route.ts), so dropping the guard means a founder who declined once
+    // gets a fresh LLM call and a fresh set of inbox cards every single turn.
+    // "Not now" answered by asking again immediately is not respect for the
+    // decision, it is nagging — and it bills them for it.
+    //
+    // So the rejection sticks, exactly as it did before, and the founder keeps
+    // a path they can take when they want one.
+    if (await lastEventOfType(ownerUserId, projectId, 'phase1_watchers_proposed')) return;
+
+    const prior = await query<{ id: string }>(
+      "SELECT id FROM pending_actions WHERE project_id = ? AND payload->>'origin' = ? LIMIT 1",
       projectId,
       PHASE1_WATCHER_ORIGIN,
     );
-    if (open.length > 0) return;
+    if (prior.length > 0) return;
 
     // Existing watcher names (any status) so the proposer doesn't duplicate.
     const existingNames = await query<{ name: string }>(
@@ -167,9 +176,7 @@ export async function maybeProposePhase1Watchers(
     // duplicate window from ~seconds to ~ms; a leaked duplicate is still just
     // a founder-gated proposal, so no advisory lock needed at alpha scale.
     const priorAfterLlm = await query<{ id: string }>(
-      `SELECT id FROM pending_actions
-        WHERE project_id = ? AND payload->>'origin' = ?
-          AND status IN ('pending','edited') LIMIT 1`,
+      "SELECT id FROM pending_actions WHERE project_id = ? AND payload->>'origin' = ? LIMIT 1",
       projectId,
       PHASE1_WATCHER_ORIGIN,
     );
