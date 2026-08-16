@@ -821,6 +821,9 @@ export const it: Partial<Record<MessageKey, string>> = {
   // un check del Validation Gate non ancora soddisfatto (vedi journey-prompts.ts).
   'journey-prompt.segment': 'Aiutami a definire e validare il mio segmento di clienti target.',
   'journey-prompt.competitors': 'Aiutami a cercare e mappare i miei principali concorrenti.',
+  'journey-prompt.build-approach': 'Aiutami a delineare come lo costruiremmo davvero — architettura, stack, componenti principali — e salvalo come evidenza tecnica.',
+  'journey-prompt.cold-users-listed': 'Aiutami a mettere in lista le persone che voglio intervistare — chi sono e perché rientrano nel mio ICP — e salva la lista.',
+  'journey-prompt.cold-users-outreach': 'Ho iniziato a contattare le persone della lista interviste — aiutami a registrare chi ho contattato.',
   'journey-prompt.interviews': 'Aiutami a registrare le interviste ai clienti — ti dirò con chi ho parlato e cosa mi ha detto.',
   'journey-prompt.watcher': 'Imposta un watcher sui miei principali concorrenti o sui trend di mercato.',
   'journey-prompt.market-size': 'Aiutami a stimare la dimensione del mio mercato (TAM / SAM / SOM).',

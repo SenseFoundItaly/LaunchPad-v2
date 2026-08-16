@@ -31,6 +31,12 @@ export function checkActionPrompt(label: string, t: TFn): string {
   // broader /solution/ and /problem/ fallbacks at the end of the chain.
   if (/validation strategy/.test(l)) return t('journey-prompt.validation-strategy');
   if (/jobs-to-be-done|jobs to be done|\bjtbd\b/.test(l)) return t('journey-prompt.jtbd');
+  // 1C interview PIPELINE (#398), high in the chain on purpose:
+  //   - "contacted"/"outreach" would be stolen by /reach/ in the channels rule
+  //   - both labels end in "users", which the Stage-5 /users/ fallback claimed,
+  //     sending a founder listing interviewees to an acquire-early-users prompt
+  if (/cold user(s)? listed|prospects listed/.test(l)) return t('journey-prompt.cold-users-listed');
+  if (/cold user(s)? contacted|outreach/.test(l)) return t('journey-prompt.cold-users-outreach');
   // 1B. Word-boundary \bip\b deliberately — a bare 'ip' matches "description",
   // "equipment", "shipping".
   if (/patent|trademark|freedom to operate|intellectual property|\bip\b/.test(l)) return t('journey-prompt.ip');
@@ -38,6 +44,13 @@ export function checkActionPrompt(label: string, t: TFn): string {
   if (/data availability|data quality|dataset|data access/.test(l)) return t('journey-prompt.data-availability');
   // `/dependenc/` before feasibility: "Key technical dependencies named" matches both.
   if (/dependenc/.test(l)) return t('journey-prompt.dependencies');
+  // BEFORE feasibility (a future "Technical build approach" belongs here) and,
+  // critically, before the Stage-5 /\bbuild\b/ MVP rule far below — which is
+  // where "Build approach sketched (architecture / stack)" was landing. The
+  // single check that blocks 1C on 116/116 prod projects was pre-filling
+  // "help me scope and ship my MVP". Phrase-matched, never a bare `build`, so
+  // the Stage-5 build checks keep the MVP prompt.
+  if (/build approach|architecture|tech stack/.test(l)) return t('journey-prompt.build-approach');
   if (/feasibilit|technical/.test(l)) return t('journey-prompt.feasibility');
   if (/regulat|complian|gdpr|licens/.test(l)) return t('journey-prompt.regulatory');
   if (/segment|icp|ideal customer|persona|beachhead/.test(l)) return t('journey-prompt.segment');
