@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { e2eBypassEnabled } from '@/lib/auth/e2e-bypass';
 
 /**
  * DEV-ONLY project browser. Lists every project across all owners with a
@@ -7,7 +8,8 @@ import { query } from '@/lib/db';
  * owner and opens it — so you can view any project locally without juggling
  * accounts. Read-only: no ownership is changed.
  *
- * Inert in production: 403 unless E2E_AUTH_ENABLED=1 (never set on the deployed
+ * Inert on ANY deployed site: 403 unless E2E_AUTH_ENABLED=1 AND not serving a
+ * deploy (e2e-bypass.ts). The flag alone was the old guard (never set on the deployed
  * site), exactly like /api/dev-login.
  */
 interface Row {
@@ -23,7 +25,7 @@ const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 export async function GET() {
-  if (process.env.E2E_AUTH_ENABLED !== '1') {
+  if (!e2eBypassEnabled()) {
     return NextResponse.json(
       { error: 'dev-projects is disabled (set E2E_AUTH_ENABLED=1 to use it locally)' },
       { status: 403 },

@@ -27,5 +27,5 @@ Next.js app (App Router) deployed to Netlify via OpenNext. Prod: launchpad.sense
 
 ## Build / test / deploy
 - Worktrees have no own `node_modules` (symlinked from the main checkout): use `node_modules/.bin/tsc` (npx false-passes) and `next build --webpack` / `next dev --webpack` (turbopack panics on the symlink).
-- Tests: `vitest`; live e2e sims are `node scripts/e2e-*.mjs` / `sim-*.mjs`. Auth bypass for QA: `E2E_AUTH_ENABLED=1` + `x-e2e-user` cookie/header (403 in prod).
+- Tests: `vitest`; live e2e sims are `node scripts/e2e-*.mjs` / `sim-*.mjs`. Auth bypass for QA: `E2E_AUTH_ENABLED=1` + `x-e2e-user` cookie/header — honoured ONLY when `CONTEXT` says this is not a deployed site (`e2e-bypass.ts`). The flag alone used to be the guard and staging served it publicly; setting it on a deploy now does nothing.
 - Deploy: `npm run deploy` (netlify-cli upload, NOT git CI) from the real main checkout only. To clear cache remove ONLY `.netlify/functions-internal` and `.next` — never `.netlify` itself (deletes the project link).
