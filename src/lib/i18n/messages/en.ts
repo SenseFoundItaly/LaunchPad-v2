@@ -837,6 +837,8 @@ export const en = {
   // the project language.
   'journey-prompt.segment': 'Help me define and validate my target customer segment.',
   'journey-prompt.competitors': 'Research and map my top competitors.',
+  'canvas.run-skill': 'Run {skill} →',
+  'skill-name.technical-validation': 'Technical Validation',
   'journey-prompt.build-approach': "Help me sketch how we'd actually build this — architecture, stack, main components — then save it as technical evidence.",
   'journey-prompt.cold-users-listed': 'Help me list the people I want to interview — who they are and why they fit my ICP — and save the list.',
   'journey-prompt.cold-users-outreach': "I've started reaching out to the people on my interview list — help me record who I've contacted.",

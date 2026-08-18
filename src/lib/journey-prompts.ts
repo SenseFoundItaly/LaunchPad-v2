@@ -89,6 +89,32 @@ export function checkActionPrompt(label: string, t: TFn): string {
 }
 
 /**
+ * Checks whose evidence a SKILL can produce, and which one.
+ *
+ * `build_approach` is green on 1 of 116 prod projects and it locks 1C on all of
+ * them. Its gap text says "run Technical Validation" — and until now nothing in
+ * the product could run it: skills reach a founder only when the co-pilot
+ * happens to offer one as a card, and `technical-validation` has never been run
+ * on any project, ever.
+ *
+ * So the row that names a skill now offers it. Explicit click, never automatic
+ * — auto-running is the "troppo veicolato" the founder objected to in the 04/08
+ * changelog, and the same reason nothing is seeded on project create.
+ *
+ * Deliberately a one-entry map, not a convention: `build_approach` is the only
+ * check whose gap names a runnable skill (measured across all 7 stages, both
+ * locales). It is a map so the next one is a line, not a refactor.
+ */
+const CHECK_RUNNABLE_SKILL: Record<string, string> = {
+  build_approach: 'technical-validation',
+};
+
+/** The skill that can produce this check's evidence, if any. */
+export function checkRunnableSkill(checkId: string): string | undefined {
+  return CHECK_RUNNABLE_SKILL[checkId];
+}
+
+/**
  * Founder-facing display labels for the spine (check rows + stage tiles +
  * taglines) are LOCALIZED here, keyed by the stable check/stage id.
  *

@@ -20,7 +20,7 @@ import { useMemo, useState } from 'react';
 import { useStages } from '@/hooks/useStages';
 import { useGateVerdict } from '@/hooks/useGateVerdict';
 import { useRouter } from 'next/navigation';
-import { checkActionPrompt, checkLabel, stageLabel, stageTagline, checkGap, checkEvidence } from '@/lib/journey-prompts';
+import { checkActionPrompt, checkLabel, stageLabel, stageTagline, checkGap, checkEvidence, checkRunnableSkill } from '@/lib/journey-prompts';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
 import { Icon, I } from '@/components/design/icons';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -48,6 +48,11 @@ interface SpineSectionProps {
   /** Click an UNMET substep → pre-fill the chat composer with a tailored prompt
    *  to work on it (wired to the chat page's setInput). */
   onPickPrompt?: (prompt: string, checkId?: string) => void;
+  /** Run the SKILL that can produce a check's evidence. Routed to the chat
+   *  page's `skill:run` handler, which owns the credit hard-stop (402 →
+   *  recharge modal) and the prerequisite gates (422) — a raw fetch here would
+   *  reimplement both, badly. */
+  onRunSkill?: (skillId: string) => Promise<void> | void;
 }
 
 // Canvas-field sources that have a VISIBLE home in the pinned IdeaCanvasHeader
@@ -91,7 +96,7 @@ const STATE: Record<StageEval['status'], { color: string; labelKey: MessageKey }
 // Labels/explainers/order live in lib so both surfaces share one definition
 // (imported at the top of the file with the rest).
 
-export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
+export function SpineSection({ projectId, onPickPrompt, onRunSkill }: SpineSectionProps) {
   const t = useT();
   const locale = useLocale();
   const router = useRouter();
@@ -99,6 +104,9 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
   const [userPicked, setUserPicked] = useState(false);
   // Which validated substep has its proof expanded (by check id).
   const [openProof, setOpenProof] = useState<string | null>(null);
+  // Which check's skill is mid-run — the row's CTA becomes a spinner-ish
+  // label so a second click can't double-charge the analysis.
+  const [runningSkill, setRunningSkill] = useState<string | null>(null);
 
   // Cached via the shared useStages hook (dedupes with the chat-header subtitle
   // onto one ['stages', projectId] query) so the spine survives tab navigation.
@@ -116,6 +124,27 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
 
   // Both writes refresh the same surfaces a chat-recorded verdict does: the
   // check row, the gated skills it unlocks, and this footer.
+  /**
+   * Run the skill a check names. Delegates to the chat page's `skill:run`
+   * handler — which owns the 402 recharge modal and the 422 prerequisite
+   * surfaces — rather than fetching here and reimplementing both.
+   *
+   * Explicit click only. Auto-running on render would be the "troppo veicolato"
+   * the founder objected to on 04/08, and it would spend against a project the
+   * founder may not have chosen to advance.
+   */
+  const startSkill = async (skillId: string) => {
+    if (runningSkill || !onRunSkill) return;
+    setRunningSkill(skillId);
+    try {
+      await onRunSkill(skillId);
+    } finally {
+      // Always clear: the handler swallows its own errors (recharge modal,
+      // prereq message), so a stuck "running" label would be the only trace.
+      setRunningSkill(null);
+    }
+  };
+
   const afterDecision = () => {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
@@ -323,6 +352,13 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
               // inline proof. ✓ without proof = not clickable. LOCKED (1C while
               // 1A+1B open) = never clickable — working on it now is premature.
               const canPrefill = isGap && !locked && !!onPickPrompt;
+              // A skill that can produce THIS check's evidence (build_approach
+              // → technical-validation). Only offered while the row is unmet:
+              // re-running an analysis whose evidence is already in is spend
+              // with nothing to buy.
+              const runnableSkill = isGap ? checkRunnableSkill(r.check.id) : undefined;
+              const skillName = runnableSkill ? t(`skill-name.${runnableSkill}` as MessageKey) : '';
+              const isRunning = runningSkill === runnableSkill;
               const clickable = canPrefill || hasProof;
               const onRowClick = canPrefill
                 ? () => onPickPrompt?.(checkActionPrompt(r.check.label, t), r.check.id)
@@ -369,6 +405,33 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                     {canPrefill && (
                       <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--accent)', flexShrink: 0, marginTop: 2, whiteSpace: 'nowrap' }}>
                         {t('canvas.ask-copilot-cta')}
+                      </span>
+                    )}
+                    {/* The row that NAMES a skill can now run it. Its gap text
+                        has always said "run Technical Validation"; until now the
+                        product had nowhere to run it, because skills only ever
+                        reached a founder if the co-pilot happened to offer one.
+                        Not a nested <button> — this row is already clickable,
+                        so stopPropagation keeps the two actions distinct. */}
+                    {runnableSkill && !locked && onRunSkill && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        aria-label={t('canvas.run-skill', { skill: skillName })}
+                        onClick={(e) => { e.stopPropagation(); void startSkill(runnableSkill); }}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter' && e.key !== ' ') return;
+                          e.preventDefault(); e.stopPropagation(); void startSkill(runnableSkill);
+                        }}
+                        className="lp-mono"
+                        style={{
+                          fontSize: 9.5, flexShrink: 0, marginTop: 2, whiteSpace: 'nowrap',
+                          color: isRunning ? 'var(--ink-5)' : 'var(--moss)',
+                          cursor: isRunning ? 'default' : 'pointer',
+                          borderBottom: isRunning ? 'none' : '1px solid var(--moss)',
+                        }}
+                      >
+                        {isRunning ? t('chat.running') : t('canvas.run-skill', { skill: skillName })}
                       </span>
                     )}
                   </div>

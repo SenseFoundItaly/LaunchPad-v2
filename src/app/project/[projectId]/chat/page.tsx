@@ -1764,6 +1764,13 @@ export default function CopilotChatPage({
             messages={messages}
             handleArtifactAction={handleArtifactAction}
             focusedMessageId={focusedMessageId}
+            onRunSkill={(skillId) =>
+              // The spine's "Run Technical Validation" row. Same handler the
+              // chat cards use, so the credit hard-stop (402 → recharge) and
+              // the prerequisite gates (422) behave identically wherever a
+              // skill is started from.
+              handleArtifactAction('skill:run', { skill_id: skillId })
+            }
             onSkillClick={(label) => {
               // Mirror the inline option-set "select-option" convention so the
               // agent runs the skill the founder just clicked. See route.ts
