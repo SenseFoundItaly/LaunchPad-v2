@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { e2eBypassEnabled } from '@/lib/auth/e2e-bypass';
 
 /**
  * DEV-ONLY login shim. Sets the `x-e2e-user` cookie that middleware.ts +
@@ -6,7 +7,9 @@ import { NextRequest, NextResponse } from 'next/server';
  * non-:3000 dev port (where Supabase magic-link redirect URLs aren't
  * configured) doesn't require email auth.
  *
- * Inert in production: returns 403 unless E2E_AUTH_ENABLED=1, which is never
+ * Inert on ANY deployed site: 403 unless E2E_AUTH_ENABLED=1 AND the process is
+ * not serving a deploy (e2e-bypass.ts). The old comment said the flag "is never
+ * set in production" — staging had it set and served the bypass publicly, so
  * set on the deployed site — so this can never mint a session in prod.
  *
  * Usage:  /api/dev-login?as=<userId>&to=/project/<projectId>
@@ -14,7 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
  *   - to  defaults to "/"
  */
 export async function GET(request: NextRequest) {
-  if (process.env.E2E_AUTH_ENABLED !== '1') {
+  if (!e2eBypassEnabled()) {
     return NextResponse.json(
       { error: 'dev-login is disabled (set E2E_AUTH_ENABLED=1 to use it locally)' },
       { status: 403 },

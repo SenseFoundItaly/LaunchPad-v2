@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { e2eBypassEnabled } from '@/lib/auth/e2e-bypass';
 
 /**
  * Auth middleware: runs on every request (except static assets).
@@ -30,7 +31,7 @@ const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 export async function middleware(req: NextRequest) {
   // E2E bypass: same flag as require-user.ts. When set, an x-e2e-user cookie
   // (or header) means the request is authenticated — skip redirect-to-login.
-  if (process.env.E2E_AUTH_ENABLED === '1') {
+  if (e2eBypassEnabled()) {
     const e2eId = req.headers.get('x-e2e-user') || req.cookies.get('x-e2e-user')?.value;
     if (e2eId) return NextResponse.next({ request: req });
   }

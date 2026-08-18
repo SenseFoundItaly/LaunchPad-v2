@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { headers, cookies } from 'next/headers';
 import { get, run } from '@/lib/db';
 import { getSupabaseServer } from './supabase-server';
+import { e2eBypassEnabled } from '@/lib/auth/e2e-bypass';
 
 export class AuthError extends Error {
   constructor(
@@ -31,12 +32,13 @@ export type SessionUser = {
  * Idempotent: SELECTs first, only INSERTs when missing.
  */
 export async function requireUser(): Promise<SessionUser> {
-  // E2E bypass: only honored when E2E_AUTH_ENABLED=1 is set in the server's
-  // env (off by default, never set in production). Accepts the bypass user
+  // E2E bypass: honoured only when E2E_AUTH_ENABLED=1 AND this is not a
+  // DEPLOYED site — see e2e-bypass.ts. The flag alone used to be the whole
+  // guard, and staging shipped it to the internet. Accepts the bypass user
   // ID via either an `x-e2e-user` request header (used by the API-driven
   // e2e in scripts/e2e-agent-flow.mjs) or an `x-e2e-user` cookie (used by
   // browser-driven Playwright runs where setting headers per-nav is awkward).
-  if (process.env.E2E_AUTH_ENABLED === '1') {
+  if (e2eBypassEnabled()) {
     const h = await headers();
     const c = await cookies();
     const e2eUserId = h.get('x-e2e-user') || c.get('x-e2e-user')?.value;
