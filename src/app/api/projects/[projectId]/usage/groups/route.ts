@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { json } from '@/lib/api-helpers';
+import { REAL_SPEND_ONLY } from '@/lib/credit-costs';
 
 /**
  * GET /api/projects/{projectId}/usage/groups
@@ -37,7 +38,7 @@ export async function GET(
        SUM(total_cost_usd) AS total_cost_usd,
        COUNT(*) AS call_count
      FROM llm_usage_logs
-     WHERE project_id = ?
+     WHERE project_id = ? AND ${REAL_SPEND_ONLY}
        AND created_at >= ?
      GROUP BY step, provider, model
      ORDER BY total_cost_usd DESC
