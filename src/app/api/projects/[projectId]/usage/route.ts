@@ -3,6 +3,7 @@ import { query } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { reconcileProjectBudget } from '@/lib/cost-meter';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
+import { REAL_SPEND_ONLY } from '@/lib/credit-costs';
 
 interface UsageRow {
   id: string;
@@ -62,7 +63,7 @@ export async function GET(
        COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read,
        COUNT(*) AS call_count
      FROM llm_usage_logs
-     WHERE project_id = ?`,
+     WHERE project_id = ? AND ${REAL_SPEND_ONLY}`,
     projectId,
   );
 
@@ -73,7 +74,7 @@ export async function GET(
        COALESCE(SUM(total_cost_usd), 0) AS total_cost,
        COUNT(*) AS call_count
      FROM llm_usage_logs
-     WHERE project_id = ?
+     WHERE project_id = ? AND ${REAL_SPEND_ONLY}
      GROUP BY COALESCE(skill_id, step, 'unknown')
      ORDER BY total_cost DESC`,
     projectId,

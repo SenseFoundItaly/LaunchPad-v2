@@ -77,3 +77,19 @@ export function median(nums: number[]): number | null {
   return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
 }
 
+
+/**
+ * `llm_usage_logs` holds TWO kinds of row, and only one is spend.
+ *
+ * `debitCredits` mirrors every charge into the same table so the usage page can
+ * show billing beside cost — those rows carry `model = 'credit'`, zero tokens,
+ * and `total_cost_usd` = the CREDITS charged, not dollars burned. Measured
+ * 2026-08-14: 334 mirror rows summing to $66.80 sat alongside $70.50 of real
+ * Sonnet spend, so an unfiltered SUM reported $145 for a $79 month — an 84%
+ * over-report that GROWS with billing volume rather than with cost.
+ *
+ * Every cost reader must exclude them. Kept as a SQL fragment rather than
+ * repeated inline: three readers had drifted into reporting the inflated
+ * number, and a fourth would have too.
+ */
+export const REAL_SPEND_ONLY = "model IS DISTINCT FROM 'credit'";

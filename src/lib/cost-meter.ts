@@ -21,6 +21,7 @@ import {
   USER_MONTHLY_CREDITS,
   USER_MONTHLY_LLM_USD,
   USER_MONTHLY_WARN_LLM_USD,
+  REAL_SPEND_ONLY,
 } from '@/lib/credit-costs';
 
 export interface RecordUsageInput {
@@ -443,7 +444,7 @@ export async function reconcileProjectBudget(
   const loggedRow = (await query<{ s: number }>(
     `SELECT COALESCE(SUM(total_cost_usd), 0) AS s
      FROM llm_usage_logs
-     WHERE project_id = ? AND created_at >= ? AND created_at < ?`,
+     WHERE project_id = ? AND ${REAL_SPEND_ONLY} AND created_at >= ? AND created_at < ?`,
     projectId, start, end,
   ))[0];
   const loggedUsd = Number(loggedRow?.s ?? 0);
@@ -506,7 +507,7 @@ export async function reconcileUserBudget(
   const loggedRow = (await query<{ s: number }>(
     `SELECT COALESCE(SUM(total_cost_usd), 0) AS s
      FROM llm_usage_logs
-     WHERE created_at >= ? AND created_at < ?
+     WHERE ${REAL_SPEND_ONLY} AND created_at >= ? AND created_at < ?
        AND project_id IN (SELECT id FROM projects WHERE owner_user_id = ?)`,
     start, end, userId,
   ))[0];
