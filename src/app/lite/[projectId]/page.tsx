@@ -44,24 +44,72 @@ export default function LiteKickoffPage({ params }: { params: Promise<{ projectI
   const loadNorthStar = useCallback(async () => {
     const r = await fetch(`/api/lite/${projectId}/north-star`).then((x) => x.json()).catch(() => null);
     const d = r?.data ?? r;
-    if (d?.pillars) { setPillars(d.pillars); setProgress(d.progress); }
+    if (d?.pillars) {
+      setPillars(d.pillars);
+      // Pillar count only — `currentQuestion` comes from the stream, which
+      // knows about the turn in flight; this read does not.
+      setProgress((prev) => ({ ...prev, answered: d.progress.answered, complete: d.progress.complete }));
+    }
   }, [projectId]);
 
+  /**
+   * One turn, streamed.
+   *
+   * Text lands token by token, and a `pillar_written` frame refreshes the panel
+   * MID-REPLY — the founder watches a pillar appear while Otto is still
+   * talking, which is the moment the whole flow exists for. Waiting for the
+   * turn to end would throw that away.
+   */
   const send = useCallback(async (message: string) => {
     setBusy(true); setError(null);
-    if (message) setMessages((m) => [...m, { id: `local_${Date.now()}`, role: 'user', content: message }]);
+    if (message) setMessages((m) => [...m, { id: `u_${Date.now()}`, role: 'user', content: message }]);
+
+    const replyId = `a_${Date.now()}`;
+    let started = false;
+
     try {
       const res = await fetch(`/api/lite/${projectId}/kickoff`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message }),
       });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
-      const d = body?.data ?? body;
-      if (d?.reply) setMessages((m) => [...m, { id: `a_${Date.now()}`, role: 'assistant', content: d.reply }]);
-      if (d?.progress) setProgress(d.progress);
-      // The pillars were written mid-turn — re-read so they appear now.
+      if (!res.ok || !res.body) {
+        const b = await res.json().catch(() => null);
+        throw new Error(b?.error || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // Keep the trailing partial frame in the buffer — a JSON object split
+        // across two chunks must not be parsed (or dropped) as if complete.
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let ev: Record<string, unknown>;
+          try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (typeof ev.content === 'string' && ev.content) {
+            const delta = ev.content;
+            setMessages((m) => {
+              if (!started) { started = true; return [...m, { id: replyId, role: 'assistant', content: delta }]; }
+              return m.map((x) => (x.id === replyId ? { ...x, content: x.content + delta } : x));
+            });
+          }
+          // A pillar just hit the database — show it now, not at the end.
+          if (ev.pillar_written) void loadNorthStar();
+          if (ev.progress) setProgress(ev.progress as Progress);
+          if (typeof ev.error === 'string') setError(ev.error);
+        }
+      }
+      // Final reconcile: covers a pillar written in the last frames.
       await loadNorthStar();
     } catch (e) {
       setError((e as Error).message);
@@ -93,9 +141,12 @@ export default function LiteKickoffPage({ params }: { params: Promise<{ projectI
   const submit = () => { const t = input.trim(); if (!t || busy) return; setInput(''); void send(t); };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.1fr)', height: '100vh', background: 'var(--paper)' }}>
+    // height:100% (not 100vh) so the two panes fill the <main> they are given.
+    // 100vh overflowed whenever anything sat above us, pushing the composer off
+    // the bottom of the screen.
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.1fr)', height: '100%', minHeight: 0, background: 'var(--paper)' }}>
       {/* ── LEFT: the conversation ─────────────────────────────────────── */}
-      <section style={{ display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--line)', minWidth: 0 }}>
+      <section style={{ display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--line)', minWidth: 0, minHeight: 0 }}>
         <header style={{ padding: '14px 20px 10px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
             <span className="lp-mono" style={{ fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--ink-3)' }}>
@@ -148,7 +199,7 @@ export default function LiteKickoffPage({ params }: { params: Promise<{ projectI
       </section>
 
       {/* ── RIGHT: the document writing itself ─────────────────────────── */}
-      <section style={{ overflowY: 'auto', padding: '30px 34px', background: 'var(--surface)' }}>
+      <section style={{ overflowY: 'auto', minHeight: 0, padding: '30px 34px', background: 'var(--surface)' }}>
         <div className="lp-mono" style={{ fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--ink-5)' }}>
           My North Star
         </div>

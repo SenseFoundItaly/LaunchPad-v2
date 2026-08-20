@@ -3,7 +3,7 @@ import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { query, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
-import { runAgent } from '@/lib/pi-agent';
+import { runAgentStream } from '@/lib/pi-agent';
 import { readNorthStar, makeNorthStarTool } from '@/lib/kickoff/store';
 import { kickoffPrompt, KICKOFF_STEP } from '@/lib/kickoff/prompt';
 import { kickoffProgress } from '@/lib/kickoff/pillars';
@@ -24,9 +24,14 @@ import { kickoffProgress } from '@/lib/kickoff/pillars';
  *   - one tool (`write_north_star`), which writes a draft document, never
  *     evidence — see `kickoff/store.ts` for why that is safe
  *
- * Non-streaming for now: the interview is three short turns, and a plain JSON
- * reply keeps the client trivial. Streaming is a later upgrade to this route
- * alone.
+ * STREAMS (SSE). Not for latency theatre: the `tool_end` frame for
+ * `write_north_star` is what lets the panel fill WHILE Otto is still talking.
+ * Waiting for the turn to finish would collapse the one moment the whole flow
+ * exists to produce — watching the document write itself.
+ *
+ * Frames, on top of the agent's own ({content}, {tool_start}, {tool_end}):
+ *   { pillar_written: "01" }   — refresh the panel now
+ *   { progress: {...} }        — final, after the reply is persisted
  */
 export async function POST(
   request: NextRequest,
@@ -86,37 +91,81 @@ export async function POST(
     ? `${transcript ? transcript + '\n\n' : ''}Founder: ${message}`
     : transcript || '(The founder has just arrived. Open the interview.)';
 
-  let text = '';
-  try {
-    const res = await runAgent(prompt, {
-      systemPrompt,
-      task: 'chat',
-      projectId,
-      step: KICKOFF_STEP,
-      userId: auth.session.userId,
-      // No web_search / read_url: this is an interview, not research.
-      tools: false,
-      extraTools: [makeNorthStarTool(projectId)],
-      maxToolCalls: 6,
-    });
-    text = String(res?.text ?? '').trim();
-  } catch (err) {
-    console.warn('[lite/kickoff] agent failed:', (err as Error).message);
-    return error('The co-pilot could not reply just now — try again.', 502);
-  }
+  const { stream, cleanup } = runAgentStream(prompt, {
+    systemPrompt,
+    task: 'chat',
+    projectId,
+    step: KICKOFF_STEP,
+    userId: auth.session.userId,
+    // No web_search / read_url: this is an interview, not research.
+    tools: false,
+    extraTools: [makeNorthStarTool(projectId)],
+    maxToolCalls: 6,
+  });
 
-  if (text) {
-    await run(
-      `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
-       VALUES (?, ?, ?, 'assistant', ?, ?, ?)`,
-      generateId('msg'), projectId, KICKOFF_STEP, text, new Date().toISOString(), auth.session.userId,
-    );
-  }
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const userId = auth.session.userId;
 
-  // Re-read AFTER the turn: the agent may have written pillars mid-reply, and
-  // the client needs the post-turn progress to move its bar.
-  const after = await readNorthStar(projectId);
-  return json({ reply: text, progress: kickoffProgress(after, priorFounderTurns) });
+  const out = new ReadableStream({
+    async start(controller) {
+      const reader = stream.getReader();
+      const send = (obj: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      let fullText = '';
+      let buffer = '';
+
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          controller.enqueue(value);                 // pass the agent's frames through
+
+          // Accumulate the reply for persistence, and watch for pillar writes.
+          // Partial frames are kept in `buffer` — a JSON object split across
+          // two chunks would otherwise be silently dropped.
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const ev = JSON.parse(line.slice(6));
+              if (typeof ev.content === 'string') fullText += ev.content;
+              // The moment that makes the panel feel alive.
+              if (ev.tool_end?.name === 'write_north_star') send({ pillar_written: true });
+            } catch { /* not a complete JSON frame — ignore */ }
+          }
+        }
+
+        const text = fullText.trim();
+        if (text) {
+          await run(
+            `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
+             VALUES (?, ?, ?, 'assistant', ?, ?, ?)`,
+            generateId('msg'), projectId, KICKOFF_STEP, text, new Date().toISOString(), userId,
+          );
+        }
+        // Final frame: progress AFTER the turn, so the bar moves once the
+        // pillars this turn wrote are actually on disk.
+        const after = await readNorthStar(projectId);
+        send({ progress: kickoffProgress(after, priorFounderTurns) });
+      } catch (err) {
+        console.warn('[lite/kickoff] stream failed:', (err as Error).message);
+        send({ error: 'The co-pilot stopped mid-reply — try again.' });
+      } finally {
+        cleanup();
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(out, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  });
 }
 
 /** GET — the interview transcript, for a resumable thread. */
