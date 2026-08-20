@@ -16,6 +16,10 @@ function getProjectName(pathname: string): string | null {
 function isFullBleedRoute(pathname: string): boolean {
   if (pathname === '/' || pathname === '/settings') return true;
   if (pathname === '/demo' || pathname.startsWith('/demo/')) return true;
+  // Launchpad Lite owns the whole viewport: chat left, the document right, and
+  // nothing else. A bar above it both steals height and reintroduces the app
+  // the lite flow exists to step outside of.
+  if (pathname.startsWith('/lite')) return true;
   return /^\/project\/[^/]+/.test(pathname);
 }
 
