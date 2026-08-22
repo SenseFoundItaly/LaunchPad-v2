@@ -71,6 +71,24 @@ describe('north_star is a draft document, never evidence', () => {
     // makeProjectTools would hand the main agent an ungated write.
     expect(codeOf('src/lib/project-tools.ts')).not.toMatch(/write_north_star|makeNorthStarTool/);
   });
+
+  it('write_section is NOT in the main co-pilot tool set either', () => {
+    // The audit tool fills seven sections with no approval card. In the main
+    // agent, where sections would sit next to real evidence writers, that is
+    // precisely the ungated write the invariant forbids.
+    expect(codeOf('src/lib/project-tools.ts')).not.toMatch(/write_section|makeSectionTool/);
+  });
+
+  it('the audit route writes sections and nothing else', () => {
+    // The audit is the biggest ungated write in the product: seven sections in
+    // one pass. It stays safe only while `write_section` is its ONLY tool.
+    const route = codeOf('src/app/api/lite/[projectId]/audit/route.ts');
+    expect(route).toContain('makeSectionTool');
+    expect(route).toMatch(/tools:\s*false/);
+    for (const forbidden of ['makeProjectTools', 'recordFact', 'stageValidationProposal', 'idea_canvas']) {
+      expect(route, forbidden).not.toContain(forbidden);
+    }
+  });
 });
 
 describe('the lite surface is isolated from the main app', () => {
