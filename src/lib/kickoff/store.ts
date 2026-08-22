@@ -21,6 +21,10 @@ import { Type } from '@sinclair/typebox';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import { query, run } from '@/lib/db';
 import { coerceNorthStar, pillarById, PILLAR_IDS, type NorthStar } from './pillars';
+import {
+  coerceSections, sectionById, SECTION_IDS, CONFIDENCE_ORDER,
+  type Sections, type Confidence,
+} from './sections';
 
 export async function readNorthStar(projectId: string): Promise<NorthStar> {
   const rows = await query<{ pillars: unknown }>(
@@ -60,6 +64,98 @@ export async function writePillar(projectId: string, id: string, value: string):
     { [id]: text },
   );
   return true;
+}
+
+export async function readSections(projectId: string): Promise<Sections> {
+  const rows = await query<{ sections: unknown }>(
+    'SELECT sections FROM north_star WHERE project_id = ?',
+    projectId,
+  ).catch(() => [] as { sections: unknown }[]);
+  return coerceSections(rows[0]?.sections);
+}
+
+/**
+ * Write one section. Same upsert + jsonb merge as `writePillar`, and for the
+ * same reason: the audit fills seven sections in a single turn, and a
+ * whole-object assignment would drop every write but the last.
+ */
+export async function writeSection(
+  projectId: string,
+  id: string,
+  text: string,
+  risk: string,
+  confidence: Confidence,
+): Promise<boolean> {
+  if (!sectionById(id)) return false;
+  const body = String(text ?? '').trim().slice(0, 4000);
+  if (body.length < 3) return false;
+  const section = {
+    text: body,
+    risk: String(risk ?? '').trim().slice(0, 600),
+    confidence,
+    updatedAt: new Date().toISOString(),
+  };
+  await run(
+    `INSERT INTO north_star (project_id, sections)
+     VALUES (?, ?)
+     ON CONFLICT (project_id) DO UPDATE
+       SET sections = north_star.sections || EXCLUDED.sections,
+           updated_at = CURRENT_TIMESTAMP`,
+    projectId,
+    { [id]: section },
+  );
+  return true;
+}
+
+/**
+ * The audit's write tool.
+ *
+ * `risk` and `confidence` are REQUIRED parameters, not optional extras. That is
+ * the whole design: an agent filling seven sections from two founder sentences
+ * is guessing at some of them, and a tool that let it stay silent about which
+ * ones would produce a plan that reads as authoritative and is not. Making the
+ * model name the weakness in the same call that writes the content is what buys
+ * the right to fill a section nobody asked about.
+ */
+export function makeSectionTool(projectId: string): AgentTool {
+  return {
+    name: 'write_section',
+    label: 'Write section',
+    description:
+      'Write one section of the founder\'s plan. Sections: founder_fit, customer, problem, service_system, business_model, gtm, relationship_capital. Call it once per section — fill ALL of them, even the ones the founder never mentioned, because an honest draft beats an empty box. You MUST state the risk and the confidence for each: "grounded" only if the founder actually said it, "inferred" if you reasoned it from what they said, "assumed" if you filled it to keep the plan whole. Never mark a guess as grounded.',
+    parameters: Type.Object({
+      section: Type.String({ description: `One of: ${SECTION_IDS.join(', ')}` }),
+      text: Type.String({ description: 'The section, founder-facing. 2-5 sentences. Concrete, no filler.' }),
+      risk: Type.String({ description: 'The single thing that would make this section WRONG. One sentence, specific and testable.' }),
+      confidence: Type.String({ description: 'grounded | inferred | assumed' }),
+    }),
+    async execute(_id: string, params: unknown): Promise<AgentToolResult<unknown>> {
+      const p = params as Record<string, unknown>;
+      const id = String(p.section ?? '').trim();
+      if (!SECTION_IDS.includes(id)) {
+        return {
+          content: [{ type: 'text', text: `Unknown section "${id}". Use one of: ${SECTION_IDS.join(', ')}.` }],
+          details: { error: 'unknown_section' },
+        };
+      }
+      const raw = String(p.confidence ?? '').trim().toLowerCase();
+      // Unrecognised confidence degrades to 'assumed' — never upward. A typo
+      // must not be able to launder a guess into a fact.
+      const confidence = (CONFIDENCE_ORDER as readonly string[]).includes(raw)
+        ? (raw as Confidence)
+        : 'assumed';
+      const ok = await writeSection(projectId, id, String(p.text ?? ''), String(p.risk ?? ''), confidence);
+      return {
+        content: [{
+          type: 'text',
+          text: ok
+            ? `Section ${id} written (${confidence}).`
+            : `Section ${id} not written — the text was too short.`,
+        }],
+        details: { section: id, written: ok, confidence },
+      };
+    },
+  };
 }
 
 /** Stamp the consent moment. Called by the promote route, never by the agent. */
