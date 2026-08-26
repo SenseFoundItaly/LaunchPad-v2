@@ -347,11 +347,35 @@ export default function HomePage() {
       <TopBar
         breadcrumb={[t('home.breadcrumb')]}
         right={
-          <span className="lp-mono" style={{ fontSize: 10 }}>
-            {stats.total_projects !== 1
-              ? t('home.project-count-many', { count: stats.total_projects })
-              : t('home.project-count-one', { count: stats.total_projects })}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span className="lp-mono" style={{ fontSize: 10 }}>
+              {stats.total_projects !== 1
+                ? t('home.project-count-many', { count: stats.total_projects })
+                : t('home.project-count-one', { count: stats.total_projects })}
+            </span>
+            {/* Settings lives on the NavRail, which only mounts INSIDE a
+                project — so from the projects root there was no way to reach
+                your account at all. This is that door. */}
+            <Link
+              href="/settings"
+              title={t('nav.settings')}
+              aria-label={t('nav.settings')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 24,
+                height: 24,
+                borderRadius: 12,
+                color: 'var(--ink-3)',
+                border: '1px solid var(--line-2)',
+                textDecoration: 'none',
+                flexShrink: 0,
+              }}
+            >
+              <Icon d={I.sliders} size={12} />
+            </Link>
+          </div>
         }
       />
 
@@ -938,7 +962,13 @@ export default function HomePage() {
                       {projects.map((p) => (
                         <Link
                           key={p.project_id}
-                          href={`/project/${p.project_id}/chat`}
+                          // A Lite project STAYS Lite. Its card opens the Lite
+                          // surface, not the full workspace — the two are
+                          // different products and blurring them is how the
+                          // lightweight one quietly becomes the heavy one.
+                          href={(p.lite_sections ?? 0) > 0
+                            ? `/lite/${p.project_id}`
+                            : `/project/${p.project_id}/chat`}
                           style={{ textDecoration: 'none' }}
                         >
                           <div
@@ -1053,39 +1083,6 @@ export default function HomePage() {
                               {p.weekly_alerts > 0 && (
                                 <Pill kind="warn">{p.weekly_alerts}</Pill>
                               )}
-                              {/* The door into Lite, on EVERY project — /lite
-                                  works on any project the user can already
-                                  reach, so this needs no sharing and no new
-                                  project. A nested <a> inside the card's Link
-                                  would be invalid HTML, hence a button that
-                                  stops the outer navigation and pushes. */}
-                              <button
-                                type="button"
-                                className="lp-card-action"
-                                title={t('home.lite-open-title')}
-                                aria-label={t('home.lite-open-title')}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  router.push(`/lite/${p.project_id}`);
-                                }}
-                                style={{
-                                  fontSize: 9.5,
-                                  fontFamily: 'var(--f-mono)',
-                                  letterSpacing: 0.3,
-                                  textTransform: 'uppercase',
-                                  color: 'var(--moss)',
-                                  padding: '2px 8px',
-                                  borderRadius: 999,
-                                  border: '1px solid color-mix(in srgb, var(--moss) 35%, transparent)',
-                                  background: 'transparent',
-                                  cursor: 'pointer',
-                                  flexShrink: 0,
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {(p.lite_sections ?? 0) > 0 ? t('home.lite-open') : t('home.lite-try')}
-                              </button>
                               {p.access_kind !== 'member' && (
                                 <button
                                   type="button"
