@@ -62,6 +62,9 @@ interface DashboardProject {
   access_kind?: 'owner' | 'member';
   /** Owner's email — useful for shared-tile tooltips. */
   owner_email?: string | null;
+  /** Filled Lite sections, 0-7. Server-derived in GET /api/projects. 0 just
+   *  means the Lite kickoff has not run yet — every project can run it. */
+  lite_sections?: number;
 }
 
 interface DashboardSignal {
@@ -1008,6 +1011,27 @@ export default function HomePage() {
                                       {t('home.shared')}
                                     </span>
                                   )}
+                                  {/* The Lite badge carries its own progress —
+                                      "LITE 7/7" says more than "LITE", and the
+                                      count is already in the list payload. */}
+                                  {(p.lite_sections ?? 0) > 0 && (
+                                    <span
+                                      title={t('home.lite-badge-title')}
+                                      className="lp-mono"
+                                      style={{
+                                        fontSize: 9,
+                                        color: 'var(--moss)',
+                                        background: 'color-mix(in srgb, var(--moss) 12%, transparent)',
+                                        padding: '1px 6px',
+                                        borderRadius: 999,
+                                        letterSpacing: 0.3,
+                                        textTransform: 'uppercase',
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      {t('home.lite')} {p.lite_sections}/7
+                                    </span>
+                                  )}
                                 </div>
                                 {p.description && (
                                   <div
@@ -1029,6 +1053,39 @@ export default function HomePage() {
                               {p.weekly_alerts > 0 && (
                                 <Pill kind="warn">{p.weekly_alerts}</Pill>
                               )}
+                              {/* The door into Lite, on EVERY project — /lite
+                                  works on any project the user can already
+                                  reach, so this needs no sharing and no new
+                                  project. A nested <a> inside the card's Link
+                                  would be invalid HTML, hence a button that
+                                  stops the outer navigation and pushes. */}
+                              <button
+                                type="button"
+                                className="lp-card-action"
+                                title={t('home.lite-open-title')}
+                                aria-label={t('home.lite-open-title')}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  router.push(`/lite/${p.project_id}`);
+                                }}
+                                style={{
+                                  fontSize: 9.5,
+                                  fontFamily: 'var(--f-mono)',
+                                  letterSpacing: 0.3,
+                                  textTransform: 'uppercase',
+                                  color: 'var(--moss)',
+                                  padding: '2px 8px',
+                                  borderRadius: 999,
+                                  border: '1px solid color-mix(in srgb, var(--moss) 35%, transparent)',
+                                  background: 'transparent',
+                                  cursor: 'pointer',
+                                  flexShrink: 0,
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {(p.lite_sections ?? 0) > 0 ? t('home.lite-open') : t('home.lite-try')}
+                              </button>
                               {p.access_kind !== 'member' && (
                                 <button
                                   type="button"
