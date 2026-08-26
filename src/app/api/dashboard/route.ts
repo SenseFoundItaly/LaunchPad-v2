@@ -18,13 +18,23 @@ export async function GET() {
   // project_members). Mirrors the /api/projects list query so the home
   // surface stops hiding shared-with-me projects. owner_email is LEFT
   // JOINed so the "shared by X" tile chip can render without a 2nd fetch.
+  // `lite_sections` marks a Lite project and carries its progress. LEFT JOIN
+  // rather than a second fetch: this grid renders every tile at once, so a
+  // per-project round trip would be N+1 on the first screen a founder sees.
   const projects = await query<{
     id: string; name: string; description: string; status: string;
     current_step: number; created_at: string;
     org_id: string | null; owner_user_id: string | null; owner_email: string | null;
+    lite_sections: number;
   }>(
-    `SELECT DISTINCT p.*, u.email AS owner_email FROM projects p
+    `SELECT DISTINCT p.*, u.email AS owner_email,
+            COALESCE(jsonb_array_length(
+              CASE WHEN jsonb_typeof(ns.sections) = 'object'
+                   THEN (SELECT jsonb_agg(k) FROM jsonb_object_keys(ns.sections) k)
+                   ELSE NULL END), 0) AS lite_sections
+       FROM projects p
        LEFT JOIN users u ON u.id = p.owner_user_id
+       LEFT JOIN north_star ns ON ns.project_id = p.id
        WHERE p.org_id = ?
          OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ?)
        ORDER BY p.created_at DESC`,
@@ -92,6 +102,7 @@ export async function GET() {
     created_at: p.created_at,
     access_kind: p.org_id === orgId ? 'owner' as const : 'member' as const,
     owner_email: p.owner_email,
+    lite_sections: Number(p.lite_sections ?? 0),
   }));
 
   // Project name lookup for alerts
