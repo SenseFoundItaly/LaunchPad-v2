@@ -158,6 +158,36 @@ export function makeSectionTool(projectId: string): AgentTool {
   };
 }
 
+/**
+ * The founder rewrites a section by hand.
+ *
+ * Two deliberate consequences, both about keeping the audit honest:
+ *
+ * 1. Confidence becomes 'grounded'. It is now literally their words — this is
+ *    the only write in the system that may raise confidence, and it is safe
+ *    precisely because a human typed it.
+ *
+ * 2. The risk is CLEARED, not kept. The old risk was written about text that no
+ *    longer exists; leaving it attached to a rewritten section would show the
+ *    founder a warning about a claim they just replaced. An empty risk is
+ *    honest, a stale one is not — and Redraft regenerates it.
+ */
+export async function editSection(projectId: string, id: string, text: string): Promise<boolean> {
+  if (!sectionById(id)) return false;
+  const body = String(text ?? '').trim().slice(0, 4000);
+  if (body.length < 3) return false;
+  await run(
+    `INSERT INTO north_star (project_id, sections)
+     VALUES (?, ?)
+     ON CONFLICT (project_id) DO UPDATE
+       SET sections = north_star.sections || EXCLUDED.sections,
+           updated_at = CURRENT_TIMESTAMP`,
+    projectId,
+    { [id]: { text: body, risk: '', confidence: 'grounded', updatedAt: new Date().toISOString() } },
+  );
+  return true;
+}
+
 /** Stamp the consent moment. Called by the promote route, never by the agent. */
 export async function markPromoted(projectId: string, id: string): Promise<void> {
   await run(
