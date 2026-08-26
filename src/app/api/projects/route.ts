@@ -14,9 +14,19 @@ export async function GET() {
     // where a user somehow shares with themselves (the share row exists but
     // the org_id already matches). owner_email is LEFT JOINed so shared-
     // project tiles can render "shared by <email>" without a second fetch.
+    // `lite_sections` counts the filled sections of the Lite audit. It is a
+    // LEFT JOIN, not a second fetch, because the home grid renders every tile
+    // at once — one round trip per project would be N+1 on the first screen
+    // the founder ever sees. Projects with no Lite kickoff simply read 0.
     const rows = await query(
-      `SELECT DISTINCT p.*, u.email AS owner_email FROM projects p
+      `SELECT DISTINCT p.*, u.email AS owner_email,
+              COALESCE(jsonb_array_length(
+                CASE WHEN jsonb_typeof(ns.sections) = 'object'
+                     THEN (SELECT jsonb_agg(k) FROM jsonb_object_keys(ns.sections) k)
+                     ELSE NULL END), 0) AS lite_sections
+         FROM projects p
          LEFT JOIN users u ON u.id = p.owner_user_id
+         LEFT JOIN north_star ns ON ns.project_id = p.id
          WHERE p.org_id = ?
            OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ?)
          ORDER BY p.created_at DESC`,
@@ -24,11 +34,13 @@ export async function GET() {
       userId,
     );
     return json(rows.map((r) => {
-      const mapped = mapProject(r as Record<string, unknown>);
+      const raw = r as Record<string, unknown>;
+      const mapped = mapProject(raw);
       // Derive access_kind once on the server so the home tile can render
       // the "Shared" badge without re-deriving from raw org/user ids.
-      const isOwner = (r as Record<string, unknown>).org_id === orgId;
+      const isOwner = raw.org_id === orgId;
       mapped.access_kind = isOwner ? 'owner' : 'member';
+      mapped.lite_sections = Number(raw.lite_sections ?? 0);
       return mapped;
     }));
   } catch (e) {

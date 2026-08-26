@@ -21,6 +21,10 @@ export interface Project {
   access_kind?: 'owner' | 'member';
   /** Owner's email — used for "shared by X" labels when viewing as member. */
   owner_email?: string | null;
+  /** How many of the 7 Lite sections are filled. 0 = the Lite kickoff has
+   *  never been run on this project (every project CAN run it — /lite works on
+   *  any project the user can already reach). Drives the LITE badge. */
+  lite_sections?: number;
 }
 
 export interface IdeaCanvas {
