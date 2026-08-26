@@ -1868,6 +1868,10 @@ export const it: Partial<Record<MessageKey, string>> = {
   'chart.risks': 'Rischi: ',
   // ── i18n gap audit 21/07 — settings/share/home (batch C) ─────
   // Pagina impostazioni (era tutta hardcoded EN)
+  'sett.account': 'Account',
+  'sett.account-desc': 'L\u2019account con cui hai effettuato l\u2019accesso su questo dispositivo.',
+  'sett.signed-in-as': 'Hai effettuato l\u2019accesso come',
+  'sett.sign-out': 'Esci',
   'sett.title': 'Impostazioni',
   'sett.api-keys': 'API key',
   'sett.byok-subtitle': 'Usa le tue API key per le chiamate LLM (BYOK). Le chiavi sono cifrate a riposo.',

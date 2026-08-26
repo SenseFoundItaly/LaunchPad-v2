@@ -24,9 +24,51 @@ const jetbrainsMono = JetBrains_Mono({
   weight: ['400', '500'],
 });
 
+/**
+ * Share metadata.
+ *
+ * The app shipped with a title and a description and nothing else — no
+ * OpenGraph, no Twitter card, no image. Every link pasted anywhere unfurled as
+ * a bare grey box, which for a product distributed founder-to-founder by link
+ * is the first impression every single time.
+ *
+ * `metadataBase` is required for Next to emit ABSOLUTE og:image URLs. Without
+ * it the tag is relative and most unfurlers (Slack, WhatsApp, LinkedIn) simply
+ * drop the image — the failure looks exactly like having no image at all,
+ * which is why it is easy to ship broken and believe it works.
+ *
+ * Deliberately NOT per-project: a project page is private, and generating an
+ * og:image containing a founder's problem statement would render their idea
+ * for any crawler or chat client that touches the URL. Auth-gated routes
+ * inherit this generic card on purpose.
+ */
 export const metadata: Metadata = {
-  title: 'LaunchPad — Courage Through Clarity',
-  description: 'Validate your startup idea with evidence. Find fatal flaws early — when pivoting is still possible, not painful.',
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ?? 'https://launchpad.sensefound.io',
+  ),
+  title: {
+    default: 'LaunchPad — Courage Through Clarity',
+    template: '%s — LaunchPad',
+  },
+  description:
+    'Validate your startup idea with evidence. Find fatal flaws early — when pivoting is still possible, not painful.',
+  applicationName: 'LaunchPad',
+  openGraph: {
+    type: 'website',
+    siteName: 'LaunchPad',
+    title: 'LaunchPad — Courage Through Clarity',
+    description:
+      'Answer three questions. Get your whole plan back — with every assumption named.',
+    url: '/',
+    locale: 'en',
+    alternateLocale: ['it'],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'LaunchPad — Courage Through Clarity',
+    description:
+      'Answer three questions. Get your whole plan back — with every assumption named.',
+  },
 };
 
 export default async function RootLayout({

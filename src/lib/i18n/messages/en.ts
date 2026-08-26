@@ -1898,6 +1898,10 @@ export const en = {
   'chart.risks': 'Risks: ',
   // ── i18n gap audit 21/07 — settings/share/home (batch C) ─────
   // Settings page (was fully hardcoded EN)
+  'sett.account': 'Account',
+  'sett.account-desc': 'The account you are signed in as on this device.',
+  'sett.signed-in-as': 'Signed in as',
+  'sett.sign-out': 'Sign out',
   'sett.title': 'Settings',
   'sett.api-keys': 'API Keys',
   'sett.byok-subtitle': 'Use your own API keys for LLM calls (BYOK). Keys are encrypted at rest.',
