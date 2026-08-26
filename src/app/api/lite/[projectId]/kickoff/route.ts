@@ -7,6 +7,7 @@ import { runAgentStream } from '@/lib/pi-agent';
 import { readNorthStar, makeNorthStarTool } from '@/lib/kickoff/store';
 import { kickoffPrompt, KICKOFF_STEP } from '@/lib/kickoff/prompt';
 import { kickoffProgress } from '@/lib/kickoff/pillars';
+import { recordAgentUsage } from '@/lib/cost-meter';
 
 /**
  * POST /api/lite/{projectId}/kickoff — one turn of the lite kickoff interview.
@@ -113,6 +114,12 @@ export async function POST(
       const send = (obj: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       let fullText = '';
       let buffer = '';
+      // Metering is the CALLER's job — runAgentStream returns usage on `done`
+      // and logs nothing. Without this the interview spends real money with no
+      // llm_usage_logs row and nothing for isProjectCapped to count.
+      let usage: unknown;
+      let langfuseTraceId: string | null = null;
+      const startedAt = Date.now();
 
       try {
         for (;;) {
@@ -133,6 +140,7 @@ export async function POST(
               if (typeof ev.content === 'string') fullText += ev.content;
               // The moment that makes the panel feel alive.
               if (ev.tool_end?.name === 'write_north_star') send({ pillar_written: true });
+              if (ev.done) { usage = ev.usage; langfuseTraceId = ev.langfuseTraceId ?? null; }
             } catch { /* not a complete JSON frame — ignore */ }
           }
         }
@@ -153,6 +161,18 @@ export async function POST(
         console.warn('[lite/kickoff] stream failed:', (err as Error).message);
         send({ error: 'The co-pilot stopped mid-reply — try again.' });
       } finally {
+        // Meter even on a mid-turn failure: tokens burned are tokens spent.
+        await recordAgentUsage({
+          project_id: projectId,
+          step: KICKOFF_STEP,
+          task: 'chat',
+          usage: usage as never,
+          latency_ms: Date.now() - startedAt,
+          userId,
+          langfuseTraceId,
+          // Logged, not billed — see the audit route for the reasoning.
+          skip_credit_debit: true,
+        }).catch((e) => console.warn('[lite/kickoff] usage not recorded:', (e as Error).message));
         cleanup();
         controller.close();
       }

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
-import { json } from '@/lib/api-helpers';
+import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
-import { readNorthStar, readPromoted, readSections } from '@/lib/kickoff/store';
+import { readNorthStar, readPromoted, readSections, editSection, writePillar } from '@/lib/kickoff/store';
 import { query } from '@/lib/db';
 import { KICKOFF_STEP } from '@/lib/kickoff/prompt';
 import { kickoffProgress, PILLARS } from '@/lib/kickoff/pillars';
@@ -71,4 +71,44 @@ export async function GET(
     audit: auditSummary(sections),
     progress: kickoffProgress(pillars, turns[0]?.n ?? 0),
   });
+}
+
+/**
+ * PATCH — the founder edits a pillar or a section by hand.
+ *
+ * Body is one of:
+ *   { pillar: "01", value: "..." }
+ *   { section: "customer", text: "..." }
+ *
+ * This is the "it stays yours" promise made real. A document that fills itself
+ * but cannot be corrected is a document the founder has to argue with, and the
+ * first wrong assumption they cannot fix is the moment they stop trusting the
+ * whole panel.
+ *
+ * Editing a section also raises its confidence to `grounded` and clears the
+ * generated risk — see `editSection` for why a stale risk is worse than none.
+ */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> },
+) {
+  const { projectId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
+
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object') return error('Body must be JSON', 400);
+
+  if (typeof body.section === 'string') {
+    const ok = await editSection(projectId, body.section, String(body.text ?? ''));
+    if (!ok) return error('Unknown section, or the text was too short', 400);
+  } else if (typeof body.pillar === 'string') {
+    const ok = await writePillar(projectId, body.pillar, String(body.value ?? ''));
+    if (!ok) return error('Unknown pillar, or the text was too short', 400);
+  } else {
+    return error('Provide either { section, text } or { pillar, value }', 400);
+  }
+
+  const [pillars, sections] = await Promise.all([readNorthStar(projectId), readSections(projectId)]);
+  return json({ pillars, sections, audit: auditSummary(sections) });
 }

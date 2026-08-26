@@ -7,6 +7,7 @@ import { readNorthStar, readSections, makeSectionTool } from '@/lib/kickoff/stor
 import { auditPrompt, AUDIT_STEP } from '@/lib/kickoff/audit-prompt';
 import { KICKOFF_STEP } from '@/lib/kickoff/prompt';
 import { auditSummary, SECTION_IDS } from '@/lib/kickoff/sections';
+import { recordAgentUsage, isProjectCapped } from '@/lib/cost-meter';
 
 /**
  * POST /api/lite/{projectId}/audit — fill all seven sections in one pass.
@@ -40,6 +41,12 @@ export async function POST(
     projectId,
   ))[0];
   if (!project) return error('Project not found', 404);
+
+  // The audit is the single most expensive call in the lite flow (~7 tool calls
+  // in one pass). It must respect the project spend cap like everything else —
+  // an uncapped path is how a runaway loop turns into a bill.
+  const cap = await isProjectCapped(projectId);
+  if (cap?.capped) return error('This project has reached its spending cap.', 402);
 
   const body = await request.json().catch(() => ({}));
   const force = body?.force === true;
@@ -94,6 +101,7 @@ export async function POST(
 
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
+  const userId = auth.session.userId;
 
   const out = new ReadableStream({
     async start(controller) {
@@ -105,6 +113,13 @@ export async function POST(
       // else — no args, no result. So remember the id → section mapping on the
       // way in and resolve it on the way out.
       const pending = new Map<string, string>();
+      // runAgentStream RETURNS usage on its `done` frame but logs nothing —
+      // metering is the caller's job (cost-meter.ts). Without this the lite
+      // flow spends real money invisibly: no llm_usage_logs row, nothing for
+      // isProjectCapped to count, no line on any cost screen.
+      let usage: unknown;
+      let langfuseTraceId: string | null = null;
+      const startedAt = Date.now();
 
       try {
         for (;;) {
@@ -132,6 +147,10 @@ export async function POST(
                 // whole document, so a nameless nudge still paints correctly.
                 send({ section_written: section ?? true });
               }
+              if (ev.done) {
+                usage = ev.usage;
+                langfuseTraceId = ev.langfuseTraceId ?? null;
+              }
             } catch { /* incomplete frame */ }
           }
         }
@@ -140,6 +159,21 @@ export async function POST(
         console.warn('[lite/audit] stream failed:', (err as Error).message);
         send({ error: 'The audit stopped early — the sections it did finish are saved.' });
       } finally {
+        // Meter even when the run died mid-way: a truncated pass still burned
+        // the tokens it burned, and a crash that silently escapes accounting is
+        // exactly how spend goes missing.
+        await recordAgentUsage({
+          project_id: projectId,
+          step: AUDIT_STEP,
+          task: 'chat',
+          usage: usage as never,
+          latency_ms: Date.now() - startedAt,
+          userId,
+          langfuseTraceId,
+          // Logged, not billed. The founder pays per chat message; the audit is
+          // work the product chose to do for them, like every skill run.
+          skip_credit_debit: true,
+        }).catch((e) => console.warn('[lite/audit] usage not recorded:', (e as Error).message));
         cleanup();
         controller.close();
       }

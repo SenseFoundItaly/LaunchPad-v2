@@ -67,6 +67,7 @@ const COPY = {
     auditBlank: 'Answer once and all seven fill in — each labelled with how much it actually rests on.',
     auditFilled: 'Every section says where it came from and what would make it wrong. Start with the assumptions.',
     whatWrong: 'What would make this wrong',
+    edit: 'Edit', save: 'Save', cancel: 'Cancel',
     grounded: 'You said this', inferred: 'Inferred', assumed: 'Assumption',
   },
   it: {
@@ -82,6 +83,7 @@ const COPY = {
     auditBlank: 'Rispondi una volta e si riempiono tutte e sette — ognuna etichettata con quanto regge davvero.',
     auditFilled: 'Ogni sezione dice da dove viene e cosa la renderebbe sbagliata. Parti dalle ipotesi.',
     whatWrong: 'Cosa la renderebbe sbagliata',
+    edit: 'Modifica', save: 'Salva', cancel: 'Annulla',
     grounded: 'L’hai detto tu', inferred: 'Dedotto', assumed: 'Ipotesi',
   },
 } as const;
@@ -106,6 +108,12 @@ export default function LiteKickoffPage({ params }: { params: Promise<{ projectI
   const [busy, setBusy] = useState(false);
   const [auditing, setAuditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // key is `s:<id>` for a section, `p:<id>` for a pillar — one editor open at a
+  // time, so a half-finished edit can never be silently abandoned by opening
+  // another.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
   const opened = useRef(false);
   const auditFired = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
@@ -274,9 +282,83 @@ export default function LiteKickoffPage({ params }: { params: Promise<{ projectI
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
 
+  const saveEdit = useCallback(async (key: string) => {
+    const text = draft.trim();
+    if (text.length < 3) { setEditing(null); return; }
+    setSaving(true);
+    const [kind, id] = [key.slice(0, 1), key.slice(2)];
+    try {
+      const res = await fetch(`/api/lite/${projectId}/north-star`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(kind === 's' ? { section: id, text } : { pillar: id, value: text }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || `HTTP ${res.status}`);
+      setEditing(null);
+      await loadNorthStar();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, projectId, loadNorthStar]);
+
   const submit = () => { const v = input.trim(); if (!v || busy) return; setInput(''); void send(v); };
 
   const t = COPY[locale];
+
+  /** The inline editor. Same control for a pillar and a section. */
+  const editor = (key: string) => (
+    <div style={{ marginTop: 8 }}>
+      <textarea
+        value={draft}
+        autoFocus
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setEditing(null);
+          // Cmd/Ctrl+Enter saves; plain Enter must insert a newline, because
+          // these fields are paragraphs, not chat messages.
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void saveEdit(key); }
+        }}
+        rows={4}
+        style={{
+          width: '100%', resize: 'vertical', borderRadius: 8, padding: '9px 11px',
+          border: '1px solid var(--moss)', background: 'var(--paper)',
+          fontSize: 13.5, lineHeight: 1.6, fontFamily: 'inherit', color: 'var(--ink)',
+        }}
+      />
+      <div style={{ display: 'flex', gap: 7, marginTop: 7 }}>
+        <button
+          onClick={() => void saveEdit(key)}
+          disabled={saving}
+          className="lp-mono"
+          style={{
+            fontSize: 10.5, padding: '5px 13px', borderRadius: 999, cursor: 'pointer',
+            border: '1px solid var(--moss)', background: 'var(--moss)', color: 'var(--paper)',
+          }}
+        >{saving ? '…' : t.save}</button>
+        <button
+          onClick={() => setEditing(null)}
+          className="lp-mono"
+          style={{
+            fontSize: 10.5, padding: '5px 13px', borderRadius: 999, cursor: 'pointer',
+            border: '1px solid var(--line-2)', background: 'transparent', color: 'var(--ink-4)',
+          }}
+        >{t.cancel}</button>
+      </div>
+    </div>
+  );
+
+  const editButton = (key: string, current: string) => (
+    <button
+      onClick={() => { setEditing(key); setDraft(current); }}
+      className="lp-mono"
+      style={{
+        fontSize: 9, padding: '2px 8px', borderRadius: 999, cursor: 'pointer',
+        border: '1px solid var(--line-2)', background: 'transparent', color: 'var(--ink-5)',
+      }}
+    >{t.edit}</button>
+  );
 
   return (
     // height:100% (not 100vh) so the two panes fill the <main> they are given.
@@ -355,10 +437,13 @@ export default function LiteKickoffPage({ params }: { params: Promise<{ projectI
             <div style={{ display: 'flex', gap: 14 }}>
               <span className="lp-serif" style={{ fontSize: 17, color: 'var(--ink-5)', minWidth: 26 }}>{p.id}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="lp-mono" style={{ fontSize: 9.5, letterSpacing: 0.9, textTransform: 'uppercase', color: 'var(--ink-4)' }}>
-                  {locale === 'it' ? p.labelIt : p.label}
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                  <div className="lp-mono" style={{ fontSize: 9.5, letterSpacing: 0.9, textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+                    {locale === 'it' ? p.labelIt : p.label}
+                  </div>
+                  {p.value && editing !== `p:${p.id}` && editButton(`p:${p.id}`, p.value)}
                 </div>
-                {p.value ? (
+                {editing === `p:${p.id}` ? editor(`p:${p.id}`) : p.value ? (
                   <div style={{
                     fontSize: 13.5, lineHeight: 1.6, marginTop: 7, color: 'var(--ink-2)',
                     // Pillar 02 is the founder's own sentence — quote it, don't restyle it.
@@ -435,16 +520,19 @@ export default function LiteKickoffPage({ params }: { params: Promise<{ projectI
                   <div className="lp-mono" style={{ fontSize: 9.5, letterSpacing: 0.9, textTransform: 'uppercase', color: 'var(--ink-4)' }}>
                     {locale === 'it' ? s.labelIt : s.label}
                   </div>
-                  {style && (
-                    <span className="lp-mono" style={{
-                      fontSize: 9, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap',
-                      color: style.fg, background: style.bg,
-                    }}>{t[s.confidence!]}</span>
-                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {style && (
+                      <span className="lp-mono" style={{
+                        fontSize: 9, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap',
+                        color: style.fg, background: style.bg,
+                      }}>{t[s.confidence!]}</span>
+                    )}
+                    {s.text && editing !== `s:${s.id}` && editButton(`s:${s.id}`, s.text)}
+                  </div>
                 </div>
                 <div style={{ fontSize: 10.5, color: 'var(--ink-5)', marginTop: 3 }}>{locale === 'it' ? s.blurbIt : s.blurb}</div>
 
-                {s.text ? (
+                {editing === `s:${s.id}` ? editor(`s:${s.id}`) : s.text ? (
                   <>
                     <div style={{ fontSize: 13.5, lineHeight: 1.65, marginTop: 9, color: 'var(--ink-2)' }}>{s.text}</div>
                     {s.risk && (
