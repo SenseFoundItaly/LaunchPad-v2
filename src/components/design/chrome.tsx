@@ -193,6 +193,28 @@ export interface NavRailProps {
 }
 
 export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRailProps) {
+  // The chip was hardcoded to "LB" — every signed-in user, on every account,
+  // saw one particular founder's initials. /api/me already returned the email.
+  const [initials, setInitials] = React.useState('··');
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch('/api/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d?.email) return;
+        const local = String(d.email).split('@')[0] ?? '';
+        // "ada.lovelace" → AL; "ada" → AD. Two chars either way, so the chip
+        // never reflows.
+        const parts = local.split(/[._-]+/).filter(Boolean);
+        const out = parts.length > 1
+          ? (parts[0][0] + parts[1][0])
+          : local.slice(0, 2);
+        setInitials((out || '··').toUpperCase());
+      })
+      .catch(() => { /* keep the neutral placeholder */ });
+    return () => { cancelled = true; };
+  }, []);
+
   const pathname = usePathname() || '';
   const t = useT();
   // Self-fetched (cached + shared across pages) so the "Know" count shows on
@@ -284,7 +306,7 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
           cursor: 'pointer',
         }}
       >
-        LB
+        {initials}
       </Link>
     </div>
   );

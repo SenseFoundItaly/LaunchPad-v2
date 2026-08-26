@@ -15,7 +15,27 @@ import { e2eBypassEnabled } from '@/lib/auth/e2e-bypass';
 
 // '/demo' is the static vision-demo page (src/app/demo) — no data, safe public.
 const PUBLIC_PREFIXES = ['/login', '/api/auth', '/api/health', '/published', '/demo'];
-const PUBLIC_EXACT = new Set(['/favicon.ico']);
+// The generated share image MUST be reachable signed-out. Measured: with it
+// gated, GET /opengraph-image answered 307 → /login, so every unfurler (Slack,
+// WhatsApp, LinkedIn) followed a redirect to an HTML page and rendered no
+// preview. The failure is invisible from inside the app — the tag is present
+// and correct, the image simply never loads for anyone but a logged-in user.
+//
+// Safe to expose: the image is a static brand card built at request time from
+// literals in src/app/opengraph-image.tsx. It reads no database and takes no
+// parameters, so there is nothing user-specific to leak. Project pages
+// deliberately have NO og:image for exactly that reason.
+//
+// The route matcher below already lets through real file extensions
+// (.png/.svg/…); these Next file-convention routes are extensionless and so
+// need naming here.
+const PUBLIC_EXACT = new Set([
+  '/favicon.ico',
+  '/opengraph-image',
+  '/twitter-image',
+  '/icon',
+  '/apple-icon',
+]);
 
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_EXACT.has(pathname)) return true;
