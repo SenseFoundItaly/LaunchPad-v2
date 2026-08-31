@@ -2,6 +2,7 @@ import { query, run } from '@/lib/db';
 import { error, generateId } from '@/lib/api-helpers';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 import { runAgentStream } from '@/lib/pi-agent';
+import { SKILL_RUN_BUDGET_MS } from '@/lib/skill-executor';
 import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { recordUsage, ownerUserId } from '@/lib/cost-meter';
 import { recordEvent } from '@/lib/memory/events';
@@ -68,8 +69,16 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
     // Budget headroom for synthesis: cap tool calls at 5 (pi-agent strips
     // tools at the cap, forcing a final text turn where the alert artifacts
     // get emitted) and allow that final turn to finish within the timeout.
-    // 120s was observed ending scans mid-investigation with 0 emitted alerts.
-    timeout: 180000,
+    // SKILL_RUN_BUDGET_MS (90s), NOT 180s: this stream is served from the
+    // founder-initiated monitor route — a serverless request the platform
+    // hard-kills well before 180s (measured 2026-08-31, see skill-executor.ts).
+    // A budget abort keeps the alerts emitted so far; a platform kill loses
+    // the final summary AND the usage row. The old note "120s was observed
+    // ending scans mid-investigation with 0 emitted alerts" predates the
+    // emit-as-you-go discipline above — with per-finding emission, a shorter
+    // budget loses the tail, not the scan. Every manual run on prod to date
+    // has finished under 60s, so this is headroom, not a squeeze.
+    timeout: SKILL_RUN_BUDGET_MS,
     maxToolCalls: 5,
     task: 'monitor-agent',
     userId: ownerId ?? undefined,
