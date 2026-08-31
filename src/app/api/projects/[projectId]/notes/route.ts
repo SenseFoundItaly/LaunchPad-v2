@@ -4,6 +4,7 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { run, get } from '@/lib/db';
 import { recordFact } from '@/lib/memory/facts';
 import { extractEntitiesFromNote } from '@/lib/note-entity-extract';
+import { routeNoteToGraph } from '@/lib/note-graph-routing';
 import { stageValidationProposal } from '@/lib/project-tools';
 
 /**
@@ -50,8 +51,21 @@ export async function POST(
   // saving a LONG note only (short notes skip via NOTE_EXTRACT_MIN_CHARS);
   // non-fatal — a failed extraction never costs the founder their note.
   let staged = 0;
+  let routed: { attached: string[]; fallback: boolean } = { attached: [], fallback: false };
   try {
     const entities = await extractEntitiesFromNote(text);
+    // Changelog 28/08 item 3 — a note ABOUT an existing node lands on that
+    // node's branch (notes + history), not just in the Elenco; a note naming
+    // nothing lands in the applied Brainstorming bucket. Deterministic name
+    // match, append-only, non-fatal. Runs before the proposal staging so a
+    // note about a known competitor both annotates it AND (if extraction
+    // found new entities) still stages the approval card.
+    routed = await routeNoteToGraph(
+      projectId,
+      auth.session.userId,
+      text,
+      entities.competitors.map((c) => c.name),
+    );
     // The note itself is the source on every item: an approval card whose
     // provenance reads "Founder note" + the sentence it came from is the
     // difference between evidence and an assertion.
@@ -126,5 +140,5 @@ export async function POST(
     console.warn('[notes] entity staging failed (non-fatal):', (err as Error).message);
   }
 
-  return json({ id, staged_entities: staged }, 201);
+  return json({ id, staged_entities: staged, attached_nodes: routed.attached, brainstorming: routed.fallback }, 201);
 }
