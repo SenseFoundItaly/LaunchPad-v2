@@ -120,7 +120,7 @@ const STRUCTURED_JSON_SKILLS = new Set<string>(Object.keys(STRUCTURED_JSON_CONTR
  * the whole request near ~50s. Raising this requires a clean re-measure ON
  * THE DEPLOYED FUNCTION — local runs prove nothing about the ceiling.
  */
-export const SKILL_RUN_BUDGET_MS = 40_000;
+export const SKILL_RUN_BUDGET_MS = 45_000;
 
 /**
  * PARALLEL SECTIONED RUN — market-research only (for now).
@@ -149,7 +149,7 @@ interface ResearchSection {
 }
 
 const SECTION_COMMON =
-  "You are running ONE SECTION of the market-research skill; the other sections run in parallel, so do ONLY this section's work and never pad it with content that belongs to another section. Make AT MOST 2 web_search calls (batch them in one round), then STOP researching and write the output. Your response MUST OPEN with a single fenced ```json code block exactly as specified below — before any narrative — followed by at most a short prose note for the founder. Do NOT emit :::artifact blocks. Keep the json COMPACT so it closes properly: a closed block is the only thing that persists if the run is cut short.";
+  "You are running ONE SECTION of the market-research skill; the other sections run in parallel, so do ONLY this section's work. Make AT MOST 2 web_search calls (batch them in ONE round), then STOP researching and write the output. Your ENTIRE response is a single fenced ```json code block — the very first characters you write are ```json and the last are ```. NO preamble ('Let me…'), NO narrative before or after, NO :::artifact blocks: prose is discarded, and every second spent on it risks the hard time budget cutting the block before it closes — an unclosed block persists NOTHING. Keep every string SHORT: calculations as one line of arithmetic, descriptions ≤ 20 words, at most 1 source per item.";
 
 const MARKET_RESEARCH_SECTIONS: ResearchSection[] = [
   {
@@ -178,7 +178,7 @@ const MARKET_RESEARCH_SECTIONS: ResearchSection[] = [
 /** Per-section wall-clock cap. Sections run in parallel, so total ≈ this +
  *  persistence — keep the sum inside the measured platform ceiling (~60s on
  *  the deployed function; see SKILL_RUN_BUDGET_MS). */
-const SECTION_BUDGET_CAP_MS = 40_000;
+const SECTION_BUDGET_CAP_MS = 45_000;
 
 /** Sum tokens (and cost when every section reported one) across section runs so
  *  the single recordUsage row reflects the whole skill run, not one third. */
@@ -257,10 +257,17 @@ async function runMarketResearchSectioned(args: {
 
   const anyField = !!(marketSizing || competitors || trends || customerInsights);
   const prose = texts.filter(Boolean).join('\n\n---\n\n');
-  if (!anyField && !prose.trim()) {
-    // All sections dead — hand back empty text so runSkill's existing
-    // empty-output throw (and its loud log) fires exactly as before.
-    return { text: '', usage: undefined, timedOut: false, langfuseTraceId: null };
+  if (!anyField) {
+    // No section produced a parseable field — even if prose streamed, nothing
+    // can persist, so a 'completed' row here would be the exact hollow-success
+    // the original truncation bug produced (measured live 2026-08-31 19:47Z:
+    // completed + 15KB summary + empty research row). Hand back empty text so
+    // runSkill's empty-output throw fires and the founder gets the honest
+    // failure note instead of a green check over nothing.
+    console.error(
+      `[skill-executor] market-research: ${texts.filter(Boolean).length}/3 sections returned text but NONE yielded a parseable field — failing the run honestly (prose len=${prose.length})`,
+    );
+    return { text: '', usage: mergeSectionUsages(settled.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof runAgent>>> => r.status === 'fulfilled').map((r) => r.value.usage)) as Awaited<ReturnType<typeof runAgent>>['usage'], timedOut: false, langfuseTraceId: null };
   }
 
   const merged = {
