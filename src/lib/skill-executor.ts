@@ -208,8 +208,9 @@ function mergeSectionUsages(list: unknown[]): unknown {
 
 async function runMarketResearchSectioned(args: {
   userMsg: string;
-  /** SKILL.md body + project context, WITHOUT the monolithic output contract. */
-  baseSystemPrompt: string;
+  /** Project context block only (canvas, research, memory) — sections get a
+   *  slim purpose-built system prompt, NOT the full SKILL.md (see below). */
+  projectContext: string;
   directive: string;
   timeoutMs: number;
   projectId: string;
@@ -217,12 +218,24 @@ async function runMarketResearchSectioned(args: {
   onDelta?: (delta: string) => void;
 }): Promise<Awaited<ReturnType<typeof runAgent>>> {
   const perSection = Math.min(args.timeoutMs, SECTION_BUDGET_CAP_MS);
+  // HARD deadline per section, independent of runAgent's own abort: measured
+  // live (prod runs 3-4, 2026-08-31), an aborted agent whose upstream socket
+  // lingers can block waitForIdle — and Promise.allSettled then holds the
+  // WHOLE pipeline hostage until the ~60s platform kill. The race guarantees
+  // the pipeline proceeds at budget+4s with whatever that section streamed
+  // (usually nothing); the abandoned agent is left to the abort it already
+  // received. Persistence must never depend on an agent's abort manners.
+  const empty = { text: '', usage: undefined, timedOut: true, langfuseTraceId: null } as Awaited<ReturnType<typeof runAgent>>;
   const settled = await Promise.allSettled(
     MARKET_RESEARCH_SECTIONS.map((s, i) => {
+      // Slim prompt: project context + section contract ONLY. The full
+      // SKILL.md body (266 lines of monolith instructions and examples) cost
+      // each parallel call 10-14s of time-to-first-token (measured: searches
+      // fired at 14s into a 38s budget) — the jsonSpec below IS the format.
       let sys =
-        `${args.baseSystemPrompt}\n\n=== OUTPUT CONTRACT (REQUIRED) ===\n${SECTION_COMMON}\n\n${s.instruction}\nJSON shape (keys are literal, values are yours): ${s.jsonSpec}`;
+        `You are the market-research skill of LaunchPad, producing structured research for a startup founder.\n\n${args.projectContext}\n\n=== OUTPUT CONTRACT (REQUIRED) ===\n${SECTION_COMMON}\n\n${s.instruction}\nJSON shape (keys are literal, values are yours): ${s.jsonSpec}`;
       if (args.directive) sys += `\n\n${args.directive}`;
-      return runAgent(`${args.userMsg}\n\n(Parallel sectioned run — produce ONLY the ${s.key} section.)`, {
+      const run = runAgent(`${args.userMsg}\n\n(Parallel sectioned run — produce ONLY the ${s.key} section.)`, {
         systemPrompt: sys,
         timeout: perSection,
         task: 'skill-invoke',
@@ -233,6 +246,15 @@ async function runMarketResearchSectioned(args: {
         // Only the first section mirrors deltas — parallel streams interleave.
         onDelta: i === 0 ? args.onDelta : undefined,
       });
+      return Promise.race([
+        run,
+        new Promise<typeof empty>((resolve) =>
+          setTimeout(() => {
+            console.warn(`[skill-executor] market-research section '${s.key}' missed the hard deadline — proceeding without it`);
+            resolve(empty);
+          }, perSection + 4_000),
+        ),
+      ]);
     }),
   );
 
@@ -482,10 +504,7 @@ export async function runSkill(
   // memory) so the skill agent doesn't run blind and ask "what's your startup?"
   // even when the canvas is filled. '' for a brand-new project → skill may ask.
   const projectContext = await buildSkillProjectContext(projectId, skillId).catch(() => '');
-  // Base prompt (body + context) kept aside: the sectioned runner appends its
-  // own per-section contracts instead of the monolithic one below.
-  const baseSystemPrompt = projectContext ? `${loaded.body}\n\n${projectContext}` : loaded.body;
-  let systemPrompt = baseSystemPrompt;
+  let systemPrompt = projectContext ? `${loaded.body}\n\n${projectContext}` : loaded.body;
 
   // Research skills persist downstream from a structured json payload. The model
   // sometimes returns a prose/markdown report instead of the SKILL.md json block,
@@ -513,7 +532,7 @@ export async function runSkill(
     skillId === 'market-research'
       ? await runMarketResearchSectioned({
           userMsg,
-          baseSystemPrompt,
+          projectContext,
           directive: directive ?? '',
           timeoutMs: opts.timeoutMs ?? 120_000,
           projectId,
