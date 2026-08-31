@@ -91,7 +91,10 @@ export function extractResearchFields(text: string): ResearchFields | null {
   for (const c of jsonCandidates(text)) {
     const o = parseSafe(c.trim()) as ResearchObj | null;
     const mr = (o?.market_research as ResearchObj) ?? o ?? null;
-    if (mr && (mr.market_sizing || mr.market_size || mr.competitors || mr.competitor_profiles)) {
+    // Any research field qualifies — a fence carrying ONLY trends/customer
+    // insights (a parallel section run, or a monolith truncated past sizing)
+    // must not be dropped just because sizing/competitors live elsewhere.
+    if (mr && (mr.market_sizing || mr.market_size || mr.competitors || mr.competitor_profiles || mr.trends || mr.market_trends || mr.customer_insights)) {
       const competitors = asArray(mr.competitors).length ? asArray(mr.competitors) : asArray(mr.competitor_profiles);
       const trends = asArray(mr.trends).length ? asArray(mr.trends) : asArray(mr.market_trends);
       const ci = mr.customer_insights;
@@ -102,10 +105,10 @@ export function extractResearchFields(text: string): ResearchFields | null {
   // Truncated output — recover complete sub-structures individually.
   const marketSizing = parseSafe(extractBalanced(text, 'market_sizing') ?? extractBalanced(text, 'market_size'));
   const competitors = asArray(parseSafe(extractBalanced(text, 'competitors') ?? extractBalanced(text, 'competitor_profiles'))) as ResearchObj[];
-  if (marketSizing || competitors.length) {
-    const trends = asArray(parseSafe(extractBalanced(text, 'trends') ?? extractBalanced(text, 'market_trends')));
-    const ciRaw = parseSafe(extractBalanced(text, 'customer_insights'));
-    const customerInsights = ciRaw && typeof ciRaw === 'object' && !Array.isArray(ciRaw) ? (ciRaw as ResearchObj) : null;
+  const trends = asArray(parseSafe(extractBalanced(text, 'trends') ?? extractBalanced(text, 'market_trends')));
+  const ciRaw = parseSafe(extractBalanced(text, 'customer_insights'));
+  const customerInsights = ciRaw && typeof ciRaw === 'object' && !Array.isArray(ciRaw) ? (ciRaw as ResearchObj) : null;
+  if (marketSizing || competitors.length || trends.length || customerInsights) {
     return { marketSizing, competitors, trends, customerInsights, sources: [] };
   }
   return null;

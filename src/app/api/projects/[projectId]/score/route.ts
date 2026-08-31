@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { get, run } from '@/lib/db';
 import { json, generateId } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
-import { runSkill } from '@/lib/skill-executor';
+import { runSkill, SKILL_RUN_BUDGET_MS } from '@/lib/skill-executor';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
 import { activeStageFor } from '@/lib/journey';
 import { validationTracksAB_done } from '@/lib/journey/stage-2-market-validation';
@@ -144,7 +144,7 @@ export async function POST(
         }
 
         emit({ scoring: true });
-        const res = await runSkill(projectId, scoringSkillId, { ownerUserId, timeoutMs: 170_000, step: 'score-request' });
+        const res = await runSkill(projectId, scoringSkillId, { ownerUserId, timeoutMs: SKILL_RUN_BUDGET_MS, step: 'score-request' });
         const row = await get<{ overall_score: number | null }>(
           'SELECT overall_score FROM scores WHERE project_id = ?', projectId);
         // Road-1 weak-section review — this route's caller (Home ScorePanel)

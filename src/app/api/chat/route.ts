@@ -1027,11 +1027,17 @@ export async function POST(request: NextRequest) {
       userId,
       traceName: 'chat-turn',
       extraTools: [...projectTools, ...skillTools],
-      // 180s — generous for research-heavy turns but cuts off the
-      // agent-stuck-in-loop case (observed turns hanging to 10+ min with
-      // empty SSE streams). pi-agent.ts force-closes the SSE controller at
+      // 120s, NOT 180s: the serverless platform hard-kills the function well
+      // before 180s (measured 2026-08-31: ~110s total survived, ~200s died —
+      // see SKILL_RUN_BUDGET_MS in skill-executor.ts). A killed chat turn
+      // persists NOTHING — the founder watches the answer stream, then it's
+      // gone on refresh, and the credit was still charged. A 120s budget
+      // abort instead keeps the streamed text and persists the message.
+      // 120s clears the real prod p95 (92s) with margin; it still cuts off
+      // the agent-stuck-in-loop case (observed turns hanging to 10+ min with
+      // empty SSE streams) — pi-agent.ts force-closes the SSE controller at
       // this deadline regardless of whether agent.abort() propagates.
-      timeout: 180000,
+      timeout: 120000,
       task: chatTask,
       // Slightly wider than the 12-message default: a deep single-field refine
       // (e.g. iterating on the value proposition) otherwise pushes the agreed

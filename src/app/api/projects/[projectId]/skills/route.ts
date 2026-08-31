@@ -4,7 +4,7 @@ import { json, error, generateId } from '@/lib/api-helpers';
 import { recordEvent } from '@/lib/memory/events';
 import { computeSectionScoresFromSummary } from '@/lib/section-scoring';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
-import { runSkill } from '@/lib/skill-executor';
+import { runSkill, SKILL_RUN_BUDGET_MS } from '@/lib/skill-executor';
 import { isClarificationOnly } from '@/lib/skill-output';
 import { assertCreditsAvailable } from '@/lib/credits';
 import {
@@ -256,7 +256,11 @@ export async function POST(
           // prompt. The kickoff already pulls the project's idea_canvas / memory.
           const result = await runSkill(projectId, skillId, {
             ownerUserId,
-            timeoutMs: 170_000,
+            // NOT 170s: the serverless platform kills the function before an
+            // internal 170s abort can fire, and a killed run persists NOTHING
+            // (market-research was dead on prod since June for exactly this).
+            // See SKILL_RUN_BUDGET_MS for the measured ceiling.
+            timeoutMs: SKILL_RUN_BUDGET_MS,
             allowAnySkill: true,
             step: 'skill-run.founder',
             // The route already ran stageSequenceLock above (returning a clean
