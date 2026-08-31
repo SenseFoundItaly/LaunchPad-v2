@@ -120,7 +120,15 @@ const STRUCTURED_JSON_SKILLS = new Set<string>(Object.keys(STRUCTURED_JSON_CONTR
  * the whole request near ~50s. Raising this requires a clean re-measure ON
  * THE DEPLOYED FUNCTION — local runs prove nothing about the ceiling.
  */
-export const SKILL_RUN_BUDGET_MS = 45_000;
+export const SKILL_RUN_BUDGET_MS = 38_000;
+
+/** Tail-work cutoff, measured from runSkill's start: past this point, skip
+ *  optional post-completion work (the assumption linker's Haiku calls can take
+ *  up to 30s) so the done frame and the route's post-done writes (chat
+ *  message!) still happen inside the ~60s platform ceiling. Measured live:
+ *  run #2 persisted its completion at 47s, then the linker pushed the tail
+ *  past 60s — the founder never got the done frame OR the chat message. */
+export const SKILL_TAIL_CUTOFF_MS = 42_000;
 
 /**
  * PARALLEL SECTIONED RUN — market-research only (for now).
@@ -178,7 +186,7 @@ const MARKET_RESEARCH_SECTIONS: ResearchSection[] = [
 /** Per-section wall-clock cap. Sections run in parallel, so total ≈ this +
  *  persistence — keep the sum inside the measured platform ceiling (~60s on
  *  the deployed function; see SKILL_RUN_BUDGET_MS). */
-const SECTION_BUDGET_CAP_MS = 45_000;
+const SECTION_BUDGET_CAP_MS = 38_000;
 
 /** Sum tokens (and cost when every section reported one) across section runs so
  *  the single recordUsage row reflects the whole skill run, not one third. */
@@ -716,12 +724,21 @@ export async function runSkill(
   // ON CONFLICT keeps the original row id, so we resolve the canonical id by
   // (project_id, skill_id) — not the freshly minted generateId above.
   try {
-    const completionRow = await get<{ id: string }>(
-      'SELECT id FROM skill_completions WHERE project_id = ? AND skill_id = ?',
-      projectId, skillId,
-    );
-    if (completionRow?.id) {
-      await linkSkillCompletionToAssumptions(projectId, completionRow.id, skillId, text);
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > SKILL_TAIL_CUTOFF_MS) {
+      // Near the ~60s platform ceiling: the linker's Haiku calls (up to 30s)
+      // would push the tail past the kill — losing the done frame and the
+      // route's chat-message write, which the founder DOES see. Links are
+      // enrichment; the completion is already persisted. Skip loudly.
+      console.warn(`[skill-executor] ${skillId}: skipping assumption linker at ${Math.round(elapsed / 1000)}s elapsed (tail cutoff)`);
+    } else {
+      const completionRow = await get<{ id: string }>(
+        'SELECT id FROM skill_completions WHERE project_id = ? AND skill_id = ?',
+        projectId, skillId,
+      );
+      if (completionRow?.id) {
+        await linkSkillCompletionToAssumptions(projectId, completionRow.id, skillId, text);
+      }
     }
   } catch (err) {
     console.warn('[skill-executor] assumption linker failed:', (err as Error).message);
