@@ -104,20 +104,23 @@ const STRUCTURED_JSON_SKILLS = new Set<string>(Object.keys(STRUCTURED_JSON_CONTR
  * Wall-clock LLM budget for founder-initiated skill runs (the /skills route and
  * the inbox run_skill executor both pass this).
  *
- * 90s, NOT 170s — the platform ceiling is the real budget. Measured on prod
- * 2026-08-31 (Luca's CarbonLog, market-research ×2): a run that needs ~200s is
- * KILLED by the serverless platform before the internal abort can fire, so the
- * truncation-persist path (fence contract, parseScoreJson skip-unparseable)
- * never runs and NOTHING lands — no skill_completions, no research, no message.
- * market-research had zero prod completions since 2026-06-25 for this reason.
- * Prod evidence brackets the ceiling: 85s LLM + persistence survived
- * (technical-validation 2026-08-19), ~200s died. 90s + worst-case persistence
- * (~25s measured locally) stays inside the proven-survivable window.
+ * 40s, NOT 170s and NOT the 90s of the first fix — the platform ceiling is the
+ * real budget, and it is ~60 SECONDS, not the ~110s the first measurement
+ * suggested. Re-measured live on the DEPLOYED function 2026-08-31 19:30Z
+ * (authenticated pane session, PastaFresca): the sectioned run streamed 68
+ * deltas and was killed at exactly 60s wall — nothing persisted, minutes
+ * later. The earlier ~110s "survivor" datapoints were CONTAMINATED: gatewalk
+ * sims and repair sessions run LOCALLY against the prod DB (dev==prod), so
+ * the usage ledger cannot distinguish prod-served from local-served rows.
+ * Every clean prod-served survivor is under 60s (clarity 35s; all 84 manual
+ * monitor runs ≤59s — survivor bias at exactly the cap); Luca's morning kills
+ * and tonight's are both consistent with ~60s.
  * A budget abort mid-stream is RECOVERABLE (text kept, fence parsed, run
- * persists); a platform kill is not. Raising this past ~100s reopens the
- * silent-death window — don't, without re-measuring the ceiling.
+ * persists); a platform kill is not. 40s + persistence (~5-10s warm) keeps
+ * the whole request near ~50s. Raising this requires a clean re-measure ON
+ * THE DEPLOYED FUNCTION — local runs prove nothing about the ceiling.
  */
-export const SKILL_RUN_BUDGET_MS = 90_000;
+export const SKILL_RUN_BUDGET_MS = 40_000;
 
 /**
  * PARALLEL SECTIONED RUN — market-research only (for now).
@@ -173,8 +176,9 @@ const MARKET_RESEARCH_SECTIONS: ResearchSection[] = [
 ];
 
 /** Per-section wall-clock cap. Sections run in parallel, so total ≈ this +
- *  persistence — keep the sum inside the measured platform ceiling (~110s). */
-const SECTION_BUDGET_CAP_MS = 75_000;
+ *  persistence — keep the sum inside the measured platform ceiling (~60s on
+ *  the deployed function; see SKILL_RUN_BUDGET_MS). */
+const SECTION_BUDGET_CAP_MS = 40_000;
 
 /** Sum tokens (and cost when every section reported one) across section runs so
  *  the single recordUsage row reflects the whole skill run, not one third. */
