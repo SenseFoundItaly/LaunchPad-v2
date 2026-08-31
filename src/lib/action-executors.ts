@@ -29,7 +29,7 @@
 
 import { run, query } from '@/lib/db';
 import { cleanEntityName } from '@/lib/ecosystem-alert-parser';
-import { runSkill } from '@/lib/skill-executor';
+import { runSkill, SKILL_RUN_BUDGET_MS } from '@/lib/skill-executor';
 import { generateId } from '@/lib/api-helpers';
 import { computeFinancialModel, coerceAssumptions, defaultAssumptions } from '@/lib/financial-projection';
 import { applyRevisionToAssumptions, isRevisableField, proposeArpuRevisionFromAlert } from '@/lib/financial-assumption-revision';
@@ -1630,8 +1630,9 @@ const runSkillExecutor: ActionHandler = async (action) => {
   }
   if (!ownerUserId) return { ok: false, error: 'run_skill: no owner_user_id for project' };
 
-  // 170s — generous (it's a dedicated founder-initiated request, not racing the
-  // chat turn's 8-tool / 180s budget). pi-agent force-closes cleanly past this.
+  // SKILL_RUN_BUDGET_MS, not 170s — this executor runs inside a serverless
+  // request too, and the platform kills the function before a 170s internal
+  // abort can fire; a killed run persists nothing (see skill-executor.ts).
   // allowAnySkill: TRUE because the founder explicitly approved this kickoff via
   // the inbox. The auto-rerun whitelist exists to gate heartbeat / cron, not
   // founder-driven kickoffs (otherwise pitch-coaching / gtm-strategy / etc.
@@ -1639,7 +1640,7 @@ const runSkillExecutor: ActionHandler = async (action) => {
   // whitelist" — observed live during QA on proj_6284f4c8-14b for idea-shaping).
   const result = await runSkill(action.project_id, skillId, {
     ownerUserId,
-    timeoutMs: 170_000,
+    timeoutMs: SKILL_RUN_BUDGET_MS,
     allowAnySkill: true,
     // The founder APPROVED a proposal — the invariant path ("skills propose,
     // not run"). Worth distinguishing from a direct kickoff in the cost view.

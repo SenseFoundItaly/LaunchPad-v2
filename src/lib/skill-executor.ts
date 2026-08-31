@@ -75,11 +75,15 @@ import { languageDirective } from '@/lib/agent-prompt';
  */
 const STRUCTURED_JSON_CONTRACTS: Record<string, string> = {
   'market-research':
-    'Your response MUST include the structured data from the "Output Format" section as a single fenced ```json code block ' +
-    '(the market_research object with market_sizing, competitors[], and trends[]). A 1-2 sentence intro is fine, but the json ' +
-    "block is mandatory — do NOT replace it with a prose-only or markdown report. This json is parsed downstream to populate " +
-    "the founder's research and knowledge graph. Keep the json COMPACT (at most 2 sources per item, at most 6 competitors) so it " +
-    "stays within length limits and closes properly; emit market_sizing and competitors FIRST.",
+    'Once your research is done, your response MUST OPEN with the structured data from the "Output Format" section as a single ' +
+    'fenced ```json code block (the market_research object with market_sizing, competitors[], and trends[]) — BEFORE any narrative, ' +
+    "analysis or preamble. Do NOT replace it with a prose-only or markdown report. This json is parsed downstream to populate the " +
+    "founder's research and knowledge graph. Keep the json COMPACT (at most 2 sources per item, at most 6 competitors) so it closes " +
+    'properly; emit market_sizing and competitors FIRST inside the block, then write the full report as PROSE AFTER the block. ' +
+    'This ordering is not cosmetic: the run has a hard time budget, and a small block that already CLOSED is the only thing that ' +
+    "still parses if the run is cut short — without it the founder's research is silently lost even though the run looks successful. " +
+    'Budget discipline: make AT MOST 4 web_search calls (batch them in one round), then STOP researching and write the json — ' +
+    'a complete block from 4 searches beats a severed block from 8.',
   'startup-scoring':
     'Your response MUST OPEN with the compact json block from the "Output Format" section — before any narrative, analysis or ' +
     'preamble. It carries only overall_score, overall_grade, summary and one score + one-sentence rationale per dimension. ' +
@@ -95,6 +99,25 @@ const STRUCTURED_JSON_CONTRACTS: Record<string, string> = {
     "run is cut short; without it the founder's score is silently lost even though the run looks successful.",
 };
 const STRUCTURED_JSON_SKILLS = new Set<string>(Object.keys(STRUCTURED_JSON_CONTRACTS));
+
+/**
+ * Wall-clock LLM budget for founder-initiated skill runs (the /skills route and
+ * the inbox run_skill executor both pass this).
+ *
+ * 90s, NOT 170s — the platform ceiling is the real budget. Measured on prod
+ * 2026-08-31 (Luca's CarbonLog, market-research ×2): a run that needs ~200s is
+ * KILLED by the serverless platform before the internal abort can fire, so the
+ * truncation-persist path (fence contract, parseScoreJson skip-unparseable)
+ * never runs and NOTHING lands — no skill_completions, no research, no message.
+ * market-research had zero prod completions since 2026-06-25 for this reason.
+ * Prod evidence brackets the ceiling: 85s LLM + persistence survived
+ * (technical-validation 2026-08-19), ~200s died. 90s + worst-case persistence
+ * (~25s measured locally) stays inside the proven-survivable window.
+ * A budget abort mid-stream is RECOVERABLE (text kept, fence parsed, run
+ * persists); a platform kill is not. Raising this past ~100s reopens the
+ * silent-death window — don't, without re-measuring the ceiling.
+ */
+export const SKILL_RUN_BUDGET_MS = 90_000;
 
 /**
  * The default whitelist for `runSkill`: analytical skills whose output is
