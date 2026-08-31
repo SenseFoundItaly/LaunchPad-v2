@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   CACHE_BREAKPOINT,
   joinSystemForModel,
@@ -58,10 +58,38 @@ describe('cache breakpoint — fail-safe behaviour', () => {
     expect(joinSystemForModel(STATIC, '')).not.toContain(CACHE_BREAKPOINT);
   });
 
-  it('is byte-identical to plain concatenation when the flag is off', () => {
-    // CHAT_CACHE_SPLIT is unset in tests, so this is the shipped default: an
-    // unpatched deploy must behave exactly as it does today.
+  it('is byte-identical to plain concatenation when the split is inactive', () => {
+    // The split now defaults ON, but ONLY on the patched OpenRouter path:
+    // CHAT_CACHE_SPLIT hard-disables itself when OPENROUTER_API_KEY is unset
+    // (LLM_PROVIDER === 'anthropic'), which is the test environment. So this
+    // asserts the direct-Anthropic guarantee: no marker can ever be emitted
+    // toward the one provider that does not know how to strip it.
+    expect(process.env.OPENROUTER_API_KEY).toBeFalsy();
     expect(joinSystemForModel(STATIC, VOLATILE)).toBe(STATIC + VOLATILE);
+    expect(joinSystemForModel(STATIC, VOLATILE)).not.toContain(CACHE_BREAKPOINT);
+  });
+
+  it('emits exactly one strippable marker when the split is active (OpenRouter)', async () => {
+    // Re-import the module graph with OPENROUTER_API_KEY present so the
+    // module-load constants (router.LLM_PROVIDER → CHAT_CACHE_SPLIT) resolve
+    // the way they do in prod. The shipped-default claim: marker present,
+    // and stripping it restores plain concatenation byte-for-byte.
+    vi.stubEnv('OPENROUTER_API_KEY', 'test-key');
+    vi.resetModules();
+    try {
+      const fresh = await import('@/lib/chat/cache-breakpoint');
+      const joined = fresh.joinSystemForModel(STATIC, VOLATILE);
+      expect(joined).toBe(STATIC + fresh.CACHE_BREAKPOINT + VOLATILE);
+      expect(fresh.stripCacheBreakpoints(joined)).toBe(STATIC + VOLATILE);
+      // Opt-out escape hatch still works without a code change.
+      vi.stubEnv('CHAT_CACHE_SPLIT', '0');
+      vi.resetModules();
+      const optOut = await import('@/lib/chat/cache-breakpoint');
+      expect(optOut.joinSystemForModel(STATIC, VOLATILE)).toBe(STATIC + VOLATILE);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 
   it('the route\'s two-half assembly is byte-identical to the old one-call build', () => {

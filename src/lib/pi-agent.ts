@@ -1,7 +1,8 @@
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 import { streamSimple, getModel, getEnvApiKey } from '@mariozechner/pi-ai';
-import type { Message, Usage } from '@mariozechner/pi-ai';
+import type { Message, Model, Usage } from '@mariozechner/pi-ai';
+import { MODEL_CONFIG } from './llm/models';
 import { join } from 'path';
 import { mkdirSync, readFileSync, appendFileSync, existsSync, readdirSync, statSync, rmSync } from 'fs';
 import { getTools } from './pi-tools';
@@ -10,7 +11,11 @@ import { getLangfuse, estimateCost, mapToLangfuseModelId, toLangfuseUsageAndCost
 import type { LangfuseTraceClient, LangfuseSpanClient } from 'langfuse';
 
 const DEFAULT_PROVIDER = (process.env.PI_PROVIDER || 'anthropic') as 'anthropic' | 'openai';
-const DEFAULT_MODEL_ID = process.env.PI_MODEL || (DEFAULT_PROVIDER === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
+// No-task fallback follows the router's balanced tier. The old hard-coded pin
+// ('claude-sonnet-4-20250514') outlived its model: that snapshot retired in
+// June 2026, and the cron/monitor callers that never pass a task label were
+// still running on it.
+const DEFAULT_MODEL_ID = process.env.PI_MODEL || (DEFAULT_PROVIDER === 'anthropic' ? MODEL_CONFIG['claude-sonnet-5'].id : 'gpt-4o');
 const SESSIONS_DIR = process.env.LAUNCHPAD_SESSIONS_DIR || join(process.env.HOME || '/tmp', '.launchpad', 'sessions');
 
 // ─── Stale session cleanup ───
@@ -63,19 +68,77 @@ function cleanStaleSessions() {
  */
 
 /**
+ * Models newer than pi-ai 0.67.68's static registry. `getModel()` returns
+ * undefined for these (and the Agent would crash), so we hand-construct the
+ * Model objects — same shapes as the registry's Sonnet 4.6 entries, with
+ * Sonnet 5 ids and pricing sourced from MODEL_CONFIG so the cost meter and
+ * pi-ai's calculateCost agree. `reasoning: true` matters on both entries:
+ * it is what makes pi-ai explicitly send thinking OFF (OpenRouter
+ * reasoning:{effort:"none"} / Anthropic thinking:{type:"disabled"}) instead
+ * of omitting the param — and Sonnet 5 defaults to adaptive thinking when
+ * the param is omitted, which would silently add output-token spend.
+ */
+const SONNET_5 = MODEL_CONFIG['claude-sonnet-5'];
+const LP_EXTRA_MODELS: Record<string, Model<'anthropic-messages'> | Model<'openai-completions'>> = {
+  [`anthropic:${SONNET_5.id}`]: {
+    id: SONNET_5.id,
+    name: 'Claude Sonnet 5',
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    reasoning: true,
+    input: ['text', 'image'],
+    cost: {
+      input: SONNET_5.pricing.input,
+      output: SONNET_5.pricing.output,
+      cacheRead: SONNET_5.pricing.cacheRead,
+      cacheWrite: SONNET_5.pricing.cacheWrite,
+    },
+    contextWindow: SONNET_5.contextWindow,
+    maxTokens: SONNET_5.maxOutputTokens,
+  },
+  [`openrouter:${SONNET_5.openrouterId}`]: {
+    id: SONNET_5.openrouterId,
+    name: 'Anthropic: Claude Sonnet 5',
+    api: 'openai-completions',
+    provider: 'openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    reasoning: true,
+    input: ['text', 'image'],
+    cost: {
+      input: SONNET_5.pricing.input,
+      output: SONNET_5.pricing.output,
+      cacheRead: SONNET_5.pricing.cacheRead,
+      cacheWrite: SONNET_5.pricing.cacheWrite,
+    },
+    contextWindow: SONNET_5.contextWindow,
+    maxTokens: SONNET_5.maxOutputTokens,
+  },
+};
+
+/**
  * Resolve the concrete pi-ai Model object for this call.
  *
  * If a `task` label is provided, the router selects the model based on
  * task-complexity tier (see src/lib/llm/router.ts). Otherwise we fall back
  * to the globals `PI_PROVIDER` + `PI_MODEL` — preserving the pre-router
  * behavior for callers that haven't been retrofitted yet.
+ *
+ * Registry misses fall through to LP_EXTRA_MODELS (models newer than the
+ * pinned pi-ai); a miss in both is a loud error instead of the downstream
+ * undefined-model crash pi-agent-core would otherwise produce.
  */
 function resolveModel(task?: TaskLabel) {
-  if (task) {
-    const { provider, model } = pickModel(task);
-    return getModel(provider as any, model as any);
+  const target = task
+    ? pickModel(task)
+    : { provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL_ID };
+  const model =
+    getModel(target.provider as any, target.model as any) ??
+    LP_EXTRA_MODELS[`${target.provider}:${target.model}`];
+  if (!model) {
+    throw new Error(`[pi-agent] unknown model ${target.provider}:${target.model} — not in pi-ai's registry or LP_EXTRA_MODELS`);
   }
-  return getModel(DEFAULT_PROVIDER as any, DEFAULT_MODEL_ID as any);
+  return model;
 }
 
 /**
@@ -520,6 +583,39 @@ export interface RunAgentResult {
   langfuseTraceId?: string | null;
 }
 
+/**
+ * Enforce the per-turn tool-call budget with the loop's own `beforeToolCall`
+ * hook. Once the budget is spent, every further call is BLOCKED with an
+ * instructive error result — the loop keeps running, so the model's next
+ * iteration is forced into synthesis instead of more tool churn.
+ *
+ * This replaces the old `agent.state.tools = []` strip, which was doubly
+ * wrong: (a) a no-op — Agent.prompt() snapshots the tool array at run start
+ * and the loop only reads the snapshot, so the strip never reached the LLM;
+ * (b) even if it had worked, removing tools mid-turn mutates cache-prefix
+ * position 0 and re-bills the whole prefix at write price for the turn's
+ * largest call. Blocking per-call keeps the tool array byte-stable.
+ */
+function makeToolCallLimiter(maxToolCalls: number) {
+  let attempted = 0;
+  let warned = false;
+  return async () => {
+    attempted++;
+    if (attempted <= maxToolCalls) return undefined;
+    if (!warned) {
+      warned = true;
+      console.warn(`[pi-agent] tool call limit reached (${maxToolCalls}), blocking further calls to force synthesis`);
+    }
+    return {
+      block: true,
+      reason:
+        `Tool-call budget for this turn is exhausted (${maxToolCalls} calls used). ` +
+        'Do not request any more tools. Write your final answer NOW, synthesizing what you already gathered, ' +
+        'including every required closing artifact (option set / summary).',
+    };
+  };
+}
+
 /** Run Pi Agent and collect full response (non-streaming). */
 export async function runAgent(prompt: string, options: RunAgentOptions = {}): Promise<RunAgentResult> {
   cleanStaleSessions();
@@ -533,6 +629,10 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
     // latency — parallel lets them all run concurrently and finalizes
     // results in source order.
     toolExecution: 'parallel',
+    // The buffered path previously had NO tool-call cap at all — a section
+    // that ignored its "at most 2 searches" prompt could burn the whole run
+    // budget on tool loops. Same default cap as the streaming path.
+    beforeToolCall: makeToolCallLimiter(options.maxToolCalls ?? 8),
   });
 
   agent.state.model = model;
@@ -643,6 +743,10 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
         streamFn: streamSimple,
         sessionId: options.sessionId,
         getApiKey: makeGetApiKey(options.userKey),
+        // Per-turn tool budget, enforced at prepare time (see
+        // makeToolCallLimiter). Replaces the tools-strip below, which never
+        // worked: the loop reads a snapshot taken at prompt() time.
+        beforeToolCall: makeToolCallLimiter(options.maxToolCalls ?? 8),
       });
 
       agent.state.model = model;
@@ -775,8 +879,6 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
       }, timeout);
 
       let lastUsage: Usage | undefined;
-      let toolCallCount = 0;
-      const maxToolCalls = options.maxToolCalls ?? 8;
 
       agent.subscribe((event) => {
         switch (event.type) {
@@ -792,24 +894,10 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
           }
 
           case 'tool_execution_start': {
-            toolCallCount++;
+            // Tool budget is enforced in beforeToolCall (Agent construction
+            // above) — blocked calls never reach execution, so no counting or
+            // tool-stripping is needed here.
             openToolSpan(trace, toolSpans, event.toolCallId, event.toolName, event.args);
-            if (toolCallCount > maxToolCalls) {
-              // FORCE SYNTHESIS instead of aborting. agent.abort() killed the
-              // agent mid-loop, leaving turns with tool_results but no closing
-              // artifacts (option-set, prose summary) — a Tier 0 violation
-              // visible to founders as "agent did research then went silent".
-              //
-              // Stripping tools lets pi-agent-core continue its loop: the
-              // LLM's next iteration sees no tools available and is forced
-              // to respond with text + artifacts (which is exactly the
-              // synthesis we want). This in-flight call still completes
-              // because we don't abort.
-              if (agent.state.tools && agent.state.tools.length > 0) {
-                console.warn(`[pi-agent] tool call limit reached (${maxToolCalls}), forcing synthesis`);
-                agent.state.tools = [];
-              }
-            }
             safeEnqueue(
               encoder.encode(`data: ${JSON.stringify({
                 tool_start: {

@@ -54,13 +54,23 @@
  */
 export const CACHE_BREAKPOINT = '<<<PI_CACHE_BREAKPOINT>>>';
 
+import { LLM_PROVIDER } from '@/lib/llm/router';
+
 /**
- * Off by default. The marker is only meaningful to a pi-ai that knows how to
- * split on it; without the patch an enabled flag would leak the sentinel into
- * the prompt as visible text. Default-off means an unpatched deploy is
- * byte-identical to today.
+ * ON by default (set CHAT_CACHE_SPLIT=0 to fall back to the legacy single-block
+ * shape without a code change).
+ *
+ * The original default-off guarded against the sentinel leaking into the
+ * prompt as visible text on a path that doesn't know how to strip it. That
+ * guard is now structural instead of a default: the marker is only ever
+ * emitted when the active provider is OpenRouter — the one path the
+ * patch-package hunk (patches/@mariozechner+pi-ai+0.67.68.patch, applied on
+ * every install via postinstall) splits AND strips on. On a direct-Anthropic
+ * deployment (OPENROUTER_API_KEY unset) the flag hard-disables itself, so the
+ * unpatched anthropic.js provider can never see a sentinel.
  */
-export const CHAT_CACHE_SPLIT = process.env.CHAT_CACHE_SPLIT === '1';
+export const CHAT_CACHE_SPLIT =
+  process.env.CHAT_CACHE_SPLIT !== '0' && LLM_PROVIDER === 'openrouter';
 
 /**
  * Join the static and volatile halves into the single string pi-ai accepts.

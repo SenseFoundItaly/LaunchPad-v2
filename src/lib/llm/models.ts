@@ -26,10 +26,34 @@ export const MODEL_CONFIG = {
       cacheRead: 0.10,
     },
   },
+  // Balanced tier = Sonnet 5 (2026-08-31, harness lever 3). Newer than
+  // Sonnet 4.6 AND cheaper ($2/$10 vs $3/$15) — but its tokenizer yields
+  // ~30% more tokens for identical text, so the realistic net saving on the
+  // tier is ~13%, not the headline 33%. Thinking stays OFF on both wire
+  // paths, preserving 4.6 behavior: OpenRouter gets reasoning:{effort:"none"}
+  // (pi-ai openai-completions thinkingFormat), direct Anthropic gets
+  // thinking:{type:"disabled"} — Sonnet 5 accepts disabled at default effort.
+  'claude-sonnet-5': {
+    id: 'claude-sonnet-5',
+    openrouterId: 'anthropic/claude-sonnet-5',
+    tier: 'balanced' as const,
+    contextWindow: 1_000_000,
+    maxOutputTokens: 64_000,
+    pricing: {
+      input: 2.00,
+      output: 10.00,
+      cacheWrite: 2.50,
+      cacheRead: 0.20,
+    },
+  },
+  // LEGACY — no longer routed (legacy: true is skipped by the router's tier
+  // map). Kept so telemetry/cost estimation still prices historical and
+  // in-flight claude-sonnet-4-6 usage rows correctly.
   'claude-sonnet-4-6': {
     id: 'claude-sonnet-4-6',
     openrouterId: 'anthropic/claude-sonnet-4.6',
     tier: 'balanced' as const,
+    legacy: true,
     contextWindow: 1_000_000,
     maxOutputTokens: 64_000,
     pricing: {
