@@ -23,7 +23,14 @@ export interface StageCheckRow {
 }
 
 export interface StageEvaluation {
-  stage: { id: string; number: number; label: string; tagline?: string };
+  stage: {
+    id: string;
+    number: number;
+    label: string;
+    tagline?: string;
+    /** Display-only roadmap items (Stage.planned) — never counted in passed/total. */
+    planned?: Array<{ id: string; label: string }>;
+  };
   passed: number;
   total: number;
   status: 'done' | 'active' | 'pending';

@@ -48,4 +48,11 @@ export const stageFundraise: Stage = {
       },
     },
   ],
+  // Display-only roadmap (changelog 28/08 item 1) — promote to real checks
+  // only together with their write paths.
+  planned: [
+    { id: 'planned_pitch_deck', label: 'Pitch deck ready' },
+    { id: 'planned_investor_pipeline', label: 'Investor pipeline started' },
+    { id: 'planned_data_room', label: 'Data room assembled' },
+  ],
 };

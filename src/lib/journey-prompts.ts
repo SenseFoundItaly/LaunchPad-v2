@@ -187,6 +187,17 @@ const CHECK_LABEL_KEY: Record<string, MessageKey> = {
   // Stage 7 — Operate
   loop_active: 'journey-check.loop_active',
   metrics_tracked: 'journey-check.metrics_tracked',
+  // Planned (display-only roadmap items — see Stage.planned in journey/types.ts)
+  planned_persona_interviews: 'journey-check.planned_persona_interviews',
+  planned_wtp_signal: 'journey-check.planned_wtp_signal',
+  planned_channel_test: 'journey-check.planned_channel_test',
+  planned_launch_page: 'journey-check.planned_launch_page',
+  planned_feedback_loop: 'journey-check.planned_feedback_loop',
+  planned_pitch_deck: 'journey-check.planned_pitch_deck',
+  planned_investor_pipeline: 'journey-check.planned_investor_pipeline',
+  planned_data_room: 'journey-check.planned_data_room',
+  planned_retention_baseline: 'journey-check.planned_retention_baseline',
+  planned_unit_economics: 'journey-check.planned_unit_economics',
 };
 
 const STAGE_LABEL_KEY: Record<string, MessageKey> = {

@@ -64,4 +64,10 @@ export const stageBuildLaunch: Stage = {
       },
     },
   ],
+  // Display-only roadmap (changelog 28/08 item 1) — promote to real checks
+  // only together with their write paths.
+  planned: [
+    { id: 'planned_launch_page', label: 'Launch page live' },
+    { id: 'planned_feedback_loop', label: 'User feedback loop in place' },
+  ],
 };

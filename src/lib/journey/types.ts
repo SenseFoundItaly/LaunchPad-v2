@@ -73,6 +73,15 @@ export interface Stage {
   label: string;
   tagline: string;
   checks: StageCheck[];
+  /**
+   * DISPLAY-ONLY roadmap items (changelog 28/08 item 1): tasks the stage will
+   * gain once their write paths exist, shown ghosted so the founder sees
+   * what's coming. Deliberately NOT StageChecks — a check that reads a column
+   * nothing fills is permanently red (repo invariant), so these carry no
+   * evaluate() and never count toward passed/total. Promote one to a real
+   * check ONLY together with its write path.
+   */
+  planned?: Array<{ id: string; label: string }>;
 }
 
 export interface StageEvaluation {

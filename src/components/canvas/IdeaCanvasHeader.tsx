@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { DiffTable, type DiffRow } from '@/components/ui/DiffTable';
 import { useT } from '@/components/providers/LocaleProvider';
@@ -102,6 +102,41 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
     },
   });
   const loaded = !isLoading;
+
+  // Score synthesis pinned on the Canvas (changelog 28/08 item 6): the chat
+  // column gets overwritten by later conversations and the Home score will be
+  // replaced by the Startup Score post-gate, so the Clarity verdict needs a
+  // surface that survives both. Read-only; the /score GET already labels the
+  // kind honestly (clarity vs startup).
+  const queryClient = useQueryClient();
+  const { data: score = null } = useQuery<{
+    overall_score: number | null;
+    recommendation: string | null;
+    scored_at: string | null;
+    kind: 'clarity' | 'startup';
+  } | null>({
+    queryKey: ['project-score', projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/score`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        return body?.data ?? null;
+      } catch {
+        return null;
+      }
+    },
+  });
+  useEffect(() => {
+    // A completed scoring run announces itself as lp-skills-changed — refetch
+    // so the strip appears without a reload.
+    const handler = () => queryClient.invalidateQueries({ queryKey: ['project-score', projectId] });
+    window.addEventListener('lp-skills-changed', handler);
+    return () => window.removeEventListener('lp-skills-changed', handler);
+  }, [projectId, queryClient]);
+  // scores.overall_score canon is 0-100; legacy gauge-chart rows carry 0-10.
+  const score100 = score?.overall_score == null ? null : (score.overall_score <= 10 ? score.overall_score * 10 : score.overall_score);
 
   const pending = data?.pending ?? {};
   // Competitive advantage folds the moat in when both exist — the Stage-1
@@ -260,6 +295,33 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
           )}
         </div>
       </div>
+      {score100 != null && (
+        <div
+          data-canvas-section="score"
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 8,
+            margin: '8px 0 10px',
+            padding: '6px 10px',
+            background: 'var(--accent-wash)',
+            borderRadius: 'var(--r-m)',
+          }}
+        >
+          <span className="lp-mono" style={{ fontSize: 10, color: 'var(--accent-ink)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+            {score?.kind === 'clarity' ? t('canvas.score-clarity-label') : t('canvas.score-startup-label')}
+          </span>
+          <span className="lp-serif" style={{ fontSize: 16, lineHeight: 1, color: 'var(--ink)' }}>{Math.round(score100)}/100</span>
+          {score?.recommendation && (
+            <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-3)', letterSpacing: 0.3 }}>{score.recommendation}</span>
+          )}
+          {score?.scored_at && (
+            <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-5)', flexShrink: 0 }}>
+              {new Date(score.scored_at).toLocaleDateString()}
+            </span>
+          )}
+        </div>
+      )}
       {!loaded ? (
         <div style={{ fontSize: 11, color: 'var(--ink-5)' }}>…</div>
       ) : isEmpty ? (

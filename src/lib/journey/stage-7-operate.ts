@@ -48,4 +48,10 @@ export const stageOperate: Stage = {
       },
     },
   ],
+  // Display-only roadmap (changelog 28/08 item 1) — promote to real checks
+  // only together with their write paths.
+  planned: [
+    { id: 'planned_retention_baseline', label: 'Retention baseline measured' },
+    { id: 'planned_unit_economics', label: 'Unit economics tracked' },
+  ],
 };

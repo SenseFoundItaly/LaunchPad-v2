@@ -2002,10 +2002,13 @@ function ChatEmptyState({
   }
 
   // ── Fresh project (no substance yet): early-stage starter prompts ──────────
+  // Minimal and CONTROLLED (changelog 28/08 item 2): both entries steer into
+  // the Idea Canvas. "Who are my competitors?" / "what should I validate
+  // first?" invited skipping straight to Stage-2 work before a canvas existed
+  // — the copilot's own suggestions were derailing its validation sequence.
   const prompts = [
     t('chat.starter-structure-idea'),
-    t('chat.starter-competitors'),
-    t('chat.starter-validate-first'),
+    t('chat.starter-defined-project'),
   ];
 
   return (
@@ -2289,6 +2292,45 @@ const Msg = memo(MsgImpl);
  * No external dependency needed.
  */
 function MdProse({ text }: { text: string }) {
+  const t = useT();
+  // Founder-facing chat must never dump a raw machine payload (changelog 28/08:
+  // clarity-score json + market-research json rendered as literal text — "fa
+  // percepire il prodotto cheap"). Collapse fenced ```json blocks — closed OR
+  // still streaming (the `\n\x60\x60\x60|$` alternation, mirroring the artifact
+  // orphan-stripper: an unterminated fence mid-stream is exactly when the dump
+  // is ugliest) — into a small disclosure. Nothing is lost: the payload stays
+  // readable behind a click, and parsing/persistence read the RAW message.
+  const fenceRe = /```json[^\n]*\n([\s\S]*?)(?:\n```|$)/g;
+  const segments: Array<{ kind: 'prose' | 'json'; body: string }> = [];
+  {
+    let last = 0;
+    for (const m of text.matchAll(fenceRe)) {
+      const idx = m.index ?? 0;
+      if (idx > last) segments.push({ kind: 'prose', body: text.slice(last, idx) });
+      segments.push({ kind: 'json', body: m[1] });
+      last = idx + m[0].length;
+    }
+    if (last < text.length) segments.push({ kind: 'prose', body: text.slice(last) });
+  }
+  if (segments.some((s) => s.kind === 'json')) {
+    return (
+      <>
+        {segments.map((seg, si) =>
+          seg.kind === 'json' ? (
+            <details key={`json${si}`} style={{ margin: '6px 0' }}>
+              <summary style={{ cursor: 'pointer', fontSize: 11.5, color: 'var(--ink-5)' }}>
+                {t('chat.structured-data')}
+              </summary>
+              <pre style={{ fontSize: 11, overflowX: 'auto', color: 'var(--ink-4)', margin: '6px 0 0' }}>{seg.body}</pre>
+            </details>
+          ) : (
+            <MdProse key={`prose${si}`} text={seg.body} />
+          ),
+        )}
+      </>
+    );
+  }
+
   const inline = (s: string, key: number | string) => {
     const parts: React.ReactNode[] = [];
     let i = 0;

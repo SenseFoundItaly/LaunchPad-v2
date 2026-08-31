@@ -235,6 +235,16 @@ export default function TourController() {
         return;
       }
       if (pathname !== routeFor(step.page, pid)) {
+        // Fresh start from the dashboard whose first chapter lives inside the
+        // project (changelog 28/08 order: the tour opens on project Home):
+        // navigate INTO the tour instead of deferring — the pathname effect
+        // resumes chapter 1 on arrival. Only for step 0; anything later is a
+        // genuine deep link / browser back.
+        if (state.stepIndex === 0 && pathname === '/' && pid) {
+          writeTourState({ stepIndex: 0, projectId: pid });
+          router.push(routeFor(step.page, pid));
+          return;
+        }
         // Deep link / browser back mid-tour: end this run rather than dragging
         // the user back to the expected page — but the tour stays owed.
         deferTourForSession();

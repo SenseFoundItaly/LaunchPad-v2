@@ -80,6 +80,11 @@ export function languageDirective(locale: Locale): string | null {
     `Always write every founder-facing word — chat replies AND the prose inside artifacts — in ${language}.`,
     `Stay in ${language} for the entire conversation, even if earlier turns were in another language.`,
     `Do NOT translate: brand/product names, people's names, code, URLs, or the structured field *keys* inside :::artifact blocks (only their human-readable values).`,
+    // Quality bar (changelog 28/08 item 4): live founder sessions produced
+    // "draffare la value prop", "chi sente questo dolore più acutamente?",
+    // "ancora di comparazione" — word-for-word calques and invented anglicisms
+    // that read as a cheap product. Native phrasing over literal translation.
+    `Write NATIVE ${language}, not translated English: never invent anglicisms (no verbs coined from English like "draffare"), never calque English idioms word-for-word — rephrase the idea the way a native professional would say it. Established untranslated startup terms (pitch, canvas, value proposition) are fine; hybrids and literal translations of English metaphors are not.`,
   ].join('\n');
 }
 
