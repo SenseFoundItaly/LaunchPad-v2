@@ -59,4 +59,11 @@ export const stagePersona: Stage = {
     // set up. Persona/Segment now validates purely on founder-driven evidence
     // (target market · ICP · channels).
   ],
+  // Display-only roadmap (changelog 28/08 item 1) — promote to real checks
+  // only together with their write paths.
+  planned: [
+    { id: 'planned_persona_interviews', label: 'Persona validated through interviews' },
+    { id: 'planned_wtp_signal', label: 'Willingness-to-pay signal collected' },
+    { id: 'planned_channel_test', label: 'First acquisition channel tested' },
+  ],
 };

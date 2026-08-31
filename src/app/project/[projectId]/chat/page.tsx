@@ -2002,10 +2002,13 @@ function ChatEmptyState({
   }
 
   // ── Fresh project (no substance yet): early-stage starter prompts ──────────
+  // Minimal and CONTROLLED (changelog 28/08 item 2): both entries steer into
+  // the Idea Canvas. "Who are my competitors?" / "what should I validate
+  // first?" invited skipping straight to Stage-2 work before a canvas existed
+  // — the copilot's own suggestions were derailing its validation sequence.
   const prompts = [
     t('chat.starter-structure-idea'),
-    t('chat.starter-competitors'),
-    t('chat.starter-validate-first'),
+    t('chat.starter-defined-project'),
   ];
 
   return (

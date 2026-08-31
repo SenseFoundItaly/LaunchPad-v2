@@ -116,6 +116,21 @@ export function StageCard({ projectId }: { projectId: string }) {
               </div>
             );
           })}
+          {/* Planned roadmap items (changelog 28/08 item 1): display-only — no
+              evaluate(), never counted in passed/total. Ghosted so the founder
+              sees what the stage will ask next without a permanently-red check. */}
+          {(headline.stage.planned?.length ?? 0) > 0 && (
+            <div style={{ borderTop: '1px solid var(--line)', paddingTop: 6 }}>
+              {headline.stage.planned!.map((p) => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '4px 14px', opacity: 0.55 }}>
+                  <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{checkLabel(p.id, p.label, t)}</span>
+                  <span className="lp-mono" style={{ fontSize: 9, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.4, marginLeft: 'auto', flexShrink: 0 }}>
+                    {t('journey-check.planned-chip')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         {active && active.passed < active.total && (
           <div style={{
