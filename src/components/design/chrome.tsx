@@ -228,6 +228,7 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
 
   return (
     <div
+      data-tour="nav-rail"
       style={{
         width: 54,
         flexShrink: 0,

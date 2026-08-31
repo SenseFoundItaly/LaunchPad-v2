@@ -68,27 +68,22 @@ export function buildManifest({ hasProjects }: { hasProjects: boolean }): TourSt
       { id: 'create-empty', page: 'dashboard', target: '[data-tour="new-project"]', titleKey: 'tour.dash.empty.title', descKey: 'tour.dash.empty.desc', side: 'right', align: 'center', allowInteraction: true },
     ];
   }
+  // Changelog 28/08 order: start on project Home (backdrop) with the NavRail
+  // lit, then walk the rail — Knowledge → Co-Pilot → Watchers → Finance —
+  // return to Home for its widgets (score, IRL, journey, watcher glance), and
+  // finish on the workspace dashboard (projects grid, New project, signals).
   return [
-    // ── Chapter: workspace dashboard (/) ────────────────────────────────────
-    { id: 'welcome', page: 'dashboard', titleKey: 'tour.welcome.title', descKey: 'tour.welcome.desc' },
-    // The left projects rail was retired (2026-07-21 — it duplicated the main
-    // grid); the step now points at the grid itself, and New project moved to
-    // the workspace header, top right.
-    { id: 'projects-rail', page: 'dashboard', target: '[data-tour="projects-grid"]', titleKey: 'tour.dash.projects.title', descKey: 'tour.dash.projects.desc', side: 'bottom', align: 'start' },
-    { id: 'new-project', page: 'dashboard', target: '[data-tour="new-project"]', titleKey: 'tour.dash.create.title', descKey: 'tour.dash.create.desc', side: 'bottom', align: 'end' },
-    { id: 'dash-signals', page: 'dashboard', target: '[data-tour="dash-signals"]', titleKey: 'tour.dash.signals.title', descKey: 'tour.dash.signals.desc', side: 'bottom', align: 'end' },
-    // ── Chapter: project Home (/today) ──────────────────────────────────────
-    nav('today', 'dashboard', 'tour.home.title', 'tour.home.desc'),
-    { id: 'score-panel', page: 'today', target: '[data-tour="score-panel"]', titleKey: 'tour.today.score.title', descKey: 'tour.today.score.desc', side: 'bottom', align: 'start', optional: true },
-    { id: 'stage-card', page: 'today', target: '[data-tour="stage-card"]', titleKey: 'tour.today.stage.title', descKey: 'tour.today.stage.desc', side: 'right', align: 'start', optional: true },
-    { id: 'watchers-panel', page: 'today', target: '[data-tour="watchers-panel"]', titleKey: 'tour.today.watchers.title', descKey: 'tour.today.watchers.desc', side: 'left', align: 'start', optional: true },
+    // ── Chapter: project Home as backdrop (/today) ──────────────────────────
+    { id: 'welcome', page: 'today', titleKey: 'tour.welcome.title', descKey: 'tour.welcome.desc' },
+    { id: 'nav-rail', page: 'today', target: '[data-tour="nav-rail"]', titleKey: 'tour.rail.title', descKey: 'tour.rail.desc', side: 'right', align: 'start' },
     // ── Chapter: Knowledge graph (/knowledge) ───────────────────────────────
-    // Ordered BEFORE Watchers (changelog 4/08 mini-tour spec: Home → Knowledge
-    // → Watchers → Finance → Co-Pilot) — everything a founder uploads/produces
-    // lands here, so it's the more natural second stop than the sensor list.
     nav('knowledge', 'knowledge', 'tour.knowledge.title', 'tour.knowledge.desc'),
     { id: 'knowledge-graph', page: 'knowledge', target: '[data-tour="knowledge-graph"]', titleKey: 'tour.knowledge.graph.title', descKey: 'tour.knowledge.graph.desc', optional: true },
     { id: 'add-documents', page: 'knowledge', target: '[data-tour="add-documents"]', titleKey: 'tour.knowledge.add.title', descKey: 'tour.knowledge.add.desc', side: 'bottom', align: 'end', optional: true },
+    // ── Chapter: Co-pilot (/chat) ───────────────────────────────────────────
+    nav('chat', 'chat', 'tour.copilot.title', 'tour.copilot.desc'),
+    { id: 'chat-composer', page: 'chat', target: '[data-tour="chat-composer"]', titleKey: 'tour.chat.composer.title', descKey: 'tour.chat.composer.desc', side: 'top', align: 'start', optional: true },
+    { id: 'chat-canvas', page: 'chat', target: '[data-tour="chat-canvas"]', titleKey: 'tour.chat.canvas.title', descKey: 'tour.chat.canvas.desc', side: 'left', align: 'center', optional: true },
     // ── Chapter: Watchers (/actions) ────────────────────────────────────────
     nav('actions', 'inbox', 'tour.watchers.title', 'tour.watchers.desc'),
     { id: 'inbox-tabs', page: 'actions', target: '[data-tour="inbox-tabs"]', titleKey: 'tour.actions.tabs.title', descKey: 'tour.actions.tabs.desc', side: 'bottom', align: 'start', optional: true },
@@ -98,10 +93,16 @@ export function buildManifest({ hasProjects }: { hasProjects: boolean }): TourSt
     // ── Chapter: Financials (/financial) ────────────────────────────────────
     nav('financial', 'financial', 'tour.financial.title', 'tour.financial.desc'),
     { id: 'financial-model', page: 'financial', target: '[data-tour="financial-model"]', titleKey: 'tour.financial.model.title', descKey: 'tour.financial.model.desc', optional: true },
-    // ── Chapter: Co-pilot (/chat) ───────────────────────────────────────────
-    nav('chat', 'chat', 'tour.copilot.title', 'tour.copilot.desc'),
-    { id: 'chat-composer', page: 'chat', target: '[data-tour="chat-composer"]', titleKey: 'tour.chat.composer.title', descKey: 'tour.chat.composer.desc', side: 'top', align: 'start', optional: true },
-    { id: 'chat-canvas', page: 'chat', target: '[data-tour="chat-canvas"]', titleKey: 'tour.chat.canvas.title', descKey: 'tour.chat.canvas.desc', side: 'left', align: 'center', optional: true },
-    { id: 'finish', page: 'chat', titleKey: 'tour.finish.title', descKey: 'tour.finish.desc' },
+    // ── Chapter: project Home widgets (/today, second visit) ────────────────
+    nav('today', 'dashboard', 'tour.home.title', 'tour.home.desc'),
+    { id: 'score-panel', page: 'today', target: '[data-tour="score-panel"]', titleKey: 'tour.today.score.title', descKey: 'tour.today.score.desc', side: 'bottom', align: 'start', optional: true },
+    { id: 'irl-panel', page: 'today', target: '[data-tour="irl-panel"]', titleKey: 'tour.today.irl.title', descKey: 'tour.today.irl.desc', side: 'bottom', align: 'start', optional: true },
+    { id: 'stage-card', page: 'today', target: '[data-tour="stage-card"]', titleKey: 'tour.today.stage.title', descKey: 'tour.today.stage.desc', side: 'right', align: 'start', optional: true },
+    { id: 'watchers-panel', page: 'today', target: '[data-tour="watchers-panel"]', titleKey: 'tour.today.watchers.title', descKey: 'tour.today.watchers.desc', side: 'left', align: 'start', optional: true },
+    // ── Chapter: workspace dashboard (/) ────────────────────────────────────
+    { id: 'projects-rail', page: 'dashboard', target: '[data-tour="projects-grid"]', titleKey: 'tour.dash.projects.title', descKey: 'tour.dash.projects.desc', side: 'bottom', align: 'start' },
+    { id: 'new-project', page: 'dashboard', target: '[data-tour="new-project"]', titleKey: 'tour.dash.create.title', descKey: 'tour.dash.create.desc', side: 'bottom', align: 'end' },
+    { id: 'dash-signals', page: 'dashboard', target: '[data-tour="dash-signals"]', titleKey: 'tour.dash.signals.title', descKey: 'tour.dash.signals.desc', side: 'bottom', align: 'end' },
+    { id: 'finish', page: 'dashboard', titleKey: 'tour.finish.title', descKey: 'tour.finish.desc' },
   ];
 }

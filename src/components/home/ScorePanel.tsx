@@ -229,7 +229,7 @@ export function ScorePanel({ projectId }: { projectId: string }) {
         </div>
 
         {/* IRL */}
-        <div style={{ minWidth: 0, borderLeft: '1px solid var(--line)', paddingLeft: 16 }}>
+        <div data-tour="irl-panel" style={{ minWidth: 0, borderLeft: '1px solid var(--line)', paddingLeft: 16 }}>
           <div className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-5)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
             {t('score.irl-title')}
           </div>
