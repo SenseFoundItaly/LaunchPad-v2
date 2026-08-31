@@ -43,7 +43,7 @@ import { persistArtifact, persistScoreFromSummary } from '@/lib/artifact-persist
 import { stageTechnicalValidationProposal } from '@/lib/auto-stage-validation';
 import { isClarificationOnly } from '@/lib/skill-output';
 import { buildSkillProjectContext } from '@/lib/skill-context';
-import { persistResearchFromSkillOutput } from '@/lib/skill-research-persist';
+import { persistResearchFromSkillOutput, extractResearchFields, type ResearchFields } from '@/lib/skill-research-persist';
 import { parseMessageContent } from '@/lib/artifact-parser';
 import { linkSkillCompletionToAssumptions } from '@/lib/assumptions';
 import { SKILL_KICKOFFS } from '@/lib/stages';
@@ -118,6 +118,173 @@ const STRUCTURED_JSON_SKILLS = new Set<string>(Object.keys(STRUCTURED_JSON_CONTR
  * silent-death window — don't, without re-measuring the ceiling.
  */
 export const SKILL_RUN_BUDGET_MS = 90_000;
+
+/**
+ * PARALLEL SECTIONED RUN — market-research only (for now).
+ *
+ * Why: one monolithic market-research call needs ~200s of wall-clock (searches
+ * + a giant sourced json), which no request-served budget can afford — at the
+ * 90s budget only market_sizing survived the cut and competitors/trends were
+ * severed. June's reliable architecture was many small ~22s calls; this brings
+ * that shape back deliberately: three parallel section calls (sizing /
+ * competitors / trends+insights), each with its own compact json contract and
+ * ≤2 searches, merged into ONE fence and handed to the UNCHANGED persistence
+ * pipeline. Wall-clock = slowest section (+persist), not the sum — measured
+ * well inside the platform ceiling — and each section only has to close a
+ * small fence in its own window, so the full depth comes back.
+ *
+ * Failure model: sections run under Promise.allSettled — a failed/empty
+ * section degrades that column only (the research upsert keeps prior values on
+ * empty input); ALL sections failing yields empty text, which trips runSkill's
+ * existing empty-output throw. The founder's live stream mirrors the sizing
+ * section only — three interleaved parallel streams would be garbage.
+ */
+interface ResearchSection {
+  key: 'sizing' | 'competitors' | 'trends';
+  instruction: string;
+  jsonSpec: string;
+}
+
+const SECTION_COMMON =
+  "You are running ONE SECTION of the market-research skill; the other sections run in parallel, so do ONLY this section's work and never pad it with content that belongs to another section. Make AT MOST 2 web_search calls (batch them in one round), then STOP researching and write the output. Your response MUST OPEN with a single fenced ```json code block exactly as specified below — before any narrative — followed by at most a short prose note for the founder. Do NOT emit :::artifact blocks. Keep the json COMPACT so it closes properly: a closed block is the only thing that persists if the run is cut short.";
+
+const MARKET_RESEARCH_SECTIONS: ResearchSection[] = [
+  {
+    key: 'sizing',
+    instruction:
+      "Section: MARKET SIZING ONLY (SKILL.md §1). Compute TAM/SAM/SOM — bottoms-up preferred, show the math in the calculation field.",
+    jsonSpec:
+      '{"market_research":{"market_sizing":{"tam":{"estimate","methodology","calculation","confidence","sources":[max 2]},"sam":{"estimate","methodology","constraints":[...]},"som":{"estimate","timeframe","assumptions":[...],"market_share_implied"}},"sources":[max 3 web sources]}}',
+  },
+  {
+    key: 'competitors',
+    instruction:
+      'Section: COMPETITOR PROFILING ONLY (SKILL.md §2). Name 3-6 REAL companies with URLs — never "there are many players". Strengths AND weaknesses both matter: the weaknesses feed the differentiation evidence.',
+    jsonSpec:
+      '{"market_research":{"competitors":[3-6 of {"name","url","description","target_customer","pricing","traction","strengths":[...],"weaknesses":[...],"funding","threat_level":"low|medium|high","threat_reasoning","sources":[max 2]}],"sources":[max 3]}}',
+  },
+  {
+    key: 'trends',
+    instruction:
+      'Section: MARKET TRENDS + CUSTOMER INSIGHTS ONLY (SKILL.md §3 + §5). 3-4 trends, each with an explicit tailwind/headwind direction; the buyer persona must name who makes the purchase decision.',
+    jsonSpec:
+      '{"market_research":{"trends":[3-4 of {"name","description","direction":"tailwind|headwind","timeframe","evidence","implication"}],"customer_insights":{"buyer_persona","user_persona","purchase_triggers":[...],"decision_criteria":[...],"common_objections":[...],"validation_questions":[...]},"sources":[max 3]}}',
+  },
+];
+
+/** Per-section wall-clock cap. Sections run in parallel, so total ≈ this +
+ *  persistence — keep the sum inside the measured platform ceiling (~110s). */
+const SECTION_BUDGET_CAP_MS = 75_000;
+
+/** Sum tokens (and cost when every section reported one) across section runs so
+ *  the single recordUsage row reflects the whole skill run, not one third. */
+function mergeSectionUsages(list: unknown[]): unknown {
+  const used = list.filter(Boolean) as Array<Record<string, unknown>>;
+  if (used.length === 0) return undefined;
+  let inT = 0, outT = 0, cost = 0, costKnown = true;
+  for (const u of used) {
+    inT += Number(u.input ?? u.inputTokens ?? u.input_tokens ?? 0) || 0;
+    outT += Number(u.output ?? u.outputTokens ?? u.output_tokens ?? 0) || 0;
+    const c = (u.cost as { total?: number } | undefined)?.total;
+    if (typeof c === 'number' && c > 0) cost += c;
+    else costKnown = false;
+  }
+  const merged: Record<string, unknown> = { input_tokens: inT, output_tokens: outT };
+  if (costKnown && cost > 0) merged.cost = { total: cost };
+  return merged;
+}
+
+async function runMarketResearchSectioned(args: {
+  userMsg: string;
+  /** SKILL.md body + project context, WITHOUT the monolithic output contract. */
+  baseSystemPrompt: string;
+  directive: string;
+  timeoutMs: number;
+  projectId: string;
+  ownerId: string | null;
+  onDelta?: (delta: string) => void;
+}): Promise<Awaited<ReturnType<typeof runAgent>>> {
+  const perSection = Math.min(args.timeoutMs, SECTION_BUDGET_CAP_MS);
+  const settled = await Promise.allSettled(
+    MARKET_RESEARCH_SECTIONS.map((s, i) => {
+      let sys =
+        `${args.baseSystemPrompt}\n\n=== OUTPUT CONTRACT (REQUIRED) ===\n${SECTION_COMMON}\n\n${s.instruction}\nJSON shape (keys are literal, values are yours): ${s.jsonSpec}`;
+      if (args.directive) sys += `\n\n${args.directive}`;
+      return runAgent(`${args.userMsg}\n\n(Parallel sectioned run — produce ONLY the ${s.key} section.)`, {
+        systemPrompt: sys,
+        timeout: perSection,
+        task: 'skill-invoke',
+        projectId: args.projectId,
+        step: `market-research:${s.key}`,
+        userId: args.ownerId ?? undefined,
+        traceName: 'skill-run-section',
+        // Only the first section mirrors deltas — parallel streams interleave.
+        onDelta: i === 0 ? args.onDelta : undefined,
+      });
+    }),
+  );
+
+  const texts = settled.map((r, i) => {
+    if (r.status === 'rejected') {
+      console.warn(
+        `[skill-executor] market-research section '${MARKET_RESEARCH_SECTIONS[i].key}' failed:`,
+        (r.reason as Error)?.message,
+      );
+      return null;
+    }
+    return r.value.text?.trim() ? r.value.text : null;
+  });
+  const fields = texts.map((t) => (t ? extractResearchFields(t) : null));
+
+  // Designated section first, any other section as fallback (a section that
+  // overreached still contributes rather than being thrown away).
+  const pick = <K extends keyof ResearchFields>(pref: number, k: K, has: (v: ResearchFields[K]) => boolean) => {
+    for (const i of [pref, ...fields.map((_, j) => j).filter((j) => j !== pref)]) {
+      const v = fields[i]?.[k];
+      if (v != null && has(v)) return v;
+    }
+    return null;
+  };
+  const marketSizing = pick(0, 'marketSizing', (v) => typeof v === 'object');
+  const competitors = pick(1, 'competitors', (v) => Array.isArray(v) && v.length > 0);
+  const trends = pick(2, 'trends', (v) => Array.isArray(v) && v.length > 0);
+  const customerInsights = pick(2, 'customerInsights', (v) => !!v && typeof v === 'object');
+  const sources = fields.flatMap((f) => (Array.isArray(f?.sources) ? (f!.sources as unknown[]) : [])).slice(0, 8);
+
+  const anyField = !!(marketSizing || competitors || trends || customerInsights);
+  const prose = texts.filter(Boolean).join('\n\n---\n\n');
+  if (!anyField && !prose.trim()) {
+    // All sections dead — hand back empty text so runSkill's existing
+    // empty-output throw (and its loud log) fires exactly as before.
+    return { text: '', usage: undefined, timedOut: false, langfuseTraceId: null };
+  }
+
+  const merged = {
+    market_research: {
+      ...(marketSizing ? { market_sizing: marketSizing } : {}),
+      ...(competitors ? { competitors } : {}),
+      ...(trends ? { trends } : {}),
+      ...(customerInsights ? { customer_insights: customerInsights } : {}),
+      sources,
+    },
+  };
+  // Merged fence FIRST: extractResearchFields takes the first parseable fence,
+  // so the downstream pipeline sees one complete object regardless of what
+  // each section emitted around its own block.
+  const text = '```json\n' + JSON.stringify(merged) + '\n```\n\n' + prose;
+
+  const fulfilled = settled.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof runAgent>>> => r.status === 'fulfilled');
+  const timedOut = fulfilled.some((r) => r.value.timedOut);
+  if (timedOut) {
+    console.warn(`[skill-executor] market-research: one or more sections hit the ${perSection}ms section budget`);
+  }
+  return {
+    text,
+    usage: mergeSectionUsages(fulfilled.map((r) => r.value.usage)) as Awaited<ReturnType<typeof runAgent>>['usage'],
+    timedOut,
+    langfuseTraceId: fulfilled[0]?.value.langfuseTraceId ?? null,
+  };
+}
 
 /**
  * The default whitelist for `runSkill`: analytical skills whose output is
@@ -296,7 +463,10 @@ export async function runSkill(
   // memory) so the skill agent doesn't run blind and ask "what's your startup?"
   // even when the canvas is filled. '' for a brand-new project → skill may ask.
   const projectContext = await buildSkillProjectContext(projectId, skillId).catch(() => '');
-  let systemPrompt = projectContext ? `${loaded.body}\n\n${projectContext}` : loaded.body;
+  // Base prompt (body + context) kept aside: the sectioned runner appends its
+  // own per-section contracts instead of the monolithic one below.
+  const baseSystemPrompt = projectContext ? `${loaded.body}\n\n${projectContext}` : loaded.body;
+  let systemPrompt = baseSystemPrompt;
 
   // Research skills persist downstream from a structured json payload. The model
   // sometimes returns a prose/markdown report instead of the SKILL.md json block,
@@ -316,17 +486,32 @@ export async function runSkill(
   const startedAt = Date.now();
   const ownerId = await ownerUserId(projectId);
 
-  const { text, usage, timedOut, langfuseTraceId } = await runAgent(userMsg, {
-    systemPrompt,
-    timeout: opts.timeoutMs ?? 120_000,
-    task: 'skill-invoke',
-    onDelta: opts.onDelta,
-    // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
-    projectId,
-    step: skillId,
-    userId: ownerId ?? undefined,
-    traceName: 'skill-run',
-  });
+  // market-research runs as three PARALLEL section calls (see
+  // runMarketResearchSectioned above) — one monolithic call needs ~200s and no
+  // request-served budget survives that. Everything downstream of `text`
+  // (artifact loop, research persist, gate staging, completion) is unchanged.
+  const { text, usage, timedOut, langfuseTraceId } =
+    skillId === 'market-research'
+      ? await runMarketResearchSectioned({
+          userMsg,
+          baseSystemPrompt,
+          directive: directive ?? '',
+          timeoutMs: opts.timeoutMs ?? 120_000,
+          projectId,
+          ownerId,
+          onDelta: opts.onDelta,
+        })
+      : await runAgent(userMsg, {
+          systemPrompt,
+          timeout: opts.timeoutMs ?? 120_000,
+          task: 'skill-invoke',
+          onDelta: opts.onDelta,
+          // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
+          projectId,
+          step: skillId,
+          userId: ownerId ?? undefined,
+          traceName: 'skill-run',
+        });
   const latencyMs = Date.now() - startedAt;
   if (timedOut) {
     // The run was cut at the budget: `text` is whatever streamed before the
