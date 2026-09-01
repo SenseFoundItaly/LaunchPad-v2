@@ -12,7 +12,7 @@
  * hard-block on cap. Phase 1 will layer enforcement on top.
  */
 
-import type { Usage } from '@mariozechner/pi-ai';
+import type { Usage } from '@earendil-works/pi-ai/compat';
 import { query, run, get } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { logToLangfuse, estimateCost, type TelemetryContext } from '@/lib/telemetry';
@@ -539,7 +539,7 @@ export async function reconcileUserBudget(
 // so there is no per-call warn crossing to emit. The /usage page + per-project
 // project_budgets accumulator remain for spend analytics.)
 
-// The shape of `Usage` from @mariozechner/pi-ai can vary by provider; the
+// The shape of `Usage` from @earendil-works/pi-ai can vary by provider; the
 // safest path is to read the known keys defensively. This helper lets the
 // meter degrade gracefully when a field is absent (e.g. some mock providers
 // in tests don't emit cost).

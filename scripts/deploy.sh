@@ -76,7 +76,7 @@ fi
 # hand-pruned node_modules, a stale cache) would ship an UNPATCHED provider and
 # pass the raw sentinel through to the model as visible prompt text on every
 # chat turn. Cheap to check, so check it rather than trusting the install.
-PI_PROVIDER_FILE="node_modules/@mariozechner/pi-ai/dist/providers/openai-completions.js"
+PI_PROVIDER_FILE="node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js"
 if [ ! -f "$PI_PROVIDER_FILE" ]; then
   echo "✗ $PI_PROVIDER_FILE is missing — run npm ci before deploying."
   exit 1

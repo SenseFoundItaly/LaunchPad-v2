@@ -14,7 +14,7 @@
 import crypto from 'crypto';
 import { get, run } from '@/lib/db';
 import type { Source } from '@/types/artifacts';
-import type { AgentToolResult } from '@mariozechner/pi-agent-core';
+import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 
 const TTL_DAYS = 14;
 /** Cap stored result text so a huge scraped page can't bloat the row. */

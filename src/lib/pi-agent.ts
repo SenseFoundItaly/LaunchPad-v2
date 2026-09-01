@@ -1,7 +1,7 @@
-import { Agent } from '@mariozechner/pi-agent-core';
-import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
-import { streamSimple, getModel, getEnvApiKey } from '@mariozechner/pi-ai';
-import type { Message, Model, Usage } from '@mariozechner/pi-ai';
+import { Agent } from '@earendil-works/pi-agent-core';
+import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
+import { streamSimple, getModel, getEnvApiKey } from '@earendil-works/pi-ai/compat';
+import type { Message, Usage } from '@earendil-works/pi-ai/compat';
 import { MODEL_CONFIG } from './llm/models';
 import { join } from 'path';
 import { mkdirSync, readFileSync, appendFileSync, existsSync, readdirSync, statSync, rmSync } from 'fs';
@@ -59,13 +59,15 @@ function cleanStaleSessions() {
  *     run back-to-back for the same project against the same static prefix)
  *   - "none" — disables caching
  *
- * SCOPE — this applies ONLY to the direct-Anthropic provider. When
- * OPENROUTER_API_KEY is set (i.e. prod), every call goes through
- * `openai-completions.js` instead and `PI_CACHE_RETENTION` has NO effect:
- * pi-ai emits `ttl:"1h"` only when the baseUrl is api.anthropic.com. On the
- * OpenRouter path the chat system prompt is instead emitted as TWO content
- * blocks with `cache_control` on the static half — see
- * `src/lib/chat/cache-breakpoint.ts` (CHAT_CACHE_SPLIT, default ON).
+ * SCOPE (pi-ai 0.84) — unlike 0.67, the OpenRouter path now honors
+ * PI_CACHE_RETENTION too: cache_control is applied BY DEFAULT ('short') on
+ * openrouter + anthropic/* models (system prompt, last tool, last message);
+ * 'long' maps to ttl:'1h' only where the model's compat declares
+ * supportsLongCacheRetention. Our patch refines the system-prompt breakpoint:
+ * upstream caches the WHOLE system block (the volatile tail would bust it
+ * every turn), the patch splits at the CHAT_CACHE_SPLIT marker into
+ * [static + cache_control][volatile] — see src/lib/chat/cache-breakpoint.ts
+ * and patches/@earendil-works+pi-ai+0.84.4.patch.
  *
  * Observability: `llm_usage_logs.cache_read_tokens` is populated automatically
  * on cache hits. A healthy cache hit rate for the Monday cron is > 70% of
@@ -74,58 +76,10 @@ function cleanStaleSessions() {
  * `cacheWrite` key there, so cache accounting reads as zero for skills and
  * monitors even when caching works.
  *
- * Source: node_modules/@mariozechner/pi-ai/dist/providers/anthropic.js
+ * Source: node_modules/@earendil-works/pi-ai/dist/providers/anthropic.js
  * (`resolveCacheRetention` + `getCacheControl`).
  */
 
-/**
- * Models newer than pi-ai 0.67.68's static registry. `getModel()` returns
- * undefined for these (and the Agent would crash), so we hand-construct the
- * Model objects — same shapes as the registry's Sonnet 4.6 entries, with
- * Sonnet 5 ids and pricing sourced from MODEL_CONFIG so the cost meter and
- * pi-ai's calculateCost agree. `reasoning: true` matters on both entries:
- * it is what makes pi-ai explicitly send thinking OFF (OpenRouter
- * reasoning:{effort:"none"} / Anthropic thinking:{type:"disabled"}) instead
- * of omitting the param — and Sonnet 5 defaults to adaptive thinking when
- * the param is omitted, which would silently add output-token spend.
- */
-const SONNET_5 = MODEL_CONFIG['claude-sonnet-5'];
-const LP_EXTRA_MODELS: Record<string, Model<'anthropic-messages'> | Model<'openai-completions'>> = {
-  [`anthropic:${SONNET_5.id}`]: {
-    id: SONNET_5.id,
-    name: 'Claude Sonnet 5',
-    api: 'anthropic-messages',
-    provider: 'anthropic',
-    baseUrl: 'https://api.anthropic.com',
-    reasoning: true,
-    input: ['text', 'image'],
-    cost: {
-      input: SONNET_5.pricing.input,
-      output: SONNET_5.pricing.output,
-      cacheRead: SONNET_5.pricing.cacheRead,
-      cacheWrite: SONNET_5.pricing.cacheWrite,
-    },
-    contextWindow: SONNET_5.contextWindow,
-    maxTokens: SONNET_5.maxOutputTokens,
-  },
-  [`openrouter:${SONNET_5.openrouterId}`]: {
-    id: SONNET_5.openrouterId,
-    name: 'Anthropic: Claude Sonnet 5',
-    api: 'openai-completions',
-    provider: 'openrouter',
-    baseUrl: 'https://openrouter.ai/api/v1',
-    reasoning: true,
-    input: ['text', 'image'],
-    cost: {
-      input: SONNET_5.pricing.input,
-      output: SONNET_5.pricing.output,
-      cacheRead: SONNET_5.pricing.cacheRead,
-      cacheWrite: SONNET_5.pricing.cacheWrite,
-    },
-    contextWindow: SONNET_5.contextWindow,
-    maxTokens: SONNET_5.maxOutputTokens,
-  },
-};
 
 /**
  * Resolve the concrete pi-ai Model object for this call.
@@ -135,23 +89,38 @@ const LP_EXTRA_MODELS: Record<string, Model<'anthropic-messages'> | Model<'opena
  * to the globals `PI_PROVIDER` + `PI_MODEL` — preserving the pre-router
  * behavior for callers that haven't been retrofitted yet.
  *
- * Registry misses fall through to LP_EXTRA_MODELS (models newer than the
- * pinned pi-ai); a miss in both is a loud error instead of the downstream
- * undefined-model crash pi-agent-core would otherwise produce.
+ * A catalog miss is a loud error instead of the downstream undefined-model
+ * crash pi-agent-core would otherwise produce.
  */
 function resolveModel(task?: TaskLabel, override?: { provider: string; model: string } | null) {
   const target = override
     ?? (task
       ? pickModel(task)
       : { provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL_ID });
-  const model =
-    getModel(target.provider as any, target.model as any) ??
-    LP_EXTRA_MODELS[`${target.provider}:${target.model}`];
+  // pi-ai 0.84's catalog is data-driven and current (sonnet-5/opus/haiku on
+  // both providers, pricing matching MODEL_CONFIG — verified at upgrade time),
+  // so the old LP_EXTRA_MODELS hand-built shim is gone. Keep the loud error:
+  // a missing model should fail here with a greppable message, not as a null
+  // crash deep in pi-agent-core.
+  const model = getModel(target.provider as any, target.model as any);
   if (!model) {
-    throw new Error(`[pi-agent] unknown model ${target.provider}:${target.model} — not in pi-ai's registry or LP_EXTRA_MODELS`);
+    throw new Error(`[pi-agent] unknown model ${target.provider}:${target.model} — not in pi-ai's catalog; check MODEL_CONFIG and the @earendil-works/pi-ai provider data`);
   }
   return model;
 }
+
+/**
+ * Stream function handed to every Agent. pi-ai 0.84 pins the underlying SDK's
+ * maxRetries to 0 and routes retries through its own classifier
+ * (retryProviderRequest: 429/5xx/socket-drop aware, abortable backoff) — but
+ * only when the caller asks. Without this, sub-call retry count silently
+ * dropped from the old SDK default of 2 to zero on the OpenRouter path.
+ * Two layers of resilience, deliberately: pi-ai retries the HTTP call
+ * in-place; our zero-emission run-level retry (runAgent/runAgentStream)
+ * remains the backstop for failures that slip through as error-stops.
+ */
+const lpStreamFn: typeof streamSimple = (model, context, options) =>
+  streamSimple(model, context, { ...options, maxRetries: 2 });
 
 /**
  * Key resolver handed to the Agent: the founder's own key when it matches the
@@ -198,7 +167,59 @@ function sessionPath(sessionId: string): string {
  *    leading assistant tool-call turn they belonged to, if the slice split a
  *    multi-result batch).
  */
+/**
+ * Mid-file pairing sweep (added with the pi 0.84 upgrade): an abort mid tool
+ * batch now SKIPS the remaining tool calls, so an assistant message whose
+ * toolCalls are only partially answered can be followed by MORE turns —
+ * putting the unpaired exchange in the MIDDLE of the file where the
+ * trailing/leading trimmers never look. Anthropic rejects unpaired tool_use
+ * outright. Drop any assistant tool-call message whose calls are not fully
+ * answered by the toolResults that follow it (and drop those partial results
+ * with it); also drop stray toolResults that answer nothing.
+ */
+function dropUnpairedToolExchanges(messages: AgentMessage[]): AgentMessage[] {
+  const out: AgentMessage[] = [];
+  let i = 0;
+  while (i < messages.length) {
+    const msg = messages[i] as { role?: string; content?: unknown };
+    if (msg.role === 'toolResult') {
+      i++; // stray result answering nothing we kept — drop
+      continue;
+    }
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) {
+      out.push(messages[i]); i++;
+      continue;
+    }
+    const callIds = new Set(
+      (msg.content as Array<{ type?: string; id?: string }>)
+        .filter((b) => b?.type === 'toolCall' && typeof b.id === 'string')
+        .map((b) => b.id as string),
+    );
+    if (callIds.size === 0) {
+      out.push(messages[i]); i++;
+      continue;
+    }
+    // Collect the contiguous toolResults that follow this assistant message.
+    const results: AgentMessage[] = [];
+    let j = i + 1;
+    const answered = new Set<string>();
+    while (j < messages.length && (messages[j] as { role?: string }).role === 'toolResult') {
+      const id = (messages[j] as { toolCallId?: string }).toolCallId;
+      if (typeof id === 'string' && callIds.has(id)) answered.add(id);
+      results.push(messages[j]);
+      j++;
+    }
+    if (answered.size === callIds.size) {
+      out.push(messages[i], ...results);
+    }
+    // else: drop the whole partial exchange — assistant + its orphan results.
+    i = j;
+  }
+  return out;
+}
+
 export function trimSessionMessages(messages: AgentMessage[], maxMessages?: number): AgentMessage[] {
+  messages = dropUnpairedToolExchanges(messages);
   // Anthropic's API rejects (or silently returns empty) when conversation
   // history ends with an incomplete assistant turn:
   //   - toolCall block with no matching toolResult follow-up
@@ -462,7 +483,7 @@ function accumulateUsage(acc: Usage | undefined, incoming: unknown): Usage | und
     return clone as unknown as Usage;
   }
   const a = acc as unknown as Record<string, unknown>;
-  // Token fields — pi-ai's Usage interface (node_modules/@mariozechner/pi-ai/
+  // Token fields — pi-ai's Usage interface (node_modules/@earendil-works/pi-ai/
   // dist/types.d.ts:111) has: input, output, cacheRead, cacheWrite, totalTokens.
   // Listing aliases too in case the provider adapter renames any of them.
   for (const k of ['input', 'inputTokens', 'input_tokens',
@@ -797,7 +818,7 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
   const runAttempt = async (attempt: number): Promise<{ errorStop: boolean; errorMessage?: string; toolsRan: boolean }> => {
     const { meter, onResponse } = makeResponseMeter();
     const agent = new Agent({
-      streamFn: streamSimple,
+      streamFn: lpStreamFn,
       sessionId: options.sessionId,
       getApiKey: makeGetApiKey(options.userKey),
       onResponse,
@@ -1059,7 +1080,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
       const startAttempt = (attempt: number) => {
         const { meter, onResponse } = makeResponseMeter();
         agent = new Agent({
-          streamFn: streamSimple,
+          streamFn: lpStreamFn,
           sessionId: options.sessionId,
           getApiKey: makeGetApiKey(options.userKey),
           onResponse,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { trimSessionMessages } from '@/lib/pi-agent';
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 // trimSessionMessages is the shape-guard between the persisted session file and
 // what the provider will accept. These tests pin the two poisoning classes the
@@ -62,5 +62,38 @@ describe('trimSessionMessages — sliding window', () => {
   it('returns [] rather than a window that is nothing but orphaned plumbing', () => {
     const out = trimSessionMessages([toolResult('t1'), toolResult('t2')], 4);
     expect(out).toEqual([]);
+  });
+});
+
+describe('trimSessionMessages — mid-file unpaired exchanges (pi 0.84 abort-skips-batch)', () => {
+  it('drops a MID-FILE assistant tool-call turn whose calls were never answered', () => {
+    // 0.84 skips remaining tool calls on abort, and the next turn appends
+    // AFTER the poisoned pair — so the unpaired exchange sits mid-file where
+    // the trailing/leading trimmers never look. Anthropic 400s on it.
+    const msgs = [
+      user('q1'), toolCallMsg('t1'), /* t1 never answered */
+      user('q2'), assistant('a2'),
+    ];
+    const out = trimSessionMessages([...msgs]);
+    expect(out).toEqual([user('q1'), user('q2'), assistant('a2')]);
+  });
+
+  it('drops a partially-answered batch (2 calls, 1 result) plus its orphan result', () => {
+    const twoCalls = {
+      role: 'assistant',
+      content: [
+        { type: 'toolCall', id: 'a', name: 'web_search', arguments: {} },
+        { type: 'toolCall', id: 'b', name: 'read_url', arguments: {} },
+      ],
+      stopReason: 'toolUse',
+    } as unknown as AgentMessage;
+    const msgs = [user('q1'), twoCalls, toolResult('a'), user('q2'), assistant('a2')];
+    const out = trimSessionMessages([...msgs]);
+    expect(out).toEqual([user('q1'), user('q2'), assistant('a2')]);
+  });
+
+  it('keeps fully-answered mid-file exchanges untouched', () => {
+    const msgs = [user('q1'), toolCallMsg('t1'), toolResult('t1'), assistant('a1'), user('q2'), assistant('a2')];
+    expect(trimSessionMessages([...msgs])).toEqual(msgs);
   });
 });

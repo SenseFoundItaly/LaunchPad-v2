@@ -20,8 +20,8 @@
  *   agent.state.tools = [...getTools(), ...makeProjectTools(projectId)]
  */
 
-import { Type } from '@sinclair/typebox';
-import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
+import { Type } from 'typebox';
+import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import { query, get, run } from '@/lib/db';
 import { wrapUntrusted } from '@/lib/untrusted-content';
 import { createPendingAction, getPendingAction } from '@/lib/pending-actions';

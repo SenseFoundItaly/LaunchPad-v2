@@ -43,8 +43,8 @@ const { subscribeHandlers, MockAgent } = vi.hoisted(() => {
   return { subscribeHandlers, MockAgent };
 });
 
-vi.mock('@mariozechner/pi-agent-core', () => ({ Agent: MockAgent }));
-vi.mock('@mariozechner/pi-ai', () => ({
+vi.mock('@earendil-works/pi-agent-core', () => ({ Agent: MockAgent }));
+vi.mock('@earendil-works/pi-ai', () => ({
   streamSimple: vi.fn(),
   getModel: vi.fn(() => FAKE_MODEL),
   getEnvApiKey: vi.fn(() => 'test-key'),

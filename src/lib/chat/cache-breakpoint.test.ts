@@ -135,7 +135,7 @@ describe('cache breakpoint — fail-safe behaviour', () => {
     // In worktrees node_modules is a symlink to the main checkout — which is
     // exactly the tree the deploy would ship, so this is the right thing to read.
     const provider = readFileSync(
-      join(process.cwd(), 'node_modules/@mariozechner/pi-ai/dist/providers/openai-completions.js'),
+      join(process.cwd(), 'node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js'),
       'utf-8',
     );
     expect(provider).toContain('LP_CACHE_BREAKPOINT');
