@@ -26,7 +26,16 @@ function deriveSeverity(text: string): 'critical' | 'warning' | 'info' {
  * route's persistence (SOUL/AGENTS prompt, usage capture, ecosystem artifact
  * parsing) so a manual run produces identical DB state as a scheduled one.
  */
-export async function streamMonitorRun(projectId: string, monitorId: string): Promise<Response> {
+export async function streamMonitorRun(
+  projectId: string,
+  monitorId: string,
+  opts: { trigger?: 'manual' | 'scheduled' } = {},
+): Promise<Response> {
+  // Post-#439 this stream is ALSO the scheduled execution path (the cron tick
+  // dispatches due monitors here), so hardcoding trigger_type='manual' made
+  // the scheduled/manual distinction in monitor_runs meaningless — run-history
+  // filters and cron-vs-manual cost attribution read everything as manual.
+  const triggerType = opts.trigger ?? 'manual';
 
   const monitors = await query<Record<string, unknown>>(
     'SELECT * FROM monitors WHERE id = ? AND project_id = ?',
@@ -147,8 +156,8 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
             // if ecosystem parsing succeeds)
             await run(
               `INSERT INTO monitor_runs (id, monitor_id, project_id, status, summary, alerts_generated, trigger_type, run_at)
-               VALUES (?, ?, ?, 'completed', ?, 0, 'manual', ?)`,
-              runId, monitorId, projectId, fullResponse, now,
+               VALUES (?, ?, ?, 'completed', ?, 0, ?, ?)`,
+              runId, monitorId, projectId, fullResponse, triggerType, now,
             );
 
             const nextRun = calculateNextRun(schedule);
