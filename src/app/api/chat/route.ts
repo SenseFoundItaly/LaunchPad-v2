@@ -41,6 +41,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 // was removed 2026-09-01 so the regression is unreachable instead of one env
 // typo away; the module stays as the labeled post-mortem.
 import { NODE_STEP_PREFIX, parseNodeStep, sessionSuffixForStep } from '@/lib/chat/node-scope';
+import { parseChipCommit, buildCommitFastPathContent } from '@/lib/chat/commit-fast-path';
 import { coerceTimeline } from '@/lib/timeline';
 import { getSkillTools } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
@@ -457,7 +458,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { project_id, step = 'chat', messages = [], provider = 'openai', target_check = null } = body;
+  const { project_id, step = 'chat', messages = [], provider = 'openai', target_check = null, chip_commit = null } = body;
 
   if (!project_id) {
     return new Response(
@@ -479,6 +480,126 @@ export async function POST(request: NextRequest) {
   const access = await tryProjectAccess(project_id, sessionUser);
   if (!access.ok) return access.response;
   const projectRow = access.session.project;
+
+  const encoder = new TextEncoder();
+
+  // ── CHIP-COMMIT FAST PATH (velocity lever) ─────────────────────────────
+  // A clicked commit option already persisted its evidence via the client's
+  // AWAITED POSTs (/idea-canvas, /validation/commit) before this request —
+  // the follow-up model turn only narrated a confirmation. Serve that
+  // deterministically: <1s, 0 credits, canned confirmation + the direction
+  // engine's next step. Placement is deliberate: AFTER auth + the IDOR gate
+  // (security), BEFORE the credit gate and debit — a commit chip must never
+  // 402 after the commit already landed, and per the product's billing rule
+  // only a founder-authored message costs a credit; this auto "Scelgo:" echo
+  // is not one. STRICT TRIGGER: only the structured chip_commit field sent by
+  // the commit:apply path — never message text ("Scelgo:" select-option
+  // clicks look identical but need a real model turn). Any failure before
+  // persistence falls through to the unmodified model path.
+  const chip = parseChipCommit(chip_commit, step, messages);
+  if (chip) {
+    try {
+      const fpLastMessage = String(messages[messages.length - 1].content);
+      // Snapshot AFTER the client's awaited persistence POSTs — it reflects
+      // the commit. Independent fetches in parallel (same wave idea as below).
+      const [fpLocale, fpSnapshot, fpLastRows] = await Promise.all([
+        resolveLocale(userId, project_id, { projectLocale: projectRow.locale }),
+        buildProjectSnapshot(project_id),
+        query<{ created_at: string }>(
+          `SELECT created_at FROM chat_messages WHERE project_id = ? AND COALESCE(step,'chat') NOT LIKE ? ORDER BY created_at DESC LIMIT 1`,
+          project_id, `${NODE_STEP_PREFIX}%`,
+        ),
+      ]);
+      const fpNba = await computeNextBestAction(project_id, {
+        lastChatAt: fpLastRows[0]?.created_at ?? null,
+        snapshot: fpSnapshot,
+      });
+      // Mirror the proposal-time skill gates (prereq + 1C below) so the
+      // canned option-set can never offer a skill the model itself would be
+      // barred from proposing.
+      let skillAllowed = !!fpNba.recommended_skill;
+      if (skillAllowed && fpNba.recommended_skill) {
+        const skillId = fpNba.recommended_skill.id;
+        if (await canvasLacksCorePrereqs(project_id)) skillAllowed = !isCanvasDependentSkill(skillId);
+        if (skillAllowed && !validationTracksAB_done(fpSnapshot)) skillAllowed = !GATE_1C_DEPENDENT_SKILLS.has(skillId);
+      }
+      const fullText = buildCommitFastPathContent({ locale: fpLocale, chip, nba: fpNba, skillAllowed });
+      // Persist BEFORE returning (serverless freezes post-response work) —
+      // exactly two rows, user then assistant (+1ms ordering), mirroring the
+      // flush hook. meta binds a RAW object (JSONB double-encode trap).
+      // Non-fatal like the flush hook's inserts.
+      try {
+        const now = new Date().toISOString();
+        const assistantTs = new Date(new Date(now).getTime() + 1).toISOString();
+        await run(
+          `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id) VALUES (?, ?, ?, 'user', ?, ?, ?)`,
+          `msg_${crypto.randomUUID().slice(0, 12)}`, project_id, step, fpLastMessage, now, userId,
+        );
+        await run(
+          `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, meta) VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?)`,
+          `msg_${crypto.randomUUID().slice(0, 12)}`, project_id, step, fullText, assistantTs, userId,
+          { fast_path: 'chip_commit' },
+        );
+      } catch (err) {
+        console.warn('[chat] fast-path persist failed (non-fatal):', err);
+      }
+      // Metrics parity with the flush hook — chat_turn + option_selected
+      // memory events; commit chips are the highest-intent moment and losing
+      // them would break activation analytics. Best-effort.
+      try {
+        await recordEvent({
+          userId, projectId: project_id, eventType: 'chat_turn',
+          payload: { preview: fpLastMessage.slice(0, 200), response_preview: fullText.slice(0, 200), step },
+        });
+        const choice = fpLastMessage.match(/^\s*(?:I choose|Scelgo):\s*([\s\S]+)$/i);
+        if (choice) {
+          const chosen = choice[1].trim();
+          let decision: ReturnType<typeof findOptionDecision> = null;
+          try {
+            const prevAssistant = await query<{ content: string }>(
+              `SELECT content FROM chat_messages WHERE project_id = ? AND role = 'assistant' ORDER BY "timestamp" DESC LIMIT 3`,
+              project_id,
+            );
+            decision = findOptionDecision(prevAssistant.map((r) => r.content), chosen);
+          } catch { /* best-effort */ }
+          await recordEvent({
+            userId, projectId: project_id, eventType: 'option_selected',
+            payload: {
+              choice: chosen.slice(0, 200),
+              ...(decision?.discarded.length ? { discarded: decision.discarded } : {}),
+              ...(decision?.prompt ? { prompt: decision.prompt } : {}),
+              fast_path: true,
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[chat] fast-path events failed (non-fatal):', err);
+      }
+      console.info('[chat] chip-commit fast path served', {
+        project_id, fields: chip.canvas_fields.length, items: chip.item_kinds.length,
+      });
+      const fpStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: fullText })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, fast_path: true })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(fpStream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        },
+      });
+    } catch (err) {
+      // Every await AFTER the chat_messages inserts sits inside its own
+      // non-fatal try — so this catch can only fire BEFORE persistence.
+      // Nothing was written; the model turn will persist normally.
+      console.warn('[chat] chip-commit fast path failed — falling back to model:', err);
+    }
+  }
 
   // Cost tracking (observe mode — no hard block) + HARD-STOP credit gate
   // (Phase 1), in parallel: owner-pool budget vs user credit pool are
@@ -870,7 +991,6 @@ export async function POST(request: NextRequest) {
   // folds it into systemPrompt (byte-identical to before); split rides it on the
   // user turn AFTER the context (so the nudges keep their read-recency).
   let trailingSteer = '';
-  const encoder = new TextEncoder();
 
   // Session key: per (user, project) rather than per (project, step).
   // This unifies memory across the "chat" / "research" / "simulation" steps

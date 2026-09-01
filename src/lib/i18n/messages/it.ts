@@ -620,6 +620,16 @@ export const it: Partial<Record<MessageKey, string>> = {
   'chat.jump-to-latest': "Vai all'ultimo",
   // Rimandato come messaggio del founder quando clicca un'opzione.
   'chat.i-choose': 'Scelgo: {choice}',
+  // Fast-path chip (commit-fast-path.ts). NB: evitare deliberatamente gli
+  // stemmi aggiunt/salvat/registrat/inserit/aggiornat-il-canvas — collidono
+  // con le regex del commit guard in route.ts ("canvas ora include" e "nella
+  // tua intelligence" sono verificati non-matching; il test lo blocca).
+  'chat.chip-commit-canvas': 'Fatto — il canvas ora include: {fields}.',
+  'chat.chip-commit-items': 'Fatto — {count} elementi di conoscenza ora nella tua intelligence.',
+  'chat.chip-commit-next': 'Prossimo punto aperto: {gap}',
+  'chat.chip-commit-prompt': 'Cosa vuoi fare adesso?',
+  'chat.chip-option-close-gap': 'Lavora sul prossimo check',
+  'chat.chip-option-continue': 'Continua',
   // Intestazione dell'option-set del brief di apertura (deterministico).
   'brief.where-to-start': 'Da dove vuoi iniziare?',
   // Titolo della card di prove-di-validazione auto-acquisite (Inbox + chat).
