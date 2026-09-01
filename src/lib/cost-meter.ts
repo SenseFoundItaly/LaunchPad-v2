@@ -561,8 +561,13 @@ function extractTokens(usage: Usage, kind: 'input' | 'output' | 'cacheCreation' 
   const keys: Record<typeof kind, string[]> = {
     input: ['input', 'inputTokens', 'input_tokens'],
     output: ['output', 'outputTokens', 'output_tokens'],
-    cacheCreation: ['cacheCreation', 'cache_creation_tokens', 'cacheCreationInputTokens'],
-    cacheRead: ['cacheRead', 'cache_read_tokens', 'cacheReadInputTokens'],
+    // 'cacheWrite' is pi-ai's ACTUAL buffered-path key (Usage.cacheWrite) and
+    // was missing here — so cache accounting silently read 0 for every
+    // buffered runAgent surface (skills, cron, monitors) while looking
+    // measured, making the ">70% cron cache hit rate" health target
+    // unverifiable. The *_input_tokens aliases cover the SSE done-frame shape.
+    cacheCreation: ['cacheCreation', 'cacheWrite', 'cache_creation_tokens', 'cache_creation_input_tokens', 'cacheCreationInputTokens'],
+    cacheRead: ['cacheRead', 'cache_read_tokens', 'cache_read_input_tokens', 'cacheReadInputTokens'],
   };
   for (const k of keys[kind]) {
     const v = u[k];
