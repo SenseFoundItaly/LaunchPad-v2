@@ -159,19 +159,20 @@ A **premortem assumptions** layer (`src/lib/assumptions.ts`) extracts categorize
 
 - **Memory-grounded chat** — the agent remembers decisions, commitments, and preferences across sessions via a structured facts + events layer, not just transcripts.
 - **Evidence-gated journey** — always know the one missing piece of proof blocking the next stage.
-- **19 expert skills** — market research, buyer personas, business/financial modeling, GTM, growth loops, pitch deck, investor readiness, weekly metrics, and more — run on approval.
+- **24 expert skills** — market research, buyer personas, business/financial modeling, GTM, growth loops, pitch deck, investor readiness, weekly metrics, and more — run on approval.
 - **Self-driving watchers** — competitor / market / news monitors that fold findings into the knowledge graph.
 - **Approval inbox** — every agent action is a reviewable proposal; rejections become preference signals.
 - **Monday Brief** — a weekly digest of priorities, fresh signals, and a readiness delta (in-app + email; set `RESEND_API_KEY` for real delivery).
-- **Cost-aware autonomy** — task-tier model routing (Haiku/Sonnet/Opus), Langfuse observability, per-project monthly budget caps with warn + throttle.
+- **Cost-aware autonomy** — task-tier model routing (Haiku/Sonnet/Opus), a byte-stable chat prompt prefix so repeat turns bill as cache reads instead of rewrites, Langfuse observability, per-project monthly budget caps with warn + throttle.
 
 ## Tech stack
 
 - **Next.js 16** — App Router, TypeScript, Turbopack
 - **Supabase Auth** — magic link / OAuth / SSO-ready
 - **Supabase PostgreSQL** via [`postgres.js`](https://github.com/porsager/postgres) — `src/lib/db` exposes `query()` / `run()` / `get()` using `?` placeholders (converted to `$1…` at runtime); **50 tables** (`db/schema.sql`), migrations in `db/migrations/` (`npm run db:migrate`)
-- **Pi Agent SDK** — [`@mariozechner/pi-ai`](https://www.npmjs.com/package/@mariozechner/pi-ai) + `@mariozechner/pi-agent-core`; agent runner in `src/lib/pi-agent.ts` (`runAgent` / `runAgentStream`)
-- **Anthropic Claude**, tier-routed per task (`src/lib/llm/router.ts` + `models.ts`): **cheap → Haiku 4.5**, **balanced → Sonnet 4.6**, **premium → Opus 4.7**. Provider swaps to **OpenRouter** automatically when `OPENROUTER_API_KEY` is set (env + restart, no code change)
+- **Pi Agent SDK** — [`@mariozechner/pi-ai`](https://www.npmjs.com/package/@mariozechner/pi-ai) + `@mariozechner/pi-agent-core`; agent runner in `src/lib/pi-agent.ts` (`runAgent` / `runAgentStream`). Patched via `patch-package` (`patches/`) — let `npm install` run its `postinstall` or the prompt-cache breakpoint ships unpatched
+- **Anthropic Claude**, tier-routed per task (`src/lib/llm/router.ts` + `models.ts`): **cheap → Haiku 4.5**, **balanced → Sonnet 5**, **premium → Opus 4.7**. Provider swaps to **OpenRouter** automatically when `OPENROUTER_API_KEY` is set (env + restart, no code change)
+- **Prompt caching** — the chat system prompt carries a cache breakpoint at its static/volatile boundary (`src/lib/chat/cache-breakpoint.ts` + a patch-package hunk on pi-ai), so the ~21k-token stable half is billed as a cache *read* instead of being rewritten every turn
 - **Langfuse** — LLM observability + per-call cost logging
 - **D3.js** — knowledge-graph rendering
 
@@ -206,7 +207,7 @@ src/
     cost-meter.ts  db/            # Budget accrual + Postgres connection
   middleware.ts                   # Supabase session refresh + /login redirect
 agents/                           # SOUL.md + AGENTS.md + HEARTBEAT.md (EN + .it.md) — canonical agent persona
-launchpad-skills/                 # 19 SKILL.md playbooks — loaded as skill_<id> tools
+launchpad-skills/                 # 24 SKILL.md playbooks — loaded as skill_<id> tools
 db/
   schema.sql                      # 50 tables: projects, memory, journey data, ecosystem intel, pending_actions, ...
   migrations/  migrate.ts         # Ordered SQL migrations + runner (npm run db:migrate)
@@ -218,7 +219,7 @@ db/
 See `.env.example` for the full list.
 
 - **Required:** `DATABASE_URL` (Supabase Postgres), an LLM key — `ANTHROPIC_API_KEY` **or** `OPENROUTER_API_KEY` — and `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- **Optional:** `OPENROUTER_API_KEY` (route all LLM calls via OpenRouter), `CRON_SECRET` (required to enable cron in production), `WEEKLY_PULSE_DAY` (0=Sun…6=Sat; default Monday), `RESEND_API_KEY` (real Monday Brief email), `JINA_API_KEY` / `FIRECRAWL_API_KEY` (web fetch + change detection), `LANGFUSE_*` (observability), `LLM_ROUTING_JSON` (override per-task tiers at runtime), `PI_CACHE_RETENTION` (prompt-cache TTL)
+- **Optional:** `OPENROUTER_API_KEY` (route all LLM calls via OpenRouter), `CRON_SECRET` (required to enable cron in production), `WEEKLY_PULSE_DAY` (0=Sun…6=Sat; default Monday), `RESEND_API_KEY` (real Monday Brief email), `JINA_API_KEY` / `FIRECRAWL_API_KEY` (web fetch + change detection), `LANGFUSE_*` (observability), `LLM_ROUTING_JSON` (override per-task tiers at runtime), `PI_CACHE_RETENTION` (prompt-cache TTL — note it only applies on the direct-Anthropic path), `CHAT_CACHE_SPLIT=0` (kill switch for the chat prompt-cache breakpoint, which is on by default)
 
 ## Develop, test & deploy
 

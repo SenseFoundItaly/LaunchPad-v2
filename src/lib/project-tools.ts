@@ -3285,8 +3285,12 @@ const logFundraisingTool = (ctx: ToolContext): AgentTool => ({
  * pi-tools.ts when configuring the agent:
  *   agent.state.tools = [...getTools(), ...makeProjectTools(projectId)]
  *
- * Pass `{ includeWriteTools: false }` on read-only turns to save ~800 tokens
- * of tool descriptions per LLM roundtrip.
+ * `{ includeWriteTools: false }` trims ~800 tokens of schemas, but is an
+ * ANTI-PATTERN on any cached path and chat no longer uses it. Tool schemas sit
+ * at position 0 of the prompt-cache prefix, so flipping the array per turn
+ * re-writes the whole ~25k-token prefix at write price to save a slice a stable
+ * array serves as a 0.1x read. Retained for genuinely read-only, non-chat
+ * callers. See CLAUDE.md's byte-stable-tool-array footgun.
  */
 export function makeProjectTools(projectId: string, options: MakeProjectToolsOptions = {}): AgentTool[] {
   const { includeWriteTools = true, userId } = options;

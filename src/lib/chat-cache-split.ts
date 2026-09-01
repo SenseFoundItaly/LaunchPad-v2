@@ -1,10 +1,18 @@
 /**
+ * SUPERSEDED — do not enable. The cost problem described below was real and is
+ * now SOLVED a different way: `src/lib/chat/cache-breakpoint.ts`
+ * (`CHAT_CACHE_SPLIT`, default ON) marks a cache breakpoint at the
+ * static/volatile boundary WITHOUT moving any content, which is why it does not
+ * carry the Validation-Gate regression this file's approach did. This module is
+ * kept only as the cautionary record of that regression; its flag stays OFF.
+ *
  * Lever 1 (copilot-cost): cut chat cost by keeping the system prompt's STATIC
  * prefix (SOUL + AGENTS + ARTIFACT_INSTRUCTIONS, ~17k tok, byte-identical every
  * turn) stable, so Anthropic prompt-caching READS it instead of RE-WRITING it
- * every turn. Today the dynamic per-turn context is concatenated into the system
- * string, so any change (canvas/stage/memory/nudge) busts the cached prefix and
- * forces a ~17k-token cache WRITE — measured as ~68% of chat cost.
+ * every turn. When this was written, the dynamic per-turn context was
+ * concatenated into the system string, so any change (canvas/stage/memory/nudge)
+ * busted the cached prefix and forced a ~17k-token cache WRITE — measured as
+ * ~68% of chat cost.
  *
  * Fix: build the system prompt WITHOUT the dynamic context, and move that context
  * + the recency steering into the user turn via buildSplitUserTurn(). The model

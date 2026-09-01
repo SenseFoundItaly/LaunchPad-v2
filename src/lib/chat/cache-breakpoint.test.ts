@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   CACHE_BREAKPOINT,
   joinSystemForModel,
@@ -119,5 +121,24 @@ describe('cache breakpoint — fail-safe behaviour', () => {
     // Angle-bracketed, screaming, package-prefixed, ASCII-only.
     expect(CACHE_BREAKPOINT).toMatch(/^<{3}[A-Z_]+>{3}$/);
     expect(CACHE_BREAKPOINT).not.toMatch(/[^\x20-\x7E]/);
+  });
+
+  it('the pi-ai provider is actually patched to consume the sentinel', () => {
+    // The split defaults ON, so the patch is load-bearing: an install that
+    // skipped postinstall (--ignore-scripts, pruned node_modules, stale cache)
+    // ships a provider that neither splits NOR strips, and the raw sentinel
+    // reaches the model as visible prompt text on every chat turn. patch-package
+    // fails silently in that scenario, so assert the end state instead of
+    // trusting the install. scripts/deploy.sh runs the same check before a build.
+    // Resolved from cwd rather than require.resolve: pi-ai's exports map does
+    // not expose package.json, so require.resolve throws ERR_PACKAGE_PATH_NOT_EXPORTED.
+    // In worktrees node_modules is a symlink to the main checkout — which is
+    // exactly the tree the deploy would ship, so this is the right thing to read.
+    const provider = readFileSync(
+      join(process.cwd(), 'node_modules/@mariozechner/pi-ai/dist/providers/openai-completions.js'),
+      'utf-8',
+    );
+    expect(provider).toContain('LP_CACHE_BREAKPOINT');
+    expect(provider).toContain(CACHE_BREAKPOINT);
   });
 });

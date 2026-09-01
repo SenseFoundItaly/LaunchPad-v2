@@ -59,9 +59,20 @@ function cleanStaleSessions() {
  *     run back-to-back for the same project against the same static prefix)
  *   - "none" — disables caching
  *
+ * SCOPE — this applies ONLY to the direct-Anthropic provider. When
+ * OPENROUTER_API_KEY is set (i.e. prod), every call goes through
+ * `openai-completions.js` instead and `PI_CACHE_RETENTION` has NO effect:
+ * pi-ai emits `ttl:"1h"` only when the baseUrl is api.anthropic.com. On the
+ * OpenRouter path the chat system prompt is instead emitted as TWO content
+ * blocks with `cache_control` on the static half — see
+ * `src/lib/chat/cache-breakpoint.ts` (CHAT_CACHE_SPLIT, default ON).
+ *
  * Observability: `llm_usage_logs.cache_read_tokens` is populated automatically
  * on cache hits. A healthy cache hit rate for the Monday cron is > 70% of
- * input tokens after the first monitor per founder.
+ * input tokens after the first monitor per founder. NOTE: that target is
+ * currently unverifiable for the buffered path — `extractTokens` misses pi-ai's
+ * `cacheWrite` key there, so cache accounting reads as zero for skills and
+ * monitors even when caching works.
  *
  * Source: node_modules/@mariozechner/pi-ai/dist/providers/anthropic.js
  * (`resolveCacheRetention` + `getCacheControl`).
@@ -286,10 +297,12 @@ export interface RunAgentOptions {
    */
   task?: TaskLabel;
   /**
-   * Hard cap on tool calls per turn. After this many tool_execution_start
-   * events, the agent is aborted. Prevents runaway cost from agentic loops
-   * that ignore the prompt-level "max 8 tool calls" instruction.
-   * Default: 8.
+   * Per-turn tool-call budget. Calls past it are BLOCKED at prepare time by
+   * `beforeToolCall` (makeToolCallLimiter) with an instructive error result —
+   * the agent is NOT aborted, so the loop continues and the model is pushed
+   * into synthesis. Prevents runaway cost from agentic loops that ignore the
+   * prompt-level "max N tool calls" instruction. Applies to BOTH runAgent and
+   * runAgentStream. Default: 8.
    */
   maxToolCalls?: number;
   /**
@@ -744,8 +757,8 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
         sessionId: options.sessionId,
         getApiKey: makeGetApiKey(options.userKey),
         // Per-turn tool budget, enforced at prepare time (see
-        // makeToolCallLimiter). Replaces the tools-strip below, which never
-        // worked: the loop reads a snapshot taken at prompt() time.
+        // makeToolCallLimiter). Replaces the old mid-turn tools-strip, which
+        // never worked: the loop reads a snapshot taken at prompt() time.
         beforeToolCall: makeToolCallLimiter(options.maxToolCalls ?? 8),
       });
 

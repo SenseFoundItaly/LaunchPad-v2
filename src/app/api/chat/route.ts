@@ -920,9 +920,10 @@ export async function POST(request: NextRequest) {
     // writes instead of us guessing. Cheap: two sha256s over strings we have
     // already built. Set CHAT_CACHE_FP=0 to switch off without a deploy.
     //
-    // Caveat: this captures the tool array as OFFERED at turn start. pi-agent
-    // also clears tools mid-turn at the tool-call cap (pi-agent.ts:626), which
-    // re-writes the prefix within a single turn and is invisible here.
+    // This captures the tool array as OFFERED at turn start, which is now the
+    // whole story: the per-turn cap blocks individual calls (makeToolCallLimiter
+    // in pi-agent.ts) instead of stripping agent.state.tools, so the array stays
+    // byte-stable for the entire turn and there is no invisible mid-turn rewrite.
     const CHAT_CACHE_FP = process.env.CHAT_CACHE_FP !== '0';
     let cacheFp: Record<string, unknown> | null = null;
     if (CHAT_CACHE_FP) {

@@ -68,6 +68,28 @@ if [ "$DRY_RUN" = false ] && [ "$PREVIEW" = false ]; then
   echo "✓ On origin/main ($(git rev-parse --short HEAD))."
 fi
 
+# ── patch-package guard ─────────────────────────────────────────────
+# The chat prompt-cache breakpoint puts a sentinel (<<<PI_CACHE_BREAKPOINT>>>)
+# in the system prompt and relies on a patched pi-ai provider to split on it and
+# strip it. Since PR #445 that split defaults ON, which makes the patch
+# load-bearing: an install that skipped `postinstall` (--ignore-scripts, a
+# hand-pruned node_modules, a stale cache) would ship an UNPATCHED provider and
+# pass the raw sentinel through to the model as visible prompt text on every
+# chat turn. Cheap to check, so check it rather than trusting the install.
+PI_PROVIDER_FILE="node_modules/@mariozechner/pi-ai/dist/providers/openai-completions.js"
+if [ ! -f "$PI_PROVIDER_FILE" ]; then
+  echo "✗ $PI_PROVIDER_FILE is missing — run npm ci before deploying."
+  exit 1
+fi
+if ! grep -q "LP_CACHE_BREAKPOINT" "$PI_PROVIDER_FILE"; then
+  echo "✗ pi-ai is NOT patched (no LP_CACHE_BREAKPOINT in the provider)."
+  echo "  Deploying now would leak the cache-breakpoint sentinel into every chat prompt."
+  echo "  Fix: npx patch-package   (or npm ci, which runs it via postinstall)"
+  echo "  Escape hatch if you must ship without the patch: set CHAT_CACHE_SPLIT=0 on Netlify first."
+  exit 1
+fi
+echo "✓ pi-ai patch applied (cache breakpoint will be split + stripped)."
+
 echo "▸ Building locally with Netlify CLI (Next.js + OpenNext adapter)…"
 npx netlify-cli build
 
