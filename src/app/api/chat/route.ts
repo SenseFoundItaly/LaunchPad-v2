@@ -36,10 +36,9 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { CACHE_PREFIX_SPLIT, buildSplitUserTurn } from '@/lib/chat-cache-split';
 import { NODE_STEP_PREFIX, parseNodeStep, sessionSuffixForStep } from '@/lib/chat/node-scope';
 import { coerceTimeline } from '@/lib/timeline';
-import { getSkillTools, listSkillManifest } from '@/lib/skill-tools';
+import { getSkillTools } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
 import { pickModel, type TaskLabel } from '@/lib/llm/router';
-import { rankSkillsForQuery } from '@/lib/skill-relevance';
 import { persistArtifact } from '@/lib/artifact-persistence';
 import { captureChatArtifact } from '@/lib/chat-artifacts';
 import { renderContentMappingForPrompt, findMatchingSkill } from '@/lib/llm/content-mapping';
@@ -63,17 +62,14 @@ function isSimpleFollowUp(message: string, messages: unknown[]): boolean {
   return false;
 }
 
-/**
- * Detect whether the user message has write intent (create, propose, draft, etc.).
- * When false, write tools are excluded from the tool array to save ~800 tokens
- * per LLM roundtrip. The agent can still suggest write actions in prose —
- * the next turn (with write intent) would include the tools.
- */
-const WRITE_INTENT_PATTERN = /\b(create|draft|propose|queue|track|watch|remind|task|budget|monitor|signal|raise|lower|bump|cap|email|linkedin|post|schedule|add a|set up|configure|dismiss|remove|delete|clear|reject|cancel)\b/i;
-
-function hasWriteIntent(message: string): boolean {
-  return WRITE_INTENT_PATTERN.test(message);
-}
+// RETIRED (harness lever 2): the per-message write-intent regex that used to
+// gate write tools in/out of the tool array. The "~800 tokens saved" reasoning
+// was upside-down once prompt caching entered the picture: tools render at
+// position 0 of the Anthropic cache prefix, so flipping ±10 tool schemas
+// between turns re-wrote the ENTIRE ~25k-token prefix (1.25-2x write price)
+// to save an 800-token slice that would have been a 0.1x cached read. The
+// tool array is now byte-stable across turns; execution stays gated
+// server-side (422s + prompt steering), exactly like skill tools.
 
 // One-shot migration: add columns if they don't exist yet. Runs once per
 // server lifecycle (module load). Idempotent via IF NOT EXISTS.
@@ -780,10 +776,12 @@ export async function POST(request: NextRequest) {
     // and queue its own drafts into the approval inbox. The factory closes
     // over project_id so the agent cannot accidentally read or write another
     // project's rows.
-    // Write tools attach on turn 1, on explicit write intent, OR when there's an
-    // open watcher gap — otherwise the agent literally can't call propose_monitor
-    // on the advisory turn where it should proactively offer a watcher.
-    const includeWriteTools = messages.length <= 1 || hasWriteIntent(lastMessage) || needsWatcher;
+    // Write tools attach on EVERY turn (harness lever 2 — see the retired
+    // write-intent note above): a stable tool array is the precondition for the
+    // prompt-cache prefix to be a READ instead of a rewrite. Proposals stay
+    // approval-gated downstream, so offering the tools costs cached tokens,
+    // not safety.
+    const includeWriteTools = true;
     const projectTools = makeProjectTools(project_id, { includeWriteTools, userId });
 
     // Route simple follow-ups to Haiku (~80% cheaper) — "yes", "go ahead",
@@ -792,42 +790,26 @@ export async function POST(request: NextRequest) {
       ? 'chat-followup'
       : 'chat';
 
-    // Solve flow activates implicitly for any project that hasn't completed
-    // all 7 validation stages. All skills are exposed so the system prompt's
-    // get_project_summary → next_recommended_skill ordering works. Once the
-    // pipeline is done (step 7), switch to classifier-filtered free-form chat.
-    const isSolveFlow = !allStagesDone;
-
     const allSkillTools = getSkillTools({ userId, projectId: project_id });
 
     let skillTools: typeof allSkillTools;
     if (chatTask === 'chat-followup') {
       // Simple follow-ups ("yes", "go ahead") never trigger skill invocations.
-      // Skip the Haiku classifier call entirely to save ~$0.0006 + 300ms.
+      // Haiku path — its cache namespace is separate from Sonnet's anyway, so
+      // an empty skill set here does not disturb the main prefix.
       skillTools = [];
-    } else if (isSolveFlow) {
-      // Solve flow: all skills available — system prompt mandates
-      // get_project_summary → next_recommended_skill for ordering.
-      skillTools = allSkillTools;
     } else {
-      // Free-form chat: Haiku classifier picks top 3 relevant skills.
-      const skillManifest = listSkillManifest();
-      const relevantManifest = await rankSkillsForQuery(
-        lastMessage,
-        {
-          id: project_id,
-          name: projects[0].name,
-          description: projects[0].description || '',
-          stageNumber: activeStageNumber,
-        },
-        skillManifest,
-        { topN: 3, userId },
-      );
-      const relevantIds = new Set(relevantManifest.map((s) => s.id));
-      skillTools = allSkillTools.filter((t) => {
-        const id = t.name.replace(/^skill_/, '').replace(/_/g, '-');
-        return relevantIds.has(id);
-      });
+      // ALL skills, in both solve flow and free-form chat (harness lever 2).
+      // The old free-form path ran a per-message Haiku classifier and offered
+      // only its top-3 — which made the tool array (cache-prefix position 0)
+      // differ on essentially every turn, forcing a full ~25k-token prefix
+      // rewrite to save ~3k tokens of schemas that a stable array serves as a
+      // 0.1x cached read. Dropping the classifier also removes one Haiku call
+      // + ~300ms from every free-form turn. Relevance stays prompt-side
+      // (get_project_summary → next_recommended_skill ordering), and the
+      // prereq gates below still strip skills the project STATE cannot run —
+      // state changes rarely, per-message classification changed constantly.
+      skillTools = allSkillTools;
     }
 
     // PREREQUISITE gate (proposal-time) — the deterministic twin of the run-time
@@ -938,9 +920,10 @@ export async function POST(request: NextRequest) {
     // writes instead of us guessing. Cheap: two sha256s over strings we have
     // already built. Set CHAT_CACHE_FP=0 to switch off without a deploy.
     //
-    // Caveat: this captures the tool array as OFFERED at turn start. pi-agent
-    // also clears tools mid-turn at the tool-call cap (pi-agent.ts:626), which
-    // re-writes the prefix within a single turn and is invisible here.
+    // This captures the tool array as OFFERED at turn start, which is now the
+    // whole story: the per-turn cap blocks individual calls (makeToolCallLimiter
+    // in pi-agent.ts) instead of stripping agent.state.tools, so the array stays
+    // byte-stable for the entire turn and there is no invisible mid-turn rewrite.
     const CHAT_CACHE_FP = process.env.CHAT_CACHE_FP !== '0';
     let cacheFp: Record<string, unknown> | null = null;
     if (CHAT_CACHE_FP) {

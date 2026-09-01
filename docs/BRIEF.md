@@ -20,14 +20,14 @@ The product is **not** a chatbot. It's a structured operating environment where 
 - Provides 13 project-scoped tools + 3 base tools + skill tools
 - Streams responses with inline artifacts (rich cards, charts, tables rendered client-side)
 - Persists conversation history as JSONL sessions with a sliding window (12 messages max)
-- Enforces a hard cap of 4 tool calls per turn to prevent cost runaway
+- Enforces a per-turn tool-call budget (default 8; call sites override) to prevent cost runaway — calls past it are blocked and the model is pushed into synthesis
 
 **Cost governance:**
 - Per-project monthly budget caps (default $5.00/month)
 - Credit system (500 credits = ~131 messages at current pricing)
 - Haiku routing for simple follow-ups (~80% cheaper)
-- Prompt caching via `ANTHROPIC_CACHE_CONTROL=true`
-- Lazy-loading write tools on read-only turns
+- Prompt caching: a cache breakpoint at the chat system prompt's static/volatile boundary (`CHAT_CACHE_SPLIT`, default ON)
+- A byte-stable tool array, so the cached prefix is read rather than rewritten
 - LLM usage logged to `llm_usage_logs` with full token/cost telemetry
 
 ---
@@ -281,11 +281,11 @@ When a skill runs in chat:
 
 ### Conversation Cost Management
 - **Haiku routing**: Simple follow-ups ("yes", "go ahead") route to Haiku (~80% cheaper)
-- **Skill relevance classifier**: Haiku call picks top-3 relevant skills from full manifest (skipped for simple follow-ups)
-- **Write tool lazy-loading**: Write tools excluded when message has no write intent
-- **Max tool calls**: Hard cap at 4 per turn
+- **Stable skill-tool surface**: all skill tools are offered every turn in both solve flow and free-form chat. The per-message Haiku top-3 classifier was removed in PR #445 — it mutated cache-prefix position 0 on essentially every turn, costing far more than the schemas it trimmed. Relevance stays prompt-side (`get_project_summary` → `next_recommended_skill`); project STATE still gates skills via the canvas/1C prereq filters. `chat-followup` (Haiku) is the one path with zero skill tools, by design.
+- **Write tools always attached**: the old write-intent regex was removed for the same reason — a stable tool array is the precondition for the prefix to be a cache read. Proposals remain approval-gated downstream, so offering the tools costs cached tokens, not safety.
+- **Per-turn tool budget**: default 8 (call sites override), enforced by pi-agent-core's `beforeToolCall` hook — it blocks the excess call rather than emptying `agent.state.tools`, which never worked (the loop reads a snapshot) and would have churned the cache prefix mid-turn.
 - **Sliding window**: History capped at 12 messages to prevent unbounded token growth
-- **Prompt caching**: Anthropic cache control enabled for static prompt prefixes
+- **Prompt caching**: the chat system prompt is split at its static/volatile boundary and the static half carries the cache breakpoint (`src/lib/chat/cache-breakpoint.ts`, default ON, `CHAT_CACHE_SPLIT=0` to disable; self-disables off the OpenRouter path). Measured: cold turn $0.15 → warm turn $0.032
 
 ---
 
@@ -550,7 +550,7 @@ All items not built. Building blocks exist (`partner_configs`, `investment-readi
 
 | # | Task | Status | Evidence |
 |---|------|--------|----------|
-| 1 | LLM routing (dynamic model selection) | ✅ Done | Haiku routing in `skill-relevance.ts`, `pickModel()` in `pi-agent.ts` |
+| 1 | LLM routing (dynamic model selection) | ✅ Done | `pickModel()` + `DEFAULT_TASK_TIER` in `src/lib/llm/router.ts`, tier map in `models.ts`; `chat-followup` → Haiku in `chat/route.ts` |
 | 2 | Memory layer scaling (>1000 users) | Deferred | Current implementation works; optimize when needed |
 | 3 | A/B testing framework | ❌ Not built | No libraries or infrastructure |
 | 4 | API cost monitoring per user | ✅ Done | `llm_usage_logs` + `project_budgets` + budget cap checks in cron |
@@ -605,7 +605,7 @@ The platform supports English and Italian (locale stored per-project). Agent per
 
 ## Cost Model
 
-At current Sonnet pricing ($3/M input, $15/M output):
+At current Sonnet 5 pricing ($2/M input, $10/M output; cache write $2.50/M, cache read $0.20/M — the figures below predate the 2026-08-31 tier move and still assume Sonnet 4.6's $3/$15):
 - Average chat turn: ~$0.03-0.05 (reduced from ~$0.05-0.10 via recent optimizations)
 - Conversation opener: ~$0.03 (reduced from ~$0.10 via consolidated tool calls)
 - Heartbeat reflection: ~$0.02-0.04

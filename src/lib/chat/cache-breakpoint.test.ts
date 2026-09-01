@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   CACHE_BREAKPOINT,
   joinSystemForModel,
@@ -58,10 +60,38 @@ describe('cache breakpoint — fail-safe behaviour', () => {
     expect(joinSystemForModel(STATIC, '')).not.toContain(CACHE_BREAKPOINT);
   });
 
-  it('is byte-identical to plain concatenation when the flag is off', () => {
-    // CHAT_CACHE_SPLIT is unset in tests, so this is the shipped default: an
-    // unpatched deploy must behave exactly as it does today.
+  it('is byte-identical to plain concatenation when the split is inactive', () => {
+    // The split now defaults ON, but ONLY on the patched OpenRouter path:
+    // CHAT_CACHE_SPLIT hard-disables itself when OPENROUTER_API_KEY is unset
+    // (LLM_PROVIDER === 'anthropic'), which is the test environment. So this
+    // asserts the direct-Anthropic guarantee: no marker can ever be emitted
+    // toward the one provider that does not know how to strip it.
+    expect(process.env.OPENROUTER_API_KEY).toBeFalsy();
     expect(joinSystemForModel(STATIC, VOLATILE)).toBe(STATIC + VOLATILE);
+    expect(joinSystemForModel(STATIC, VOLATILE)).not.toContain(CACHE_BREAKPOINT);
+  });
+
+  it('emits exactly one strippable marker when the split is active (OpenRouter)', async () => {
+    // Re-import the module graph with OPENROUTER_API_KEY present so the
+    // module-load constants (router.LLM_PROVIDER → CHAT_CACHE_SPLIT) resolve
+    // the way they do in prod. The shipped-default claim: marker present,
+    // and stripping it restores plain concatenation byte-for-byte.
+    vi.stubEnv('OPENROUTER_API_KEY', 'test-key');
+    vi.resetModules();
+    try {
+      const fresh = await import('@/lib/chat/cache-breakpoint');
+      const joined = fresh.joinSystemForModel(STATIC, VOLATILE);
+      expect(joined).toBe(STATIC + fresh.CACHE_BREAKPOINT + VOLATILE);
+      expect(fresh.stripCacheBreakpoints(joined)).toBe(STATIC + VOLATILE);
+      // Opt-out escape hatch still works without a code change.
+      vi.stubEnv('CHAT_CACHE_SPLIT', '0');
+      vi.resetModules();
+      const optOut = await import('@/lib/chat/cache-breakpoint');
+      expect(optOut.joinSystemForModel(STATIC, VOLATILE)).toBe(STATIC + VOLATILE);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 
   it('the route\'s two-half assembly is byte-identical to the old one-call build', () => {
@@ -91,5 +121,24 @@ describe('cache breakpoint — fail-safe behaviour', () => {
     // Angle-bracketed, screaming, package-prefixed, ASCII-only.
     expect(CACHE_BREAKPOINT).toMatch(/^<{3}[A-Z_]+>{3}$/);
     expect(CACHE_BREAKPOINT).not.toMatch(/[^\x20-\x7E]/);
+  });
+
+  it('the pi-ai provider is actually patched to consume the sentinel', () => {
+    // The split defaults ON, so the patch is load-bearing: an install that
+    // skipped postinstall (--ignore-scripts, pruned node_modules, stale cache)
+    // ships a provider that neither splits NOR strips, and the raw sentinel
+    // reaches the model as visible prompt text on every chat turn. patch-package
+    // fails silently in that scenario, so assert the end state instead of
+    // trusting the install. scripts/deploy.sh runs the same check before a build.
+    // Resolved from cwd rather than require.resolve: pi-ai's exports map does
+    // not expose package.json, so require.resolve throws ERR_PACKAGE_PATH_NOT_EXPORTED.
+    // In worktrees node_modules is a symlink to the main checkout — which is
+    // exactly the tree the deploy would ship, so this is the right thing to read.
+    const provider = readFileSync(
+      join(process.cwd(), 'node_modules/@mariozechner/pi-ai/dist/providers/openai-completions.js'),
+      'utf-8',
+    );
+    expect(provider).toContain('LP_CACHE_BREAKPOINT');
+    expect(provider).toContain(CACHE_BREAKPOINT);
   });
 });

@@ -247,8 +247,13 @@ function buildSkillTool(skill: ParsedSkill, opts: SkillToolOptions): AgentTool {
 }
 
 /**
- * Returns the loaded skill manifest for debugging / listing in /api/health.
- * Useful to sanity-check that SKILL.md files are parseable.
+ * Returns the loaded skill manifest — a flat, LLM-free listing, useful to
+ * sanity-check that SKILL.md files are parseable.
+ *
+ * Currently UNUSED: the chat route stopped calling it in PR #445 when the
+ * per-message skill classifier was removed, and it is NOT wired into
+ * /api/health despite what this docstring used to claim. Kept as a debugging
+ * helper; delete it if it is still uncalled next time you are in here.
  */
 export function listSkillManifest() {
   return loadSkills().map((s) => ({

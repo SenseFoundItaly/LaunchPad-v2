@@ -2,7 +2,17 @@
 
 _Canonical model, 2026-06-21. Supersedes the old 300-credits/$ unit for all
 founder-facing numbers. Grounded in prod-measured real LLM costs (llm_usage_logs,
-OpenRouter Sonnet $3/$15). USD→EUR ≈ 1.08._
+OpenRouter Sonnet 4.6 $3/$15). USD→EUR ≈ 1.08._
+
+> **⚠ The cost basis under this spec has moved (2026-08-31, PR #445 — pending merge/deploy).**
+> The balanced tier is now Sonnet 5 ($2/$10, cacheWrite $2.50, cacheRead $0.20 —
+> `src/lib/llm/models.ts`), and the chat prompt-cache split is on by default. A
+> measured chat turn: **$0.15 cold, $0.032 warm** (~94% prefix hit), against the
+> $0.14 average this spec is built on. **Every figure below still carries the old
+> derivation** and needs re-deriving against a session-weighted blend of cold and
+> warm turns — see "The cost lever", which anticipated exactly this and now has
+> its decision fork live. Do not quote the per-action table to a founder until
+> that re-derivation happens.
 
 ## The unit
 **1 credit ≈ 1 chat message ≈ $0.14 (€0.13) of real LLM cost.**
@@ -41,7 +51,7 @@ raise for a more generous trial, lower to protect margin. (The old "100 credits"
 was ~2 messages in the old unit; do NOT carry the number over — carry the *intent*
 of "a usable handful of messages.")
 
-## The cost lever (makes heavy ops cheaper for real)
+## The cost lever (makes heavy ops cheaper for real) — **LANDED, decision now live**
 After caching (#78) + output cap + model-routing the non-artifact skill steps
 (~3× realistic), a message drops to **~€0.045**. Then either:
 - **keep €0.40/credit** → margin 67% → **~89%**, or
@@ -49,6 +59,16 @@ After caching (#78) + output cap + model-routing the non-artifact skill steps
 
 Pricing tweaks redistribute; cost cuts grow the pie. Ship #78 before promising a
 generous pack.
+
+**Status 2026-08-31:** the caching lever shipped in PR #445 (`CHAT_CACHE_SPLIT`
+default ON, provider-gated to OpenRouter) together with the Sonnet 5 tier move.
+Measured warm turn **$0.032 ≈ €0.030 — already below the €0.045 target**; a cold
+first turn is still ~$0.15, so the true per-message average depends on session
+length and needs a session-weighted number from prod before repricing. **Not yet
+merged/deployed**, so prod still bills at the old rates today. The fork above is
+now a live founder decision, not a projection — and note the output cap and skill
+model-routing halves of "#78" are still open (see the harness audit's remaining
+levers), so there is more headroom after this.
 
 ## Wiring (NOT a one-line flip — a redenomination)
 Switching `creditsPerDollar` 300 → ~7.1 rescales every credit number by ~42×. To

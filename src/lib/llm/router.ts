@@ -64,10 +64,22 @@ type ResolvedModel = {
 // providers is a server restart, not a hot path decision.
 const USE_OPENROUTER = Boolean(process.env.OPENROUTER_API_KEY);
 
+/**
+ * The provider every tier resolves to this deployment (module-load constant,
+ * same rule as TIER_MODELS below). Exported so provider-conditional features —
+ * today the chat prompt-cache breakpoint, which only the patched OpenRouter
+ * path knows how to split — can key off the actual wire path instead of
+ * guessing from env vars.
+ */
+export const LLM_PROVIDER: 'anthropic' | 'openrouter' = USE_OPENROUTER ? 'openrouter' : 'anthropic';
+
 // Derive tier → {provider, model} from MODEL_CONFIG instead of duplicating IDs.
+// Entries marked `legacy: true` exist only so telemetry can price historical
+// usage rows — they never win a tier.
 const TIER_MODELS: Record<ModelTier, { provider: 'anthropic' | 'openrouter'; model: string }> = (() => {
   const result = {} as Record<ModelTier, { provider: 'anthropic' | 'openrouter'; model: string }>;
   for (const cfg of Object.values(MODEL_CONFIG)) {
+    if ((cfg as { legacy?: boolean }).legacy) continue;
     result[cfg.tier] = USE_OPENROUTER
       ? { provider: 'openrouter', model: cfg.openrouterId }
       : { provider: 'anthropic', model: cfg.id };

@@ -1,6 +1,12 @@
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { pickModel, type TaskLabel } from './router';
+import { MODEL_CONFIG } from './models';
+
+// No-model fallbacks follow the balanced tier instead of a hard-coded pin —
+// the old 'claude-sonnet-4-20250514' snapshot retired in June 2026 and 404s.
+const FALLBACK_ANTHROPIC_MODEL = MODEL_CONFIG['claude-sonnet-5'].id;
+const FALLBACK_OPENROUTER_MODEL = MODEL_CONFIG['claude-sonnet-5'].openrouterId;
 import { recordUsage } from '@/lib/cost-meter';
 import { estimateCost } from '@/lib/telemetry';
 
@@ -181,7 +187,7 @@ export async function chatWithUsage(
       .join('\n');
     const msgs = messages.filter((m) => m.role !== 'system');
     const response = await getAnthropic(anthropicKey).messages.create({
-      model: model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+      model: model || process.env.ANTHROPIC_MODEL || FALLBACK_ANTHROPIC_MODEL,
       system,
       messages: msgs as Anthropic.MessageParam[],
       temperature,
@@ -210,7 +216,7 @@ export async function chatWithUsage(
   // for OpenAI keep gpt-4o as the fallback. Router-provided `model` overrides.
   const resolvedModel = model
     || (useOpenRouter
-      ? process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4.6'
+      ? process.env.OPENROUTER_MODEL || FALLBACK_OPENROUTER_MODEL
       : process.env.OPENAI_MODEL || 'gpt-4o');
   const response = await client.chat.completions.create({
     model: resolvedModel,
@@ -259,7 +265,7 @@ export async function* chatStream(
       .join('\n');
     const msgs = messages.filter((m) => m.role !== 'system');
     const stream = getAnthropic(anthropicKey).messages.stream({
-      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+      model: process.env.ANTHROPIC_MODEL || FALLBACK_ANTHROPIC_MODEL,
       system,
       messages: msgs as Anthropic.MessageParam[],
       temperature,
@@ -276,7 +282,7 @@ export async function* chatStream(
   const useOpenRouter = provider === 'openrouter' || userKey?.provider === 'openrouter';
   const client = useOpenRouter ? getOpenRouter(openrouterKey) : getOpenAI(openaiKey);
   const resolvedModel = useOpenRouter
-    ? process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4.6'
+    ? process.env.OPENROUTER_MODEL || FALLBACK_OPENROUTER_MODEL
     : process.env.OPENAI_MODEL || 'gpt-4o';
   const stream = await client.chat.completions.create({
     model: resolvedModel,
