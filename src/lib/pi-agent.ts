@@ -181,6 +181,80 @@ function sessionPath(sessionId: string): string {
   return join(dir, 'session.jsonl');
 }
 
+/**
+ * Trim a raw session transcript into a shape the provider accepts.
+ * Pure function, exported for tests — loadSession is just file I/O around it.
+ *
+ * Fixes two long-standing poisoners (2026-09-01 audit):
+ *  - The unpaired-tool-call guard used to grep for 'tool_use' (Anthropic's wire
+ *    name), but pi-ai persists AgentMessages whose blocks are typed 'toolCall'
+ *    — so the guard was dead code and every timeout-aborted agentic turn
+ *    poisoned the next warm turn on that instance (400 / silent-empty).
+ *  - The sliding window could open ON a toolResult whose toolCall assistant
+ *    message was just sliced away — an orphaned toolResult the provider
+ *    rejects. Measured: ~11% of live sessions were one warm turn away from
+ *    this state. After windowing, drop leading toolResults (and the then-
+ *    leading assistant tool-call turn they belonged to, if the slice split a
+ *    multi-result batch).
+ */
+export function trimSessionMessages(messages: AgentMessage[], maxMessages?: number): AgentMessage[] {
+  // Anthropic's API rejects (or silently returns empty) when conversation
+  // history ends with an incomplete assistant turn:
+  //   - toolCall block with no matching toolResult follow-up
+  //   - empty content array (turn killed before any text/tool was produced)
+  // Both happen when a stream is killed mid-turn. Trim any trailing
+  // incomplete-assistant and its preceding user message, so the agent
+  // retries from the last complete (user, assistant) pair.
+  while (messages.length > 0) {
+    const last = messages[messages.length - 1] as { role?: string; content?: unknown };
+    if (last.role !== 'assistant') break;
+
+    const content = last.content;
+    const isEmpty =
+      content === undefined ||
+      content === null ||
+      (Array.isArray(content) && content.length === 0) ||
+      (typeof content === 'string' && content.trim() === '');
+    const contentStr = JSON.stringify(content ?? '');
+    // 'toolCall' is pi-ai's persisted block type; keep 'tool_use' too in case
+    // an older file ever carried wire-shaped blocks.
+    const hasUnpairedToolCall = contentStr.includes('toolCall') || contentStr.includes('tool_use');
+
+    if (!isEmpty && !hasUnpairedToolCall) break;
+
+    messages.pop();
+    if (messages.length > 0 && (messages[messages.length - 1] as { role?: string }).role === 'user') {
+      messages.pop();
+    }
+  }
+
+  // After trimming incomplete assistant turns, also strip any trailing user
+  // messages that were left orphaned. The SDK will re-add the user message
+  // when the next turn runs, preventing consecutive-user-message rejections.
+  while (messages.length > 0) {
+    const last = messages[messages.length - 1] as { role?: string };
+    if (last.role !== 'user') break;
+    messages.pop();
+  }
+
+  // Sliding window: cap history to the most recent N messages to prevent
+  // unbounded token growth on long conversations. Each message re-sent on
+  // every tool roundtrip, so this compounds savings significantly.
+  if (maxMessages && maxMessages > 0 && messages.length > maxMessages) {
+    messages.splice(0, messages.length - maxMessages);
+  }
+
+  // The window slice above is position-based, so it can open mid tool-exchange:
+  // a leading toolResult whose toolCall turn was cut off. The provider rejects
+  // that shape outright. Drop leading toolResults until the window starts on a
+  // user or assistant message.
+  while (messages.length > 0 && (messages[0] as { role?: string }).role === 'toolResult') {
+    messages.shift();
+  }
+
+  return messages;
+}
+
 function loadSession(sessionId: string, maxMessages?: number): AgentMessage[] {
   const path = sessionPath(sessionId);
   if (!existsSync(path)) return [];
@@ -194,53 +268,7 @@ function loadSession(sessionId: string, maxMessages?: number): AgentMessage[] {
         messages.push(entry as unknown as AgentMessage);
       }
     }
-
-    // Anthropic's API rejects (or silently returns empty) when conversation
-    // history ends with an incomplete assistant turn:
-    //   - tool_use block with no matching tool_result follow-up
-    //   - empty content array (turn killed before any text/tool was produced)
-    // Both happen when a stream is killed mid-turn. Prevent the next turn
-    // from failing by trimming any trailing incomplete-assistant and its
-    // preceding user message, so the agent retries from the last complete
-    // (user, assistant) pair.
-    while (messages.length > 0) {
-      const last = messages[messages.length - 1] as { role?: string; content?: unknown };
-      if (last.role !== 'assistant') break;
-
-      const content = last.content;
-      const isEmpty =
-        content === undefined ||
-        content === null ||
-        (Array.isArray(content) && content.length === 0) ||
-        (typeof content === 'string' && content.trim() === '');
-      const contentStr = JSON.stringify(content ?? '');
-      const hasUnpairedToolUse = contentStr.includes('tool_use');
-
-      if (!isEmpty && !hasUnpairedToolUse) break;
-
-      messages.pop();
-      if (messages.length > 0 && (messages[messages.length - 1] as { role?: string }).role === 'user') {
-        messages.pop();
-      }
-    }
-
-    // After trimming incomplete assistant turns, also strip any trailing user
-    // messages that were left orphaned. The SDK will re-add the user message
-    // when the next turn runs, preventing consecutive-user-message rejections.
-    while (messages.length > 0) {
-      const last = messages[messages.length - 1] as { role?: string };
-      if (last.role !== 'user') break;
-      messages.pop();
-    }
-
-    // Sliding window: cap history to the most recent N messages to prevent
-    // unbounded token growth on long conversations. Each message re-sent on
-    // every tool roundtrip, so this compounds savings significantly.
-    if (maxMessages && maxMessages > 0 && messages.length > maxMessages) {
-      messages.splice(0, messages.length - maxMessages);
-    }
-
-    return messages;
+    return trimSessionMessages(messages, maxMessages);
   } catch {
     return [];
   }
@@ -305,6 +333,15 @@ export interface RunAgentOptions {
    * runAgentStream. Default: 8.
    */
   maxToolCalls?: number;
+  /**
+   * Per-sub-call output-token ceiling. Defaults to the router tier's
+   * maxTokens (cheap 4096 / balanced 8192 / premium 16384) — before this
+   * existed, EVERY call shipped pi-ai's blanket min(model.maxTokens, 32000),
+   * so a runaway synthesis could bill 32k output tokens on one call. Applied
+   * via the onPayload hook (see makeOutputCapHook); pass a larger value for
+   * callers that legitimately produce long artifacts.
+   */
+  maxTokens?: number;
   /**
    * Max conversation history messages to load from the session file.
    * Older messages are trimmed from the beginning to cap token growth.
@@ -594,6 +631,11 @@ export interface RunAgentResult {
    *  Pass to recordUsage/recordAgentUsage (cost-meter.ts) so it skips its own
    *  post-hoc flat trace — this run already has a real nested one. */
   langfuseTraceId?: string | null;
+  /** Set when the run ended on a provider stream error WITH NO output (after
+   *  the one zero-emission retry). `text` is '' in that case — callers that
+   *  treat empty text as "model returned nothing" can now tell "provider
+   *  failed" apart from it and message/log accordingly. */
+  error?: string;
 }
 
 /**
@@ -609,6 +651,51 @@ export interface RunAgentResult {
  * position 0 and re-bills the whole prefix at write price for the turn's
  * largest call. Blocking per-call keeps the tool array byte-stable.
  */
+/**
+ * Output-token ceiling, applied at the wire via pi-ai's onPayload hook (the
+ * hook's return value replaces the request params on both provider paths).
+ *
+ * Why here and not in Agent options: pi-agent-core's createLoopConfig never
+ * forwards a maxTokens, so pi-ai's buildBaseOptions falls back to
+ * min(model.maxTokens, 32000) for every call — the router's per-tier
+ * TIER_DEFAULTS.maxTokens was computed by pickModel and then thrown away
+ * (round-1 audit finding). This restores the tier cap as a guardrail:
+ * cheap 4096 / balanced 8192 / premium 16384, overridable per call via
+ * options.maxTokens. Ledger check before choosing these: max observed chat
+ * output in 30 days was ~5.4k tokens, well inside the balanced cap.
+ */
+function makeOutputCapHook(task: TaskLabel | undefined, explicit?: number) {
+  const cap = explicit ?? (task ? pickModel(task).maxTokens : pickModel('chat').maxTokens);
+  return (params: unknown) => {
+    if (params && typeof params === 'object') {
+      const p = params as Record<string, unknown>;
+      p.max_tokens = typeof p.max_tokens === 'number' ? Math.min(p.max_tokens, cap) : cap;
+    }
+    return params;
+  };
+}
+
+/**
+ * Persistence guard for session writes during retried runs (see the retry
+ * logic in runAgent/runAgentStream):
+ *  - error-stopped assistant messages are never persisted — trimSessionMessages
+ *    would drop them on the next load anyway, and skipping them keeps a
+ *    retried turn from leaving a poisoned entry between the two attempts;
+ *  - on a retry attempt the user message is already in the file from attempt 1,
+ *    so persisting it again would leave duplicate consecutive user entries.
+ */
+function shouldPersistMessage(message: unknown, attempt: number): boolean {
+  const m = message as { role?: string; stopReason?: string };
+  if (m.role === 'assistant' && m.stopReason === 'error') return false;
+  if (attempt > 1 && m.role === 'user') return false;
+  return true;
+}
+
+/** Retry policy for provider blips: one retry, only when the failed attempt
+ *  emitted NOTHING (no text streamed, no tool executed) — so a retry can never
+ *  duplicate founder-visible output or re-run a side-effectful tool. */
+const STREAM_RETRY_DELAY_MS = 750;
+
 function makeToolCallLimiter(maxToolCalls: number) {
   let attempted = 0;
   let warned = false;
@@ -633,43 +720,17 @@ function makeToolCallLimiter(maxToolCalls: number) {
 export async function runAgent(prompt: string, options: RunAgentOptions = {}): Promise<RunAgentResult> {
   cleanStaleSessions();
   const model = resolveModel(options.task);
-  const agent = new Agent({
-    streamFn: streamSimple,
-    sessionId: options.sessionId,
-    getApiKey: makeGetApiKey(options.userKey),
-    // Explicitly request parallel tool execution. With 3-4 web_search +
-    // read_url calls in a research turn, sequential execution dominates
-    // latency — parallel lets them all run concurrently and finalizes
-    // results in source order.
-    toolExecution: 'parallel',
-    // The buffered path previously had NO tool-call cap at all — a section
-    // that ignored its "at most 2 searches" prompt could burn the whole run
-    // budget on tool loops. Same default cap as the streaming path.
-    beforeToolCall: makeToolCallLimiter(options.maxToolCalls ?? 8),
-  });
 
-  agent.state.model = model;
-  if (options.systemPrompt) {
-    agent.state.systemPrompt = options.systemPrompt;
-  }
-  // Compose tool set: base generic tools (web_search, read_url, calculate)
-  // plus any project-scoped tools from makeProjectTools(projectId).
+  // Attempt-invariant setup, built ONCE and reused by a retry: tools, history,
+  // trace, output cap. history MUST be copied into each agent (the loop pushes
+  // the new user message into state.messages — reusing the same array across
+  // attempts would double-inject attempt 1's messages).
   const baseTools = options.tools !== false
     ? getTools({ projectId: options.projectId, step: options.step ?? options.task, userId: options.userId })
     : [];
   const extraTools = options.extraTools || [];
-  if (baseTools.length > 0 || extraTools.length > 0) {
-    agent.state.tools = [...baseTools, ...extraTools];
-  }
-
-  // Restore conversation history (durable seedHistory wins over the ephemeral
-  // session file; see resolveHistory).
-  {
-    const prior = resolveHistory(options);
-    if (prior.length > 0) {
-      agent.state.messages = prior;
-    }
-  }
+  const prior = resolveHistory(options);
+  const outputCap = makeOutputCapHook(options.task, options.maxTokens);
 
   let fullText = '';
   let lastUsage: Usage | undefined;
@@ -679,49 +740,121 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
 
   const timeout = options.timeout || 120000;
   let timedOut = false;
+  let currentAgent: Agent | null = null;
+
+  // HARD DEADLINE, raced against the run instead of trusted to abort():
+  // agent.abort() only reaches the LLM socket — tools ignore the signal and
+  // the loop never checks it, so a hung tool (stuck fetch, dead DB wait) left
+  // waitForIdle() unresolved past the timeout indefinitely; buffered callers
+  // (skills, cron) then zombied to the platform kill with NOTHING persisted.
+  // The race guarantees the caller gets its partial result back at ~timeout;
+  // the abandoned run keeps its abort signal and dies with the socket.
+  let deadlineFired!: () => void;
+  const deadline = new Promise<void>((resolve) => { deadlineFired = resolve; });
   const timer = setTimeout(() => {
-    // Mirror runAgentStream's timeout logging — this abort used to be fully
-    // silent, so a truncated skill run was indistinguishable from a clean one.
     timedOut = true;
     console.warn(`[pi-agent] timeout (${timeout}ms) — aborting buffered agent run (output truncated)`);
-    agent.abort();
+    try { currentAgent?.abort(); } catch { /* ignore */ }
+    deadlineFired();
   }, timeout);
 
-  agent.subscribe((event) => {
-    if (event.type === 'message_update') {
-      const evt = event.assistantMessageEvent;
-      if (evt.type === 'text_delta') {
-        fullText += evt.delta;
-        options.onDelta?.(evt.delta); // mirror the delta out (buffered return unchanged)
-      }
-    }
-    if (event.type === 'tool_execution_start') {
-      openToolSpan(trace, toolSpans, event.toolCallId, event.toolName, event.args);
-    }
-    if (event.type === 'tool_execution_end') {
-      closeToolSpan(toolSpans, event.toolCallId, event.isError, event.result);
-    }
-    // message_end fires for user, toolResult, and assistant messages in order.
-    // Writing here is sufficient — turn_end would double-write toolResults.
-    if (event.type === 'message_end' && event.message) {
-      if ('usage' in event.message) {
-        const usage = (event.message as any).usage;
-        lastUsage = accumulateUsage(lastUsage, usage);
-        recordGeneration(trace, model.provider, model.id, usage);
-      }
-      if (options.sessionId) appendToSession(options.sessionId, event.message);
-    }
-  });
+  const runAttempt = async (attempt: number): Promise<{ errorStop: boolean; errorMessage?: string; toolsRan: boolean }> => {
+    const agent = new Agent({
+      streamFn: streamSimple,
+      sessionId: options.sessionId,
+      getApiKey: makeGetApiKey(options.userKey),
+      // Explicitly request parallel tool execution. With 3-4 web_search +
+      // read_url calls in a research turn, sequential execution dominates
+      // latency — parallel lets them all run concurrently and finalizes
+      // results in source order.
+      toolExecution: 'parallel',
+      // The buffered path previously had NO tool-call cap at all — a section
+      // that ignored its "at most 2 searches" prompt could burn the whole run
+      // budget on tool loops. Same default cap as the streaming path.
+      beforeToolCall: makeToolCallLimiter(options.maxToolCalls ?? 8),
+      onPayload: outputCap,
+    });
+    currentAgent = agent;
 
+    agent.state.model = model;
+    if (options.systemPrompt) {
+      agent.state.systemPrompt = options.systemPrompt;
+    }
+    if (baseTools.length > 0 || extraTools.length > 0) {
+      agent.state.tools = [...baseTools, ...extraTools];
+    }
+    if (prior.length > 0) {
+      agent.state.messages = [...prior];
+    }
+
+    let errorStop = false;
+    let errorMessage: string | undefined;
+    let toolsRan = false;
+
+    agent.subscribe((event) => {
+      if (event.type === 'message_update') {
+        const evt = event.assistantMessageEvent;
+        if (evt.type === 'text_delta') {
+          fullText += evt.delta;
+          options.onDelta?.(evt.delta); // mirror the delta out (buffered return unchanged)
+        }
+      }
+      if (event.type === 'tool_execution_start') {
+        toolsRan = true;
+        openToolSpan(trace, toolSpans, event.toolCallId, event.toolName, event.args);
+      }
+      if (event.type === 'tool_execution_end') {
+        closeToolSpan(toolSpans, event.toolCallId, event.isError, event.result);
+      }
+      // message_end fires for user, toolResult, and assistant messages in order.
+      // Writing here is sufficient — turn_end would double-write toolResults.
+      if (event.type === 'message_end' && event.message) {
+        const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string };
+        if (msg.role === 'assistant' && msg.stopReason === 'error') {
+          errorStop = true;
+          errorMessage = msg.errorMessage;
+        }
+        if ('usage' in event.message) {
+          const usage = (event.message as any).usage;
+          lastUsage = accumulateUsage(lastUsage, usage);
+          recordGeneration(trace, model.provider, model.id, usage);
+        }
+        if (options.sessionId && shouldPersistMessage(event.message, attempt)) {
+          appendToSession(options.sessionId, event.message);
+        }
+      }
+    });
+
+    await Promise.race([
+      (async () => { await agent.prompt(prompt); await agent.waitForIdle(); })(),
+      deadline,
+    ]);
+    return { errorStop, errorMessage, toolsRan };
+  };
+
+  let finalError: string | undefined;
   try {
-    await agent.prompt(prompt);
-    await agent.waitForIdle();
+    let result = await runAttempt(1);
+    // Retry-on-blip: pi-agent-core swallows provider stream errors into a
+    // stopReason:'error' assistant message and RESOLVES prompt() — before
+    // this, a transient OpenRouter 5xx/socket drop surfaced as a silently
+    // empty "successful" run. Retry once, ONLY when nothing was emitted (no
+    // text, no tool executed), so the retry can never duplicate output or
+    // side effects. The deadline timer spans both attempts.
+    if (result.errorStop && !timedOut && fullText === '' && !result.toolsRan) {
+      console.warn(`[pi-agent] provider stream error before any output (${result.errorMessage || 'unknown'}) — retrying once`);
+      await new Promise((r) => setTimeout(r, STREAM_RETRY_DELAY_MS));
+      if (!timedOut) result = await runAttempt(2);
+    }
+    if (result.errorStop && fullText === '') {
+      finalError = result.errorMessage || 'model stream failed';
+    }
   } finally {
     clearTimeout(timer);
   }
 
   const langfuseTraceId = await finishAgentTrace(trace, fullText);
-  return { text: fullText, usage: lastUsage, timedOut, langfuseTraceId };
+  return { text: fullText, usage: lastUsage, timedOut, langfuseTraceId, error: finalError };
 }
 
 /**
@@ -752,38 +885,16 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
       // declared a few lines down — master's rework version is the superset
       // (adds safeEnqueue + fullText). The WIP's partial duplicate here was
       // dropped to avoid redeclaring the same block-scoped names.
-      agent = new Agent({
-        streamFn: streamSimple,
-        sessionId: options.sessionId,
-        getApiKey: makeGetApiKey(options.userKey),
-        // Per-turn tool budget, enforced at prepare time (see
-        // makeToolCallLimiter). Replaces the old mid-turn tools-strip, which
-        // never worked: the loop reads a snapshot taken at prompt() time.
-        beforeToolCall: makeToolCallLimiter(options.maxToolCalls ?? 8),
-      });
-
-      agent.state.model = model;
-      if (options.systemPrompt) {
-        agent.state.systemPrompt = options.systemPrompt;
-      }
+      // Attempt-invariant setup — built once, shared by the zero-emission
+      // retry (see startAttempt below). History must be COPIED into each
+      // agent: the loop pushes the new user message into state.messages, so
+      // sharing the array across attempts would double-inject it.
       const baseToolsS = options.tools !== false
         ? getTools({ projectId: options.projectId, step: options.step ?? options.task, userId: options.userId })
         : [];
       const extraToolsS = options.extraTools || [];
-      if (baseToolsS.length > 0 || extraToolsS.length > 0) {
-        agent.state.tools = [...baseToolsS, ...extraToolsS];
-      }
-
-      // Restore conversation history (durable seedHistory wins over the
-      // ephemeral session file — the cold-start fix; see resolveHistory). The
-      // SDK appends the new user message and subsequent assistant turns itself —
-      // do NOT call appendToSession here or the user message appears twice.
-      {
-        const prior = resolveHistory(options);
-        if (prior.length > 0) {
-          agent.state.messages = prior;
-        }
-      }
+      const prior = resolveHistory(options);
+      const outputCap = makeOutputCapHook(options.task, options.maxTokens);
 
       // Force-close on timeout. agent.abort() alone does NOT reliably make
       // pi-agent-core emit agent_end or reject the prompt promise, so the
@@ -893,119 +1004,195 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
 
       let lastUsage: Usage | undefined;
 
-      agent.subscribe((event) => {
-        switch (event.type) {
-          case 'message_update': {
-            const evt = event.assistantMessageEvent;
-            if (evt.type === 'text_delta' && evt.delta) {
-              fullText += evt.delta;
-              safeEnqueue(
-                encoder.encode(`data: ${JSON.stringify({ content: evt.delta })}\n\n`)
-              );
+      /**
+       * One agent attempt. Wrapped so a provider blip that emitted NOTHING
+       * (no content frame, no tool execution) can be retried once without the
+       * client ever noticing — before this, pi-agent-core swallowed stream
+       * errors into a stopReason:'error' assistant message and the turn ended
+       * as a silent `done:true` with empty text: a dead turn styled as
+       * complete (the observed $0-flake class). When output HAS been emitted
+       * (or the retry also fails), the done frame now carries `error` so the
+       * client can render a real failure instead of a fake-complete turn.
+       * The master timeout timer spans attempts.
+       */
+      const startAttempt = (attempt: number) => {
+        agent = new Agent({
+          streamFn: streamSimple,
+          sessionId: options.sessionId,
+          getApiKey: makeGetApiKey(options.userKey),
+          // Pin parallel tool execution rather than relying on the library
+          // default — a default flip upstream would silently serialize every
+          // tool batch in the founder-facing path.
+          toolExecution: 'parallel',
+          // Per-turn tool budget, enforced at prepare time (see
+          // makeToolCallLimiter). Replaces the old mid-turn tools-strip, which
+          // never worked: the loop reads a snapshot taken at prompt() time.
+          beforeToolCall: makeToolCallLimiter(options.maxToolCalls ?? 8),
+          onPayload: outputCap,
+        });
+
+        agent.state.model = model;
+        if (options.systemPrompt) {
+          agent.state.systemPrompt = options.systemPrompt;
+        }
+        if (baseToolsS.length > 0 || extraToolsS.length > 0) {
+          agent.state.tools = [...baseToolsS, ...extraToolsS];
+        }
+        // Restore conversation history (durable seedHistory wins over the
+        // ephemeral session file — the cold-start fix; see resolveHistory). The
+        // SDK appends the new user message and subsequent assistant turns itself —
+        // do NOT call appendToSession here or the user message appears twice.
+        if (prior.length > 0) {
+          agent.state.messages = [...prior];
+        }
+
+        let sawErrorStop = false;
+        let errorMessage: string | undefined;
+        let toolsRan = false;
+        const retryable = () =>
+          sawErrorStop && !toolsRan && fullText === '' && attempt === 1 && !closed;
+
+        agent.subscribe((event) => {
+          switch (event.type) {
+            case 'message_update': {
+              const evt = event.assistantMessageEvent;
+              if (evt.type === 'text_delta' && evt.delta) {
+                fullText += evt.delta;
+                safeEnqueue(
+                  encoder.encode(`data: ${JSON.stringify({ content: evt.delta })}\n\n`)
+                );
+              }
+              break;
             }
-            break;
-          }
 
-          case 'tool_execution_start': {
-            // Tool budget is enforced in beforeToolCall (Agent construction
-            // above) — blocked calls never reach execution, so no counting or
-            // tool-stripping is needed here.
-            openToolSpan(trace, toolSpans, event.toolCallId, event.toolName, event.args);
-            safeEnqueue(
-              encoder.encode(`data: ${JSON.stringify({
-                tool_start: {
-                  id: event.toolCallId,
-                  name: event.toolName,
-                  args: event.args,
-                },
-              })}\n\n`)
-            );
-            break;
-          }
-
-          case 'tool_execution_end': {
-            closeToolSpan(toolSpans, event.toolCallId, event.isError, event.result);
-            safeEnqueue(
-              encoder.encode(`data: ${JSON.stringify({
-                tool_end: {
-                  id: event.toolCallId,
-                  name: event.toolName,
-                  error: event.isError,
-                },
-              })}\n\n`)
-            );
-            break;
-          }
-
-          case 'message_end': {
-            if (event.message && 'usage' in event.message) {
-              const usage = (event.message as any).usage;
-              lastUsage = accumulateUsage(lastUsage, usage);
-              recordGeneration(trace, model.provider, model.id, usage);
-            }
-            // message_end fires for user, toolResult, and assistant messages in order.
-            // Writing here is sufficient — turn_end would double-write toolResults.
-            if (options.sessionId && event.message) {
-              appendToSession(options.sessionId, event.message);
-            }
-            break;
-          }
-
-          case 'agent_end': {
-            clearTimeout(timer);
-            const u = lastUsage as unknown as Record<string, number | { total?: number } | undefined>;
-            finishAgentTrace(trace, fullText).then((langfuseTraceId) => {
+            case 'tool_execution_start': {
+              // Tool budget is enforced in beforeToolCall (Agent construction
+              // above) — blocked calls never reach execution, so no counting or
+              // tool-stripping is needed here.
+              toolsRan = true;
+              openToolSpan(trace, toolSpans, event.toolCallId, event.toolName, event.args);
               safeEnqueue(
                 encoder.encode(`data: ${JSON.stringify({
-                  done: true,
-                  fullText,
-                  usage: lastUsage ? {
-                    input_tokens: u.input as number,
-                    output_tokens: u.output as number,
-                    // pi-ai's Usage uses cacheWrite/cacheRead (see types.d.ts:111).
-                    // Map to the column names llm_usage_logs expects.
-                    cache_creation_input_tokens: (u.cacheWrite as number) || 0,
-                    cache_read_input_tokens: (u.cacheRead as number) || 0,
-                    total_tokens: u.totalTokens as number,
-                    cost: (u.cost as { total?: number } | undefined)?.total,
-                  } : undefined,
-                  langfuseTraceId,
+                  tool_start: {
+                    id: event.toolCallId,
+                    name: event.toolName,
+                    args: event.args,
+                  },
                 })}\n\n`)
               );
-              safeClose();
-            });
-            break;
-          }
-        }
-      });
+              break;
+            }
 
-      agent.prompt(prompt).catch((err) => {
-        clearTimeout(timer);
-        // WEAVE (port): emit a done event carrying both the error message
-        // (master) and whatever usage we accumulated before the failure
-        // (WIP's $0-flake-turn fix), through the double-close-safe enqueue.
-        // Without the usage, cost extraction sees no streamUsage.done and
-        // records $0.00 — the pattern observed in e2e turns 5/6/7.
-        const u = lastUsage as unknown as Record<string, number | { total?: number } | undefined> | undefined;
-        finishAgentTrace(trace, fullText).then((langfuseTraceId) => {
-          safeEnqueue(
-            encoder.encode(`data: ${JSON.stringify({
-              done: true,
-              error: err.message,
-              usage: lastUsage && u ? {
-                input_tokens: u.input as number,
-                output_tokens: u.output as number,
-                cache_creation_input_tokens: (u.cacheWrite as number) || 0,
-                cache_read_input_tokens: (u.cacheRead as number) || 0,
-                total_tokens: u.totalTokens as number,
-                cost: (u.cost as { total?: number } | undefined)?.total,
-              } : undefined,
-              langfuseTraceId,
-            })}\n\n`)
-          );
-          safeClose();
+            case 'tool_execution_end': {
+              closeToolSpan(toolSpans, event.toolCallId, event.isError, event.result);
+              safeEnqueue(
+                encoder.encode(`data: ${JSON.stringify({
+                  tool_end: {
+                    id: event.toolCallId,
+                    name: event.toolName,
+                    error: event.isError,
+                  },
+                })}\n\n`)
+              );
+              break;
+            }
+
+            case 'message_end': {
+              if (event.message) {
+                const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string };
+                if (msg.role === 'assistant' && msg.stopReason === 'error') {
+                  sawErrorStop = true;
+                  errorMessage = msg.errorMessage;
+                }
+              }
+              if (event.message && 'usage' in event.message) {
+                const usage = (event.message as any).usage;
+                lastUsage = accumulateUsage(lastUsage, usage);
+                recordGeneration(trace, model.provider, model.id, usage);
+              }
+              // message_end fires for user, toolResult, and assistant messages in order.
+              // Writing here is sufficient — turn_end would double-write toolResults.
+              if (options.sessionId && event.message && shouldPersistMessage(event.message, attempt)) {
+                appendToSession(options.sessionId, event.message);
+              }
+              break;
+            }
+
+            case 'agent_end': {
+              if (retryable()) {
+                console.warn(`[pi-agent] provider stream error before any output (${errorMessage || 'unknown'}) — retrying once`);
+                setTimeout(() => { if (!closed) startAttempt(2); }, STREAM_RETRY_DELAY_MS);
+                break;
+              }
+              clearTimeout(timer);
+              const u = lastUsage as unknown as Record<string, number | { total?: number } | undefined>;
+              finishAgentTrace(trace, fullText).then((langfuseTraceId) => {
+                safeEnqueue(
+                  encoder.encode(`data: ${JSON.stringify({
+                    done: true,
+                    fullText,
+                    // Honest failure reporting: a stream error used to render
+                    // as a successful (possibly truncated) turn. Carry the
+                    // error so the client can show a real failure state; keep
+                    // fullText so a mid-stream drop still shows the partial.
+                    ...(sawErrorStop ? { error: errorMessage || 'model stream failed', partial: fullText.length > 0 } : {}),
+                    usage: lastUsage ? {
+                      input_tokens: u.input as number,
+                      output_tokens: u.output as number,
+                      // pi-ai's Usage uses cacheWrite/cacheRead (see types.d.ts:111).
+                      // Map to the column names llm_usage_logs expects.
+                      cache_creation_input_tokens: (u.cacheWrite as number) || 0,
+                      cache_read_input_tokens: (u.cacheRead as number) || 0,
+                      total_tokens: u.totalTokens as number,
+                      cost: (u.cost as { total?: number } | undefined)?.total,
+                    } : undefined,
+                    langfuseTraceId,
+                  })}\n\n`)
+                );
+                safeClose();
+              });
+              break;
+            }
+          }
         });
-      });
+
+        agent.prompt(prompt).catch((err) => {
+          // Hard failure (thrown before/outside the loop). Same zero-emission
+          // retry rule as the in-loop error path.
+          if (retryable() || (!toolsRan && fullText === '' && attempt === 1 && !closed)) {
+            console.warn(`[pi-agent] prompt() rejected before any output (${err?.message || err}) — retrying once`);
+            setTimeout(() => { if (!closed) startAttempt(2); }, STREAM_RETRY_DELAY_MS);
+            return;
+          }
+          clearTimeout(timer);
+          // WEAVE (port): emit a done event carrying both the error message
+          // (master) and whatever usage we accumulated before the failure
+          // (WIP's $0-flake-turn fix), through the double-close-safe enqueue.
+          // Without the usage, cost extraction sees no streamUsage.done and
+          // records $0.00 — the pattern observed in e2e turns 5/6/7.
+          const u = lastUsage as unknown as Record<string, number | { total?: number } | undefined> | undefined;
+          finishAgentTrace(trace, fullText).then((langfuseTraceId) => {
+            safeEnqueue(
+              encoder.encode(`data: ${JSON.stringify({
+                done: true,
+                error: err.message,
+                usage: lastUsage && u ? {
+                  input_tokens: u.input as number,
+                  output_tokens: u.output as number,
+                  cache_creation_input_tokens: (u.cacheWrite as number) || 0,
+                  cache_read_input_tokens: (u.cacheRead as number) || 0,
+                  total_tokens: u.totalTokens as number,
+                  cost: (u.cost as { total?: number } | undefined)?.total,
+                } : undefined,
+                langfuseTraceId,
+              })}\n\n`)
+            );
+            safeClose();
+          });
+        });
+      };
+
+      startAttempt(1);
     },
     cancel() {
       clearTimeout(timer);

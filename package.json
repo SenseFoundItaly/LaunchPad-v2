@@ -47,6 +47,7 @@
     "recharts": "^3.8.1",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "undici": "^8.10.1",
     "unpdf": "^1.6.2",
     "uuid": "^13.0.0",
     "v0-sdk": "^0.16.4",

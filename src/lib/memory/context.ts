@@ -1,5 +1,10 @@
 import { gatherProjectContext, type ProjectContext, type GatherLimits } from './gather-context';
 
+// Per-fact render cap (chars). 300 keeps a curated fact's substance (the 30d
+// median fact is well under it) while bounding the pathological case — see the
+// comment at the render site.
+const FACT_RENDER_MAX_CHARS = 300;
+
 /**
  * buildMemoryContext — produces the structured "what the agent knows about
  * this (user, project)" block that gets prepended to the system prompt.
@@ -106,7 +111,16 @@ export function formatMemoryContextMarkdown(ctx: ProjectContext): string {
   if (ctx.facts && ctx.facts.length > 0) {
     parts.push('## Curated facts');
     for (const f of ctx.facts) {
-      parts.push(`- [${f.kind}] ${f.fact}`);
+      // Render-slice, like every other section. Facts were the ONE unsliced
+      // block, and fact text is founder/skill/upload-generated: a single
+      // file_upload fact can hold a ~50k-char transcript, which injected
+      // ~12.4k tokens into the volatile (cache-write-priced) tail on every
+      // turn of the affected project — the largest single token item in the
+      // round-2 audit. The full text stays in memory_facts; tools can read it.
+      const text = f.fact.length > FACT_RENDER_MAX_CHARS
+        ? `${f.fact.slice(0, FACT_RENDER_MAX_CHARS)}…`
+        : f.fact;
+      parts.push(`- [${f.kind}] ${text}`);
     }
     parts.push('');
   } else if (ctx.failedSections.includes('facts')) {

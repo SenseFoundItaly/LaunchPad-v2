@@ -66,10 +66,13 @@ export async function streamMonitorRun(projectId: string, monitorId: string): Pr
     systemPrompt,
     // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
     projectId,
-    // Budget headroom for synthesis: cap tool calls at 5 (pi-agent strips
-    // tools at the cap, forcing a final text turn where the alert artifacts
-    // get emitted) and allow that final turn to finish within the timeout.
-    // SKILL_RUN_BUDGET_MS (90s), NOT 180s: this stream is served from the
+    // Budget headroom for synthesis: cap tool calls at 5 (pi-agent BLOCKS
+    // further calls at the cap via beforeToolCall, forcing a final text turn
+    // where the alert artifacts get emitted) and allow that final turn to
+    // finish within the timeout.
+    // SKILL_RUN_BUDGET_MS (38s as of 2026-08-31 — do NOT read this comment as
+    // license to raise it: the value lives in skill-executor.ts and is sized
+    // to the serverless ceiling), NOT 180s: this stream is served from the
     // founder-initiated monitor route — a serverless request the platform
     // hard-kills well before 180s (measured 2026-08-31, see skill-executor.ts).
     // A budget abort keeps the alerts emitted so far; a platform kill loses
