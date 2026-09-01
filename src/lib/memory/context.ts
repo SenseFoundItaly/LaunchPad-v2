@@ -1,4 +1,4 @@
-import { gatherProjectContext, type ProjectContext, type GatherLimits } from './gather-context';
+import { gatherProjectContext, type ProjectContext, type GatherLimits, type ProjectSnapshot } from './gather-context';
 
 // Per-fact render cap (chars). 300 keeps a curated fact's substance (the 30d
 // median fact is well under it) while bounding the pathological case — see the
@@ -16,6 +16,9 @@ export interface MemoryContextOptions {
   maxGraphNodes?: number;
   /** When true, fetch enriched fields. undefined = read from project.settings.rich_context. */
   enriched?: boolean;
+  /** Pre-fetched projects row (the chat route's access gate already holds it)
+   *  — threads through to gather-context, skipping its Phase-1 fetch. */
+  projectRow?: ProjectSnapshot | null;
 }
 
 export async function buildMemoryContext(
@@ -28,6 +31,7 @@ export async function buildMemoryContext(
     maxEvents: opts.maxEvents ?? 15,
     maxGraphNodes: opts.maxGraphNodes ?? 10,
     enriched: opts.enriched,
+    projectRow: opts.projectRow,
   };
 
   const ctx = await gatherProjectContext(userId, projectId, limits);

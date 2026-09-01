@@ -219,11 +219,17 @@ export async function computeNextBestAction(projectId: string, opts: ComputeOpts
   const snapshot = opts.snapshot ?? await buildProjectSnapshot(projectId);
   const evaluations = evaluateAllStages(snapshot);
   const active = activeStage(evaluations);
-  const readiness = await getStageReadiness(projectId);
-  // Independent queries, both individually non-fatal — fetch in parallel.
-  const [fresh, pending] = await Promise.all([
+  // One round-trip instead of three serial ones: readiness (with the snapshot
+  // threaded through — without it getStageReadiness rebuilt the full 21-query
+  // journey snapshot every chat turn), the two signal feeds, and the phase-0
+  // probe are mutually independent. needsPhase0Scoring is computed
+  // unconditionally (internally non-throwing, 1-2 cheap queries) but only READ
+  // when !cold_start below — the original guard's semantics.
+  const [readiness, fresh, pending, phase0Probe] = await Promise.all([
+    getStageReadiness(projectId, { snapshot }),
     freshSignals(projectId, opts.lastChatAt),
     pendingSignals(projectId),
+    needsPhase0Scoring(projectId),
   ]);
 
   const cold_start = isColdStart(snapshot.idea_canvas);
@@ -240,7 +246,7 @@ export async function computeNextBestAction(projectId: string, opts: ComputeOpts
   // L2 Phase 0 — the readiness engine recommends missing_skills[0] and skips
   // scoring once the spine greens, so a project with a completed canvas core
   // but no baseline score never gets pointed at startup-scoring. Override it.
-  const phase0Scoring = !cold_start && await needsPhase0Scoring(projectId);
+  const phase0Scoring = !cold_start && phase0Probe;
   if (phase0Scoring) {
     // Clarity, NOT the full rubric: phase-0 is pre-gate by construction, and
     // the startup kickoff's "score the absence (low)" is exactly the punishing

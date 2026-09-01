@@ -19,9 +19,15 @@ function getSql(): postgres.Sql {
       prepare: false,
       // Idle timeout — close unused connections after 20s in serverless
       idle_timeout: 20,
-      // Max connections — keep low for serverless (each function invocation
-      // gets its own pool; Supabase pooler handles the real fan-out)
-      max: 3,
+      // Max connections — modest for serverless (each function instance gets
+      // its own pool; Supabase's pooler handles the real fan-out). Raised 3→8
+      // (2026-09-01 velocity audit): the chat route's pre-stream context now
+      // runs its independent builders in one Promise.all wave, and max:3
+      // turned that wave into 3-connection convoys — measured as 5-9 serial
+      // round-trip batches, ~200-500ms of dead air per turn. Instance
+      // concurrency on Netlify functions stays low, so total pooler pressure
+      // remains well under Supabase limits.
+      max: 8,
     });
   }
   return globalForPg.__pg;

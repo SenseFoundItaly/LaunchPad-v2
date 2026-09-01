@@ -179,11 +179,14 @@ export interface OpenProposal {
 export async function openProposals(
   userId: string,
   projectId: string,
-  opts: { limit?: number; lapseAfterTurns?: number } = {},
+  // turnTimes: pre-fetched last-200 chat_turn timestamps (DESC). gather-context
+  // passes one shared fetch to both proposal loaders — this and its knowledge
+  // twin ran the identical query per turn before.
+  opts: { limit?: number; lapseAfterTurns?: number; turnTimes?: string[] } = {},
 ): Promise<OpenProposal[]> {
   const { limit = 8, lapseAfterTurns = 2 } = opts;
   try {
-    const [proposals, turns] = await Promise.all([
+    const [proposals, turnTimes] = await Promise.all([
       query<{ skill_id: string; created_at: string }>(
         `SELECT pi.payload->>'skill_id' AS skill_id, pi.created_at
            FROM memory_events pi
@@ -202,13 +205,15 @@ export async function openProposals(
         userId,
         projectId,
       ),
-      query<{ created_at: string }>(
-        `SELECT created_at FROM memory_events
-          WHERE user_id = ? AND project_id = ? AND event_type = 'chat_turn'
-          ORDER BY created_at DESC LIMIT 200`,
-        userId,
-        projectId,
-      ),
+      opts.turnTimes
+        ? Promise.resolve(opts.turnTimes)
+        : query<{ created_at: string }>(
+            `SELECT created_at FROM memory_events
+              WHERE user_id = ? AND project_id = ? AND event_type = 'chat_turn'
+              ORDER BY created_at DESC LIMIT 200`,
+            userId,
+            projectId,
+          ).then((rows) => rows.map((t) => t.created_at)),
     ]);
 
     // Collapse by skill_id: newest proposal wins, count the rest.
@@ -224,7 +229,6 @@ export async function openProposals(
       }
     }
 
-    const turnTimes = turns.map((t) => t.created_at);
     const out: OpenProposal[] = [];
     for (const [skill_id, { proposed_at, count }] of bySkill) {
       // turns_since = founder chat turns strictly after the proposal.
@@ -282,11 +286,12 @@ export interface OpenKnowledgeProposal {
 export async function openKnowledgeProposals(
   userId: string,
   projectId: string,
-  opts: { limit?: number; lapseAfterTurns?: number } = {},
+  // turnTimes: see openProposals — same shared-fetch contract.
+  opts: { limit?: number; lapseAfterTurns?: number; turnTimes?: string[] } = {},
 ): Promise<OpenKnowledgeProposal[]> {
   const { limit = 6, lapseAfterTurns = 2 } = opts;
   try {
-    const [proposals, turns] = await Promise.all([
+    const [proposals, turnTimes] = await Promise.all([
       query<{ fact_hash: string; fact_preview: string; created_at: string }>(
         `SELECT pi.payload->>'fact_hash' AS fact_hash,
                 pi.payload->>'preview'   AS fact_preview,
@@ -306,17 +311,18 @@ export async function openKnowledgeProposals(
         userId,
         projectId,
       ),
-      query<{ created_at: string }>(
-        `SELECT created_at FROM memory_events
-          WHERE user_id = ? AND project_id = ? AND event_type = 'chat_turn'
-          ORDER BY created_at DESC LIMIT 200`,
-        userId,
-        projectId,
-      ),
+      opts.turnTimes
+        ? Promise.resolve(opts.turnTimes)
+        : query<{ created_at: string }>(
+            `SELECT created_at FROM memory_events
+              WHERE user_id = ? AND project_id = ? AND event_type = 'chat_turn'
+              ORDER BY created_at DESC LIMIT 200`,
+            userId,
+            projectId,
+          ).then((rows) => rows.map((t) => t.created_at)),
     ]);
 
     const seen = new Set<string>();
-    const turnTimes = turns.map((t) => t.created_at);
     const out: OpenKnowledgeProposal[] = [];
     for (const p of proposals) {
       if (!p.fact_hash || seen.has(p.fact_hash)) continue; // newest wins

@@ -17,6 +17,7 @@
 import { query, get } from '@/lib/db';
 import { STAGES, SKILL_KICKOFFS, type SkillDef } from '@/lib/stages';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
+import type { ProjectSnapshot } from '@/lib/journey/types';
 import { evaluateAllStages } from '@/lib/journey';
 import { validationTracksAB_done } from '@/lib/journey/stage-2-market-validation';
 import { GATE_1C_DEPENDENT_SKILLS } from '@/lib/skill-prereqs';
@@ -161,7 +162,13 @@ function verdictFromScore(score: number): StageReadiness['verdict'] {
  * which skill to push next. The agent's option-set generator reads this
  * via get_project_summary.
  */
-export async function getStageReadiness(projectId: string): Promise<ProjectReadiness> {
+export async function getStageReadiness(
+  projectId: string,
+  // opts.snapshot: pre-built journey snapshot to reuse. The chat route builds
+  // one per turn and computeNextBestAction threads it here — without this, the
+  // call rebuilt the full 21-query snapshot on every chat turn.
+  opts: { snapshot?: ProjectSnapshot } = {},
+): Promise<ProjectReadiness> {
   const [{ skillMap, sectionContext }, assumptions, journey] = await Promise.all([
     buildSkillMap(projectId),
     countAssumptions(projectId).catch(() => ({
@@ -173,7 +180,9 @@ export async function getStageReadiness(projectId: string): Promise<ProjectReadi
     // Also whether the Validation Gate's 1A+1B tracks are complete: 1C skills
     // are locked until then, and recommending a skill the product refuses to
     // run is the "copilot got lost" contradiction.
-    buildProjectSnapshot(projectId)
+    // The .catch stays even for a passed snapshot: an evaluator throw degrades
+    // exactly as a rebuild failure did.
+    (opts.snapshot ? Promise.resolve(opts.snapshot) : buildProjectSnapshot(projectId))
       .then((snap) => ({
         done: new Set(evaluateAllStages(snap).filter((e) => e.status === 'done').map((e) => e.stage.number)),
         gate1cOpen: validationTracksAB_done(snap),

@@ -11,7 +11,7 @@ import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { LOCALE_ENGLISH_NAME } from '@/lib/i18n/locales';
 import { translate } from '@/lib/i18n/messages';
 import { makeProjectTools, withSourceTitles } from '@/lib/project-tools';
-import { AuthError, requireUser } from '@/lib/auth/require-user';
+import { AuthError, requireUser, type SessionUser } from '@/lib/auth/require-user';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { buildMemoryContext } from '@/lib/memory/context';
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
@@ -418,10 +418,11 @@ export async function POST(request: NextRequest) {
 
   // Auth gate: the chat route always runs for a real user. Memory scoping
   // requires a userId; without it we can't build per-user context or log
-  // chat_turn events.
-  let userId: string;
+  // chat_turn events. The full SessionUser is kept so the project-access gate
+  // below can skip its own duplicate requireUser round-trip.
+  let sessionUser: SessionUser;
   try {
-    ({ userId } = await requireUser());
+    sessionUser = await requireUser();
   } catch (e) {
     if (e instanceof AuthError) {
       return new Response(
@@ -431,6 +432,7 @@ export async function POST(request: NextRequest) {
     }
     throw e;
   }
+  const { userId } = sessionUser;
 
   // Rate limit: 10 burst, ~30/min sustained (0.5 tokens/sec refill)
   const rl = checkRateLimit(`chat:${userId}`, 10, 0.5);
@@ -467,33 +469,31 @@ export async function POST(request: NextRequest) {
   // SECURITY: verify the caller can access this project before reading its
   // context, running the agent, or debiting its credits. Without this gate any
   // authenticated user could chat into / read / bill any project (IDOR).
-  const access = await tryProjectAccess(project_id);
+  // The already-authenticated sessionUser skips a second requireUser inside;
+  // the gate's widened SELECT doubles as the ONE projects-row fetch this turn
+  // (name/description/settings/locale/owner_user_id all ride on it — this
+  // route used to re-fetch the row up to 5× across its helpers).
+  // A missing project 404s here with the same body the deleted standalone
+  // query returned. current_step stays unread by the agent — its stage comes
+  // from the live journey evaluator, never that drift-prone column.
+  const access = await tryProjectAccess(project_id, sessionUser);
   if (!access.ok) return access.response;
+  const projectRow = access.session.project;
 
-  // current_step (legacy 5-stage int) is intentionally NOT selected — the agent's
-  // stage comes from the live journey evaluator (get_project_summary / getActiveStage),
-  // never this drift-prone column. Selecting it invited relaying the stale number.
-  const projects = await query<{ id: string; name: string; description: string; settings: { rich_context?: boolean } | null }>(
-    'SELECT id, name, description, settings FROM projects WHERE id = ?', project_id
-  );
-  if (projects.length === 0) {
-    return new Response(
-      JSON.stringify({ success: false, error: 'Project not found' }),
-      { status: 404, headers: { 'Content-Type': 'application/json' } },
-    );
-  }
-
-  // Cost tracking (observe mode — no hard block)
-  const capStatus = await isProjectCapped(project_id);
+  // Cost tracking (observe mode — no hard block) + HARD-STOP credit gate
+  // (Phase 1), in parallel: owner-pool budget vs user credit pool are
+  // independent lookups. The 402 still resolves BEFORE the SSE stream opens so
+  // the client gets clean JSON (not a half-opened event-stream). The credit
+  // gate is a no-op unless CREDITS_HARD_STOP is on AND the user is out of
+  // credits AND not exempt (CREDITS_EXEMPT_USER_IDS). The recharge dialog
+  // opens off this body.
+  const [capStatus, gate] = await Promise.all([
+    isProjectCapped(project_id, projectRow.owner_user_id),
+    assertCreditsAvailable(userId),
+  ]);
   if (capStatus.capped) {
     console.info(`[chat] project ${project_id} over budget — proceeding (observe mode)`);
   }
-
-  // HARD-STOP gate (Phase 1) — runs BEFORE the SSE stream opens so the client
-  // gets a clean JSON 402 (not a half-opened event-stream). No-op unless
-  // CREDITS_HARD_STOP is on AND the user is out of credits AND not exempt
-  // (CREDITS_EXEMPT_USER_IDS). The recharge dialog opens off this body.
-  const gate = await assertCreditsAvailable(userId);
   if (!gate.allowed) {
     console.info(`[chat] user ${userId} out of credits — blocking (hard-stop on)`);
     return new Response(
@@ -513,29 +513,133 @@ export async function POST(request: NextRequest) {
   );
 
   const lastMessage = messages[messages.length - 1]?.content || '';
-  const projectContext = `[PROJECT: "${projects[0].name}"${projects[0].description ? ` — ${projects[0].description}` : ''}]\n`;
+  const projectContext = `[PROJECT: "${projectRow.name}"${projectRow.description ? ` — ${projectRow.description}` : ''}]\n`;
 
-  // Memory context — curated facts + recent events + graph summary + completed
-  // skills — lets the agent remember across sessions AND across chat "steps"
-  // within a project (see sessionId change below).
-  const memoryContext = await buildMemoryContext(userId, project_id, {
-    enriched: projects[0].settings?.rich_context === true,
-  });
+  // Route simple follow-ups to Haiku (~80% cheaper) — "yes", "go ahead",
+  // "tell me more", etc. don't need Sonnet's multi-tool reasoning depth.
+  // Hoisted above the context wave (pure function of the parsed body) so the
+  // wave can size itself off the task — followups skip the skill-gate probe
+  // and the prior-turn nudge query entirely.
+  const chatTask: TaskLabel = isSimpleFollowUp(lastMessage, messages)
+    ? 'chat-followup'
+    : 'chat';
+
+  // ── PRE-STREAM CONTEXT WAVE ────────────────────────────────────────────
+  // Every context builder below is independent of the others — they used to
+  // run as ~11 serial awaits (each ≥1 DB round-trip; memory ~15 queries,
+  // snapshot 21) adding 0.7-2.5s of dead air before the model was even
+  // called. One Promise.all collapses that to max(single-builder latency);
+  // computeNextBestAction stays a dependent second await (needs snapshot).
+  // ONLY the fetches move — every context string is still assembled by the
+  // same code in the same order below, so dynamicContext stays byte-identical
+  // (the prompt-cache contract).
+  //
+  // Fatality is preserved per member: unwrapped members 500 on rejection
+  // exactly as their standalone awaits did; .catch members degrade to
+  // null/'' exactly as their old try/catch wrappers did.
+  //
+  // canvasLacksPromise: the skill prereq gate runs inside the big try below
+  // (its rejection must route to the limited-mode fallback, not a 500), so it
+  // is only STARTED here. The parked no-op .catch keeps a rejection from
+  // becoming an unhandledRejection if a wave-1 fatal rejects first; awaiting
+  // the ORIGINAL promise later still throws into the try.
+  const canvasLacksPromise: Promise<boolean> =
+    chatTask === 'chat' ? canvasLacksCorePrereqs(project_id) : Promise.resolve(false);
+  canvasLacksPromise.catch(() => {});
+  const [
+    // Memory context — curated facts + recent events + graph summary +
+    // completed skills — lets the agent remember across sessions AND across
+    // chat "steps" within a project (see sessionId change below).
+    memoryContext,
+    // Journey snapshot — built ONCE per turn and reused for stage context,
+    // canvas context, the commit guard, and the direction engine. Tolerant:
+    // on failure (missing tables on a fresh project) chat still works, just
+    // without stage framing.
+    snapshot,
+    // Commit-guard evidence — last 2 assistant messages (see the guard block
+    // below for why 2). Fetch failure degrades to "guard skipped", as before.
+    guardPrevRows,
+    // Direction engine's lastChatAt — the founder's previous MAIN-thread
+    // message (see the direction block below for the node-step exclusion).
+    directionLastRows,
+    // Account-wide language wins (users.locale), falling back to the
+    // project's legacy locale (already on projectRow — no second fetch),
+    // then English — see src/lib/i18n/resolve-locale.ts.
+    locale,
+    // Recently-completed skill summaries (only fetches on a kickoff match).
+    skillContext,
+    // Node-scoped side thread (#330): step = 'node:<id>' focuses the SAME
+    // agent on one knowledge entity. Empty string for every ordinary step.
+    focusNodeContext,
+    // BYOK — if the founder stored a key for whichever provider the router
+    // picks, bill their account instead of ours. Undefined ⇒ system key.
+    // Resolves the provider the same way runAgentStream will (pickModel on
+    // the same task), so we look up the key for the provider actually called.
+    userKey,
+    // users.preferred_model — the Settings "Preferred Model" radio ("all chat
+    // messages use this model" — chat AND chat-followup). modelForKey()
+    // returns null for unknown/legacy keys, so a stale stored preference
+    // degrades to the task router instead of erroring.
+    preferredModelRow,
+    // Prior-turn violation nudge rows (TIER 0.5) — chat only; followups have
+    // no skill tools to misuse. Pre-migration safety: meta column may not
+    // exist yet → catch returns no nudge, chat keeps functioning.
+    priorNudgeRows,
+  ] = await Promise.all([
+    buildMemoryContext(userId, project_id, {
+      enriched: projectRow.settings?.rich_context === true,
+      projectRow,
+    }),
+    buildProjectSnapshot(project_id).catch(() => null),
+    query<{ content: string }>(
+      "SELECT content FROM chat_messages WHERE project_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 2",
+      project_id,
+    ).catch(() => null),
+    // Node side-threads (#330) are EXCLUDED: "what changed since last time"
+    // is about the founder's main conversation. COALESCE guards legacy rows
+    // with a NULL step, which `NOT LIKE` would otherwise silently drop.
+    query<{ created_at: string }>(
+      `SELECT created_at FROM chat_messages
+        WHERE project_id = ? AND COALESCE(step, 'chat') NOT LIKE ?
+        ORDER BY created_at DESC LIMIT 1`,
+      project_id,
+      `${NODE_STEP_PREFIX}%`,
+    ).catch(() => null),
+    resolveLocale(userId, project_id, { projectLocale: projectRow.locale }),
+    buildCompletedSkillContext(project_id, lastMessage),
+    buildFocusNodeContext(project_id, step),
+    resolveUserKey(userId, pickModel(chatTask).provider),
+    get<{ preferred_model: string | null }>(
+      'SELECT preferred_model FROM users WHERE id = ?', userId,
+    ).catch((err) => {
+      console.warn('[chat] preferred_model lookup failed (non-fatal):', (err as Error).message);
+      return undefined;
+    }),
+    chatTask === 'chat'
+      ? query<{ meta: unknown }>(
+          `SELECT meta FROM chat_messages
+            WHERE project_id = ? AND role = 'assistant'
+            ORDER BY "timestamp" DESC LIMIT 1`,
+          project_id,
+        ).catch((err) => {
+          console.warn('[chat] prior-turn nudge query failed (non-fatal):', (err as Error).message);
+          return null;
+        })
+      : Promise.resolve(null),
+  ]);
 
   // Stage context — the founder's active journey stage with passed/missing
   // evidence checks. Lets the agent anchor every reply to closing real gaps
-  // rather than reacting to whatever the founder happens to type. Tolerant:
-  // if the snapshot fails (missing tables on a fresh project), we skip the
-  // block entirely — better than a 500.
-  // Build the journey snapshot ONCE per turn and reuse it for both stage
-  // context and the direction engine (was built twice — 32 queries — before).
-  let snapshot: Awaited<ReturnType<typeof buildProjectSnapshot>> | null = null;
+  // rather than reacting to whatever the founder happens to type. A format
+  // throw leaves snapshot non-null and stageContext '' — the same (subtle)
+  // degradation as the old shared try/catch.
   let stageContext = '';
-  try {
-    snapshot = await buildProjectSnapshot(project_id);
-    stageContext = formatStageContextForPrompt(snapshot, typeof target_check === 'string' ? target_check : null);
-  } catch {
-    /* journey snapshot failed — chat still works, just without stage framing */
+  if (snapshot) {
+    try {
+      stageContext = formatStageContextForPrompt(snapshot, typeof target_check === 'string' ? target_check : null);
+    } catch {
+      /* snapshot ok, formatting failed — chat still works without stage framing */
+    }
   }
 
   // Phase-1 watcher activation moved to the stream's flush hook (after the done
@@ -601,17 +705,15 @@ export async function POST(request: NextRequest) {
   //       fire — re-stating a commit a turn after a real click — is harmless
   //       because the nudge is self-correcting ("if already saved, continue").
   let commitGuardContext = '';
-  if (snapshot && !allStagesDone) {
+  if (snapshot && !allStagesDone && guardPrevRows) {
     try {
       // Gap 6: widen from 1 → 2 prior assistant messages so a commit narrated
       // and split across turns (or one turn back) is still caught. Patterns are
       // specific enough that the extra message rarely false-fires, and the nudge
-      // is self-correcting ("if already saved, continue").
-      const prevRows = await query<{ content: string }>(
-        "SELECT content FROM chat_messages WHERE project_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 2",
-        project_id,
-      );
-      const prev = prevRows.map((r) => r.content ?? '').join('\n\n');
+      // is self-correcting ("if already saved, continue"). Rows are prefetched
+      // in the context wave; a fetch failure (guardPrevRows null) skips the
+      // guard, exactly like the old in-block query failure did.
+      const prev = guardPrevRows.map((r) => r.content ?? '').join('\n\n');
       const guards: string[] = [];
 
       // (a) Canvas claim with a core field still missing from the live canvas.
@@ -679,36 +781,26 @@ export async function POST(request: NextRequest) {
   // forgetting to call get_project_summary). Tolerant: any failure degrades to
   // no injected direction — chat still works. lastChatAt drives the
   // "what changed since last time" signal feed (route.ts:143 freshness rule).
+  // The lastChatAt row is prefetched in the context wave (directionLastRows;
+  // null on fetch failure — degrades to no injected direction, same as the old
+  // shared try). This is the wave's ONE dependent second await: the engine
+  // needs the snapshot.
   let directionContext = '';
-  try {
-    // Node side-threads (#330) are EXCLUDED: "what changed since last time" is
-    // about the founder's main conversation. Counting a node-panel exchange as
-    // the last chat would mark signals as already-seen that never appeared in
-    // any feed the founder read.
-    // COALESCE guards legacy rows with a NULL step, which `NOT LIKE` would
-    // otherwise evaluate to NULL and silently drop from the ordering.
-    const lastRows = await query<{ created_at: string }>(
-      `SELECT created_at FROM chat_messages
-        WHERE project_id = ? AND COALESCE(step, 'chat') NOT LIKE ?
-        ORDER BY created_at DESC LIMIT 1`,
-      project_id,
-      `${NODE_STEP_PREFIX}%`,
-    );
-    const lastChatAt = lastRows[0]?.created_at ?? null;
-    const nba = await computeNextBestAction(project_id, { lastChatAt, snapshot: snapshot ?? undefined });
-    directionContext = `${renderDirectionForPrompt(nba)}\n\n`;
-  } catch {
-    /* direction engine failed — chat still works without injected next-best-action */
+  if (directionLastRows) {
+    try {
+      const lastChatAt = directionLastRows[0]?.created_at ?? null;
+      const nba = await computeNextBestAction(project_id, { lastChatAt, snapshot: snapshot ?? undefined });
+      directionContext = `${renderDirectionForPrompt(nba)}\n\n`;
+    } catch {
+      /* direction engine failed — chat still works without injected next-best-action */
+    }
   }
 
   // Build system prompt: SOUL + AGENTS personality first (locale-aware),
   // then ARTIFACT_INSTRUCTIONS, then stage context (highest signal for
   // "what to talk about"), then per-project context + memory + recently-
-  // completed skill summaries.
-  // Account-wide language wins (users.locale), falling back to the project's
-  // legacy locale, then English — see src/lib/i18n/resolve-locale.ts.
-  const locale = await resolveLocale(userId, project_id);
-  const skillContext = await buildCompletedSkillContext(project_id, lastMessage);
+  // completed skill summaries. locale + skillContext were fetched in the
+  // context wave above.
   // Turn-level language reinforcement (item 4): the static prefix already carries
   // languageDirective(), but on a short option-select turn the model drifts to
   // English. Re-stating it at the END of the dynamic context (recency-weighted,
@@ -722,10 +814,8 @@ export async function POST(request: NextRequest) {
   // is already fetched; '' when no sizing exists (no token cost). Reference-only
   // framing keeps it out of the validation gate.
   const researchContext = buildResearchContext((snapshot?.research ?? null) as Record<string, unknown> | null);
-  // Node-scoped side thread (#330): step = 'node:<id>' focuses the SAME agent on
-  // one knowledge entity. FIRST in the dynamic context so the focus outranks the
-  // project-wide steering. Empty string for every ordinary step — no token cost.
-  const focusNodeContext = await buildFocusNodeContext(project_id, step);
+  // focusNodeContext (#330, fetched in the wave) rides FIRST in the dynamic
+  // context so a node side-thread's focus outranks the project-wide steering.
   const dynamicContext = `${focusNodeContext}${directionContext}${stageContext}${canvasContext}${researchContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
   // JOURNEY_RULES rides the STATIC tail, next to ARTIFACT_INSTRUCTIONS: it is
   // byte-identical on every turn of every project, so it is cached as a READ.
@@ -785,12 +875,7 @@ export async function POST(request: NextRequest) {
     const includeWriteTools = true;
     const projectTools = makeProjectTools(project_id, { includeWriteTools, userId });
 
-    // Route simple follow-ups to Haiku (~80% cheaper) — "yes", "go ahead",
-    // "tell me more", etc. don't need Sonnet's multi-tool reasoning depth.
-    const chatTask: TaskLabel = isSimpleFollowUp(lastMessage, messages)
-      ? 'chat-followup'
-      : 'chat';
-
+    // chatTask (Haiku follow-up routing) is hoisted above the context wave.
     const allSkillTools = getSkillTools({ userId, projectId: project_id });
 
     let skillTools: typeof allSkillTools;
@@ -821,7 +906,10 @@ export async function POST(request: NextRequest) {
     // matching system-prompt note steers it to sketch the solution instead of
     // silently dropping the option. idea-shaping/market-research/startup-advisor
     // survive — they're how the founder FILLS the canvas.
-    if (skillTools.length > 0 && (await canvasLacksCorePrereqs(project_id))) {
+    // Awaiting the ORIGINAL wave-started promise: a rejection throws here →
+    // route catch → limited-mode fallback, exactly the old inline-await
+    // semantics (the parked .catch at the wave does not swallow it).
+    if (skillTools.length > 0 && (await canvasLacksPromise)) {
       const before = skillTools.length;
       skillTools = skillTools.filter((t) => {
         const id = t.name.replace(/^skill_/, '').replace(/_/g, '-');
@@ -850,40 +938,29 @@ export async function POST(request: NextRequest) {
 
     // Iteration-3 WS-A — inject TIER 0.5 nudges based on PRIOR turn violations.
     // chat-followup (Haiku, skillTools = []) is exempt by construction; the
-    // violations can't happen on a path that has no skill tools to misuse.
-    // Pre-migration safety: meta column may not exist yet → query catches and
-    // returns no nudge. Chat keeps functioning either way.
-    if (chatTask === 'chat') {
-      try {
-        const priorRows = await query<{ meta: unknown }>(
-          `SELECT meta FROM chat_messages
-            WHERE project_id = ? AND role = 'assistant'
-            ORDER BY "timestamp" DESC LIMIT 1`,
-          project_id,
-        );
-        // Rows written before the double-encode fix hold a jsonb STRING
-        // containing JSON rather than an object (jsonb_typeof = 'string').
-        // Those rows are why this nudge never fired in production. Accept
-        // both shapes so the feature works on historical rows too.
-        const raw = priorRows[0]?.meta;
-        let meta: unknown = raw;
-        if (typeof raw === 'string') {
-          try { meta = JSON.parse(raw); } catch { meta = null; }
-        }
-        if (meta && typeof meta === 'object') {
-          const prior: TurnViolations = {
-            skill_first_violation: !!(meta as Record<string, unknown>).skill_first_violation,
-            prose_fabrication: !!(meta as Record<string, unknown>).prose_fabrication,
-            uncited_prose_claims: !!(meta as Record<string, unknown>).uncited_prose_claims,
-          };
-          const nudge = renderNudgeForNextTurn(prior);
-          if (nudge) trailingSteer += `\n\n${nudge}`;
-        }
-      } catch (err) {
-        // meta column missing (pre-migration) OR transient DB error.
-        // Non-fatal — the nudge is a quality improvement, not a correctness
-        // gate, and TIER 0.5 prompt rules still apply.
-        console.warn('[chat] prior-turn nudge query failed (non-fatal):', (err as Error).message);
+    // violations can't happen on a path that has no skill tools to misuse —
+    // and priorNudgeRows is already null on that path. Rows are prefetched in
+    // the context wave; a query failure (meta column missing pre-migration, or
+    // a transient DB error) already degraded to null there with a warn — the
+    // nudge is a quality improvement, not a correctness gate.
+    if (chatTask === 'chat' && priorNudgeRows) {
+      // Rows written before the double-encode fix hold a jsonb STRING
+      // containing JSON rather than an object (jsonb_typeof = 'string').
+      // Those rows are why this nudge never fired in production. Accept
+      // both shapes so the feature works on historical rows too.
+      const raw = priorNudgeRows[0]?.meta;
+      let meta: unknown = raw;
+      if (typeof raw === 'string') {
+        try { meta = JSON.parse(raw); } catch { meta = null; }
+      }
+      if (meta && typeof meta === 'object') {
+        const prior: TurnViolations = {
+          skill_first_violation: !!(meta as Record<string, unknown>).skill_first_violation,
+          prose_fabrication: !!(meta as Record<string, unknown>).prose_fabrication,
+          uncited_prose_claims: !!(meta as Record<string, unknown>).uncited_prose_claims,
+        };
+        const nudge = renderNudgeForNextTurn(prior);
+        if (nudge) trailingSteer += `\n\n${nudge}`;
       }
     }
 
@@ -988,29 +1065,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // BYOK — if the founder stored a key for whichever provider the router
-    // picks, bill their account instead of ours. Undefined ⇒ system key.
-    // Resolve the provider the same way runAgentStream will (pickModel on the
-    // same task), so we look up the key for the provider actually called.
-    const userKey = await resolveUserKey(userId, pickModel(chatTask).provider);
-
-    // users.preferred_model — the Settings "Preferred Model" radio, whose copy
-    // promises "When set, all chat messages use this model". Until 2026-09-01
-    // NOTHING read this column (unwired-sweep finding): founders picked Opus
-    // or Haiku and silently kept getting the router's tier. modelForKey()
-    // returns null for unknown/legacy keys, so a stale stored preference
-    // degrades to the task router instead of erroring. Applies to BOTH chat
-    // and chat-followup — "all chat messages" means all. Provider is uniform
-    // across keys (LLM_PROVIDER), so the BYOK lookup above stays correct.
-    let modelOverride: ReturnType<typeof modelForKey> = null;
-    try {
-      const pref = await get<{ preferred_model: string | null }>(
-        'SELECT preferred_model FROM users WHERE id = ?', userId,
-      );
-      if (pref?.preferred_model) modelOverride = modelForKey(pref.preferred_model);
-    } catch (err) {
-      console.warn('[chat] preferred_model lookup failed (non-fatal):', (err as Error).message);
-    }
+    // userKey (BYOK) rode the context wave. users.preferred_model too — the
+    // Settings "Preferred Model" radio, whose copy promises "When set, all
+    // chat messages use this model" (chat AND chat-followup — "all" means
+    // all; wired 2026-09-01 after the unwired-sweep finding that NOTHING read
+    // the column). modelForKey() returns null for unknown/legacy keys, so a
+    // stale stored preference degrades to the task router instead of
+    // erroring. Provider is uniform across keys (LLM_PROVIDER), so the BYOK
+    // lookup keyed off pickModel stays correct.
+    const modelOverride: ReturnType<typeof modelForKey> =
+      preferredModelRow?.preferred_model ? modelForKey(preferredModelRow.preferred_model) : null;
 
     const { stream: piStream } = runAgentStream(effectiveLastMessage, {
       modelOverride,
