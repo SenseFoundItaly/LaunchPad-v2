@@ -50,7 +50,7 @@ import { CREDITS_PER_DOLLAR } from '@/lib/credit-costs';
 import { ownerUserId as resolveOwnerUserId } from '@/lib/cost-meter';
 import { seedAssumptionsIfEmpty } from './assumptions';
 import type { Source } from '@/types/artifacts';
-import { outputInstructions, projectContext } from './ecosystem-monitors';
+import { outputInstructions, projectContext, grantsScanRules } from './ecosystem-monitors';
 import { entityNameFromHeadline } from './ecosystem-alert-parser';
 import type { MonitorPromptContext } from './ecosystem-monitors';
 import { calculateNextRun } from './monitor-schedule';
@@ -638,6 +638,9 @@ export async function buildMonitorScanPrompt(
     if (spec.query) targetLines.push(`Focus di ricerca: ${spec.query}`);
     if (spec.alertThreshold) targetLines.push(`Genera un alert quando: ${spec.alertThreshold}`);
     if (steering) targetLines.push(steering.it);
+    // Funding watchers get the full curated grants discipline (sources list +
+    // hard URL/deadline rules) — same source of truth as the seeded template.
+    if (spec.kind === 'funding' || spec.topic === 'funding') targetLines.push(grantsScanRules('it'));
     targetLines.push(
       `Per ogni cambiamento materiale che soddisfa la soglia sopra, emetti un ecosystem_alert. ` +
       `Scegli alert_type in base alla natura del finding. Non riportare rumore di routine.`,
@@ -648,6 +651,7 @@ export async function buildMonitorScanPrompt(
     if (spec.query) targetLines.push(`Search focus: ${spec.query}`);
     if (spec.alertThreshold) targetLines.push(`Alert when: ${spec.alertThreshold}`);
     if (steering) targetLines.push(steering.en);
+    if (spec.kind === 'funding' || spec.topic === 'funding') targetLines.push(grantsScanRules('en'));
     targetLines.push(
       `For each material change that meets the threshold above, emit one ecosystem_alert. ` +
       `Pick alert_type by the nature of the finding. Do not report routine noise.`,

@@ -79,19 +79,20 @@ export async function streamMonitorRun(
     // further calls at the cap via beforeToolCall, forcing a final text turn
     // where the alert artifacts get emitted) and allow that final turn to
     // finish within the timeout.
-    // SKILL_RUN_BUDGET_MS (38s as of 2026-08-31 — do NOT read this comment as
-    // license to raise it: the value lives in skill-executor.ts and is sized
-    // to the serverless ceiling), NOT 180s: this stream is served from the
-    // founder-initiated monitor route — a serverless request the platform
-    // hard-kills well before 180s (measured 2026-08-31, see skill-executor.ts).
-    // A budget abort keeps the alerts emitted so far; a platform kill loses
-    // the final summary AND the usage row. The old note "120s was observed
-    // ending scans mid-investigation with 0 emitted alerts" predates the
-    // emit-as-you-go discipline above — with per-finding emission, a shorter
-    // budget loses the tail, not the scan. Every manual run on prod to date
-    // has finished under 60s, so this is headroom, not a squeeze.
-    timeout: SKILL_RUN_BUDGET_MS,
-    maxToolCalls: 5,
+    // Budget by TRIGGER, because the two paths live under different ceilings:
+    // - manual: a founder-initiated SSE request the platform hard-kills at
+    //   ~60s (measured 2026-08-31, see SKILL_RUN_BUDGET_MS in skill-executor)
+    //   → 38s, do NOT raise without re-measuring ON the deployed function.
+    // - scheduled: the cron tick dispatches here from the SCHEDULED function
+    //   context, which demonstrably survives 135s+ on prod (cron.ecosystem.*
+    //   usage rows) → 120s + more searches. This matters most for research-
+    //   heavy scans (grants: a 38s / 5-call budget left the model answering
+    //   from stale memory — closed bandi, past deadlines, no URLs; measured
+    //   2026-09-01 on the first grants run ever).
+    // A budget abort keeps the alerts emitted so far (emit-as-you-go); a
+    // platform kill loses the final summary AND the usage row.
+    timeout: triggerType === 'scheduled' ? 120_000 : SKILL_RUN_BUDGET_MS,
+    maxToolCalls: triggerType === 'scheduled' ? 8 : 5,
     task: 'monitor-agent',
     userId: ownerId ?? undefined,
     traceName: 'monitor-run-manual',

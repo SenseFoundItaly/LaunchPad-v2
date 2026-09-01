@@ -265,6 +265,20 @@ export async function persistEcosystemAlerts(
   const dedupedAlerts = [...byHeadline.values()];
 
   for (const alert of dedupedAlerts) {
+    // Grants quality gate (changelog 4/08 rule, enforced pipeline-side after
+    // the first live run 2026-09-01 shipped three funding alerts with NO url —
+    // the prompt's "DISCARD without a verifiable URL" rule means nothing if
+    // the second-pass extractor can still persist linkless findings): a
+    // funding_event without a verifiable official URL is not evidence a
+    // founder can act on — an application gets planned around these.
+    if (alert.alert_type === 'funding_event' && !/^https?:\/\//i.test(alert.source_url ?? '')) {
+      result.alerts_skipped++;
+      console.warn(
+        '[ecosystem-alerts] funding_event without verifiable source_url DISCARDED:',
+        (alert.headline ?? '').slice(0, 120),
+      );
+      continue;
+    }
     const dedupeHash = computeDedupeHash(alert.alert_type, alert.source_url, alert.headline);
     const newId = generateId('ealr');
     const now = new Date().toISOString();

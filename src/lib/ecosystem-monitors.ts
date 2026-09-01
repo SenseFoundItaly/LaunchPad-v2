@@ -505,6 +505,52 @@ Do not report minor creative refreshes — only strategic paid marketing changes
 // reported. A hallucinated deadline is worse than no result — a founder plans
 // an application around it.
 
+/**
+ * The grants-scan discipline, shared verbatim between the seeded template and
+ * chat-proposed funding watchers (buildMonitorScanPrompt in action-executors) —
+ * one source of truth for the sources list and the hard rules. First live run
+ * (2026-09-01) confirmed why the rules matter: without enforcement the scan
+ * reported closed bandi with past deadlines and zero URLs — see also the
+ * pipeline-side gate in ecosystem-alert-parser (a funding_event without a
+ * verifiable URL is discarded at persist time, not just discouraged here).
+ */
+export function grantsScanRules(locale: 'en' | 'it'): string {
+  return locale === 'it'
+    ? `Cerca bandi e finanziamenti pubblici APERTI OGGI (verifica la data: una scadenza già passata
+significa bando CHIUSO — scartalo). Usa la ricerca web per trovare lo stato ATTUALE — non fidarti
+della memoria per date e scadenze.
+Fonti da preferire: nazionali italiane (MIMIT/MISE, Invitalia, CDP, bandi regionali POR-FESR)
+ed europee (portale EU Funding & Tenders, EIC Accelerator, Horizon Europe, EIT).
+
+REGOLE FERREE per ogni bando riportato:
+1. URL ufficiale della fonte — obbligatorio e verificabile (nel campo source_url dell'alert).
+2. Scadenza esplicita della domanda, FUTURA — obbligatoria, nella headline.
+3. Una riga di eleggibilità confrontata col profilo del progetto ("richiede sede in IT — ok",
+   "solo aziende costituite da >2 anni — NON eleggibile ora").
+Un bando senza URL verificabile, senza scadenza o già chiuso va SCARTATO, non riportato: una
+scadenza inventata è peggio di nessun risultato, perché il founder ci pianifica sopra una domanda.
+
+Per ogni bando eleggibile, emetti un ecosystem_alert con alert_type="funding_event", con
+scadenza ed ente erogatore nella headline e l'URL ufficiale in source_url.`
+    : `Search for grant calls and public funding OPEN TODAY (check the date: a deadline already in
+the past means the call is CLOSED — discard it). Use web search to find the CURRENT status — do
+not trust memory for dates and deadlines.
+Preferred sources: Italian national (MIMIT/MISE, Invitalia, CDP, regional POR-FESR calls)
+and EU (EU Funding & Tenders portal, EIC Accelerator, Horizon Europe, EIT).
+
+HARD RULES for every reported call:
+1. Official source URL — mandatory and verifiable (in the alert's source_url field).
+2. Explicit FUTURE application deadline — mandatory, in the headline.
+3. One eligibility line matched against the project profile ("requires IT headquarters — ok",
+   "companies older than 2 years only — NOT eligible yet").
+A call without a verifiable URL, without a deadline, or already closed must be DISCARDED, not
+reported: a hallucinated deadline is worse than no result, because the founder plans an
+application on it.
+
+For each eligible call, emit one ecosystem_alert with alert_type="funding_event", carrying the
+deadline and the granting body in the headline and the official URL in source_url.`;
+}
+
 export const GRANTS_TEMPLATE: EcosystemMonitorTemplate = {
   type: 'ecosystem.grants',
   name: 'Ecosystem — Grants & funding calls',
@@ -515,38 +561,10 @@ export const GRANTS_TEMPLATE: EcosystemMonitorTemplate = {
     const header = ctx.locale === 'it'
       ? 'SCAN SETTIMANALE — BANDI E FINANZIAMENTI'
       : 'WEEKLY SCAN — GRANTS & PUBLIC FUNDING CALLS';
-    const body = ctx.locale === 'it'
-      ? `Cerca bandi e finanziamenti pubblici APERTI adatti a questa startup, usando il profilo
-progetto qui sopra (settore, fase, geografia) come criterio di match — NON un profilo statico.
-Fonti da preferire: nazionali italiane (MIMIT/MISE, Invitalia, CDP, bandi regionali POR-FESR)
-ed europee (portale EU Funding & Tenders, EIC Accelerator, Horizon Europe, EIT).
-
-REGOLE FERREE per ogni bando riportato:
-1. URL ufficiale della fonte — obbligatorio e verificabile.
-2. Scadenza esplicita della domanda — obbligatoria.
-3. Una riga di eleggibilità confrontata col profilo del progetto ("richiede sede in IT — ok",
-   "solo aziende costituite da >2 anni — NON eleggibile ora").
-Un bando senza URL verificabile o senza scadenza va SCARTATO, non riportato: una scadenza
-inventata è peggio di nessun risultato, perché il founder ci pianifica sopra una domanda.
-
-Per ogni bando eleggibile, emetti un ecosystem_alert con alert_type="funding_event", con
-scadenza ed ente erogatore nella headline.`
-      : `Search for OPEN grant calls and public funding suited to this startup, using the project
-profile above (sector, stage, geography) as the match criteria — NOT a static profile.
-Preferred sources: Italian national (MIMIT/MISE, Invitalia, CDP, regional POR-FESR calls)
-and EU (EU Funding & Tenders portal, EIC Accelerator, Horizon Europe, EIT).
-
-HARD RULES for every reported call:
-1. Official source URL — mandatory and verifiable.
-2. Explicit application deadline — mandatory.
-3. One eligibility line matched against the project profile ("requires IT headquarters — ok",
-   "companies older than 2 years only — NOT eligible yet").
-A call without a verifiable URL or without a deadline must be DISCARDED, not reported: a
-hallucinated deadline is worse than no result, because the founder plans an application on it.
-
-For each eligible call, emit one ecosystem_alert with alert_type="funding_event", carrying the
-deadline and the granting body in the headline.`;
-    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+    const intro = ctx.locale === 'it'
+      ? `Usa il profilo progetto qui sopra (settore, fase, geografia) come criterio di match — NON un profilo statico.`
+      : `Use the project profile above (sector, stage, geography) as the match criteria — NOT a static profile.`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${intro}\n\n${grantsScanRules(ctx.locale)}\n\n${outputInstructions(ctx.locale)}`;
   },
 };
 
