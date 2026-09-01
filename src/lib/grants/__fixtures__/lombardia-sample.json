@@ -1,0 +1,24 @@
+{
+ "_source": {
+  "socrata_dataset": "https://www.dati.lombardia.it/resource/bukx-h2uy.json",
+  "detail_url": "https://www.bandi.regione.lombardia.it/servizi/servizio/bandi/dettaglio/attivita-produttive-imprese/imprese-moda-design/bando-tertium-RLP12026052483",
+  "fetched": "2026-09-01"
+ },
+ "socrata_row": {
+  "codice_bando": "RLP12026052483",
+  "titolo_bando": "Bando Tertium",
+  "direzione_generale": "TURISMO, MARKETING TERRITORIALE E MODA",
+  "ente": "Regione Lombardia",
+  "apertura_adesione": "2026-06-16T00:00:00.000",
+  "chiusura_adesione": "2026-09-07T00:00:00.000",
+  "tipo_strumento": "Bando",
+  "presentato": "44"
+ },
+ "detail_fragments": {
+  "status_chip": "<div class=\"chip chip-disabled chip-lg ml-0 bg-success-state\">\n <span class=\"chip-label text-dark\">Aperto</span>\n</div>\n <input type=\"hidden\" class=\"checkCloseDate\" value=\"2026-09-07 12:00\" />",
+  "dates": "<p class=\"mb-0\">Pubblicato il: <strong data-entity=\"pubblicazione\">14/05/2026 ,</strong> ore 09:16</p>\n <p class=\"mb-0\">Domande dal: <strong data-entity=\"apertura\">16/06/2026 ,</strong> ore 10:00</p>\n <p>Scade il: <strong data-entity=\"chiusura\"> 07/09/2026 ,</strong> ore 12:00</p>",
+  "fonti_finanziamento": "<small>Fonti di finanziamento</small>\n </p>\n <div class=\"row\">\n <div class=\"col-3 mb-4\">\n <span>PR Lombardia FESR 2021-2027</span>\n </div>\n </div>",
+  "eligibility_heading": "<div class=\"collapse-header\" id=\"headingA0\">\n <button data-toggle=\"collapse\" data-target=\"#partecipanti\" aria-expanded=\"true\">\n <span class=\"head-text float-left\">Chi pu&ograve; partecipare</span>\n <svg class=\"icon icon-md float-right\">\n <use xlink:href=\"/servizi/static/svg/sprite.svg#it-expand\"></use>\n </svg>\n </button>\n </div>",
+  "eligibility_body": "<div id=\"partecipanti\" class=\"collapse show\" data-parent=\"#accordion-boxtext-container\" aria-labelledby=\"headingA0\">\n <div class=\"collapse-body py-2 px-0\">\n <ul class=\"text-list p-0 m-0\">\n <li class=\"text-list_item\">\n <div class=\"item_text-description px-4 py-2\"><p>possono presentare domanda di&nbsp;partecipazione le&nbsp;PMI secondo la definizione dell&rsquo;allegato I del Regolamento (UE) n. 651/2014 del 17<br />\ngiugno 2014 e s.m.i. (di seguito, il Regolamento GBER):</p>\n<ul>\n <li>che siano regolarmente costituite, iscritte e dichiarate attive nel Registro delle&nbsp;Imprese (come risultante da visura camerale);</li>\n <li>che abbiano una Sede operativa, presso cui svolgere le attivit&agrave; del progetto, in&nbsp;Lombardia (rilevabile da visura camerale) o dichiarino l&rsquo;intenzione di costituirne&nbsp;una entro la data di richiesta di prima erogazione del contributo;</li>\n <li>che abbiano almeno due bilanci di esercizio depositati in camera di commercio&nbsp;al momento della presentazione della domanda;</li>\n</ul></div>\n </li>\n </ul>\n </div>\n </div>"
+ }
+}

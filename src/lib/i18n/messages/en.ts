@@ -1588,6 +1588,12 @@ export const en = {
 
   // ── Credits badge + popover (alpha feedback 21/07: was hardcoded EN) ───────
   'nav.usage': 'Usage',
+  // ── Grants tracking alerts (src/lib/grants/sync.ts) — locale follows project.locale ──
+  'grants.alert.headline': '{title} — {body} · deadline {deadline}',
+  'grants.alert.rolling': 'open until funds are exhausted',
+  'grants.alert.body': 'Eligibility: {eligibility}\n\nVerified on {verified}',
+  'grants.alert.no-eligibility': 'see the official call page',
+  'grants.alert.body-unknown': 'granting body not stated',
   // ── Monday Brief email (src/lib/email.ts) — the frame follows project.locale ──
   'brief.email.subject': 'Your Monday Brief — {project}',
   'brief.email.title': 'Your Monday Brief',

@@ -1,0 +1,118 @@
+{
+ "_meta": {
+  "source": "POST api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=***&pageSize=N&pageNumber=N — multipart; query+languages parts need ;type=application/json (else HTTP 500). Captured 2026-09-01.",
+  "envelope": "apiVersion,terms,responseTime,totalResults,pageNumber,pageSize,sort,groupByField,queryLanguage,bestBets,results[],warnings",
+  "status": {
+   "31094501": "Forthcoming",
+   "31094502": "Open",
+   "31094503": "Closed"
+  },
+  "frameworkProgramme": {
+   "43108390": "Horizon Europe (HORIZON)",
+   "44181033": "European Defence Fund (EDF)"
+  },
+  "notes": "All metadata values are string[]. actions/budgetOverview are JSON-in-string. topicConditions is HTML (3-11KB), cut here. DATASOURCE=SEDIA_PRD_CENTRICITY rows are stale dupes (Open but deadlines past): gate on deadlineDate >= now."
+ },
+ "open": {
+  "url": "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-JU-IHI-2026-13-two-stage-01",
+  "metadata": {
+   "identifier": [
+    "HORIZON-JU-IHI-2026-13-two-stage-01"
+   ],
+   "title": [
+    "IHI European HealthCare Incubator Network"
+   ],
+   "callIdentifier": [
+    "HORIZON-JU-IHI-2026-13-two-stage"
+   ],
+   "callTitle": [
+    "Innovative Health Initiative JU Call 13"
+   ],
+   "type": [
+    "1"
+   ],
+   "status": [
+    "31094502"
+   ],
+   "deadlineDate": [
+    "2026-10-08T00:00:00.000+0000",
+    "2027-04-21T00:00:00.000+0000"
+   ],
+   "deadlineModel": [
+    "two-stage"
+   ],
+   "startDate": [
+    "2026-07-02T00:00:00.000+0000"
+   ],
+   "frameworkProgramme": [
+    "43108390"
+   ],
+   "programmePeriod": [
+    "2021 - 2027"
+   ],
+   "DATASOURCE": [
+    "SEDIA"
+   ],
+   "actions": [
+    "[{\"status\":{\"id\":31094502,\"abbreviation\":\"Open\",\"description\":\"Open\"},\"plannedOpeningDate\":\"2026-07-02\",\"deadlineDates\":[\"2026-10-08\",\"2027-04-21\"]}]"
+   ],
+   "budgetOverview": [
+    "{\"budgetYearsColumns\":[\"2026\"],\"budgetTopicActionMap\":{\"114743\":[{\"action\":\"HORIZON-JU-IHI-2026-13-two-stage-01 - HORIZON-JU-RIA HORIZON JU Research and Innovation Actions\",\"expectedGrants\":1,\"minContribution\":35000000,\"maxContribution\":35000000,\"budgetYearMap\":{\"2026\":\"53200000\"}}]}}"
+   ],
+   "topicConditions": [
+    "<div>\"> General conditions 1. Admissibility c…</div> [HTML, cut from 17829 chars]"
+   ]
+  }
+ },
+ "closed": {
+  "url": "https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/HORIZON-CL5-2026-04-Two-Stage-D3-02",
+  "metadata": {
+   "identifier": [
+    "HORIZON-CL5-2026-04-Two-Stage-D3-02"
+   ],
+   "title": [
+    "Next generation of renewable energy technologies"
+   ],
+   "callIdentifier": [
+    "HORIZON-CL5-2026-04-Two-Stage"
+   ],
+   "callTitle": [
+    "ENERGY"
+   ],
+   "type": [
+    "1"
+   ],
+   "status": [
+    "31094503"
+   ],
+   "deadlineDate": [
+    "2026-03-31T00:00:00.000+0000",
+    "2026-10-20T00:00:00.000+0000"
+   ],
+   "deadlineModel": [
+    "two-stage"
+   ],
+   "startDate": [
+    "2025-12-18T00:00:00.000+0000"
+   ],
+   "frameworkProgramme": [
+    "43108390"
+   ],
+   "programmePeriod": [
+    "2021 - 2027"
+   ],
+   "DATASOURCE": [
+    "SEDIA"
+   ],
+   "actions": [
+    "[{\"status\":{\"id\":31094503,\"abbreviation\":\"Closed\",\"description\":\"Closed\"},\"plannedOpeningDate\":\"2025-12-18\",\"deadlineDates\":[\"2026-03-31\",\"2026-10-20\"]}]"
+   ],
+   "budgetOverview": [
+    "{\"budgetYearsColumns\":[\"2026\"],\"budgetTopicActionMap\":{\"112893\":[{\"action\":\"HORIZON-CL5-2026-04-Two-Stage-D3-02 - HORIZON-RIA HORIZON  Research and Innovation Actions\",\"expectedGrants\":6,\"minContribution\":4000000,\"maxContribution\":4000000,\"budgetYearMap\":{\"2026\":\"23500000\"}}]}}"
+   ],
+   "topicConditions": [
+    "<div>\"> General conditions 1. Admissibility C…</div> [HTML, cut from 10160 chars]"
+   ]
+  }
+ }
+}

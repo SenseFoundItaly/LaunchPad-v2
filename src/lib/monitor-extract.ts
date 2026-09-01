@@ -193,6 +193,7 @@ export async function extractAlertsSecondPass(input: SecondPassInput): Promise<S
     projectId: input.projectId,
     monitorId: input.monitorId,
     monitorRunId: input.monitorRunId,
+    monitorType: input.monitorType,
     autoQueueRelevanceThreshold: 0.8,
     maxPendingActionsPerRun: 5,
   });

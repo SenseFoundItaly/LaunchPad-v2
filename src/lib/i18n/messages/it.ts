@@ -1558,6 +1558,12 @@ export const it: Partial<Record<MessageKey, string>> = {
 
   // ── Badge crediti + popover (feedback alpha 21/07: era hardcoded EN) ───────
   'nav.usage': 'Utilizzo',
+  // ── Alert bandi (src/lib/grants/sync.ts) — la lingua segue project.locale ──
+  'grants.alert.headline': '{title} — {body} · scade il {deadline}',
+  'grants.alert.rolling': 'aperto fino a esaurimento fondi',
+  'grants.alert.body': 'Chi può partecipare: {eligibility}\n\nVerificato il {verified}',
+  'grants.alert.no-eligibility': 'vedi la pagina ufficiale del bando',
+  'grants.alert.body-unknown': 'ente erogatore non indicato',
   // ── Email Monday Brief (src/lib/email.ts) — la cornice segue project.locale ──
   'brief.email.subject': 'La tua Monday Brief — {project}',
   'brief.email.title': 'La tua Monday Brief',

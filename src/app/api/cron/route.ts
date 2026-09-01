@@ -38,6 +38,8 @@ import { processWatchSourcesCron } from '@/lib/watch-source-processor';
 import { proposeMvpIterationsCron } from '@/lib/mvp/iteration-proposer';
 import { sweepBuildingBuilds } from '@/lib/mvp/build-runner';
 import type { ProcessResult as WatchSourceResult } from '@/lib/watch-source-processor';
+import { syncFundingCalls } from '@/lib/grants/sync';
+import type { SyncResult as GrantsSyncResult } from '@/lib/grants/types';
 import {
   processCorrelations,
   expireOldBriefs,
@@ -441,6 +443,7 @@ async function runMonitor(
           projectId: monitor.project_id,
           monitorId: monitor.id,
           monitorRunId: runId,
+          monitorType: monitor.type,
           autoQueueRelevanceThreshold: 0.8,
           maxPendingActionsPerRun: 5,
         });
@@ -702,6 +705,27 @@ export async function GET(request: NextRequest) {
       console.warn('[cron] processWatchSourcesCron failed:', (err as Error).message);
     }
 
+    // Phase B0b: grants tracking. Sync funding_calls from SEDIA + Regione
+    // Lombardia at most once per day PER SOURCE — the gate lives on
+    // funding_source_state.last_success_at (>= CURRENT_DATE), so the twice-daily
+    // prod ticks and workflow_dispatch re-runs are no-ops. Bounded: ≤8 search
+    // pages + 1 Socrata query + ≤10 detail pages. Expiry of past-deadline calls
+    // and auto-dismiss of their alerts run every tick (cheap UPDATEs).
+    let grantsSync: GrantsSyncResult | null = null;
+    try {
+      grantsSync = await syncFundingCalls({ now: new Date() });
+      const ran = grantsSync.sources.filter((s) => !s.skipped_gate);
+      if (ran.length > 0) {
+        console.log(
+          `[cron] grants synced: ${ran
+            .map((s) => `${s.source}=${s.ok ? `${s.fetched} fetched/${s.inserted} new/${s.reopened} reopened/${s.closed_missing} closed/${s.alerts_created} alerts${s.partial ? ' PARTIAL(mark-missing skipped)' : ''}` : `FAILED(${s.error})`}`)
+            .join(', ')}`,
+        );
+      }
+    } catch (err) {
+      console.warn('[cron] syncFundingCalls failed:', (err as Error).message);
+    }
+
     // Phase B1: advance in-flight builds (async drivers finish out-of-band) and
     // reap rows stuck 'building' past the timeout (killed function / driver crash).
     try {
@@ -917,6 +941,7 @@ export async function GET(request: NextRequest) {
       user_budget_drifts: userBudgetDrifts.length,
       user_budget_drift_details: userBudgetDrifts,
       notifications_dismissed: dismissedNotifications,
+      grants_sync: grantsSync,
     });
   } catch (err) {
     const durationMs = Date.now() - startedAt;

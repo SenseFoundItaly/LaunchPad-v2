@@ -524,7 +524,7 @@ ed europee (portale EU Funding & Tenders, EIC Accelerator, Horizon Europe, EIT).
 
 REGOLE FERREE per ogni bando riportato:
 1. URL ufficiale della fonte — obbligatorio e verificabile (nel campo source_url dell'alert).
-2. Scadenza esplicita della domanda, FUTURA — obbligatoria, nella headline.
+2. Scadenza esplicita della domanda, FUTURA — obbligatoria, nella headline, nel formato GG/MM/AAAA.
 3. Una riga di eleggibilità confrontata col profilo del progetto ("richiede sede in IT — ok",
    "solo aziende costituite da >2 anni — NON eleggibile ora").
 Un bando senza URL verificabile, senza scadenza o già chiuso va SCARTATO, non riportato: una
@@ -540,7 +540,7 @@ and EU (EU Funding & Tenders portal, EIC Accelerator, Horizon Europe, EIT).
 
 HARD RULES for every reported call:
 1. Official source URL — mandatory and verifiable (in the alert's source_url field).
-2. Explicit FUTURE application deadline — mandatory, in the headline.
+2. Explicit FUTURE application deadline — mandatory, in the headline, formatted DD/MM/YYYY.
 3. One eligibility line matched against the project profile ("requires IT headquarters — ok",
    "companies older than 2 years only — NOT eligible yet").
 A call without a verifiable URL, without a deadline, or already closed must be DISCARDED, not
