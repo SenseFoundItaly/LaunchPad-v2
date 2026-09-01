@@ -981,7 +981,10 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
         try {
           // Resolve the concrete model slug the same way the chat route's
           // flush does (pickModel), so estimateCost hits the right pricing row.
-          const model = pickModel(options.task ?? 'chat').model;
+          // Use the RESOLVED model (honors modelOverride), not a fresh router
+          // pick — pricing a timeout estimate against the wrong model was the
+          // same mislabeling class as the route's flush.
+          const model = resolveModel(options.task, options.modelOverride).id;
           if (lastUsage) {
             // Partial usage WAS accumulated (one or more message_end events
             // fired before the abort). Reuse it, filling cost via estimateCost

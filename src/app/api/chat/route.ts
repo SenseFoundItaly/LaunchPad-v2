@@ -1138,10 +1138,11 @@ export async function POST(request: NextRequest) {
         }, 60_000);
         try {
         const latencyMs = Date.now() - piStart;
-        // Pull the actual provider+model from the router so the logged slug
-        // reflects reality (direct Anthropic vs OpenRouter). Falls back to
-        // PI_PROVIDER/PI_MODEL env vars for call sites without a task label.
-        const picked = pickModel(chatTask);
+        // Pull the actual provider+model so the logged slug reflects reality:
+        // the founder's preferred_model override when set, else the router's
+        // tier pick. Logging pickModel alone would mislabel every overridden
+        // turn (the cost is authoritative from pi-ai either way).
+        const picked = modelOverride ?? pickModel(chatTask);
         const piProvider = picked.provider;
         const piModel = picked.model;
         const usage = {
