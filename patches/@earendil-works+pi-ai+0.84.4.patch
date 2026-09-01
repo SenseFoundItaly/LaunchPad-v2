@@ -1,0 +1,58 @@
+diff --git a/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js b/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js
+index c732f1f..0f62ce2 100644
+--- a/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js
++++ b/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js
+@@ -623,6 +623,17 @@ function buildParams(model, context, options, compat = getCompat(model), cacheRe
+     if (cacheControl) {
+         applyAnthropicCacheControl(messages, params.tools, cacheControl);
+     }
++    // LaunchPad patch (defensive) — when cache control is OFF for this call
++    // (cacheRetention 'none', or a non-anthropic cacheControlFormat) the split
++    // above never runs, so strip any breakpoint sentinel from system-role
++    // strings rather than let the model see it as visible prompt text.
++    for (const lpMsg of messages) {
++        if ((lpMsg.role === "system" || lpMsg.role === "developer") &&
++            typeof lpMsg.content === "string" &&
++            lpMsg.content.includes("<<<PI_CACHE_BREAKPOINT>>>")) {
++            lpMsg.content = lpMsg.content.split("<<<PI_CACHE_BREAKPOINT>>>").join("");
++        }
++    }
+     if (options?.toolChoice) {
+         params.tool_choice = options.toolChoice;
+     }
+@@ -839,6 +850,35 @@ function addCacheControlToLastTool(tools, cacheControl) {
+     lastTool.cache_control = cacheControl;
+ }
+ function addCacheControlToInstructionMessage(message, cacheControl) {
++    // LaunchPad patch — prompt-cache breakpoint on the STATIC half of the
++    // system prompt. Rationale + measurements: src/lib/chat/cache-breakpoint.ts
++    //
++    // Upstream 0.84 caches the ENTIRE system prompt as one block, so the
++    // volatile per-turn tail at its end invalidates the ~84,000 stable chars
++    // in front of it on every turn (measured pre-fix: cache writes = 74% of
++    // chat cost). If the caller marked the static/volatile boundary, emit two
++    // blocks and cache only the first. The marker is stripped either way, so
++    // the model receives byte-identical content: billing changes, never
++    // behaviour. This function is only invoked for system/developer messages
++    // (addCacheControlToSystemPrompt), so the last-message breakpoint path
++    // through addCacheControlToTextContent is untouched.
++    const LP_CACHE_BREAKPOINT = "<<<PI_CACHE_BREAKPOINT>>>";
++    const lpContent = message.content;
++    if (typeof lpContent === "string" && lpContent.includes(LP_CACHE_BREAKPOINT)) {
++        const lpIdx = lpContent.indexOf(LP_CACHE_BREAKPOINT);
++        const lpStatic = lpContent.slice(0, lpIdx);
++        const lpVolatile = lpContent.slice(lpIdx + LP_CACHE_BREAKPOINT.length).split(LP_CACHE_BREAKPOINT).join("");
++        const lpBlocks = [];
++        if (lpStatic)
++            lpBlocks.push({ type: "text", text: lpStatic, cache_control: cacheControl });
++        if (lpVolatile)
++            lpBlocks.push({ type: "text", text: lpVolatile });
++        if (lpBlocks.length > 0) {
++            message.content = lpBlocks;
++            return true;
++        }
++        return false;
++    }
+     return addCacheControlToTextContent(message, cacheControl);
+ }
+ function addCacheControlToMessage(message, cacheControl) {

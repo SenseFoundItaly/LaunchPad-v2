@@ -3,7 +3,7 @@
   publish = ".next"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"  # pi-ai 0.84 (engines >=22.19); site env NODE_VERSION must match — see PR
 
 # Netlify auto-detects Next.js and uses the OpenNext adapter.
 # serverExternalPackages in next.config.ts handles ws/pi-ai/pi-agent-core.

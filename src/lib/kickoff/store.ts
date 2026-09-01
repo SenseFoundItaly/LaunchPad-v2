@@ -17,8 +17,8 @@
  * fails, this store has quietly become evidence and the invariant is gone.
  */
 
-import { Type } from '@sinclair/typebox';
-import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
+import { Type } from 'typebox';
+import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import { query, run } from '@/lib/db';
 import { coerceNorthStar, pillarById, PILLAR_IDS, type NorthStar } from './pillars';
 import {

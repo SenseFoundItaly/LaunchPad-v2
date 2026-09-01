@@ -64,7 +64,7 @@ import { LLM_PROVIDER } from '@/lib/llm/router';
  * prompt as visible text on a path that doesn't know how to strip it. That
  * guard is now structural instead of a default: the marker is only ever
  * emitted when the active provider is OpenRouter — the one path the
- * patch-package hunk (patches/@mariozechner+pi-ai+0.67.68.patch, applied on
+ * patch-package hunk (patches/@earendil-works+pi-ai+0.84.4.patch, applied on
  * every install via postinstall) splits AND strips on. On a direct-Anthropic
  * deployment (OPENROUTER_API_KEY unset) the flag hard-disables itself, so the
  * unpatched anthropic.js provider can never see a sentinel.
