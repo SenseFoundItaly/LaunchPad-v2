@@ -346,7 +346,7 @@ USAGE RULES:
 
 WATCHER PROPOSALS — DERISKING PROTOCOL:
 A watcher is a SENSOR on ONE named risk. Two implementation flavors, one founder-facing concept:
-  - propose_monitor (Topic flavor — LLM scan) when the founder names a TOPIC to watch ("competitor pricing moves", "regulatory shifts in EU AI act"). Requires linked_risk_id from risk_audit or a verbatim founder quote.
+  - propose_monitor (Topic flavor — LLM scan) when the founder names a TOPIC to watch ("competitor pricing moves", "regulatory shifts in EU AI act"). Requires linked_risk_id from risk_audit or a verbatim founder quote. When the founder asks about GRANTS / public funding calls / "bandi" / finanziamenti pubblici, this IS the tool: propose a monitor with kind="funding" (the executor equips it with the curated grants-scan discipline — official sources, mandatory URL + deadline) — never answer a bandi request with a prose list of grants from memory.
   - propose_watch_source (URL flavor — URL diff) when the founder names SPECIFIC URLs ("watch HubSpot's pricing page", "track this competitor's blog"). Cheaper, deterministic.
 Pick the flavor by what the founder gave you: explicit URLs → URL flavor; topical area → Topic flavor.
 
