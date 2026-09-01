@@ -10,8 +10,8 @@ const nextConfig: NextConfig = {
   // runAgent path tolerates it; streaming does not.
   serverExternalPackages: [
     "ws",
-    "@mariozechner/pi-ai",
-    "@mariozechner/pi-agent-core",
+    "@earendil-works/pi-ai",
+    "@earendil-works/pi-agent-core",
   ],
 
   async headers() {
