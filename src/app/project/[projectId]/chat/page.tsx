@@ -632,13 +632,13 @@ export default function CopilotChatPage({
   // one-shot pin so the user's own turn always lands in view, even if they
   // had scrolled up. Wrapping here centralizes it instead of sprinkling the
   // flag across call sites.
-  const sendMessage = useCallback((content: string, targetCheck?: string | null) => {
+  const sendMessage = useCallback((content: string, targetCheck?: string | null, extra?: { chipCommit?: { canvas_fields: string[]; item_kinds: string[] } }) => {
     forceScrollRef.current = true;
     // targetCheck flows ONLY when the caller passes it explicitly (handleSend).
     // Option clicks / quick replies / task actions call sendMessage(content)
     // and must never inherit the latched substep — the 48h audit caught the
     // latch riding along on an unrelated later send.
-    sendMessageRaw(content, targetCheck ?? null);
+    sendMessageRaw(content, targetCheck ?? null, extra);
     // Any send moves the conversation on — a latched substep from a previous
     // click is stale after it, whoever initiated the send.
     setTargetCheck(null);
@@ -646,10 +646,18 @@ export default function CopilotChatPage({
 
   // Fire lp-actions-changed immediately when streaming ends so downstream
   // surfaces (badge counts, inline cards) refetch without waiting for poll.
+  // A delayed second dispatch picks up the route's DEFERRED post-answer work
+  // (watcher/gate proposers now run via after(), landing well after the
+  // composer unlocks) without waiting for the next poll cycle.
   const wasStreamingRef = useRef(false);
   useEffect(() => {
     if (wasStreamingRef.current && !isStreaming) {
       window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+      const t = setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+      }, 25_000);
+      wasStreamingRef.current = isStreaming;
+      return () => clearTimeout(t);
     }
     wasStreamingRef.current = isStreaming;
   }, [isStreaming, projectId]);
@@ -1507,9 +1515,22 @@ export default function CopilotChatPage({
           if (items.length > 0) window.dispatchEvent(new CustomEvent('lp-credits-changed', { detail: { projectId } }));
         }
         // Continue the conversation so the agent moves to the next gap.
+        // chipCommit rides along so the server can serve its deterministic
+        // fast path (<1s canned confirmation, 0 credits) instead of a full
+        // model turn — the evidence is ALREADY persisted by the awaited POSTs
+        // above. The visible content string stays identical ("Scelgo: ..."):
+        // it is what persists, what option_selected parses, and what the next
+        // model turn reads in history.
         const cLabel = typeof payload.label === 'string' ? payload.label : t('chat.confirm-fallback');
         const cDesc = typeof payload.description === 'string' ? payload.description.trim() : '';
-        sendMessage(t('chat.i-choose', { choice: `${cLabel}${cDesc ? ` — ${cDesc}` : ''}` }));
+        sendMessage(
+          t('chat.i-choose', { choice: `${cLabel}${cDesc ? ` — ${cDesc}` : ''}` }),
+          null,
+          { chipCommit: {
+              canvas_fields: Object.keys(fields),
+              item_kinds: items.map((i) => String((i as Record<string, unknown>).kind ?? '')).filter(Boolean),
+          } },
+        );
         return;
       }
       if (action === 'select-option' && typeof payload.label === 'string') {

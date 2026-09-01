@@ -269,14 +269,20 @@ function currentPeriodMonth(): string {
  * Returns {capped: false} when there's no owner or no pool row yet this month
  * (cap not binding). Observe-only — callers log and continue; no hard blocking.
  */
-export async function isProjectCapped(projectId: string): Promise<{
+export async function isProjectCapped(
+  projectId: string,
+  // Callers that already hold the projects row (the chat route's IDOR gate
+  // does) pass owner_user_id to skip the ownerUserId round-trip. `null` is a
+  // real answer (legacy/orphan project) — only `undefined` triggers the fetch.
+  knownOwnerId?: string | null,
+): Promise<{
   capped: boolean;
   currentUsd: number;
   capUsd: number;
   periodMonth: string;
 }> {
   const periodMonth = currentPeriodMonth();
-  const owner = await ownerUserId(projectId);
+  const owner = knownOwnerId !== undefined ? knownOwnerId : await ownerUserId(projectId);
   if (!owner) return { capped: false, currentUsd: 0, capUsd: 0, periodMonth };
 
   const row = (await query<{

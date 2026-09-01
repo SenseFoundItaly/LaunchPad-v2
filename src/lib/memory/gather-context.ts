@@ -24,6 +24,10 @@ export interface GatherLimits {
   /** When true, fetch enriched fields (rationale, labels, scores, etc.).
    *  undefined = read from project.settings.rich_context. */
   enriched?: boolean;
+  /** Pre-fetched projects row (the chat route's IDOR gate already holds it).
+   *  When provided — even as null — Phase 1's own fetch is skipped, removing
+   *  a serial round-trip before the parallel Phase-2 fan-out. */
+  projectRow?: ProjectSnapshot | null;
 }
 
 export interface ProjectSnapshot {
@@ -184,13 +188,19 @@ export async function gatherProjectContext(
   const contextBuiltAt = new Date().toISOString();
 
   // ── Phase 1: fetch project row (needed for owner_user_id + settings) ───
-  const project = await loadSection('project', () =>
-    get<ProjectSnapshot>(
-      'SELECT id, name, description, status, current_step, locale, owner_user_id, settings FROM projects WHERE id = ?',
-      projectId,
-    ).then(r => r ?? null),
-    failedSections,
-  );
+  // Skipped entirely when the caller threads a pre-fetched row through
+  // (limits.projectRow) — the chat route's access gate would have 404'd on a
+  // missing project before reaching here, so the 'project unavailable'
+  // failedSections branch can no longer fire on that path.
+  const project = limits.projectRow !== undefined
+    ? limits.projectRow
+    : await loadSection('project', () =>
+        get<ProjectSnapshot>(
+          'SELECT id, name, description, status, current_step, locale, owner_user_id, settings FROM projects WHERE id = ?',
+          projectId,
+        ).then(r => r ?? null),
+        failedSections,
+      );
 
   // Determine the userId for fact queries (prefer project owner)
   const factsUserId = project?.owner_user_id || userId;
@@ -199,6 +209,17 @@ export async function gatherProjectContext(
   const shouldEnrich = limits.enriched ?? (project?.settings?.rich_context === true);
   // Export routes pass enriched: true directly; for those, also include heavy JSONB fields
   const isExportEnriched = limits.enriched === true;
+
+  // Both proposal loaders below need the same last-200 chat_turn timestamps
+  // (turns_since / lapsed math). Fetch once and share — this was two identical
+  // queries per turn. Non-throwing like the loaders themselves consume it.
+  const turnsPromise = query<{ created_at: string }>(
+    `SELECT created_at FROM memory_events
+      WHERE user_id = ? AND project_id = ? AND event_type = 'chat_turn'
+      ORDER BY created_at DESC LIMIT 200`,
+    factsUserId,
+    projectId,
+  ).catch(() => [] as { created_at: string }[]);
 
   // ── Phase 2: fire all remaining queries in parallel ────────────────────
   const [
@@ -241,14 +262,18 @@ export async function gatherProjectContext(
     // open proposals (PR-A) — non-evicting: agent skills suggested but not yet
     // run. Kept separate from `events` so a proposal never scrolls out of the
     // capped recent-activity window before the founder acts on it.
-    loadSection('openProposals', () =>
-      openProposals(factsUserId, projectId),
+    loadSection('openProposals', async () =>
+      openProposals(factsUserId, projectId, {
+        turnTimes: (await turnsPromise).map((t) => t.created_at),
+      }),
       failedSections,
     ),
 
     // open knowledge-suggestion facts (gap 1) — same non-evicting rationale.
-    loadSection('openKnowledgeProposals', () =>
-      openKnowledgeProposals(factsUserId, projectId),
+    loadSection('openKnowledgeProposals', async () =>
+      openKnowledgeProposals(factsUserId, projectId, {
+        turnTimes: (await turnsPromise).map((t) => t.created_at),
+      }),
       failedSections,
     ),
 

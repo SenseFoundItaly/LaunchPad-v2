@@ -633,6 +633,16 @@ export const en = {
   'chat.jump-to-latest': 'Jump to latest',
   // Echoed as the founder's own message when they click an option.
   'chat.i-choose': 'I choose: {choice}',
+  // Chip fast-path canned confirmation (commit-fast-path.ts). Wording is
+  // deliberately guard-regex-safe: must NOT match the chat route's commit
+  // guard patterns (route.ts claimedCanvasCommit / claimedPaidCommit) —
+  // commit-fast-path.test.ts locks this.
+  'chat.chip-commit-canvas': 'Done — the canvas now includes: {fields}.',
+  'chat.chip-commit-items': 'Done — {count} knowledge items are now in your intelligence.',
+  'chat.chip-commit-next': 'Next open point: {gap}',
+  'chat.chip-commit-prompt': 'What do you want to do next?',
+  'chat.chip-option-close-gap': 'Work on the next check',
+  'chat.chip-option-continue': 'Continue',
   // Deterministic opening-brief option-set heading.
   'brief.where-to-start': 'Where do you want to start?',
   // Auto-staged validation-evidence card title (Inbox + chat approval card).

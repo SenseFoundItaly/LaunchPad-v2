@@ -48,6 +48,10 @@ export function pickLocale(c: LocaleCandidates): Locale {
 export async function resolveLocale(
   userId: string | null,
   projectId: string | null,
+  // Callers that already hold the projects row (the chat route's IDOR gate
+  // does) pass its stored locale to skip the projects query. Precedence is
+  // unchanged — the same stored value feeds the same pickLocale.
+  known?: { projectLocale: string | null },
 ): Promise<Locale> {
   const candidates: LocaleCandidates = { user: null, project: null };
 
@@ -59,7 +63,9 @@ export async function resolveLocale(
     candidates.user = rows[0]?.locale ?? null;
   }
 
-  if (projectId) {
+  if (known) {
+    candidates.project = known.projectLocale;
+  } else if (projectId) {
     const rows = await query<{ locale: string | null }>(
       'SELECT locale FROM projects WHERE id = ?',
       projectId,

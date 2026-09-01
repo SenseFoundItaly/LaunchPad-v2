@@ -111,7 +111,7 @@ export function useChat(projectId: string, step: string = 'chat') {
     // started from a click. Without it the server sees a generic question and a
     // flat list of open gaps, and the model closes whichever it happens to
     // batch — five gate checks measured green only SOMETIMES.
-    async (content: string, targetCheck?: string | null) => {
+    async (content: string, targetCheck?: string | null, extra?: { chipCommit?: { canvas_fields: string[]; item_kinds: string[] } }) => {
       // A fresh manual send supersedes any message stashed for auto-resend.
       pendingResends.delete(keyFor(projectId, step));
       // Read the live store (not a stale closure) so concurrent mounts agree.
@@ -183,6 +183,11 @@ export function useChat(projectId: string, step: string = 'chat') {
             step,
             messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
             ...(targetCheck ? { target_check: targetCheck } : {}),
+            // chip_commit: sent ONLY from the OptionSetCard commit:apply path —
+            // the server's deterministic fast path keys off this structured
+            // field, never off message text ("Scelgo:" select-option clicks
+            // look identical but need a real model turn).
+            ...(extra?.chipCommit ? { chip_commit: extra.chipCommit } : {}),
           }),
           signal: store.abort.signal,
         });
@@ -276,6 +281,16 @@ export function useChat(projectId: string, step: string = 'chat') {
               window.dispatchEvent(
                 new CustomEvent('lp-actions-changed', { detail: { projectId } }),
               );
+            }
+
+            // Composer unlock on the FINAL done frame (the route's, after all
+            // backstop cards + persisted_artifacts) instead of stream close.
+            // The reader loop keeps draining below; the finally re-patching
+            // isStreaming:false is idempotent. NOT on pi-agent's first done
+            // frame — backstop cards arrive between the two.
+            if (parsed.done && parsed.final) {
+              flushNow();
+              patch(store, { isStreaming: false });
             }
 
             if (parsed.error) {

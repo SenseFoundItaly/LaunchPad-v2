@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, after } from 'next/server';
 import { query, run, get } from '@/lib/db';
 import { CREDITS_PER_MESSAGE } from '@/lib/credit-costs';
 import crypto from 'crypto';
@@ -10,8 +10,8 @@ import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { LOCALE_ENGLISH_NAME } from '@/lib/i18n/locales';
 import { translate } from '@/lib/i18n/messages';
-import { makeProjectTools, withSourceTitles } from '@/lib/project-tools';
-import { AuthError, requireUser } from '@/lib/auth/require-user';
+import { makeProjectTools, withSourceTitles, renderProjectSummary } from '@/lib/project-tools';
+import { AuthError, requireUser, type SessionUser } from '@/lib/auth/require-user';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { buildMemoryContext } from '@/lib/memory/context';
 import { buildProjectSnapshot, evaluateAllStages, activeStage } from '@/lib/journey';
@@ -41,6 +41,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 // was removed 2026-09-01 so the regression is unreachable instead of one env
 // typo away; the module stays as the labeled post-mortem.
 import { NODE_STEP_PREFIX, parseNodeStep, sessionSuffixForStep } from '@/lib/chat/node-scope';
+import { parseChipCommit, buildCommitFastPathContent } from '@/lib/chat/commit-fast-path';
 import { coerceTimeline } from '@/lib/timeline';
 import { getSkillTools } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
@@ -159,8 +160,8 @@ Skills are PROPOSED inline, not run inline. Calling a skill_* tool does NOT run 
 
 GATE SKILLS ON THEIR PREREQUISITES — do NOT offer a skill that needs context the project doesn't have yet. Concretely: do NOT propose startup-scoring, business-model, simulation, pitch, or any scoring/modeling skill while [CURRENT IDEA CANVAS] has no solution / value_proposition — those skills cannot succeed on an empty idea and waste the founder's time. Close the solution + value-prop FIRST (Stage 1). Only offer a skill when its inputs exist; otherwise the right next option is the canvas-commit that unblocks it, not the downstream skill.
 
-When the founder asks to advance / close / fire / kick off a stage or a skill, OR when get_project_summary shows a stage at CAUTION or NOT READY with a clear next_recommended_skill (and the skill's prerequisites are met):
-- Step 1: call get_project_summary (already part of TIER 1 opener — counts as 1 tool call).
+When the founder asks to advance / close / fire / kick off a stage or a skill, OR when the [PROJECT SUMMARY] block (or a get_project_summary refresh) shows a stage at CAUTION or NOT READY with a clear next_recommended_skill (and the skill's prerequisites are met):
+- Step 1: read the [PROJECT SUMMARY] block already in your context (first turn) — mid-conversation, call get_project_summary for a fresh snapshot ONLY if evidence changed since (counts as 1 tool call).
 - Step 2: call the relevant skill_* tool to PROPOSE it. Do NOT web_search first. The tool returns immediately with the option object to embed; that is success, not a partial result.
 - Step 3: In your visible reply, tell the founder in one line what the analysis will do (never call it a "skill"), then include the option object the tool handed you as ONE option in your trailing option-set (keep its "skill_id" exactly — that is what makes the click run it; do NOT add a "credits" field). Do NOT claim or invent the findings — it has not run yet. Do NOT emit a separate suggestion card; the option IS the proposal.
 
@@ -174,10 +175,10 @@ ${renderContentMappingForPrompt()}
 Rule of thumb: if the founder asks a domain question and a skill covers that domain, PROPOSE the skill rather than web_search. Skills (once the founder approves) produce durable validation evidence (skill_completions row, section_scores, idea_canvas updates); web_search produces ephemeral prose. Both are useful but only the first MOVES THE VALIDATION NEEDLE.
 
 === TIER 1 — CONVERSATION OPENER (first turn of every thread) ===
-At the start of every conversation, call \`get_project_summary\`. It returns stage readiness, intelligence briefs, AND hot signals in one response. Do NOT separately call list_intelligence_briefs or list_ecosystem_alerts on the opener — the summary already includes them. Use those tools only for deep-dives when the summary surfaces something worth exploring.
+Your context on the FIRST turn of every thread already contains a [PROJECT SUMMARY] block — the full get_project_summary output: stage readiness, intelligence briefs, AND hot signals. Do NOT call get_project_summary on the opener, and do NOT call list_intelligence_briefs or list_ecosystem_alerts either — the block already includes them. Go STRAIGHT to your opening prose off that block. Use those tools only for deep-dives when the summary surfaces something worth exploring, and call get_project_summary only mid-conversation when evidence changed since the opener. If the block is absent (injection can fail), call get_project_summary yourself and proceed as before.
 
 THEN apply this decision tree to your opening:
-- IF monitors fired since the last chat turn (check get_project_summary's ecosystem_alerts list for \`created_at\` newer than the last chat message):
+- IF monitors fired since the last chat turn (the [DIRECTION ENGINE] block lists them under "Since the last conversation, these signals fired"; the [PROJECT SUMMARY] hot-signals list carries their relevance scores):
   → LEAD with "Since we last spoke, [monitor name] fired: [headline]. [optional 1-line implication]." Reference the linked_risk_id if the monitor is tied to a risk. This is the most important signal you can give the founder — fresh evidence on something they asked you to watch. Put the validation CTA later in the option-set.
 - IF urgent intelligence exists (briefs with high-urgency recommended actions, OR hot signals with relevance >= 0.9):
   → LEAD with the intelligence. Frame each signal using the Three-Question Protocol (Tier 2). Put the validation CTA as the LAST option in the option-set, not the first.
@@ -187,7 +188,7 @@ THEN apply this decision tree to your opening:
   → Open with the standard validation pipeline flow (stage readiness, next recommended skill).
 
 === TIER 1.5 — BRAND-NEW PROJECT (no skills completed, no idea canvas) ===
-When get_project_summary shows: no Idea Canvas, overall_score=0, all stages NOT READY, or is_new_project=true:
+When the [PROJECT SUMMARY] block (or a get_project_summary refresh) shows: no Idea Canvas, overall_score=0, all stages NOT READY, or the "NEW PROJECT" banner:
 1. This is a fresh project. The founder just created it.
 2. Read the project name + description carefully.
 3. IF the description provides enough signal (problem, who, what):
@@ -203,7 +204,7 @@ When get_project_summary shows: no Idea Canvas, overall_score=0, all stages NOT 
      A brand-new-project reply that ends with only prose or questions — when the description
      already gives you problem + who + what — is BROKEN: Stage 1 stays empty and the spine never moves.
    → NOTE: a pending Idea Canvas card may ALREADY be waiting (auto-seeded from the project
-     description at creation). If get_project_summary / the inbox shows one, HELP the founder
+     description at creation). If the [PROJECT SUMMARY] / the inbox shows one, HELP the founder
      review, refine, and approve it — do NOT propose a duplicate canvas card.
 4. IF the description is too vague (just a name, no context):
    → Ask 2-3 focused questions to understand the idea: What problem does this solve?
@@ -244,7 +245,7 @@ Until ALL stages reach verdict GO (>=6.0), every trailing option-set MUST includ
 EXCEPTION — idea-shaping is NEVER an option-set entry. It was removed from chat options because it re-ran the whole guided flow from scratch and the rule above kept re-injecting it every turn (an infinite "Avvia Idea Shaping" loop). The founder relaunches the guided flow from the "Re-run Idea Shaping" button in the Canvas — never from chat. While the idea canvas is still being shaped (Stage 1, [CURRENT IDEA CANVAS] missing solution / value_proposition / target_market), the advancing option is the canvas-COMMIT (update_idea_canvas / propose_validation), NOT a skill kickoff. The founder also has three fixed default replies below the composer (give input / get options / go back) — do NOT restate those as option-set entries; offer only the content-specific choices (e.g. concrete A/B/C options for the field in play) plus the commit.
 
 HOW to source the recommendation:
-- The \`get_project_summary\` response contains a \`## Stage readiness\` block with scores, verdicts, missing skills, and a "Next recommended:" + "Kickoff:" pair.
+- The [PROJECT SUMMARY] block (and any get_project_summary refresh) contains a \`## Stage readiness\` block with scores, verdicts, missing skills, and a "Next recommended:" + "Kickoff:" pair.
 - Give the option a short verb-first label (≤ 6 words) naming the skill action (e.g. "Run market research"), and include the \`Kickoff:\` line VERBATIM in the option's \`description\` so the founder sees exactly what will run.
 - The option's \`description\` MUST also quote the founder's \`problem\` or \`target_market\` from the Idea Canvas (verbatim or near-verbatim). Generic descriptions are FORBIDDEN.
 
@@ -396,7 +397,7 @@ Most common failure mode: "agent offered skill_X as one of 4 options, founder di
 SOLVE FLOW MODE:
 Triggered by "Start the Solve flow" / "Avvia il flusso Solve".
 The Solve flow walks the founder through the 7-stage validation pipeline IN ORDER.
-Each stage has 1-2 skills (see get_project_summary → Stage readiness).
+Each stage has 1-2 skills (see the ## Stage readiness block in [PROJECT SUMMARY] / get_project_summary).
 
 Progression rules:
 1. Before each Solve step, call get_project_summary to read next_recommended_skill.
@@ -418,10 +419,11 @@ export async function POST(request: NextRequest) {
 
   // Auth gate: the chat route always runs for a real user. Memory scoping
   // requires a userId; without it we can't build per-user context or log
-  // chat_turn events.
-  let userId: string;
+  // chat_turn events. The full SessionUser is kept so the project-access gate
+  // below can skip its own duplicate requireUser round-trip.
+  let sessionUser: SessionUser;
   try {
-    ({ userId } = await requireUser());
+    sessionUser = await requireUser();
   } catch (e) {
     if (e instanceof AuthError) {
       return new Response(
@@ -431,6 +433,7 @@ export async function POST(request: NextRequest) {
     }
     throw e;
   }
+  const { userId } = sessionUser;
 
   // Rate limit: 10 burst, ~30/min sustained (0.5 tokens/sec refill)
   const rl = checkRateLimit(`chat:${userId}`, 10, 0.5);
@@ -455,7 +458,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { project_id, step = 'chat', messages = [], provider = 'openai', target_check = null } = body;
+  const { project_id, step = 'chat', messages = [], provider = 'openai', target_check = null, chip_commit = null } = body;
 
   if (!project_id) {
     return new Response(
@@ -467,33 +470,151 @@ export async function POST(request: NextRequest) {
   // SECURITY: verify the caller can access this project before reading its
   // context, running the agent, or debiting its credits. Without this gate any
   // authenticated user could chat into / read / bill any project (IDOR).
-  const access = await tryProjectAccess(project_id);
+  // The already-authenticated sessionUser skips a second requireUser inside;
+  // the gate's widened SELECT doubles as the ONE projects-row fetch this turn
+  // (name/description/settings/locale/owner_user_id all ride on it — this
+  // route used to re-fetch the row up to 5× across its helpers).
+  // A missing project 404s here with the same body the deleted standalone
+  // query returned. current_step stays unread by the agent — its stage comes
+  // from the live journey evaluator, never that drift-prone column.
+  const access = await tryProjectAccess(project_id, sessionUser);
   if (!access.ok) return access.response;
+  const projectRow = access.session.project;
 
-  // current_step (legacy 5-stage int) is intentionally NOT selected — the agent's
-  // stage comes from the live journey evaluator (get_project_summary / getActiveStage),
-  // never this drift-prone column. Selecting it invited relaying the stale number.
-  const projects = await query<{ id: string; name: string; description: string; settings: { rich_context?: boolean } | null }>(
-    'SELECT id, name, description, settings FROM projects WHERE id = ?', project_id
-  );
-  if (projects.length === 0) {
-    return new Response(
-      JSON.stringify({ success: false, error: 'Project not found' }),
-      { status: 404, headers: { 'Content-Type': 'application/json' } },
-    );
+  const encoder = new TextEncoder();
+
+  // ── CHIP-COMMIT FAST PATH (velocity lever) ─────────────────────────────
+  // A clicked commit option already persisted its evidence via the client's
+  // AWAITED POSTs (/idea-canvas, /validation/commit) before this request —
+  // the follow-up model turn only narrated a confirmation. Serve that
+  // deterministically: <1s, 0 credits, canned confirmation + the direction
+  // engine's next step. Placement is deliberate: AFTER auth + the IDOR gate
+  // (security), BEFORE the credit gate and debit — a commit chip must never
+  // 402 after the commit already landed, and per the product's billing rule
+  // only a founder-authored message costs a credit; this auto "Scelgo:" echo
+  // is not one. STRICT TRIGGER: only the structured chip_commit field sent by
+  // the commit:apply path — never message text ("Scelgo:" select-option
+  // clicks look identical but need a real model turn). Any failure before
+  // persistence falls through to the unmodified model path.
+  const chip = parseChipCommit(chip_commit, step, messages);
+  if (chip) {
+    try {
+      const fpLastMessage = String(messages[messages.length - 1].content);
+      // Snapshot AFTER the client's awaited persistence POSTs — it reflects
+      // the commit. Independent fetches in parallel (same wave idea as below).
+      const [fpLocale, fpSnapshot, fpLastRows] = await Promise.all([
+        resolveLocale(userId, project_id, { projectLocale: projectRow.locale }),
+        buildProjectSnapshot(project_id),
+        query<{ created_at: string }>(
+          `SELECT created_at FROM chat_messages WHERE project_id = ? AND COALESCE(step,'chat') NOT LIKE ? ORDER BY created_at DESC LIMIT 1`,
+          project_id, `${NODE_STEP_PREFIX}%`,
+        ),
+      ]);
+      const fpNba = await computeNextBestAction(project_id, {
+        lastChatAt: fpLastRows[0]?.created_at ?? null,
+        snapshot: fpSnapshot,
+      });
+      // Mirror the proposal-time skill gates (prereq + 1C below) so the
+      // canned option-set can never offer a skill the model itself would be
+      // barred from proposing.
+      let skillAllowed = !!fpNba.recommended_skill;
+      if (skillAllowed && fpNba.recommended_skill) {
+        const skillId = fpNba.recommended_skill.id;
+        if (await canvasLacksCorePrereqs(project_id)) skillAllowed = !isCanvasDependentSkill(skillId);
+        if (skillAllowed && !validationTracksAB_done(fpSnapshot)) skillAllowed = !GATE_1C_DEPENDENT_SKILLS.has(skillId);
+      }
+      const fullText = buildCommitFastPathContent({ locale: fpLocale, chip, nba: fpNba, skillAllowed });
+      // Persist BEFORE returning (serverless freezes post-response work) —
+      // exactly two rows, user then assistant (+1ms ordering), mirroring the
+      // flush hook. meta binds a RAW object (JSONB double-encode trap).
+      // Non-fatal like the flush hook's inserts.
+      try {
+        const now = new Date().toISOString();
+        const assistantTs = new Date(new Date(now).getTime() + 1).toISOString();
+        await run(
+          `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id) VALUES (?, ?, ?, 'user', ?, ?, ?)`,
+          `msg_${crypto.randomUUID().slice(0, 12)}`, project_id, step, fpLastMessage, now, userId,
+        );
+        await run(
+          `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, meta) VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?)`,
+          `msg_${crypto.randomUUID().slice(0, 12)}`, project_id, step, fullText, assistantTs, userId,
+          { fast_path: 'chip_commit' },
+        );
+      } catch (err) {
+        console.warn('[chat] fast-path persist failed (non-fatal):', err);
+      }
+      // Metrics parity with the flush hook — chat_turn + option_selected
+      // memory events; commit chips are the highest-intent moment and losing
+      // them would break activation analytics. Best-effort.
+      try {
+        await recordEvent({
+          userId, projectId: project_id, eventType: 'chat_turn',
+          payload: { preview: fpLastMessage.slice(0, 200), response_preview: fullText.slice(0, 200), step },
+        });
+        const choice = fpLastMessage.match(/^\s*(?:I choose|Scelgo):\s*([\s\S]+)$/i);
+        if (choice) {
+          const chosen = choice[1].trim();
+          let decision: ReturnType<typeof findOptionDecision> = null;
+          try {
+            const prevAssistant = await query<{ content: string }>(
+              `SELECT content FROM chat_messages WHERE project_id = ? AND role = 'assistant' ORDER BY "timestamp" DESC LIMIT 3`,
+              project_id,
+            );
+            decision = findOptionDecision(prevAssistant.map((r) => r.content), chosen);
+          } catch { /* best-effort */ }
+          await recordEvent({
+            userId, projectId: project_id, eventType: 'option_selected',
+            payload: {
+              choice: chosen.slice(0, 200),
+              ...(decision?.discarded.length ? { discarded: decision.discarded } : {}),
+              ...(decision?.prompt ? { prompt: decision.prompt } : {}),
+              fast_path: true,
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[chat] fast-path events failed (non-fatal):', err);
+      }
+      console.info('[chat] chip-commit fast path served', {
+        project_id, fields: chip.canvas_fields.length, items: chip.item_kinds.length,
+      });
+      const fpStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: fullText })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, final: true, fast_path: true })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(fpStream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        },
+      });
+    } catch (err) {
+      // Every await AFTER the chat_messages inserts sits inside its own
+      // non-fatal try — so this catch can only fire BEFORE persistence.
+      // Nothing was written; the model turn will persist normally.
+      console.warn('[chat] chip-commit fast path failed — falling back to model:', err);
+    }
   }
 
-  // Cost tracking (observe mode — no hard block)
-  const capStatus = await isProjectCapped(project_id);
+  // Cost tracking (observe mode — no hard block) + HARD-STOP credit gate
+  // (Phase 1), in parallel: owner-pool budget vs user credit pool are
+  // independent lookups. The 402 still resolves BEFORE the SSE stream opens so
+  // the client gets clean JSON (not a half-opened event-stream). The credit
+  // gate is a no-op unless CREDITS_HARD_STOP is on AND the user is out of
+  // credits AND not exempt (CREDITS_EXEMPT_USER_IDS). The recharge dialog
+  // opens off this body.
+  const [capStatus, gate] = await Promise.all([
+    isProjectCapped(project_id, projectRow.owner_user_id),
+    assertCreditsAvailable(userId),
+  ]);
   if (capStatus.capped) {
     console.info(`[chat] project ${project_id} over budget — proceeding (observe mode)`);
   }
-
-  // HARD-STOP gate (Phase 1) — runs BEFORE the SSE stream opens so the client
-  // gets a clean JSON 402 (not a half-opened event-stream). No-op unless
-  // CREDITS_HARD_STOP is on AND the user is out of credits AND not exempt
-  // (CREDITS_EXEMPT_USER_IDS). The recharge dialog opens off this body.
-  const gate = await assertCreditsAvailable(userId);
   if (!gate.allowed) {
     console.info(`[chat] user ${userId} out of credits — blocking (hard-stop on)`);
     return new Response(
@@ -513,29 +634,148 @@ export async function POST(request: NextRequest) {
   );
 
   const lastMessage = messages[messages.length - 1]?.content || '';
-  const projectContext = `[PROJECT: "${projects[0].name}"${projects[0].description ? ` — ${projects[0].description}` : ''}]\n`;
+  const projectContext = `[PROJECT: "${projectRow.name}"${projectRow.description ? ` — ${projectRow.description}` : ''}]\n`;
 
-  // Memory context — curated facts + recent events + graph summary + completed
-  // skills — lets the agent remember across sessions AND across chat "steps"
-  // within a project (see sessionId change below).
-  const memoryContext = await buildMemoryContext(userId, project_id, {
-    enriched: projects[0].settings?.rich_context === true,
-  });
+  // Route simple follow-ups to Haiku (~80% cheaper) — "yes", "go ahead",
+  // "tell me more", etc. don't need Sonnet's multi-tool reasoning depth.
+  // Hoisted above the context wave (pure function of the parsed body) so the
+  // wave can size itself off the task — followups skip the skill-gate probe
+  // and the prior-turn nudge query entirely.
+  const chatTask: TaskLabel = isSimpleFollowUp(lastMessage, messages)
+    ? 'chat-followup'
+    : 'chat';
+
+  // ── PRE-STREAM CONTEXT WAVE ────────────────────────────────────────────
+  // Every context builder below is independent of the others — they used to
+  // run as ~11 serial awaits (each ≥1 DB round-trip; memory ~15 queries,
+  // snapshot 21) adding 0.7-2.5s of dead air before the model was even
+  // called. One Promise.all collapses that to max(single-builder latency);
+  // computeNextBestAction stays a dependent second await (needs snapshot).
+  // ONLY the fetches move — every context string is still assembled by the
+  // same code in the same order below, so dynamicContext stays byte-identical
+  // (the prompt-cache contract).
+  //
+  // Fatality is preserved per member: unwrapped members 500 on rejection
+  // exactly as their standalone awaits did; .catch members degrade to
+  // null/'' exactly as their old try/catch wrappers did.
+  //
+  // canvasLacksPromise: the skill prereq gate runs inside the big try below
+  // (its rejection must route to the limited-mode fallback, not a 500), so it
+  // is only STARTED here. The parked no-op .catch keeps a rejection from
+  // becoming an unhandledRejection if a wave-1 fatal rejects first; awaiting
+  // the ORIGINAL promise later still throws into the try.
+  const canvasLacksPromise: Promise<boolean> =
+    chatTask === 'chat' ? canvasLacksCorePrereqs(project_id) : Promise.resolve(false);
+  canvasLacksPromise.catch(() => {});
+  const [
+    // Memory context — curated facts + recent events + graph summary +
+    // completed skills — lets the agent remember across sessions AND across
+    // chat "steps" within a project (see sessionId change below).
+    memoryContext,
+    // Journey snapshot — built ONCE per turn and reused for stage context,
+    // canvas context, the commit guard, and the direction engine. Tolerant:
+    // on failure (missing tables on a fresh project) chat still works, just
+    // without stage framing.
+    snapshot,
+    // Commit-guard evidence — last 2 assistant messages (see the guard block
+    // below for why 2). Fetch failure degrades to "guard skipped", as before.
+    guardPrevRows,
+    // Direction engine's lastChatAt — the founder's previous MAIN-thread
+    // message (see the direction block below for the node-step exclusion).
+    directionLastRows,
+    // Account-wide language wins (users.locale), falling back to the
+    // project's legacy locale (already on projectRow — no second fetch),
+    // then English — see src/lib/i18n/resolve-locale.ts.
+    locale,
+    // Recently-completed skill summaries (only fetches on a kickoff match).
+    skillContext,
+    // Node-scoped side thread (#330): step = 'node:<id>' focuses the SAME
+    // agent on one knowledge entity. Empty string for every ordinary step.
+    focusNodeContext,
+    // BYOK — if the founder stored a key for whichever provider the router
+    // picks, bill their account instead of ours. Undefined ⇒ system key.
+    // Resolves the provider the same way runAgentStream will (pickModel on
+    // the same task), so we look up the key for the provider actually called.
+    userKey,
+    // users.preferred_model — the Settings "Preferred Model" radio ("all chat
+    // messages use this model" — chat AND chat-followup). modelForKey()
+    // returns null for unknown/legacy keys, so a stale stored preference
+    // degrades to the task router instead of erroring.
+    preferredModelRow,
+    // Prior-turn violation nudge rows (TIER 0.5) — chat only; followups have
+    // no skill tools to misuse. Pre-migration safety: meta column may not
+    // exist yet → catch returns no nudge, chat keeps functioning.
+    priorNudgeRows,
+    // Opener summary (velocity lever): turn 1 of a thread gets the FULL
+    // get_project_summary output injected as a [PROJECT SUMMARY] block
+    // instead of a mandated tool round-trip — saving one whole model pass
+    // (~35-50k tokens through the prefix) + ~6s p50 before first prose.
+    // Opener-only: later turns already carry canvas/research/stage/direction
+    // blocks, and the tool stays registered for mid-flow refreshes (Solve
+    // flow). Tolerant: any failure injects nothing and the TIER 1 fallback
+    // sentence has the model call the tool itself, i.e. the old behavior.
+    summaryRender,
+  ] = await Promise.all([
+    buildMemoryContext(userId, project_id, {
+      enriched: projectRow.settings?.rich_context === true,
+      projectRow,
+    }),
+    buildProjectSnapshot(project_id).catch(() => null),
+    query<{ content: string }>(
+      "SELECT content FROM chat_messages WHERE project_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 2",
+      project_id,
+    ).catch(() => null),
+    // Node side-threads (#330) are EXCLUDED: "what changed since last time"
+    // is about the founder's main conversation. COALESCE guards legacy rows
+    // with a NULL step, which `NOT LIKE` would otherwise silently drop.
+    query<{ created_at: string }>(
+      `SELECT created_at FROM chat_messages
+        WHERE project_id = ? AND COALESCE(step, 'chat') NOT LIKE ?
+        ORDER BY created_at DESC LIMIT 1`,
+      project_id,
+      `${NODE_STEP_PREFIX}%`,
+    ).catch(() => null),
+    resolveLocale(userId, project_id, { projectLocale: projectRow.locale }),
+    buildCompletedSkillContext(project_id, lastMessage),
+    buildFocusNodeContext(project_id, step),
+    resolveUserKey(userId, pickModel(chatTask).provider),
+    get<{ preferred_model: string | null }>(
+      'SELECT preferred_model FROM users WHERE id = ?', userId,
+    ).catch((err) => {
+      console.warn('[chat] preferred_model lookup failed (non-fatal):', (err as Error).message);
+      return undefined;
+    }),
+    chatTask === 'chat'
+      ? query<{ meta: unknown }>(
+          `SELECT meta FROM chat_messages
+            WHERE project_id = ? AND role = 'assistant'
+            ORDER BY "timestamp" DESC LIMIT 1`,
+          project_id,
+        ).catch((err) => {
+          console.warn('[chat] prior-turn nudge query failed (non-fatal):', (err as Error).message);
+          return null;
+        })
+      : Promise.resolve(null),
+    messages.length <= 1
+      ? renderProjectSummary(project_id).catch((err) => {
+          console.warn('[chat] opener summary render failed (non-fatal):', (err as Error).message);
+          return null;
+        })
+      : Promise.resolve(null),
+  ]);
 
   // Stage context — the founder's active journey stage with passed/missing
   // evidence checks. Lets the agent anchor every reply to closing real gaps
-  // rather than reacting to whatever the founder happens to type. Tolerant:
-  // if the snapshot fails (missing tables on a fresh project), we skip the
-  // block entirely — better than a 500.
-  // Build the journey snapshot ONCE per turn and reuse it for both stage
-  // context and the direction engine (was built twice — 32 queries — before).
-  let snapshot: Awaited<ReturnType<typeof buildProjectSnapshot>> | null = null;
+  // rather than reacting to whatever the founder happens to type. A format
+  // throw leaves snapshot non-null and stageContext '' — the same (subtle)
+  // degradation as the old shared try/catch.
   let stageContext = '';
-  try {
-    snapshot = await buildProjectSnapshot(project_id);
-    stageContext = formatStageContextForPrompt(snapshot, typeof target_check === 'string' ? target_check : null);
-  } catch {
-    /* journey snapshot failed — chat still works, just without stage framing */
+  if (snapshot) {
+    try {
+      stageContext = formatStageContextForPrompt(snapshot, typeof target_check === 'string' ? target_check : null);
+    } catch {
+      /* snapshot ok, formatting failed — chat still works without stage framing */
+    }
   }
 
   // Phase-1 watcher activation moved to the stream's flush hook (after the done
@@ -601,17 +841,15 @@ export async function POST(request: NextRequest) {
   //       fire — re-stating a commit a turn after a real click — is harmless
   //       because the nudge is self-correcting ("if already saved, continue").
   let commitGuardContext = '';
-  if (snapshot && !allStagesDone) {
+  if (snapshot && !allStagesDone && guardPrevRows) {
     try {
       // Gap 6: widen from 1 → 2 prior assistant messages so a commit narrated
       // and split across turns (or one turn back) is still caught. Patterns are
       // specific enough that the extra message rarely false-fires, and the nudge
-      // is self-correcting ("if already saved, continue").
-      const prevRows = await query<{ content: string }>(
-        "SELECT content FROM chat_messages WHERE project_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 2",
-        project_id,
-      );
-      const prev = prevRows.map((r) => r.content ?? '').join('\n\n');
+      // is self-correcting ("if already saved, continue"). Rows are prefetched
+      // in the context wave; a fetch failure (guardPrevRows null) skips the
+      // guard, exactly like the old in-block query failure did.
+      const prev = guardPrevRows.map((r) => r.content ?? '').join('\n\n');
       const guards: string[] = [];
 
       // (a) Canvas claim with a core field still missing from the live canvas.
@@ -679,36 +917,34 @@ export async function POST(request: NextRequest) {
   // forgetting to call get_project_summary). Tolerant: any failure degrades to
   // no injected direction — chat still works. lastChatAt drives the
   // "what changed since last time" signal feed (route.ts:143 freshness rule).
+  // The lastChatAt row is prefetched in the context wave (directionLastRows;
+  // null on fetch failure — degrades to no injected direction, same as the old
+  // shared try). This is the wave's ONE dependent second await: the engine
+  // needs the snapshot.
   let directionContext = '';
-  try {
-    // Node side-threads (#330) are EXCLUDED: "what changed since last time" is
-    // about the founder's main conversation. Counting a node-panel exchange as
-    // the last chat would mark signals as already-seen that never appeared in
-    // any feed the founder read.
-    // COALESCE guards legacy rows with a NULL step, which `NOT LIKE` would
-    // otherwise evaluate to NULL and silently drop from the ordering.
-    const lastRows = await query<{ created_at: string }>(
-      `SELECT created_at FROM chat_messages
-        WHERE project_id = ? AND COALESCE(step, 'chat') NOT LIKE ?
-        ORDER BY created_at DESC LIMIT 1`,
-      project_id,
-      `${NODE_STEP_PREFIX}%`,
-    );
-    const lastChatAt = lastRows[0]?.created_at ?? null;
-    const nba = await computeNextBestAction(project_id, { lastChatAt, snapshot: snapshot ?? undefined });
-    directionContext = `${renderDirectionForPrompt(nba)}\n\n`;
-  } catch {
-    /* direction engine failed — chat still works without injected next-best-action */
+  if (directionLastRows) {
+    try {
+      const lastChatAt = directionLastRows[0]?.created_at ?? null;
+      const nba = await computeNextBestAction(project_id, { lastChatAt, snapshot: snapshot ?? undefined });
+      directionContext = `${renderDirectionForPrompt(nba)}\n\n`;
+    } catch {
+      /* direction engine failed — chat still works without injected next-best-action */
+    }
   }
+
+  // Opener [PROJECT SUMMARY] block (see the wave member above). Rides the
+  // VOLATILE half (dynamicContext) so the static cache prefix is untouched.
+  // On render failure or details.error nothing is injected — never an error
+  // string; the model's TIER 1 fallback then calls the tool itself.
+  const summaryContext = summaryRender && !summaryRender.details.error
+    ? `[PROJECT SUMMARY — the full get_project_summary output, injected for this first turn. Read it here; do NOT call get_project_summary / list_intelligence_briefs / list_ecosystem_alerts on the opener.]\n${summaryRender.text}\n\n`
+    : '';
 
   // Build system prompt: SOUL + AGENTS personality first (locale-aware),
   // then ARTIFACT_INSTRUCTIONS, then stage context (highest signal for
   // "what to talk about"), then per-project context + memory + recently-
-  // completed skill summaries.
-  // Account-wide language wins (users.locale), falling back to the project's
-  // legacy locale, then English — see src/lib/i18n/resolve-locale.ts.
-  const locale = await resolveLocale(userId, project_id);
-  const skillContext = await buildCompletedSkillContext(project_id, lastMessage);
+  // completed skill summaries. locale + skillContext were fetched in the
+  // context wave above.
   // Turn-level language reinforcement (item 4): the static prefix already carries
   // languageDirective(), but on a short option-select turn the model drifts to
   // English. Re-stating it at the END of the dynamic context (recency-weighted,
@@ -722,11 +958,9 @@ export async function POST(request: NextRequest) {
   // is already fetched; '' when no sizing exists (no token cost). Reference-only
   // framing keeps it out of the validation gate.
   const researchContext = buildResearchContext((snapshot?.research ?? null) as Record<string, unknown> | null);
-  // Node-scoped side thread (#330): step = 'node:<id>' focuses the SAME agent on
-  // one knowledge entity. FIRST in the dynamic context so the focus outranks the
-  // project-wide steering. Empty string for every ordinary step — no token cost.
-  const focusNodeContext = await buildFocusNodeContext(project_id, step);
-  const dynamicContext = `${focusNodeContext}${directionContext}${stageContext}${canvasContext}${researchContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
+  // focusNodeContext (#330, fetched in the wave) rides FIRST in the dynamic
+  // context so a node side-thread's focus outranks the project-wide steering.
+  const dynamicContext = `${focusNodeContext}${directionContext}${summaryContext}${stageContext}${canvasContext}${researchContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
   // JOURNEY_RULES rides the STATIC tail, next to ARTIFACT_INSTRUCTIONS: it is
   // byte-identical on every turn of every project, so it is cached as a READ.
   // Only the live spine STATE goes in the dynamic context below.
@@ -757,7 +991,6 @@ export async function POST(request: NextRequest) {
   // folds it into systemPrompt (byte-identical to before); split rides it on the
   // user turn AFTER the context (so the nudges keep their read-recency).
   let trailingSteer = '';
-  const encoder = new TextEncoder();
 
   // Session key: per (user, project) rather than per (project, step).
   // This unifies memory across the "chat" / "research" / "simulation" steps
@@ -785,12 +1018,7 @@ export async function POST(request: NextRequest) {
     const includeWriteTools = true;
     const projectTools = makeProjectTools(project_id, { includeWriteTools, userId });
 
-    // Route simple follow-ups to Haiku (~80% cheaper) — "yes", "go ahead",
-    // "tell me more", etc. don't need Sonnet's multi-tool reasoning depth.
-    const chatTask: TaskLabel = isSimpleFollowUp(lastMessage, messages)
-      ? 'chat-followup'
-      : 'chat';
-
+    // chatTask (Haiku follow-up routing) is hoisted above the context wave.
     const allSkillTools = getSkillTools({ userId, projectId: project_id });
 
     let skillTools: typeof allSkillTools;
@@ -821,7 +1049,10 @@ export async function POST(request: NextRequest) {
     // matching system-prompt note steers it to sketch the solution instead of
     // silently dropping the option. idea-shaping/market-research/startup-advisor
     // survive — they're how the founder FILLS the canvas.
-    if (skillTools.length > 0 && (await canvasLacksCorePrereqs(project_id))) {
+    // Awaiting the ORIGINAL wave-started promise: a rejection throws here →
+    // route catch → limited-mode fallback, exactly the old inline-await
+    // semantics (the parked .catch at the wave does not swallow it).
+    if (skillTools.length > 0 && (await canvasLacksPromise)) {
       const before = skillTools.length;
       skillTools = skillTools.filter((t) => {
         const id = t.name.replace(/^skill_/, '').replace(/_/g, '-');
@@ -850,40 +1081,29 @@ export async function POST(request: NextRequest) {
 
     // Iteration-3 WS-A — inject TIER 0.5 nudges based on PRIOR turn violations.
     // chat-followup (Haiku, skillTools = []) is exempt by construction; the
-    // violations can't happen on a path that has no skill tools to misuse.
-    // Pre-migration safety: meta column may not exist yet → query catches and
-    // returns no nudge. Chat keeps functioning either way.
-    if (chatTask === 'chat') {
-      try {
-        const priorRows = await query<{ meta: unknown }>(
-          `SELECT meta FROM chat_messages
-            WHERE project_id = ? AND role = 'assistant'
-            ORDER BY "timestamp" DESC LIMIT 1`,
-          project_id,
-        );
-        // Rows written before the double-encode fix hold a jsonb STRING
-        // containing JSON rather than an object (jsonb_typeof = 'string').
-        // Those rows are why this nudge never fired in production. Accept
-        // both shapes so the feature works on historical rows too.
-        const raw = priorRows[0]?.meta;
-        let meta: unknown = raw;
-        if (typeof raw === 'string') {
-          try { meta = JSON.parse(raw); } catch { meta = null; }
-        }
-        if (meta && typeof meta === 'object') {
-          const prior: TurnViolations = {
-            skill_first_violation: !!(meta as Record<string, unknown>).skill_first_violation,
-            prose_fabrication: !!(meta as Record<string, unknown>).prose_fabrication,
-            uncited_prose_claims: !!(meta as Record<string, unknown>).uncited_prose_claims,
-          };
-          const nudge = renderNudgeForNextTurn(prior);
-          if (nudge) trailingSteer += `\n\n${nudge}`;
-        }
-      } catch (err) {
-        // meta column missing (pre-migration) OR transient DB error.
-        // Non-fatal — the nudge is a quality improvement, not a correctness
-        // gate, and TIER 0.5 prompt rules still apply.
-        console.warn('[chat] prior-turn nudge query failed (non-fatal):', (err as Error).message);
+    // violations can't happen on a path that has no skill tools to misuse —
+    // and priorNudgeRows is already null on that path. Rows are prefetched in
+    // the context wave; a query failure (meta column missing pre-migration, or
+    // a transient DB error) already degraded to null there with a warn — the
+    // nudge is a quality improvement, not a correctness gate.
+    if (chatTask === 'chat' && priorNudgeRows) {
+      // Rows written before the double-encode fix hold a jsonb STRING
+      // containing JSON rather than an object (jsonb_typeof = 'string').
+      // Those rows are why this nudge never fired in production. Accept
+      // both shapes so the feature works on historical rows too.
+      const raw = priorNudgeRows[0]?.meta;
+      let meta: unknown = raw;
+      if (typeof raw === 'string') {
+        try { meta = JSON.parse(raw); } catch { meta = null; }
+      }
+      if (meta && typeof meta === 'object') {
+        const prior: TurnViolations = {
+          skill_first_violation: !!(meta as Record<string, unknown>).skill_first_violation,
+          prose_fabrication: !!(meta as Record<string, unknown>).prose_fabrication,
+          uncited_prose_claims: !!(meta as Record<string, unknown>).uncited_prose_claims,
+        };
+        const nudge = renderNudgeForNextTurn(prior);
+        if (nudge) trailingSteer += `\n\n${nudge}`;
       }
     }
 
@@ -941,6 +1161,7 @@ export async function POST(request: NextRequest) {
         const sections: Record<string, [string, number]> = {
           focusNode: [sha12(focusNodeContext), focusNodeContext.length],
           direction: [sha12(directionContext), directionContext.length],
+          summary: [sha12(summaryContext), summaryContext.length],
           stage: [sha12(stageContext), stageContext.length],
           canvas: [sha12(canvasContext), canvasContext.length],
           research: [sha12(researchContext), researchContext.length],
@@ -988,29 +1209,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // BYOK — if the founder stored a key for whichever provider the router
-    // picks, bill their account instead of ours. Undefined ⇒ system key.
-    // Resolve the provider the same way runAgentStream will (pickModel on the
-    // same task), so we look up the key for the provider actually called.
-    const userKey = await resolveUserKey(userId, pickModel(chatTask).provider);
-
-    // users.preferred_model — the Settings "Preferred Model" radio, whose copy
-    // promises "When set, all chat messages use this model". Until 2026-09-01
-    // NOTHING read this column (unwired-sweep finding): founders picked Opus
-    // or Haiku and silently kept getting the router's tier. modelForKey()
-    // returns null for unknown/legacy keys, so a stale stored preference
-    // degrades to the task router instead of erroring. Applies to BOTH chat
-    // and chat-followup — "all chat messages" means all. Provider is uniform
-    // across keys (LLM_PROVIDER), so the BYOK lookup above stays correct.
-    let modelOverride: ReturnType<typeof modelForKey> = null;
-    try {
-      const pref = await get<{ preferred_model: string | null }>(
-        'SELECT preferred_model FROM users WHERE id = ?', userId,
-      );
-      if (pref?.preferred_model) modelOverride = modelForKey(pref.preferred_model);
-    } catch (err) {
-      console.warn('[chat] preferred_model lookup failed (non-fatal):', (err as Error).message);
-    }
+    // userKey (BYOK) rode the context wave. users.preferred_model too — the
+    // Settings "Preferred Model" radio, whose copy promises "When set, all
+    // chat messages use this model" (chat AND chat-followup — "all" means
+    // all; wired 2026-09-01 after the unwired-sweep finding that NOTHING read
+    // the column). modelForKey() returns null for unknown/legacy keys, so a
+    // stale stored preference degrades to the task router instead of
+    // erroring. Provider is uniform across keys (LLM_PROVIDER), so the BYOK
+    // lookup keyed off pickModel stays correct.
+    const modelOverride: ReturnType<typeof modelForKey> =
+      preferredModelRow?.preferred_model ? modelForKey(preferredModelRow.preferred_model) : null;
 
     const { stream: piStream } = runAgentStream(effectiveLastMessage, {
       modelOverride,
@@ -1069,6 +1277,18 @@ export async function POST(request: NextRequest) {
     let lineBuffer = '';
     // Tool activity accumulated from tool_start/tool_end SSE events.
     let toolsList: Array<{ id: string; name: string; args?: unknown; status: string }> = [];
+
+    // Deferred-persistence handoff: flush() builds the closure once all turn
+    // state (fullResponse, toolsList, usage) is final; the after() registered
+    // below (request scope) runs it once the response finishes streaming.
+    // MUST always resolve — an unresolved promise would hold the lambda: the
+    // try's handoff, the finally's null, and the transformer cancel() all
+    // resolve it (resolution is once-only, later calls are no-ops), and the
+    // after() callback races a 65s timeout as the last line of defense.
+    let handDeferredWork: (w: (() => Promise<void>) | null) => void = () => {};
+    const deferredWork = new Promise<(() => Promise<void>) | null>((resolve) => {
+      handDeferredWork = resolve;
+    });
 
     // Wrap to add telemetry + memory hooks on completion
     const telemetryStream = piStream.pipeThrough(new TransformStream({
@@ -1152,7 +1372,8 @@ export async function POST(request: NextRequest) {
           cache_read_input_tokens: streamUsage?.cache_read_input_tokens ?? 0,
         };
         const cost = streamUsage?.cost ?? estimateCost(piProvider, piModel, usage);
-        await logUsageToDb(project_id, null, step, piProvider, piModel, usage, cost, latencyMs);
+        // logUsageToDb moved into the deferred closure (see below) — the done
+        // frame and the closure both use the values computed above.
         // pi-agent.ts already opened/closed a live, properly-nested Langfuse
         // trace for this turn (runAgentStream) — reuse its id instead of
         // logging a second, disconnected flat trace here (Part D).
@@ -1265,158 +1486,37 @@ export async function POST(request: NextRequest) {
         // so a validation_proposal may now be waiting with no visible card.
         let stagedCanvasEvidence = false;
 
-        // Memory: chat_turn event + fact artifact extraction.
-        // Wrapped in try so memory failures never break the stream response.
+        // Memory writes split by READER (composer-unlock lever): what the
+        // STREAM or the NEXT TURN reads stays in flush — the fact sweep (sets
+        // stagedCanvasEvidence for the validation backstop below) and the
+        // artifact persistence loop (fills persistedMap for the done frame).
+        // Everything with no such reader — usage log, chat_turn /
+        // option_selected / knowledge_proposed / artifact-observability
+        // events, watcher + gate proposers — moves into the deferred closure
+        // built below the done frame and runs via after() once the response
+        // has finished streaming.
+        // Deterministic capture net (chat-fact-sweep): if this founder message
+        // states spine-relevant evidence the agent did NOT capture via
+        // save_memory_fact (facts written mid-turn are already in the DB, so
+        // the sweep's already-captured guard sees them), stage it as an
+        // approve-to-green item — founder-first, same gate as doc digests.
         try {
-          await recordEvent({
-            userId,
-            projectId: project_id,
-            eventType: 'chat_turn',
-            payload: {
-              preview: lastMessage.slice(0, 200),
-              response_preview: fullResponse.slice(0, 200),
-              step,
-            },
-          });
-
-          // Gap 3: a founder option-set click arrives as an "I choose: …" /
-          // "Scelgo: …" message (the localized chat.i-choose template). Record it
-          // as a structured decision event so which fork the founder took is
-          // queryable (activation/dropout metrics) instead of buried in prose.
-          // The DISCARDED siblings ride the same event (option-decision-log):
-          // without them, "why did we skip option B?" had no answer in a pivot.
-          try {
-            const choice = lastMessage.match(/^\s*(?:I choose|Scelgo):\s*([\s\S]+)$/i);
-            if (choice) {
-              const chosen = choice[1].trim();
-              let decision = null;
-              try {
-                // The click's option-set lives in a PRIOR assistant message —
-                // this turn's reply is already persisted, so scan the last 3.
-                const prevAssistant = await query<{ content: string }>(
-                  `SELECT content FROM chat_messages
-                    WHERE project_id = ? AND role = 'assistant'
-                    ORDER BY "timestamp" DESC LIMIT 3`,
-                  project_id,
-                );
-                decision = findOptionDecision(prevAssistant.map((r) => r.content), chosen);
-              } catch { /* decision context is best-effort */ }
-              await recordEvent({
-                userId,
-                projectId: project_id,
-                eventType: 'option_selected',
-                payload: {
-                  choice: chosen.slice(0, 200),
-                  ...(decision?.discarded.length ? { discarded: decision.discarded } : {}),
-                  ...(decision?.prompt ? { prompt: decision.prompt } : {}),
-                },
-              });
-            }
-          } catch (err) {
-            console.warn('[chat] option_selected record failed (non-fatal):', (err as Error).message);
+          const swept = await sweepFounderMessageForFacts(project_id, lastMessage);
+          if (swept.staged > 0) {
+            // Re-use the proposal backstop below so the staged card is
+            // injected into this turn instead of waiting silently in Inbox.
+            stagedCanvasEvidence = true;
           }
+        } catch (err) {
+          console.warn('[chat] fact sweep failed (non-fatal):', (err as Error).message);
+        }
 
-          // Deterministic capture net (chat-fact-sweep): if this founder message
-          // states spine-relevant evidence the agent did NOT capture via
-          // save_memory_fact (facts written mid-turn are already in the DB, so
-          // the sweep's already-captured guard sees them), stage it as an
-          // approve-to-green item — founder-first, same gate as doc digests.
-          try {
-            const swept = await sweepFounderMessageForFacts(project_id, lastMessage);
-            if (swept.staged > 0) {
-              // Re-use the proposal backstop below so the staged card is
-              // injected into this turn instead of waiting silently in Inbox.
-              stagedCanvasEvidence = true;
-            }
-          } catch (err) {
-            console.warn('[chat] fact sweep failed (non-fatal):', (err as Error).message);
-          }
+        // Hoisted out of the try below so the deferred closure can capture it.
+        const segments = parseMessageContent(fullResponse);
 
-          const segments = parseMessageContent(fullResponse);
-
-          // Gap 1: record a knowledge_proposed event for each knowledge-suggestion
-          // the agent emitted. Proposals were previously zero-trace (prompt-emitted
-          // prose, no tool, no row) — the agent could re-suggest the same fact
-          // forever and never know if the founder applied or ignored it. This adds
-          // a durable proposal correlated to a later knowledge_applied via
-          // fact_hash. The founder-facing UI stays ephemeral (still just a card).
-          try {
-            for (const s of segments) {
-              if (s.type !== 'artifact') continue;
-              const a = s.artifact as unknown as Record<string, unknown>;
-              if (a.type !== 'knowledge-suggestion') continue;
-              const fact = typeof a.fact === 'string' ? a.fact : '';
-              if (!fact.trim()) continue;
-              await recordEvent({
-                userId,
-                projectId: project_id,
-                eventType: 'knowledge_proposed',
-                payload: {
-                  fact_hash: factHash(fact),
-                  preview: fact.slice(0, 140),
-                  kind: typeof a.kind === 'string' ? a.kind : 'observation',
-                },
-              });
-            }
-          } catch (err) {
-            console.warn('[chat] knowledge_proposed record failed (non-fatal):', (err as Error).message);
-          }
-
-          // Track source-enforcement rejections so we can tune prompts if the
-          // agent repeatedly produces unsourced artifacts. Each rejection is
-          // a memory_event with the artifact type + reason — queryable later
-          // for "how often does Sonnet skip sources on entity-cards?"-style
-          // analysis. Does NOT throw — source enforcement is non-fatal to
-          // the stream; the founder just doesn't see the invalid card.
-          // Rescue path — log when an artifact passed validation only because
-          // we attached the trailing <CITATIONS> block. Mirrors the rejection
-          // event so prompt/observability can track "rescue rate" vs "rejection
-          // rate" and tighten the prompt when too many artifacts need rescuing.
-          const rescued = segments.filter(
-            (s): s is Extract<typeof s, { type: 'artifact' }> =>
-              s.type === 'artifact' && s.used_fallback_sources === true,
-          );
-          if (rescued.length > 0) {
-            try {
-              await recordEvent({
-                userId,
-                projectId: project_id,
-                eventType: 'artifact_rescued_by_fallback_citations',
-                payload: {
-                  count: rescued.length,
-                  rescues: rescued.map(r => ({ artifact_type: r.artifact.type })),
-                },
-              });
-            } catch {
-              // non-fatal — observability only
-            }
-          }
-
-          const rejected = segments.filter((s) => s.type === 'artifact-error');
-          if (rejected.length > 0) {
-            try {
-              await recordEvent({
-                userId,
-                projectId: project_id,
-                eventType: 'artifact_rejected_no_sources',
-                payload: {
-                  count: rejected.length,
-                  rejections: rejected
-                    .filter((r): r is Extract<typeof r, { type: 'artifact-error' }> => r.type === 'artifact-error')
-                    .map((r) => ({ artifact_type: r.artifact_type, reason: r.reason })),
-                },
-              });
-              console.warn(
-                `[chat] ${rejected.length} artifact(s) rejected for missing sources:`,
-                rejected
-                  .filter((r): r is Extract<typeof r, { type: 'artifact-error' }> => r.type === 'artifact-error')
-                  .map((r) => `${r.artifact_type}: ${r.reason}`)
-                  .join('; '),
-              );
-            } catch {
-              // non-fatal — observability only
-            }
-          }
+        // Artifact persistence loop — stays in flush: persistedMap feeds the
+        // done frame and stagedCanvasEvidence feeds the validation backstop.
+        try {
           for (const seg of segments) {
             if (seg.type !== 'artifact') continue;
             if (seg.artifact.type === 'fact') {
@@ -1618,7 +1718,10 @@ export async function POST(request: NextRequest) {
 
         // Emit done event with cost + credits so the client can show per-message credits
         try {
-          const donePayload: Record<string, unknown> = { done: true };
+          // final: true — the client's composer unlocks on THIS frame (after
+          // all backstop cards + persisted_artifacts), not on stream close.
+          // pi-agent's own earlier done frame must never carry it.
+          const donePayload: Record<string, unknown> = { done: true, final: true };
           // Inbox-mutating turn → tell the client to refresh the inbox / monitors
           // / tasks panels. The agent's tool calls (dismiss, propose_monitor,
           // create_task, …) change pending_actions server-side, but the chat turn
@@ -1659,19 +1762,172 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(donePayload)}\n\n`));
         } catch { /* non-fatal */ }
 
-        // Phase-1 watcher activation — AFTER the done frame (the founder has
-        // their reply; the proposer's LLM call never delays the turn) and
-        // AWAITED (serverless freezes fire-and-forget work). Rebuilds the
-        // snapshot internally so THIS turn's persisted evidence counts — the
-        // old pre-turn call used a stale snapshot. Idempotent + non-throwing.
-        await maybeProposePhase1Watchers(project_id);
-        await maybeProposeGateVerdict(project_id);
+        // Deferred persistence — everything with no stream or next-turn
+        // reader. Runs via after() (registered at the route return); the
+        // Netlify Next adapter tracks it (wait-until.cjs → trackBackgroundWork)
+        // so it completes even after the client's reader unblocks. The
+        // watcher/gate proposers rebuild their snapshot inside the closure so
+        // THIS turn's persisted evidence still counts (all flush writes are
+        // done by then). FAILURES MUST BE LOUD — each step is individually
+        // try/caught so one failure doesn't skip the rest, and errors carry a
+        // stable, greppable prefix.
+        const deferred = async () => {
+          const step_ = async (name: string, fn: () => Promise<unknown>) => {
+            try { await fn(); } catch (err) {
+              console.error(`[chat][deferred] ${name} failed:`, err);
+            }
+          };
+          await step_('usage-log', () =>
+            logUsageToDb(project_id, null, step, piProvider, piModel, usage, cost, latencyMs));
+          await step_('chat-turn-event', () =>
+            recordEvent({
+              userId,
+              projectId: project_id,
+              eventType: 'chat_turn',
+              payload: {
+                preview: lastMessage.slice(0, 200),
+                response_preview: fullResponse.slice(0, 200),
+                step,
+              },
+            }));
+          // Gap 3: a founder option-set click arrives as an "I choose: …" /
+          // "Scelgo: …" message (the localized chat.i-choose template). Record
+          // it as a structured decision event so which fork the founder took
+          // is queryable (activation/dropout metrics) instead of buried in
+          // prose. The DISCARDED siblings ride the same event.
+          await step_('option-selected', async () => {
+            const choice = lastMessage.match(/^\s*(?:I choose|Scelgo):\s*([\s\S]+)$/i);
+            if (!choice) return;
+            const chosen = choice[1].trim();
+            let decision = null;
+            try {
+              // The click's option-set lives in a PRIOR assistant message —
+              // this turn's reply is already persisted, so scan the last 3.
+              const prevAssistant = await query<{ content: string }>(
+                `SELECT content FROM chat_messages
+                  WHERE project_id = ? AND role = 'assistant'
+                  ORDER BY "timestamp" DESC LIMIT 3`,
+                project_id,
+              );
+              decision = findOptionDecision(prevAssistant.map((r) => r.content), chosen);
+            } catch { /* decision context is best-effort */ }
+            await recordEvent({
+              userId,
+              projectId: project_id,
+              eventType: 'option_selected',
+              payload: {
+                choice: chosen.slice(0, 200),
+                ...(decision?.discarded.length ? { discarded: decision.discarded } : {}),
+                ...(decision?.prompt ? { prompt: decision.prompt } : {}),
+              },
+            });
+          });
+          // Gap 1: record a knowledge_proposed event for each
+          // knowledge-suggestion the agent emitted — a durable proposal
+          // correlated to a later knowledge_applied via fact_hash.
+          await step_('knowledge-proposed', async () => {
+            for (const s of segments) {
+              if (s.type !== 'artifact') continue;
+              const a = s.artifact as unknown as Record<string, unknown>;
+              if (a.type !== 'knowledge-suggestion') continue;
+              const fact = typeof a.fact === 'string' ? a.fact : '';
+              if (!fact.trim()) continue;
+              await recordEvent({
+                userId,
+                projectId: project_id,
+                eventType: 'knowledge_proposed',
+                payload: {
+                  fact_hash: factHash(fact),
+                  preview: fact.slice(0, 140),
+                  kind: typeof a.kind === 'string' ? a.kind : 'observation',
+                },
+              });
+            }
+          });
+          // Source-enforcement observability: rescue rate vs rejection rate.
+          await step_('artifact-observability', async () => {
+            const rescued = segments.filter(
+              (s): s is Extract<typeof s, { type: 'artifact' }> =>
+                s.type === 'artifact' && s.used_fallback_sources === true,
+            );
+            if (rescued.length > 0) {
+              await recordEvent({
+                userId,
+                projectId: project_id,
+                eventType: 'artifact_rescued_by_fallback_citations',
+                payload: {
+                  count: rescued.length,
+                  rescues: rescued.map(r => ({ artifact_type: r.artifact.type })),
+                },
+              });
+            }
+            const rejected = segments.filter((s) => s.type === 'artifact-error');
+            if (rejected.length > 0) {
+              await recordEvent({
+                userId,
+                projectId: project_id,
+                eventType: 'artifact_rejected_no_sources',
+                payload: {
+                  count: rejected.length,
+                  rejections: rejected
+                    .filter((r): r is Extract<typeof r, { type: 'artifact-error' }> => r.type === 'artifact-error')
+                    .map((r) => ({ artifact_type: r.artifact_type, reason: r.reason })),
+                },
+              });
+              console.warn(
+                `[chat] ${rejected.length} artifact(s) rejected for missing sources:`,
+                rejected
+                  .filter((r): r is Extract<typeof r, { type: 'artifact-error' }> => r.type === 'artifact-error')
+                  .map((r) => `${r.artifact_type}: ${r.reason}`)
+                  .join('; '),
+              );
+            }
+          });
+          // Phase-1 watcher activation + gate verdict — both rebuild the
+          // snapshot internally so this turn's persisted evidence counts.
+          // Idempotent + non-throwing.
+          await step_('phase1-watchers', () => maybeProposePhase1Watchers(project_id));
+          await step_('gate-verdict', () => maybeProposeGateVerdict(project_id));
+        };
+        if (process.env.CHAT_DEFER_PERSIST === '0') {
+          // Kill-switch: reproduce the fully blocking semantics — the closure
+          // runs inside flush, before the stream closes.
+          await deferred();
+          handDeferredWork(null);
+        } else {
+          handDeferredWork(deferred);
+        }
         } finally {
           // Clear the safety timer — flush completed before deadline.
+          // handDeferredWork is once-only: a no-op when the try already handed
+          // off, and the guaranteed resolution when flush threw before it.
+          handDeferredWork(null);
           clearTimeout(flushDeadline);
         }
       },
+      // @ts-expect-error — transformer.cancel is in the Streams spec and
+      // supported by the Node 22 runtime (netlify.toml NODE_VERSION), but this
+      // TS lib version's Transformer type predates it.
+      cancel() {
+        // Client aborted mid-stream — flush never runs (and its safety timer
+        // was never armed). Resolve the handoff so after() doesn't wait 65s.
+        handDeferredWork(null);
+      },
     }));
+
+    // Registered HERE (request scope — after() throws outside it, and the
+    // TransformStream callbacks run under the adapter's pump, not this scope).
+    // Runs once the response finishes streaming; the Netlify adapter keeps the
+    // invocation alive until it settles (wait-until.cjs → trackBackgroundWork).
+    after(async () => {
+      const work = await Promise.race([
+        deferredWork,
+        // flush hung past its own 60s force-terminate and never handed off —
+        // don't hold the invocation on a promise nobody will resolve.
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 65_000)),
+      ]);
+      if (work) await work();
+    });
 
     return new Response(telemetryStream, {
       headers: {
@@ -1719,7 +1975,7 @@ export async function POST(request: NextRequest) {
           lastMessage.slice(0, 1000),
           directResponseText.slice(0, 2000),
         );
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, usage: { cost } })}\n\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, final: true, usage: { cost } })}\n\n`));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
