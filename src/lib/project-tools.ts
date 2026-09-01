@@ -1397,7 +1397,10 @@ const createTaskTool = (ctx: ToolContext): AgentTool => ({
 // propose_watch_source — in-chat watch source proposal with apply flow.
 // =============================================================================
 
-const VALID_WS_SCHEDULES = ['hourly', 'daily', 'weekly', 'manual'] as const;
+// 'hourly' removed from the offered schedules (2026-09-01) — the scheduled
+// driver ticks daily, so offering hourly to the agent was a silent lie to the
+// founder. Existing rows with 'hourly' still parse downstream.
+const VALID_WS_SCHEDULES = ['daily', 'weekly', 'manual'] as const;
 
 const proposeWatchSourceTool = (ctx: ToolContext): AgentTool => ({
   name: 'propose_watch_source',

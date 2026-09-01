@@ -163,6 +163,22 @@ export function pickModel(task: TaskLabel | string): ResolvedModel {
   return { provider, model, tier, maxTokens };
 }
 
+/**
+ * Resolve a MODEL_CONFIG key to the {provider, model} tuple for THIS
+ * deployment's wire path (OpenRouter slug vs direct-Anthropic id — same rule
+ * as TIER_MODELS). Used to honor users.preferred_model: the Settings page
+ * stores config KEYS, and the wire identity depends on the active provider.
+ * Returns null for unknown or legacy keys so callers fall through to the
+ * task router instead of crashing on a stale stored preference.
+ */
+export function modelForKey(key: string): { provider: 'anthropic' | 'openrouter'; model: string } | null {
+  const cfg = (MODEL_CONFIG as Record<string, (typeof MODEL_CONFIG)[keyof typeof MODEL_CONFIG] & { legacy?: boolean }>)[key];
+  if (!cfg || cfg.legacy) return null;
+  return USE_OPENROUTER
+    ? { provider: 'openrouter', model: cfg.openrouterId }
+    : { provider: 'anthropic', model: cfg.id };
+}
+
 /** Test-only: reset the env cache so tests can set LLM_ROUTING_JSON and re-query. */
 export function _resetRouterCache() {
   cachedOverride = { raw: null as never, parsed: {} };

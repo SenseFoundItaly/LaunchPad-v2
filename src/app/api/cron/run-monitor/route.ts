@@ -36,5 +36,5 @@ export async function GET(request: NextRequest) {
 
   // streamMonitorRun writes the monitor_run row + ecosystem_alerts and advances
   // last_run/next_run on completion, so the monitor drops out of the due set.
-  return streamMonitorRun(monitor.project_id, monitorId);
+  return streamMonitorRun(monitor.project_id, monitorId, { trigger: 'scheduled' });
 }

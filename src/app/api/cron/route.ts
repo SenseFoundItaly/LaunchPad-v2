@@ -876,7 +876,12 @@ export async function GET(request: NextRequest) {
            error_message = ?
        WHERE id = ?`,
       new Date().toISOString(), durationMs,
-      monitorResults.length, watchSourceResults.length,
+      // monitors_ran counts monitors DISPATCHED this tick (dueMonitorIds — the
+      // scheduler runs each via the streaming /api/cron/run-monitor endpoint).
+      // It briefly wrote monitorResults.length, which is hardcoded-empty since
+      // the streaming rework — so every cron health dashboard read 0 while
+      // monitors ran fine (unwired-sweep finding).
+      dueMonitorIds.length, watchSourceResults.length,
       correlationResults.length, heartbeatResults.length, dismissedNotifications,
       scrapeOutageMsg,
       cronRunId,
@@ -889,9 +894,13 @@ export async function GET(request: NextRequest) {
       // The scheduler runs each of these via the streaming /api/cron/run-monitor
       // endpoint (Netlify can't complete a monitor agent run inline).
       due_monitor_ids: dueMonitorIds,
-      monitors_ran: monitorResults.length,
+      monitors_ran: dueMonitorIds.length,
       monitors_remaining: monitorsRemaining,
       monitor_results: monitorResults,
+      // staging-cron.yml greps this exact field for its observability line —
+      // the workflow shipped querying a field the response never carried
+      // (unwired-sweep finding), so its green line proved nothing.
+      build_iterations_proposed: buildIterationsProposed,
       watch_sources_processed: watchSourceResults.length,
       watch_sources_failed: watchSourcesFailed,
       watch_source_results: watchSourceResults,
