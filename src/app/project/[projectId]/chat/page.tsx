@@ -646,10 +646,18 @@ export default function CopilotChatPage({
 
   // Fire lp-actions-changed immediately when streaming ends so downstream
   // surfaces (badge counts, inline cards) refetch without waiting for poll.
+  // A delayed second dispatch picks up the route's DEFERRED post-answer work
+  // (watcher/gate proposers now run via after(), landing well after the
+  // composer unlocks) without waiting for the next poll cycle.
   const wasStreamingRef = useRef(false);
   useEffect(() => {
     if (wasStreamingRef.current && !isStreaming) {
       window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+      const t = setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+      }, 25_000);
+      wasStreamingRef.current = isStreaming;
+      return () => clearTimeout(t);
     }
     wasStreamingRef.current = isStreaming;
   }, [isStreaming, projectId]);

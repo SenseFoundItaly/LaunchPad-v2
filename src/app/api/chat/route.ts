@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, after } from 'next/server';
 import { query, run, get } from '@/lib/db';
 import { CREDITS_PER_MESSAGE } from '@/lib/credit-costs';
 import crypto from 'crypto';
@@ -581,7 +581,7 @@ export async function POST(request: NextRequest) {
       const fpStream = new ReadableStream({
         start(controller) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: fullText })}\n\n`));
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, fast_path: true })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, final: true, fast_path: true })}\n\n`));
           controller.close();
         },
       });
@@ -1278,6 +1278,18 @@ export async function POST(request: NextRequest) {
     // Tool activity accumulated from tool_start/tool_end SSE events.
     let toolsList: Array<{ id: string; name: string; args?: unknown; status: string }> = [];
 
+    // Deferred-persistence handoff: flush() builds the closure once all turn
+    // state (fullResponse, toolsList, usage) is final; the after() registered
+    // below (request scope) runs it once the response finishes streaming.
+    // MUST always resolve — an unresolved promise would hold the lambda: the
+    // try's handoff, the finally's null, and the transformer cancel() all
+    // resolve it (resolution is once-only, later calls are no-ops), and the
+    // after() callback races a 65s timeout as the last line of defense.
+    let handDeferredWork: (w: (() => Promise<void>) | null) => void = () => {};
+    const deferredWork = new Promise<(() => Promise<void>) | null>((resolve) => {
+      handDeferredWork = resolve;
+    });
+
     // Wrap to add telemetry + memory hooks on completion
     const telemetryStream = piStream.pipeThrough(new TransformStream({
       transform(chunk, controller) {
@@ -1360,7 +1372,8 @@ export async function POST(request: NextRequest) {
           cache_read_input_tokens: streamUsage?.cache_read_input_tokens ?? 0,
         };
         const cost = streamUsage?.cost ?? estimateCost(piProvider, piModel, usage);
-        await logUsageToDb(project_id, null, step, piProvider, piModel, usage, cost, latencyMs);
+        // logUsageToDb moved into the deferred closure (see below) — the done
+        // frame and the closure both use the values computed above.
         // pi-agent.ts already opened/closed a live, properly-nested Langfuse
         // trace for this turn (runAgentStream) — reuse its id instead of
         // logging a second, disconnected flat trace here (Part D).
@@ -1473,158 +1486,37 @@ export async function POST(request: NextRequest) {
         // so a validation_proposal may now be waiting with no visible card.
         let stagedCanvasEvidence = false;
 
-        // Memory: chat_turn event + fact artifact extraction.
-        // Wrapped in try so memory failures never break the stream response.
+        // Memory writes split by READER (composer-unlock lever): what the
+        // STREAM or the NEXT TURN reads stays in flush — the fact sweep (sets
+        // stagedCanvasEvidence for the validation backstop below) and the
+        // artifact persistence loop (fills persistedMap for the done frame).
+        // Everything with no such reader — usage log, chat_turn /
+        // option_selected / knowledge_proposed / artifact-observability
+        // events, watcher + gate proposers — moves into the deferred closure
+        // built below the done frame and runs via after() once the response
+        // has finished streaming.
+        // Deterministic capture net (chat-fact-sweep): if this founder message
+        // states spine-relevant evidence the agent did NOT capture via
+        // save_memory_fact (facts written mid-turn are already in the DB, so
+        // the sweep's already-captured guard sees them), stage it as an
+        // approve-to-green item — founder-first, same gate as doc digests.
         try {
-          await recordEvent({
-            userId,
-            projectId: project_id,
-            eventType: 'chat_turn',
-            payload: {
-              preview: lastMessage.slice(0, 200),
-              response_preview: fullResponse.slice(0, 200),
-              step,
-            },
-          });
-
-          // Gap 3: a founder option-set click arrives as an "I choose: …" /
-          // "Scelgo: …" message (the localized chat.i-choose template). Record it
-          // as a structured decision event so which fork the founder took is
-          // queryable (activation/dropout metrics) instead of buried in prose.
-          // The DISCARDED siblings ride the same event (option-decision-log):
-          // without them, "why did we skip option B?" had no answer in a pivot.
-          try {
-            const choice = lastMessage.match(/^\s*(?:I choose|Scelgo):\s*([\s\S]+)$/i);
-            if (choice) {
-              const chosen = choice[1].trim();
-              let decision = null;
-              try {
-                // The click's option-set lives in a PRIOR assistant message —
-                // this turn's reply is already persisted, so scan the last 3.
-                const prevAssistant = await query<{ content: string }>(
-                  `SELECT content FROM chat_messages
-                    WHERE project_id = ? AND role = 'assistant'
-                    ORDER BY "timestamp" DESC LIMIT 3`,
-                  project_id,
-                );
-                decision = findOptionDecision(prevAssistant.map((r) => r.content), chosen);
-              } catch { /* decision context is best-effort */ }
-              await recordEvent({
-                userId,
-                projectId: project_id,
-                eventType: 'option_selected',
-                payload: {
-                  choice: chosen.slice(0, 200),
-                  ...(decision?.discarded.length ? { discarded: decision.discarded } : {}),
-                  ...(decision?.prompt ? { prompt: decision.prompt } : {}),
-                },
-              });
-            }
-          } catch (err) {
-            console.warn('[chat] option_selected record failed (non-fatal):', (err as Error).message);
+          const swept = await sweepFounderMessageForFacts(project_id, lastMessage);
+          if (swept.staged > 0) {
+            // Re-use the proposal backstop below so the staged card is
+            // injected into this turn instead of waiting silently in Inbox.
+            stagedCanvasEvidence = true;
           }
+        } catch (err) {
+          console.warn('[chat] fact sweep failed (non-fatal):', (err as Error).message);
+        }
 
-          // Deterministic capture net (chat-fact-sweep): if this founder message
-          // states spine-relevant evidence the agent did NOT capture via
-          // save_memory_fact (facts written mid-turn are already in the DB, so
-          // the sweep's already-captured guard sees them), stage it as an
-          // approve-to-green item — founder-first, same gate as doc digests.
-          try {
-            const swept = await sweepFounderMessageForFacts(project_id, lastMessage);
-            if (swept.staged > 0) {
-              // Re-use the proposal backstop below so the staged card is
-              // injected into this turn instead of waiting silently in Inbox.
-              stagedCanvasEvidence = true;
-            }
-          } catch (err) {
-            console.warn('[chat] fact sweep failed (non-fatal):', (err as Error).message);
-          }
+        // Hoisted out of the try below so the deferred closure can capture it.
+        const segments = parseMessageContent(fullResponse);
 
-          const segments = parseMessageContent(fullResponse);
-
-          // Gap 1: record a knowledge_proposed event for each knowledge-suggestion
-          // the agent emitted. Proposals were previously zero-trace (prompt-emitted
-          // prose, no tool, no row) — the agent could re-suggest the same fact
-          // forever and never know if the founder applied or ignored it. This adds
-          // a durable proposal correlated to a later knowledge_applied via
-          // fact_hash. The founder-facing UI stays ephemeral (still just a card).
-          try {
-            for (const s of segments) {
-              if (s.type !== 'artifact') continue;
-              const a = s.artifact as unknown as Record<string, unknown>;
-              if (a.type !== 'knowledge-suggestion') continue;
-              const fact = typeof a.fact === 'string' ? a.fact : '';
-              if (!fact.trim()) continue;
-              await recordEvent({
-                userId,
-                projectId: project_id,
-                eventType: 'knowledge_proposed',
-                payload: {
-                  fact_hash: factHash(fact),
-                  preview: fact.slice(0, 140),
-                  kind: typeof a.kind === 'string' ? a.kind : 'observation',
-                },
-              });
-            }
-          } catch (err) {
-            console.warn('[chat] knowledge_proposed record failed (non-fatal):', (err as Error).message);
-          }
-
-          // Track source-enforcement rejections so we can tune prompts if the
-          // agent repeatedly produces unsourced artifacts. Each rejection is
-          // a memory_event with the artifact type + reason — queryable later
-          // for "how often does Sonnet skip sources on entity-cards?"-style
-          // analysis. Does NOT throw — source enforcement is non-fatal to
-          // the stream; the founder just doesn't see the invalid card.
-          // Rescue path — log when an artifact passed validation only because
-          // we attached the trailing <CITATIONS> block. Mirrors the rejection
-          // event so prompt/observability can track "rescue rate" vs "rejection
-          // rate" and tighten the prompt when too many artifacts need rescuing.
-          const rescued = segments.filter(
-            (s): s is Extract<typeof s, { type: 'artifact' }> =>
-              s.type === 'artifact' && s.used_fallback_sources === true,
-          );
-          if (rescued.length > 0) {
-            try {
-              await recordEvent({
-                userId,
-                projectId: project_id,
-                eventType: 'artifact_rescued_by_fallback_citations',
-                payload: {
-                  count: rescued.length,
-                  rescues: rescued.map(r => ({ artifact_type: r.artifact.type })),
-                },
-              });
-            } catch {
-              // non-fatal — observability only
-            }
-          }
-
-          const rejected = segments.filter((s) => s.type === 'artifact-error');
-          if (rejected.length > 0) {
-            try {
-              await recordEvent({
-                userId,
-                projectId: project_id,
-                eventType: 'artifact_rejected_no_sources',
-                payload: {
-                  count: rejected.length,
-                  rejections: rejected
-                    .filter((r): r is Extract<typeof r, { type: 'artifact-error' }> => r.type === 'artifact-error')
-                    .map((r) => ({ artifact_type: r.artifact_type, reason: r.reason })),
-                },
-              });
-              console.warn(
-                `[chat] ${rejected.length} artifact(s) rejected for missing sources:`,
-                rejected
-                  .filter((r): r is Extract<typeof r, { type: 'artifact-error' }> => r.type === 'artifact-error')
-                  .map((r) => `${r.artifact_type}: ${r.reason}`)
-                  .join('; '),
-              );
-            } catch {
-              // non-fatal — observability only
-            }
-          }
+        // Artifact persistence loop — stays in flush: persistedMap feeds the
+        // done frame and stagedCanvasEvidence feeds the validation backstop.
+        try {
           for (const seg of segments) {
             if (seg.type !== 'artifact') continue;
             if (seg.artifact.type === 'fact') {
@@ -1826,7 +1718,10 @@ export async function POST(request: NextRequest) {
 
         // Emit done event with cost + credits so the client can show per-message credits
         try {
-          const donePayload: Record<string, unknown> = { done: true };
+          // final: true — the client's composer unlocks on THIS frame (after
+          // all backstop cards + persisted_artifacts), not on stream close.
+          // pi-agent's own earlier done frame must never carry it.
+          const donePayload: Record<string, unknown> = { done: true, final: true };
           // Inbox-mutating turn → tell the client to refresh the inbox / monitors
           // / tasks panels. The agent's tool calls (dismiss, propose_monitor,
           // create_task, …) change pending_actions server-side, but the chat turn
@@ -1867,19 +1762,172 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(donePayload)}\n\n`));
         } catch { /* non-fatal */ }
 
-        // Phase-1 watcher activation — AFTER the done frame (the founder has
-        // their reply; the proposer's LLM call never delays the turn) and
-        // AWAITED (serverless freezes fire-and-forget work). Rebuilds the
-        // snapshot internally so THIS turn's persisted evidence counts — the
-        // old pre-turn call used a stale snapshot. Idempotent + non-throwing.
-        await maybeProposePhase1Watchers(project_id);
-        await maybeProposeGateVerdict(project_id);
+        // Deferred persistence — everything with no stream or next-turn
+        // reader. Runs via after() (registered at the route return); the
+        // Netlify Next adapter tracks it (wait-until.cjs → trackBackgroundWork)
+        // so it completes even after the client's reader unblocks. The
+        // watcher/gate proposers rebuild their snapshot inside the closure so
+        // THIS turn's persisted evidence still counts (all flush writes are
+        // done by then). FAILURES MUST BE LOUD — each step is individually
+        // try/caught so one failure doesn't skip the rest, and errors carry a
+        // stable, greppable prefix.
+        const deferred = async () => {
+          const step_ = async (name: string, fn: () => Promise<unknown>) => {
+            try { await fn(); } catch (err) {
+              console.error(`[chat][deferred] ${name} failed:`, err);
+            }
+          };
+          await step_('usage-log', () =>
+            logUsageToDb(project_id, null, step, piProvider, piModel, usage, cost, latencyMs));
+          await step_('chat-turn-event', () =>
+            recordEvent({
+              userId,
+              projectId: project_id,
+              eventType: 'chat_turn',
+              payload: {
+                preview: lastMessage.slice(0, 200),
+                response_preview: fullResponse.slice(0, 200),
+                step,
+              },
+            }));
+          // Gap 3: a founder option-set click arrives as an "I choose: …" /
+          // "Scelgo: …" message (the localized chat.i-choose template). Record
+          // it as a structured decision event so which fork the founder took
+          // is queryable (activation/dropout metrics) instead of buried in
+          // prose. The DISCARDED siblings ride the same event.
+          await step_('option-selected', async () => {
+            const choice = lastMessage.match(/^\s*(?:I choose|Scelgo):\s*([\s\S]+)$/i);
+            if (!choice) return;
+            const chosen = choice[1].trim();
+            let decision = null;
+            try {
+              // The click's option-set lives in a PRIOR assistant message —
+              // this turn's reply is already persisted, so scan the last 3.
+              const prevAssistant = await query<{ content: string }>(
+                `SELECT content FROM chat_messages
+                  WHERE project_id = ? AND role = 'assistant'
+                  ORDER BY "timestamp" DESC LIMIT 3`,
+                project_id,
+              );
+              decision = findOptionDecision(prevAssistant.map((r) => r.content), chosen);
+            } catch { /* decision context is best-effort */ }
+            await recordEvent({
+              userId,
+              projectId: project_id,
+              eventType: 'option_selected',
+              payload: {
+                choice: chosen.slice(0, 200),
+                ...(decision?.discarded.length ? { discarded: decision.discarded } : {}),
+                ...(decision?.prompt ? { prompt: decision.prompt } : {}),
+              },
+            });
+          });
+          // Gap 1: record a knowledge_proposed event for each
+          // knowledge-suggestion the agent emitted — a durable proposal
+          // correlated to a later knowledge_applied via fact_hash.
+          await step_('knowledge-proposed', async () => {
+            for (const s of segments) {
+              if (s.type !== 'artifact') continue;
+              const a = s.artifact as unknown as Record<string, unknown>;
+              if (a.type !== 'knowledge-suggestion') continue;
+              const fact = typeof a.fact === 'string' ? a.fact : '';
+              if (!fact.trim()) continue;
+              await recordEvent({
+                userId,
+                projectId: project_id,
+                eventType: 'knowledge_proposed',
+                payload: {
+                  fact_hash: factHash(fact),
+                  preview: fact.slice(0, 140),
+                  kind: typeof a.kind === 'string' ? a.kind : 'observation',
+                },
+              });
+            }
+          });
+          // Source-enforcement observability: rescue rate vs rejection rate.
+          await step_('artifact-observability', async () => {
+            const rescued = segments.filter(
+              (s): s is Extract<typeof s, { type: 'artifact' }> =>
+                s.type === 'artifact' && s.used_fallback_sources === true,
+            );
+            if (rescued.length > 0) {
+              await recordEvent({
+                userId,
+                projectId: project_id,
+                eventType: 'artifact_rescued_by_fallback_citations',
+                payload: {
+                  count: rescued.length,
+                  rescues: rescued.map(r => ({ artifact_type: r.artifact.type })),
+                },
+              });
+            }
+            const rejected = segments.filter((s) => s.type === 'artifact-error');
+            if (rejected.length > 0) {
+              await recordEvent({
+                userId,
+                projectId: project_id,
+                eventType: 'artifact_rejected_no_sources',
+                payload: {
+                  count: rejected.length,
+                  rejections: rejected
+                    .filter((r): r is Extract<typeof r, { type: 'artifact-error' }> => r.type === 'artifact-error')
+                    .map((r) => ({ artifact_type: r.artifact_type, reason: r.reason })),
+                },
+              });
+              console.warn(
+                `[chat] ${rejected.length} artifact(s) rejected for missing sources:`,
+                rejected
+                  .filter((r): r is Extract<typeof r, { type: 'artifact-error' }> => r.type === 'artifact-error')
+                  .map((r) => `${r.artifact_type}: ${r.reason}`)
+                  .join('; '),
+              );
+            }
+          });
+          // Phase-1 watcher activation + gate verdict — both rebuild the
+          // snapshot internally so this turn's persisted evidence counts.
+          // Idempotent + non-throwing.
+          await step_('phase1-watchers', () => maybeProposePhase1Watchers(project_id));
+          await step_('gate-verdict', () => maybeProposeGateVerdict(project_id));
+        };
+        if (process.env.CHAT_DEFER_PERSIST === '0') {
+          // Kill-switch: reproduce the fully blocking semantics — the closure
+          // runs inside flush, before the stream closes.
+          await deferred();
+          handDeferredWork(null);
+        } else {
+          handDeferredWork(deferred);
+        }
         } finally {
           // Clear the safety timer — flush completed before deadline.
+          // handDeferredWork is once-only: a no-op when the try already handed
+          // off, and the guaranteed resolution when flush threw before it.
+          handDeferredWork(null);
           clearTimeout(flushDeadline);
         }
       },
+      // @ts-expect-error — transformer.cancel is in the Streams spec and
+      // supported by the Node 22 runtime (netlify.toml NODE_VERSION), but this
+      // TS lib version's Transformer type predates it.
+      cancel() {
+        // Client aborted mid-stream — flush never runs (and its safety timer
+        // was never armed). Resolve the handoff so after() doesn't wait 65s.
+        handDeferredWork(null);
+      },
     }));
+
+    // Registered HERE (request scope — after() throws outside it, and the
+    // TransformStream callbacks run under the adapter's pump, not this scope).
+    // Runs once the response finishes streaming; the Netlify adapter keeps the
+    // invocation alive until it settles (wait-until.cjs → trackBackgroundWork).
+    after(async () => {
+      const work = await Promise.race([
+        deferredWork,
+        // flush hung past its own 60s force-terminate and never handed off —
+        // don't hold the invocation on a promise nobody will resolve.
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 65_000)),
+      ]);
+      if (work) await work();
+    });
 
     return new Response(telemetryStream, {
       headers: {
@@ -1927,7 +1975,7 @@ export async function POST(request: NextRequest) {
           lastMessage.slice(0, 1000),
           directResponseText.slice(0, 2000),
         );
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, usage: { cost } })}\n\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, final: true, usage: { cost } })}\n\n`));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));

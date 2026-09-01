@@ -283,6 +283,16 @@ export function useChat(projectId: string, step: string = 'chat') {
               );
             }
 
+            // Composer unlock on the FINAL done frame (the route's, after all
+            // backstop cards + persisted_artifacts) instead of stream close.
+            // The reader loop keeps draining below; the finally re-patching
+            // isStreaming:false is idempotent. NOT on pi-agent's first done
+            // frame — backstop cards arrive between the two.
+            if (parsed.done && parsed.final) {
+              flushNow();
+              patch(store, { isStreaming: false });
+            }
+
             if (parsed.error) {
               console.error('Stream error:', parsed.error);
               flushNow(); // land whatever streamed before surfacing the error
