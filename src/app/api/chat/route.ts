@@ -33,12 +33,18 @@ import { validationTracksAB_done } from '@/lib/journey/stage-2-market-validation
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
 import { maybeProposeGateVerdict } from '@/lib/gate-verdict';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { CACHE_PREFIX_SPLIT, buildSplitUserTurn } from '@/lib/chat-cache-split';
+// NOTE deliberately NOT imported: @/lib/chat-cache-split (CACHE_PREFIX_SPLIT /
+// buildSplitUserTurn). That flag's approach — moving the dynamic context onto
+// the user turn — measurably broke the Validation Gate (8/8/8 → 1/1/6) while
+// passing the cost dashboard, and its env name is one edit away from the GOOD
+// flag (CHAT_CACHE_SPLIT, cache-breakpoint.ts, default ON). The route wiring
+// was removed 2026-09-01 so the regression is unreachable instead of one env
+// typo away; the module stays as the labeled post-mortem.
 import { NODE_STEP_PREFIX, parseNodeStep, sessionSuffixForStep } from '@/lib/chat/node-scope';
 import { coerceTimeline } from '@/lib/timeline';
 import { getSkillTools } from '@/lib/skill-tools';
 import { captureWorkflow } from '@/lib/workflow-capture';
-import { pickModel, type TaskLabel } from '@/lib/llm/router';
+import { pickModel, modelForKey, type TaskLabel } from '@/lib/llm/router';
 import { persistArtifact } from '@/lib/artifact-persistence';
 import { captureChatArtifact } from '@/lib/chat-artifacts';
 import { renderContentMappingForPrompt, findMatchingSkill } from '@/lib/llm/content-mapping';
@@ -711,11 +717,6 @@ export async function POST(request: NextRequest) {
     locale !== 'en'
       ? `\n\n[LANGUAGE — THIS TURN] Reply in ${LOCALE_ENGLISH_NAME[locale]} — every founder-facing word, including artifact prose. This holds even when the founder's message is short, an option label, English, or a single word. Do NOT switch to English.`
       : '';
-  // Lever 1 (CACHE_PREFIX_SPLIT): keep the system prompt's static prefix
-  // byte-stable so Anthropic caches it as a READ instead of re-writing ~17k tok
-  // every turn. The dynamic per-turn context is assembled here but, when the flag
-  // is ON, is NOT baked into the system string — it rides the user turn instead
-  // (buildSplitUserTurn, below), recency-preserving. Flag OFF = byte-identical to before.
   // Committed market sizing (TAM/SAM/SOM) so the agent reuses one figure across
   // turns instead of re-deriving a different number each time. snapshot.research
   // is already fetched; '' when no sizing exists (no token cost). Reference-only
@@ -750,7 +751,7 @@ export async function POST(request: NextRequest) {
     tail: `${ARTIFACT_INSTRUCTIONS}\n\n${JOURNEY_RULES}`,
     projectContext: '',
   });
-  const volatileSystem = CACHE_PREFIX_SPLIT || !dynamicContext ? '' : `\n\n${dynamicContext}`;
+  const volatileSystem = !dynamicContext ? '' : `\n\n${dynamicContext}`;
   let systemPrompt = joinSystemForModel(staticSystem, volatileSystem);
   // Per-turn steering (prereq gate + prior-turn nudge) accumulates here. Legacy
   // folds it into systemPrompt (byte-identical to before); split rides it on the
@@ -893,16 +894,11 @@ export async function POST(request: NextRequest) {
     // that's `lastMessage`, which the SDK appends as the new user turn.
     const seedHistory = buildSeedHistory(messages.slice(0, -1));
 
-    // Lever 1 assembly. Legacy: fold steering into the system string (byte-
-    // identical to before). Split: leave systemPrompt as the static cacheable
-    // prefix and carry dynamic context + steering on the user turn (steering last
-    // → recency preserved). Same total content reaches the model either way.
-    let effectiveLastMessage = lastMessage;
-    if (CACHE_PREFIX_SPLIT) {
-      effectiveLastMessage = buildSplitUserTurn(dynamicContext, trailingSteer, lastMessage);
-    } else {
-      systemPrompt = systemPrompt + trailingSteer;
-    }
+    // Per-turn steering folds into the system string (the CHAT_CACHE_SPLIT
+    // breakpoint keeps the static half cached regardless — see
+    // cache-breakpoint.ts). The user turn is the founder's message, verbatim.
+    const effectiveLastMessage = lastMessage;
+    systemPrompt = systemPrompt + trailingSteer;
 
     // ── Cache fingerprint (diagnostic) ────────────────────────────────────
     // Anthropic prompt caching is a PREFIX match over tools → system →
@@ -975,7 +971,7 @@ export async function POST(request: NextRequest) {
           toolCount: offeredTools.length,
           sysLen: systemPrompt.length,
           task: chatTask,
-          split: CACHE_PREFIX_SPLIT,
+          split: false, // legacy CACHE_PREFIX_SPLIT wiring removed 2026-09-01; field kept so fingerprint-report tooling keeps parsing
           sections,
           // 20-BLOCK LOOKBACK probe. Anthropic walks back at most 20 content
           // blocks from a breakpoint to find the previous cache entry; a turn
@@ -998,7 +994,26 @@ export async function POST(request: NextRequest) {
     // same task), so we look up the key for the provider actually called.
     const userKey = await resolveUserKey(userId, pickModel(chatTask).provider);
 
+    // users.preferred_model — the Settings "Preferred Model" radio, whose copy
+    // promises "When set, all chat messages use this model". Until 2026-09-01
+    // NOTHING read this column (unwired-sweep finding): founders picked Opus
+    // or Haiku and silently kept getting the router's tier. modelForKey()
+    // returns null for unknown/legacy keys, so a stale stored preference
+    // degrades to the task router instead of erroring. Applies to BOTH chat
+    // and chat-followup — "all chat messages" means all. Provider is uniform
+    // across keys (LLM_PROVIDER), so the BYOK lookup above stays correct.
+    let modelOverride: ReturnType<typeof modelForKey> = null;
+    try {
+      const pref = await get<{ preferred_model: string | null }>(
+        'SELECT preferred_model FROM users WHERE id = ?', userId,
+      );
+      if (pref?.preferred_model) modelOverride = modelForKey(pref.preferred_model);
+    } catch (err) {
+      console.warn('[chat] preferred_model lookup failed (non-fatal):', (err as Error).message);
+    }
+
     const { stream: piStream } = runAgentStream(effectiveLastMessage, {
+      modelOverride,
       sessionId,
       systemPrompt,
       seedHistory,
