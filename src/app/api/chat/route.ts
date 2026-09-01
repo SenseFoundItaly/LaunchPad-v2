@@ -10,7 +10,7 @@ import { buildSystemPromptString } from '@/lib/agent-prompt';
 import { resolveLocale } from '@/lib/i18n/resolve-locale';
 import { LOCALE_ENGLISH_NAME } from '@/lib/i18n/locales';
 import { translate } from '@/lib/i18n/messages';
-import { makeProjectTools, withSourceTitles } from '@/lib/project-tools';
+import { makeProjectTools, withSourceTitles, renderProjectSummary } from '@/lib/project-tools';
 import { AuthError, requireUser, type SessionUser } from '@/lib/auth/require-user';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { buildMemoryContext } from '@/lib/memory/context';
@@ -159,8 +159,8 @@ Skills are PROPOSED inline, not run inline. Calling a skill_* tool does NOT run 
 
 GATE SKILLS ON THEIR PREREQUISITES — do NOT offer a skill that needs context the project doesn't have yet. Concretely: do NOT propose startup-scoring, business-model, simulation, pitch, or any scoring/modeling skill while [CURRENT IDEA CANVAS] has no solution / value_proposition — those skills cannot succeed on an empty idea and waste the founder's time. Close the solution + value-prop FIRST (Stage 1). Only offer a skill when its inputs exist; otherwise the right next option is the canvas-commit that unblocks it, not the downstream skill.
 
-When the founder asks to advance / close / fire / kick off a stage or a skill, OR when get_project_summary shows a stage at CAUTION or NOT READY with a clear next_recommended_skill (and the skill's prerequisites are met):
-- Step 1: call get_project_summary (already part of TIER 1 opener — counts as 1 tool call).
+When the founder asks to advance / close / fire / kick off a stage or a skill, OR when the [PROJECT SUMMARY] block (or a get_project_summary refresh) shows a stage at CAUTION or NOT READY with a clear next_recommended_skill (and the skill's prerequisites are met):
+- Step 1: read the [PROJECT SUMMARY] block already in your context (first turn) — mid-conversation, call get_project_summary for a fresh snapshot ONLY if evidence changed since (counts as 1 tool call).
 - Step 2: call the relevant skill_* tool to PROPOSE it. Do NOT web_search first. The tool returns immediately with the option object to embed; that is success, not a partial result.
 - Step 3: In your visible reply, tell the founder in one line what the analysis will do (never call it a "skill"), then include the option object the tool handed you as ONE option in your trailing option-set (keep its "skill_id" exactly — that is what makes the click run it; do NOT add a "credits" field). Do NOT claim or invent the findings — it has not run yet. Do NOT emit a separate suggestion card; the option IS the proposal.
 
@@ -174,10 +174,10 @@ ${renderContentMappingForPrompt()}
 Rule of thumb: if the founder asks a domain question and a skill covers that domain, PROPOSE the skill rather than web_search. Skills (once the founder approves) produce durable validation evidence (skill_completions row, section_scores, idea_canvas updates); web_search produces ephemeral prose. Both are useful but only the first MOVES THE VALIDATION NEEDLE.
 
 === TIER 1 — CONVERSATION OPENER (first turn of every thread) ===
-At the start of every conversation, call \`get_project_summary\`. It returns stage readiness, intelligence briefs, AND hot signals in one response. Do NOT separately call list_intelligence_briefs or list_ecosystem_alerts on the opener — the summary already includes them. Use those tools only for deep-dives when the summary surfaces something worth exploring.
+Your context on the FIRST turn of every thread already contains a [PROJECT SUMMARY] block — the full get_project_summary output: stage readiness, intelligence briefs, AND hot signals. Do NOT call get_project_summary on the opener, and do NOT call list_intelligence_briefs or list_ecosystem_alerts either — the block already includes them. Go STRAIGHT to your opening prose off that block. Use those tools only for deep-dives when the summary surfaces something worth exploring, and call get_project_summary only mid-conversation when evidence changed since the opener. If the block is absent (injection can fail), call get_project_summary yourself and proceed as before.
 
 THEN apply this decision tree to your opening:
-- IF monitors fired since the last chat turn (check get_project_summary's ecosystem_alerts list for \`created_at\` newer than the last chat message):
+- IF monitors fired since the last chat turn (the [DIRECTION ENGINE] block lists them under "Since the last conversation, these signals fired"; the [PROJECT SUMMARY] hot-signals list carries their relevance scores):
   → LEAD with "Since we last spoke, [monitor name] fired: [headline]. [optional 1-line implication]." Reference the linked_risk_id if the monitor is tied to a risk. This is the most important signal you can give the founder — fresh evidence on something they asked you to watch. Put the validation CTA later in the option-set.
 - IF urgent intelligence exists (briefs with high-urgency recommended actions, OR hot signals with relevance >= 0.9):
   → LEAD with the intelligence. Frame each signal using the Three-Question Protocol (Tier 2). Put the validation CTA as the LAST option in the option-set, not the first.
@@ -187,7 +187,7 @@ THEN apply this decision tree to your opening:
   → Open with the standard validation pipeline flow (stage readiness, next recommended skill).
 
 === TIER 1.5 — BRAND-NEW PROJECT (no skills completed, no idea canvas) ===
-When get_project_summary shows: no Idea Canvas, overall_score=0, all stages NOT READY, or is_new_project=true:
+When the [PROJECT SUMMARY] block (or a get_project_summary refresh) shows: no Idea Canvas, overall_score=0, all stages NOT READY, or the "NEW PROJECT" banner:
 1. This is a fresh project. The founder just created it.
 2. Read the project name + description carefully.
 3. IF the description provides enough signal (problem, who, what):
@@ -203,7 +203,7 @@ When get_project_summary shows: no Idea Canvas, overall_score=0, all stages NOT 
      A brand-new-project reply that ends with only prose or questions — when the description
      already gives you problem + who + what — is BROKEN: Stage 1 stays empty and the spine never moves.
    → NOTE: a pending Idea Canvas card may ALREADY be waiting (auto-seeded from the project
-     description at creation). If get_project_summary / the inbox shows one, HELP the founder
+     description at creation). If the [PROJECT SUMMARY] / the inbox shows one, HELP the founder
      review, refine, and approve it — do NOT propose a duplicate canvas card.
 4. IF the description is too vague (just a name, no context):
    → Ask 2-3 focused questions to understand the idea: What problem does this solve?
@@ -244,7 +244,7 @@ Until ALL stages reach verdict GO (>=6.0), every trailing option-set MUST includ
 EXCEPTION — idea-shaping is NEVER an option-set entry. It was removed from chat options because it re-ran the whole guided flow from scratch and the rule above kept re-injecting it every turn (an infinite "Avvia Idea Shaping" loop). The founder relaunches the guided flow from the "Re-run Idea Shaping" button in the Canvas — never from chat. While the idea canvas is still being shaped (Stage 1, [CURRENT IDEA CANVAS] missing solution / value_proposition / target_market), the advancing option is the canvas-COMMIT (update_idea_canvas / propose_validation), NOT a skill kickoff. The founder also has three fixed default replies below the composer (give input / get options / go back) — do NOT restate those as option-set entries; offer only the content-specific choices (e.g. concrete A/B/C options for the field in play) plus the commit.
 
 HOW to source the recommendation:
-- The \`get_project_summary\` response contains a \`## Stage readiness\` block with scores, verdicts, missing skills, and a "Next recommended:" + "Kickoff:" pair.
+- The [PROJECT SUMMARY] block (and any get_project_summary refresh) contains a \`## Stage readiness\` block with scores, verdicts, missing skills, and a "Next recommended:" + "Kickoff:" pair.
 - Give the option a short verb-first label (≤ 6 words) naming the skill action (e.g. "Run market research"), and include the \`Kickoff:\` line VERBATIM in the option's \`description\` so the founder sees exactly what will run.
 - The option's \`description\` MUST also quote the founder's \`problem\` or \`target_market\` from the Idea Canvas (verbatim or near-verbatim). Generic descriptions are FORBIDDEN.
 
@@ -396,7 +396,7 @@ Most common failure mode: "agent offered skill_X as one of 4 options, founder di
 SOLVE FLOW MODE:
 Triggered by "Start the Solve flow" / "Avvia il flusso Solve".
 The Solve flow walks the founder through the 7-stage validation pipeline IN ORDER.
-Each stage has 1-2 skills (see get_project_summary → Stage readiness).
+Each stage has 1-2 skills (see the ## Stage readiness block in [PROJECT SUMMARY] / get_project_summary).
 
 Progression rules:
 1. Before each Solve step, call get_project_summary to read next_recommended_skill.
@@ -585,6 +585,15 @@ export async function POST(request: NextRequest) {
     // no skill tools to misuse. Pre-migration safety: meta column may not
     // exist yet → catch returns no nudge, chat keeps functioning.
     priorNudgeRows,
+    // Opener summary (velocity lever): turn 1 of a thread gets the FULL
+    // get_project_summary output injected as a [PROJECT SUMMARY] block
+    // instead of a mandated tool round-trip — saving one whole model pass
+    // (~35-50k tokens through the prefix) + ~6s p50 before first prose.
+    // Opener-only: later turns already carry canvas/research/stage/direction
+    // blocks, and the tool stays registered for mid-flow refreshes (Solve
+    // flow). Tolerant: any failure injects nothing and the TIER 1 fallback
+    // sentence has the model call the tool itself, i.e. the old behavior.
+    summaryRender,
   ] = await Promise.all([
     buildMemoryContext(userId, project_id, {
       enriched: projectRow.settings?.rich_context === true,
@@ -623,6 +632,12 @@ export async function POST(request: NextRequest) {
           project_id,
         ).catch((err) => {
           console.warn('[chat] prior-turn nudge query failed (non-fatal):', (err as Error).message);
+          return null;
+        })
+      : Promise.resolve(null),
+    messages.length <= 1
+      ? renderProjectSummary(project_id).catch((err) => {
+          console.warn('[chat] opener summary render failed (non-fatal):', (err as Error).message);
           return null;
         })
       : Promise.resolve(null),
@@ -796,6 +811,14 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Opener [PROJECT SUMMARY] block (see the wave member above). Rides the
+  // VOLATILE half (dynamicContext) so the static cache prefix is untouched.
+  // On render failure or details.error nothing is injected — never an error
+  // string; the model's TIER 1 fallback then calls the tool itself.
+  const summaryContext = summaryRender && !summaryRender.details.error
+    ? `[PROJECT SUMMARY — the full get_project_summary output, injected for this first turn. Read it here; do NOT call get_project_summary / list_intelligence_briefs / list_ecosystem_alerts on the opener.]\n${summaryRender.text}\n\n`
+    : '';
+
   // Build system prompt: SOUL + AGENTS personality first (locale-aware),
   // then ARTIFACT_INSTRUCTIONS, then stage context (highest signal for
   // "what to talk about"), then per-project context + memory + recently-
@@ -816,7 +839,7 @@ export async function POST(request: NextRequest) {
   const researchContext = buildResearchContext((snapshot?.research ?? null) as Record<string, unknown> | null);
   // focusNodeContext (#330, fetched in the wave) rides FIRST in the dynamic
   // context so a node side-thread's focus outranks the project-wide steering.
-  const dynamicContext = `${focusNodeContext}${directionContext}${stageContext}${canvasContext}${researchContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
+  const dynamicContext = `${focusNodeContext}${directionContext}${summaryContext}${stageContext}${canvasContext}${researchContext}${commitGuardContext}${watcherContext}${projectContext}${memoryContext}\n${skillContext}${localeReminder}`;
   // JOURNEY_RULES rides the STATIC tail, next to ARTIFACT_INSTRUCTIONS: it is
   // byte-identical on every turn of every project, so it is cached as a READ.
   // Only the live spine STATE goes in the dynamic context below.
@@ -1018,6 +1041,7 @@ export async function POST(request: NextRequest) {
         const sections: Record<string, [string, number]> = {
           focusNode: [sha12(focusNodeContext), focusNodeContext.length],
           direction: [sha12(directionContext), directionContext.length],
+          summary: [sha12(summaryContext), summaryContext.length],
           stage: [sha12(stageContext), stageContext.length],
           canvas: [sha12(canvasContext), canvasContext.length],
           research: [sha12(researchContext), researchContext.length],

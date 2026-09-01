@@ -446,36 +446,51 @@ const getProjectMetrics = (ctx: ToolContext): AgentTool => ({
   },
 });
 
-const getProjectSummary = (ctx: ToolContext): AgentTool => ({
-  name: 'get_project_summary',
-  label: 'Project Overview',
-  description: 'Get the project\'s name, description, idea canvas (problem/solution/target market/value prop), latest startup score, research snapshot, AND a per-stage readiness block listing which of the 7 validation stages are missing skills + a "Next recommended" skill the founder should run. Call this at the start of EVERY conversation — the readiness block is what tells you which skill kickoff to put in your trailing option-set.',
-  parameters: Type.Object({}),
-  async execute(_id): Promise<AgentToolResult<unknown>> {
+/**
+ * Pure renderer behind the get_project_summary tool AND the chat opener's
+ * [PROJECT SUMMARY] injection (velocity lever): the first turn of a thread
+ * gets this output injected into the dynamic context instead of spending a
+ * mandated tool round-trip (a whole extra model pass) on it. Extracted as a
+ * pure move — the rendered text stays byte-equivalent to the tool output, so
+ * a mid-flow tool refresh and the injected block read identically.
+ */
+export interface ProjectSummaryRender {
+  text: string;
+  details: {
+    error?: boolean;
+    has_idea?: boolean;
+    has_score?: boolean;
+    is_new_project?: boolean;
+    next_recommended_skill?: string | null;
+    overall_score?: number | null;
+  };
+}
+
+export async function renderProjectSummary(projectId: string): Promise<ProjectSummaryRender> {
     const projectRows = await query<Record<string, unknown>>(
       'SELECT id, name, description, current_step, locale, partner_slug, created_at FROM projects WHERE id = ?',
-      ctx.projectId,
+      projectId,
     );
     const project = projectRows[0];
     if (!project) {
-      return { content: [{ type: 'text', text: 'Project not found.' }], details: { error: true } };
+      return { text: 'Project not found.', details: { error: true } };
     }
 
     const ideaRows = await query<Record<string, unknown>>(
       'SELECT problem, solution, target_market, business_model, value_proposition FROM idea_canvas WHERE project_id = ?',
-      ctx.projectId,
+      projectId,
     );
     const idea = ideaRows[0];
 
     const scoreRows = await query<Record<string, unknown>>(
       'SELECT overall_score, recommendation FROM scores WHERE project_id = ?',
-      ctx.projectId,
+      projectId,
     );
     const score = scoreRows[0];
 
     const researchRows = await query<{ competitors: string | null; trends: string | null }>(
       'SELECT competitors, trends FROM research WHERE project_id = ?',
-      ctx.projectId,
+      projectId,
     );
     const research = researchRows[0];
 
@@ -483,7 +498,7 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
     // legacy projects.current_step column — that belongs to a retired 5-stage
     // taxonomy and is not advanced when journey checks pass, so it drifts and
     // made chat narrate "Stage 1 — 0/7" against an already-green spine.
-    const active = await getActiveStage(ctx.projectId);
+    const active = await getActiveStage(projectId);
 
     const lines: string[] = [];
     lines.push(`Project: ${project.name}${project.description ? ` — ${project.description}` : ''}`);
@@ -522,7 +537,7 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
     try {
       const wfRows = await query<{ financial_model: unknown }>(
         'SELECT financial_model FROM workflow WHERE project_id = ?',
-        ctx.projectId,
+        projectId,
       );
       const model = coerceJson<{ assumptions?: Record<string, unknown> }>(wfRows[0]?.financial_model);
       const a = model?.assumptions;
@@ -553,7 +568,7 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
     // continuations and never push validation forward.
     let readinessHint: Awaited<ReturnType<typeof getStageReadiness>> | null = null;
     try {
-      readinessHint = await getStageReadiness(ctx.projectId);
+      readinessHint = await getStageReadiness(projectId);
       lines.push('');
       lines.push(formatReadinessForPrompt(readinessHint));
     } catch (err) {
@@ -573,14 +588,14 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
         `SELECT title, confidence, narrative FROM intelligence_briefs
          WHERE project_id = ? AND status = 'active'
          ORDER BY confidence DESC LIMIT 3`,
-        ctx.projectId,
+        projectId,
       );
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
       const hotSignals = await query<{ headline: string; alert_type: string; relevance_score: number }>(
         `SELECT headline, alert_type, relevance_score FROM ecosystem_alerts
          WHERE project_id = ? AND created_at >= ? AND relevance_score >= 0.8 AND reviewed_state != 'dismissed'
          ORDER BY relevance_score DESC LIMIT 5`,
-        ctx.projectId, sevenDaysAgo,
+        projectId, sevenDaysAgo,
       );
 
       if (briefRows.length > 0 || hotSignals.length > 0) {
@@ -604,7 +619,7 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
     }
 
     return {
-      content: [{ type: 'text', text: lines.join('\n') }],
+      text: lines.join('\n'),
       details: {
         has_idea: !!idea,
         has_score: !!score,
@@ -613,6 +628,16 @@ const getProjectSummary = (ctx: ToolContext): AgentTool => ({
         overall_score: readinessHint?.overall_score ?? null,
       },
     };
+}
+
+const getProjectSummary = (ctx: ToolContext): AgentTool => ({
+  name: 'get_project_summary',
+  label: 'Project Overview',
+  description: 'Get the project\'s name, description, idea canvas (problem/solution/target market/value prop), latest startup score, research snapshot, AND a per-stage readiness block listing which of the 7 validation stages are missing skills + a "Next recommended" skill the founder should run. The FIRST turn of every thread already has this injected as the [PROJECT SUMMARY] context block — do NOT call this on the opener. Call it only MID-conversation when you need a refreshed readiness snapshot (e.g. after evidence was applied or a skill completed).',
+  parameters: Type.Object({}),
+  async execute(_id): Promise<AgentToolResult<unknown>> {
+    const { text, details } = await renderProjectSummary(ctx.projectId);
+    return { content: [{ type: 'text', text }], details };
   },
 });
 

@@ -120,7 +120,7 @@ When a skill's output reveals a need for another skill, recommend it explicitly.
 
 ### Proactive Signal Surfacing
 - Check intelligence state on EVERY conversation start, not just when asked
-- Call `list_intelligence_briefs`, `list_ecosystem_alerts` (7d, relevance >= 0.8), and `list_open_assumptions` (criticality: high) in parallel with `get_project_summary`
+- The opener context already carries the [PROJECT SUMMARY] block (project state, stage readiness, active briefs, 7d hot signals) — read it instead of calling tools. Call `list_open_assumptions` (criticality: high) only when premortem detail is needed; `list_intelligence_briefs` / `list_ecosystem_alerts` only for deep-dives
 - If urgent signals exist, lead with them -- the founder should never be surprised by something the system already knows
 - Frame every surfaced signal with: What happened? Why does it matter to THIS startup? What to do about it?
 
