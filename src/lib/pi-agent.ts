@@ -139,10 +139,11 @@ const LP_EXTRA_MODELS: Record<string, Model<'anthropic-messages'> | Model<'opena
  * pinned pi-ai); a miss in both is a loud error instead of the downstream
  * undefined-model crash pi-agent-core would otherwise produce.
  */
-function resolveModel(task?: TaskLabel) {
-  const target = task
-    ? pickModel(task)
-    : { provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL_ID };
+function resolveModel(task?: TaskLabel, override?: { provider: string; model: string } | null) {
+  const target = override
+    ?? (task
+      ? pickModel(task)
+      : { provider: DEFAULT_PROVIDER, model: DEFAULT_MODEL_ID });
   const model =
     getModel(target.provider as any, target.model as any) ??
     LP_EXTRA_MODELS[`${target.provider}:${target.model}`];
@@ -333,6 +334,14 @@ export interface RunAgentOptions {
    * runAgentStream. Default: 8.
    */
   maxToolCalls?: number;
+  /**
+   * Explicit model override, resolved BEFORE the task router — the wire for
+   * users.preferred_model (Settings "Preferred Model": "When set, all chat
+   * messages use this model"). Build it with router.modelForKey() so the
+   * provider matches this deployment's wire path. Unknown ids still fail loud
+   * in resolveModel.
+   */
+  modelOverride?: { provider: 'anthropic' | 'openrouter'; model: string } | null;
   /**
    * Per-sub-call output-token ceiling. Defaults to the router tier's
    * maxTokens (cheap 4096 / balanced 8192 / premium 16384) — before this
@@ -549,6 +558,7 @@ function recordGeneration(
   provider: string,
   modelId: string,
   incomingUsage: unknown,
+  startTimeMs?: number,
 ): void {
   if (!trace || !incomingUsage) return;
   try {
@@ -561,11 +571,37 @@ function recordGeneration(
       model: mapToLangfuseModelId(modelId),
       usageDetails,
       costDetails,
+      // startTime comes from the onResponse hook (HTTP response start of this
+      // sub-call). Before it was wired, generations carried only endTime and
+      // rendered as zero-duration in Langfuse, so model time vs tool time was
+      // unanswerable from traces (round-2 audit finding).
+      ...(startTimeMs ? { startTime: new Date(startTimeMs) } : {}),
       endTime: new Date(),
     });
   } catch (err) {
     console.warn('[pi-agent] Langfuse generation failed (non-fatal):', (err as Error).message);
   }
+}
+
+/**
+ * onResponse hook (pi-ai calls it with HTTP status + headers the moment each
+ * LLM sub-call's response starts): per-sub-call observability that was
+ * previously absent — non-2xx statuses were swallowed into pi-agent-core's
+ * generic error stop with no status classification, and generations had no
+ * start time. The returned object is shared per run: `at` feeds
+ * recordGeneration's startTime; `lastStatus` lets callers distinguish
+ * 429/overload blips from hard 4xx in logs.
+ */
+function makeResponseMeter() {
+  const meter = { at: undefined as number | undefined, lastStatus: undefined as number | undefined };
+  const onResponse = (response: { status: number }) => {
+    meter.at = Date.now();
+    meter.lastStatus = response.status;
+    if (response.status >= 400) {
+      console.warn(`[pi-agent] LLM sub-call responded ${response.status}${response.status === 429 ? ' (rate limited)' : response.status >= 500 ? ' (provider error)' : ''}`);
+    }
+  };
+  return { meter, onResponse };
 }
 
 /** One span per tool call, keyed by toolCallId so the matching end event can close it. */
@@ -719,7 +755,7 @@ function makeToolCallLimiter(maxToolCalls: number) {
 /** Run Pi Agent and collect full response (non-streaming). */
 export async function runAgent(prompt: string, options: RunAgentOptions = {}): Promise<RunAgentResult> {
   cleanStaleSessions();
-  const model = resolveModel(options.task);
+  const model = resolveModel(options.task, options.modelOverride);
 
   // Attempt-invariant setup, built ONCE and reused by a retry: tools, history,
   // trace, output cap. history MUST be copied into each agent (the loop pushes
@@ -759,10 +795,12 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
   }, timeout);
 
   const runAttempt = async (attempt: number): Promise<{ errorStop: boolean; errorMessage?: string; toolsRan: boolean }> => {
+    const { meter, onResponse } = makeResponseMeter();
     const agent = new Agent({
       streamFn: streamSimple,
       sessionId: options.sessionId,
       getApiKey: makeGetApiKey(options.userKey),
+      onResponse,
       // Explicitly request parallel tool execution. With 3-4 web_search +
       // read_url calls in a research turn, sequential execution dominates
       // latency — parallel lets them all run concurrently and finalizes
@@ -817,7 +855,7 @@ export async function runAgent(prompt: string, options: RunAgentOptions = {}): P
         if ('usage' in event.message) {
           const usage = (event.message as any).usage;
           lastUsage = accumulateUsage(lastUsage, usage);
-          recordGeneration(trace, model.provider, model.id, usage);
+          recordGeneration(trace, model.provider, model.id, usage, meter.at);
         }
         if (options.sessionId && shouldPersistMessage(event.message, attempt)) {
           appendToSession(options.sessionId, event.message);
@@ -872,7 +910,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
   cleanup: () => void;
 } {
   cleanStaleSessions();
-  const model = resolveModel(options.task);
+  const model = resolveModel(options.task, options.modelOverride);
   const encoder = new TextEncoder();
   let agent: Agent;
 
@@ -1016,10 +1054,12 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
        * The master timeout timer spans attempts.
        */
       const startAttempt = (attempt: number) => {
+        const { meter, onResponse } = makeResponseMeter();
         agent = new Agent({
           streamFn: streamSimple,
           sessionId: options.sessionId,
           getApiKey: makeGetApiKey(options.userKey),
+          onResponse,
           // Pin parallel tool execution rather than relying on the library
           // default — a default flip upstream would silently serialize every
           // tool batch in the founder-facing path.
@@ -1108,7 +1148,7 @@ export function runAgentStream(prompt: string, options: RunAgentOptions = {}): {
               if (event.message && 'usage' in event.message) {
                 const usage = (event.message as any).usage;
                 lastUsage = accumulateUsage(lastUsage, usage);
-                recordGeneration(trace, model.provider, model.id, usage);
+                recordGeneration(trace, model.provider, model.id, usage, meter.at);
               }
               // message_end fires for user, toolResult, and assistant messages in order.
               // Writing here is sufficient — turn_end would double-write toolResults.

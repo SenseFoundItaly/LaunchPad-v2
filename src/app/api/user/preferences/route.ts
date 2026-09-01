@@ -4,7 +4,11 @@ import { get, run } from '@/lib/db';
 import { MODEL_CONFIG } from '@/lib/llm/models';
 import { DEFAULT_LOCALE, LOCALE_COOKIE, isLocale, SUPPORTED_LOCALES } from '@/lib/i18n/locales';
 
-const VALID_MODEL_KEYS = new Set(Object.keys(MODEL_CONFIG));
+// Legacy entries exist only so telemetry can price historical usage rows
+// (models.ts) — they must be neither offered nor accepted as a preference.
+const SELECTABLE_MODELS = Object.entries(MODEL_CONFIG)
+  .filter(([, cfg]) => !(cfg as { legacy?: boolean }).legacy);
+const VALID_MODEL_KEYS = new Set(SELECTABLE_MODELS.map(([key]) => key));
 
 // One year — the locale is durable in users.locale; this cookie is just the
 // fast synchronous read path for the server layout. `lax` so it survives normal
@@ -26,7 +30,7 @@ export async function GET() {
       locale: isLocale(user?.locale) ? user!.locale : DEFAULT_LOCALE,
       onboarded: !!user?.onboarded, // first-login product-tour gate
       available_locales: SUPPORTED_LOCALES,
-      available_models: Object.entries(MODEL_CONFIG).map(([key, cfg]) => ({
+      available_models: SELECTABLE_MODELS.map(([key, cfg]) => ({
         key,
         id: cfg.id,
         tier: cfg.tier,

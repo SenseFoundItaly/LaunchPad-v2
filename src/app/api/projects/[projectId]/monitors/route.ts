@@ -37,8 +37,14 @@ interface MonitorStatsRow {
   last_trigger: string | null;
 }
 
+// 'hourly' deliberately NOT accepted for new monitors (2026-09-01): the only
+// scheduled driver (.github/workflows/scheduled-cron.yml) ticks once daily —
+// and in practice hours late — so an hourly cadence was a promise the platform
+// cannot keep, silently degrading to daily. Existing 'hourly' rows (none in
+// prod as of the change) keep parsing fine downstream; re-add here only
+// together with an hourly driver.
 const ALLOWED_SCHEDULES: ReadonlySet<string> = new Set([
-  'hourly', 'daily', 'weekly', 'monthly', 'manual',
+  'daily', 'weekly', 'monthly', 'manual',
 ]);
 
 /**
