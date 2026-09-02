@@ -4,6 +4,20 @@
  */
 import type { FundingSource, FundingCallStatus, PageStatus, FundingFacets } from './types';
 
+/** Why a call ranked where it did — rendered as chips, never prose. */
+export type MatchKind = 'region' | 'national' | 'scope' | 'subject' | 'term' | 'closing';
+
+export interface MatchReason {
+  kind: MatchKind;
+  label: string;
+}
+
+export interface RelevanceResult {
+  /** Higher is more relevant. Integer, so ordering is exact. */
+  score: number;
+  reasons: MatchReason[];
+}
+
 export interface FundingCallView {
   id: string;
   source: FundingSource;
@@ -29,6 +43,11 @@ export interface FundingCallView {
   facets: FundingFacets | null;
   source_note: string | null;
   catalog_url: string | null;
+  /**
+   * Attached by the API when the project has enough text to rank against
+   * (see relevance.ts). Absent ⇒ the page falls back to deadline order.
+   */
+  relevance?: RelevanceResult;
 }
 
 export interface SourceFreshness {
@@ -44,13 +63,27 @@ export interface SourceFreshness {
   pages_failed: number | null;
 }
 
+/** How the founder is currently ordering the list. */
+export type GrantsSort = 'relevance' | 'deadline';
+
+/** What the project's own words yielded — shown so ranking is never a black box. */
+export interface ProjectSignalSummary {
+  regions: string[];
+  scopes: string[];
+  subjectTypes: string[];
+  /** False ⇒ too little project text to rank; the page hides the relevance sort. */
+  usable: boolean;
+}
+
 export interface GrantsResponse {
-  /** ≤ 1000, ordered deadline ASC NULLS LAST, title ASC. */
+  /** ≤ 2500. Ordered by relevance when signals are usable, else deadline ASC. */
   calls: FundingCallView[];
   /** Always exactly 2 rows, order ['sedia', 'lombardia']. */
   sources: SourceFreshness[];
   /** This project's non-archived type='ecosystem.grants' monitor. */
   grants_monitor: { id: string; status: string } | null;
+  /** Null when the project has too little text to derive signals from. */
+  project_signals: ProjectSignalSummary | null;
   generated_at: string;
 }
 
@@ -196,12 +229,32 @@ function matchesChip(call: FundingCallView, chip: GrantsChip, now: Date): boolea
 /** Search first, then chip. Returns a NEW sorted array. */
 export function applyFilters(
   calls: FundingCallView[],
-  opts: { chip: GrantsChip; q: string; region?: string | null },
+  opts: { chip: GrantsChip; q: string; region?: string | null; sort?: GrantsSort },
   now: Date,
 ): FundingCallView[] {
-  return sortCalls(
-    calls.filter((c) => matchesQuery(c, opts.q) && matchesRegion(c, opts.region ?? null) && matchesChip(c, opts.chip, now)),
+  const kept = calls.filter(
+    (c) => matchesQuery(c, opts.q) && matchesRegion(c, opts.region ?? null) && matchesChip(c, opts.chip, now),
   );
+  return opts.sort === 'relevance' ? sortByRelevance(kept) : sortCalls(kept);
+}
+
+/**
+ * Relevance DESC, then the deadline order as the tie-break, so two calls the
+ * scorer cannot separate still come out in a stable, meaningful sequence. A
+ * call with no relevance attached sorts as 0 rather than disappearing.
+ */
+export function sortByRelevance(calls: FundingCallView[]): FundingCallView[] {
+  return [...calls].sort((a, b) => {
+    const sa = a.relevance?.score ?? 0;
+    const sb = b.relevance?.score ?? 0;
+    if (sa !== sb) return sb - sa;
+    if (a.deadline === null && b.deadline !== null) return 1;
+    if (a.deadline !== null && b.deadline === null) return -1;
+    if (a.deadline !== null && b.deadline !== null && a.deadline !== b.deadline) {
+      return a.deadline < b.deadline ? -1 : 1;
+    }
+    return a.title.localeCompare(b.title);
+  });
 }
 
 /** Counts per chip over `calls` (caller passes the search-filtered set). */

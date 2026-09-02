@@ -4,7 +4,9 @@ import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { FUNDING_SOURCES, type FundingSource } from '@/lib/grants/types';
 import { ITALIAN_REGIONS, NATIONAL_REGION } from '@/lib/grants/view';
-import type { FundingCallView, SourceFreshness, GrantsResponse } from '@/lib/grants/view';
+import type { FundingCallView, SourceFreshness, GrantsResponse, ProjectSignalSummary } from '@/lib/grants/view';
+import { extractProjectSignals } from '@/lib/grants/project-signals';
+import { rankCalls } from '@/lib/grants/relevance';
 
 /**
  * GET /api/projects/{projectId}/grants
@@ -78,7 +80,7 @@ export async function GET(
       vals.push(like, like);
     }
 
-    const [rawCalls, stateRows, monitor, pageAgg] = await Promise.all([
+    const [rawCalls, stateRows, monitor, pageAgg, canvas] = await Promise.all([
       query<FundingCallView>(
         `SELECT fc.id, fc.source, fc.title, fc.granting_body, fc.official_url,
                 fc.deadline::text AS deadline, fc.deadline_time, fc.status, fc.eligibility_text,
@@ -109,6 +111,18 @@ export async function GET(
                 COUNT(*) FILTER (WHERE page_status = 'unread') AS unread,
                 COUNT(*) FILTER (WHERE page_status = 'failed') AS failed
            FROM funding_calls WHERE status <> 'closed' GROUP BY source`,
+      ),
+      // What the founder has written while validating with the Co-pilot — the
+      // only input the ranking uses. No model call is made anywhere below.
+      get<{
+        problem: string | null; solution: string | null; target_market: string | null;
+        business_model: string | null; value_proposition: string | null;
+        competitive_advantage: string | null; channels: string | null;
+      }>(
+        `SELECT problem, solution, target_market, business_model,
+                value_proposition, competitive_advantage, channels
+           FROM idea_canvas WHERE project_id = ?`,
+        projectId,
       ),
     ]);
 
@@ -142,10 +156,33 @@ export async function GET(
       };
     });
 
+    // Deterministic relevance: lexicon match over the project's own words
+    // against the sources' controlled vocabulary. Pure CPU, ~1ms for 1,199
+    // calls, no network and no tokens. Ranking is applied only when the project
+    // carries enough text to say anything — otherwise the page keeps deadline
+    // order and never pretends to have an opinion.
+    const project = auth.session.project;
+    const signals = extractProjectSignals({
+      name: project.name,
+      description: project.description,
+      canvas,
+      current_step: project.current_step,
+    });
+    const ranked = signals.usable ? rankCalls(calls, signals, new Date()) : calls;
+    const projectSignals: ProjectSignalSummary | null = signals.usable
+      ? {
+          regions: signals.regions,
+          scopes: signals.scopes,
+          subjectTypes: signals.subjectTypes,
+          usable: true,
+        }
+      : null;
+
     return json({
-      calls,
+      calls: ranked,
       sources,
       grants_monitor: monitor ?? null,
+      project_signals: projectSignals,
       generated_at: new Date().toISOString(),
     } satisfies GrantsResponse);
   } catch (err) {
