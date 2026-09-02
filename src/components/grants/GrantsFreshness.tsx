@@ -14,9 +14,10 @@ import { useT } from '@/components/providers/LocaleProvider';
 import type { MessageKey } from '@/lib/i18n/messages';
 import { classifyFreshness, relativeAge, type SourceFreshness } from '@/lib/grants/view';
 
-const SOURCE_NAME: Record<'sedia' | 'lombardia', MessageKey> = {
+const SOURCE_NAME: Record<'sedia' | 'lombardia' | 'incentivi', MessageKey> = {
   sedia: 'grants.source.sedia',
   lombardia: 'grants.source.lombardia',
+  incentivi: 'grants.source.incentivi',
 };
 
 const STATE_KEY: Record<'healthy' | 'stale' | 'dead', MessageKey> = {

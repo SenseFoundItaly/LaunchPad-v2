@@ -3,6 +3,7 @@ import { query, get } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { FUNDING_SOURCES, type FundingSource } from '@/lib/grants/types';
+import { ITALIAN_REGIONS, NATIONAL_REGION } from '@/lib/grants/view';
 import type { FundingCallView, SourceFreshness, GrantsResponse } from '@/lib/grants/view';
 
 /**
@@ -19,7 +20,9 @@ import type { FundingCallView, SourceFreshness, GrantsResponse } from '@/lib/gra
  */
 
 const VALID_STATUSES = new Set(['open', 'rolling', 'closed']);
-const MAX_ROWS = 1000;
+// 3 sources × ~400 open calls each; the page filters client-side, so the cap
+// only has to exceed the realistic open-call population (1,199 on 2026-09-02).
+const MAX_ROWS = 2500;
 
 export async function GET(
   request: NextRequest,
@@ -41,11 +44,16 @@ export async function GET(
 
   const sourceParam = sp.get('source');
   if (sourceParam !== null && !(FUNDING_SOURCES as readonly string[]).includes(sourceParam)) {
-    return error('source must be one of: sedia, lombardia', 400);
+    return error('source must be one of: sedia, lombardia, incentivi', 400);
   }
   const source = sourceParam as FundingSource | null;
 
   const q = (sp.get('q') ?? '').trim().slice(0, 200);
+
+  const regionParam = sp.get('region');
+  if (regionParam !== null && regionParam !== NATIONAL_REGION && !ITALIAN_REGIONS.includes(regionParam)) {
+    return error('region must be a known Italian region or Nazionale', 400);
+  }
 
   try {
     // Only fixed fragments are concatenated; every user value is a placeholder.
@@ -55,6 +63,14 @@ export async function GET(
     if (source) {
       where.push('fc.source = ?');
       vals.push(source);
+    }
+    if (regionParam === NATIONAL_REGION) {
+      where.push(`(fc.facets->>'national') = 'true'`);
+    } else if (regionParam) {
+      // A region ⇒ calls tagged with it, plus national measures (they apply
+      // everywhere), plus the direct Lombardia feed for Lombardia.
+      where.push(`(fc.regions @> ARRAY[?]::text[] OR (fc.facets->>'national') = 'true' OR (fc.source = 'lombardia' AND ? = 'Lombardia'))`);
+      vals.push(regionParam, regionParam);
     }
     if (q) {
       const like = '%' + q.replace(/[\\%_]/g, (c) => '\\' + c) + '%';
@@ -67,6 +83,7 @@ export async function GET(
         `SELECT fc.id, fc.source, fc.title, fc.granting_body, fc.official_url,
                 fc.deadline::text AS deadline, fc.deadline_time, fc.status, fc.eligibility_text,
                 fc.last_verified_at, fc.page_status, fc.page_error, fc.page_checked_at,
+                fc.regions, fc.facets, fc.source_note, fc.catalog_url,
                 EXISTS (
                   SELECT 1 FROM ecosystem_alerts ea
                    WHERE ea.project_id = ? AND ea.funding_call_id = fc.id
@@ -95,7 +112,19 @@ export async function GET(
       ),
     ]);
 
-    const calls: FundingCallView[] = rawCalls.map((c) => ({ ...c, alerted: Boolean(c.alerted) }));
+    const calls: FundingCallView[] = rawCalls.map((c) => ({
+      ...c,
+      alerted: Boolean(c.alerted),
+      // Belt and braces: a double-encoded facets value (JSON string) must never
+      // reach the page as a string — parse it, or drop it, but never crash.
+      facets: (() => {
+        const f: unknown = c.facets;
+        if (f && typeof f === 'object') return f as FundingCallView['facets'];
+        if (typeof f === 'string') { try { const p = JSON.parse(f); return p && typeof p === 'object' ? p : null; } catch { return null; } }
+        return null;
+      })(),
+      regions: Array.isArray(c.regions) ? c.regions : null,
+    }));
 
     const sources: SourceFreshness[] = FUNDING_SOURCES.map((s) => {
       const row = stateRows.find((r) => r.source === s);

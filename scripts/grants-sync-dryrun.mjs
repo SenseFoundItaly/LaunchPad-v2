@@ -26,6 +26,7 @@
  */
 import { fetchSediaCalls } from '../src/lib/grants/sources/sedia.ts';
 import { fetchLombardiaCalls } from '../src/lib/grants/sources/lombardia.ts';
+import { fetchIncentiviCalls } from '../src/lib/grants/sources/incentivi.ts';
 import { toDateOnly } from '../src/lib/grants/dates.ts';
 
 const TAG = '[grants-dryrun]';
@@ -134,9 +135,13 @@ function assertInvariants({ source, calls, error }, minCount) {
     pastDeadlines.length === 0,
     pastDeadlines.map((c) => `${c.source_identifier}=${c.deadline}`).slice(0, 5).join(', '),
   );
-  const badUrls = calls.filter((c) => !/^https:\/\//.test(c.official_url));
+  // SEDIA/Lombardia URLs are ours to build (always https). incentivi.gov.it links
+  // point at third-party granting-body pages, some of which are plain http —
+  // accepted; a URL shortener never is (the connector swaps in the catalogue page).
+  const urlRe = source === 'incentivi' ? /^https?:\/\// : /^https:\/\//;
+  const badUrls = calls.filter((c) => !urlRe.test(c.official_url) || /tinyurl\.com|bit\.ly|t\.co\//.test(c.official_url));
   check(
-    `${source}: every official_url starts with https://`,
+    `${source}: every official_url is an absolute ${source === 'incentivi' ? 'http(s)' : 'https'} URL (no shorteners)`,
     badUrls.length === 0,
     badUrls.map((c) => c.official_url).slice(0, 5).join(', '),
   );
@@ -149,14 +154,17 @@ function assertInvariants({ source, calls, error }, minCount) {
   check(`${source}: count ${calls.length} > ${minCount}`, calls.length > minCount);
 }
 
-// Sequential on purpose: two live sources, readable timings.
+// Sequential on purpose: three live sources, readable timings.
 const sedia = await runSource('sedia', () => fetchSediaCalls({ now, maxPages }));
 const lombardia = await runSource('lombardia', () => fetchLombardiaCalls({ now, maxDetailFetches: maxDetail }));
+const incentivi = await runSource('incentivi', () => fetchIncentiviCalls({ now }));
 
 summarize(sedia);
 summarize(lombardia);
+summarize(incentivi);
 assertInvariants(sedia, 100);
 assertInvariants(lombardia, 50);
+assertInvariants(incentivi, 300);
 
 console.log(`\n${TAG} no DB writes performed`);
 console.log(`${TAG} exit ${exitCode}`);

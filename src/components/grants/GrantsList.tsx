@@ -114,8 +114,16 @@ function GrantRow({ projectId, call, now }: { projectId: string; call: FundingCa
           {statusLabel}
         </Pill>
         <Pill kind="info">
-          {t(call.source === 'sedia' ? 'grants.source.sedia-short' : 'grants.source.lombardia-short')}
+          {t(call.source === 'sedia' ? 'grants.source.sedia-short' : call.source === 'lombardia' ? 'grants.source.lombardia-short' : 'grants.source.incentivi-short')}
         </Pill>
+        {call.facets?.national ? (
+          <Pill kind="n">{t('grants.row.regions-national')}</Pill>
+        ) : (
+          (call.regions ?? []).slice(0, 3).map((r) => <Pill key={r} kind="n">{r}</Pill>)
+        )}
+        {(call.regions?.length ?? 0) > 3 && !call.facets?.national && (
+          <Pill kind="n">+{(call.regions?.length ?? 0) - 3}</Pill>
+        )}
         {call.alerted && (
           <Link href={`/project/${projectId}/actions`} style={{ textDecoration: 'none' }}>
             <Pill kind="ok" dot>
@@ -150,6 +158,22 @@ function GrantRow({ projectId, call, now }: { projectId: string; call: FundingCa
         <span>{t('grants.row.verified', { date: fmtDateTime(call.last_verified_at) })}</span>
       </div>
 
+      {call.facets && (call.facets.subject_types.length + call.facets.scopes.length + call.facets.support_forms.length > 0) && (
+        <p className="lp-mono" style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.5 }}>
+          {[...call.facets.subject_types, ...call.facets.scopes, ...call.facets.support_forms].slice(0, 8).join(' · ')}
+        </p>
+      )}
+      {call.source_note && (
+        <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+          <span className="lp-mono" style={{ fontSize: 10.5, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-5)', marginRight: 6 }}>{t('grants.row.source-note')}</span>
+          {call.source_note}
+        </p>
+      )}
+      {call.catalog_url && (
+        <p style={{ margin: '4px 0 0', fontSize: 12 }}>
+          <a href={call.catalog_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-ink)' }}>{t('grants.row.catalog-link')}</a>
+        </p>
+      )}
       {!call.eligibility_text ? (
         <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--ink-5)', fontStyle: 'italic' }}>
           {call.page_status === 'unread'
