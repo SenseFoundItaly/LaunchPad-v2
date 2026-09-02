@@ -21,6 +21,7 @@ import {
   nodeTypeLabel, type MacroCategory,
 } from '@/types/graph';
 import { THEME_COOKIE } from '@/lib/theme';
+import { relaunchDemoTour } from '@/components/onboarding/tour-state';
 import { DATA_ROOM, DATA_ROOM_FOOT } from './mock';
 
 // -----------------------------------------------------------------------------
@@ -100,6 +101,31 @@ export function DemoBanner() {
       <span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />
       <span style={{ fontWeight: 600 }}>DEMO</span>
       <span style={{ color: 'var(--ink-4)' }}>Visione del prodotto — progetto di esempio, dati simulati</span>
+      <span style={{ flex: 1 }} />
+      {/* Replay: the walkthrough auto-runs once per browser (lp_demo_tour_seen),
+          so this is how a returning visitor — or anyone who closed it — gets it
+          back. Same controller, demo manifest. */}
+      <button
+        type="button"
+        onClick={() => relaunchDemoTour()}
+        style={{
+          background: 'transparent', border: '1px solid var(--line-2)', borderRadius: 'var(--r-m)',
+          color: 'var(--ink-3)', padding: '3px 9px', fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
+        }}
+      >
+        Fai il tour
+      </button>
+      {/* The tour's last step spotlights this and allows the click through. */}
+      <Link
+        href="/login"
+        data-tour="demo-signup"
+        style={{
+          background: 'var(--accent)', color: 'var(--on-accent)', borderRadius: 'var(--r-m)',
+          padding: '3px 10px', fontSize: 10.5, fontWeight: 600, textDecoration: 'none',
+        }}
+      >
+        Inizia gratis
+      </Link>
     </div>
   );
 }
@@ -391,6 +417,7 @@ export function DemoNavRail() {
   const active = entryFor(pathname).id;
   return (
     <div
+      data-tour="nav-rail"
       style={{
         width: 54, flexShrink: 0, borderRight: '1px solid var(--line)', background: 'var(--paper-2)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 0', gap: 2,
@@ -415,6 +442,7 @@ function RailItem({ e, active }: { e: NavEntry; active: boolean }) {
     <Link
       href={e.href}
       aria-label={e.label}
+      data-tour={`nav-${e.id}`}
       {...bind}
       style={{
         width: 42, height: 38, borderRadius: 'var(--r-m)', cursor: 'pointer',

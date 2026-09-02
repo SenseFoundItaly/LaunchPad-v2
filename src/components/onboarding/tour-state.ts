@@ -1,3 +1,5 @@
+import type { TourMode } from './tour-steps';
+
 /**
  * Mid-tour persistence for the cross-page walkthrough (TourController.tsx).
  *
@@ -11,9 +13,23 @@ export interface TourState {
   stepIndex: number;
   /** The project the tour walks through; null = zero-project variant. */
   projectId: string | null;
+  /**
+   * Which shell the run belongs to. A run is only resumed by its own shell —
+   * an app tour left mid-flight must not try to resume on /demo (whose steps
+   * are a different manifest), and vice versa. Absent in state written before
+   * the demo tour shipped, hence the 'app' default on read.
+   */
+  mode: TourMode;
 }
 
 const TOUR_KEY = 'lp_tour_state';
+/**
+ * The demo has no account, so users.onboarded has no equivalent — this
+ * localStorage flag is the demo's durable "already offered" gate. localStorage
+ * (not session): a visitor who has seen the tour once should not be auto-toured
+ * on every later visit. "Fai il tour" in the demo banner ignores it entirely.
+ */
+const DEMO_SEEN_KEY = 'lp_demo_tour_seen';
 /**
  * Set when a run ends by NAVIGATION rather than by an explicit close. Such a
  * run keeps the tour owed (users.onboarded stays false) but must not re-offer
@@ -42,6 +58,42 @@ export function isTourDeferred(): boolean {
 /** Fired by relaunchTour() so an already-mounted controller re-evaluates. */
 export const TOUR_START_EVENT = 'lp-tour-start';
 
+export function hasSeenDemoTour(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(DEMO_SEEN_KEY) === '1';
+  } catch {
+    return false; // private mode — worst case the demo offers the tour again
+  }
+}
+
+export function markDemoTourSeen(): void {
+  try {
+    localStorage.setItem(DEMO_SEEN_KEY, '1');
+  } catch {
+    /* private mode / quota — the tour still ran, it just may re-offer */
+  }
+}
+
+/**
+ * Explicit demo replay ("Fai il tour" in the demo banner). Mirrors
+ * relaunchTour(), except the demo's first chapter lives on /demo and the run
+ * ignores the seen flag — an explicit ask always runs.
+ */
+export function relaunchDemoTour(): void {
+  writeTourState({ stepIndex: 0, projectId: null, mode: 'demo' });
+  try {
+    sessionStorage.removeItem(TOUR_DEFERRED_KEY);
+  } catch {
+    /* ignore */
+  }
+  if (typeof window !== 'undefined' && window.location.pathname !== '/demo') {
+    window.location.assign('/demo');
+    return;
+  }
+  window.dispatchEvent(new Event(TOUR_START_EVENT));
+}
+
 export function readTourState(): TourState | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -52,6 +104,7 @@ export function readTourState(): TourState | null {
     return {
       stepIndex: parsed.stepIndex,
       projectId: typeof parsed.projectId === 'string' ? parsed.projectId : null,
+      mode: parsed.mode === 'demo' ? 'demo' : 'app',
     };
   } catch {
     return null;
@@ -85,7 +138,7 @@ export function clearTourState(): void {
  * (2026-08-08 onboarding audit). Navigating here makes every call site work.
  */
 export function relaunchTour(): void {
-  writeTourState({ stepIndex: 0, projectId: null });
+  writeTourState({ stepIndex: 0, projectId: null, mode: 'app' });
   try {
     sessionStorage.removeItem(TOUR_DEFERRED_KEY); // an explicit ask overrides a deferral
   } catch {

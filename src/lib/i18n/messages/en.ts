@@ -92,6 +92,9 @@ export const en = {
   'tour.copilot.desc': 'Your entry point for building your startup: canvas, analyses, strategies, assets → always start here.',
   'tour.finish.title': 'Ready to go',
   'tour.finish.desc': 'Now you know your way around. Upload your first documents or open the Co-Pilot whenever you like. Every Monday you get the Monday Brief by email: what moved and what needs a decision from you.',
+  // Public /demo finale — the tour's only demo-specific copy (buildDemoManifest).
+  'tour.demo.finish.title': 'This becomes your workspace',
+  'tour.demo.finish.desc': 'What you just walked through is a sample project with invented data. Create your own and LaunchPad fills these same sections with your documents, your watchers and your numbers.',
   // Walkthrough — dashboard chapter
   'tour.dash.projects.title': 'Your projects',
   'tour.dash.projects.desc': 'Every venture you’re building lives here. Click a project to jump back into it.',

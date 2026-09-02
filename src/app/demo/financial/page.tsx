@@ -30,7 +30,7 @@ export default function DemoFinancial() {
         </div>
 
         {/* Assumptions */}
-        <section style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-l)', background: 'var(--paper)', padding: 16 }}>
+        <section data-tour="financial-model" style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-l)', background: 'var(--paper)', padding: 16 }}>
           <div className="lp-mono" style={{ fontSize: 9.5, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-5)', marginBottom: 10 }}>Assunzioni</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
             {FIN_ASSUMPTIONS.map((a) => (

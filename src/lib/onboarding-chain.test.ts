@@ -102,9 +102,16 @@ describe('a failed login link explains itself', () => {
 describe('the tour is not spent before the founder sees it', () => {
   it('the zero-project stub never marks the account onboarded', () => {
     const ctrl = read('src/components/onboarding/TourController.tsx');
-    expect(ctrl).toContain('const isStub = !pid;');
-    expect(ctrl).toContain('markDone({ keepOffer: isStub })');
+    expect(ctrl).toContain('const isStub = !isDemo && !pid;');
+    expect(ctrl).toContain('endRun({ keepOffer: isStub })');
     expect(ctrl).toMatch(/const markDone = \(\{ keepOffer = false \} = \{\}\)/);
+    // A run must end through endRun(), never by relying on driver.js's
+    // onDestroyed — which this version does not reliably call (see endRun's
+    // comment). Both endings are pinned: Done (advance past the last step)
+    // and dismiss (X / Esc / overlay, via onDestroyStarted).
+    expect(ctrl).toMatch(/let ended = false;[\s\S]{0,200}const endRun = /);
+    expect(ctrl).toMatch(/endRun\(\{ keepOffer: isStub \}\);\s*\n\s*drv\.destroy\(\);/);
+    expect(ctrl).toMatch(/onDestroyStarted: \(\) => \{\s*\n\s*endRun\(\{ keepOffer: isStub \}\);\s*\n\s*drv\.destroy\(\);/);
   });
 
   it('navigating away defers the tour instead of burning it', () => {

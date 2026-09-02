@@ -31,7 +31,7 @@ export default function DemoChat() {
           <SurfaceTabBtn label="Build & Launch" active={tab === 'build'} onClick={() => setTab('build')} />
           <SurfaceTabBtn label="Growth" active={tab === 'growth'} onClick={() => setTab('growth')} />
         </div>
-        <div className="lp-scroll" style={{ flex: 1, overflow: 'auto' }}>
+        <div className="lp-scroll" data-tour="chat-canvas" style={{ flex: 1, overflow: 'auto' }}>
           {tab === 'chat' && <CanvasPane />}
           {tab === 'build' && <BuildPane />}
           {tab === 'growth' && <GrowthPane />}
@@ -47,7 +47,7 @@ export default function DemoChat() {
 
 function ChatColumn() {
   return (
-    <div style={{ width: 440, flexShrink: 0, borderRight: '1px solid var(--line)', display: 'flex', flexDirection: 'column', background: 'var(--paper)' }}>
+    <div data-tour="chat-transcript" style={{ width: 440, flexShrink: 0, borderRight: '1px solid var(--line)', display: 'flex', flexDirection: 'column', background: 'var(--paper)' }}>
       <div style={{ padding: '14px 20px 12px', borderBottom: '1px solid var(--line)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span className="lp-serif" style={{ fontSize: 20, fontWeight: 400 }}>MatchLens</span>
