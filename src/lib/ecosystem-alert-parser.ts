@@ -14,6 +14,7 @@
 import { query } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { computeDedupeHash } from '@/lib/ecosystem-monitors';
+import { extractDeadlineFromHeadline, isFutureDate } from '@/lib/grants/dates';
 import { createPendingAction } from '@/lib/pending-actions';
 import { updateCompetitorProfile } from '@/lib/competitor-profiles';
 import { isAutoflowEnabled, routeAlertAutoflow } from '@/lib/signal-autoflow';
@@ -217,6 +218,14 @@ export interface PersistOptions {
   monitorRunId: string;
   autoQueueRelevanceThreshold?: number;
   maxPendingActionsPerRun?: number;
+  /**
+   * monitors.type of the producing monitor. Enables the grants deadline gate
+   * ONLY for 'ecosystem.grants': funding_event is shared by every ecosystem
+   * monitor (competitor rounds, trend signals, chat 'funding' watchers that
+   * mix investor rounds with calls), and those carry no application deadline
+   * to parse. Omitted → no deadline gate.
+   */
+  monitorType?: string;
 }
 
 export interface PersistResult {
@@ -278,6 +287,24 @@ export async function persistEcosystemAlerts(
         (alert.headline ?? '').slice(0, 120),
       );
       continue;
+    }
+    // Grants deadline gate (the PR #450 false positive: a past-dated call with
+    // a valid URL). The grants prompt demands the deadline IN the headline;
+    // parse it in code (DD/MM/YYYY or YYYY-MM-DD) and require it to be
+    // strictly in the future — no parseable future date means no evidence a
+    // founder can plan on. Scoped to the grants monitor: a competitor's
+    // "Acme raises €5M" is a funding_event too and has no deadline to carry.
+    if (alert.alert_type === 'funding_event' && opts.monitorType === 'ecosystem.grants') {
+      const found = extractDeadlineFromHeadline(alert.headline ?? '');
+      if (!found || !isFutureDate(found.date, new Date())) {
+        result.alerts_skipped++;
+        console.warn(
+          '[ecosystem-alerts] funding_event without a future deadline in the headline DISCARDED:',
+          found ? `${found.snippet} — ` : 'no date — ',
+          (alert.headline ?? '').slice(0, 120),
+        );
+        continue;
+      }
     }
     const dedupeHash = computeDedupeHash(alert.alert_type, alert.source_url, alert.headline);
     const newId = generateId('ealr');

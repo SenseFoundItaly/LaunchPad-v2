@@ -37,7 +37,7 @@ import { asLocale } from '@/lib/i18n/locales';
 // (a hardcoded EN 'Knowledge' flashed on Italian projects).
 const FALLBACK_CRUMB_KEYS = {
   today: 'nav.home', actions: 'nav.inbox', knowledge: 'nav.knowledge',
-  chat: 'nav.copilot', usage: 'nav.usage', financial: 'nav.financial',
+  chat: 'nav.copilot', usage: 'nav.usage', financial: 'nav.financial', grants: 'nav.grants',
 } as const;
 
 export default function ProjectLayout({

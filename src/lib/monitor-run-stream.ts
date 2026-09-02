@@ -187,6 +187,7 @@ export async function streamMonitorRun(
                   projectId,
                   monitorId,
                   monitorRunId: runId,
+                  monitorType,
                   autoQueueRelevanceThreshold: 0.8,
                   maxPendingActionsPerRun: 5,
                 });
