@@ -639,14 +639,22 @@ describe('legacy LLM gate — rule 7: a GRANTS-monitor funding_event needs a FUT
 });
 
 describe('source pins', () => {
-  it('the cron runs the grants phase inside its own try/catch and reports it', () => {
+  it('the daily grants sync streams from its own cron endpoint and is NOT inline in /api/cron', () => {
+    // A full three-source sync takes ~75s; inline in /api/cron it would be
+    // killed at Netlify's 26s sync-function limit every day, never advancing
+    // last_success_at. It must live behind a streamed endpoint the scheduler
+    // consumes with curl -N, exactly like run-monitor.
     const cron = read('src/app/api/cron/route.ts');
-    expect(cron).toMatch(/grantsSync = await syncFundingCalls\(/);
-    expect(cron).toMatch(/grants_sync: grantsSync,/);
-    // Never throws out of the cron: the call sits inside try { … } catch with a warn.
-    expect(cron).toMatch(/try \{\s*\n\s*grantsSync = await syncFundingCalls\([\s\S]*?\} catch \(err\) \{\s*\n\s*console\.warn\('\[cron\] syncFundingCalls failed:'/);
-    // Anchored right before Phase B1.
-    expect(cron).toMatch(/console\.warn\('\[cron\] syncFundingCalls failed:'[\s\S]{0,80}\n\s*\/\/ Phase B1:/);
+    expect(cron).not.toMatch(/syncFundingCalls/);
+    expect(cron).toMatch(/GET \/api\/cron\/grants/);
+    const route = read('src/app/api/cron/grants/route.ts');
+    expect(route).toMatch(/export const maxDuration = 300;/);
+    expect(route).toMatch(/requireCronAuth\(request\)/);
+    expect(route).toMatch(/syncFundingCalls\(\{ now: new Date\(\), force \}\)/);
+    expect(route).toMatch(/'Content-Type': 'text\/event-stream'/);
+    // The scheduler actually drives it, streamed, with a budget past the sync length.
+    const wf = read('.github/workflows/scheduled-cron.yml');
+    expect(wf).toMatch(/curl -sN -H "\$AUTH" "\$\{SITE_URL\}\/api\/cron\/grants" --max-time 300/);
   });
 
   it('the legacy parser gates funding_event on a headline deadline — for the grants monitor only', () => {
