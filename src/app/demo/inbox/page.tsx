@@ -27,14 +27,14 @@ export default function DemoInbox() {
       </div>
 
       {/* Lane tabs */}
-      <div style={{ display: 'flex', gap: 4, paddingLeft: 12, borderBottom: '1px solid var(--line)', background: 'var(--surface)' }}>
+      <div data-tour="inbox-tabs" style={{ display: 'flex', gap: 4, paddingLeft: 12, borderBottom: '1px solid var(--line)', background: 'var(--surface)' }}>
         <LaneTab label="Osservatori" count={WATCHERS_FULL.length} active={tab === 'watchers'} onClick={() => setTab('watchers')} />
         <LaneTab label="Da rivedere" count={INBOX_ITEMS.length} active={tab === 'inbox'} onClick={() => setTab('inbox')} />
       </div>
 
       {tab === 'watchers' ? (
         <div className="lp-scroll" style={{ flex: 1, overflow: 'auto', background: 'var(--paper)', padding: '16px 20px' }}>
-          <div style={{ maxWidth: 880, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div data-tour="watchers-list" style={{ maxWidth: 880, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon d={I.signal} size={13} style={{ color: 'var(--ink-4)' }} />
               <span style={{ fontSize: 12, fontWeight: 600 }}>Osservatori</span>

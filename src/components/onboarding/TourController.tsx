@@ -32,12 +32,22 @@ import 'driver.js/dist/driver.css';
 import './product-tour.css';
 import api from '@/api';
 import { useT } from '@/components/providers/LocaleProvider';
-import { buildManifest, routeFor, type TourStep } from './tour-steps';
+import { translate, type MessageKey } from '@/lib/i18n/messages';
+import {
+  buildDemoManifest,
+  buildManifest,
+  routeForMode,
+  type TourMode,
+  type TourPage,
+  type TourStep,
+} from './tour-steps';
 import {
   TOUR_START_EVENT,
   clearTourState,
   deferTourForSession,
+  hasSeenDemoTour,
   isTourDeferred,
+  markDemoTourSeen,
   readTourState,
   waitForElement,
   writeTourState,
@@ -78,6 +88,16 @@ export default function TourController() {
     return () => window.removeEventListener(TOUR_START_EVENT, onStart);
   }, []);
 
+  // The public /demo replica runs the same walkthrough over its own routes.
+  // It has no account (no users.onboarded, no /api/dashboard) and no workspace
+  // dashboard chapter — see buildDemoManifest().
+  const isDemo = pathname === '/demo' || pathname.startsWith('/demo/');
+  const mode: TourMode = isDemo ? 'demo' : 'app';
+  // The /demo shell is hardcoded Italian by design (src/app/demo/*, exempt from
+  // the i18n guard), so its tour speaks Italian too — otherwise a visitor with
+  // an English cookie reads English popovers over an Italian screen.
+  const tr = isDemo ? (key: MessageKey) => translate('it', key) : t;
+
   useEffect(() => {
     let cancelled = false;
 
@@ -90,7 +110,7 @@ export default function TourController() {
       drvRef.current = null;
     }
 
-    if (pathname !== '/' && !pathname.startsWith('/project/')) return;
+    if (!isDemo && pathname !== '/' && !pathname.startsWith('/project/')) return;
 
     /**
      * End the tour. `keepOffer: true` ends THIS run without spending the
@@ -107,13 +127,20 @@ export default function TourController() {
     const markDone = ({ keepOffer = false } = {}) => {
       clearTourState();
       if (keepOffer) return;
+      if (isDemo) {
+        markDemoTourSeen(); // public page: a localStorage flag is the only gate
+        return;
+      }
       api.patch('/api/user/preferences', { onboarded: true }).catch(() => {});
     };
+
+    /** Route for a step under whichever shell we're in. */
+    const routeOf = (page: TourPage, pid: string | null) => routeForMode(mode, page, pid);
 
     const buildAndDrive = (manifest: TourStep[], startIdx: number, pid: string | null) => {
       // The zero-project stub is a prompt ("create your first project"), not
       // the onboarding — finishing it must leave the real tour still owed.
-      const isStub = !pid;
+      const isStub = !isDemo && !pid;
       const steps: DriveStep[] = manifest.map((s, i) => {
         // Chapter openers hide Prev: cross-page "back" would double the
         // navigation state machine for marginal value.
@@ -122,8 +149,8 @@ export default function TourController() {
           element: s.target,
           ...(s.allowInteraction ? { disableActiveInteraction: false } : {}),
           popover: {
-            title: t(s.titleKey),
-            description: t(s.descKey),
+            title: tr(s.titleKey),
+            description: tr(s.descKey),
             side: s.side,
             align: s.align ?? 'start',
             ...(chapterFirst ? { showButtons: ['next', 'close'] as ('next' | 'close')[] } : {}),
@@ -133,18 +160,21 @@ export default function TourController() {
 
       const advance = async (drv: Driver, next: number) => {
         if (next >= manifest.length) {
-          drv.destroy(); // finish — onDestroyed clears state + marks onboarded
+          // Finish. End first, then tear down: destroy() fires no hook we can
+          // depend on (see endRun).
+          endRun({ keepOffer: isStub });
+          drv.destroy();
           return;
         }
         const nextStep = manifest[next];
         if (nextStep.page !== manifest[next - 1].page) {
           // Chapter boundary: persist, tear down silently, navigate. The
           // pathname effect resumes the next chapter on arrival.
-          writeTourState({ stepIndex: next, projectId: pid });
+          writeTourState({ stepIndex: next, projectId: pid, mode });
           suppressFinish.current = true;
           drv.destroy();
           drvRef.current = null;
-          router.push(routeFor(nextStep.page, pid));
+          router.push(routeOf(nextStep.page, pid));
           return;
         }
         if (nextStep.target) {
@@ -155,7 +185,7 @@ export default function TourController() {
             return;
           }
         }
-        writeTourState({ stepIndex: next, projectId: pid });
+        writeTourState({ stepIndex: next, projectId: pid, mode });
         drv.moveTo(next);
       };
 
@@ -163,16 +193,36 @@ export default function TourController() {
       // stack concurrent advances — a double-timeout would double-skip.
       let advancing = false;
 
+      /**
+       * End this run exactly once.
+       *
+       * driver.js 1.4.0 does NOT reliably call onDestroyed: its public
+       * destroy() is `g(false)`, which skips the onDestroyStarted branch and
+       * then only invokes onDestroyed `if (__activeElement && __activeStep)` —
+       * internal keys its teardown has already released in practice. Verified
+       * live on 2026-09-02: finishing (Done) and closing (X) both left the run
+       * un-ended, so the walkthrough re-offered itself on every page load and
+       * neither users.onboarded nor the demo's seen flag was ever written.
+       * Bookkeeping therefore happens HERE, at the two places a run can end,
+       * with onDestroyed kept only as a harmless fallback.
+       */
+      let ended = false;
+      const endRun = ({ keepOffer = false } = {}) => {
+        if (ended) return;
+        ended = true;
+        markDone({ keepOffer });
+      };
+
       const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
       const drv = driver({
         showProgress: true,
-        progressText: t('tour.progress'),
+        progressText: tr('tour.progress'),
         allowClose: true,
         disableActiveInteraction: true, // a mid-tour click on a highlighted link would desync route vs step
         animate: !reducedMotion,
-        nextBtnText: t('tour.next'),
-        prevBtnText: t('tour.prev'),
-        doneBtnText: t('tour.done-btn'),
+        nextBtnText: tr('tour.next'),
+        prevBtnText: tr('tour.prev'),
+        doneBtnText: tr('tour.done-btn'),
         popoverClass: 'lp-tour',
         steps,
         // Config-level overrides disable driver's auto-advance for ALL steps —
@@ -188,8 +238,16 @@ export default function TourController() {
           const cur = drv.getActiveIndex() ?? 0;
           if (cur <= 0) return;
           // Prev is hidden on chapter openers, so cur-1 is always same-page.
-          writeTourState({ stepIndex: cur - 1, projectId: pid });
+          writeTourState({ stepIndex: cur - 1, projectId: pid, mode });
           drv.moveTo(cur - 1);
+        },
+        // X / Esc / overlay click all reach driver's internal destroy with the
+        // hook branch ENABLED, so this is the one callback that reliably fires
+        // when the founder dismisses the tour. It owns the teardown: destroy()
+        // here re-enters as g(false) and does not loop.
+        onDestroyStarted: () => {
+          endRun({ keepOffer: isStub });
+          drv.destroy();
         },
         onDestroyed: () => {
           if (drvRef.current === drv) drvRef.current = null;
@@ -200,12 +258,11 @@ export default function TourController() {
           if (navAbandon.current) {
             navAbandon.current = false;
             deferTourForSession();
-            markDone({ keepOffer: true });
+            endRun({ keepOffer: true });
             return;
           }
-          // finish AND close/skip — same contract as the old tour, except the
-          // zero-project stub, which never spends the flag (see markDone).
-          markDone({ keepOffer: isStub });
+          // Fallback only — endRun() has almost always run by now.
+          endRun({ keepOffer: isStub });
         },
       });
       drvRef.current = drv;
@@ -217,7 +274,7 @@ export default function TourController() {
       // Step 0 on the dashboard with no project yet resolved (fresh start or
       // Settings replay): pick the first project so the tour has somewhere to
       // go; none → the manifest swaps to the create-a-project finale.
-      if (state.stepIndex === 0 && pid === null && pathname === '/') {
+      if (!isDemo && state.stepIndex === 0 && pid === null && pathname === '/') {
         try {
           const { data } = await api.get<DashboardResp>('/api/dashboard');
           pid = data?.data?.projects?.[0]?.project_id ?? null;
@@ -225,24 +282,24 @@ export default function TourController() {
           pid = null;
         }
         if (cancelled) return;
-        if (pid) writeTourState({ stepIndex: 0, projectId: pid });
+        if (pid) writeTourState({ stepIndex: 0, projectId: pid, mode });
       }
 
-      const manifest = buildManifest({ hasProjects: !!pid });
+      const manifest = isDemo ? buildDemoManifest() : buildManifest({ hasProjects: !!pid });
       const step = manifest[state.stepIndex];
       if (!step) {
         markDone({ keepOffer: true }); // corrupt/stale index is not a decision
         return;
       }
-      if (pathname !== routeFor(step.page, pid)) {
+      if (pathname !== routeOf(step.page, pid)) {
         // Fresh start from the dashboard whose first chapter lives inside the
         // project (changelog 28/08 order: the tour opens on project Home):
         // navigate INTO the tour instead of deferring — the pathname effect
         // resumes chapter 1 on arrival. Only for step 0; anything later is a
         // genuine deep link / browser back.
-        if (state.stepIndex === 0 && pathname === '/' && pid) {
-          writeTourState({ stepIndex: 0, projectId: pid });
-          router.push(routeFor(step.page, pid));
+        if (!isDemo && state.stepIndex === 0 && pathname === '/' && pid) {
+          writeTourState({ stepIndex: 0, projectId: pid, mode });
+          router.push(routeOf(step.page, pid));
           return;
         }
         // Deep link / browser back mid-tour: end this run rather than dragging
@@ -265,25 +322,35 @@ export default function TourController() {
       }
       if (cancelled) return;
       if (idx >= manifest.length) {
-        markDone({ keepOffer: !pid });
+        markDone({ keepOffer: !isDemo && !pid });
         return;
       }
       if (manifest[idx].page !== step.page) {
         // Every remaining in-page step skipped → straight to the next chapter.
-        writeTourState({ stepIndex: idx, projectId: pid });
-        router.push(routeFor(manifest[idx].page, pid));
+        writeTourState({ stepIndex: idx, projectId: pid, mode });
+        router.push(routeOf(manifest[idx].page, pid));
         return;
       }
       if (idx !== state.stepIndex || pid !== state.projectId) {
-        writeTourState({ stepIndex: idx, projectId: pid });
+        writeTourState({ stepIndex: idx, projectId: pid, mode });
       }
       buildAndDrive(manifest, idx, pid);
     };
 
     const state = readTourState();
+    // A run is resumed only by the shell that started it: an app tour paused
+    // mid-flight must not try to resume against the demo manifest (different
+    // steps, different routes), and it stays owed while the visitor is on /demo.
+    if (state && state.mode !== mode) return;
     if (state) {
       void resumeAt(state);
-    } else if (pathname === '/' && !autoChecked.current && !isTourDeferred()) {
+    } else if (isDemo && pathname === '/demo' && !autoChecked.current && !isTourDeferred() && !hasSeenDemoTour()) {
+      // Public first visit: no preferences call to make, so start straight away.
+      autoChecked.current = true;
+      const fresh: TourState = { stepIndex: 0, projectId: null, mode: 'demo' };
+      writeTourState(fresh);
+      void resumeAt(fresh);
+    } else if (!isDemo && pathname === '/' && !autoChecked.current && !isTourDeferred()) {
       // First-login auto-start: once per mount, dashboard only, and never in a
       // session where the founder already walked away from a run.
       autoChecked.current = true;
@@ -295,7 +362,7 @@ export default function TourController() {
           return; // can't determine → don't surprise the user with a tour
         }
         if (cancelled) return;
-        const fresh: TourState = { stepIndex: 0, projectId: null };
+        const fresh: TourState = { stepIndex: 0, projectId: null, mode: 'app' };
         writeTourState(fresh);
         void resumeAt(fresh);
       })();
@@ -307,7 +374,7 @@ export default function TourController() {
     // t is stable per page load (locale switch reloads the app); pathname+tick
     // are the real triggers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, tick]);
+  }, [pathname, tick, isDemo, mode]);
 
   return null;
 }

@@ -82,6 +82,9 @@ export const it: Partial<Record<MessageKey, string>> = {
   'tour.copilot.desc': 'Il tuo punto di accesso per creare la tua startup: canvas, analisi, strategie, asset → parti sempre da qui.',
   'tour.finish.title': 'Pronto per partire',
   'tour.finish.desc': 'Ora sai dove sei. Carica i tuoi primi documenti o apri il Co-Pilot quando vuoi. Ogni lunedì ricevi il Monday Brief via email: cosa si è mosso e cosa richiede una tua decisione.',
+  // Finale della demo pubblica — l'unica copy specifica del tour demo.
+  'tour.demo.finish.title': 'Questo diventa il tuo spazio',
+  'tour.demo.finish.desc': 'Quello che hai appena visto è un progetto di esempio con dati inventati. Crea il tuo e LaunchPad riempie queste stesse sezioni con i tuoi documenti, i tuoi osservatori e i tuoi numeri.',
   // Tour guidato — capitolo dashboard
   'tour.dash.projects.title': 'I tuoi progetti',
   'tour.dash.projects.desc': 'Ogni venture che stai costruendo vive qui. Clicca un progetto per rientrarci.',

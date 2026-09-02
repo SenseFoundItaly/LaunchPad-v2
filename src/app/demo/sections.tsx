@@ -53,48 +53,50 @@ export function HeaderStrip() {
 
 export function ScoreSection() {
   return (
-    <Panel title="Punteggio" subtitle="del progetto + prontezza all’investimento" right={<Pill kind="ok" dot>{SCORE.band}</Pill>}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 0 }}>
-        <div style={{ padding: '14px 16px' }}>
-          <div className="lp-mono" style={{ fontSize: 9.5, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-5)' }}>
-            Score del progetto
+    <div data-tour="score-panel">
+      <Panel title="Punteggio" subtitle="del progetto + prontezza all’investimento" right={<Pill kind="ok" dot>{SCORE.band}</Pill>}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 0 }}>
+          <div style={{ padding: '14px 16px' }}>
+            <div className="lp-mono" style={{ fontSize: 9.5, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-5)' }}>
+              Score del progetto
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '4px 0 10px' }}>
+              <span className="lp-serif" style={{ fontSize: 30, fontWeight: 400, letterSpacing: -0.6 }}>{SCORE.total}</span>
+              <span style={{ fontSize: 13, color: 'var(--ink-5)' }}>/ 100</span>
+              <span className="lp-mono" style={{ fontSize: 10, color: 'var(--moss)', marginLeft: 4 }}>{SCORE.band}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {SCORE.dimensions.map((d) => (
+                <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, color: 'var(--ink-3)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.label}</span>
+                  <span style={{ width: 56, height: 4, borderRadius: 2, background: 'var(--paper-3)', overflow: 'hidden', flexShrink: 0 }}>
+                    <span style={{ display: 'block', height: '100%', width: `${d.value}%`, background: 'var(--moss)' }} />
+                  </span>
+                  <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-4)', width: 18, textAlign: 'right' }}>{d.value}</span>
+                </div>
+              ))}
+            </div>
+            <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45 }}>{SCORE.recommendation}</p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '4px 0 10px' }}>
-            <span className="lp-serif" style={{ fontSize: 30, fontWeight: 400, letterSpacing: -0.6 }}>{SCORE.total}</span>
-            <span style={{ fontSize: 13, color: 'var(--ink-5)' }}>/ 100</span>
-            <span className="lp-mono" style={{ fontSize: 10, color: 'var(--moss)', marginLeft: 4 }}>{SCORE.band}</span>
+          <div style={{ padding: '14px 16px', borderLeft: '1px solid var(--line)' }}>
+            <div className="lp-mono" style={{ fontSize: 9.5, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-5)' }}>
+              Prontezza all’investimento (IRL)
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '4px 0 6px' }}>
+              <span className="lp-serif" style={{ fontSize: 30, fontWeight: 400, letterSpacing: -0.6 }}>{SCORE.irl.level}</span>
+              <span style={{ fontSize: 13, color: 'var(--ink-5)' }}>/ {SCORE.irl.of}</span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>livello di sviluppo</div>
+            <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45 }}>
+              <strong style={{ color: 'var(--ink-2)' }}>{SCORE.irl.stage}</strong> validato + Loop 4 (LAUNCH READY): la scala core è completa. Ogni punto si suda — 7-9 si sbloccano con gli add-on GTM orchestration, Fundraising readiness e Operations.
+            </p>
+            <p style={{ margin: '8px 0 0', fontSize: 10.5, color: 'var(--ink-5)', lineHeight: 1.4, fontStyle: 'italic' }}>
+              {SCORE.quadrant}
+            </p>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            {SCORE.dimensions.map((d) => (
-              <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 11, color: 'var(--ink-3)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.label}</span>
-                <span style={{ width: 56, height: 4, borderRadius: 2, background: 'var(--paper-3)', overflow: 'hidden', flexShrink: 0 }}>
-                  <span style={{ display: 'block', height: '100%', width: `${d.value}%`, background: 'var(--moss)' }} />
-                </span>
-                <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-4)', width: 18, textAlign: 'right' }}>{d.value}</span>
-              </div>
-            ))}
-          </div>
-          <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45 }}>{SCORE.recommendation}</p>
         </div>
-        <div style={{ padding: '14px 16px', borderLeft: '1px solid var(--line)' }}>
-          <div className="lp-mono" style={{ fontSize: 9.5, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-5)' }}>
-            Prontezza all’investimento (IRL)
-          </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '4px 0 6px' }}>
-            <span className="lp-serif" style={{ fontSize: 30, fontWeight: 400, letterSpacing: -0.6 }}>{SCORE.irl.level}</span>
-            <span style={{ fontSize: 13, color: 'var(--ink-5)' }}>/ {SCORE.irl.of}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>livello di sviluppo</div>
-          <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45 }}>
-            <strong style={{ color: 'var(--ink-2)' }}>{SCORE.irl.stage}</strong> validato + Loop 4 (LAUNCH READY): la scala core è completa. Ogni punto si suda — 7-9 si sbloccano con gli add-on GTM orchestration, Fundraising readiness e Operations.
-          </p>
-          <p style={{ margin: '8px 0 0', fontSize: 10.5, color: 'var(--ink-5)', lineHeight: 1.4, fontStyle: 'italic' }}>
-            {SCORE.quadrant}
-          </p>
-        </div>
-      </div>
-    </Panel>
+      </Panel>
+    </div>
   );
 }
 
@@ -107,81 +109,83 @@ export function SpineSection() {
   const phases = SPINE.filter((n) => n.kind === 'phase').length;
   const loops = SPINE.filter((n) => n.kind === 'loop').length;
   return (
-    <Panel
-      title={`La Spina — ${phases} fasi macro + ${loops} loop`}
-      subtitle="1 modulo trasversale · loop di iterazione nelle transizioni critiche · 3 add-on per IRL 7-9 · nulla si sblocca senza il sì del founder"
-      right={<Pill kind="live" dot>Loop 4 · Launch Ready</Pill>}
-    >
-      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 7 }}>
-        {SPINE.map((node, i) => {
-          // ── Macro phase (0-4) — the prominent row ──────────────────────────
-          if (node.kind === 'phase') {
-            return (
-              <React.Fragment key={i}>
-                <div
-                  style={{
-                    border: '1px solid var(--line)', borderRadius: 'var(--r-m)',
-                    background: node.active ? 'var(--accent-wash)' : node.done ? 'var(--moss-wash)' : 'var(--paper-2)',
-                    padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 11,
-                  }}
-                >
-                  <div className="lp-mono" style={{ fontSize: 14, fontWeight: 700, color: node.active ? 'var(--accent-ink)' : 'var(--ink-4)', minWidth: 16, textAlign: 'center' }}>{node.n}</div>
+    <div data-tour="stage-card">
+      <Panel
+        title={`La Spina — ${phases} fasi macro + ${loops} loop`}
+        subtitle="1 modulo trasversale · loop di iterazione nelle transizioni critiche · 3 add-on per IRL 7-9 · nulla si sblocca senza il sì del founder"
+        right={<Pill kind="live" dot>Loop 4 · Launch Ready</Pill>}
+      >
+        <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {SPINE.map((node, i) => {
+            // ── Macro phase (0-4) — the prominent row ──────────────────────────
+            if (node.kind === 'phase') {
+              return (
+                <React.Fragment key={i}>
+                  <div
+                    style={{
+                      border: '1px solid var(--line)', borderRadius: 'var(--r-m)',
+                      background: node.active ? 'var(--accent-wash)' : node.done ? 'var(--moss-wash)' : 'var(--paper-2)',
+                      padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 11,
+                    }}
+                  >
+                    <div className="lp-mono" style={{ fontSize: 14, fontWeight: 700, color: node.active ? 'var(--accent-ink)' : 'var(--ink-4)', minWidth: 16, textAlign: 'center' }}>{node.n}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.2 }}>{node.label}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--ink-5)', marginTop: 2 }}>{node.sub}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--ink-4)', flexShrink: 0 }}>
+                      {node.done ? (
+                        <><Icon d={I.check} size={12} stroke={2} style={{ color: 'var(--moss)' }} />validato</>
+                      ) : (
+                        <><span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />attivo</>
+                      )}
+                    </div>
+                  </div>
+                  {node.expanded && <GateExpanded />}
+                </React.Fragment>
+              );
+            }
+            // ── Cross-cutting module — indented, accent-dashed connector ────────
+            if (node.kind === 'module') {
+              return (
+                <div key={i} style={{ marginLeft: 20, borderLeft: '2px dashed var(--accent)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}>
+                  <Icon d={I.layers} size={13} stroke={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.2 }}>{node.label}</div>
-                    <div style={{ fontSize: 10.5, color: 'var(--ink-5)', marginTop: 2 }}>{node.sub}</div>
+                    <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)' }}>{node.label}</div>
+                    <div style={{ fontSize: 10, color: 'var(--ink-5)' }}>{node.sub}</div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--ink-4)', flexShrink: 0 }}>
-                    {node.done ? (
-                      <><Icon d={I.check} size={12} stroke={2} style={{ color: 'var(--moss)' }} />validato</>
-                    ) : (
-                      <><span className="lp-dot lp-pulse" style={{ background: 'var(--accent)' }} />attivo</>
-                    )}
-                  </div>
+                  {node.done && <Icon d={I.check} size={12} stroke={2} style={{ color: 'var(--moss)', flexShrink: 0 }} />}
                 </div>
-                {node.expanded && <GateExpanded />}
-              </React.Fragment>
-            );
-          }
-          // ── Cross-cutting module — indented, accent-dashed connector ────────
-          if (node.kind === 'module') {
+              );
+            }
+            // ── Paid add-on — locked, unlocks a single IRL point (7-9) ─────────
+            if (node.kind === 'addon') {
+              return (
+                <div key={i} style={{ marginLeft: 20, borderLeft: '2px dashed var(--line-2)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 34, opacity: 0.72 }}>
+                  <Icon d={I.lock} size={13} stroke={1.6} style={{ color: 'var(--ink-5)', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-4)' }}>{node.label}</div>
+                    <div style={{ fontSize: 10, color: 'var(--ink-5)' }}>{node.sub}</div>
+                  </div>
+                  <Pill kind="n">sblocca IRL {node.irl}</Pill>
+                </div>
+              );
+            }
+            // ── Iteration loop — indented, sits in the transition ──────────────
             return (
-              <div key={i} style={{ marginLeft: 20, borderLeft: '2px dashed var(--accent)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}>
-                <Icon d={I.layers} size={13} stroke={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+              <div key={i} style={{ marginLeft: 20, borderLeft: '2px solid var(--line-2)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}>
+                <Icon d={I.history} size={13} stroke={1.6} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)' }}>{node.label}</div>
                   <div style={{ fontSize: 10, color: 'var(--ink-5)' }}>{node.sub}</div>
                 </div>
-                {node.done && <Icon d={I.check} size={12} stroke={2} style={{ color: 'var(--moss)', flexShrink: 0 }} />}
+                <Pill kind={VERDICT_PILL[node.verdict]}>{node.verdict}</Pill>
               </div>
             );
-          }
-          // ── Paid add-on — locked, unlocks a single IRL point (7-9) ─────────
-          if (node.kind === 'addon') {
-            return (
-              <div key={i} style={{ marginLeft: 20, borderLeft: '2px dashed var(--line-2)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 34, opacity: 0.72 }}>
-                <Icon d={I.lock} size={13} stroke={1.6} style={{ color: 'var(--ink-5)', flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-4)' }}>{node.label}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-5)' }}>{node.sub}</div>
-                </div>
-                <Pill kind="n">sblocca IRL {node.irl}</Pill>
-              </div>
-            );
-          }
-          // ── Iteration loop — indented, sits in the transition ──────────────
-          return (
-            <div key={i} style={{ marginLeft: 20, borderLeft: '2px solid var(--line-2)', paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}>
-              <Icon d={I.history} size={13} stroke={1.6} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)' }}>{node.label}</div>
-                <div style={{ fontSize: 10, color: 'var(--ink-5)' }}>{node.sub}</div>
-              </div>
-              <Pill kind={VERDICT_PILL[node.verdict]}>{node.verdict}</Pill>
-            </div>
-          );
-        })}
-      </div>
-    </Panel>
+          })}
+        </div>
+      </Panel>
+    </div>
   );
 }
 
@@ -287,26 +291,28 @@ export function LoopTimeline() {
 
 export function WatchersPreview() {
   return (
-    <Panel title="Osservatori" subtitle="scansione settimanale" right={<a href="/demo/inbox" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>Vedi tutti →</a>}>
-      <div>
-        {WATCHERS.map((w, i) => (
-          <div key={w.title} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderTop: i > 0 ? '1px solid var(--line)' : 'none' }}>
-            <Icon d={I.eye} size={12} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11.5, color: 'var(--ink-2)', fontWeight: 500 }}>{w.title}</div>
-              <div style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>{w.meta}</div>
+    <div data-tour="watchers-panel">
+      <Panel title="Osservatori" subtitle="scansione settimanale" right={<a href="/demo/inbox" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>Vedi tutti →</a>}>
+        <div>
+          {WATCHERS.map((w, i) => (
+            <div key={w.title} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderTop: i > 0 ? '1px solid var(--line)' : 'none' }}>
+              <Icon d={I.eye} size={12} style={{ color: 'var(--ink-4)', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-2)', fontWeight: 500 }}>{w.title}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--ink-5)' }}>{w.meta}</div>
+              </div>
+              <Pill kind="ok" dot>{w.state}</Pill>
             </div>
-            <Pill kind="ok" dot>{w.state}</Pill>
+          ))}
+          <div style={{ margin: '8px 14px', border: '1px solid var(--line)', borderRadius: 'var(--r-m)', background: 'var(--clay-wash)', padding: '8px 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: 'var(--ink)' }}>
+              <Icon d={I.bell} size={11} style={{ color: 'var(--clay)' }} />{INTEL_ALERT.title}
+            </div>
+            <p style={{ margin: '4px 0 0', fontSize: 10.5, color: 'var(--ink-3)', lineHeight: 1.4 }}>{INTEL_ALERT.body}</p>
           </div>
-        ))}
-        <div style={{ margin: '8px 14px', border: '1px solid var(--line)', borderRadius: 'var(--r-m)', background: 'var(--clay-wash)', padding: '8px 10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: 'var(--ink)' }}>
-            <Icon d={I.bell} size={11} style={{ color: 'var(--clay)' }} />{INTEL_ALERT.title}
-          </div>
-          <p style={{ margin: '4px 0 0', fontSize: 10.5, color: 'var(--ink-3)', lineHeight: 1.4 }}>{INTEL_ALERT.body}</p>
         </div>
-      </div>
-    </Panel>
+      </Panel>
+    </div>
   );
 }
 

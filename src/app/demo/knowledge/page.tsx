@@ -37,7 +37,7 @@ export default function DemoKnowledge() {
           <Pill kind="live" dot>1 in attesa</Pill>
           <Pill kind="n">{ECO_NODE_COUNT} nodi · {ECO_EDGE_COUNT} collegamenti</Pill>
         </div>
-        <div className="lp-scroll" style={{ flex: 1, overflow: 'auto' }}>
+        <div className="lp-scroll" data-tour="knowledge-graph" style={{ flex: 1, overflow: 'auto' }}>
           {view === 'graph' && <GraphView />}
           {view === 'list' && <ListView />}
           {view === 'moves' && <MovesView />}
