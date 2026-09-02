@@ -23,10 +23,13 @@ export function GrantsList({
   projectId,
   calls,
   now,
+  showRelevance = false,
 }: {
   projectId: string;
   calls: FundingCallView[];
   now: Date;
+  /** Show why each call ranked where it did (relevance ordering only). */
+  showRelevance?: boolean;
 }) {
   const t = useT();
   return (
@@ -35,7 +38,7 @@ export function GrantsList({
       style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}
     >
       {calls.map((call) => (
-        <GrantRow key={call.id} projectId={projectId} call={call} now={now} />
+        <GrantRow key={call.id} projectId={projectId} call={call} now={now} showRelevance={showRelevance} />
       ))}
     </ul>
   );
@@ -43,7 +46,17 @@ export function GrantsList({
 
 const DATE_OPTS: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' };
 
-function GrantRow({ projectId, call, now }: { projectId: string; call: FundingCallView; now: Date }) {
+function GrantRow({
+  projectId,
+  call,
+  now,
+  showRelevance,
+}: {
+  projectId: string;
+  call: FundingCallView;
+  now: Date;
+  showRelevance: boolean;
+}) {
   const t = useT();
   const locale = useLocale();
   const tag = locale === 'it' ? 'it-IT' : 'en-GB';
@@ -132,6 +145,25 @@ function GrantRow({ projectId, call, now }: { projectId: string; call: FundingCa
           </Link>
         )}
       </div>
+
+      {showRelevance && call.relevance && call.relevance.reasons.length > 0 && (
+        <div
+          style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}
+          aria-label={t('grants.row.why-aria')}
+        >
+          <span className="lp-mono" style={{ fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-5)' }}>
+            {t('grants.row.why')}
+          </span>
+          {call.relevance.reasons
+            .filter((r) => r.kind !== 'closing')
+            .slice(0, 5)
+            .map((r) => (
+              <Pill key={`${r.kind}-${r.label}`} kind={r.kind === 'region' || r.kind === 'national' ? 'info' : 'n'}>
+                {r.label}
+              </Pill>
+            ))}
+        </div>
+      )}
 
       <div
         className="lp-mono"

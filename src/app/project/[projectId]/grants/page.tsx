@@ -23,7 +23,8 @@ import {
   type GrantsResponse,
   matchesRegion,
   ITALIAN_REGIONS,
-  NATIONAL_REGION
+  NATIONAL_REGION,
+  type GrantsSort
 } from '@/lib/grants/view';
 import { GrantsFreshness } from '@/components/grants/GrantsFreshness';
 import { GrantsAlertsToggle } from '@/components/grants/GrantsAlertsToggle';
@@ -67,11 +68,20 @@ export default function GrantsPage({ params }: { params: Promise<{ projectId: st
   const [chip, setChip] = useState<GrantsChip>('all');
   const [q, setQ] = useState('');
   const [region, setRegion] = useState<string>('');
+  // Relevance is the default whenever the project has enough of its own text to
+  // rank against; the API says so via project_signals. The ordering is computed
+  // by lexicon match and arithmetic — no model is involved at any point.
+  const [sort, setSort] = useState<GrantsSort | null>(null);
+  const canRank = !!data?.project_signals?.usable;
+  const effectiveSort: GrantsSort = sort ?? (canRank ? 'relevance' : 'deadline');
 
   const calls = useMemo(() => data?.calls ?? [], [data]);
   const searched = useMemo(() => calls.filter((c) => matchesQuery(c, q) && matchesRegion(c, region || null)), [calls, q, region]);
   const counts = useMemo(() => chipCounts(searched, now), [searched, now]);
-  const visible = useMemo(() => applyFilters(calls, { chip, q, region: region || null }, now), [calls, chip, q, region, now]);
+  const visible = useMemo(
+    () => applyFilters(calls, { chip, q, region: region || null, sort: effectiveSort }, now),
+    [calls, chip, q, region, effectiveSort, now],
+  );
 
   useSetChrome(
     {
@@ -236,6 +246,36 @@ export default function GrantsPage({ params }: { params: Promise<{ projectId: st
                         <option key={r} value={r}>{r}</option>
                       ))}
                     </select>
+                    {canRank && (
+                      <div
+                        role="group"
+                        aria-label={t('grants.sort-aria')}
+                        style={{ display: 'inline-flex', borderRadius: 999, border: '1px solid var(--line)', overflow: 'hidden' }}
+                      >
+                        {(['relevance', 'deadline'] as GrantsSort[]).map((mode) => {
+                          const active = effectiveSort === mode;
+                          return (
+                            <button
+                              key={mode}
+                              type="button"
+                              aria-pressed={active}
+                              onClick={() => setSort(mode)}
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: 12,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                border: 'none',
+                                background: active ? 'var(--ink)' : 'var(--surface)',
+                                color: active ? 'var(--paper)' : 'var(--ink-3)',
+                              }}
+                            >
+                              {t(mode === 'relevance' ? 'grants.sort.relevance' : 'grants.sort.deadline')}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                     <input
                       type="search"
                       value={q}
@@ -259,6 +299,16 @@ export default function GrantsPage({ params }: { params: Promise<{ projectId: st
                     style={{ marginTop: 6, fontSize: 10.5, color: 'var(--ink-5)', fontVariantNumeric: 'tabular-nums' }}
                   >
                     {t('grants.results-count', { n: visible.length, total: data.calls.length })}
+                    {canRank && effectiveSort === 'relevance' && (
+                      <span style={{ marginLeft: 8 }}>
+                        {t('grants.sort.basis', {
+                          basis: [
+                            ...(data.project_signals?.regions ?? []),
+                            ...(data.project_signals?.scopes ?? []),
+                          ].slice(0, 4).join(' · ') || t('grants.sort.basis-text'),
+                        })}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -285,7 +335,7 @@ export default function GrantsPage({ params }: { params: Promise<{ projectId: st
                     </button>
                   </div>
                 ) : (
-                  <GrantsList projectId={projectId} calls={visible} now={now} />
+                  <GrantsList projectId={projectId} calls={visible} now={now} showRelevance={effectiveSort === 'relevance'} />
                 )}
               </>
             )}
