@@ -91,6 +91,9 @@ interface StoredCall {
  * Built once and interpolated (no user input) because ON CONFLICT ... SET has
  * no way to name a boolean once.
  */
+/** An incoming 'unread' page_status must never erase a stored ok/failed. */
+export const KEEP_PAGE_STATUS_SQL = `excluded.page_status = 'unread'`;
+
 export const KEEP_PAGE_PARSE_SQL = `(funding_calls.status <> 'closed'
              AND funding_calls.parse_method = 'regex'
              AND excluded.parse_method = 'socrata_field'
@@ -214,7 +217,7 @@ async function needsDetailFor(source: FundingSource, ids: string[]): Promise<Set
   try {
     const rows = await query<{ source_identifier: string }>(
       `SELECT source_identifier FROM funding_calls
-        WHERE source = ? AND status != 'closed' AND eligibility_text IS NOT NULL
+        WHERE source = ? AND status != 'closed' AND (eligibility_text IS NOT NULL OR page_status = 'ok')
           AND NOT (
             status = 'rolling'
             AND (missed_syncs > 0
@@ -319,8 +322,9 @@ export async function syncSource(
          INSERT INTO funding_calls
            (id, source, source_identifier, official_url, title, granting_body, deadline, deadline_time,
             status, eligibility_text, raw_snippet, parse_method, missed_syncs,
-            first_seen_at, last_verified_at, closed_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?)
+            first_seen_at, last_verified_at, closed_at, updated_at,
+            page_status, page_error, page_checked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, ?, ?)
          ON CONFLICT (source, source_identifier) DO UPDATE SET
            official_url     = excluded.official_url,
            title            = excluded.title,
@@ -341,7 +345,13 @@ export async function syncSource(
            missed_syncs     = 0,
            last_verified_at = excluded.last_verified_at,
            closed_at        = NULL,
-           updated_at       = excluded.updated_at
+           updated_at       = excluded.updated_at,
+           page_status      = CASE WHEN ${KEEP_PAGE_STATUS_SQL} THEN funding_calls.page_status
+                                   ELSE excluded.page_status END,
+           page_error       = CASE WHEN ${KEEP_PAGE_STATUS_SQL} THEN funding_calls.page_error
+                                   ELSE excluded.page_error END,
+           page_checked_at  = CASE WHEN ${KEEP_PAGE_STATUS_SQL} THEN funding_calls.page_checked_at
+                                   ELSE excluded.page_checked_at END
          RETURNING id, (xmax = 0) AS inserted,
                    status, deadline::text AS deadline, deadline_time,
                    (SELECT p.status FROM prev p) AS prev_status,
@@ -364,6 +374,9 @@ export async function syncSource(
         nowIso,
         nowIso,
         nowIso,
+        call.page_status ?? 'unread',
+        call.page_error ?? null,
+        (call.page_status ?? 'unread') === 'unread' ? null : nowIso,
       );
       const row = rows[0];
       if (!row) {

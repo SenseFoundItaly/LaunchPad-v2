@@ -195,6 +195,9 @@ export function normalizeSediaResult(result: SediaResult, now: Date): Normalized
     eligibility_text: eligibility && eligibility.length > 0 ? eligibility : null,
     raw_snippet: rawSnippet,
     parse_method: 'iso_field',
+    // Everything above came from the API — there is no page to read.
+    page_status: 'n/a',
+    page_error: null,
   };
 }
 

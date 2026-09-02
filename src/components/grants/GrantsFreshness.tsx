@@ -50,15 +50,18 @@ export function GrantsFreshness({ sources, now }: { sources: SourceFreshness[]; 
     const when = ago(s.last_success_at);
     const name = t(SOURCE_NAME[s.source]);
     const failed = !!s.last_error && !s.last_error.startsWith('truncated:');
+    // "Last scan" = the last ATTEMPT (updated_at); "verified" = last SUCCESS.
+    const scanWhen = ago(s.updated_at) ?? when;
     let ctx: string;
     if (failed) {
-      ctx = when ? t('grants.freshness.failed-since', { when }) : t('grants.freshness.failed');
+      ctx = t('grants.freshness.scan-failed', { when: scanWhen ?? '—', error: s.last_error!.slice(0, 80) })
+        + (when ? ` · ${t('grants.freshness.verified', { when })}` : '');
     } else if (s.last_error) {
-      ctx = t('grants.freshness.partial', { when: when ?? '—' });
+      ctx = t('grants.freshness.scan-partial', { when: scanWhen ?? '—' });
     } else if (!when) {
       ctx = t('grants.freshness.never');
     } else {
-      ctx = t('grants.freshness.verified', { when });
+      ctx = t('grants.freshness.scan-ok', { when: scanWhen ?? when });
     }
     return {
       source: s.source,
@@ -69,7 +72,11 @@ export function GrantsFreshness({ sources, now }: { sources: SourceFreshness[]; 
       heartbeatLabel: `${name} · ${t(STATE_KEY[kind])}`,
       ctx,
       // No count before the first successful sync — '0 calls' would read as a result.
-      hints: s.last_count === null ? [] : [t('grants.freshness.count', { n: s.last_count })],
+      hints: [
+        ...(s.last_count === null ? [] : [t('grants.freshness.count', { n: s.last_count })]),
+        ...(s.pages_failed ? [t('grants.freshness.pages-failed', { n: s.pages_failed })] : []),
+        ...(s.pages_unread ? [t('grants.freshness.pages-unread', { n: s.pages_unread })] : []),
+      ],
     };
   });
 

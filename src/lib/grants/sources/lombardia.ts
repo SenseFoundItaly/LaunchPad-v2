@@ -233,6 +233,8 @@ export function normalizeSocrataRow(row: SocrataRow, now: Date): NormalizedCall 
     eligibility_text: null,
     raw_snippet: rawSnippet,
     parse_method: 'socrata_field',
+    page_status: 'unread',
+    page_error: null,
   };
 }
 
@@ -505,14 +507,22 @@ export async function fetchLombardiaListing(opts: LombardiaOptions): Promise<Con
       });
       if (!res.ok) {
         console.warn('[grants] lombardia detail failed:', id, `HTTP ${res.status}`);
-        continue; // keep the Socrata-only call
+        // Keep the Socrata-only call, but RECORD that the page could not be read.
+        byId.set(id, { ...call, page_status: 'failed', page_error: `HTTP ${res.status}` });
+        continue;
       }
       const html = await res.text();
-      const next = applyDetail(call, parseLombardiaDetail(html), now);
+      const detail = parseLombardiaDetail(html);
+      const next = applyDetail(call, detail, now);
       if (next === null) byId.delete(id);
-      else byId.set(id, next);
+      else if (detail.not_found) {
+        // The portal answered with its "Errore" page: it does not know this
+        // codice even though Socrata lists it. Data stays Socrata-only.
+        byId.set(id, { ...next, page_status: 'failed', page_error: 'Errore page (codice not on portal)' });
+      } else byId.set(id, { ...next, page_status: 'ok', page_error: null });
     } catch (err) {
       console.warn('[grants] lombardia detail failed:', id, (err as Error).message);
+      byId.set(id, { ...call, page_status: 'failed', page_error: (err as Error).message.slice(0, 160) });
     }
   }
   const skipped = ordered.length - index;

@@ -32,7 +32,11 @@ export function GrantsAlertsToggle({
       const res = await fetch(`/api/projects/${projectId}/monitors/${monitor.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: on ? 'paused' : 'active' }),
+        // schedule 'manual' on activation: the cron's due-query skips manual
+        // monitors, so turning alerts ON does NOT start the weekly LLM scan
+        // (which costs tokens and produced the hallucinated deadlines). Alerts
+        // come from the tracked sources via sync.ts, which keys on status only.
+        body: JSON.stringify(on ? { status: 'paused' } : { status: 'active', schedule: 'manual' }),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok || body?.success === false) throw new Error(body?.error || `HTTP ${res.status}`);
@@ -62,6 +66,7 @@ export function GrantsAlertsToggle({
     >
       <div style={{ padding: '10px 14px' }}>
         <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-4)', lineHeight: 1.5 }}>{t('grants.alerts.desc')}</p>
+        <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>{t('grants.alerts.cost-note')}</p>
         {monitor === null ? (
           <p style={{ margin: '8px 0 0', fontSize: 12.5, color: 'var(--ink-3)' }}>{t('grants.alerts.no-monitor')}</p>
         ) : (

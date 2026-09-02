@@ -62,11 +62,11 @@ export async function GET(
       vals.push(like, like);
     }
 
-    const [rawCalls, stateRows, monitor] = await Promise.all([
+    const [rawCalls, stateRows, monitor, pageAgg] = await Promise.all([
       query<FundingCallView>(
         `SELECT fc.id, fc.source, fc.title, fc.granting_body, fc.official_url,
                 fc.deadline::text AS deadline, fc.deadline_time, fc.status, fc.eligibility_text,
-                fc.last_verified_at,
+                fc.last_verified_at, fc.page_status, fc.page_error, fc.page_checked_at,
                 EXISTS (
                   SELECT 1 FROM ecosystem_alerts ea
                    WHERE ea.project_id = ? AND ea.funding_call_id = fc.id
@@ -78,7 +78,7 @@ export async function GET(
         ...vals,
       ),
       query<SourceFreshness>(
-        `SELECT source, last_success_at, last_error, last_count FROM funding_source_state`,
+        `SELECT source, last_success_at, last_error, last_count, updated_at FROM funding_source_state`,
       ),
       get<{ id: string; status: string }>(
         `SELECT id, status FROM monitors
@@ -86,19 +86,30 @@ export async function GET(
           ORDER BY created_at ASC LIMIT 1`,
         projectId,
       ),
+      // What could NOT be fetched, per source, over the calls still open.
+      query<{ source: string; unread: number | string; failed: number | string }>(
+        `SELECT source,
+                COUNT(*) FILTER (WHERE page_status = 'unread') AS unread,
+                COUNT(*) FILTER (WHERE page_status = 'failed') AS failed
+           FROM funding_calls WHERE status <> 'closed' GROUP BY source`,
+      ),
     ]);
 
     const calls: FundingCallView[] = rawCalls.map((c) => ({ ...c, alerted: Boolean(c.alerted) }));
 
     const sources: SourceFreshness[] = FUNDING_SOURCES.map((s) => {
       const row = stateRows.find((r) => r.source === s);
-      if (!row) return { source: s, last_success_at: null, last_error: null, last_count: null };
-      const n = row.last_count === null || row.last_count === undefined ? null : Number(row.last_count);
+      const agg = pageAgg.find((r) => r.source === s);
+      const num = (v: unknown) => { const x = v === null || v === undefined ? NaN : Number(v); return Number.isNaN(x) ? null : x; };
+      const pages = { pages_unread: agg ? num(agg.unread) : null, pages_failed: agg ? num(agg.failed) : null };
+      if (!row) return { source: s, last_success_at: null, last_error: null, last_count: null, updated_at: null, ...pages };
       return {
         source: s,
         last_success_at: row.last_success_at ?? null,
         last_error: row.last_error ?? null,
-        last_count: n === null || Number.isNaN(n) ? null : n,
+        last_count: num(row.last_count),
+        updated_at: row.updated_at ?? null,
+        ...pages,
       };
     });
 

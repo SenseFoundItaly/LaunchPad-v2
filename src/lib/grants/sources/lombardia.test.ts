@@ -241,6 +241,8 @@ describe('normalizeSocrataRow', () => {
       eligibility_text: null,
       raw_snippet: '2026-09-07T00:00:00.000',
       parse_method: 'socrata_field',
+      page_status: 'unread',
+      page_error: null,
     });
   });
 
@@ -551,5 +553,37 @@ describe('canonical official_url from the portal sitemap', () => {
     const calls = await fetchLombardiaCalls({ fetch: stub, now, resolveDetails: false, resolveCanonicalUrls: false });
     expect(byId(calls, TERTIUM)?.official_url).toBe(lombardiaDetailUrl(TERTIUM));
     expect(sitemapRequests).toHaveLength(0);
+  });
+});
+
+describe('page_status — what could not be fetched is recorded, never hidden', () => {
+  const now = new Date('2026-09-01T10:00:00Z');
+  it('is unread before enrichment and ok after a parsed detail page', async () => {
+    const { stub } = makeStub();
+    const before = await fetchLombardiaCalls({ fetch: stub, now, resolveDetails: false });
+    expect(byId(before, TERTIUM)?.page_status).toBe('unread');
+    const after = await fetchLombardiaCalls({ fetch: stub, now, needsDetail: async () => new Set([TERTIUM]) });
+    expect(byId(after, TERTIUM)?.page_status).toBe('ok');
+    expect(byId(after, TERTIUM)?.page_error).toBeNull();
+  });
+  it('records failed + the HTTP status when the page is not OK, keeping the Socrata data', async () => {
+    const { stub } = makeStub({ detail: { [TERTIUM]: async () => new Response('gone', { status: 404 }) } });
+    const calls = await fetchLombardiaCalls({ fetch: stub, now, needsDetail: async () => new Set([TERTIUM]) });
+    const c = byId(calls, TERTIUM)!;
+    expect(c.page_status).toBe('failed');
+    expect(c.page_error).toBe('HTTP 404');
+    expect(c.parse_method).toBe('socrata_field');
+  });
+  it('records failed on the portal Errore page (codice unknown to the portal)', async () => {
+    const { stub } = makeStub({ detail: { [TERTIUM]: ERROR_PAGE } });
+    const calls = await fetchLombardiaCalls({ fetch: stub, now, needsDetail: async () => new Set([TERTIUM]) });
+    expect(byId(calls, TERTIUM)?.page_status).toBe('failed');
+    expect(byId(calls, TERTIUM)?.page_error).toMatch(/Errore/);
+  });
+  it('records failed with the error message when the fetch throws', async () => {
+    const { stub } = makeStub({ detail: { [TERTIUM]: async () => { throw new Error('socket hang up'); } } });
+    const calls = await fetchLombardiaCalls({ fetch: stub, now, needsDetail: async () => new Set([TERTIUM]) });
+    expect(byId(calls, TERTIUM)?.page_status).toBe('failed');
+    expect(byId(calls, TERTIUM)?.page_error).toBe('socket hang up');
   });
 });

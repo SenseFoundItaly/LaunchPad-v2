@@ -13,6 +13,9 @@ export type FundingCallStatus = 'open' | 'rolling' | 'closed';
 export type ParseMethod = 'iso_field' | 'socrata_field' | 'regex';
 
 /** Connector output. Connectors never emit 'closed' — closure is the sync's job. */
+/** Whether the call's official page was read: see db/migrations/045. */
+export type PageStatus = 'unread' | 'ok' | 'failed' | 'n/a';
+
 export interface NormalizedCall {
   source: FundingSource;
   /** Stable per-source id (SEDIA topic identifier, Lombardia codice_bando). */
@@ -29,6 +32,9 @@ export interface NormalizedCall {
   /** Exact source substring the deadline was parsed from ('' only for rolling). */
   raw_snippet: string;
   parse_method: ParseMethod;
+  /** Omitted ⇒ 'unread' (Lombardia before its detail fetch). SEDIA sets 'n/a'. */
+  page_status?: PageStatus;
+  page_error?: string | null;
 }
 
 /** Row shape of funding_calls (db/migrations/044_funding_calls.sql). */
@@ -50,6 +56,9 @@ export interface FundingCall {
   last_verified_at: string;
   closed_at: string | null;
   updated_at: string;
+  page_status: PageStatus;
+  page_error: string | null;
+  page_checked_at: string | null;
 }
 
 /** Row shape of funding_source_state. */

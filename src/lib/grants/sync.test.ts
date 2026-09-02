@@ -25,7 +25,7 @@ vi.mock('@/lib/competitor-profiles', () => ({ updateCompetitorProfile: vi.fn(asy
 vi.mock('@/lib/signal-autoflow', () => ({ isAutoflowEnabled: () => false, routeAlertAutoflow: vi.fn(async () => 'inbox') }));
 vi.mock('@/lib/signal-activity-log', () => ({ logSignalActivity: vi.fn(async () => undefined) }));
 
-import { syncFundingCalls, buildGrantAlertContent, expireFundingCalls, KEEP_PAGE_PARSE_SQL } from '@/lib/grants/sync';
+import { syncFundingCalls, buildGrantAlertContent, expireFundingCalls, KEEP_PAGE_PARSE_SQL, KEEP_PAGE_STATUS_SQL } from '@/lib/grants/sync';
 import { persistEcosystemAlerts } from '@/lib/ecosystem-alert-parser';
 
 const now = new Date('2026-09-01T12:00:00Z');
@@ -229,6 +229,13 @@ describe('syncFundingCalls — rule 1: a KNOWN identifier updates in place and e
     expect(KEEP_PAGE_PARSE_SQL).toMatch(/funding_calls\.status <> 'closed'/);
     // Guarded columns: deadline, deadline_time, status, raw_snippet, parse_method.
     expect(sql.split(KEEP_PAGE_PARSE_SQL).length - 1).toBe(5);
+    // page_status / page_error / page_checked_at: an incoming 'unread' (a
+    // Socrata-only pass) must never erase what a detail fetch established.
+    expect(KEEP_PAGE_STATUS_SQL).toBe("excluded.page_status = 'unread'");
+    expect(sql.split(KEEP_PAGE_STATUS_SQL).length - 1).toBe(3);
+    for (const col of ['page_status', 'page_error', 'page_checked_at']) {
+      expect(sql).toMatch(new RegExp(`${col}\\s*=\\s*CASE WHEN excluded\\.page_status = 'unread' THEN funding_calls\\.${col}`));
+    }
     for (const col of ['deadline', 'deadline_time', 'status', 'raw_snippet', 'parse_method']) {
       expect(sql).toMatch(new RegExp(`${col}\\s*=\\s*CASE WHEN \\(funding_calls\\.status <> 'closed'`));
     }

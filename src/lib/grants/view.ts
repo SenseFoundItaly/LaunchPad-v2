@@ -2,7 +2,7 @@
  * Grants page — pure view logic shared by the API route (response types) and
  * the page components (filters, buckets, freshness). No React, no DB.
  */
-import type { FundingSource, FundingCallStatus } from './types';
+import type { FundingSource, FundingCallStatus, PageStatus } from './types';
 
 export interface FundingCallView {
   id: string;
@@ -21,6 +21,10 @@ export interface FundingCallView {
   last_verified_at: string;
   /** EXISTS ecosystem_alerts(project_id, funding_call_id). */
   alerted: boolean;
+  /** Whether the official page was read (db/migrations/045). */
+  page_status: PageStatus;
+  page_error: string | null;
+  page_checked_at: string | null;
 }
 
 export interface SourceFreshness {
@@ -29,6 +33,11 @@ export interface SourceFreshness {
   last_success_at: string | null;
   last_count: number | null;
   last_error: string | null;
+  /** Last scan ATTEMPT (success or failure) — funding_source_state.updated_at. */
+  updated_at: string | null;
+  /** Open calls whose official page has not been read yet / could not be read. */
+  pages_unread: number | null;
+  pages_failed: number | null;
 }
 
 export interface GrantsResponse {

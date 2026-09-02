@@ -152,7 +152,11 @@ function GrantRow({ projectId, call, now }: { projectId: string; call: FundingCa
 
       {!call.eligibility_text ? (
         <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--ink-5)', fontStyle: 'italic' }}>
-          {t('grants.row.no-eligibility')}
+          {call.page_status === 'unread'
+            ? t('grants.row.page-unread')
+            : call.page_status === 'failed'
+              ? t('grants.row.page-failed', { error: call.page_error ?? '—', date: fmtDateTime(call.page_checked_at ?? call.last_verified_at) })
+              : t('grants.row.no-eligibility')}
         </p>
       ) : (
         <div style={{ marginTop: 8 }}>
