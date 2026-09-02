@@ -10,6 +10,7 @@
  *     inbox     → /project/{id}/actions    (pending actions)
  *     signals   → /project/{id}/signals    (briefs + findings)
  *     knowledge → /project/{id}/knowledge  (uploads)
+ *     grants    → /project/{id}/grants     (open EU + Lombardia funding calls)
  *     chat      → /project/{id}/chat       (Co-pilot — chat + single-scroll
  *                                           Canvas, grouped by department)
  *
@@ -71,7 +72,7 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
         {/* Brand mark — SenseFound logomark + wordmark (V1.1 guidelines: the
             protective bracket + validation arrow is the brand's identity). The
             logomark links home; the wordmark is hidden on narrow widths. */}
-        <a href="/" aria-label={t('nav.home-aria')} style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none', flexShrink: 0 }}>
+        <Link href="/" aria-label={t('nav.home-aria')} style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none', flexShrink: 0 }}>
           {/* SenseFound logomark (brand symbol) + LaunchPad wordmark (product
               name). 22px = the brand's documented minimum logo size (p.12). */}
           <Logomark size={22} />
@@ -82,7 +83,7 @@ export function TopBar({ breadcrumb, right, projectId }: TopBarProps) {
           >
             LAUNCHPAD
           </span>
-        </a>
+        </Link>
         {breadcrumb && breadcrumb.length > 0 && (
           <span style={{ color: 'var(--ink-6)', margin: '0 2px' }}>·</span>
         )}
@@ -176,6 +177,8 @@ const CHANNEL_ITEMS: NavItem[] = [
     tooltipKey: 'nav.inbox.tooltip' },
   { id: 'knowledge', iconKey: 'book',    labelKey: 'nav.knowledge', route: 'knowledge',
     tooltipKey: 'nav.knowledge.tooltip' },
+  { id: 'grants',    iconKey: 'globe',   labelKey: 'nav.grants',    route: 'grants',
+    tooltipKey: 'nav.grants.tooltip' },
   { id: 'financial', iconKey: 'dollar',  labelKey: 'nav.financial', route: 'financial',
     tooltipKey: 'nav.financial.tooltip' },
   { id: 'chat',      iconKey: 'chat',    icon: <RobotGlyph />,      labelKey: 'nav.copilot',   route: 'chat',

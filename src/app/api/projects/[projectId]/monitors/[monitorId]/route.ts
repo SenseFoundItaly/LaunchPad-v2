@@ -203,6 +203,8 @@ export async function PATCH(
   { params }: { params: Promise<{ projectId: string; monitorId: string }> },
 ) {
   const { projectId, monitorId } = await params;
+  const auth = await tryProjectAccess(projectId);
+  if (!auth.ok) return auth.response;
 
   let body: Partial<{
     schedule: string;
