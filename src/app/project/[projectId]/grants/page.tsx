@@ -21,6 +21,9 @@ import {
   matchesQuery,
   type GrantsChip,
   type GrantsResponse,
+  matchesRegion,
+  ITALIAN_REGIONS,
+  NATIONAL_REGION
 } from '@/lib/grants/view';
 import { GrantsFreshness } from '@/components/grants/GrantsFreshness';
 import { GrantsAlertsToggle } from '@/components/grants/GrantsAlertsToggle';
@@ -33,6 +36,7 @@ const CHIP_LABEL: Record<GrantsChip, MessageKey> = {
   rolling: 'grants.chip.rolling',
   sedia: 'grants.chip.sedia',
   lombardia: 'grants.chip.lombardia',
+  incentivi: 'grants.chip.incentivi',
 };
 
 export default function GrantsPage({ params }: { params: Promise<{ projectId: string }> }) {
@@ -62,11 +66,12 @@ export default function GrantsPage({ params }: { params: Promise<{ projectId: st
 
   const [chip, setChip] = useState<GrantsChip>('all');
   const [q, setQ] = useState('');
+  const [region, setRegion] = useState<string>('');
 
   const calls = useMemo(() => data?.calls ?? [], [data]);
-  const searched = useMemo(() => calls.filter((c) => matchesQuery(c, q)), [calls, q]);
+  const searched = useMemo(() => calls.filter((c) => matchesQuery(c, q) && matchesRegion(c, region || null)), [calls, q, region]);
   const counts = useMemo(() => chipCounts(searched, now), [searched, now]);
-  const visible = useMemo(() => applyFilters(calls, { chip, q }, now), [calls, chip, q, now]);
+  const visible = useMemo(() => applyFilters(calls, { chip, q, region: region || null }, now), [calls, chip, q, region, now]);
 
   useSetChrome(
     {
@@ -211,6 +216,26 @@ export default function GrantsPage({ params }: { params: Promise<{ projectId: st
                         </button>
                       );
                     })}
+                    <select
+                      aria-label={t('grants.region-aria')}
+                      value={region}
+                      onChange={(e) => setRegion(e.target.value)}
+                      style={{
+                        borderRadius: 999,
+                        padding: '4px 10px',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        background: region ? 'var(--ink)' : 'var(--surface)',
+                        color: region ? 'var(--paper)' : 'var(--ink-3)',
+                        border: region ? '1px solid var(--ink)' : '1px solid var(--line)',
+                      }}
+                    >
+                      <option value="">{t('grants.region.all')}</option>
+                      <option value={NATIONAL_REGION}>{t('grants.region.national')}</option>
+                      {ITALIAN_REGIONS.map((r) => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
                     <input
                       type="search"
                       value={q}

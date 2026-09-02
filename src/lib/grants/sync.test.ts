@@ -681,3 +681,23 @@ describe('source pins', () => {
     }
   });
 });
+
+describe('jsonb binding — facets must be bound as a RAW object', () => {
+  it('binds facets as an object, never a pre-stringified JSON string (double-encode trap)', async () => {
+    queryMock.mockReset(); runMock.mockReset(); getMock.mockReset();
+    getMock.mockResolvedValue({ ran_today: false });
+    queryMock.mockImplementation(async (sql: string) => {
+      if (/INSERT INTO funding_calls/.test(sql)) return [{ id: 'fcall_x', inserted: true, status: 'open', deadline: '2026-10-01', deadline_time: null, prev_status: null, prev_deadline: null, prev_deadline_time: null }];
+      return [];
+    });
+    runMock.mockResolvedValue({ count: 0 });
+    const facets = { subject_types: ['Impresa'], scopes: ['Digitalizzazione'], support_forms: ['Contributo/Fondo perduto'], ateco: null, national: true };
+    const call: NormalizedCall = { ...IHI, source: 'incentivi', source_identifier: 'nid-1', official_url: 'https://example.gov.it/x', regions: ['Toscana'], facets, source_note: null, catalog_url: 'https://www.incentivi.gov.it/it/catalogo/x' };
+    const conn = fakeConnector([call]); (conn as { source: string }).source = 'incentivi';
+    await syncFundingCalls({ sources: [conn], now });
+    const args = callsMatching(queryMock, /INSERT INTO funding_calls/)[0] as unknown[];
+    expect(args.some((a) => a && typeof a === 'object' && !Array.isArray(a) && 'national' in (a as object))).toBe(true);
+    expect(args.some((a) => typeof a === 'string' && a.startsWith('{"subject_types"'))).toBe(false);
+    expect(args.some((a) => Array.isArray(a) && a[0] === 'Toscana')).toBe(true);
+  });
+});

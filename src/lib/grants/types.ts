@@ -6,8 +6,18 @@
  * in code, never by a model). The sync owns every DB write.
  */
 
-export type FundingSource = 'sedia' | 'lombardia';
-export const FUNDING_SOURCES: readonly FundingSource[] = ['sedia', 'lombardia'] as const;
+export type FundingSource = 'sedia' | 'lombardia' | 'incentivi';
+export const FUNDING_SOURCES: readonly FundingSource[] = ['sedia', 'lombardia', 'incentivi'] as const;
+
+/** Structured eligibility facets (incentivi.gov.it) — inputs for the relevance layer. */
+export interface FundingFacets {
+  subject_types: string[];
+  scopes: string[];
+  support_forms: string[];
+  ateco: string | null;
+  /** Tagged with (almost) every region ⇒ a national measure. */
+  national: boolean;
+}
 
 export type FundingCallStatus = 'open' | 'rolling' | 'closed';
 export type ParseMethod = 'iso_field' | 'socrata_field' | 'regex';
@@ -35,6 +45,13 @@ export interface NormalizedCall {
   /** Omitted ⇒ 'unread' (Lombardia before its detail fetch). SEDIA sets 'n/a'. */
   page_status?: PageStatus;
   page_error?: string | null;
+  /** Region names as the source tags them; null when the source is not regional. */
+  regions?: string[] | null;
+  facets?: FundingFacets | null;
+  /** The source's free-text closing note — shown to the founder, never parsed. */
+  source_note?: string | null;
+  /** Catalogue entry when official_url is the granting body's own page. */
+  catalog_url?: string | null;
 }
 
 /** Row shape of funding_calls (db/migrations/044_funding_calls.sql). */
@@ -59,6 +76,10 @@ export interface FundingCall {
   page_status: PageStatus;
   page_error: string | null;
   page_checked_at: string | null;
+  regions: string[] | null;
+  facets: FundingFacets | null;
+  source_note: string | null;
+  catalog_url: string | null;
 }
 
 /** Row shape of funding_source_state. */

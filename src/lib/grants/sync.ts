@@ -42,6 +42,7 @@ import { computeDedupeHash } from '@/lib/ecosystem-monitors';
 import { translate } from '@/lib/i18n/messages';
 import { sediaConnector } from './sources/sedia';
 import { lombardiaConnector } from './sources/lombardia';
+import { incentiviConnector } from './sources/incentivi';
 import type {
   ConnectorResult,
   FetchLike,
@@ -135,7 +136,7 @@ function zeroResult(source: FundingSource): SourceSyncResult {
  */
 export async function syncFundingCalls(opts: SyncOptions = {}): Promise<SyncResult> {
   const now = opts.now ?? new Date();
-  const sources = opts.sources ?? [sediaConnector, lombardiaConnector];
+  const sources = opts.sources ?? [sediaConnector, lombardiaConnector, incentiviConnector];
 
   let watchers: GrantsWatcher[];
   try {
@@ -323,8 +324,9 @@ export async function syncSource(
            (id, source, source_identifier, official_url, title, granting_body, deadline, deadline_time,
             status, eligibility_text, raw_snippet, parse_method, missed_syncs,
             first_seen_at, last_verified_at, closed_at, updated_at,
-            page_status, page_error, page_checked_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, ?, ?)
+            page_status, page_error, page_checked_at,
+            regions, facets, source_note, catalog_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, ?, ?, ?::text[], ?::jsonb, ?, ?)
          ON CONFLICT (source, source_identifier) DO UPDATE SET
            official_url     = excluded.official_url,
            title            = excluded.title,
@@ -351,7 +353,11 @@ export async function syncSource(
            page_error       = CASE WHEN ${KEEP_PAGE_STATUS_SQL} THEN funding_calls.page_error
                                    ELSE excluded.page_error END,
            page_checked_at  = CASE WHEN ${KEEP_PAGE_STATUS_SQL} THEN funding_calls.page_checked_at
-                                   ELSE excluded.page_checked_at END
+                                   ELSE excluded.page_checked_at END,
+           regions          = excluded.regions,
+           facets           = excluded.facets,
+           source_note      = excluded.source_note,
+           catalog_url      = excluded.catalog_url
          RETURNING id, (xmax = 0) AS inserted,
                    status, deadline::text AS deadline, deadline_time,
                    (SELECT p.status FROM prev p) AS prev_status,
@@ -377,6 +383,12 @@ export async function syncSource(
         call.page_status ?? 'unread',
         call.page_error ?? null,
         (call.page_status ?? 'unread') === 'unread' ? null : nowIso,
+        call.regions ?? null,
+        // RAW object — postgres.js serialises jsonb params itself; a pre-stringified
+        // value gets encoded twice and lands as a JSON *string* (the documented trap).
+        call.facets ?? null,
+        call.source_note ?? null,
+        call.catalog_url ?? null,
       );
       const row = rows[0];
       if (!row) {

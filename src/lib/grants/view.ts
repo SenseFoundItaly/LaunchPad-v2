@@ -2,7 +2,7 @@
  * Grants page — pure view logic shared by the API route (response types) and
  * the page components (filters, buckets, freshness). No React, no DB.
  */
-import type { FundingSource, FundingCallStatus, PageStatus } from './types';
+import type { FundingSource, FundingCallStatus, PageStatus, FundingFacets } from './types';
 
 export interface FundingCallView {
   id: string;
@@ -25,6 +25,10 @@ export interface FundingCallView {
   page_status: PageStatus;
   page_error: string | null;
   page_checked_at: string | null;
+  regions: string[] | null;
+  facets: FundingFacets | null;
+  source_note: string | null;
+  catalog_url: string | null;
 }
 
 export interface SourceFreshness {
@@ -53,8 +57,32 @@ export interface GrantsResponse {
 /** Identical to HeartbeatKind in primitives. */
 export type FreshnessKind = 'healthy' | 'stale' | 'dead';
 export type DeadlineBucket = 'closing-soon' | 'open' | 'rolling';
-export type GrantsChip = 'all' | 'closing-soon' | 'rolling' | 'sedia' | 'lombardia';
-export const GRANTS_CHIPS: readonly GrantsChip[] = ['all', 'closing-soon', 'rolling', 'sedia', 'lombardia'];
+export type GrantsChip = 'all' | 'closing-soon' | 'rolling' | 'sedia' | 'lombardia' | 'incentivi';
+export const GRANTS_CHIPS: readonly GrantsChip[] = ['all', 'closing-soon', 'rolling', 'sedia', 'lombardia', 'incentivi'];
+
+/** Region names exactly as incentivi.gov.it tags them. */
+export const ITALIAN_REGIONS: readonly string[] = [
+  'Abruzzo', 'Basilicata', 'Calabria', 'Campania', 'Emilia-Romagna', 'Friuli-Venezia Giulia', 'Lazio',
+  'Liguria', 'Lombardia', 'Marche', 'Molise', 'Piemonte', 'Puglia', 'Sardegna', 'Sicilia', 'Toscana',
+  "Trentino-Alto Adige/Südtirol", 'Umbria', "Valle d'Aosta/Vallée d'Aoste", 'Veneto',
+];
+/** Pseudo-region for the filter: national measures only. */
+export const NATIONAL_REGION = 'Nazionale';
+
+/**
+ * Region filter. null ⇒ everything. 'Nazionale' ⇒ national measures only.
+ * A region ⇒ calls tagged with it PLUS national measures (they apply there
+ * too) PLUS the direct Lombardia feed when the region is Lombardia; EU calls
+ * (no regions, not national) are excluded by a regional filter.
+ */
+export function matchesRegion(call: FundingCallView, region: string | null): boolean {
+  if (!region) return true;
+  const national = call.facets?.national === true;
+  if (region === NATIONAL_REGION) return national;
+  if (national) return true;
+  if (call.source === 'lombardia') return region === 'Lombardia';
+  return (call.regions ?? []).includes(region);
+}
 
 export const CLOSING_SOON_DAYS = 30;
 export const URGENT_DAYS = 7;
@@ -160,6 +188,7 @@ function matchesChip(call: FundingCallView, chip: GrantsChip, now: Date): boolea
       return deadlineBucket(call, now) === 'rolling';
     case 'sedia':
     case 'lombardia':
+    case 'incentivi':
       return call.source === chip;
   }
 }
@@ -167,11 +196,11 @@ function matchesChip(call: FundingCallView, chip: GrantsChip, now: Date): boolea
 /** Search first, then chip. Returns a NEW sorted array. */
 export function applyFilters(
   calls: FundingCallView[],
-  opts: { chip: GrantsChip; q: string },
+  opts: { chip: GrantsChip; q: string; region?: string | null },
   now: Date,
 ): FundingCallView[] {
   return sortCalls(
-    calls.filter((c) => matchesQuery(c, opts.q) && matchesChip(c, opts.chip, now)),
+    calls.filter((c) => matchesQuery(c, opts.q) && matchesRegion(c, opts.region ?? null) && matchesChip(c, opts.chip, now)),
   );
 }
 
@@ -183,6 +212,7 @@ export function chipCounts(calls: FundingCallView[], now: Date): Record<GrantsCh
     rolling: 0,
     sedia: 0,
     lombardia: 0,
+    incentivi: 0,
   };
   for (const c of calls) {
     for (const chip of GRANTS_CHIPS) {

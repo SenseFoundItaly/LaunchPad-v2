@@ -33,6 +33,10 @@ function mk(over: Partial<FundingCallView> = {}): FundingCallView {
     page_status: 'n/a',
     page_error: null,
     page_checked_at: null,
+    regions: null,
+    facets: null,
+    source_note: null,
+    catalog_url: null,
     last_verified_at: '2026-09-01T06:00:00.000Z',
     alerted: false,
     ...over,
@@ -161,6 +165,7 @@ describe('matchesQuery / applyFilters / chipCounts', () => {
       rolling: 1,
       sedia: 2,
       lombardia: 3,
+      incentivi: 0,
     });
   });
 
