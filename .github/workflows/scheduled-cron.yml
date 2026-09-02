@@ -55,3 +55,12 @@ jobs:
           curl -sf -H "$AUTH" "${SITE_URL}/api/cron?run_pulse=1" --max-time 150 \
             | jq -c '.data | {heartbeats_ran, correlations_ran, pulse_remaining}' \
             || echo "pulse call errored (non-fatal)"
+
+          # 4. Grants tracking sync — three source fetches + ~1,200 upserts,
+          #    ~75s: STREAMED like monitors so the Netlify function survives past
+          #    the 26s sync limit. The server gates each source once per day, so
+          #    a re-run is a cheap no-op. Non-fatal for the tick; the page's
+          #    freshness rows make a silent failure visible within 36h.
+          echo "--- grants sync"
+          out=$(curl -sN -H "$AUTH" "${SITE_URL}/api/cron/grants" --max-time 300 2>/dev/null) || true
+          echo "${out}" | grep -o '"done":true[^}]*}' | tail -1 || echo "  (no done frame — grants sync may have been cut short)"
