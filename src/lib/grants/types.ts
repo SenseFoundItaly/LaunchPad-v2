@@ -86,6 +86,10 @@ export interface SediaOptions extends ConnectorOptions {
 export interface LombardiaOptions extends ConnectorOptions {
   /** Fetch detail pages for needsDetail identifiers. Default true. */
   resolveDetails?: boolean;
+  /** Resolve official_url from the portal sitemap (canonical category/slug path),
+   *  bare-codice URL as fallback. Default true. Measured 2026-09-02: bare 404s for
+   *  4/171 calls; canonical resolves all of them. */
+  resolveCanonicalUrls?: boolean;
   /** Max detail pages per run. Default 10. */
   maxDetailFetches?: number;
   /** Wall-clock budget for the detail loop, ms. Default 30_000. */

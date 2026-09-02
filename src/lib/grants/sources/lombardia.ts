@@ -14,9 +14,12 @@
  *     (`needsDetail`: new / never-enriched calls) and bounded by
  *     `maxDetailFetches` + `detailBudgetMs`. It carries what Socrata lacks:
  *     the closing HOUR ('ore 12:00', Europe/Rome), the latest proroga, and the
- *     "Chi può partecipare" eligibility block. The URL is the deterministic
- *     bare-codice form (verified to render — the slug is ignored server-side),
- *     so no sitemap crawl is needed.
+ *     "Chi può partecipare" eligibility block. official_url is the sitemap's
+ *     CANONICAL /bandi/dettaglio/<category>/<sub>/<slug>-<CODICE> path, with the
+ *     bare-codice URL as fallback — measured 2026-09-02 on all 171 stored calls:
+ *     the bare form 404s for 4 (2.3%) and is intermittent for others, while the
+ *     canonical form resolved for every one; the 3 codes the sitemap lacks all
+ *     resolve bare. One ~5 MB sitemap fetch per daily sync.
  *
  * Failure policy — dates are what founders plan applications around, so a
  * wrong date is worse than no result:
@@ -58,6 +61,8 @@ export const LOMBARDIA_DETAIL_URL_PREFIX =
 export const LOMBARDIA_ROLLING_MAX_AGE_DAYS = 365;
 /** Socrata $limit. A response with this many rows may be truncated (expected ~150–180). */
 export const LOMBARDIA_SOCRATA_LIMIT = 1000;
+export const LOMBARDIA_SITEMAP_URL = 'https://www.bandi.regione.lombardia.it/servizi/sitemap.xml';
+const SITEMAP_TIMEOUT_MS = 20_000;
 export const LOMBARDIA_EXCLUDED_INSTRUMENTS: readonly string[] = [
   'Concorsi Pubblici e Avvisi sul Personale',
 ];
@@ -110,9 +115,56 @@ export function buildSocrataUrl(now: Date): string {
   return `${LOMBARDIA_SOCRATA_URL}?$limit=${LOMBARDIA_SOCRATA_LIMIT}&$order=chiusura_adesione&$where=${encodeURIComponent(where)}`;
 }
 
-/** Deterministic bare-codice detail URL (verified to render; slug ignored server-side). */
+/** Bare-codice detail URL — the FALLBACK when the sitemap has no canonical entry
+ *  (works for most codes, 404s for ~2% — see parseSitemapCanonicalUrls). */
 export function lombardiaDetailUrl(codice: string): string {
   return LOMBARDIA_DETAIL_URL_PREFIX + encodeURIComponent(codice.trim());
+}
+
+/**
+ * Canonical detail URLs from the portal sitemap, keyed by codice. Each detail
+ * <loc> ends in `-<CODICE>`; the same call appears under /bandi/dettaglio/ and
+ * /catalogo/dettaglio/ — /bandi/ is preferred. Pure; the fetch is separate.
+ */
+export function parseSitemapCanonicalUrls(xml: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const re = /<loc>([^<]+)<\/loc>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) {
+    const loc = m[1].trim();
+    if (!loc.includes('/dettaglio/')) continue;
+    const tail = loc.match(/-([A-Z][A-Z0-9_]{5,})$/);
+    if (!tail) continue;
+    const codice = tail[1];
+    const prev = out.get(codice);
+    if (!prev || (loc.includes('/bandi/dettaglio/') && !prev.includes('/bandi/dettaglio/'))) {
+      out.set(codice, loc);
+    }
+  }
+  return out;
+}
+
+/** One sitemap fetch per run. Any failure ⇒ null ⇒ bare-codice URLs (never drops a call). */
+async function fetchSitemapCanonicalUrls(fetchFn: FetchFn): Promise<Map<string, string> | null> {
+  try {
+    const res = await fetchFn(LOMBARDIA_SITEMAP_URL, {
+      headers: { Accept: 'application/xml,text/xml', 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(SITEMAP_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      console.warn('[grants] lombardia sitemap unavailable — bare-codice URLs this run:', `HTTP ${res.status}`);
+      return null;
+    }
+    const map = parseSitemapCanonicalUrls(await res.text());
+    if (map.size === 0) {
+      console.warn('[grants] lombardia sitemap parsed to 0 detail URLs — bare-codice URLs this run');
+      return null;
+    }
+    return map;
+  } catch (err) {
+    console.warn('[grants] lombardia sitemap unavailable — bare-codice URLs this run:', (err as Error).message);
+    return null;
+  }
 }
 
 // ─── Socrata row → NormalizedCall ────────────────────────────────────────────
@@ -398,6 +450,23 @@ export async function fetchLombardiaListing(opts: LombardiaOptions): Promise<Con
     const call = normalizeSocrataRow(row, now);
     if (call) byId.set(call.source_identifier, call);
   }
+
+  // Canonical official_url from the sitemap, bare-codice fallback — see
+  // parseSitemapCanonicalUrls for the measured reason. One fetch per run.
+  if ((opts.resolveCanonicalUrls ?? true) && byId.size > 0) {
+    const canon = await fetchSitemapCanonicalUrls(fetchFn);
+    if (canon) {
+      let resolved = 0;
+      for (const [id, call] of byId) {
+        const url = canon.get(id);
+        if (url && url !== call.official_url) {
+          byId.set(id, { ...call, official_url: url });
+          resolved++;
+        }
+      }
+      console.log(`[grants] lombardia canonical urls: ${resolved}/${byId.size} from sitemap, ${byId.size - resolved} bare`);
+    }
+  }
   if (!resolveDetails || byId.size === 0) return { calls: [...byId.values()], complete };
 
   const ids = [...byId.keys()];
@@ -429,7 +498,8 @@ export async function fetchLombardiaListing(opts: LombardiaOptions): Promise<Con
     const id = call.source_identifier;
     fetched++;
     try {
-      const res = await fetchFn(lombardiaDetailUrl(id), {
+      // The canonical URL when resolved above (the bare form 404s for ~2%).
+      const res = await fetchFn(call.official_url, {
         headers: { Accept: 'text/html', 'User-Agent': USER_AGENT },
         signal: AbortSignal.timeout(DETAIL_TIMEOUT_MS),
       });
