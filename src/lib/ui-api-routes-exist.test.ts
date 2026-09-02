@@ -12,14 +12,14 @@
  * ellipses are skipped.
  */
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) walk(p, out);
-    else if (/\.(ts|tsx)$/.test(name)) out.push(p);
+    else if (/\.(ts|tsx|mjs|cjs|js|yml|yaml)$/.test(name)) out.push(p);
   }
   return out;
 }
@@ -41,9 +41,12 @@ const SKIP = new Set(['/api', '/api/', '/api/auth', '/api/auth/']);
 
 describe('UI-referenced /api paths have a route file', () => {
   it('finds a route for every literal /api/... the UI calls', () => {
-    const uiFiles = walk(join(ROOT, 'src')).filter(
-      (f) => !f.startsWith(API_DIR) && !/\.test\.tsx?$/.test(f),
-    );
+    // Callers live in the app AND outside it: scripts hit the API with
+    // SITE_URL + path, GitHub workflows drive the cron. All are scanned.
+    const uiFiles = ['src', 'scripts', '.github']
+      .filter((d) => existsSync(join(ROOT, d)))
+      .flatMap((d) => walk(join(ROOT, d)))
+      .filter((f) => !f.startsWith(API_DIR) && !/\.test\.tsx?$/.test(f));
     const missing: string[] = [];
     const seen = new Set<string>();
     for (const f of uiFiles) {
