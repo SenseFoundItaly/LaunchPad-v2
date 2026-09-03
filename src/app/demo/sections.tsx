@@ -78,7 +78,7 @@ export function ScoreSection() {
             </div>
             <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45 }}>{SCORE.recommendation}</p>
           </div>
-          <div style={{ padding: '14px 16px', borderLeft: '1px solid var(--line)' }}>
+          <div data-tour="irl-panel" style={{ padding: '14px 16px', borderLeft: '1px solid var(--line)' }}>
             <div className="lp-mono" style={{ fontSize: 9.5, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-5)' }}>
               Prontezza all’investimento (IRL)
             </div>
