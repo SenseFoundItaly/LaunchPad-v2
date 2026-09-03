@@ -61,3 +61,18 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--ink-4);
 }
+
+/* Route loading shells (components/ui/RouteSkeleton.tsx). The shapes breathe
+   rather than shimmer: a sweeping gradient on a dozen blocks is the kind of
+   motion that reads as "broken" on a slow device, and this shell is only on
+   screen for a few hundred milliseconds. */
+.lp-skeleton [style*="--paper-3"] {
+  animation: lp-skeleton-breathe 1.4s ease-in-out infinite;
+}
+@keyframes lp-skeleton-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-skeleton [style*="--paper-3"] { animation: none; }
+}

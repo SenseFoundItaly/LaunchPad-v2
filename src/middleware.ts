@@ -83,6 +83,26 @@ export async function middleware(req: NextRequest) {
     );
   }
 
+  const { pathname } = req.nextUrl;
+
+  /**
+   * Public paths never needed the session, and getUser() is a NETWORK call to
+   * Supabase Auth on every single request that reaches it. Checking public
+   * paths AFTER that call — as this did — meant /demo, /login, /api/health and
+   * the unfurl images each paid for an auth round-trip they then discarded.
+   *
+   * Measured on prod 2026-09-02: a route the matcher skips answered in 30ms, a
+   * route that ran this middleware in 218ms. Returning before the Supabase
+   * bootstrap gives public routes that difference back.
+   *
+   * Nothing is weakened: an authenticated visitor simply does not have their
+   * cookie refreshed by a request to a page that does not use it, and every
+   * protected navigation still refreshes it below.
+   */
+  if (isPublicPath(pathname)) {
+    return NextResponse.next({ request: req });
+  }
+
   let response = NextResponse.next({ request: req });
 
   // Only bootstrap Supabase if the env vars are set. If they're missing
@@ -117,10 +137,7 @@ export async function middleware(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { pathname } = req.nextUrl;
-
   if (user) return response;
-  if (isPublicPath(pathname)) return response;
 
   // Unauthenticated API requests: let the route decide (it'll 401 via requireUser).
   if (pathname.startsWith('/api/')) return response;
