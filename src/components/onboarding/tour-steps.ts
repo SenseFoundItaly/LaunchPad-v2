@@ -172,6 +172,10 @@ export function buildDemoManifest(): TourStep[] {
     // ── Chapter: back to demo Home for its widgets (/demo) ──────────────────
     nav('today', 'home', 'tour.home.title', 'tour.home.desc'),
     { id: 'score-panel', page: 'today', target: '[data-tour="score-panel"]', titleKey: 'tour.today.score.title', descKey: 'tour.today.score.desc', side: 'bottom', align: 'start', optional: true },
+    // Changelog item 15 — the IRL tip right after the project score, same as
+    // the signed-in tour. Left out of the first demo cut because the demo's
+    // score and IRL share one panel; the IRL column has its own anchor now.
+    { id: 'irl-panel', page: 'today', target: '[data-tour="irl-panel"]', titleKey: 'tour.today.irl.title', descKey: 'tour.today.irl.desc', side: 'bottom', align: 'start', optional: true },
     { id: 'stage-card', page: 'today', target: '[data-tour="stage-card"]', titleKey: 'tour.today.stage.title', descKey: 'tour.today.stage.desc', side: 'right', align: 'start', optional: true },
     { id: 'watchers-panel', page: 'today', target: '[data-tour="watchers-panel"]', titleKey: 'tour.today.watchers.title', descKey: 'tour.today.watchers.desc', side: 'left', align: 'start', optional: true },
     // ── Finale: the whole point of a public demo — allowInteraction so the
