@@ -116,6 +116,19 @@ describe('the built bundle keeps them out of the first load', () => {
     /* no build in this working tree — the source-level tests above still hold */
   }
 
+  /**
+   * Only trust build output that actually corresponds to this source tree.
+   *
+   * A .next left over from an earlier build fails these assertions with a
+   * finding that is not true of the code — which is exactly what happened on
+   * the merge commit that introduced them. The source-level pins above are the
+   * real guard; this block is a bonus that must stay silent when it cannot be
+   * sure what it is looking at.
+   */
+  const newestSource = FILES.reduce((t, f) => Math.max(t, statSync(f).mtimeMs), 0);
+  const oldestChunk = files.reduce((t, f) => Math.min(t, statSync(f).mtimeMs), Infinity);
+  const buildIsCurrent = files.length > 0 && oldestChunk > newestSource;
+
   function walkJs(dir: string, acc: string[] = []): string[] {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const p = join(dir, e.name);
@@ -125,7 +138,7 @@ describe('the built bundle keeps them out of the first load', () => {
     return acc;
   }
 
-  it.skipIf(files.length === 0)('recharts, react-markdown and driver.js all sit in lazy chunks', () => {
+  it.skipIf(!buildIsCurrent)('recharts, react-markdown and driver.js all sit in lazy chunks', () => {
     const signatures: Record<string, RegExp> = {
       recharts: /ResponsiveContainer|CartesianGrid/,
       'react-markdown': /mdast|remark-parse/,
@@ -141,10 +154,7 @@ describe('the built bundle keeps them out of the first load', () => {
     }
   });
 
-  it.skipIf(files.length === 0)('the total chunk count did not explode', () => {
+  it.skipIf(!buildIsCurrent)('the total chunk count did not explode', () => {
     expect(files.length).toBeLessThan(220);
   });
 });
-
-// Keep statSync referenced for the size helpers above without widening scope.
-void statSync;
