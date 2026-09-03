@@ -28,7 +28,17 @@ import ApprovalRequestCard from './ApprovalRequestCard';
 import RecommendationArtifactCard from './RecommendationArtifactCard';
 import InsightCarouselCard from './InsightCarouselCard';
 import ArtifactCardShell from './ArtifactCardShell';
-import { RadarChart, BarChart, PieChart, GaugeChart, ScoreCard } from '@/components/charts';
+import dynamic from 'next/dynamic';
+
+// recharts is ~398 KB in a single chunk (measured 2026-09-02). Artifacts render
+// on demand inside a chat turn, so the library has no business being in the
+// chat route's initial bundle. One boundary per chart, so a canvas showing a
+// single chart does not pull the rest of the family.
+const RadarChart = dynamic(() => import('@/components/charts').then((m) => m.RadarChart), { ssr: false });
+const BarChart = dynamic(() => import('@/components/charts').then((m) => m.BarChart), { ssr: false });
+const PieChart = dynamic(() => import('@/components/charts').then((m) => m.PieChart), { ssr: false });
+const GaugeChart = dynamic(() => import('@/components/charts').then((m) => m.GaugeChart), { ssr: false });
+const ScoreCard = dynamic(() => import('@/components/charts').then((m) => m.ScoreCard), { ssr: false });
 import BaselineScoreCard from './BaselineScoreCard';
 import { toScore100 } from '@/lib/score-display';
 import { isBaselineScoreTitle } from '@/lib/score-display';

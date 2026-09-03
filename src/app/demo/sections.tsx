@@ -6,6 +6,7 @@
  * (banner, rail, top/status bars) lives in ./chrome.tsx and ./layout.tsx.
  */
 
+import Link from 'next/link';
 import * as React from 'react';
 import { Icon, I, Panel, Pill, MetricTile, type PillKind } from '@/components/design/primitives';
 import type { IconKey } from '@/components/design/icons';
@@ -292,7 +293,7 @@ export function LoopTimeline() {
 export function WatchersPreview() {
   return (
     <div data-tour="watchers-panel">
-      <Panel title="Osservatori" subtitle="scansione settimanale" right={<a href="/demo/inbox" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>Vedi tutti →</a>}>
+      <Panel title="Osservatori" subtitle="scansione settimanale" right={<Link href="/demo/inbox" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>Vedi tutti →</Link>}>
         <div>
           {WATCHERS.map((w, i) => (
             <div key={w.title} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderTop: i > 0 ? '1px solid var(--line)' : 'none' }}>
@@ -322,7 +323,7 @@ export function WatchersPreview() {
 
 export function InboxPreview() {
   return (
-    <Panel title="Da rivedere" subtitle="l'agente propone, tu approvi" right={<a href="/demo/inbox" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>Vedi tutti (4) →</a>}>
+    <Panel title="Da rivedere" subtitle="l'agente propone, tu approvi" right={<Link href="/demo/inbox" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>Vedi tutti (4) →</Link>}>
       <div>
         {INBOX.map((a, i) => (
           <div key={a.title} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderTop: i > 0 ? '1px solid var(--line)' : 'none' }}>
@@ -364,7 +365,7 @@ export function ActivitySection() {
 
 export function EcosystemSection() {
   return (
-    <Panel title="Ecosistema" subtitle="il grafo Conoscenza del progetto" right={<a href="/demo/knowledge" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>Vedi il grafo →</a>}>
+    <Panel title="Ecosistema" subtitle="il grafo Conoscenza del progetto" right={<Link href="/demo/knowledge" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>Vedi il grafo →</Link>}>
       <div style={{ padding: '4px 0 0' }}>
         <EcoGraph height={300} />
         <div style={{ borderTop: '1px solid var(--line)' }}>

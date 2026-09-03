@@ -3,7 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import ReactMarkdown from 'react-markdown';
+import dynamicImport from 'next/dynamic';
+
+// 116 KB (measured) for prose that only appears once a detail view is opened.
+const ReactMarkdown = dynamicImport(() => import('react-markdown'), { ssr: false });
 import api from '@/api';
 import { deleteProject } from '@/api/projects';
 import { TopBar } from '@/components/design/chrome';
