@@ -9,6 +9,7 @@
  * Scripted content, zero data fetching.
  */
 
+import Link from 'next/link';
 import * as React from 'react';
 import { Icon, I, Pill, type PillKind } from '@/components/design/primitives';
 import {
@@ -152,7 +153,7 @@ function CanvasPane() {
         <span className="lp-serif" style={{ fontSize: 14 }}>Conoscenza</span>
         <span className="lp-mono" style={{ fontSize: 11, color: 'var(--ink-5)' }}>— 29 elementi</span>
         <span style={{ flex: 1 }} />
-        <a href="/demo/knowledge" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>apri →</a>
+        <Link href="/demo/knowledge" style={{ fontSize: 11, color: 'var(--accent-ink)', textDecoration: 'none' }}>apri →</Link>
       </div>
 
       {/* Department sections */}

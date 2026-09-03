@@ -27,9 +27,29 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { driver, type Driver, type DriveStep } from 'driver.js';
-import 'driver.js/dist/driver.css';
+import type { Driver, DriveStep } from 'driver.js';
 import './product-tour.css';
+
+/**
+ * driver.js and its stylesheet are fetched only when a run actually starts.
+ *
+ * They used to be static imports, so every visitor downloaded the library on
+ * every page for a walkthrough that runs once per account (measured 2026-09-02:
+ * 44 KB, 14 KB of it inside the root-layout chunk). Loading it here instead
+ * means a founder who has already been onboarded never fetches it at all.
+ * Cached after the first call, so a chapter hand-off does not re-import.
+ */
+let driverModule: typeof import('driver.js') | null = null;
+async function loadDriver(): Promise<typeof import('driver.js')> {
+  if (!driverModule) {
+    const [mod] = await Promise.all([
+      import('driver.js'),
+      import('driver.js/dist/driver.css'),
+    ]);
+    driverModule = mod;
+  }
+  return driverModule;
+}
 import api from '@/api';
 import { useT } from '@/components/providers/LocaleProvider';
 import { translate, type MessageKey } from '@/lib/i18n/messages';
@@ -137,7 +157,7 @@ export default function TourController() {
     /** Route for a step under whichever shell we're in. */
     const routeOf = (page: TourPage, pid: string | null) => routeForMode(mode, page, pid);
 
-    const buildAndDrive = (manifest: TourStep[], startIdx: number, pid: string | null) => {
+    const buildAndDrive = async (manifest: TourStep[], startIdx: number, pid: string | null) => {
       // The zero-project stub is a prompt ("create your first project"), not
       // the onboarding — finishing it must leave the real tour still owed.
       const isStub = !isDemo && !pid;
@@ -214,6 +234,8 @@ export default function TourController() {
       };
 
       const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+      const { driver } = await loadDriver();
+      if (cancelled) return; // navigated away while the library was loading
       const drv = driver({
         showProgress: true,
         progressText: tr('tour.progress'),
@@ -334,7 +356,7 @@ export default function TourController() {
       if (idx !== state.stepIndex || pid !== state.projectId) {
         writeTourState({ stepIndex: idx, projectId: pid, mode });
       }
-      buildAndDrive(manifest, idx, pid);
+      void buildAndDrive(manifest, idx, pid);
     };
 
     const state = readTourState();

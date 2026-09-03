@@ -18,7 +18,11 @@
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { useT } from '@/components/providers/LocaleProvider';
-import { ScoreCard } from '@/components/charts';
+import dynamic from 'next/dynamic';
+
+// Last eager path into recharts (~398 KB): this card is rendered inside a chat
+// artifact, so the library only needs to arrive when one is actually shown.
+const ScoreCard = dynamic(() => import('@/components/charts').then((m) => m.ScoreCard), { ssr: false });
 import { Pill } from '@/components/design/primitives';
 import ScoreTrajectory from '@/components/charts/ScoreTrajectory';
 import { band, normalizeDimensions, to100, splitVerdict } from '@/lib/score-display';

@@ -3,7 +3,13 @@
 import { use } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/api';
-import { BarChart } from '@/components/charts';
+import dynamic from 'next/dynamic';
+
+// Keeps recharts out of this route's initial bundle — the chart sits below the
+// summary tiles and is worthless until the usage query resolves anyway.
+const BarChart = dynamic(() => import('@/components/charts').then((m) => ({ default: m.BarChart })), {
+  ssr: false,
+});
 import { useSetChrome } from '@/components/design/chrome-context';
 import { useT } from '@/components/providers/LocaleProvider';
 import { USER_MONTHLY_CREDITS, USER_MONTHLY_LLM_USD } from '@/lib/credit-costs';

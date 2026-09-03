@@ -5,7 +5,7 @@ import './globals.css';
 import '../styles/design-tokens.css';
 import AppHeader from '@/components/layout/AppHeader';
 import QueryProvider from '@/components/providers/QueryProvider';
-import TourController from '@/components/onboarding/TourController';
+import TourControllerLazy from '@/components/onboarding/TourControllerLazy';
 import { LocaleProvider } from '@/components/providers/LocaleProvider';
 import { asLocale, LOCALE_COOKIE } from '@/lib/i18n/locales';
 import { THEME_COOKIE } from '@/lib/theme';
@@ -102,7 +102,7 @@ export default async function RootLayout({
             {/* Cross-page onboarding walkthrough — mounted here (not the
                 project layout) so it covers the workspace dashboard too.
                 Self-gates on users.onboarded, renders nothing otherwise. */}
-            <TourController />
+            <TourControllerLazy />
           </QueryProvider>
         </LocaleProvider>
       </body>
