@@ -6,16 +6,21 @@ import type { SyncResult } from '@/lib/grants/types';
 /**
  * GET /api/cron/grants  (CRON_SECRET bearer) — the daily grants tracking sync.
  *
- * A full three-source sync (SEDIA + Regione Lombardia + incentivi.gov.it) is
- * three fetches plus ~1,200 row upserts and takes ~75s (measured 2026-09-02) —
- * far past Netlify's 26s sync-function limit, which is why it must NOT run
- * inline in /api/cron (the first deploy did, and would have been killed
- * mid-sync every day, never advancing last_success_at). Like run-monitor, this
- * endpoint STREAMS: a heartbeat frame every few seconds keeps the consumed
- * stream — and so the function — alive until the final done frame. The
- * GitHub Actions scheduler drives it with curl -N after housekeeping. The
- * sync's own once-per-day-per-source gate makes any re-run a cheap no-op.
- * maxDuration is honored on Vercel; on Netlify the stream is what extends it.
+ * MANUAL / LOCAL USE ONLY — this endpoint CANNOT finish on Netlify.
+ *
+ * A full three-source sync takes 75-81s. This route was written believing that
+ * a consumed stream keeps a Netlify function alive past the ~26s synchronous
+ * limit, the way a comment in run-monitor claims. That is FALSE, and it was
+ * measured on prod 2026-09-02: heartbeats arrived to 30s, then the connection
+ * died with no done frame and nothing synced.
+ *
+ * The daily sync therefore runs as a Netlify BACKGROUND function
+ * (netlify/functions/grants-sync-background.mts, 15-minute budget), which the
+ * GitHub Actions scheduler POSTs to. This route is kept because it is genuinely
+ * useful off-platform: run it against a local dev server to watch a forced sync
+ * progress frame by frame. Do not wire it into the scheduler again.
+ *
+ * maxDuration below is honored on Vercel only.
  */
 export const maxDuration = 300;
 const HEARTBEAT_MS = 5_000;

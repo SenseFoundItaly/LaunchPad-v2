@@ -56,11 +56,19 @@ jobs:
             | jq -c '.data | {heartbeats_ran, correlations_ran, pulse_remaining}' \
             || echo "pulse call errored (non-fatal)"
 
-          # 4. Grants tracking sync — three source fetches + ~1,200 upserts,
-          #    ~75s: STREAMED like monitors so the Netlify function survives past
-          #    the 26s sync limit. The server gates each source once per day, so
-          #    a re-run is a cheap no-op. Non-fatal for the tick; the page's
-          #    freshness rows make a silent failure visible within 36h.
-          echo "--- grants sync"
-          out=$(curl -sN -H "$AUTH" "${SITE_URL}/api/cron/grants" --max-time 300 2>/dev/null) || true
-          echo "${out}" | grep -o '"done":true[^}]*}' | tail -1 || echo "  (no done frame — grants sync may have been cut short)"
+          # 4. Grants tracking sync — 75-81s of work, which does not fit under
+          #    Netlify's ~26s synchronous limit whole or per source. It runs as a
+          #    BACKGROUND function (15-minute budget) that answers 202 at once,
+          #    so this step confirms acceptance, NOT completion. What the sync
+          #    actually did shows up in the function log under [grants][bg] and
+          #    in funding_source_state, which the grants page renders as its
+          #    freshness rows. The server still gates each source to once a day,
+          #    so a re-run is a cheap no-op.
+          echo "--- grants sync (background)"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "$AUTH" \
+            "${SITE_URL}/.netlify/functions/grants-sync-background" --max-time 60 || echo 000)
+          if [ "$code" = "202" ]; then
+            echo "  accepted (202) — see the [grants][bg] lines in the function log"
+          else
+            echo "  NOT accepted (HTTP ${code}) — the grants sync did not start today"
+          fi

@@ -113,6 +113,15 @@ describe('the auth middleware does not pay for auth it discards', () => {
     expect(mw).toMatch(/if \(pathname\.startsWith\('\/api\/'\)\) return response;/);
   });
 
+  it('platform function routes bypass this middleware entirely', () => {
+    // Measured 2026-09-04: the daily grants sync POST to
+    // /.netlify/functions/grants-sync-background got a 307 to /login and never
+    // reached its own CRON_SECRET gate. Every source-level check passed while
+    // it was broken — only executing it found this.
+    expect(mw).toMatch(/matcher: \['\/\(\(\?!_next\/static\|_next\/image\|\\\\\.netlify\|/);
+    expect(mw).toMatch(/'\/\.netlify'/);
+  });
+
   it('the demo and the unfurl images remain public', () => {
     expect(mw).toMatch(/'\/demo'/);
     expect(mw).toMatch(/'\/opengraph-image'/);
