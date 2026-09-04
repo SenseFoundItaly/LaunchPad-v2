@@ -37,7 +37,7 @@
  */
 
 import { query, run, get } from '@/lib/db';
-import { generateId } from '@/lib/api-helpers';
+import { generateId } from '@/lib/ids';
 import { computeDedupeHash } from '@/lib/ecosystem-monitors';
 import { translate } from '@/lib/i18n/messages';
 import { sediaConnector } from './sources/sedia';

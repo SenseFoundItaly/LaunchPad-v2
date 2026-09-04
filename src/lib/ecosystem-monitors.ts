@@ -13,7 +13,7 @@ import { createHash } from 'crypto';
 import { query, run } from '@/lib/db';
 import { coerceJson } from '@/lib/jsonb';
 import { getCompetitorNames } from './competitors';
-import { generateId } from '@/lib/api-helpers';
+import { generateId } from '@/lib/ids';
 import { calculateNextRun } from '@/lib/monitor-schedule';
 
 export type EcosystemMonitorType =

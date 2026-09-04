@@ -14,11 +14,7 @@ export function mapProject(row: Record<string, unknown>): Record<string, unknown
   return { project_id: id, ...rest };
 }
 
-export function generateId(prefix: string): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let id = `${prefix}_`;
-  for (let i = 0; i < 12; i++) {
-    id += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return id;
-}
+// Moved to ./ids so code that runs OUTSIDE Next (the grants background
+// function) can generate ids without importing next/server. Re-exported here
+// because this module is where the rest of the app already imports it from.
+export { generateId } from './ids';
