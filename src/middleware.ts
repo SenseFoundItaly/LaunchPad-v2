@@ -14,7 +14,12 @@ import { e2eBypassEnabled } from '@/lib/auth/e2e-bypass';
  */
 
 // '/demo' is the static vision-demo page (src/app/demo) — no data, safe public.
-const PUBLIC_PREFIXES = ['/login', '/api/auth', '/api/health', '/published', '/demo'];
+// '/.netlify' covers platform routes — background and scheduled functions.
+// Belt-and-braces with the matcher exclusion below: the matcher SHOULD stop
+// this middleware ever seeing them, but when it did (measured 2026-09-04) the
+// daily grants sync got a 307 to /login and never ran. Those functions
+// authenticate themselves on CRON_SECRET.
+const PUBLIC_PREFIXES = ['/login', '/api/auth', '/api/health', '/published', '/demo', '/.netlify'];
 // The generated share image MUST be reachable signed-out. Measured: with it
 // gated, GET /opengraph-image answered 307 → /login, so every unfurler (Slack,
 // WhatsApp, LinkedIn) followed a redirect to an HTML page and rendered no
@@ -151,5 +156,11 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   // Run on every route except Next.js static and image assets.
-  matcher: ['/((?!_next/static|_next/image|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)'],
+  // `.netlify` is excluded because platform routes (background/scheduled
+  // functions) are NOT app pages: this middleware was redirecting
+  // POST /.netlify/functions/grants-sync-background to /login with a 307, so
+  // the daily sync never even reached its own auth gate. Caught by executing
+  // it — every source-level check passed while it was broken. Those functions
+  // authenticate themselves on CRON_SECRET.
+  matcher: ['/((?!_next/static|_next/image|\\.netlify|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)'],
 };
