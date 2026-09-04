@@ -652,9 +652,17 @@ describe('source pins', () => {
     expect(route).toMatch(/requireCronAuth\(request\)/);
     expect(route).toMatch(/syncFundingCalls\(\{ now: new Date\(\), force \}\)/);
     expect(route).toMatch(/'Content-Type': 'text\/event-stream'/);
-    // The scheduler actually drives it, streamed, with a budget past the sync length.
+    // The DAILY sync is the background function, not this route: streaming does
+    // not extend a Netlify function (measured 2026-09-02 — heartbeats to 30s,
+    // then the connection died with nothing synced).
     const wf = read('.github/workflows/scheduled-cron.yml');
-    expect(wf).toMatch(/curl -sN -H "\$AUTH" "\$\{SITE_URL\}\/api\/cron\/grants" --max-time 300/);
+    expect(wf).toMatch(/\/\.netlify\/functions\/grants-sync-background/);
+    expect(wf).not.toMatch(/curl -sN[^\n]*\/api\/cron\/grants/);
+    const bg = read('netlify/functions/grants-sync-background.mts');
+    expect(bg).toMatch(/syncFundingCalls\(\{ now: new Date\(\) \}\)/);
+    // Publicly addressable, so the secret gate is the only protection.
+    expect(bg).toMatch(/Bearer \$\{secret\}/);
+    expect(bg).toMatch(/status: 401/);
   });
 
   it('the legacy parser gates funding_event on a headline deadline — for the grants monitor only', () => {
