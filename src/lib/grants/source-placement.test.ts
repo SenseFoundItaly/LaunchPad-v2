@@ -32,12 +32,25 @@ describe('the sources are split by reachability', () => {
     expect(runner).not.toMatch(/sediaConnector|lombardiaConnector/);
   });
 
-  it('the runner step is actually wired into the daily workflow', () => {
-    expect(wf).toMatch(/npx tsx scripts\/grants-sync-incentivi\.mts/);
-    expect(wf).toMatch(/DATABASE_URL: \$\{\{ secrets\.DATABASE_URL \}\}/);
-    // It must run on a checkout with deps, or tsx has nothing to execute.
-    expect(wf).toMatch(/actions\/checkout@v4/);
-    expect(wf).toMatch(/npm ci/);
+  it('incentivi is NOT synced from CI — a step there could only ever go red', () => {
+    // Measured 2026-09-06: the runner (Azure) hit the same connect timeout as
+    // Netlify (AWS). Re-adding a CI step would reinstate a guaranteed daily
+    // failure, so the absence is the invariant.
+    expect(wf).not.toMatch(/npx tsx scripts\/grants-sync-incentivi\.mts/);
+    expect(wf).toMatch(/scripts\/launchd\/README\.md/);
+  });
+
+  it('the LaunchAgent path is complete: wrapper, installer, and the sync it calls', () => {
+    const wrapper = read('scripts/grants-incentivi-daily.sh');
+    expect(wrapper).toMatch(/grants-sync-incentivi\.mts/);
+    // launchd hands over a minimal PATH; without this npx resolves nothing.
+    expect(wrapper).toMatch(/export PATH=/);
+    expect(wrapper).toMatch(/DATABASE_URL/);
+    const installer = read('scripts/launchd/install-incentivi-agent.sh');
+    expect(installer).toMatch(/StartCalendarInterval/);
+    // Bootstrapping must not fire a sync as a side effect.
+    expect(installer).toMatch(/<key>RunAtLoad<\/key><false\/>/);
+    expect(installer).toMatch(/launchctl bootout/);
   });
 
   it('the runner fails LOUDLY — a silent failure is the thing being fixed', () => {
