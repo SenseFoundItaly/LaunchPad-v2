@@ -73,19 +73,9 @@ jobs:
             echo "  NOT accepted (HTTP ${code}) — the grants sync did not start today"
           fi
 
-      # incentivi.gov.it silently DROPS Netlify's traffic (connect ETIMEDOUT
-      # 94.86.69.151:443, proven 2026-09-06 and unchanged by a 30s connect
-      # budget), while it answers an ordinary machine fine. So this one source
-      # syncs from the runner. The split is by reachability, not preference.
-      - name: Check out (for the incentivi sync)
-        uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - name: Install deps
-        run: npm ci --no-audit --no-fund
-      - name: Grants sync — incentivi.gov.it (from the runner, not Netlify)
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: npx tsx scripts/grants-sync-incentivi.mts
+      # incentivi.gov.it is NOT synced from CI. It silently drops traffic from
+      # AWS *and* Azure ranges — proven 2026-09-06: connect ETIMEDOUT
+      # 94.86.69.151:443 from both the Netlify function and a runner here,
+      # while an ordinary machine connects in 38ms. A step here could only ever
+      # go red. It syncs from a LaunchAgent instead — see
+      # scripts/launchd/README.md.
