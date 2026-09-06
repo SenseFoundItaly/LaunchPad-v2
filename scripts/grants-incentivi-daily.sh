@@ -31,9 +31,19 @@ if [ -z "$DATABASE_URL" ]; then
   exit 1
 fi
 
-# launchd hands over a minimal PATH, so node's own directory must be on it or
-# npx cannot resolve anything.
-export PATH="$(dirname "$(command -v node || echo /usr/local/bin/node)"):/usr/local/bin:/usr/bin:/bin"
+# The installer bakes the real node directory into the plist's PATH. This is
+# the belt-and-braces path for running the script by hand from a bare shell:
+# guessing a single location was wrong on this machine (node lives in
+# ~/.local/bin), so probe the places it actually turns up.
+if ! command -v node >/dev/null 2>&1; then
+  for d in "$HOME/.local/bin" /opt/homebrew/bin /usr/local/bin "$HOME/.nvm/versions/node"/*/bin; do
+    if [ -x "$d/node" ]; then export PATH="$d:$PATH"; break; fi
+  done
+fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "[grants][launchd] node not found on PATH — cannot run" >&2
+  exit 1
+fi
 
 echo "[grants][launchd] $(date -u +%FT%TZ) starting"
 npx tsx scripts/grants-sync-incentivi.mts "$@"
