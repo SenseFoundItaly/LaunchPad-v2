@@ -64,7 +64,7 @@ jobs:
           #    in funding_source_state, which the grants page renders as its
           #    freshness rows. The server still gates each source to once a day,
           #    so a re-run is a cheap no-op.
-          echo "--- grants sync (background)"
+          echo "--- grants sync: SEDIA + Lombardia (background function)"
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "$AUTH" \
             "${SITE_URL}/.netlify/functions/grants-sync-background" --max-time 60 || echo 000)
           if [ "$code" = "202" ]; then
@@ -72,3 +72,20 @@ jobs:
           else
             echo "  NOT accepted (HTTP ${code}) — the grants sync did not start today"
           fi
+
+      # incentivi.gov.it silently DROPS Netlify's traffic (connect ETIMEDOUT
+      # 94.86.69.151:443, proven 2026-09-06 and unchanged by a 30s connect
+      # budget), while it answers an ordinary machine fine. So this one source
+      # syncs from the runner. The split is by reachability, not preference.
+      - name: Check out (for the incentivi sync)
+        uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+      - name: Grants sync — incentivi.gov.it (from the runner, not Netlify)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npx tsx scripts/grants-sync-incentivi.mts
