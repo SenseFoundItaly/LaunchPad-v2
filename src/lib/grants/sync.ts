@@ -55,6 +55,7 @@ import type {
 } from './types';
 import { formatDeadlineForLocale, toDateOnly } from './dates';
 import { excerpt } from './text';
+import { describeError } from './error-detail';
 
 export interface GrantsWatcher {
   project_id: string;
@@ -271,7 +272,9 @@ export async function syncSource(
       needsDetail: (ids) => needsDetailFor(source, ids),
     });
   } catch (err) {
-    const msg = (err as Error).message.slice(0, 500);
+    // describeError, not err.message: Node reports every transport failure as
+    // the bare string "fetch failed" and hides the reason on `cause`.
+    const msg = describeError(err);
     console.error(`[grants] ${source} fetch failed:`, msg);
     await run(
       `UPDATE funding_source_state SET last_error = ?, updated_at = ? WHERE source = ?`,
