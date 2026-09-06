@@ -44,6 +44,18 @@ export const INCENTIVI_NATIONAL_MIN_REGIONS = 15;
 /** A formal close date this far out is "until funds run out" in practice. */
 export const INCENTIVI_ROLLING_YEAR = 2029;
 const TIMEOUT_MS = 60_000;
+/**
+ * undici's own CONNECT timeout defaults to 10s and fires long before
+ * TIMEOUT_MS, which covers the whole request. Measured on prod 2026-09-04:
+ * every run from Netlify died with UND_ERR_CONNECT_TIMEOUT at exactly 10000ms
+ * against www.incentivi.gov.it:443, while the identical fetch from a laptop
+ * succeeded. The host is IPv4-only, so this is not a Happy-Eyeballs stall —
+ * either the TCP handshake is genuinely slow from that egress, or the host
+ * silently drops datacenter traffic (a DROP looks exactly like this, a REJECT
+ * would surface as ECONNREFUSED). Raising the budget distinguishes the two:
+ * slow connects now succeed, a blackhole still times out and says so.
+ */
+const CONNECT_TIMEOUT_MS = 30_000;
 const USER_AGENT = 'Mozilla/5.0 (compatible; SenseFound/1.0)';
 const ELIGIBILITY_MAX = 2000;
 
@@ -198,13 +210,37 @@ export function dedupeByOfficialLink(calls: Array<NormalizedCall & { _upd?: stri
   });
 }
 
+/**
+ * Lazily built so tests that inject `opts.fetch` never construct an Agent, and
+ * so importing this module has no side effects.
+ */
+let agent: unknown;
+async function connectDispatcher(): Promise<unknown> {
+  if (agent === undefined) {
+    try {
+      const { Agent } = await import('undici');
+      agent = new Agent({ connect: { timeout: CONNECT_TIMEOUT_MS } });
+    } catch {
+      agent = null; // undici unavailable — fall back to the platform default
+    }
+  }
+  return agent;
+}
+
 export async function fetchIncentiviListing(opts: ConnectorOptions): Promise<ConnectorResult> {
-  const fetchFn = opts.fetch ?? globalThis.fetch;
+  const injected = opts.fetch;
+  const fetchFn = injected ?? globalThis.fetch;
   const url = buildIncentiviUrl();
-  const res = await fetchFn(url, {
+  const init: RequestInit & { dispatcher?: unknown } = {
     headers: { Accept: 'application/json', 'User-Agent': USER_AGENT },
     signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+  };
+  // Only for the real fetch: a dispatcher would be meaningless to a test double.
+  if (!injected) {
+    const d = await connectDispatcher();
+    if (d) init.dispatcher = d;
+  }
+  const res = await fetchFn(url, init);
   if (!res.ok) {
     console.error('[grants] incentivi: solr HTTP', res.status);
     throw new Error(`[grants] incentivi solr HTTP ${res.status}`);
