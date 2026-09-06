@@ -214,32 +214,42 @@ export function dedupeByOfficialLink(calls: Array<NormalizedCall & { _upd?: stri
  * Lazily built so tests that inject `opts.fetch` never construct an Agent, and
  * so importing this module has no side effects.
  */
-let agent: unknown;
-async function connectDispatcher(): Promise<unknown> {
-  if (agent === undefined) {
+type FetchLikeFn = (url: string, init: Record<string, unknown>) => Promise<Response>;
+let patient: FetchLikeFn | null | undefined;
+
+/**
+ * undici's fetch AND its Agent, from the same package.
+ *
+ * A dispatcher only works with the fetch that owns it: passing an Agent from
+ * the standalone `undici` dependency to Node's BUILT-IN fetch (which bundles
+ * its own undici) fails with UND_ERR_INVALID_ARG "invalid onRequestStart
+ * method" — measured on prod 2026-09-06. Taking both from one place keeps the
+ * versions in step.
+ */
+async function patientFetch(): Promise<FetchLikeFn | null> {
+  if (patient === undefined) {
     try {
-      const { Agent } = await import('undici');
-      agent = new Agent({ connect: { timeout: CONNECT_TIMEOUT_MS } });
+      const { fetch: undiciFetch, Agent } = await import('undici');
+      const dispatcher = new Agent({ connect: { timeout: CONNECT_TIMEOUT_MS } });
+      patient = ((url, init) =>
+        (undiciFetch as unknown as FetchLikeFn)(url, { ...init, dispatcher })) as FetchLikeFn;
     } catch {
-      agent = null; // undici unavailable — fall back to the platform default
+      patient = null; // fall back to the platform default rather than fail the sync
     }
   }
-  return agent;
+  return patient;
 }
 
 export async function fetchIncentiviListing(opts: ConnectorOptions): Promise<ConnectorResult> {
   const injected = opts.fetch;
-  const fetchFn = injected ?? globalThis.fetch;
   const url = buildIncentiviUrl();
-  const init: RequestInit & { dispatcher?: unknown } = {
+  const init = {
     headers: { Accept: 'application/json', 'User-Agent': USER_AGENT },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   };
-  // Only for the real fetch: a dispatcher would be meaningless to a test double.
-  if (!injected) {
-    const d = await connectDispatcher();
-    if (d) init.dispatcher = d;
-  }
+  // Injected fetch (tests) wins; otherwise prefer the patient one.
+  const fetchFn: FetchLikeFn =
+    (injected as unknown as FetchLikeFn) ?? (await patientFetch()) ?? (globalThis.fetch as unknown as FetchLikeFn);
   const res = await fetchFn(url, init);
   if (!res.ok) {
     console.error('[grants] incentivi: solr HTTP', res.status);
