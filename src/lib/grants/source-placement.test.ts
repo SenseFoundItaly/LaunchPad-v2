@@ -48,6 +48,13 @@ describe('the sources are split by reachability', () => {
     expect(wrapper).toMatch(/DATABASE_URL/);
     const installer = read('scripts/launchd/install-incentivi-agent.sh');
     expect(installer).toMatch(/StartCalendarInterval/);
+    // launchd hands the job a bare PATH, so the plist must carry node's real
+    // directory — resolved at install time. Guessing /usr/local/bin in the
+    // wrapper failed on this machine (node is in ~/.local/bin) and the first
+    // real launchd run died with "npx: command not found".
+    expect(installer).toMatch(/NODE_DIR="\$\(dirname "\$NODE_BIN"\)"/);
+    expect(installer).toMatch(/<key>EnvironmentVariables<\/key>/);
+    expect(installer).toMatch(/<key>PATH<\/key><string>\$NODE_DIR:/);
     // Bootstrapping must not fire a sync as a side effect.
     expect(installer).toMatch(/<key>RunAtLoad<\/key><false\/>/);
     expect(installer).toMatch(/launchctl bootout/);

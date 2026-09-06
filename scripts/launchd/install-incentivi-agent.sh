@@ -16,6 +16,19 @@ MINUTE="${2:-40}"
 
 mkdir -p "$LOG_DIR" "$HOME/Library/LaunchAgents"
 
+# Resolve node HERE, where PATH is a normal shell's. launchd hands the job a
+# bare PATH (/usr/bin:/bin:/usr/sbin:/sbin), so a node installed anywhere else
+# — nvm, Homebrew, ~/.local/bin — is invisible to it and npx dies with
+# "command not found". Measured 2026-09-06: node is at ~/.local/bin on this
+# machine, and guessing /usr/local/bin in the wrapper was simply wrong.
+NODE_BIN="$(command -v node || true)"
+if [ -z "$NODE_BIN" ]; then
+  echo "node is not on PATH — install it or run this from a shell that has it" >&2
+  exit 1
+fi
+NODE_DIR="$(dirname "$NODE_BIN")"
+echo "node     : $NODE_BIN"
+
 cat > "$PLIST" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -34,6 +47,10 @@ cat > "$PLIST" <<PLIST_EOF
   </dict>
   <!-- Never on load: bootstrapping should not fire a sync as a side effect. -->
   <key>RunAtLoad</key><false/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>$NODE_DIR:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>StandardOutPath</key><string>$LOG_DIR/grants-incentivi.log</string>
   <key>StandardErrorPath</key><string>$LOG_DIR/grants-incentivi.log</string>
   <key>ProcessType</key><string>Background</string>
