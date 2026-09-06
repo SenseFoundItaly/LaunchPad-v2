@@ -1,4 +1,6 @@
 import { syncFundingCalls } from '../../src/lib/grants/sync';
+import { sediaConnector } from '../../src/lib/grants/sources/sedia';
+import { lombardiaConnector } from '../../src/lib/grants/sources/lombardia';
 
 /**
  * Daily grants sync — a Netlify BACKGROUND function.
@@ -41,7 +43,14 @@ export default async (req: Request): Promise<Response> => {
   const startedAt = Date.now();
   console.log('[grants][bg] sync starting');
   try {
-    const result = await syncFundingCalls({ now: new Date() });
+    // incentivi.gov.it is DELIBERATELY absent: it silently drops Netlify's
+    // traffic (connect ETIMEDOUT, proven 2026-09-06 and unfixed by a 30s
+    // connect budget), so attempting it here only writes a daily error. It
+    // syncs from the GitHub Actions runner instead — scripts/grants-sync-incentivi.mts.
+    const result = await syncFundingCalls({
+      now: new Date(),
+      sources: [sediaConnector, lombardiaConnector],
+    });
     const ran = result.sources.filter((s) => !s.skipped_gate);
     for (const s of ran) {
       console.log(

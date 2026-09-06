@@ -659,7 +659,10 @@ describe('source pins', () => {
     expect(wf).toMatch(/\/\.netlify\/functions\/grants-sync-background/);
     expect(wf).not.toMatch(/curl -sN[^\n]*\/api\/cron\/grants/);
     const bg = read('netlify/functions/grants-sync-background.mts');
-    expect(bg).toMatch(/syncFundingCalls\(\{ now: new Date\(\) \}\)/);
+    // Sources are named explicitly now: incentivi.gov.it drops Netlify's
+    // traffic and syncs from the runner instead (source-placement.test.ts).
+    expect(bg).toMatch(/syncFundingCalls\(\{/);
+    expect(bg).toMatch(/sources: \[sediaConnector, lombardiaConnector\]/);
     // Publicly addressable, so the secret gate is the only protection.
     expect(bg).toMatch(/Bearer \$\{secret\}/);
     expect(bg).toMatch(/status: 401/);
