@@ -23,6 +23,7 @@ import type { MessageKey } from '@/lib/i18n/messages';
 import { useChat, chatStoreHydrated, markChatHydrated } from '@/hooks/useChat';
 import { broadcastPersistedArtifacts } from '@/hooks/usePersistedArtifact';
 import { useStages } from '@/hooks/useStages';
+import { useRouter } from 'next/navigation';
 import { requestRecharge } from '@/components/credits/recharge-events';
 import { useProject } from '@/hooks/useProject';
 import { useDraft } from '@/hooks/useDraft';
@@ -510,6 +511,9 @@ export default function CopilotChatPage({
 }) {
   const { projectId } = use(params);
   const t = useT();
+  // Client-side navigation for CTA options that send the founder to another
+  // section (changelog 05/09 item 7f) — a full reload would drop the transcript.
+  const nav = useRouter();
   const { project } = useProject(projectId);
   // Skills the project can't run yet — provided to every InlineOption so locked
   // skills never render as live Run buttons (mirrors the server prereq gate).
@@ -1407,6 +1411,22 @@ export default function CopilotChatPage({
         }
         return;
       }
+      // A CTA that sends the founder to another section (changelog 05/09 item
+      // 7f: "andare nella sezione knowledge per approvare i competitors").
+      // Whitelisted destinations only — `to` reaches here from artifact text,
+      // which is model output.
+      if (action === 'navigate') {
+        const DESTINATIONS: Record<string, string> = {
+          knowledge: `/project/${projectId}/knowledge`,
+          canvas: `/project/${projectId}/canvas`,
+          actions: `/project/${projectId}/actions`,
+          today: `/project/${projectId}/today`,
+        };
+        const href = DESTINATIONS[String(payload.to ?? '')];
+        if (!href) throw new Error(`navigate: unknown destination ${String(payload.to)}`);
+        nav.push(href);
+        return;
+      }
       // Addressable market scope — the founder's call on WHICH market, asked
       // before any TAM/SAM/SOM run (changelog 05/09 item 7d). Posts straight to
       // /market-scope; the server records it and stages the scoped sizing offer.
@@ -1573,7 +1593,7 @@ export default function CopilotChatPage({
         sendMessage(t('chat.trigger-action-plan', { title: `${payload.title}${desc ? ': ' + desc : ''}` }));
       }
     },
-    [projectId, sendMessage, setMessages, t],
+    [projectId, sendMessage, setMessages, t, nav],
   );
 
   function handleKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -2582,7 +2602,7 @@ function InlineOption({
   onUnchoose,
   onAction,
 }: {
-  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; proposal_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; gate_verdict?: 'GO' | 'PIVOT' | 'STOP'; gate_scope?: '1A' | '1B' | '1C'; market_scope?: 'IT' | 'EU' | 'INTL'; commit?: { canvas?: Record<string, string | string[]>; items?: Array<Record<string, unknown>> } };
+  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; proposal_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; gate_verdict?: 'GO' | 'PIVOT' | 'STOP'; gate_scope?: '1A' | '1B' | '1C'; market_scope?: 'IT' | 'EU' | 'INTL'; navigate_to?: 'knowledge' | 'canvas' | 'actions' | 'today'; commit?: { canvas?: Record<string, string | string[]>; items?: Array<Record<string, unknown>> } };
   index: number;
   /** The whole option-set is locked (a choice was made, or a response is streaming). */
   setLocked?: boolean;
@@ -2642,6 +2662,12 @@ function InlineOption({
     // Set already resolved (a choice was made, or a response is in flight): the
     // options are saved-but-frozen, so a stray click is a no-op.
     if (setLocked) return;
+    // Navigation (changelog 05/09 item 7f) — BOTH renderers must handle it, or
+    // the option degrades to a narrated trip the agent cannot make.
+    if (option.navigate_to) {
+      onAction?.('navigate', { to: option.navigate_to });
+      return;
+    }
     // Addressable market scope (IT / EU / INTL) — the click IS the founder's
     // strategic call (changelog 05/09 item 7d). BOTH renderers must handle it:
     // an option field this one doesn't know becomes a narrated-but-never-

@@ -1024,6 +1024,12 @@ export const it: Partial<Record<MessageKey, string>> = {
   'stage-handoff.option-competitors-desc': 'Chi altro risolve questo problema, e cosa ti rende diverso.',
   'stage-handoff.option-overview': 'Mostrami prima tutto il gate',
   'stage-handoff.option-overview-desc': 'Spiegami cosa chiede lo Stage 2 prima che scelga un task.',
+  // CTA revisione concorrenti (changelog 05/09 item 7f).
+  'competitor-cta.prompt': 'Ho trovato {count} concorrenti e li ho messi da parte per la tua revisione. Non contano per il gate finché non li approvi. Come procediamo?',
+  'competitor-cta.find-more': 'Cerca altri concorrenti',
+  'competitor-cta.find-more-desc': 'Allarga la ricerca prima di rivedere la lista.',
+  'competitor-cta.approve': 'Rivedi e approva',
+  'competitor-cta.approve-desc': 'Apri Knowledge per approvare i {count} concorrenti trovati — è questo che chiude il check dei concorrenti.',
   'gate.verdict-go': 'GO — le prove reggono',
   'gate.verdict-go-desc': 'Chiudi il Validation Gate e passa alla fase successiva.',
   'gate.verdict-pivot': 'PIVOT — qualcosa va rifatto',
