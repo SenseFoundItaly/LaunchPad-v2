@@ -22,6 +22,41 @@
 import { query } from '@/lib/db';
 import { isDerivedAnalysisNode } from '@/types/graph';
 
+/**
+ * The one-line name a fact gets in the knowledge list.
+ *
+ * A fact has no title, so the list shows its opening text. It used to be a flat
+ * `slice(0, 120)`, which cut mid-word — and the row then clipped that again
+ * with an ellipsis, so a 700-character fact reached the founder as roughly
+ * sixty characters, truncated twice, ending mid-syllable. Measured 2026-09-09:
+ * 131 of 522 prod facts run past 500 characters and six run past 20,000 (whole
+ * uploaded files stored as a single fact). That is the "riquadri di testo
+ * tagliati" of changelog 05/09 item 12.
+ *
+ * A sentence break is the best title a fact can have; a word boundary is the
+ * fallback. The full text still lives in `summary`, which the expanded row
+ * shows in full.
+ */
+export function factTitle(fact: string): string {
+  const flat = fact.replace(/\s+/g, ' ').trim();
+  if (flat.length <= FACT_TITLE_MAX) return flat;
+  const window = flat.slice(0, FACT_TITLE_MAX);
+  // Prefer the end of a sentence, but only one long enough to read as a title
+  // rather than a fragment. An ABSOLUTE floor, not a fraction of the budget: a
+  // clean 57-character first sentence is a better title than 160 characters cut
+  // mid-thought, and a proportional floor rejected exactly those.
+  const sentence = Math.max(window.lastIndexOf('. '), window.lastIndexOf('? '), window.lastIndexOf('! '));
+  if (sentence >= FACT_TITLE_MIN_SENTENCE) return window.slice(0, sentence + 1);
+  const word = window.lastIndexOf(' ');
+  return `${(word > 0 ? window.slice(0, word) : window).trimEnd()}…`;
+}
+
+/** Long enough for a real sentence, short enough for two lines in the row. */
+const FACT_TITLE_MAX = 160;
+/** Below this a "sentence" is a fragment ("Yes.", "GDPR.") and the longer
+ *  word-boundary cut tells the founder more. */
+const FACT_TITLE_MIN_SENTENCE = 40;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -487,12 +522,12 @@ export async function getProjectKnowledge(
   });
 
   const factItems: KnowledgeItem[] = factRows.map((f) => {
-    const title = (f.fact ?? '').slice(0, 120);
+    const title = factTitle(f.fact ?? '');
     return {
       id: f.id,
       kind: 'fact',
       title,
-      summary: (f.fact ?? '').length > 120 ? f.fact : null,
+      summary: (f.fact ?? '').length > title.length ? f.fact : null,
       sourceStore: 'memory_facts',
       provenanceTier: tierFromMemoryFact(f.source_type),
       reviewedState: 'applied',

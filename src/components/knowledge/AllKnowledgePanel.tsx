@@ -330,8 +330,16 @@ function KnowledgeRow({
             fontWeight: 600,
             color: 'var(--ink-1)',
             overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
+            // Two lines, not one nowrap line (changelog 05/09 item 12). A fact
+            // is prose, not a filename: clipping it to a single line meant the
+            // founder read about sixty characters of a several-hundred-character
+            // finding, cut mid-word. Entity rows have short names and are
+            // unaffected — they never reach the second line.
+            display: '-webkit-box',
+            WebkitBoxOrient: 'vertical',
+            WebkitLineClamp: 2,
+            lineHeight: 1.35,
+            wordBreak: 'break-word',
           }}
           title={item.title}
         >
@@ -352,8 +360,11 @@ function KnowledgeRow({
           the exact timestamp is its meta, and the producing store + provenance
           tier + source URL are the attribution chip (a link when the ref is a
           real URL, inert otherwise — the chip never fakes being clickable). */}
+      {/* Capped, not unbounded: six prod facts are whole uploaded files of
+          20,000-50,000 characters, and rendering one inline pushed every other
+          row off the screen. The chunk scrolls inside its own box instead. */}
       {expanded && (
-        <div style={{ padding: '2px 14px 12px' }}>
+        <div style={{ padding: '2px 14px 12px', maxHeight: 420, overflowY: 'auto' }}>
           <ContextCards
             heading={t('ui.knowledge.detail-heading')}
             chunks={[{
