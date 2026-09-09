@@ -167,6 +167,11 @@ export interface ProjectSnapshot {
     content: string;
     source_type: string | null;
     kind: string | null;
+    /** When the fact was applied. Needed by the 1B score gate, which has to
+     *  tell a score taken AFTER the technical work from the stage-1 baseline
+     *  every project already has. Optional AND nullable: legacy rows may lack
+     *  it, and fixtures written before the gate existed do not set it. */
+    created_at?: string | null;
   }>;
   /** Structured interviews — Stage 2 evidence. Populated via log_interview
    *  tool from chat or POST /api/projects/[id]/interviews. */
@@ -224,4 +229,12 @@ export interface ProjectSnapshot {
    *  review asks for. score_history drops no-change appends, so a count > 0
    *  means the number actually moved. */
   score_revisions_after_evidence: number;
+
+  /** The newest full Startup Scoring run (score_history, source
+   *  'startup-scoring'), which is what 1B's mandatory end-of-track score gates
+   *  on. Distinct from `startup_score`: that is the CURRENT headline number and
+   *  is kind-agnostic (a Clarity Score writes the same row), so it cannot tell
+   *  you whether a real scoring ever happened. Optional so existing fixtures
+   *  still typecheck; absent reads the same as never scored. */
+  last_full_scoring?: { overall_score: number; scored_at: string | null } | null;
 }

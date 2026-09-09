@@ -22,7 +22,7 @@
 import type { Stage, StageCheck, CheckResult, ProjectSnapshot } from './types';
 import { diffCanvas, type CanvasPayload, type VersionedCanvasField } from '@/lib/canvas-versions';
 import { CANONICAL_BY_ID } from './canonical';
-import { countMemoryFactsMatching, countGateEvidence } from './snapshot';
+import { countMemoryFactsMatching, countGateEvidence, keywordMatcher } from './snapshot';
 import type { GateFactKind } from '@/lib/gate-fact-kinds';
 import { coerceJson } from '@/lib/jsonb';
 import { hasBeenContacted } from '@/lib/interview-status';
@@ -357,6 +357,43 @@ export const VALIDATION_TRACK_1A: StageCheck[] = [
   // founder can still configure a watcher directly via chat at any time.
 ];
 
+
+/**
+ * When the newest piece of 1B technical evidence landed.
+ *
+ * Mirrors how the 1B checks themselves count evidence — by keyword OR by owned
+ * fact kind — because that is what they actually accept. A kind-only version
+ * saw nothing: real 1B evidence usually arrives as a plain chat observation
+ * that a keyword family matches, not as a typed fact.
+ *
+ * Null when no 1B evidence exists, or when all of it predates the created_at
+ * column. Null means "cannot tell", and the gate treats that as "not yet",
+ * never as a pass.
+ */
+function latest1BEvidenceAt(s: ProjectSnapshot): number | null {
+  const families: Array<[readonly string[], GateFactKind[]]> = [
+    [BUILD_APPROACH_KEYWORDS, ['tech_feasibility_fact']],
+    [TECH_RISK_KEYWORDS, ['tech_risk_fact']],
+    [DEPENDENCY_KEYWORDS, ['tech_dependency_fact']],
+    [REGULATORY_KEYWORDS, ['regulatory_fact']],
+    [IP_KEYWORDS, ['ip_fact']],
+    [DATA_AVAILABILITY_KEYWORDS, ['data_fact']],
+  ];
+  const matchers = families.map(([kw, kinds]) => ({ re: keywordMatcher([...kw]), kinds: new Set(kinds) }));
+
+  let newest: number | null = null;
+  for (const f of s.memory_facts) {
+    if (!f.created_at) continue;
+    const counts = matchers.some(({ re, kinds }) =>
+      (f.kind && kinds.has(f.kind as GateFactKind)) || re.test(f.content));
+    if (!counts) continue;
+    const t = new Date(f.created_at).getTime();
+    if (Number.isNaN(t)) continue;
+    if (newest === null || t > newest) newest = t;
+  }
+  return newest;
+}
+
 // ── Track 1B — Technical Validation ──────────────────────────────────────────
 // These validate INCREMENTALLY as the chat advances: each reads memory_facts
 // (founder-stated in chat, or written by the `technical-validation` skill),
@@ -465,6 +502,59 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
       );
     },
   },
+  /**
+   * Changelog 05/09 item 14 — a Startup Score is MANDATORY to close 1B.
+   *
+   * Blocking by construction rather than by a new mechanism: 1C is already
+   * locked until every 1A and 1B check passes, so adding this to 1B is what
+   * makes it a gate. No second lock to keep in sync.
+   *
+   * It insists the score is NEWER than the technical work. Every project gets a
+   * startup score in stage 1, so a presence-only check would be green before
+   * the founder had done any of 1B — a gate that never gates. Comparing against
+   * the newest 1B fact is what makes it mean "at the end of 1B".
+   *
+   * It gates on the score EXISTING, never on its value. A minimum would trap a
+   * founder whose honest score is low inside a stage they cannot leave, which
+   * inverts the whole point of scoring early and iterating.
+   */
+  {
+    id: 'startup_score_1b',
+    label: 'Startup Score taken after the technical work',
+    source: 'scores.overall_score',
+    track: '1B',
+    evaluate: (s) => {
+      // NOT `startup_score` — that is the current headline number and a Clarity
+      // Score writes the same row, so it would green this gate without anyone
+      // ever running the full rubric.
+      const score = s.last_full_scoring;
+      const evidenceAt = latest1BEvidenceAt(s);
+      if (evidenceAt === null) {
+        // Nothing to score against yet — asking for it now would be noise, and
+        // the other 1B rows already tell the founder what to do.
+        return {
+          passed: false,
+          locked: true,
+          gap: 'Locked — complete the technical checks above first, then score',
+        };
+      }
+      if (!score || !score.scored_at) {
+        return { passed: false, gap: 'Re-run the Startup Score now that 1B is done' };
+      }
+      const scoredAt = new Date(score.scored_at).getTime();
+      if (Number.isNaN(scoredAt) || scoredAt < evidenceAt) {
+        // A stale score is the stage-1 baseline, not a verdict on 1B.
+        return {
+          passed: false,
+          gap: 'Your Startup Score predates the technical work — re-run it to close 1B',
+        };
+      }
+      return {
+        passed: true,
+        evidence: `Scored ${score.overall_score} after the technical work (${String(score.scored_at).slice(0, 10)}).`,
+      };
+    },
+  },
 ];
 
 /** Labels of the unmet 1A/1B checks. Empty ⇒ both tracks green ⇒ 1C unlocks. */
@@ -472,6 +562,25 @@ export function validationTracksABMissing(snapshot: ProjectSnapshot): string[] {
   return [...VALIDATION_TRACK_1A, ...VALIDATION_TRACK_1B]
     .filter((c) => !c.evaluate(snapshot).passed)
     .map((c) => c.label);
+}
+
+/**
+ * 1A + 1B *except* the closing score — "the analysis work is done, the score is
+ * what remains".
+ *
+ * This exists to break a circle. The auto-scorer picks WHICH scoring to run from
+ * `validationTracksAB_done`: Clarity (canvas-only) before the gate, the full
+ * Startup Scoring after it. Once the mandatory score joined 1B, that predicate
+ * could never be true before the score existed, so the founder would be handed
+ * Clarity Scores forever and the gate they need a full scoring to pass could
+ * never be passed. Choosing the skill on the technical work alone is also the
+ * behaviour item 14 asks for: the moment 1B's analyses are green, the founder
+ * gets the real Startup Scoring.
+ */
+export function validationTechnicalWorkDone(snapshot: ProjectSnapshot): boolean {
+  return [...VALIDATION_TRACK_1A, ...VALIDATION_TRACK_1B]
+    .filter((c) => c.id !== 'startup_score_1b')
+    .every((c) => c.evaluate(snapshot).passed);
 }
 
 /** The one check the watcher proposer must ignore, or it can never fire.

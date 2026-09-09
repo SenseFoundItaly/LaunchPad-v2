@@ -56,7 +56,11 @@ describe('the clarity-scoring skill', () => {
 
   it('the score route picks the skill by GATE STATE, not by founder choice', () => {
     const route = read('src/app/api/projects/[projectId]/score/route.ts');
-    expect(route).toContain('validationTracksAB_done');
+    // The technical work, NOT the whole gate: 1B's own closing check is a full
+    // Startup Score (changelog 05/09 item 14), so keying on the whole gate would
+    // mean the full scoring only unlocks after a full scoring has already run.
+    expect(route).toContain('validationTechnicalWorkDone');
+    expect(route, 'the circular predicate must not come back').not.toContain('validationTracksAB_done');
     expect(route).toMatch(/'startup-scoring'\s*:\s*'clarity-scoring'/);
     // The debounce must ignore BOTH scoring skills' own completions or the
     // score re-fires forever after its own run.

@@ -58,7 +58,7 @@ function gateChecks(snapshot: ProjectSnapshot): Record<string, boolean> {
 }
 
 describe('L2 Validation Gate · 1B Technical (incremental)', () => {
-  it('the 6 track-1B checks exist on the validation stage and are tagged 1B', () => {
+  it('the 7 track-1B checks exist on the validation stage and are tagged 1B', () => {
     // 2026-07: tech_feasibility split into build_approach + technical_risk_named
     // (one vague fact must not green both the HOW and the RISK questions).
     // 2026-08-04 Iteration Cycle alignment: regulatory RESTORED here as the
@@ -69,6 +69,8 @@ describe('L2 Validation Gate · 1B Technical (incremental)', () => {
     expect(oneB).toEqual([
       'build_approach', 'technical_risk_named', 'key_dependencies',
       'regulatory_check', 'ip_analysis', 'data_availability',
+      // The mandatory re-score that closes 1B (changelog 05/09 item 14).
+      'startup_score_1b',
     ]);
   });
 

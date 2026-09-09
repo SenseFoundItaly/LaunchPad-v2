@@ -23,6 +23,9 @@ export function checkActionPrompt(label: string, t: TFn): string {
   // BEFORE the baseline rule: 1C's scoring step asks for a RE-score against the
   // interview evidence. Routed to the baseline prompt it sent the founder to
   // re-run the thing they had already done.
+  // The 1B gate score is its own conversation: not the stage-1 baseline, and
+  // not 1C's post-interview review. Must precede both generic scoring rules.
+  if (/startup score taken|score after the technical/.test(l)) return t('journey-prompt.startup-score-1b');
   if (/scoring review|scoring reviewed|re-score/.test(l)) return t('journey-prompt.scoring-review');
   if (/scoring|baseline/.test(l)) return t('journey-prompt.scoring');
   // The gate's own decision — before /go/-adjacent matches below.
@@ -149,6 +152,7 @@ const CHECK_LABEL_KEY: Record<string, MessageKey> = {
   monitors_set: 'journey-check.monitors_set',
   ip_analysis: 'journey-check.ip_analysis',
   data_availability: 'journey-check.data_availability',
+  startup_score_1b: 'journey-check.startup_score_1b',
   validation_strategy: 'journey-check.validation_strategy',
   jtbd_mapping: 'journey-check.jtbd_mapping',
   gate_verdict: 'journey-check.gate_verdict',
@@ -269,6 +273,7 @@ const GAP_LABEL_KEY: Record<string, MessageKey> = {
   monitors_set: 'journey-gap.monitors_set',
   ip_analysis: 'journey-gap.ip_analysis',
   data_availability: 'journey-gap.data_availability',
+  startup_score_1b: 'journey-gap.startup_score_1b',
   validation_strategy: 'journey-gap.validation_strategy',
   jtbd_mapping: 'journey-gap.jtbd_mapping',
   gate_verdict: 'journey-gap.gate_verdict',
@@ -406,6 +411,7 @@ const EVIDENCE_LABEL_KEY: Record<string, MessageKey> = {
   monitors_set: 'journey-evidence.monitors_set',
   ip_analysis: 'journey-evidence.ip_analysis',
   data_availability: 'journey-evidence.data_availability',
+  startup_score_1b: 'journey-evidence.startup_score_1b',
   validation_strategy: 'journey-evidence.validation_strategy',
   jtbd_mapping: 'journey-evidence.jtbd_mapping',
   gate_verdict: 'journey-evidence.gate_verdict',

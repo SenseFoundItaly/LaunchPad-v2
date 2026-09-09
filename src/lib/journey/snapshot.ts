@@ -36,6 +36,7 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     scoreRows,
     psfBaselineRows,
     scoreRevisionRows,
+    lastFullScoringRows,
   ] = await Promise.all([
     // Full Lean Canvas read — Stage 1 (L2 spec Phase 0) gates on the soft blocks
     // (channels, cost_structure, revenue_streams, …) too, not just the core five.
@@ -72,7 +73,7 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     // exclude raw uploaded document bodies (source_type='file'/kind='file_upload')
     // — see countMemoryFactsMatching. A document dump is not a founder assertion
     // and must not auto-satisfy any gated spine check.
-    query("SELECT id, fact AS content, source_type, kind FROM memory_facts WHERE project_id = ? AND reviewed_state = 'applied'", projectId).catch(() => []),
+    query("SELECT id, fact AS content, source_type, kind, created_at FROM memory_facts WHERE project_id = ? AND reviewed_state = 'applied'", projectId).catch(() => []),
     // `status` (migration 040) is what separates a PROSPECT from a conducted
     // interview. It is selected, never coalesced here: the NULL → 'done'
     // reading lives in one place (interviewStatus) so a second copy of that
@@ -108,6 +109,17 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
           AND created_at > (SELECT MIN(created_at) FROM interviews WHERE project_id = ?)`,
       projectId, projectId,
     ).catch(() => [{ cnt: 0 }]),
+    // The most recent FULL Startup Scoring run. `scores` holds one current row
+    // per project and is kind-agnostic — clarity-scoring writes it too — so the
+    // 1B score gate reads the trajectory instead, where the kind is recorded.
+    // Newest-first rather than the `scores` row so a later Clarity re-score can
+    // never un-green a gate the founder already closed with a real scoring.
+    query<{ overall_score: number | null; created_at: string | null }>(
+      `SELECT overall_score, created_at FROM score_history
+        WHERE project_id = ? AND source = 'startup-scoring'
+        ORDER BY created_at DESC LIMIT 1`,
+      projectId,
+    ).catch(() => []),
   ]);
 
   // Merge competitor_profiles + applied graph_node competitors, deduplicated by
@@ -167,6 +179,13 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     psf_baseline_canvas:
       psfBaselineRows.length > 0 ? (coerceJson<CanvasPayload>(psfBaselineRows[0].canvas) ?? null) : null,
     score_revisions_after_evidence: Number(scoreRevisionRows[0]?.cnt ?? 0),
+    last_full_scoring:
+      lastFullScoringRows.length > 0 && lastFullScoringRows[0].overall_score != null
+        ? {
+            overall_score: Number(lastFullScoringRows[0].overall_score),
+            scored_at: lastFullScoringRows[0].created_at,
+          }
+        : null,
   };
 }
 
