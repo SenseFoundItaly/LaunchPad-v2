@@ -143,6 +143,7 @@ export default function MonitorProposalCard({ artifact, onAction }: MonitorPropo
       typeLabel={t('mprop.type-label')}
       title={artifact.name}
       sources={artifact.sources}
+      exportArtifact={artifact}
       collapsible={false}
       aiGenerated
       headerRight={<>

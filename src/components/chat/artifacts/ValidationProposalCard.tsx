@@ -136,6 +136,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
     <ArtifactCardShell
       typeLabel={t('vp.type-label')}
       title={t('vp.title')}
+      exportArtifact={artifact}
       collapsible={false}
     >
       <div className="text-[11px] text-ink-4 mb-2.5">{framing}</div>

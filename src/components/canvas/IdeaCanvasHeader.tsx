@@ -178,7 +178,6 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
     ['value_proposition', t('canvas.field-value'), data?.value_proposition],
     ['competitive_advantage', t('canvas.field-edge'), edge || null],
     ['channels', t('canvas.field-channels'), data?.channels],
-    ['business_model', t('canvas.field-business-model'), data?.business_model],
   ];
   const pendingRows: DiffRow[] = [];
   let pendingCount = 0;
@@ -369,7 +368,6 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
           <Field label={t('canvas.field-costs')} value={costs || null} anchorId="canvasfield-cost_structure" />
           <Field label={t('canvas.field-revenues')} value={revenues || null} anchorId="canvasfield-revenue_streams" />
           <Field label={t('canvas.field-metrics')} value={metrics || null} anchorId="canvasfield-key_metrics" full />
-          <Field label={t('canvas.field-business-model')} value={data?.business_model} pendingValue={pending.business_model} pendingLabel={t('canvas.field-pending')} pendingUpdateLabel={t('canvas.field-pending-update')} anchorId="canvasfield-business_model" full />
         </div>
         </>
       )}

@@ -57,7 +57,11 @@ interface SpineSectionProps {
 
 // Canvas-field sources that have a VISIBLE home in the pinned IdeaCanvasHeader
 // (the 5 fields it renders) — only these get a "view in canvas" jump.
-const CANVAS_VIEW_FIELDS = new Set(['problem', 'solution', 'target_market', 'value_proposition', 'business_model']);
+// business_model deliberately absent (changelog 05/09 item 6): the business
+// model is worked properly in its own stage, and showing an empty or half-formed
+// one on the Idea Canvas invited founders to answer it far too early. The column
+// and its data are untouched — this is a view decision, not a deletion.
+const CANVAS_VIEW_FIELDS = new Set(['problem', 'solution', 'target_market', 'value_proposition']);
 
 /** Where a validated substep's proof can be "viewed" — derived from its source.
  *  null = inline-only (no surface to jump to). */

@@ -11,7 +11,7 @@
  * elsewhere reflect here.
  */
 
-import { useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Icon, I } from '@/components/design/primitives';
 import { useT } from '@/components/providers/LocaleProvider';
@@ -57,6 +57,22 @@ export function CompetitorMatryoshka({ projectId }: { projectId: string }) {
   }
 
   const competitors = data?.competitors ?? [];
+  // Per-project so a founder who collapsed it on one project does not find it
+  // collapsed on another. localStorage, not a query param: this is a per-viewer
+  // convenience, worth nothing to anyone else and not worth a round-trip.
+  const storageKey = `lp_competitors_open_${projectId}`;
+  const [open, setOpen] = useState(true);
+  const listId = useId();
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved !== null) setOpen(saved === '1');
+    } catch { /* private mode — the default (open) is fine */ }
+  }, [storageKey]);
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, open ? '1' : '0'); } catch { /* ignore */ }
+  }, [storageKey, open]);
+
   if (competitors.length === 0) return null; // nothing to show — stay out of the way
 
   const toggle = (id: string) =>
@@ -69,14 +85,34 @@ export function CompetitorMatryoshka({ projectId }: { projectId: string }) {
 
   return (
     <section style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-l)', overflow: 'hidden', margin: '12px 16px 0' }}>
-      <header style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
+      {/* Collapsible (changelog 05/09 item 10): at 38vh this panel sat on top
+          of the Ecosystem graph, which is the point of the page. The founder
+          decides how much room it gets; the choice sticks per project so it does
+          not have to be re-made on every visit. */}
+      <header
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); }
+        }}
+        style={{ padding: '10px 14px', borderBottom: open ? '1px solid var(--line)' : 'none', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}
+      >
         <Icon d={I.layers} size={13} stroke={1.4} style={{ color: 'var(--ink-3)' }} />
         <h2 style={{ margin: 0, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-3)' }}>
           {t('competitors.title')}
         </h2>
         <span className="lp-mono" style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-5)' }}>{competitors.length}</span>
+        <Icon
+          d={I.chevd}
+          size={13}
+          stroke={1.6}
+          style={{ color: 'var(--ink-4)', transform: open ? 'none' : 'rotate(-90deg)', transition: 'transform .15s ease' }}
+        />
       </header>
-      <div style={{ padding: 6, maxHeight: '38vh', overflowY: 'auto' }}>
+      <div id={listId} hidden={!open} style={{ padding: 6, maxHeight: '38vh', overflowY: 'auto', resize: 'vertical' }}>
         {competitors.map((c) => {
           const isOpen = expanded.has(c.id);
           const isPending = c.reviewed_state === 'pending';

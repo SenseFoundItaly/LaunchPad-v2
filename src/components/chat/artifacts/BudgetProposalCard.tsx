@@ -131,6 +131,7 @@ export default function BudgetProposalCard({ artifact, onAction }: BudgetProposa
       typeLabel={t('bprop.type-label')}
       title={t('bprop.title', { from: fmtUsd(artifact.current_cap_usd), arrow, to: fmtUsd(artifact.proposed_cap_usd) })}
       sources={artifact.sources}
+      exportArtifact={artifact}
       collapsible={false}
       aiGenerated
       headerRight={<>
