@@ -32,6 +32,8 @@ import { canvasLacksCorePrereqs, isCanvasDependentSkill, GATE_1C_DEPENDENT_SKILL
 import { validationTracksAB_done } from '@/lib/journey/stage-2-market-validation';
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
 import { maybeProposeGateVerdict } from '@/lib/gate-verdict';
+import { maybeProposeStageHandoff } from '@/lib/stage-handoff';
+import { maybeProposeMarketScope } from '@/lib/market-scope';
 import { checkRateLimit } from '@/lib/rate-limit';
 // NOTE deliberately NOT imported: @/lib/chat-cache-split (CACHE_PREFIX_SPLIT /
 // buildSplitUserTurn). That flag's approach — moving the dynamic context onto
@@ -1888,6 +1890,12 @@ export async function POST(request: NextRequest) {
           // Idempotent + non-throwing.
           await step_('phase1-watchers', () => maybeProposePhase1Watchers(project_id));
           await step_('gate-verdict', () => maybeProposeGateVerdict(project_id));
+          // A finished stage should be announced in the thread the founder is
+          // reading, and the addressable market should be settled before any
+          // sizing runs. Both rebuild the snapshot internally, both are
+          // idempotent, neither throws.
+          await step_('stage-handoff', () => maybeProposeStageHandoff(project_id));
+          await step_('market-scope', () => maybeProposeMarketScope(project_id));
         };
         if (process.env.CHAT_DEFER_PERSIST === '0') {
           // Kill-switch: reproduce the fully blocking semantics — the closure

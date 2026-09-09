@@ -1230,7 +1230,11 @@ export default function CopilotChatPage({
             // missing_prerequisites = canvas gate; validation_gate_locked = 1C
             // gate (customer-interviews before 1A+1B); stage_locked = Build/
             // Fundraise/Operate (5-7) before earlier stages done. Same surface.
-            if ((body?.error === 'missing_prerequisites' || body?.error === 'validation_gate_locked' || body?.error === 'stage_locked') && body?.message) {
+                  // market_scope_required = the addressable-market question must be
+            // answered before a sizing run (changelog 05/09 item 7d). The
+            // server also stages the card; this bubble is what the founder
+            // sees without waiting for a reload.
+            if ((body?.error === 'missing_prerequisites' || body?.error === 'validation_gate_locked' || body?.error === 'stage_locked' || body?.error === 'market_scope_required') && body?.message) {
               setMessages((prev) => [
                 ...prev,
                 {
@@ -1399,6 +1403,30 @@ export default function CopilotChatPage({
         }
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+          window.dispatchEvent(new CustomEvent('lp-skills-changed', { detail: { projectId } }));
+        }
+        return;
+      }
+      // Addressable market scope — the founder's call on WHICH market, asked
+      // before any TAM/SAM/SOM run (changelog 05/09 item 7d). Posts straight to
+      // /market-scope; the server records it and stages the scoped sizing offer.
+      if (action === 'market-scope:record') {
+        const scope = String(payload.scope ?? '');
+        if (scope !== 'IT' && scope !== 'EU' && scope !== 'INTL') {
+          throw new Error('market-scope:record needs a scope of IT, EU or INTL');
+        }
+        const res = await fetch(`/api/projects/${projectId}/market-scope`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scope }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `Recording the market scope failed with status ${res.status}`);
+        }
+        // The sizing skill was gated on this answer — tell the skill list so a
+        // run the founder can now do stops rendering as locked.
+        if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('lp-skills-changed', { detail: { projectId } }));
         }
         return;
@@ -2554,7 +2582,7 @@ function InlineOption({
   onUnchoose,
   onAction,
 }: {
-  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; proposal_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; gate_verdict?: 'GO' | 'PIVOT' | 'STOP'; gate_scope?: '1A' | '1B' | '1C'; commit?: { canvas?: Record<string, string | string[]>; items?: Array<Record<string, unknown>> } };
+  option: { id?: string; label?: string; description?: string; credits?: number; skill_id?: string; proposal_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; gate_verdict?: 'GO' | 'PIVOT' | 'STOP'; gate_scope?: '1A' | '1B' | '1C'; market_scope?: 'IT' | 'EU' | 'INTL'; commit?: { canvas?: Record<string, string | string[]>; items?: Array<Record<string, unknown>> } };
   index: number;
   /** The whole option-set is locked (a choice was made, or a response is streaming). */
   setLocked?: boolean;
@@ -2614,6 +2642,23 @@ function InlineOption({
     // Set already resolved (a choice was made, or a response is in flight): the
     // options are saved-but-frozen, so a stray click is a no-op.
     if (setLocked) return;
+    // Addressable market scope (IT / EU / INTL) — the click IS the founder's
+    // strategic call (changelog 05/09 item 7d). BOTH renderers must handle it:
+    // an option field this one doesn't know becomes a narrated-but-never-
+    // recorded choice, which is the failure mode the file header warns about.
+    if (option.market_scope) {
+      if (state === 'running' || state === 'done') return;
+      onChoose?.();
+      setState('running');
+      try {
+        await onAction?.('market-scope:record', { scope: option.market_scope });
+        setState('done');
+      } catch (e) {
+        onUnchoose?.();
+        setState(isSilentReset(e) ? 'idle' : 'error');
+      }
+      return;
+    }
     if (isSkill) {
       // Skill option: run the skill in real time. Don't re-run once running/done.
       if (state === 'running' || state === 'done') return;
@@ -2817,7 +2862,7 @@ function InlineArtifact({
   const a = artifact as unknown as Record<string, unknown>;
 
   if (artifact.type === 'option-set' && Array.isArray(a.options)) {
-    const allOptions = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number; skill_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; gate_verdict?: 'GO' | 'PIVOT' | 'STOP'; gate_scope?: '1A' | '1B' | '1C' }>;
+    const allOptions = a.options as Array<{ id?: string; label?: string; description?: string; credits?: number; skill_id?: string; loop_verdict?: 'GO' | 'PIVOT' | 'STOP'; loop_id?: string; gate_verdict?: 'GO' | 'PIVOT' | 'STOP'; gate_scope?: '1A' | '1B' | '1C'; market_scope?: 'IT' | 'EU' | 'INTL' }>;
     // Strip the idea-shaping kickoff: it re-runs from scratch and the prompt's
     // "always offer next_recommended_skill" rule made it reappear every turn
     // (the loop Luca hit). Relaunch now lives only on the Canvas button; the

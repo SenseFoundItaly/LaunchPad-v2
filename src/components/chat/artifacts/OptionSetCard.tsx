@@ -85,6 +85,22 @@ function OptionButton({
     '';
 
   const handleClick = async () => {
+    // Addressable market scope (IT / EU / INTL): the click IS the founder's
+    // strategic call (changelog 05/09 item 7d), so it goes straight to
+    // /market-scope. Placed BEFORE the skill branch on purpose — the follow-up
+    // card pairs a scope with a sizing run, and running the sizing before the
+    // scope is recorded is the exact bug this whole item exists to stop.
+    if (option.market_scope) {
+      if (state === 'running' || state === 'done') return;
+      setState('running');
+      try {
+        await onAction('market-scope:record', { scope: option.market_scope });
+        setState('done');
+      } catch (e) {
+        setState(isSilentReset(e) ? 'idle' : 'error');
+      }
+      return;
+    }
     if (isSkill) {
       // Skill option: run the skill in real time. Don't re-run once running/done.
       if (state === 'running' || state === 'done') return;

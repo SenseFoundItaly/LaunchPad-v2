@@ -28,6 +28,7 @@ import { translate } from '@/lib/i18n/messages';
 import { maybeBuildScoreReviewOptionSet } from '@/lib/score-review';
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
 import { maybeProposeGateVerdict } from '@/lib/gate-verdict';
+import { marketScopeRunBlocked, maybeProposeMarketScope } from '@/lib/market-scope';
 
 /**
  * GET: list skill completions for a project.
@@ -168,6 +169,26 @@ export async function POST(
           error: 'validation_gate_locked',
           missing: gate1c.missing,
           message: translate(locale, 'skills.gate-1c-locked', { missing: gate1c.missing.join(', ') }),
+        }),
+        { status: 422, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // MARKET SCOPE gate (changelog 05/09 item 7d) — a sizing run needs the
+    // founder's call on the addressable market first, or it picks a geography
+    // on its own and hands back a TAM the founder can never serve. The proposer
+    // normally asks on entering Stage 2; this catches the founder who reaches
+    // for the skill before answering. Staging the card here means the 422
+    // arrives WITH the question, not just a refusal.
+    if (await marketScopeRunBlocked(projectId, body.skill_id as string)) {
+      console.info(`[skills] ${body.skill_id} blocked — addressable market scope not chosen yet`);
+      await maybeProposeMarketScope(projectId);
+      const locale = await resolveLocale(ownerUserId, projectId);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'market_scope_required',
+          message: translate(locale, 'market-scope.required'),
         }),
         { status: 422, headers: { 'Content-Type': 'application/json' } },
       );
