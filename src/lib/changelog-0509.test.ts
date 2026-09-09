@@ -55,6 +55,27 @@ describe('item 10 — the competitor panel stops covering the graph', () => {
   });
 });
 
+describe('item 11 — no running a whole skill from one check row', () => {
+  const spine = read('src/components/canvas/SpineSection.tsx');
+
+  it('the "Esegui <skill>" shortcut is gone, and so is its machinery', () => {
+    // Luca ran it twice: findings only loosely aligned to the 1B tasks, then
+    // the skill broke mid-run and the analysis was discarded — leaving him
+    // worse off than before he clicked.
+    expect(spine).not.toMatch(/canvas\.run-skill/);
+    expect(spine).not.toMatch(/checkRunnableSkill/);
+    expect(spine).not.toMatch(/startSkill|runningSkill/);
+    // Dead-but-wired is the `{false && ...}` habit this repo already calls out.
+    expect(spine).not.toMatch(/onRunSkill/);
+    expect(read('src/components/canvas/Canvas.tsx')).not.toMatch(/onRunSkill/);
+    expect(read('src/app/project/[projectId]/chat/page.tsx')).not.toMatch(/onRunSkill/);
+  });
+
+  it('the row still pre-fills the chat, so the founder works one task at a time', () => {
+    expect(spine).toMatch(/onPickPrompt\?\.\(checkActionPrompt/);
+  });
+});
+
 describe('item 2 — every artifact the exporter understands offers a download', () => {
   const exporter = read('src/lib/artifact-export.ts');
   const supported = [...exporter.matchAll(/case '([a-z-]+)':/g)].map((m) => m[1]);

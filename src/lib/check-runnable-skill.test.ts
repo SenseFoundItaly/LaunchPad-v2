@@ -51,34 +51,24 @@ describe('the check → skill map', () => {
   });
 });
 
-describe('the CTA is wired to the handler that owns the money', () => {
-  const spine = read('src/components/canvas/SpineSection.tsx');
-  const page = read('src/app/project/[projectId]/chat/page.tsx');
-
-  it('the spine delegates rather than fetching /skills itself', () => {
-    // A raw fetch here would reimplement the 402 recharge modal and the 422
-    // prerequisite surfaces — badly, and in a second place.
-    expect(spine).toContain('onRunSkill');
-    expect(spine).not.toMatch(/fetch\([^)]*\/skills/);
+describe('the gap hint never names a skill the founder cannot start', () => {
+  // History: build_approach was green on 1 of 116 prod projects and locked 1C on
+  // all of them, because its hint said "run Technical Validation" and nothing in
+  // the product could run it. A row-level CTA closed that gap — and then
+  // produced findings only loosely aligned to the 1B tasks, discarding the
+  // analysis when the skill broke mid-run (changelog 05/09 item 11), so the CTA
+  // is gone again. The hint therefore has to point at something that EXISTS.
+  it('build_approach points at the Co-pilot, not at a skill button', () => {
+    for (const f of ['src/lib/i18n/messages/en.ts', 'src/lib/i18n/messages/it.ts']) {
+      const hint = read(f).split('\n').find((l) => l.includes("'journey-gap.build_approach'")) ?? '';
+      expect(hint, f).toBeTruthy();
+      expect(hint, `${f} still tells the founder to run a skill`).not.toMatch(/Technical Validation|Validazione Tecnica/);
+      expect(hint.toLowerCase(), f).toContain('co-pilot');
+    }
   });
 
-  it('the chat page routes it to skill:run', () => {
-    expect(page).toMatch(/onRunSkill=\{\(skillId\)/);
-    expect(page).toContain("handleArtifactAction('skill:run', { skill_id: skillId })");
-  });
-
-  it('a run in flight blocks a second click', () => {
-    expect(spine).toMatch(/if \(runningSkill \|\| !onRunSkill\) return;/);
-  });
-
-  it('the CTA never renders on a locked or already-green row', () => {
-    expect(spine).toMatch(/const runnableSkill = isGap \? checkRunnableSkill/);
-    expect(spine).toMatch(/runnableSkill && !locked && onRunSkill/);
-  });
-
-  it('nothing auto-runs — the founder clicks', () => {
-    // "Troppo veicolato" (04/08): the product must not decide for the founder,
-    // and must not spend on a project they have not chosen to advance.
-    expect(spine).not.toMatch(/useEffect\([^)]*startSkill/);
+  it('the spine no longer offers to run a skill from a check row', () => {
+    const spine = read('src/components/canvas/SpineSection.tsx');
+    expect(spine).not.toMatch(/canvas\.run-skill|checkRunnableSkill|onRunSkill/);
   });
 });

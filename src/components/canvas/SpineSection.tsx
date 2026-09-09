@@ -20,7 +20,7 @@ import { useMemo, useState } from 'react';
 import { useStages } from '@/hooks/useStages';
 import { useGateVerdict } from '@/hooks/useGateVerdict';
 import { useRouter } from 'next/navigation';
-import { checkActionPrompt, checkLabel, stageLabel, stageTagline, checkGap, checkEvidence, checkRunnableSkill } from '@/lib/journey-prompts';
+import { checkActionPrompt, checkLabel, stageLabel, stageTagline, checkGap, checkEvidence } from '@/lib/journey-prompts';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
 import { Icon, I } from '@/components/design/icons';
 import type { MessageKey } from '@/lib/i18n/messages';
@@ -52,7 +52,6 @@ interface SpineSectionProps {
    *  page's `skill:run` handler, which owns the credit hard-stop (402 →
    *  recharge modal) and the prerequisite gates (422) — a raw fetch here would
    *  reimplement both, badly. */
-  onRunSkill?: (skillId: string) => Promise<void> | void;
 }
 
 // Canvas-field sources that have a VISIBLE home in the pinned IdeaCanvasHeader
@@ -100,7 +99,7 @@ const STATE: Record<StageEval['status'], { color: string; labelKey: MessageKey }
 // Labels/explainers/order live in lib so both surfaces share one definition
 // (imported at the top of the file with the rest).
 
-export function SpineSection({ projectId, onPickPrompt, onRunSkill }: SpineSectionProps) {
+export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
   const t = useT();
   const locale = useLocale();
   const router = useRouter();
@@ -110,7 +109,6 @@ export function SpineSection({ projectId, onPickPrompt, onRunSkill }: SpineSecti
   const [openProof, setOpenProof] = useState<string | null>(null);
   // Which check's skill is mid-run — the row's CTA becomes a spinner-ish
   // label so a second click can't double-charge the analysis.
-  const [runningSkill, setRunningSkill] = useState<string | null>(null);
 
   // Cached via the shared useStages hook (dedupes with the chat-header subtitle
   // onto one ['stages', projectId] query) so the spine survives tab navigation.
@@ -128,26 +126,6 @@ export function SpineSection({ projectId, onPickPrompt, onRunSkill }: SpineSecti
 
   // Both writes refresh the same surfaces a chat-recorded verdict does: the
   // check row, the gated skills it unlocks, and this footer.
-  /**
-   * Run the skill a check names. Delegates to the chat page's `skill:run`
-   * handler — which owns the 402 recharge modal and the 422 prerequisite
-   * surfaces — rather than fetching here and reimplementing both.
-   *
-   * Explicit click only. Auto-running on render would be the "troppo veicolato"
-   * the founder objected to on 04/08, and it would spend against a project the
-   * founder may not have chosen to advance.
-   */
-  const startSkill = async (skillId: string) => {
-    if (runningSkill || !onRunSkill) return;
-    setRunningSkill(skillId);
-    try {
-      await onRunSkill(skillId);
-    } finally {
-      // Always clear: the handler swallows its own errors (recharge modal,
-      // prereq message), so a stuck "running" label would be the only trace.
-      setRunningSkill(null);
-    }
-  };
 
   const afterDecision = () => {
     if (typeof window === 'undefined') return;
@@ -360,9 +338,6 @@ export function SpineSection({ projectId, onPickPrompt, onRunSkill }: SpineSecti
               // → technical-validation). Only offered while the row is unmet:
               // re-running an analysis whose evidence is already in is spend
               // with nothing to buy.
-              const runnableSkill = isGap ? checkRunnableSkill(r.check.id) : undefined;
-              const skillName = runnableSkill ? t(`skill-name.${runnableSkill}` as MessageKey) : '';
-              const isRunning = runningSkill === runnableSkill;
               const clickable = canPrefill || hasProof;
               const onRowClick = canPrefill
                 ? () => onPickPrompt?.(checkActionPrompt(r.check.label, t), r.check.id)
@@ -417,27 +392,13 @@ export function SpineSection({ projectId, onPickPrompt, onRunSkill }: SpineSecti
                         reached a founder if the co-pilot happened to offer one.
                         Not a nested <button> — this row is already clickable,
                         so stopPropagation keeps the two actions distinct. */}
-                    {runnableSkill && !locked && onRunSkill && (
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        aria-label={t('canvas.run-skill', { skill: skillName })}
-                        onClick={(e) => { e.stopPropagation(); void startSkill(runnableSkill); }}
-                        onKeyDown={(e) => {
-                          if (e.key !== 'Enter' && e.key !== ' ') return;
-                          e.preventDefault(); e.stopPropagation(); void startSkill(runnableSkill);
-                        }}
-                        className="lp-mono"
-                        style={{
-                          fontSize: 9.5, flexShrink: 0, marginTop: 2, whiteSpace: 'nowrap',
-                          color: isRunning ? 'var(--ink-5)' : 'var(--moss)',
-                          cursor: isRunning ? 'default' : 'pointer',
-                          borderBottom: isRunning ? 'none' : '1px solid var(--moss)',
-                        }}
-                      >
-                        {isRunning ? t('chat.running') : t('canvas.run-skill', { skill: skillName })}
-                      </span>
-                    )}
+                    {/* The "Esegui <skill> →" shortcut is GONE (changelog 05/09
+                        item 11). Running a whole skill from a single check row
+                        produced findings only loosely aligned to the 1B tasks,
+                        and when the skill broke mid-run the analysis was
+                        discarded — leaving the founder worse off than before
+                        they clicked. The row still pre-fills the chat for THIS
+                        check, which keeps the founder on one task at a time. */}
                   </div>
                   {hasProof && proofOpen && (
                     <div style={{ margin: '4px 0 2px 23px', padding: '6px 9px', background: 'var(--surface)', borderLeft: '2px solid var(--moss)', borderRadius: 4 }}>
