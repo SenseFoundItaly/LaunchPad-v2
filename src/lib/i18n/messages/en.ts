@@ -167,6 +167,13 @@ export const en = {
   'score.title-startup': 'Startup Score',
   'score.run': 'Run scoring',
   'score.project-score': 'Project score',
+  // Expanded scoring window (changelog 05/09 item 4).
+  'score-history.title': 'Score history ({count})',
+  'score-history.download': 'Download CSV',
+  'score-history.kind-clarity': 'Clarity Score',
+  'score-history.kind-startup': 'Startup Score',
+  'score-history.kind-other': 'Score',
+  'score-history.delta-tip': 'Movement against your previous score of the same kind. Clarity and Startup Scoring measure different things, so they are never compared to each other.',
   'score.not-scored': 'Not scored yet — runs automatically as you complete stages.',
   'score.band-strong': 'strong',
   'score.trajectory-tooltip': '{count} scores · {delta} overall',

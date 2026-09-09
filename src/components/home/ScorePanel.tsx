@@ -29,6 +29,7 @@ import { useStages } from '@/hooks/useStages';
 import { stageLabel } from '@/lib/journey-prompts';
 import { band, normalizeDimensions, to100, splitVerdict } from '@/lib/score-display';
 import ScoreTrajectory from '@/components/charts/ScoreTrajectory';
+import ScoreHistoryPanel from '@/components/home/ScoreHistoryPanel';
 
 interface IrlResp {
   /** What the founder sees — max(earned, stored floor). */
@@ -224,6 +225,10 @@ export function ScorePanel({ projectId }: { projectId: string }) {
               {recommendationText && (
                 <p style={{ margin: '8px 0 0', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.45 }}>{recommendationText}</p>
               )}
+              {/* The trajectory the sparkline could only hint at: every past
+                  scoring, named, with its movement (changelog 05/09 item 4).
+                  Renders nothing until there are two points. */}
+              <ScoreHistoryPanel projectId={projectId} />
             </>
           )}
         </div>

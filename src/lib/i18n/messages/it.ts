@@ -160,6 +160,13 @@ export const it: Partial<Record<MessageKey, string>> = {
   'score.title-startup': 'Startup Score',
   'score.run': 'Esegui scoring',
   'score.project-score': 'Score del progetto',
+  // Finestra scoring espansa (changelog 05/09 item 4).
+  'score-history.title': 'Storico degli scoring ({count})',
+  'score-history.download': 'Scarica CSV',
+  'score-history.kind-clarity': 'Clarity Score',
+  'score-history.kind-startup': 'Startup Score',
+  'score-history.kind-other': 'Score',
+  'score-history.delta-tip': 'Variazione rispetto al tuo scoring precedente dello stesso tipo. Clarity e Startup Scoring misurano cose diverse, quindi non vengono mai confrontati fra loro.',
   'score.not-scored': 'Non ancora valutato — parte in automatico man mano che completi le fasi.',
   'score.band-strong': 'forte',
   'score.trajectory-tooltip': '{count} punteggi · {delta} complessivo',

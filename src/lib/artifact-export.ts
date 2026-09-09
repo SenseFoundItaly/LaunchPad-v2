@@ -30,7 +30,9 @@ function csvCell(value: unknown): string {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-function toCsv(rows: unknown[][]): string {
+/** Shared with the score-history export: same escaping, same injection guard.
+ *  A second CSV writer would be a second place for that guard to be forgotten. */
+export function toCsv(rows: unknown[][]): string {
   return rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
 }
 
