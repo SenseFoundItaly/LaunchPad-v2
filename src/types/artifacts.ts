@@ -153,6 +153,10 @@ export interface OptionSet extends ArtifactBase {
     gate_verdict?: 'GO' | 'PIVOT' | 'STOP';
     /** Which gate track a PIVOT invalidates. Only meaningful with PIVOT. */
     gate_scope?: '1A' | '1B' | '1C';
+    // `market_scope` — the founder's call on the addressable market, asked
+    // before any TAM/SAM/SOM run (changelog 05/09 item 7d). Posts to
+    // POST /market-scope, which records it and offers the scoped sizing run.
+    market_scope?: 'IT' | 'EU' | 'INTL';
     commit?: {
       // Any of the 11 Lean Canvas blocks — the 7 core/text fields plus the soft
       // fields (unfair_advantage; key_metrics / revenue_streams / cost_structure

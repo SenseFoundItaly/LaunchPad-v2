@@ -9,6 +9,7 @@ import { syncBusinessEssentialNodes } from '@/lib/business-essentials-sync';
 import { autoStageValidationFromArtifact, supersedeCoveredAutoProposals } from '@/lib/auto-stage-validation';
 import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
 import { maybeProposeGateVerdict } from '@/lib/gate-verdict';
+import { maybeProposeStageHandoff } from '@/lib/stage-handoff';
 import type { IdeaCanvasArtifact } from '@/types/artifacts';
 
 const CANVAS_FIELDS = [
@@ -213,6 +214,9 @@ export async function POST(
   // Idempotent + non-throwing inside.
   await maybeProposePhase1Watchers(projectId);
   await maybeProposeGateVerdict(projectId);
+  // A canvas commit is what usually closes Stage 1, and the founder is
+  // looking at the chat when it lands — not at the spine. Non-fatal.
+  await maybeProposeStageHandoff(projectId).catch(() => false);
 
   return json({ applied: [...CANVAS_FIELDS.filter((k) => fields[k].length > 0), ...extras] }, 201);
 }

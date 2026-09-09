@@ -20,6 +20,7 @@
 import { get, query } from '@/lib/db';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
 import { marketSizingProse } from '@/lib/research-context';
+import { marketScopeContextLine } from '@/lib/market-scope';
 
 const FIELD_CAP = 600; // per-field char cap so a verbose canvas can't blow the prompt
 const MAX_FACTS = 8;
@@ -146,6 +147,11 @@ export async function buildSkillProjectContext(projectId: string, skillId?: stri
   // non-sizing metric-grids, which the old clipped-JSON render leaked verbatim.
   const sizing = marketSizingProse(research);
   if (sizing) lines.push('', `Established market sizing: ${sizing}`);
+  // The founder's call on WHICH market (changelog 05/09 item 7d). Placed right
+  // beside the sizing so a run cannot read one without the other — a TAM at the
+  // wrong geography is worse than no TAM, because it looks usable.
+  const scopeLine = marketScopeContextLine(research);
+  if (scopeLine) lines.push('', scopeLine);
 
   if (facts.length > 0) {
     lines.push('', 'Founder-asserted facts:');
