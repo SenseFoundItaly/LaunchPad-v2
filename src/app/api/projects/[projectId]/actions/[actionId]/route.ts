@@ -11,6 +11,7 @@ import {
 } from '@/lib/pending-actions';
 import { executeAppliedAction } from '@/lib/action-executors';
 import { rejectActionWithSideEffects } from '@/lib/reject-action';
+import { recoverOrphanValidation } from '@/lib/recover-orphan-validation';
 
 /**
  * GET /api/projects/{projectId}/actions/{actionId}
@@ -47,11 +48,30 @@ export async function POST(
   const body = await request.json();
   const transition = body?.transition as string;
 
-  const existing = await getPendingAction(actionId);
+  let existing = await getPendingAction(actionId);
+  if (!existing) {
+    // The Co-pilot sometimes hand-writes a validation card and fills its
+    // pending_action_id with a placeholder (measured on prod 2026-09-08: the
+    // literal string "pending"), so the row never existed. That 404 blocked the
+    // founder's whole funnel, because the task check keys off a successful
+    // apply. The card still carries the items they approved — stage them for
+    // real. See recover-orphan-validation.ts for why this is deliberately narrow.
+    existing = await recoverOrphanValidation({
+      projectId,
+      requestedId: actionId,
+      transition,
+      editedPayload: body?.edited_payload,
+    });
+  }
   if (!existing) return error('Action not found', 404);
   if (existing.project_id !== projectId) {
     return error('Action does not belong to this project', 403);
   }
+
+  // Every transition below must address the row we actually resolved. On the
+  // recovery path that is a NEWLY staged row, whose id is not the one in the
+  // URL — using actionId there would fail on the row we just created.
+  const rowId = existing.id;
 
   try {
     let updated;
@@ -73,11 +93,11 @@ export async function POST(
         // edits FIRST so effectivePayload() in the executor sees them.
         // Skipping this would silently drop "Save & apply" overrides.
         if (body.edited_payload && typeof body.edited_payload === 'object') {
-          await editPendingAction(actionId, body.edited_payload);
+          await editPendingAction(rowId, body.edited_payload);
         }
 
         // 1. Transition pending/edited → applied
-        updated = await applyPendingAction(actionId);
+        updated = await applyPendingAction(rowId);
 
         // 2. Dispatch to the type-specific handler. Structured handlers
         //    ("direct") write a row to a domain table and we chain straight
@@ -88,7 +108,7 @@ export async function POST(
         //    "apply" click IS the acknowledgment.
         const result = await executeAppliedAction(updated);
         if (!result.ok) {
-          updated = await markActionFailed(actionId, result.error || 'Handler returned not-ok');
+          updated = await markActionFailed(rowId, result.error || 'Handler returned not-ok');
           // Fail the REQUEST, not just the row: this used to return 200
           // {success:true} with an execution_error field no client ever read,
           // so every Apply card rendered its success checkmark over a write
@@ -100,7 +120,7 @@ export async function POST(
 
         const mode = result.deliverable?.mode;
         if (mode === 'direct' || mode === 'outbox') {
-          updated = await markActionSent(actionId, {
+          updated = await markActionSent(rowId, {
             target: mode,
             external_id: result.deliverable?.created_row_id,
             response: result.deliverable?.narrative,
@@ -114,7 +134,7 @@ export async function POST(
         if (!body.edited_payload || typeof body.edited_payload !== 'object') {
           return error('edited_payload must be an object');
         }
-        updated = await editPendingAction(actionId, body.edited_payload);
+        updated = await editPendingAction(rowId, body.edited_payload);
         break;
       case 'reject': {
         // All rejection side-effects (source-row propagation, the Loop-1
@@ -129,10 +149,10 @@ export async function POST(
         break;
       }
       case 'mark_sent':
-        updated = await markActionSent(actionId, body.result || {});
+        updated = await markActionSent(rowId, body.result || {});
         break;
       case 'mark_failed':
-        updated = await markActionFailed(actionId, body.error || 'Unknown error');
+        updated = await markActionFailed(rowId, body.error || 'Unknown error');
         break;
       default:
         return error(`Unknown transition: ${transition}. Must be one of: apply, edit, reject, mark_sent, mark_failed`);
