@@ -847,6 +847,11 @@ export const en = {
   'canvas.validation-pipeline-hint': 'Your 7-stage path from idea to traction.',
   'canvas.no-steps-yet': 'No steps yet.',
   'canvas.no-substeps': 'No substeps.',
+  // The stage roadmap (changelog 05/09 item 1). Ghosted, inert rows: what the
+  // stage will ask for once the write paths exist.
+  'canvas.planned-label': 'On the roadmap',
+  'canvas.planned-tip': 'Coming to this stage. Not workable yet — nothing records these answers, so they never count against your progress.',
+  'canvas.planned-soon': 'coming',
   'canvas.state-validated': 'Validated',
   'canvas.state-in-progress': 'In progress',
   'canvas.state-not-started': 'Not started',

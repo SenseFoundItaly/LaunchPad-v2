@@ -194,6 +194,22 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot, targetChe
       ]
     : [];
 
+  // The stage's roadmap. The founder SEES these rows in the spine, so the
+  // co-pilot has to know they exist — otherwise it describes a three-task stage
+  // to someone looking at six, and its first response reads as out of date
+  // (changelog 05/09 item 1: "sarà da modificare di conseguenza anche la prima
+  // risposta"). Explicitly fenced as not-yet-workable so it cannot start
+  // driving the founder toward a task with nowhere to record the answer.
+  const plannedLines = (stage.planned?.length ?? 0) > 0
+    ? [
+        'ON THE ROADMAP for this stage — the founder can SEE these rows, greyed out, and may ask about them:',
+        ...stage.planned!.map((p) => `  · ${p.label}`),
+        'They are NOT workable yet: nothing records their answers. Say plainly that they are coming and',
+        'steer back to the MISSING checks above. Never set one as the next step, and never imply it is done.',
+        '',
+      ]
+    : [];
+
   return [
     '[JOURNEY STATE — the live spine. The rules for working it are in the system prefix.]',
     `The founder is in STAGE ${stage.number} — ${stage.label.toUpperCase()}.`,
@@ -206,6 +222,7 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot, targetChe
     `MISSING (drive the conversation to close these):`,
     ...gapLines,
     '',
+    ...plannedLines,
     ...targetLines,
   ].join('\n');
 }

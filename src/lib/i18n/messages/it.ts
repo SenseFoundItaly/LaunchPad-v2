@@ -833,6 +833,10 @@ export const it: Partial<Record<MessageKey, string>> = {
   'canvas.validation-pipeline-hint': "Il tuo percorso in 7 fasi dall'idea alla trazione.",
   'canvas.no-steps-yet': 'Ancora nessuno step.',
   'canvas.no-substeps': 'Nessun sotto-step.',
+  // Roadmap dello stage (changelog 05/09 item 1).
+  'canvas.planned-label': 'In arrivo',
+  'canvas.planned-tip': 'In arrivo in questo stage. Non ancora lavorabili — nulla registra queste risposte, quindi non contano mai contro i tuoi progressi.',
+  'canvas.planned-soon': 'in arrivo',
   'canvas.state-validated': 'Validato',
   'canvas.state-in-progress': 'In corso',
   'canvas.state-not-started': 'Non iniziato',
