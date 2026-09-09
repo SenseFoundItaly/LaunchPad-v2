@@ -32,7 +32,11 @@ interface CheckRow {
 }
 
 interface StageEval {
-  stage: { id: string; number: number; label: string; tagline?: string };
+  // `planned` has been on the stage definitions since the 28/08 changelog and
+  // has always crossed the wire (the API returns the evaluations whole), but
+  // nothing ever read it — which is why the founder asked for stage 3-7 tasks
+  // twice. Display-only: no evaluate(), no pass/total contribution.
+  stage: { id: string; number: number; label: string; tagline?: string; planned?: Array<{ id: string; label: string }> };
   passed: number;
   total: number;
   status: 'done' | 'active' | 'pending';
@@ -455,7 +459,40 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                     </div>
                   );
                 })}
-                {openEval.results.length === 0 && (
+                {/* The roadmap: what this stage will ask for once the write
+                    paths exist. Ghosted and inert on purpose — a founder who
+                    can see only 3 tasks in Stage 3 reads the stage as thin,
+                    and a fake-clickable row would be worse than an absent one.
+                    These carry no state, so they are never "not done", only
+                    "not yet". */}
+                {(openEval.stage.planned?.length ?? 0) > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    <div title={t('canvas.planned-tip')} style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 3, paddingTop: 6, borderTop: '1px solid var(--line)' }}>
+                      <span className="lp-mono" style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.5, color: 'var(--ink-5)', textTransform: 'uppercase' }}>
+                        {t('canvas.planned-label')}
+                      </span>
+                    </div>
+                    {openEval.stage.planned!.map((p) => (
+                      <div key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5, lineHeight: 1.4, opacity: 0.55 }}>
+                        <span
+                          aria-hidden
+                          style={{
+                            width: 15, height: 15, borderRadius: 8, flexShrink: 0, marginTop: 1,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            border: '1.5px dashed var(--line-2)',
+                          }}
+                        />
+                        <span style={{ color: 'var(--ink-4)', flex: 1, minWidth: 0 }}>
+                          {checkLabel(p.id, p.label, t)}
+                        </span>
+                        <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-5)', flexShrink: 0, marginTop: 2, whiteSpace: 'nowrap' }}>
+                          {t('canvas.planned-soon')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {openEval.results.length === 0 && (openEval.stage.planned?.length ?? 0) === 0 && (
                   <div style={{ fontSize: 11.5, color: 'var(--ink-5)', fontStyle: 'italic' }}>
                     {t('canvas.no-substeps')}
                   </div>
