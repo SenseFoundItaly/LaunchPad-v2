@@ -65,7 +65,6 @@ export default function IdeaCanvasCard({ artifact }: IdeaCanvasCardProps) {
         <Block label={t('canvas.field-metrics')} items={artifact.key_metrics} />
         <Block label={t('canvas.field-channels')} text={artifact.channels} />
         {/* Value Prop spans row from above */}
-        <Block label={t('canvas.field-business-model')} text={artifact.business_model} />
         <Block label={t('canvas.field-edge')} text={artifact.competitive_advantage} />
 
         <Block label={t('canvas.field-costs')} items={artifact.cost_structure} className="col-span-2" />

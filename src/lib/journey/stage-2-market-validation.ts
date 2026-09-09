@@ -380,7 +380,7 @@ export const VALIDATION_TRACK_1B: StageCheck[] = [
       return familyCheck(
         s, BUILD_APPROACH_KEYWORDS, ['tech_feasibility_fact'],
         "You've sketched how the core approach would be built.",
-        'Sketch the build approach — architecture, stack (run Technical Validation or note it in chat)',
+        'Sketch the build approach — architecture, stack (work it through with the Co-pilot)',
       );
     },
   },

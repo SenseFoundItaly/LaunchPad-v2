@@ -19,6 +19,7 @@ export default function ActionSuggestionCard({
       typeLabel={t('card.type-action')}
       title={artifact.title}
       sources={artifact.sources}
+      exportArtifact={artifact}
     >
       <p className="text-sm text-ink-3 mb-3">{artifact.description}</p>
       <button

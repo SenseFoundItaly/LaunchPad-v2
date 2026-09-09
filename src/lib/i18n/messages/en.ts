@@ -1109,7 +1109,7 @@ export const en = {
   'journey-gap.competitors_mapped': 'Map at least 3 competitors — ask Co-pilot to research more',
   'journey-gap.market_size': 'Estimate TAM/SAM with Co-pilot',
   'journey-gap.differentiation_evidence': 'Pin what makes you different in chat',
-  'journey-gap.build_approach': 'Sketch the build approach — architecture, stack (run Technical Validation or note it in chat)',
+  'journey-gap.build_approach': 'Sketch the build approach — architecture, stack (work it through with the Co-pilot)',
   'journey-gap.technical_risk_named': 'Name the single biggest technical risk',
   'journey-gap.key_dependencies': 'Name the key dependencies (APIs, models, infra, vendors)',
   'journey-gap.gtm_opportunities': 'Assess the go-to-market — where the opening is and what will fight you',

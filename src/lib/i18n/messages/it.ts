@@ -1090,7 +1090,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'journey-gap.competitors_mapped': 'Mappa almeno 3 concorrenti — chiedi al Co-pilot di ricercarne altri',
   'journey-gap.market_size': 'Stima TAM/SAM con il Co-pilot',
   'journey-gap.differentiation_evidence': 'Fissa in chat cosa ti rende diverso',
-  'journey-gap.build_approach': 'Definisci l’approccio di build — architettura, stack (esegui la Validazione Tecnica o annotalo in chat)',
+  'journey-gap.build_approach': 'Definisci l’approccio di build — architettura, stack (lavoralo con il Co-pilot)',
   'journey-gap.technical_risk_named': 'Indica il singolo rischio tecnico principale',
   'journey-gap.key_dependencies': 'Indica le dipendenze chiave (API, modelli, infrastruttura, fornitori)',
   'journey-gap.gtm_opportunities': 'Valuta il go-to-market — dov’è l’apertura e cosa ti ostacolerà',

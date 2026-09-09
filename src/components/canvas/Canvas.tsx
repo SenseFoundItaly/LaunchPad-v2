@@ -74,7 +74,6 @@ interface CanvasProps {
   onPickPrompt?: (prompt: string, checkId?: string) => void;
   /** Run the skill a spine check names. Threaded to SpineSection; the chat
    *  page supplies its `skill:run` handler, credit gates and all. */
-  onRunSkill?: (skillId: string) => Promise<void> | void;
 }
 
 /** Applied memory_facts row (DB store name; founder-facing label is just
@@ -113,7 +112,7 @@ export function Canvas({
   handleArtifactAction,
   focusedMessageId,
   onSkillClick,
-  onPickPrompt, onRunSkill}: CanvasProps) {
+  onPickPrompt}: CanvasProps) {
   const t = useT();
   // Group entries by department. Facts are handled via the merged Knowledge
   // section below — `memory` department entries (rare; `fact` artifacts don't
@@ -259,7 +258,7 @@ export function Canvas({
           corrupted stages payload) degrades to a muted card instead of taking
           down the whole Co-pilot tab via the route-level error.tsx. */}
       <PanelBoundary resetKey={projectId}>
-        <SpineSection projectId={projectId} locale={locale} onSkillClick={onSkillClick} onPickPrompt={onPickPrompt} onRunSkill={onRunSkill} />
+        <SpineSection projectId={projectId} locale={locale} onSkillClick={onSkillClick} onPickPrompt={onPickPrompt} />
       </PanelBoundary>
 
       {hasSolveProgress && (
