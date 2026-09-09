@@ -57,6 +57,9 @@ describe('the Validation Gate routes to the RIGHT conversation, not merely a spe
     regulatory_check: 'journey-prompt.regulatory',
     ip_analysis: 'journey-prompt.ip',
     data_availability: 'journey-prompt.data-availability',
+    // The 1B gate score routes to its OWN conversation — not the stage-1
+    // baseline, not 1C's post-interview review (changelog 05/09 item 14).
+    startup_score_1b: 'journey-prompt.startup-score-1b',
     // 1C
     validation_strategy: 'journey-prompt.validation-strategy',
     jtbd_mapping: 'journey-prompt.jtbd',

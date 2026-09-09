@@ -5,7 +5,7 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { runSkill, SKILL_RUN_BUDGET_MS } from '@/lib/skill-executor';
 import { buildProjectSnapshot } from '@/lib/journey/snapshot';
 import { activeStageFor } from '@/lib/journey';
-import { validationTracksAB_done } from '@/lib/journey/stage-2-market-validation';
+import { validationTechnicalWorkDone } from '@/lib/journey/stage-2-market-validation';
 import { canvasRunPrereqs } from '@/lib/skill-prereqs';
 import { maybeBuildScoreReviewOptionSet } from '@/lib/score-review';
 
@@ -120,7 +120,11 @@ export async function POST(
         // how clear is the idea); from 1C onward, the full Startup Scoring —
         // which is also what the gate's scoring_review check counts.
         const scoreSnapshot = await buildProjectSnapshot(projectId);
-        const scoringSkillId = validationTracksAB_done(scoreSnapshot) ? 'startup-scoring' : 'clarity-scoring';
+        // Keyed on the technical WORK, not on all of 1A+1B: 1B now ends with a
+        // mandatory Startup Score (changelog 05/09 item 14), and asking
+        // "is 1B done?" here would mean the full scoring only unlocks after the
+        // full scoring has already run. See validationTechnicalWorkDone.
+        const scoringSkillId = validationTechnicalWorkDone(scoreSnapshot) ? 'startup-scoring' : 'clarity-scoring';
 
         if (auto) {
           // Gate 1 — at least one stage completed (active stage >= 2 means Stage 1

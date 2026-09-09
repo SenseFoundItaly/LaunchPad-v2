@@ -6,6 +6,7 @@ import {
   VALIDATION_TRACK_1B,
   VALIDATION_TRACK_1C,
   validationTracksAB_done,
+  validationTechnicalWorkDone,
   validationTracksABMissing,
   MARKET_SIZE_CHECK_SOURCE,
   MARKET_SIZE_KEYWORDS,
@@ -54,7 +55,12 @@ function mkSnapshot(over: Partial<ProjectSnapshot> = {}): ProjectSnapshot {
 }
 
 function facts(contents: string[]): ProjectSnapshot['memory_facts'] {
-  return contents.map((content, i) => ({ id: `f${i}`, content, source_type: 'chat', kind: 'observation' }));
+  // created_at matters now: the 1B score gate insists the score is NEWER than
+  // the technical evidence, so a fixture without timestamps could never close 1B.
+  return contents.map((content, i) => ({
+    id: `f${i}`, content, source_type: 'chat', kind: 'observation',
+    created_at: '2026-09-01T00:00:00.000Z',
+  }));
 }
 
 const competitors3 = [
@@ -104,6 +110,9 @@ function snapshotWithABDone(over: Partial<ProjectSnapshot> = {}): ProjectSnapsho
       'Jobs to be done: the practice owner hires us to keep the chair full without chasing patients.',
       'Unlike legacy desktop tools we are cloud and mobile-first.',
     ]),
+    // 1B now ends with a mandatory re-score (changelog 05/09 item 14). It must
+    // post-date the technical facts above, or 1B never closes and 1C stays shut.
+    last_full_scoring: { overall_score: 6.4, scored_at: '2026-09-02T00:00:00.000Z' },
     ...over,
   });
 }
@@ -141,6 +150,9 @@ describe('track membership', () => {
     expect(VALIDATION_TRACK_1B.map((c) => c.id)).toEqual([
       'build_approach', 'technical_risk_named', 'key_dependencies',
       'regulatory_check', 'ip_analysis', 'data_availability',
+      // LAST in 1B: the score is taken once the technical work is done
+      // (changelog 05/09 item 14), and closing it is what unlocks 1C.
+      'startup_score_1b',
     ]);
     // gate_verdict is LAST: the founder's go/no-go closes the gate.
     expect(VALIDATION_TRACK_1C.map((c) => c.id)).toEqual([
@@ -664,5 +676,77 @@ describe('gate_verdict — the founder call that closes the gate', () => {
     const decided = evaluateAllStages(withVerdict('GO')).find((e) => e.stage.id === 'market_validation')!;
     expect(decided.results.every((r) => r.result.passed)).toBe(true);
     expect(decided.status).toBe('done');
+  });
+});
+
+describe('the mandatory Startup Score that closes 1B', () => {
+  /** The 1B score row for a given snapshot. */
+  const row = (s: ProjectSnapshot) =>
+    gateResults(s).find((x) => x.check.id === 'startup_score_1b')!.result;
+
+  const scoredAt = (iso: string) => ({ overall_score: 6.4, scored_at: iso });
+
+  it('stays locked while there is no technical work to score', () => {
+    // mkSnapshot() carries no facts at all. Asking for a 1B verdict here would
+    // be noise — the other 1B rows already say what to do first.
+      const r = row(mkSnapshot({ last_full_scoring: scoredAt('2026-09-05T00:00:00.000Z') }));
+    expect(r.locked).toBe(true);
+    expect(r.passed).toBe(false);
+  });
+
+  it('asks for the score once the technical evidence is in', () => {
+    const r = row(snapshotWithABDone({ last_full_scoring: null }));
+    expect(r.passed).toBe(false);
+    expect(r.locked).toBeUndefined();
+  });
+
+  it('refuses the stage-1 baseline — the score must POST-DATE the 1B work', () => {
+    // This is the whole point of the check. Every project gets a baseline score
+    // in stage 1, so a presence-only gate would be a gate that never gates.
+    const r = row(snapshotWithABDone({ last_full_scoring: scoredAt('2026-08-01T00:00:00.000Z') }));
+    expect(r.passed).toBe(false);
+    expect(r.gap).toMatch(/predates/i);
+  });
+
+  it('passes on a re-score whatever the number is', () => {
+    // Gating on the VALUE would trap a founder whose honest score is low inside
+    // a stage they cannot leave. The bar is "you re-scored", not "you scored well".
+    for (const overall_score of [0.4, 5, 9.9]) {
+      const r = row(snapshotWithABDone({
+        last_full_scoring: { overall_score, scored_at: '2026-09-03T00:00:00.000Z' },
+      }));
+      expect(r.passed, `score ${overall_score}`).toBe(true);
+    }
+  });
+
+  it('really blocks — skipping it leaves 1B open and 1C shut', () => {
+    // Blocking by construction: 1C is locked until every 1A+1B check passes, so
+    // adding this to 1B IS the gate. No second lock to keep in sync.
+    const snap = snapshotWithABDone({ last_full_scoring: null });
+    expect(validationTracksAB_done(snap)).toBe(false);
+    expect(gateResults(snap).find((x) => x.check.id === 'interviews_logged')!.result.locked).toBe(true);
+  });
+
+  it('a Clarity Score does not close it — the row must come from a real scoring', () => {
+    // `scores` holds ONE current row per project and clarity-scoring writes it
+    // too, so reading the headline number here would green the gate for a
+    // founder who never ran the full rubric. The check reads the trajectory.
+    const snap = snapshotWithABDone({
+      last_full_scoring: null,
+      startup_score: { overall_score: 7.1, scored_at: '2026-09-04T00:00:00.000Z' },
+    });
+    expect(row(snap).passed).toBe(false);
+  });
+
+  it('the scoring the founder needs is unlocked by the technical work, not by itself', () => {
+    // The circle this breaks: the auto-scorer picks Clarity vs full Startup
+    // Scoring from the gate state. Keyed on all of 1A+1B, the full scoring would
+    // only unlock once a full scoring had already run — and the founder would be
+    // handed Clarity Scores forever against a gate only a real one can close.
+    const noScoreYet = snapshotWithABDone({ last_full_scoring: null });
+    expect(validationTracksAB_done(noScoreYet)).toBe(false);
+    expect(validationTechnicalWorkDone(noScoreYet)).toBe(true);
+    // And it is not simply "always true": open technical work still reads open.
+    expect(validationTechnicalWorkDone(mkSnapshot())).toBe(false);
   });
 });
