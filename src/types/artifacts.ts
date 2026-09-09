@@ -157,6 +157,11 @@ export interface OptionSet extends ArtifactBase {
     // before any TAM/SAM/SOM run (changelog 05/09 item 7d). Posts to
     // POST /market-scope, which records it and offers the scoped sizing run.
     market_scope?: 'IT' | 'EU' | 'INTL';
+    // `navigate_to` — send the founder to another section instead of back to
+    // the agent (changelog 05/09 item 7f). A fixed set, never a free URL:
+    // artifact text is model output, and an option that can navigate anywhere
+    // is an open redirect wearing a button.
+    navigate_to?: 'knowledge' | 'canvas' | 'actions' | 'today';
     commit?: {
       // Any of the 11 Lean Canvas blocks — the 7 core/text fields plus the soft
       // fields (unfair_advantage; key_metrics / revenue_streams / cost_structure

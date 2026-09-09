@@ -34,6 +34,7 @@ import { maybeProposePhase1Watchers } from '@/lib/phase1-watchers';
 import { maybeProposeGateVerdict } from '@/lib/gate-verdict';
 import { maybeProposeStageHandoff } from '@/lib/stage-handoff';
 import { maybeProposeMarketScope } from '@/lib/market-scope';
+import { maybeProposeCompetitorReview } from '@/lib/competitor-review-cta';
 import { checkRateLimit } from '@/lib/rate-limit';
 // NOTE deliberately NOT imported: @/lib/chat-cache-split (CACHE_PREFIX_SPLIT /
 // buildSplitUserTurn). That flag's approach — moving the dynamic context onto
@@ -1896,6 +1897,9 @@ export async function POST(request: NextRequest) {
           // idempotent, neither throws.
           await step_('stage-handoff', () => maybeProposeStageHandoff(project_id));
           await step_('market-scope', () => maybeProposeMarketScope(project_id));
+          // Competitors staged by THIS turn's table are pending by design —
+          // point the founder at the approval that closes the check.
+          await step_('competitor-cta', () => maybeProposeCompetitorReview(project_id));
         };
         if (process.env.CHAT_DEFER_PERSIST === '0') {
           // Kill-switch: reproduce the fully blocking semantics — the closure

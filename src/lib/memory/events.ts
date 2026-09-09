@@ -43,6 +43,7 @@ export type EventType =
   | 'market_scope_proposed'   // Stage 2 reached → founder asked IT / EU / international
   | 'market_scope_recorded'   // founder answered; TAM/SAM/SOM runs are scoped from here
   | 'stage_handoff_proposed'  // a stage went green → founder handed the next one
+  | 'competitor_review_proposed' // competitors staged pending → founder pointed at the approval
   | 'gate_verdict_recorded'   // founder called GO / PIVOT / STOP on the gate
   | 'score_review_offered'
   | 'budget_changed'

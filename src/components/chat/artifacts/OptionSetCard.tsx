@@ -85,6 +85,15 @@ function OptionButton({
     '';
 
   const handleClick = async () => {
+    // Navigation option (changelog 05/09 item 7f): the founder's next move is
+    // on another page. Sending "I choose: go to knowledge" to the agent would
+    // have it narrate a trip it cannot make for them. Destinations are a fixed
+    // set, never a free URL — artifact text is model output, and an option that
+    // can navigate anywhere is an open redirect wearing a button.
+    if (option.navigate_to) {
+      onAction('navigate', { to: option.navigate_to });
+      return;
+    }
     // Addressable market scope (IT / EU / INTL): the click IS the founder's
     // strategic call (changelog 05/09 item 7d), so it goes straight to
     // /market-scope. Placed BEFORE the skill branch on purpose — the follow-up

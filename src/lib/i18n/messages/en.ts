@@ -1044,6 +1044,14 @@ export const en = {
   'stage-handoff.option-competitors-desc': 'Who else solves this, and what makes you different.',
   'stage-handoff.option-overview': 'Show me the whole gate first',
   'stage-handoff.option-overview-desc': 'Walk me through what Stage 2 asks for before I pick a task.',
+  // Competitor review CTA (changelog 05/09 item 7f). Competitors from a chat
+  // table stage as PENDING on purpose, so the analysis the founder just watched
+  // leaves the gate red until they approve — on a page nothing pointed them to.
+  'competitor-cta.prompt': 'I found {count} competitors and put them aside for your review. They will not count toward the gate until you approve them. What next?',
+  'competitor-cta.find-more': 'Look for more competitors',
+  'competitor-cta.find-more-desc': 'Widen the search before you review the list.',
+  'competitor-cta.approve': 'Review and approve them',
+  'competitor-cta.approve-desc': 'Open Knowledge to approve the {count} competitors found — this is what closes the competitors check.',
   'gate.verdict-go': 'GO — the evidence holds',
   'gate.verdict-go-desc': 'Close the Validation Gate and move to the next phase.',
   'gate.verdict-pivot': 'PIVOT — something needs rework',
