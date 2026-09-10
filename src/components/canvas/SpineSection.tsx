@@ -382,7 +382,7 @@ export function SpineSection({ projectId, onPickPrompt }: SpineSectionProps) {
                     )}
                     {locked && (
                       <span className="lp-mono" style={{ fontSize: 9.5, color: 'var(--ink-5)', flexShrink: 0, marginTop: 2, whiteSpace: 'nowrap' }}>
-                        {t('canvas.track-locked')}
+                        {r.check.id === 'startup_score_1b' ? t('canvas.score-locked') : t('canvas.track-locked')}
                       </span>
                     )}
                     {canPrefill && (

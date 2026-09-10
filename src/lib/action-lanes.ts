@@ -82,14 +82,23 @@ export function laneFor(type: PendingActionType): ActionLane {
  * the watchers extract". So the Intel inbox (and its Today preview) shows
  * WATCHER OUTPUT only: signal_alert (watcher findings) + intelligence_brief
  * (watcher-synthesized briefs). The knowledge proposals that caused the overlap
- * (assumption_review, proposed_graph_update) are routed OUT of this surface for
- * the alpha — their executors still run and they remain in pending_actions.
- * Single source of truth for both /actions and the Today Intel panel. Widen
- * this set to restore the full intelligence inbox.
+ * (assumption_review, proposed_graph_update) were routed OUT of this surface
+ * for the alpha — their executors still run and they remain in pending_actions.
+ * Single source of truth for both /actions and the Today Intel panel.
+ *
+ * 2026-09-10 dead-end audit: the assumption proposals went nowhere after that.
+ * /assumptions redirects here "where assumption_review items live", and this
+ * set filtered them out — 179 open rows across 10 projects, still being
+ * materialised, 8 ever applied (all before the narrowing). propose_assumption_
+ * revision had NO surface at all: 7 rows, 0 applied. Both are back. The one
+ * knowledge proposal still routed out is proposed_graph_update, because its
+ * node is approvable on the Knowledge page — the pending row is a mirror.
  */
 export const INTEL_INBOX_TYPES: ReadonlySet<PendingActionType> = new Set<PendingActionType>([
   'signal_alert',
   'intelligence_brief',
+  'assumption_review',
+  'propose_assumption_revision',
 ]);
 
 export function isIntelInboxType(type: PendingActionType): boolean {

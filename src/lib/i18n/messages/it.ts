@@ -1164,7 +1164,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'journey-gap.channels_identified': 'Individua almeno un canale di acquisizione',
   'journey-gap.anchor_set': 'Scegli un prezzo àncora con il Co-pilot',
   'journey-gap.tiers_defined': 'Definisci almeno 2 fasce di prezzo (good/better)',
-  'journey-gap.wtp_researched': 'Esegui van Westendorp o intervista sulla disponibilità a pagare',
+  'journey-gap.wtp_researched': 'Racconta al Co-pilot quanto le persone hanno detto di essere disposte a pagare — dalle interviste o da un sondaggio van Westendorp',
   'journey-gap.model_chosen': 'Scegli abbonamento / consumo / postazione / ibrido',
   'journey-gap.revenue_streams_defined': 'Individua i flussi di ricavo — su quali linee guadagna davvero il business',
   'journey-gap.cogs_opex_defined': 'Definisci COGS e OPEX — costi fissi e variabili, e quanto costa servire un cliente',
@@ -1240,6 +1240,7 @@ export const it: Partial<Record<MessageKey, string>> = {
   'canvas.track-1b': '1B · Tecnica',
   'canvas.track-1c': '1C · Fit Problema-Soluzione',
   'canvas.track-locked': 'Bloccato finché 1A + 1B non sono completi',
+  'canvas.score-locked': 'Bloccato finché i check tecnici qui sopra non sono completi',
   'canvas.stage-locked-short': 'Bloccato',
   // Spiegazioni al passaggio del mouse per la pipeline di validazione: cosa
   // dimostra ogni sotto-traccia e perché una fase o una traccia è bloccata. Le 7
@@ -1517,6 +1518,9 @@ export const it: Partial<Record<MessageKey, string>> = {
   'monitors.archive-hint': 'Rimuovi questo osservatore dalla lista (lo storico viene mantenuto).',
   'monitors.url-watcher-note': 'Osservatore URL — basato su differenze. I risultati fluiscono nella tua Conoscenza.',
   'monitors.scrape-now': 'Scansiona ora',
+  'monitors.remove-source': 'Rimuovi',
+  'monitors.remove-source-confirm': 'Rimuovere questo osservatore URL?',
+  'monitors.remove-source-hint': 'Smette di osservare questo URL ed elimina l\'osservatore. Gli alert passati restano nella Knowledge.',
   'monitors.scrape-now-hint': 'Controlla subito questa pagina per cambiamenti',
   'monitors.scraping': 'Scansione…',
   'monitors.scrape-no-change': "Nessun cambiamento dall'ultima scansione.",

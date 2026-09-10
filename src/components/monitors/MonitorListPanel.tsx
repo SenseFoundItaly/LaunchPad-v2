@@ -522,10 +522,11 @@ function ExpandableWatcherRow({
     },
   });
 
-  const [busy, setBusy] = useState<'run' | 'status' | 'save' | 'archive' | 'scrape' | null>(null);
+  const [busy, setBusy] = useState<'run' | 'status' | 'save' | 'archive' | 'scrape' | 'remove' | null>(null);
   // Two-click archive guard: first click arms (turns the button red), second
   // confirms. Disarms on mouse-leave so a stray click can't remove a watcher.
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
 
   // Manual-scrape outcome line for URL watchers (watch_source origin).
@@ -719,6 +720,30 @@ function ExpandableWatcherRow({
       setActionErr((e as Error).message || t('monitors.run-failed'));
     } finally {
       setBusy(null);
+      void invalidate();
+    }
+  }
+
+  // Remove a URL watcher (watch_source origin). Dead-end audit 2026-09-10: the
+  // DELETE route existed with no caller and the chat delete_watcher tool only
+  // knows monitors, so a source could be added and never taken away — 19 of
+  // them across 7 projects. Two-click confirm, same idiom as Archive above.
+  async function removeSource() {
+    if (busy) return;
+    setBusy('remove');
+    setActionErr(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/watch-sources/${w._origin_id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.success === false) throw new Error(body?.error || `HTTP ${res.status}`);
+    } catch (e) {
+      setActionErr((e as Error).message || t('monitors.run-failed'));
+    } finally {
+      setBusy(null);
+      setConfirmRemove(false);
       void invalidate();
     }
   }
@@ -1123,6 +1148,20 @@ function ExpandableWatcherRow({
                   title={t('monitors.scrape-now-hint')}
                 >
                   {busy === 'scrape' ? t('monitors.scraping') : t('monitors.scrape-now')}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirmRemove) void removeSource();
+                    else setConfirmRemove(true);
+                  }}
+                  onMouseLeave={() => setConfirmRemove(false)}
+                  style={{ ...miniBtn, opacity: busy ? 0.55 : 1, color: confirmRemove ? 'var(--clay)' : undefined }}
+                  title={t('monitors.remove-source-hint')}
+                >
+                  {busy === 'remove' ? t('monitors.saving') : confirmRemove ? t('monitors.remove-source-confirm') : t('monitors.remove-source')}
                 </button>
                 {scrapeOutcome && <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{scrapeOutcome}</span>}
                 {actionErr && <span style={{ fontSize: 11, color: 'var(--clay)' }}>{actionErr}</span>}

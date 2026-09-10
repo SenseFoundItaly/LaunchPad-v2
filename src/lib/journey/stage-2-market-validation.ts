@@ -579,9 +579,27 @@ export function validationTracksABMissing(snapshot: ProjectSnapshot): string[] {
  */
 export function validationTechnicalWorkDone(snapshot: ProjectSnapshot): boolean {
   return [...VALIDATION_TRACK_1A, ...VALIDATION_TRACK_1B]
-    .filter((c) => c.id !== 'startup_score_1b')
+    .filter((c) => !PROPOSER_OUTPUT_CHECK_IDS.has(c.id))
     .every((c) => c.evaluate(snapshot).passed);
 }
+
+/**
+ * The two 1A/1B checks that are closed BY a proposer rather than by the
+ * founder's own analysis work: the watcher (`monitors_set`, staged by
+ * phase1-watchers) and the score (`startup_score_1b`, run by the auto-scorer).
+ *
+ * Every "is the work done?" predicate that feeds a proposer must exclude BOTH,
+ * not just its own. Dead-end audit 2026-09-10: with each excluding only itself,
+ * the watcher proposer waited for the score and the auto-scorer waited for the
+ * watcher — a cycle in which neither automatic path could ever fire first. No
+ * prod project was inside it yet (0 of 124), and both have manual escape
+ * hatches, but a founder who did everything asked would have been handed
+ * Clarity Scores and no watcher proposal indefinitely.
+ */
+export const PROPOSER_OUTPUT_CHECK_IDS: ReadonlySet<string> = new Set([
+  'monitors_set',
+  'startup_score_1b',
+]);
 
 /** The one check the watcher proposer must ignore, or it can never fire.
  *  Exported so the exclusion is named in ONE place and testable. */
@@ -598,8 +616,10 @@ export const WATCHER_EXCLUDED_CHECK_ID = 'monitors_set';
  * watcher proposals exactly when `monitors_set` becomes the last open check.
  */
 export function validationEvidenceDoneExceptWatchers(snapshot: ProjectSnapshot): boolean {
+  // Excludes the score as well — see PROPOSER_OUTPUT_CHECK_IDS for the cycle
+  // that excluding only the watcher created.
   return [...VALIDATION_TRACK_1A, ...VALIDATION_TRACK_1B]
-    .filter((c) => c.id !== WATCHER_EXCLUDED_CHECK_ID)
+    .filter((c) => !PROPOSER_OUTPUT_CHECK_IDS.has(c.id))
     .every((c) => c.evaluate(snapshot).passed);
 }
 

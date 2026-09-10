@@ -1238,7 +1238,12 @@ export default function CopilotChatPage({
             // answered before a sizing run (changelog 05/09 item 7d). The
             // server also stages the card; this bubble is what the founder
             // sees without waiting for a reload.
-            if ((body?.error === 'missing_prerequisites' || body?.error === 'validation_gate_locked' || body?.error === 'stage_locked' || body?.error === 'market_scope_required') && body?.message) {
+            // loop1_gate_open / loop2_gate_open = a PSF Review or BM Stress Test
+            // is open. Dead-end audit 2026-09-10: the server sent a localized
+            // explanation for both, this list did not know them, and the fall-
+            // through re-read a consumed body — the founder saw "HTTP 422".
+            const BLOCKED_BEFORE_SPEND = new Set(['missing_prerequisites', 'validation_gate_locked', 'stage_locked', 'market_scope_required', 'loop1_gate_open', 'loop2_gate_open']);
+            if (BLOCKED_BEFORE_SPEND.has(String(body?.error)) && body?.message) {
               setMessages((prev) => [
                 ...prev,
                 {
