@@ -1423,7 +1423,10 @@ export default function CopilotChatPage({
       if (action === 'navigate') {
         const DESTINATIONS: Record<string, string> = {
           knowledge: `/project/${projectId}/knowledge`,
-          canvas: `/project/${projectId}/canvas`,
+          // The canvas is the right pane of the chat page; /canvas does not
+          // exist (dead-end audit 2026-09-10 — a link-target scan caught this
+          // in my own #477 before any card sent it).
+          canvas: `/project/${projectId}/chat`,
           actions: `/project/${projectId}/actions`,
           today: `/project/${projectId}/today`,
         };
