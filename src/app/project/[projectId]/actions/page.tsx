@@ -318,10 +318,17 @@ export default function TicketsPage({
       if (typeof deliverable?.narrative === 'string' && deliverable.narrative.trim()) {
         setNotice({ text: deliverable.narrative.trim(), ts: Date.now() });
       }
-      // Refresh the inbox + the NavRail badge count. The event bridge would
-      // also catch this if we dispatched lp-actions-changed; calling
-      // invalidateQueries directly keeps the dispatcher local to the
-      // component that mutated state.
+      // Dispatch the EVENT, not a local invalidation of ['actions'] alone.
+      // Applying an action runs an executor that writes far outside this list:
+      // configure_monitor creates a watcher, validation_proposal closes a spine
+      // check, signal_alert merges into knowledge, run_skill spends credits.
+      // Invalidating only ['actions'] refreshed the row and left every one of
+      // those surfaces stale until a manual reload — changelog 05/09 item 9,
+      // and half of 7b ("nella lista task non vengono flaggate come
+      // completate"). The bridge in lib/query-events.ts owns that fan-out.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+      }
       await qc.invalidateQueries({ queryKey: ['actions', projectId] });
     } catch (e) {
       setError((e as Error).message);

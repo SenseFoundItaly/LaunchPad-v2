@@ -1183,8 +1183,10 @@ export default function CopilotChatPage({
           }
         }
         // Broadcast so other surfaces (badge counts, inline cards) refetch.
+        // lp-tasks-changed used to fire here too; it mapped only to a 'tasks'
+        // topic no query reads, so it invalidated nothing while looking like it
+        // did. lp-actions-changed covers the inbox row.
         if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('lp-tasks-changed', { detail: { projectId, artifactId, verb } }));
           window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
         }
         return;

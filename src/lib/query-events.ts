@@ -45,24 +45,29 @@ export const EVENT_TO_TOPICS: Record<string, string[]> = {
   // mutated these, so we flush downstream consumers (StageCard on Home,
   // open facet tabs in Co-pilot Canvas, project summary). React-query
   // ignores no-op invalidations cheaply so the over-fetch tax is small.
+  // Every topic here MUST be a prefix some useQuery actually uses — a topic
+  // nothing reads is an invalidation that silently does nothing, which is how
+  // item 9 hid for three months. A test enforces both directions.
   'lp-actions-changed': [
     'actions',
-    'timeline',
     'credits',
     'stages',
     // The gate verdict moves on the same signals as the stages it closes: a
     // chat turn can stage/record it, and the spine footer dispatches this event
     // after recording or reopening one.
     'gate-verdict',
-    'pricing',
-    'burn-rate',
-    'workflow',
-    'metrics',
-    'competitors',
+    // 'watchers' + 'watcher-detail', NOT 'monitors'. The 2026-06-09 unification
+    // ("monitors + watch_sources as watchers") renamed the founder-facing query
+    // key and this map was not updated, so for three months every
+    // lp-actions-changed flushed a prefix only OnboardingCard still reads. The
+    // watcher list never refetched: apply a watcher and it stays absent until a
+    // manual page reload — changelog 05/09 item 9, "devo refreshare la pagina
+    // per vederle attive". 'monitors' is kept because OnboardingCard is a real
+    // consumer.
+    'watchers',
+    'watcher-detail',
     'monitors',
     'loops',
-    'fundraising',
-    'memory',
     // Section-page satellite fetches migrated onto the cache 2026-06-26. A chat
     // turn can mutate any of these (charges usage, proposes entities, writes
     // idea_canvas / financial model, unlocks gated skills), so flush their
@@ -75,17 +80,19 @@ export const EVENT_TO_TOPICS: Record<string, string[]> = {
     'briefs',
     'skills',
     'financial',
+    // A chat turn can run a scoring skill or move the IRL, and every one of
+    // these renders a number the founder is watching. None was flushed by any
+    // event before (same audit): the Home score sat stale until a reload.
+    'score',
+    'score-history',
+    'project-score',
+    'irl',
   ],
 
-  // Workflow/task state. Fired by chat when a workflow-card mutates
-  // (chat/page.tsx:559). 'actions' intentionally omitted — chat dispatches
-  // lp-actions-changed alongside lp-tasks-changed, so the actions invalidation
-  // is already covered by that handler. Listing it twice would double-fetch.
-  'lp-tasks-changed': ['tasks', 'workflow'],
+  // `lp-tasks-changed` was removed 2026-09-10. Its only topic ('tasks') had no
+  // consumer and no client reads /tasks, so the event invalidated nothing — and
+  // chat dispatched lp-actions-changed on the very next line, which does cover
+  // the inbox row. A no-op event is worse than none: it reads like coverage.
 
-  // Credits-specific bumps (e.g. CreditsBadge "+100 free credits"). Dispatched
-  // via CustomEvent({ detail: { projectId } }) so the bridge can scope
-  // invalidation to one project — bare `new Event(...)` would flush all
-  // projects' caches because projectId is undefined in the bridge.
   'lp-credits-changed': ['credits'],
 };
