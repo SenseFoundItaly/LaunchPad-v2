@@ -3,7 +3,7 @@ import { query } from '@/lib/db';
 import { json, error } from '@/lib/api-helpers';
 import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { nodeImportanceEnabled } from '@/lib/node-importance-flag';
-import { isDerivedAnalysisNode } from '@/types/graph';
+import { isDerivedAnalysisNode, isStakeholderNode } from '@/types/graph';
 
 export async function GET(
   _request: NextRequest,
@@ -27,11 +27,22 @@ export async function GET(
     "SELECT * FROM graph_nodes WHERE project_id = ? AND reviewed_state IN ('applied','pending') ORDER BY created_at",
     projectId,
   );
-  // Drop chat-artifact scaffolding (scorecards/dashboards/comparison dumps) so
-  // the graph shows real ecosystem entities only — the "categorizzare meglio"
-  // ask from the 2026-06 sync. Same predicate as the unified list.
+  // Two filters, different jobs.
+  //
+  // isDerivedAnalysisNode drops chat-artifact scaffolding (scorecards,
+  // dashboards, comparison dumps) — the "categorizzare meglio" ask from the
+  // 2026-06 sync. Those are hidden from the unified list too: they are titles,
+  // not entities.
+  //
+  // isStakeholderNode is the founder's 2026-09-10 decision: the graph is a
+  // stakeholder map, "non per analisi e output super dinamici". Analyses,
+  // trends, GTM and branding nodes are NOT hidden — they keep rendering in the
+  // Knowledge list, which is where the founder was already finding them
+  // (changelog item 7c). This makes that split intentional instead of accidental.
   const nodes = allNodes.filter(
-    (n: Record<string, unknown>) => !isDerivedAnalysisNode(n.node_type as string),
+    (n: Record<string, unknown>) =>
+      !isDerivedAnalysisNode(n.node_type as string)
+      && isStakeholderNode(n.node_type as string),
   );
   const edges = await query('SELECT * FROM graph_edges WHERE project_id = ? ORDER BY created_at', projectId);
 

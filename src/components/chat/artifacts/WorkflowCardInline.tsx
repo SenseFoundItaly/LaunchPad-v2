@@ -13,15 +13,30 @@ interface WorkflowCardInlineProps {
   defaultCollapsed?: boolean;
 }
 
+// `onAction` stays on the props (the renderer passes it to every card) but is
+// no longer read: the card owns its own step persistence now.
 export default function WorkflowCardInline({
   artifact,
   onWorkflowDiscovered,
-  onAction,
   defaultCollapsed,
 }: WorkflowCardInlineProps) {
   const t = useT();
   const discoveredRef = useRef(false);
-  const [completed, setCompleted] = useState<Set<number>>(new Set());
+  // Dead-end audit 2026-09-10: ticking a step updated local state and fired an
+  // action nothing handled, so every tick vanished on reload — measured live
+  // on 80 cards across 39 projects. Steps are now remembered per card in this
+  // browser. Storage can throw (private mode, blocked site data); a failure
+  // there must never take the card down, so both sides are guarded.
+  const storageKey = `lp_workflow_steps_${artifact.id}`;
+  const [completed, setCompleted] = useState<Set<number>>(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(storageKey) : null;
+      const arr = raw ? (JSON.parse(raw) as unknown) : null;
+      return new Set(Array.isArray(arr) ? arr.filter((n): n is number => Number.isInteger(n)) : []);
+    } catch {
+      return new Set();
+    }
+  });
 
   useEffect(() => {
     if (!discoveredRef.current) {
@@ -35,11 +50,13 @@ export default function WorkflowCardInline({
       const next = new Set(prev);
       if (next.has(idx)) next.delete(idx);
       else next.add(idx);
-      onAction('workflow-progress', {
-        title: artifact.title,
-        completedSteps: Array.from(next),
-        total: artifact.steps.length,
-      });
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(Array.from(next)));
+      } catch {
+        // Best effort — the tick still shows for this session.
+      }
+      // No `workflow-progress` action any more: it had no handler, and an
+      // action with no handler is exactly the silent no-op this audit is for.
       return next;
     });
   }

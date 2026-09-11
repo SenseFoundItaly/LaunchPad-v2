@@ -378,7 +378,11 @@ export const en = {
   'knowledge.graph-search': 'Search nodes…',
   'knowledge.graph-expand': 'Expand',
   'knowledge.graph-exit': 'Exit',
-  'knowledge.graph-will-populate': 'Knowledge graph will populate as you chat',
+  'knowledge.graph-will-populate': 'Your stakeholder map will populate as you chat',
+  // The graph is a stakeholder map — a who, not a what (founder decision
+  // 2026-09-10). Analyses stay in the list beside it, which is where the
+  // founder was already finding them (changelog 05/09 item 7c).
+  'knowledge.graph-scope': 'Who is around your startup — competitors, customers, partners, suppliers, investors, collaborators. Analyses and findings live in the Knowledge list.',
   'knowledge.graph-pending-hint': 'Pending — click to review',
   // Per-satellite empty-state CTAs — each tells the founder the concrete
   // action that populates THAT category (generic hint retired, WS5.6).
@@ -1191,7 +1195,7 @@ export const en = {
   'journey-gap.channels_identified': 'Identify at least one acquisition channel',
   'journey-gap.anchor_set': 'Pick an anchor price with Co-pilot',
   'journey-gap.tiers_defined': 'Define at least 2 pricing tiers (good/better)',
-  'journey-gap.wtp_researched': 'Run van Westendorp or interview WTP',
+  'journey-gap.wtp_researched': 'Tell the Co-pilot what people said they would pay — from interviews or a van Westendorp survey',
   'journey-gap.model_chosen': 'Choose subscription / usage / seat / hybrid',
   'journey-gap.revenue_streams_defined': 'Name the revenue streams — which lines this business actually earns on',
   'journey-gap.cogs_opex_defined': 'Define COGS & OPEX — fixed vs variable, and what it costs to serve one customer',
@@ -1270,6 +1274,9 @@ export const en = {
   'canvas.track-1b': '1B · Technical',
   'canvas.track-1c': '1C · Problem-Solution Fit',
   'canvas.track-locked': 'Locked until 1A + 1B are complete',
+  // The 1B score row locks on a different condition than the 1C rows above —
+  // it opens as soon as there is technical work to score.
+  'canvas.score-locked': 'Locked until the technical checks above are done',
   'canvas.stage-locked-short': 'Locked',
   // Hover explainers for the validation pipeline: what each sub-track proves,
   // and why a stage or track is locked. The 7 stage tiles reuse their existing
@@ -1552,6 +1559,11 @@ export const en = {
   'monitors.archive-hint': 'Remove this watcher from your list (its history is kept).',
   'monitors.url-watcher-note': 'URL watcher — diff-based. Findings flow into your Knowledge.',
   'monitors.scrape-now': 'Scrape now',
+  // Dead-end audit 2026-09-10: a URL watcher could be added and never
+  // removed — the DELETE route existed with no caller. 19 sources, 7 projects.
+  'monitors.remove-source': 'Remove',
+  'monitors.remove-source-confirm': 'Remove this URL watcher?',
+  'monitors.remove-source-hint': 'Stops watching this URL and deletes the watcher. Past alerts stay in Knowledge.',
   'monitors.scrape-now-hint': 'Check this page for changes now',
   'monitors.scraping': 'Scraping…',
   'monitors.scrape-no-change': 'No change since the last scrape.',
@@ -1602,7 +1614,7 @@ export const en = {
   'skills.field-solution': 'solution',
   'skills.field-value-proposition': 'value proposition',
   'skills.field-joiner': ' and ',
-  'skills.prereq-pending': "You've defined your {fields} — approve the pending proposal (on the canvas card or under Watchers → To review) to apply it, then run this analysis again.",
+  'skills.prereq-pending': "You've defined your {fields} — approve the pending proposal (on the canvas card or under Watchers → Needs review) to apply it, then run this analysis again.",
   'skills.prereq-missing': "Sketch your {fields} first — this analysis needs your idea defined before it can run. Tell me what you're building and I'll write it to your canvas, then we can run it.",
 
   // ── Server-side founder-facing strings (i18n gap audit 21/07) ──────────────

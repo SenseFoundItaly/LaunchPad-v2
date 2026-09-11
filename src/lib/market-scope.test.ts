@@ -190,8 +190,11 @@ describe('the choice is wired end to end', () => {
   });
 
   it('the founder sees the reason — the 422 surfaces as an assistant bubble', () => {
-    expect(read('src/app/project/[projectId]/chat/page.tsx'))
-      .toMatch(/body\?\.error === 'market_scope_required'/);
+    // The handled codes live in one Set now (dead-end audit 2026-09-10), so a
+    // new server code is one line here rather than another || in a chain.
+    const page = read('src/app/project/[projectId]/chat/page.tsx');
+    const block = page.slice(page.indexOf('const BLOCKED_BEFORE_SPEND'), page.indexOf('const BLOCKED_BEFORE_SPEND') + 400);
+    expect(block).toContain("'market_scope_required'");
   });
 
   it('the migration is additive and safe to skip', () => {

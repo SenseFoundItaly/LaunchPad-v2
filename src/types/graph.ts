@@ -207,6 +207,48 @@ export function isDerivedAnalysisNode(type: string | null | undefined): boolean 
   return !!type && DERIVED_ANALYSIS_NODE_TYPES.has(type);
 }
 
+/**
+ * The graph is a stakeholder map — a WHO, not a WHAT.
+ *
+ * Founder decision 2026-09-10: "Graph lo lascerei solo per stakeholders ma non
+ * per analisi e output super dinamici." Measured the same day: 400 of 785 prod
+ * nodes (51%) were analysis output, so half the ecosystem map was findings
+ * rather than people and organisations — the "più confusione che altro" from
+ * the 05/09 changelog.
+ *
+ * Split by MACRO_CATEGORY rather than by a second list of node types. That map
+ * is a Record<GraphNodeType, …>, so the compiler already forces every new node
+ * type to declare a category, and classifying by category means a new type is
+ * sorted the moment it is added — there is no parallel list to forget. These
+ * six are exactly the roles Luca named ("concorrenti, partners, clienti,
+ * fornitori, ecc"); the other six are exactly the ones he asked to move into
+ * ad-hoc sections ("MVP architecture, branding, tech trends, market trends, Go
+ * to market, brainstorming").
+ *
+ * Nothing is deleted or hidden by this: non-stakeholder nodes keep rendering in
+ * the Knowledge list, which is where the founder already found them (changelog
+ * item 7c — "non ritrovo le info nel graph ma solo nella knowledge testuale").
+ * That reading was correct; it just was not intentional.
+ */
+export const STAKEHOLDER_MACRO_CATEGORIES: ReadonlySet<MacroCategory> = new Set<MacroCategory>([
+  'concorrenza',
+  'clienti',
+  'partner',
+  'fornitori',
+  'investitori',
+  'hr_collabs',
+]);
+
+/** True for the startup root and for any node whose macro-category is a
+ *  stakeholder role. The root is never filtered out — it is the centre the
+ *  satellites hang from, not an entity. */
+export function isStakeholderNode(type: string | null | undefined): boolean {
+  if (!type) return false;
+  if (type === 'your_startup') return true;
+  const cat = macroCategoryFor(type);
+  return !!cat && STAKEHOLDER_MACRO_CATEGORIES.has(cat);
+}
+
 export interface GraphNode {
   id: string;
   /** Owning project — returned by /api/graph (SELECT *); used for lazy fetches. */

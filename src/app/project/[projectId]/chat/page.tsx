@@ -1183,8 +1183,10 @@ export default function CopilotChatPage({
           }
         }
         // Broadcast so other surfaces (badge counts, inline cards) refetch.
+        // lp-tasks-changed used to fire here too; it mapped only to a 'tasks'
+        // topic no query reads, so it invalidated nothing while looking like it
+        // did. lp-actions-changed covers the inbox row.
         if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('lp-tasks-changed', { detail: { projectId, artifactId, verb } }));
           window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
         }
         return;
@@ -1238,7 +1240,12 @@ export default function CopilotChatPage({
             // answered before a sizing run (changelog 05/09 item 7d). The
             // server also stages the card; this bubble is what the founder
             // sees without waiting for a reload.
-            if ((body?.error === 'missing_prerequisites' || body?.error === 'validation_gate_locked' || body?.error === 'stage_locked' || body?.error === 'market_scope_required') && body?.message) {
+            // loop1_gate_open / loop2_gate_open = a PSF Review or BM Stress Test
+            // is open. Dead-end audit 2026-09-10: the server sent a localized
+            // explanation for both, this list did not know them, and the fall-
+            // through re-read a consumed body — the founder saw "HTTP 422".
+            const BLOCKED_BEFORE_SPEND = new Set(['missing_prerequisites', 'validation_gate_locked', 'stage_locked', 'market_scope_required', 'loop1_gate_open', 'loop2_gate_open']);
+            if (BLOCKED_BEFORE_SPEND.has(String(body?.error)) && body?.message) {
               setMessages((prev) => [
                 ...prev,
                 {
@@ -1418,7 +1425,10 @@ export default function CopilotChatPage({
       if (action === 'navigate') {
         const DESTINATIONS: Record<string, string> = {
           knowledge: `/project/${projectId}/knowledge`,
-          canvas: `/project/${projectId}/canvas`,
+          // The canvas is the right pane of the chat page; /canvas does not
+          // exist (dead-end audit 2026-09-10 — a link-target scan caught this
+          // in my own #477 before any card sent it).
+          canvas: `/project/${projectId}/chat`,
           actions: `/project/${projectId}/actions`,
           today: `/project/${projectId}/today`,
         };
