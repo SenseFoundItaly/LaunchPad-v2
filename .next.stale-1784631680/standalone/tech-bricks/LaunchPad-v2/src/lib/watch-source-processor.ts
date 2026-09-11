@@ -1,0 +1,630 @@
+/**
+ * Watch Source Processor — core processing logic for URL-based change detection.
+ *
+ * Flow: scrape URL → if changed, classify significance via LLM (Haiku)
+ *       → insert source_changes row → if significance >= medium, create
+ *       ecosystem_alert → if high, auto-queue pending_action.
+ */
+
+import { query, run } from '@/lib/db';
+import { generateId } from '@/lib/api-helpers';
+import { scrapeWithChangeTracking, type ScrapeResult } from '@/lib/firecrawl';
+import { runAgent } from '@/lib/pi-agent';
+import { pickModel } from '@/lib/llm/router';
+import { recordUsage, isProjectCapped } from '@/lib/cost-meter';
+import { calculateNextRun } from '@/lib/monitor-schedule';
+import { computeDedupeHash } from '@/lib/ecosystem-monitors';
+import { isAutoflowEnabled, routeAlertAutoflow } from '@/lib/signal-autoflow';
+import {
+  structuralDiff, formatDiffForLLM,
+  parseMarkdownTable, extractJsonLd,
+} from '@/lib/structural-diff';
+import { logSignalActivity } from '@/lib/signal-activity-log';
+import type { WatchSource, ChangeStatus, SignalSignificance } from '@/types';
+
+export interface ProcessResult {
+  watch_source_id: string;
+  status: 'scraped' | 'unchanged' | 'classified' | 'error' | 'skipped_budget';
+  change_status: ChangeStatus;
+  significance?: SignalSignificance;
+  alert_created?: boolean;
+  error?: string;
+}
+
+interface ClassificationResult {
+  significance: SignalSignificance;
+  rationale: string;
+  headline: string;
+  alert_type: string;
+  /** The company/product this page belongs to (e.g. "PandaDoc"). Persisted on
+   *  the alert so applying it UPDATES that entity's knowledge node instead of
+   *  creating a duplicate named after the event. */
+  entity: string;
+}
+
+/** How many prior CHANGES (not 'same' scrapes) to feed the classifier so it can
+ *  spot recurrence — "third price cut this quarter" — rather than judging each
+ *  change in isolation. Small bound: keeps the cheap Haiku call cheap. */
+const TREND_HISTORY_LIMIT = 6;
+
+/**
+ * Best-effort entity name for a watch source when the classifier doesn't return
+ * one. Prefer the label minus the page-type suffix ("PandaDoc Pricing Page" →
+ * "PandaDoc"); fall back to the URL's second-level domain capitalized
+ * (pandadoc.com → "Pandadoc"). The classifier's own entity always wins.
+ */
+function deriveEntityName(ws: WatchSource): string {
+  const label = (ws.label || '').trim();
+  if (label) {
+    const stripped = label
+      .replace(/\b(pricing|careers?|jobs?|blog|changelog|product|news|press|ads?|reviews?|page|tracker)\b/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    if (stripped) return stripped;
+    return label;
+  }
+  try {
+    const host = new URL(ws.url).hostname.replace(/^www\./, '');
+    const sld = host.split('.')[0] || host;
+    return sld.charAt(0).toUpperCase() + sld.slice(1);
+  } catch {
+    return 'Tracked source';
+  }
+}
+
+const MAX_DIFF_FOR_LLM = 4000;
+const MAX_SNAPSHOT_STORED = 50_000;
+const MAX_CONSECUTIVE_ERRORS = 5;
+
+/**
+ * Record a scrape failure for a watch source: increment error_count, set the
+ * error_message, flip status to 'error' after MAX_CONSECUTIVE_ERRORS
+ * consecutive failures, push next_scrape_at, and log a watch_source_error
+ * activity event. Crucially this does NOT touch last_snapshot /
+ * last_content_hash and does NOT reset error_count — so a blind/failing
+ * watcher stays visibly broken instead of being silently reset to 'active'.
+ *
+ * Shared by both the throw-catch path and the ok===false path so the two
+ * failure modes behave identically. Never throws (the activity log is
+ * fire-and-forget) so it is safe to call from cron.
+ */
+async function recordScrapeFailure(
+  ws: WatchSource,
+  errorMsg: string,
+  now: string,
+): Promise<ProcessResult> {
+  const newErrorCount = (ws.error_count || 0) + 1;
+  // Backoff: once a source has flipped to 'error' (cron keeps retrying it —
+  // see processWatchSourcesCron), each further failure pushes next_scrape_at
+  // an extra day beyond its schedule, capped at +7d. A dead provider gets
+  // probed ~weekly instead of hammered daily, and a restored key still
+  // self-heals within a week at worst.
+  const baseNext = calculateNextRun(ws.schedule) || now;
+  const backoffDays = Math.min(Math.max(newErrorCount - MAX_CONSECUTIVE_ERRORS, 0), 7);
+  const nextScrapeAt = backoffDays > 0
+    ? new Date(Math.max(Date.parse(baseNext), Date.parse(now)) + backoffDays * 24 * 60 * 60 * 1000).toISOString()
+    : baseNext;
+  await run(
+    `UPDATE watch_sources SET
+       error_message = ?, error_count = ?,
+       status = CASE WHEN ? >= ? THEN 'error' ELSE status END,
+       next_scrape_at = ?, updated_at = ?
+     WHERE id = ?`,
+    errorMsg.slice(0, 500),
+    newErrorCount,
+    newErrorCount,
+    MAX_CONSECUTIVE_ERRORS,
+    nextScrapeAt,
+    now,
+    ws.id,
+  );
+  logSignalActivity({
+    project_id: ws.project_id,
+    event_type: 'watch_source_error',
+    entity_id: ws.id,
+    entity_type: 'watch_source',
+    headline: `Scrape error on "${ws.label}": ${errorMsg.slice(0, 120)}`,
+    metadata: { url: ws.url, error_count: newErrorCount },
+  }).catch(() => {});
+  return { watch_source_id: ws.id, status: 'error', change_status: 'same', error: errorMsg };
+}
+
+/**
+ * Process a single watch source: scrape → detect change → classify → persist.
+ */
+export async function processWatchSource(
+  ws: WatchSource,
+  projectContext?: string,
+): Promise<ProcessResult> {
+  const now = new Date().toISOString();
+
+  // Cost tracking (observe mode — no hard block)
+  const capStatus = await isProjectCapped(ws.project_id);
+  if (capStatus.capped) {
+    console.info(`[watch-source] project ${ws.project_id} over budget — proceeding (observe mode)`);
+  }
+
+  let scrapeResult: ScrapeResult;
+  try {
+    scrapeResult = await scrapeWithChangeTracking(ws.url, {
+      changeTrackingTag: ws.change_tracking_tag || undefined,
+      previousContentHash: ws.last_content_hash,
+      isFirstScrape: !ws.last_scraped_at,
+    });
+  } catch (err) {
+    // scrapeWithChangeTracking is not supposed to throw, but stay defensive.
+    return recordScrapeFailure(ws, (err as Error).message, now);
+  }
+
+  // The scrape no longer throws on failure — it returns a self-describing
+  // result with ok:false. Detect that (the primary signal) BEFORE treating
+  // the result as a real scrape, so a failed fetch (e.g. keyless Jina HTTP
+  // 402) is surfaced as status='error' instead of being silently recorded as
+  // an empty 'same' scrape that resets error_count and flips status back to
+  // 'active'. We also guard the legacy case of an empty first scrape that
+  // didn't set ok — an empty markdown with no prior successful scrape is
+  // almost certainly a fetch failure, not a genuinely blank page.
+  const scrapeFailed =
+    scrapeResult.ok === false || (!scrapeResult.markdown && !ws.last_scraped_at);
+  if (scrapeFailed) {
+    const errorMsg =
+      scrapeResult.error ||
+      `Scrape returned no content from ${scrapeResult.backend} (no API key or fetch failure)`;
+    return recordScrapeFailure(ws, errorMsg, now);
+  }
+
+  // Update the watch source with scrape result
+  await run(
+    `UPDATE watch_sources SET
+       last_snapshot = ?, last_content_hash = ?, last_scraped_at = ?,
+       next_scrape_at = ?, error_message = NULL, error_count = 0,
+       status = 'active', updated_at = ?
+     WHERE id = ?`,
+    scrapeResult.markdown.slice(0, MAX_SNAPSHOT_STORED),
+    scrapeResult.contentHash,
+    now,
+    calculateNextRun(ws.schedule) || now,
+    now,
+    ws.id,
+  );
+
+  logSignalActivity({
+    project_id: ws.project_id,
+    event_type: 'watch_source_scraped',
+    entity_id: ws.id,
+    entity_type: 'watch_source',
+    headline: `Scraped "${ws.label}" — ${scrapeResult.changeStatus}`,
+    metadata: { url: ws.url, change_status: scrapeResult.changeStatus },
+  }).catch(() => {});
+
+  // If no change, record it and move on
+  if (scrapeResult.changeStatus === 'same') {
+    const changeId = generateId('sc');
+    await run(
+      `INSERT INTO source_changes
+         (id, watch_source_id, project_id, change_status, previous_content_hash,
+          current_content_hash, significance, detected_at)
+       VALUES (?, ?, ?, 'same', ?, ?, 'noise', ?)`,
+      changeId, ws.id, ws.project_id,
+      ws.last_content_hash,
+      scrapeResult.contentHash,
+      now,
+    );
+    return { watch_source_id: ws.id, status: 'unchanged', change_status: 'same' };
+  }
+
+  // Pull this source's recent CHANGE history so the classifier can spot
+  // recurrence/trends ("third price cut this quarter") instead of judging this
+  // change in isolation against only the last snapshot.
+  const changeHistory = await query<{ detected_at: string; significance: string; diff_summary: string | null }>(
+    `SELECT detected_at, significance, diff_summary
+       FROM source_changes
+      WHERE watch_source_id = ? AND change_status <> 'same'
+      ORDER BY detected_at DESC
+      LIMIT ?`,
+    ws.id, TREND_HISTORY_LIMIT,
+  ).catch(() => []);
+
+  // Change detected — classify significance via LLM
+  let classification: ClassificationResult;
+  try {
+    classification = await classifyChange(ws, scrapeResult, projectContext, changeHistory);
+  } catch (err) {
+    // Classification failed — still record the change, just as 'low'
+    console.warn(`[watch-source] classification failed for ${ws.id}:`, (err as Error).message);
+    classification = {
+      significance: 'low',
+      rationale: `Classification failed: ${(err as Error).message}`,
+      headline: `Content changed on ${ws.label}`,
+      alert_type: 'trend_signal',
+      entity: deriveEntityName(ws),
+    };
+  }
+
+  // Insert source_changes row
+  const changeId = generateId('sc');
+  let alertId: string | null = null;
+
+  // If significance >= medium, create an ecosystem_alert
+  if (classification.significance === 'high' || classification.significance === 'medium') {
+    alertId = generateId('ealr');
+    const dedupeHash = computeDedupeHash(
+      classification.alert_type,
+      ws.url,
+      classification.headline,
+    );
+    try {
+      // RETURNING id: on conflict the SURVIVING row keeps its original id —
+      // everything downstream (source_changes.alert_id, the pending_actions
+      // FK dual-write, the activity log) must reference that id, not the
+      // discarded fresh one (mirrors persistEcosystemAlerts). The old
+      // `monitor_run_id = EXCLUDED.monitor_run_id` clause is gone: this
+      // INSERT never binds monitor_run_id, so on conflict it clobbered the
+      // surviving row's run linkage to NULL.
+      const alertRows = await query<{ id: string }>(
+        `INSERT INTO ecosystem_alerts
+           (id, project_id, monitor_id, alert_type, entity, source, source_url,
+            headline, body, relevance_score, confidence, dedupe_hash,
+            reviewed_state, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+         ON CONFLICT(project_id, dedupe_hash) DO UPDATE SET
+           relevance_score = GREATEST(ecosystem_alerts.relevance_score, EXCLUDED.relevance_score)
+         RETURNING id`,
+        alertId,
+        ws.project_id,
+        ws.monitor_id,
+        classification.alert_type,
+        // entity = the tracked company/product. Persisting it makes accepting
+        // this signal UPDATE that entity's knowledge node (e.g. PandaDoc's
+        // pricing) instead of spawning a duplicate named after the event.
+        classification.entity || deriveEntityName(ws),
+        `watch:${ws.label}`,
+        ws.url,
+        classification.headline,
+        classification.rationale,
+        classification.significance === 'high' ? 0.9 : 0.7,
+        0.8,
+        dedupeHash,
+        now,
+      );
+      alertId = alertRows[0]?.id ?? alertId;
+    } catch (err) {
+      console.warn('[watch-source] ecosystem_alert insert failed:', (err as Error).message);
+      alertId = null;
+    }
+    // SIGNAL_AUTOFLOW: route the freshly-inserted alert exactly like the
+    // monitor-scan producer does (this path previously bypassed routing
+    // entirely — URL-watcher findings always landed as inbox tickets while
+    // topic-watcher findings flowed to Knowledge; incoherent). Non-inbox
+    // verdicts skip the dual-write below; routing errors return 'inbox' so
+    // the ticket path is the fail-safe, same as everywhere else.
+    let watchVerdict: 'inbox' | 'enrich' | 'new_entity' | 'drop' = 'inbox';
+    if (alertId && isAutoflowEnabled()) {
+      watchVerdict = await routeAlertAutoflow(ws.project_id, alertId);
+    }
+    // Producer dual-write. Land the signal in the unified inbox immediately.
+    // Uses ecosystem_alert_id as the dedupe key (NOT EXISTS check in
+    // materialize-on-read), so re-running this producer is idempotent.
+    if (alertId && watchVerdict === 'inbox') {
+      // alertId may now be a pre-existing row (dedupe conflict above) — one
+      // alert must yield one ticket, ever (same FK dedupe as the parser).
+      // Non-fatal lookup: on failure fall through and insert (worst case a
+      // duplicate ticket, never a dropped signal).
+      const claimed = await query<{ id: string }>(
+        `SELECT id FROM pending_actions WHERE ecosystem_alert_id = ? LIMIT 1`,
+        alertId,
+      ).catch(() => []);
+      if (claimed.length === 0) {
+        try {
+          const priority = classification.significance === 'high' ? 'high' : 'medium';
+          const paId = generateId('pa');
+          await run(
+            `INSERT INTO pending_actions
+               (id, project_id, ecosystem_alert_id, source_table, source_id,
+                action_type, title, rationale, payload, status, priority,
+                sources, created_at, updated_at)
+             VALUES (?, ?, ?, 'ecosystem_alerts', ?, 'signal_alert', ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+            paId, ws.project_id, alertId, alertId,
+            classification.headline,
+            (classification.rationale ?? '').slice(0, 500),
+            {
+              alert_type: classification.alert_type,
+              entity: classification.entity || deriveEntityName(ws),
+              source: `watch:${ws.label}`,
+              source_url: ws.url,
+              relevance_score: classification.significance === 'high' ? 0.9 : 0.7,
+            },
+            priority,
+            [{ type: 'web', title: ws.label, url: ws.url }],
+            now, now,
+          );
+        } catch (err) {
+          console.warn('[watch-source] pending_action dual-write failed (will be picked up by materialize-on-read):', (err as Error).message);
+        }
+      }
+    }
+  }
+
+  await run(
+    `INSERT INTO source_changes
+       (id, watch_source_id, project_id, change_status, diff_summary, raw_diff,
+        previous_content_hash, current_content_hash, significance,
+        significance_rationale, alert_id, detected_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    changeId, ws.id, ws.project_id,
+    scrapeResult.changeStatus,
+    classification.headline,
+    scrapeResult.rawDiff?.slice(0, 100_000) || null,
+    ws.last_content_hash,
+    scrapeResult.contentHash,
+    classification.significance,
+    classification.rationale,
+    alertId,
+    now,
+  );
+
+  logSignalActivity({
+    project_id: ws.project_id,
+    event_type: 'classification_completed',
+    entity_id: changeId,
+    entity_type: 'source_change',
+    headline: `Classified "${ws.label}" change as ${classification.significance}: ${classification.headline}`,
+    metadata: { significance: classification.significance, alert_type: classification.alert_type },
+  }).catch(() => {});
+
+  if (alertId) {
+    logSignalActivity({
+      project_id: ws.project_id,
+      event_type: 'signal_created',
+      entity_id: alertId,
+      entity_type: 'ecosystem_alert',
+      headline: `Signal from watch source: ${classification.headline}`,
+      metadata: { alert_type: classification.alert_type, watch_source_id: ws.id, significance: classification.significance },
+    }).catch(() => {});
+  }
+
+  // No extra 'task' pending_action here: the ecosystem_alert above already
+  // materializes as a signal_alert in the founder's Signals inbox (with an
+  // Accept executor). The former duplicate 'task' row had NO rendering surface
+  // — it only inflated the NavRail badge (148 orphaned rows, 2026-07 audit).
+
+  return {
+    watch_source_id: ws.id,
+    status: 'classified',
+    change_status: scrapeResult.changeStatus,
+    significance: classification.significance,
+    alert_created: !!alertId,
+  };
+}
+
+/**
+ * Classify the significance of a detected change using Haiku.
+ */
+async function classifyChange(
+  ws: WatchSource,
+  scrapeResult: ScrapeResult,
+  projectContext?: string,
+  changeHistory: Array<{ detected_at: string; significance: string; diff_summary: string | null }> = [],
+): Promise<ClassificationResult> {
+  // Build a diff context for the LLM
+  let diffContext: string;
+  if (scrapeResult.rawDiff) {
+    // Firecrawl provided a git-diff
+    diffContext = `Git-diff of changes:\n${scrapeResult.rawDiff.slice(0, MAX_DIFF_FOR_LLM)}`;
+  } else if (ws.last_snapshot && scrapeResult.markdown) {
+    // Jina fallback — give the LLM old vs new snippets
+    const oldSnippet = ws.last_snapshot.slice(0, MAX_DIFF_FOR_LLM / 2);
+    const newSnippet = scrapeResult.markdown.slice(0, MAX_DIFF_FOR_LLM / 2);
+    diffContext = `Previous content (truncated):\n${oldSnippet}\n\n---\n\nCurrent content (truncated):\n${newSnippet}`;
+  } else {
+    diffContext = `New page content (first scrape):\n${scrapeResult.markdown.slice(0, MAX_DIFF_FOR_LLM)}`;
+  }
+
+  // Attempt structural diff when both snapshots have parseable structured data
+  const structuralSummary = tryStructuralDiff(ws.last_snapshot, scrapeResult.markdown);
+  if (structuralSummary) {
+    diffContext = `Structured field-level changes:\n${structuralSummary}\n\n${diffContext}`;
+  }
+
+  // Category-specific classification hints
+  const categoryHints = getCategoryHints(ws.category);
+
+  // Recent-change history — lets the classifier reason about RECURRENCE
+  // (e.g. "third price cut in 6 weeks") rather than judging this change alone.
+  const historyBlock = changeHistory.length > 0
+    ? [
+        'Recent prior changes on THIS page (newest first):',
+        ...changeHistory.map((h) => {
+          const when = (h.detected_at || '').slice(0, 10);
+          const sig = h.significance || 'low';
+          const what = (h.diff_summary || 'change detected').slice(0, 140);
+          return `- ${when} [${sig}] ${what}`;
+        }),
+        'If this change repeats or continues a pattern from the list above, SAY SO in the headline and rationale (e.g. "3rd price cut since March") and weigh the significance accordingly. A repeated move is more significant than a one-off.',
+      ].join('\n')
+    : '';
+
+  const systemPrompt = [
+    'You classify content changes detected on a tracked web page.',
+    `Respond ONLY with valid JSON: {"significance":"high"|"medium"|"low"|"noise","rationale":"<1-2 sentences>","headline":"<concise headline, max 120 chars>","alert_type":"<one of: competitor_activity, ip_filing, trend_signal, partnership_opportunity, regulatory_change, funding_event, hiring_signal, customer_sentiment, social_signal, ad_activity, pricing_change, product_launch>","entity":"<the company/product this page belongs to, e.g. \\"PandaDoc\\" — NAME only, 1-4 words, never the event sentence>"}`,
+    '',
+    'Significance scale:',
+    '- high: pricing change, major product launch, regulatory shift, acquisition',
+    '- medium: notable content update, new feature announcement, team change',
+    '- low: minor wording tweaks, blog post, routine update',
+    '- noise: no meaningful change, formatting only, timestamp updates',
+    '',
+    'The "entity" is the subject the page is about (derive it from the page label/URL); it is used to keep that company/product\'s knowledge record up to date, so name the same entity consistently across runs.',
+    '',
+    categoryHints ? `Category guidance:\n${categoryHints}\n` : '',
+    projectContext ? `Project context:\n${projectContext}\n` : '',
+  ].join('\n');
+
+  const prompt = [
+    `Tracked page: "${ws.label}" (${ws.url})`,
+    `Category: ${ws.category}`,
+    `Change status: ${scrapeResult.changeStatus}`,
+    historyBlock ? `\n${historyBlock}` : '',
+    '',
+    diffContext,
+  ].join('\n');
+
+  const startedAt = Date.now();
+  const { text, usage } = await runAgent(prompt, {
+    systemPrompt,
+    timeout: 30_000,
+    task: 'signal-classify',
+    // Attribute paid web_search / read_url (Exa/Jina) spend to this project.
+    projectId: ws.project_id,
+  });
+  const latencyMs = Date.now() - startedAt;
+
+  // Record cost
+  const { provider, model } = pickModel('signal-classify');
+  await recordUsage({
+    project_id: ws.project_id,
+    skill_id: 'signals',
+    step: 'signal_classify',
+    provider,
+    model,
+    usage,
+    latency_ms: latencyMs,
+  }).catch(err =>
+    console.warn('[watch-source] recordUsage failed:', (err as Error).message),
+  );
+
+  // Parse the JSON response
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('LLM did not return valid JSON');
+  }
+
+  const parsed = JSON.parse(jsonMatch[0]) as ClassificationResult;
+
+  // Validate
+  const validSignificance = ['high', 'medium', 'low', 'noise'];
+  if (!validSignificance.includes(parsed.significance)) {
+    parsed.significance = 'low';
+  }
+  if (!parsed.headline || parsed.headline.length > 200) {
+    parsed.headline = `Change detected on ${ws.label}`;
+  }
+  if (!parsed.alert_type) {
+    parsed.alert_type = 'trend_signal';
+  }
+  // Entity drives the knowledge-node upsert on accept — never leave it blank,
+  // or the finding lands as a duplicate node named after the event.
+  if (!parsed.entity || typeof parsed.entity !== 'string' || !parsed.entity.trim()) {
+    parsed.entity = deriveEntityName(ws);
+  } else {
+    parsed.entity = parsed.entity.trim().slice(0, 80);
+  }
+
+  return parsed;
+}
+
+/**
+ * Category-specific classification hints to guide the LLM toward the
+ * correct alert_type based on the watch source category.
+ */
+function getCategoryHints(category: string): string | null {
+  switch (category) {
+    case 'careers_page':
+      return 'This is a careers/jobs page. Use alert_type="hiring_signal" for changes. Focus on strategic hires (leadership, enterprise AEs, security), team expansion into new areas, or mass hiring campaigns. Ignore routine job post refreshes.';
+    case 'social_feed':
+      return 'This is a social media feed or profile. Use alert_type="social_signal" for changes. Focus on feature announcements, messaging pivots, PR campaigns, viral content, or positioning shifts. Ignore routine engagement posts.';
+    case 'review_site':
+      return 'This is a review/ratings site. Use alert_type="customer_sentiment" for changes. Focus on rating shifts, recurring complaint patterns, competitive gaps mentioned, or sudden review volume changes. Ignore single reviews.';
+    case 'competitor_pricing':
+      return 'This is a competitor pricing page. Use alert_type="pricing_change" for pricing changes (tier changes, plan additions/removals, discount structures, free tier mods, usage limit adjustments, enterprise pricing shifts). Use alert_type="competitor_activity" for non-pricing updates. Ignore cosmetic page updates.';
+    case 'competitor_product':
+      return 'This is a competitor product page. Use alert_type="product_launch" for major product launches or new product lines. Use alert_type="competitor_activity" for incremental feature updates, deprecations, API changes, integrations, or roadmap announcements. Ignore minor copy edits or layout changes.';
+    case 'ad_tracker':
+      return 'This is an ad/paid marketing tracker (Meta Ads Library, Google Ads Transparency, landing page). Use alert_type="ad_activity" for changes. Focus on new campaigns, messaging pivots, new paid channels, budget shifts, aggressive promotions, or landing page messaging changes. Ignore minor creative refreshes.';
+    case 'marketing':
+      return 'This is a marketing page or content source. Use alert_type="ad_activity" for paid marketing changes, or alert_type="competitor_activity" for organic marketing shifts. Focus on messaging changes, campaign launches, positioning pivots, content strategy shifts, or rebrand signals. Ignore routine blog posts.';
+    case 'patent_database':
+      return 'This is a patent database listing. Use alert_type="ip_filing" for changes. Focus on new patent filings, granted patents, prior art relevance to our domain, claims scope changes, or continuation filings. Ignore administrative status updates.';
+    case 'regulatory':
+      return 'This is a regulatory or compliance source. Use alert_type="regulatory_change" for changes. Focus on new regulations, enforcement actions, compliance deadlines, policy shifts, or guidance updates that affect our industry. Ignore routine procedural notices.';
+    case 'news':
+      return 'This is a news or industry publication. Use alert_type="trend_signal" for changes. Focus on industry developments, market shifts, ecosystem changes, major partnerships, funding rounds, or acquisitions. Ignore routine press releases or minor updates.';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Try to extract structured data from both snapshots and produce a structural diff.
+ * Returns a formatted summary string, or null if structured data isn't available.
+ */
+function tryStructuralDiff(
+  oldContent: string | null,
+  newContent: string | null,
+): string | null {
+  if (!oldContent || !newContent) return null;
+
+  try {
+    // Strategy 1: JSON-LD blocks
+    const oldJsonLd = extractJsonLd(oldContent);
+    const newJsonLd = extractJsonLd(newContent);
+    if (oldJsonLd && newJsonLd) {
+      const entries = structuralDiff(oldJsonLd, newJsonLd);
+      if (entries.length > 0) {
+        return formatDiffForLLM(entries);
+      }
+    }
+
+    // Strategy 2: Markdown tables
+    const oldTable = parseMarkdownTable(oldContent);
+    const newTable = parseMarkdownTable(newContent);
+    if (oldTable && newTable) {
+      // Guess a key column: first column header
+      const headers = Object.keys(oldTable[0] || {});
+      const keyBy = headers[0] || undefined;
+      const entries = structuralDiff(oldTable, newTable, { keyBy });
+      if (entries.length > 0) {
+        return formatDiffForLLM(entries);
+      }
+    }
+  } catch {
+    // Parsing failed — fall through to text-based diff
+  }
+
+  return null;
+}
+
+/**
+ * Process a batch of watch sources (for cron). Processes up to `limit`
+ * sources that are due for scraping.
+ *
+ * status='error' rows are INCLUDED: an error source is one whose scrapes kept
+ * failing (e.g. provider quota 402), not one a founder retired. They stay on
+ * the schedule with growing backoff (recordScrapeFailure pushes next_scrape_at
+ * further as error_count climbs) so a fixed provider key self-heals the fleet
+ * on the next due tick — previously they were orphaned forever. Active rows
+ * are drained first so a backlog of broken sources can't starve healthy ones.
+ */
+export async function processWatchSourcesCron(limit = 10): Promise<ProcessResult[]> {
+  const now = new Date().toISOString();
+
+  const due = await query<WatchSource>(
+    `SELECT * FROM watch_sources
+     WHERE status IN ('active', 'error')
+       AND (next_scrape_at IS NULL OR next_scrape_at <= ?)
+     ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END,
+              next_scrape_at ASC NULLS FIRST
+     LIMIT ?`,
+    now,
+    limit,
+  );
+
+  if (due.length === 0) return [];
+
+  const results: ProcessResult[] = [];
+  for (const ws of due) {
+    results.push(await processWatchSource(ws));
+  }
+
+  return results;
+}

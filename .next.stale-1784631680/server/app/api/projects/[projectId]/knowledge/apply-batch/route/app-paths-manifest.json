@@ -1,0 +1,3 @@
+{
+  "/api/projects/[projectId]/knowledge/apply-batch/route": "app/api/projects/[projectId]/knowledge/apply-batch/route.js"
+}

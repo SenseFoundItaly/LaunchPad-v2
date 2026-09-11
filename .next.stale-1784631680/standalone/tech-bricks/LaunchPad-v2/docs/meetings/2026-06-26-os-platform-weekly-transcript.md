@@ -1,0 +1,169 @@
+# OS Platform — Weekly — Transcript (26 giu 2026)
+
+- **Data:** 26 giugno 2026, 08:35 · durata ~26 min
+- **Partecipanti:** Luca Boscariol, Mike Cecconello
+- **Fonte:** registrazione riunione (auto-trascrizione) — file originale `2026-06-26-os-platform-weekly-transcript.docx`
+- **Note derivate:** [2026-06-26-os-platform-weekly-notes.md](2026-06-26-os-platform-weekly-notes.md) · **Walkthrough L2:** [../2026-06-26-sensefound-l2-walkthrough.md](../2026-06-26-sensefound-l2-walkthrough.md)
+
+> Trascrizione automatica verbatim (italiano).
+
+---
+
+_Luca Boscariol — trascrizione avviata_
+- **Mike Cecconello** · 0:03 — Posso riguardarmelo e deselezionare ogni sezione se vogliamo venire così meglio se riesci però ti direi. Non stando larghi minimo un'altra settimana qualora c'è un po di riferimento a livello tecnico ma anche soprattutto testing e. E i canvas come sono collegati e quindi sto pensando ragionando un po' a voce alta.
+- **Luca Boscariol** · 0:30 — Sì.
+- **Mike Cecconello** · 0:39 — Questo weekend non sarò totalmente operativo, quindi.
+- **Luca Boscariol** · 0:43 — No, tranquillo, te lo chiedo.
+- **Mike Cecconello** · 0:44 — Sembra la settimana prossima, oggi è il cos'è 26? 6 luglio ci andrebbe se teniamo una settimana. Però almeno. Ci semplifichiamo un po la parte di.
+- **Luca Boscariol** · 1:12 — Quindi 6 luglio, OK, lunedì quello dopo.
+- **Mike Cecconello** · 1:17 — Stando larghi perché voglio essere ottimista e dire che lanciamo mercoledì prossimo con tutti i cambiamenti.
+- **Luca Boscariol** · 1:23 — Sì.
+- **Mike Cecconello** · 1:25 — Quest'ultima settimana ho fatto un bel run, però non vorrei replicare se riesco.
+- **Luca Boscariol** · 1:31 — No, infatti assolutamente, ma neanche te lo chiedo perché ti dico.
+- **Mike Cecconello** · 1:35 — E. No, però comunque anch'io voglio lanciare almeno seguendo un po' la tua visione logica di del prodotto finale, perché effettivamente.
+- **Luca Boscariol** · 1:46 — Sì, più che altro perché esatto, lanciare e vabbè, sempre internamente poi.
+- **Mike Cecconello** · 1:52 — Sì.
+- **Luca Boscariol** · 1:53 — Magari lo apriamo internamente, non lo usa nessuno, *****. Cioè non è che son lì pronti tutti per starci quattro ore, quindi magari possiamo anche dire l'alfa è pronto utilizzatelo nel frattempo.
+- **Mike Cecconello** · 2:02 — Sì, esatto.
+- **Luca Boscariol** · 2:11 — Modifichiamo questi stage, però è anche vero che magari lo attivi, inizia a arrivare feedback proprio su queste robe qua, mentre già abbiamo in testa di modificare, non ha tanto senso, no?
+- **Mike Cecconello** · 2:20 — Sì. No, sono d'accordo su quello.
+- **Luca Boscariol** · 2:24 — Utilizzerei nel senso ogni lancio, per quanto piccolo sia, comunque ci aiuta a raccogliere anche quei due feedback che poi ci permettono di sistemare, quindi vabbè ripeto, se qualche giorno in +1 settimana andiamo al 1 luglio.
+- **Mike Cecconello** · 2:32 — Sì.
+- **Luca Boscariol** · 2:39 — Ci sta. Comunque poi ci posiziona bene per. Per affinare e per partire subito poi con l due.
+- **Mike Cecconello** · 2:54 — Ci ragiono un pochino, vedo un po la.
+- **Luca Boscariol** · 2:57 — Sì, va bene.
+- **Mike Cecconello** · 2:59 — Cosa mi dice anche cloud proprio a livello di cosa andrebbe cambiato? E poi ci ragiono.
+- **Luca Boscariol** · 3:03 — Ci sta. Ok. E no, poi per il resto. Allora il graph.
+- **Mike Cecconello** · 3:17 — Mhm.
+- **Luca Boscariol** · 3:18 — La logica mi piace.
+- **Mike Cecconello** · 3:20 — Ok.
+- **Luca Boscariol** · 3:21 — C'è ancora secondo me un po' di lavoro da fare perché non so se avevi capito un po' cosa ho in testa, se c'è il grappo tipo io immagino il nodo principale no della startup e poi?
+- **Mike Cecconello** · 3:34 — Sì.
+- **Luca Boscariol** · 3:37 — Una struttura un po dire. A contenitore, nel senso che vedi i nodi principali che possono essere concorrenza. Clienti partner. Investitori però tutto il tuo ecosistema che si sviluppa pian piano intorno alla startup racchiusa in queste macro categorie che poi trovo comunque scritto in un change.
+- **Mike Cecconello** · 4:09 — Sì. Sì, nella matrioska sì, il punto 14 sì.
+- **Luca Boscariol** · 4:14 — Esatto, una cosa del genere, nel senso che magari vedi il nodo che dice concorrenza, poi Apri esplodi quel nodo e vedi dei sotto nodi che sono magari tutti concorrenti con.
+- **Mike Cecconello** · 4:27 — Sì.
+- **Luca Boscariol** · 4:28 — E questo ho visto che è carino, con la spiegazione e i dettagli che già che già ci sono. Perché è più che altro così. Il problema è che ad esempio vedo una serie di concorrenti, poi vedo un nodo che si chiama opzioni vantaggio competitivo, poi un nodo che si chiama opzioni target.
+- **Mike Cecconello** · 4:50 — In una.
+- **Luca Boscariol** · 4:50 — E un nodo che si chiama market sizing, cioè è un po un po disordinato e non chiaro. Sì, esatto. Quindi categorizzare meglio. E poi una cosa che onestamente non ho ben capito.
+- **Mike Cecconello** · 4:55 — Sì, non è categorizzato bene.
+- **Luca Boscariol** · 5:08 — È la parte Intel. Perché OK, osservatori ti gestisci watchers è molto chiaro, però la parte Intel immagino che sia tutto quello che arriva, cioè così proprio intuito, tutto quello che arriva di informazione dai watchers, no?
+- **Mike Cecconello** · 5:11 — Sì. Sì. Sì. Sì.
+- **Luca Boscariol** · 5:25 — OK, no. Attivandone uno comunque tipo vedo già 20 notifiche. Su Intel attivando uno ma attivandolo seguendo il flusso del copilot, quindi comunque c'è stato la creazione un po' del canvas eccetera però vedo che già sono arrivate 20 notifiche.
+- **Mike Cecconello** · 5:36 — Attivando un. Sì.
+- **Luca Boscariol** · 5:49 — E. Allora penso di aver capito la logica, nel senso tutte queste assunzioni che arrivano nell'Intel. L'idea è OK, tu stai mettendo giù appunto su un canvas delle ipotesi. Ma il Tool ti avvisa che all'interno di queste ipotesi ci sono tutte queste assumptions che dovrebbero essere validate, questa è la logica.
+- **Mike Cecconello** · 6:19 — Sì, allora è un po un overlap.
+- **Luca Boscariol** · 6:19 — Per esempio, vedo, non so retention design, OK?
+- **Mike Cecconello** · 6:24 — È un po un overlap, infatti quella sezione non c'ho fatto. Non ci ho ritirato approfonditamente, però si è un overlap di quello che succede tra i watchers, la chat e l'obiettivo era creare proprio un contesto. Che l'utente può. Tenere sotto controllo non è chiaro effettivamente il l'obiettivo di questo Intel. Diciamo che è semplificato il tutto tramite il non proprio il knowledge, perché il knowledge effettivamente sono le entità, diciamo che sono le caratteristiche. L'Intel era più almeno l'idea principale iniziale.
+- **Luca Boscariol** · 7:08 — Sì.
+- **Mike Cecconello** · 7:16 — Era. Proprio una sorta di come si può chiamare repository di tutto quello che può essere il knowledge del progetto, quindi?
+- **Luca Boscariol** · 7:26 — OK. Ma quindi questo knowledge deriva, cioè sono degli estratti che derivano dall'interazione.
+- **Mike Cecconello** · 7:28 — No. Sono degli effetti che nella chat, esatto, nella chat misto osservatori, quindi tutto quello che ha senso essere.
+- **Luca Boscariol** · 7:36 — Ok. Ok.
+- **Mike Cecconello** · 7:47 — Come si può dire? Aggiunta al contesto del progetto però una cosa che dovrei fare io nel backend, cioè la sto dando all'utente, ma l'utente effettivamente non capisce cosa il backend comporta proprio a livello di contesto, quindi effettivamente la toglierei.
+- **Luca Boscariol** · 8:03 — Sì. Qua per semplicità direi di sì in questo momento, perché capisco il senso.
+- **Mike Cecconello** · 8:10 — Sì, e magari avere sì.
+- **Luca Boscariol** · 8:16 — Però ti dico ancora, cioè se io li apro così questi punti.
+- **Mike Cecconello** · 8:20 — Sì, too much, effettivamente sì.
+- **Luca Boscariol** · 8:23 — Sì, più che altro non capisco dove, qual è l'obiettivo, cioè customer acquisition coast, poi ci sta, è vero, io l'ho l'ho l'ho intesa così, che questi fossero una sorta di reminder.
+- **Mike Cecconello** · 8:26 — Sì. Sì, dovrebbero essere dei.
+- **Luca Boscariol** · 8:43 — Che mi fanno capire che OK, abbiamo teorizzato questa cosa, no, abbiamo teorizzato che c'è tot disponibilità a pagare e però il sistema mi dice attenzione perché? Non è detto che il CAC sia inferiore rispetto alla disponibilità a pagare, quindi questo potrebbe essere un rischio di validazione. Allora io l'ho un po inteso così perché vedo che. Tutti fanno riferimento a ipotesi che sono state fatte nel parte copilot, ma che effettivamente dovrebbero avere una corrispettiva validazione. Quindi la logica di questo tipo mi piace, però se dobbiamo capire come introdurla nel senso questo tutto questo potrebbe essere la base poi per mettere a terra l'intervista ad esempio no le interviste per l'utente. Perché son tutti, ad esempio, disponibilità a pagare, intervistati l'utente, capisci più o meno quanto potrebbe essere. Ecco ad esempio qua va beh, questo è un progetto di piattaforma di aggregazione di bandi OKE qua una cosa che ha sollevato interessante è sì, c'è potenzialità ma. Sta per scadere il PNRR che si porta dietro comunque un sacco di bandi opportunità e nel momento in cui scade l'opportunità rimane oppure si esaurisce? No, queste sono cose molto interessanti che però non riesco a capire la funzione che hanno. Cioè sono messo in chiave di. Darmi un alert che anche che comunque è interessante, non ti do un alert perché tu hai creato sì un link canvas. Però è come dire, questa parte qua è un po l'avvocato del diavolo. Mentre il copilot, come abbiamo visto anche per. Purtroppo paletti di. Del modello di cloud eccetera non si può andare oltre, sarà bene o male sempre un po. Servile un po condiscendente eccetera, va bene, magari questa è la parte un po. Un po contrario a quello che ti dice OK, va bene, stai creando, però questi sono i paletti su cui ti scontri e ci può anche stare una cosa del genere, no? Un po' una sorta di risk assessment generalizzato. E poi però.
+- **Mike Cecconello** · 11:11 — Buongiorno.
+- **Luca Boscariol** · 11:26 — Deve avere uno scopo, no? E su cui così è un muro di informazioni, anche un po ti dico non intuitive.
+- **Mike Cecconello** · 11:28 — Sì, totalmente. No, per niente. Volevo un po' replicare quello che faceva. Cos'è che era polsia, la startup in automatico, essenzialmente questo inbox dove ti diceva ogni giorno quello che succedeva, ma anche lì effettivamente non era chiaro. L'obiettivo è a primo impatto.
+- **Luca Boscariol** · 11:42 — Ok. Sì. Sì, no, allora buono. Cioè se l'Intel diventa una repository dei watchers, allora va bene, nel senso che giustamente hai dei watchers attivi e l'Intel raccoglie ciò che l'osservatore.
+- **Mike Cecconello** · 11:52 — Quando l'ho visto?
+- **Luca Boscariol** · 12:06 — Esamina OKE, allora ti dico quasi quasi lasciamo in questo momento l'Intel proprio come repository delle Info raccolte workshop così è anche molto semplice e intuitivo da capire e poi capiamo perché comunque questa è una cosa. E ho capito il senso e la logica che ha valore, però è da capire come indirizzarla bene.
+- **Mike Cecconello** · 12:31 — Sì, grazie.
+- **Luca Boscariol** · 12:31 — Anche perché vedo assumptions e poi aggiornamento grabo anche questo. Cioè quindi ci sono delle cose che aggiornano il graph? E va beh, cioè questo mix è un po deve essere un attimo definito meglio. OKE, poi lato hai aggiunto questo panel? Finance interessante, non l'ho ancora usato onestamente, però interessante che tu l'abbia aggiunto come.
+- **Mike Cecconello** · 13:03 — No.
+- **Luca Boscariol** · 13:07 — Una sezione se onestamente mi piace, ci sta.
+- **Mike Cecconello** · 13:12 — Era per separare totalmente effettivamente essendo diciamo non dico la base però per validare il potenziale ma anche esportarlo come CSV semplice l'ho voluto separare al di fuori del noleggio al di fuori dell'Intel.
+- **Luca Boscariol** · 13:14 — Sì. Sì.
+- **Mike Cecconello** · 13:30 — A me non ci ha trovato una situazione in cui potesse ricadere e avere questa sorta di overview, poi ovviamente più si va avanti, magari quando ci sarà MP, quando ci sarà la parte di operational.
+- **Luca Boscariol** · 13:33 — Sì.
+- **Mike Cecconello** · 13:46 — Quindi con tutti i workflow allora possiamo condensarla in una sezione che racchiude però per ora l'ho voluto tenere separata, non so se avevo altre sezioni di questo tipo e condensarle però era giusto per avere un po' di.
+- **Luca Boscariol** · 13:49 — Sì. No, ci sta.
+- **Mike Cecconello** · 14:01 — Overview, l'idea qua è che ogni Financial proposal, quindi per esempio. Non lo so, l'utente ha oppure anzi il copilot propone un cambiamento di posizionamento a livello di costo mensile del tool OK in chat, idealmente dovresti vedere sotto la sezione. RPU.
+- **Luca Boscariol** · 14:29 — Sì.
+- **Mike Cecconello** · 14:36 — Aggiornato con sotto quella sezione la sanction che è stata fatta in chat col co-pilot però poi sempre ovviamente override e.
+- **Luca Boscariol** · 14:45 — Ok. OK, sì. E si parla, OK?
+- **Mike Cecconello** · 14:52 — Quella è un po l'idea, perché comunque sono già informazioni che sono dentro il contesto della.
+- **Luca Boscariol** · 14:53 — Quindi. OK, però se io ora metto 78 penso salvo.
+- **Mike Cecconello** · 15:04 — L'idea è che venga salvato in quella in quel campo all'interno del contesto che la gente ha, quindi la prossima interazione, se chiedi appunto qual è l'r più che abbiamo? In copilot dovrebbe risponderti effettivamente 78 devo ancora verificare bene testare però localmente quella era la logica, l'ho connessa al database, database appunto, diciamo comunque il contesto da dove?
+- **Luca Boscariol** · 15:25 — Ancora. Però in copilot poi io posso posso chiedergli 78 va bene, mi dice Guarda meglio 29, io confermo e quindi riaggiorna 29. Però alla fine ho io l'ultima parola.
+- **Mike Cecconello** · 15:45 — Sì, rischi che. Rischi che il Copilot dica sì, effettivamente 78 è meglio. Capito? Come ti succede in tutti i chatbot quando dici una cosa contraria e dici va bene, capito? Io ho fatto così. Tendenzialmente sono d'accordo con te.
+- **Luca Boscariol** · 15:49 — Giorno qua. Ok.
+- **Mike Cecconello** · 16:04 — Quindi quella è un po il contrarian, diciamo thinking che manca radicato è presente ovviamente all'interno di ogni system prompt, quindi ad ogni messaggio. C'è appunto quella sezione dove si dice non prendere per vero tutte le tutto quello che l'utente dice però.
+- **Luca Boscariol** · 16:25 — Sì. Giusto così, ragionando a voce alta anche per il futuro, ovviamente non per adesso, ma prevedere un routing verso un modello che non abbia tutti questi, questi vincoli, queste restrizioni. A.
+- **Mike Cecconello** · 16:47 — Devi fare tu poi i vincoli.
+- **Luca Boscariol** · 16:48 — Ad andare contro.
+- **Mike Cecconello** · 16:51 — Di non so bene cosa ci sia sul mercato, però se vai con modelli open source dove non ci sono vincoli per niente rischi che si parli di droghe e altre cose che tu dovresti metterti a fare come garden, hai capito quindi?
+- **Luca Boscariol** · 16:58 — Esatto. OK, quindi bisognerà sì, guarda.
+- **Mike Cecconello** · 17:08 — Non dico che rifai il lavoro che cloud fa, però sì, magari togliendo delle sezioni, però c'è un mare di lavoro di hardening da fare con i modelli open source, quello è un po' il rischio. Non mi sono mai cimentato in queste, in queste cose qua.
+- **Luca Boscariol** · 17:16 — Sì. Sì.
+- **Mike Cecconello** · 17:24 — Però leggendo un po' su sul web reddit la gente cosa fa con ste cose? Un po' rischioso ti direi. Cioè ovviamente l'intento di un utente che viene sul launchpad non è quello però.
+- **Luca Boscariol** · 17:33 — Sì. Però potrebbe essere adesso, non so, e poi? Poi ti lascio che son quasi le 11 potrebbe essere che di base ogni volta che c'è un guardrail da attivare il routing porta switch sul modello pro per dire.
+- **Mike Cecconello** · 17:57 — Sì.
+- **Luca Boscariol** · 17:58 — Ma quando magari cioè capisce che non ci sono gardel da attivare, che la è semplicemente da andare contro per una specifico dettaglio, allora si va sul modello open source settato da noi, magari con gardel minimi. Una cosa proprio così. Così focalizzata? No, non sembra semplice, no, infatti.
+- **Mike Cecconello** · 18:20 — Allora sembra semplice però far capire, cioè far capire alla gente anthropic qual è il guardrail che lui ha e dirgli esplicitamente, quando c'è questo guardrail, vai di vai di là. Oppure attiva un'altro modello, quella è un po' la parte difficile da avere deterministica, diciamo, cioè i modelli funzionano bene quando hanno degli esempi che replicano esattamente quello che stanno.
+- **Luca Boscariol** · 18:50 — Sì.
+- **Mike Cecconello** · 18:53 — Encountering, diciamo, mi sfugge il termine italiano, quindi. Si può fare sicuramente, non so proprio a livello di. Architettura, come farlo e. Però sì, è tra le cose che vorrei testare tutti questi modelli open source, vedere effettivamente cosa hanno in confronto AA cloud, però l'unica cosa che è che non che devo ancora testare bene e che non ho la possibilità appunto di avere un. Come si chiama un server? No, un server no, una macchina che mi permetta di farlo chip perché avere un modello open source e spostarlo diciamo quindi vai lo sposti tu su un server proprio a livello computazionale tipo sado. 15 € AA messaggio minimo proprio ovviamente se vai con modelli giganti che sono quelli che performano meglio infatti l'idea che vorrei nei prossimi mesi magari mi adopero anch'io personalmente è avere proprio un computer potente da non so 64 giga di RAM.
+- **Luca Boscariol** · 19:45 — Sì. Sì. Ok. Grazie.
+- **Mike Cecconello** · 20:13 — Almeno a livello open source ci sono anche un sacco di modelli fine tuned per casistica, che la gente propone ovviamente.
+- **Luca Boscariol** · 20:17 — Sì. Esatto.
+- **Mike Cecconello** · 20:23 — Però la parte di hosting e tutto è un casino.
+- **Luca Boscariol** · 20:23 — Va bene dai teniamocelo come punto. Sì, no, chiaro, questo era impegnativo. Vabbè, teniamocelo come punto.
+- **Mike Cecconello** · 20:30 — Giusto anche per me.
+- **Luca Boscariol** · 20:32 — Insomma, da riprendere.
+- **Mike Cecconello** · 20:33 — Giusto anche per un po' di contesto? Sì, totalmente contesto che leggevo l'altro ieri online. Tendenzialmente una sub di cloud da 200 € mensile se utilizzata fino in fondo.
+- **Luca Boscariol** · 20:37 — Sì. Sì.
+- **Mike Cecconello** · 20:47 — Ad anthropic costa sui 15.000 al mese proprio a livello computazionale, energetico o token e tutto quindi i modelli che abbiamo oggi.
+- **Luca Boscariol** · 20:56 — Ciao.
+- **Mike Cecconello** · 21:01 — Che sono, diciamo, accessibili al consumatore finale tipo noi. Sono una perdita totale per chi ovviamente lo utilizza bene per anthropical meno quindi andare open source rimaniamo come si dice, c'è chi ha il costo finale che si avrebbe capito a meno che tu non hai un Mac.
+- **Luca Boscariol** · 21:12 — Sì. Vero.
+- **Mike Cecconello** · 21:22 — Ti scarichi il modello da 100 GB e te lo rendi in locale a zero. Però se dovessi orientare un server e iniziare a fare cose GPU computer costi fogli ti direi io da quello che ho letto io da quello che ne so poi non sono un esperto di open source e server però.
+- **Luca Boscariol** · 21:33 — È un disastro.
+- **Mike Cecconello** · 21:40 — Questa è un po l'idea, però sì. Può essere interessante come opzione.
+- **Luca Boscariol** · 21:50 — Sì, dai, ce lo teniamo lì da studiare, sì.
+- **Mike Cecconello** · 21:55 — Quindi, Ricapitolando, rilavoro la parte di Intel in maniera un po più specifica e ordinata.
+- **Luca Boscariol** · 22:04 — Sì, questo sì.
+- **Mike Cecconello** · 22:09 — E poi valuto.
+- **Luca Boscariol** · 22:10 — Guarda, basta. No, non è neanche prioritario per alpha test. Nel senso, anche questo potrebbe essere una cosa da intanto semplicemente nascondere e poi capire.
+- **Mike Cecconello** · 22:17 — E non per niente.
+- **Luca Boscariol** · 22:25 — Rilavorarlo in maniera. Per il momento, come detto prima, può essere sufficiente tenere watchers e Intel come repository di ciò che watcher o i watchers analizzano estrapolano sì, poi capiamo che destinazione dare a tutto il resto, che comunque ripeto, secondo me.
+- **Mike Cecconello** · 22:38 — Però sì, che sia chiaro che.
+- **Luca Boscariol** · 22:47 — Ha buona potenzialità per come l'ho inteso io. E va bene poi usato il graph, questo sì, il graph da categorizzare meglio.
+- **Mike Cecconello** · 22:59 — Sì, quello è tutto prompt da fare, OK?
+- **Luca Boscariol** · 23:02 — Esatto sì e capire il copilot che sarebbe poi l'incastro l'uno l due. Cosa si può fare quindi se ne vale la pena? Ma mi pare di sì che siamo intenzionati all'idea di risistemare un. O i primi due stage darci una settimana in più, quindi fammi sapere anche chi ti dice cloud e.
+- **Mike Cecconello** · 23:26 — Sì.
+- **Luca Boscariol** · 23:26 — Sì.
+- **Mike Cecconello** · 23:28 — E se riesci gentilmente, se hai tempo 5 minuti bastano walkthrough del documento perché l'ho capito, lo rivedo anch'io, poi se le domande te le faccio però proprio esattamente cosa, cosa, cosa intendi diciamo con.
+- **Luca Boscariol** · 23:33 — Sì.
+- **Mike Cecconello** · 23:43 — Ogni macro categoria. Giusto per anche rivedermelo io.
+- **Luca Boscariol** · 23:47 — Sì. Sì, assolutamente.
+- **Mike Cecconello** · 23:52 — E basta per ora, poi ci risentiamo, vedo cosa riesco a fare oggi weekend.
+- **Luca Boscariol** · 23:54 — Dai, sì, ci siamo. OK, sì, Fammi sapere.
+- **Mike Cecconello** · 23:59 — Però.
+- **Luca Boscariol** · 24:01 — Ci sentiamo quando vuoi.
+- **Mike Cecconello** · 24:03 — Yes, yeah.
+- **Luca Boscariol** · 24:05 — E poi comunque vedi changelog 26 del sei. Son pochi punti veloci, penso che gran parte abbiamo parlato ora. Magari se ci vuole comunque dare un occhio ad esempio vedevo ora che la sezione Intel che comunque se devi comunque sintetizzarla o rimuoverla non è +1 problema però rimane in inglese anche se il settaggio in italiano comunque vabbè piccole cosine.
+- **Mike Cecconello** · 24:30 — Sì. Yes.
+- **Luca Boscariol** · 24:36 — E settimana. Dai, va bene.
+- **Mike Cecconello** · 24:39 — OK, grazie Luca.
+- **Luca Boscariol** · 24:41 — Tu luglio sei a Vicenza.
+- **Mike Cecconello** · 24:44 — Allora anche lì da capire, ti do un minuto, poi ti lascio e no, sarò tra Treviso, Jesolo quando c'è la possibilità e Vicenza.
+- **Luca Boscariol** · 24:50 — Sì.
+- **Mike Cecconello** · 24:59 — In base anche a. A quando dovrò seguire tendenzialmente il nonno lunedì e giovedì lì dovrei essere a Vicenza appunto, proprio per portare il nonno a dolo, però i giorni attorno devo capire bene se. Dove sarò? Perché c'è anche il mio morosa che torna, però se mi dai una data.
+- **Luca Boscariol** · 25:22 — Torna.
+- **Mike Cecconello** · 25:27 — O tendenzialmente un periodo dove sei a casa a Venezia.
+- **Luca Boscariol** · 25:30 — Sì, io infatti bella domanda. Io penso di tornare il 13 e stare una settimana, sì.
+- **Mike Cecconello** · 25:39 — Giulio, OK. Allora se sta una settimana ancora meglio, così riesco a combinare queste due cose che ho.
+- **Luca Boscariol** · 25:45 — Sì, sicuramente sì dai, poi ti dico che giorni così con sto caldo eviterei. Quindi. Va bene, ci sentiamo appena si rinfresca un attimo, sì, magari, anche se son paura.
+- **Mike Cecconello** · 25:55 — Concordo se si riesce. Sì, settimana del 13 però hai detto.
+- **Luca Boscariol** · 26:04 — Ma lì sarebbe sì, sarebbe forse ottimale per entrambi, se riesci anche tu.
+- **Mike Cecconello** · 26:06 — OK. OK.
+- **Luca Boscariol** · 26:11 — Daje buono, ci sentiamo.
+- **Mike Cecconello** · 26:11 — OK, perfetto, dai Luca, Ciao, buon venerdì, Ciao Ciao.
+- **Luca Boscariol** · 26:14 — Grazie Mike, Ciao. Grazie, buon weekend, Ciao Ciao.
+_Luca Boscariol — trascrizione arrestata_

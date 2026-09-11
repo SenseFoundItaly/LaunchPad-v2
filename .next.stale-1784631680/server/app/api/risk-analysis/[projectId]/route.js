@@ -1,0 +1,12 @@
+var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/risk-analysis/[projectId]/route.js")
+R.c("server/chunks/tech-bricks_LaunchPad-v2_src_lib_journey_0~y2qc1._.js")
+R.c("server/chunks/[root-of-the-server]__0exjlkn._.js")
+R.c("server/chunks/[root-of-the-server]__0u8uxfm._.js")
+R.c("server/chunks/0mjv_next_07jphsx._.js")
+R.c("server/chunks/[root-of-the-server]__0xbhf.g._.js")
+R.c("server/chunks/0mjv_0yf2dbb._.js")
+R.c("server/chunks/tech-bricks_LaunchPad-v2_0ungsfv._.js")
+R.c("server/chunks/tech-bricks_LaunchPad-v2_src_lib_0_yadel._.js")
+R.c("server/chunks/0d7q__next-internal_server_app_api_risk-analysis_[projectId]_route_actions_0b8.o-r.js")
+R.m(667469)
+module.exports=R.m(667469).exports

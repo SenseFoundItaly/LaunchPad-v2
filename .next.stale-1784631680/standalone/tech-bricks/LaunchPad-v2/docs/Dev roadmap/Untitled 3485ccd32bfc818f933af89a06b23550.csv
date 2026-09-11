@@ -1,0 +1,85 @@
+﻿Stage,Modulo,Task,Priorità,Deadline 1,Status,Note / Dipendenze
+S1 — Platform OS,1.1 Layer 1 Intelligence,"Viability scoring: idea scoring su mercato, competition, timing, team fit",🔴 Critica,"May 15, 2026",In progress,"Costo API target: <€0,25/utente/mese"
+S1 — Platform OS,,"Risk analysis: identificazione rischi per categoria (mercato, prodotto, esecuzione, finanziario)",🔴 Critica,"May 15, 2026",Not started,—
+S1 — Platform OS,,Strategic suggestions: suggerimenti operativi prioritizzati per stage e settore,🔴 Critica,"May 15, 2026",Done,—
+S1 — Platform OS,,"Repository cumulativo: accumulo analisi, asset, decisioni nella knowledge base",🔴 Critica,"May 15, 2026",Not started,Dipende da 1.1.3 (memory layer)
+S1 — Platform OS,,"Smart control panel: dashboard con segnali ricorrenti (competitor, trend, IP alerts)",🟠 Alta,"May 15, 2026",In progress,—
+S1 — Platform OS,,Knowledge graph human-in-the-loop: aggiornamento memoria con note in formato libero,🟠 Alta,"May 15, 2026",Not started,Dipende da 1.1.3
+S1 — Platform OS,,"Global startup intelligence: analisi ricorrenti automatizzate (mercato, competitor, tecnologie, GTM)",🔴 Critica,"May 15, 2026",In progress,—
+S1 — Platform OS,,AI Mentor: agente contestualizzato sulla startup specifica dell’utente,🔴 Critica,"May 15, 2026",Not started,Dipende da 1.1.3
+S1 — Platform OS,1.2 Infrastruttura base,"UX/UI responsive (web-first, mobile-friendly)",🟠 Alta,"May 22, 2026",Not started,—
+S1 — Platform OS,,"Sistema di autenticazione utente (auth, profili, ruoli)",🔴 Critica,"May 22, 2026",In progress,—
+S1 — Platform OS,,Memory layer: persistenza knowledge base per utente tra sessioni,🔴 Critica,"May 22, 2026",In progress,Blocca tutto il resto. Sviluppare per primo.
+S1 — Platform OS,,Cloud infrastructure + deploy pipeline,🔴 Critica,"May 22, 2026",In progress,—
+S1 — Platform OS,,"Output export (PDF, markdown, structured JSON)",🟠 Alta,"May 22, 2026",Not started,—
+S1 — Platform OS,,"Dashboard utente: avanzamento startup, attività recenti, suggerimenti AI",🟠 Alta,"May 22, 2026",Not started,—
+S1 — Platform OS,1.3 The Forge Integration,"Dashboard admin The Forge: configurazione percorso, milestone, obiettivi individuali",🟠 Alta,"May 31, 2026",Not started,Progettare come sistema “partner config” generico — non hardcoded per The Forge
+S1 — Platform OS,,"Gestione utenti continua: inviti individuali, link di accesso diretto, assegnazione mentor 1-to-1",🟠 Alta,"May 31, 2026",Not started,Flusso asincrono — nessuna sincronizzazione di gruppo
+S1 — Platform OS,,"Vista aggregata founder attivi in tempo reale (anonimizzata): step del workflow, blocchi, pattern",🟠 Alta,"May 31, 2026",Not started,"Rolling, non per-coorte"
+S1 — Platform OS,,"Export report su singolo founder o pool attivo (PDF/CSV), eseguibile in qualsiasi momento",🟡 Media,"May 31, 2026",Not started,—
+S1 — Platform OS,,Onboarding self-service: link The Forge → wizard setup <10 min → attivazione autonoma,🔴 Critica,"May 31, 2026",Not started,Nessuna assistenza sincrona richiesta
+S1 — Platform OS,,Branding co-branded The Forge + SenseFound nell’onboarding flow,🟡 Media,"May 31, 2026",Not started,—
+S1 — Platform OS,,Template pre-caricati allineati alla metodologia The Forge,🟠 Alta,"May 31, 2026",Not started,Coordinare contenuti con The Forge team
+S1 — Platform OS,,Notifica automatica al mentor assegnato all’attivazione del nuovo founder,🟠 Alta,"May 31, 2026",Not started,"Event-driven, non calendario"
+S1 — Platform OS,,Layer 1 pre-configurato con metodo The Forge dall’accesso al primo accesso,🔴 Critica,"May 31, 2026",Not started,Dipende da 1.2 completo
+S1 — Platform OS,1.4 Pricing & Billing,"Paywall e upgrade flow in-app (trigger contestuali, non muri fissi)",🟠 Alta,"June 14, 2026",Not started,—
+S1 — Platform OS,,Gestione seat e inviti team (piani Team S e M),🟠 Alta,"June 14, 2026",Not started,—
+S1 — Platform OS,,Billing integration (Stripe),🟠 Alta,"June 14, 2026",Not started,—
+S1 — Platform OS,,Crediti asset generation: contatore mensile + acquisto crediti aggiuntivi,🟠 Alta,"June 14, 2026",Not started,—
+S1 — Platform OS,,Trial 14gg Layer 2 per utenti free attivi da >7 giorni (trigger automatico),🟠 Alta,"June 14, 2026",Not started,—
+S1 — Platform OS,1.5 Layer 2 Iteration,Step 1 — Idea pre-validation: varianti iterative con scoring multi-variabile e verdetto go/no-go/pivot,🟠 Alta,"June 28, 2026",In progress,"Workflow conversazionale via chatbot, non a form"
+S1 — Platform OS,,Step 1 — Hypothesis canvas e assumption mapping,🟠 Alta,"June 28, 2026",In progress,—
+S1 — Platform OS,,Step 2 — Synthetic validation: test su buyer personas sintetiche,🟡 Media,"June 28, 2026",In progress,Dipende da 1.5.1 (Sandbox Bohm)
+S1 — Platform OS,,"Step 2 — Real market validation: framework interviste, raccolta feedback strutturata",🟠 Alta,"June 28, 2026",In progress,—
+S1 — Platform OS,,Step 2 — Outreach automation: lead scraper + sequenze 1-to-1 + basic CRM interviste,🟠 Alta,"June 28, 2026",In progress,—
+S1 — Platform OS,,Step 2 — Asset generation: BMC + pricing analysis + Light brand identity,🟠 Alta,"July 12, 2026",In progress,—
+S1 — Platform OS,,Step 2 — Asset generation: financial projections + pitch deck,🟠 Alta,"July 12, 2026",In progress,—
+S1 — Platform OS,,Step 3 — MVP canvas e roadmap tecnica,🟠 Alta,"July 12, 2026",Not started,—
+S1 — Platform OS,,Step 3 — Brief per Frontier Lab / TechBricks MVP dev,🟡 Media,"July 12, 2026",Not started,Dipende da integrazione TechBricks (Stage 3)
+S1 — Platform OS,,Step 4 — GTM plan generator contestualizzato su ICP e canali,🟠 Alta,"July 25, 2027",Not started,—
+S1 — Platform OS,,Step 4 — Outreach multicanale orchestrato,🟠 Alta,"July 25, 2027",Not started,—
+S1 — Platform OS,1.6 The Forge Integration,Sblocco guidato Layer 2: step del workflow si sbloccano con il progresso individuale,🟠 Alta,"August 9, 2026",Not started,"Logica di progressione per utente, non per gruppo"
+S1 — Platform OS,,AI Mentor contestualizzato: conosce progetto del founder + punto nel percorso,🟠 Alta,"August 9, 2026",Not started,Dipende da 1.2.8
+S1 — Platform OS,,"Notifiche e suggerimenti event-driven: trigger su inattività >3gg, step completato, milestone",🟠 Alta,"August 9, 2026",Not started,Non calendar-driven
+S1 — Platform OS,,Accesso mentor umano The Forge al repository del founder (con consenso esplicito),🟡 Media,"August 9, 2026",Not started,—
+S1 — Platform OS,,Survey automatica NPS + feedback qualitativo al completamento di ogni step,🟠 Alta,"August 9, 2026",Not started,Raccolta dati rolling — critico per dev SenseFound
+S1 — Platform OS,,"Dashboard metriche rolling (30/90gg): activation rate, step completion, dropout point, time-to-first-value",🟠 Alta,"August 9, 2026",Not started,Solo uso interno SenseFound
+S1 — Platform OS,1.5 Sandbox GTM (Bohm),"Generazione buyer personas sintetiche calibrate su ICP (settore, ruolo, pain, behaviour)",🟠 Alta,"September 13, 2026",In progress,⚠️ Dev non inizia prima dell’allineamento con Bohm (Mag 2026)
+S1 — Platform OS,,"Simulazione risposta al messaggio per persona sintetica (sentiment, obiezioni, probabilità conversione)",🟠 Alta,"September 13, 2026",In progress,Dipende da 1.5.1
+S1 — Platform OS,,"Test A/B varianti posizionamento, pricing, canale su audience sintetiche",🟠 Alta,"September 13, 2026",Not started,Dipende da 1.5.2
+S1 — Platform OS,,Dashboard risultati simulazione: raccomandazioni operative,🟠 Alta,"September 27, 2026",Not started,—
+S1 — Platform OS,,"White label layer: branding configurabile per Bohm (logo, colori, nome prodotto)",🟠 Alta,"September 27, 2026",Not started,Layer Sandbox come microservizio isolato — non esporre infrastruttura core
+S1 — Platform OS,,API pubblica del layer Sandbox: documentazione + endpoint per embedding in sistemi Bohm,🟠 Alta,"September 27, 2026",Not started,Documentare prima della consegna a Bohm
+S2 — Versioning B2B,2.1 Istituzionale (VS + Incubatori),Multi-project view: gestione portfolio startup da pannello unico (program manager view),🟡 Media,"October 31, 2026",Not started,Generalizzare sistema partner config di 1.6
+S2 — Versioning B2B,,Modular workflow: configurazione workflow per ogni startup del portfolio per stage e settore,🟡 Media,"October 31, 2026",Not started,—
+S2 — Versioning B2B,,"Scouting + CRM integration: pipeline deal flow con scoring, tagging, CRM esterno (Airtable, Notion, HubSpot)",🟡 Media,"October 31, 2026",Not started,—
+S2 — Versioning B2B,,Aggregate reporting: report portfolio per finanziatori e LPs,🟡 Media,"October 31, 2026",Not started,—
+S2 — Versioning B2B,,"White label: branding configurabile per incubatore (logo, colori, nome)",🟡 Media,"November 15, 2026",Not started,Riusa architettura white label di 1.5.5
+S2 — Versioning B2B,2.2 VC / Fondi,"Investment readiness scoring: scoring startup su investibility (team, mercato, traction, IP, validazione)",🟡 Media,"November 15, 2026",Not started,—
+S2 — Versioning B2B,,"Portfolio dashboard: KPI, milestone, segnali di rischio su startup investite",🟡 Media,"November 15, 2026",Not started,—
+S2 — Versioning B2B,,Deal flow certificato: pipeline startup SenseFound con scoring verificato,🟡 Media,"November 29, 2026",Not started,Attivabile solo con >100 founder attivi
+S2 — Versioning B2B,,"API integrazione VC tool (Affinity, Visible, Carta)",🟡 Media,"November 29, 2026",Not started,—
+S3 — Core OS + CVB,3.1 Ottimizzazioni,LLM routing: selezione dinamica modello per task (costo vs qualità),🟠 Alta,"December 23, 2026",Not started,—
+S3 — Core OS + CVB,,Revisione architettura memory layer su larga scala (>1.000 utenti attivi),🟡 Media,"December 23, 2026",Not started,—
+S3 — Core OS + CVB,,A/B testing framework interno per iterare workflow senza deploy,🟡 Media,"December 23, 2026",Not started,—
+S3 — Core OS + CVB,,Monitoring e alerting costi API per utente (soglie automatiche),🔴 Critica,"December 23, 2026",Not started,Implementare appena Layer 1 è live
+S3 — Core OS + CVB,3.2 CVB Enterprise,Governance layer: approval workflow per decisioni chiave con Sponsor formale,🟡 Media,"January 31, 2027",Not started,Dipende da Stage 2 completato
+S3 — Core OS + CVB,,Budget tracking: business case nel formato richiesto dalla corporate,🟡 Media,"January 31, 2027",Not started,—
+S3 — Core OS + CVB,,"Stakeholder management: mappatura, tracking engagement, comunicazioni strutturate",🟡 Media,"January 31, 2027",Not started,—
+S3 — Core OS + CVB,,"Enterprise integrations: SSO, Slack, Teams, SharePoint, CRM enterprise",🟡 Media,"January 31, 2027",Not started,—
+S3 — Core OS + CVB,,"Reporting KPI: dashboard per C-level e Steering Committee, KPI personalizzabili",🟡 Media,"January 31, 2027",Not started,—
+S3 — Core OS + CVB,,Multi-team workflow: più team in parallelo con visibilità centralizzata,🟡 Media,"February 14, 2027",Not started,—
+S3 — Core OS + CVB,,IP tracking: documentazione e tracciamento asset IP generati durante il programma,🟡 Media,"February 14, 2027",Not started,—
+S3 — Core OS + CVB,,Plug-in TechBricks: integrazione modulo MVP dev & deployment via API,🟡 Media,"February 14, 2027",Not started,Contratto tecnico con TechBricks da definire entro Q1 2027
+S4 — Cluster + Deeptech,4.1 Cluster verticali,Template engine e workflow configurator generico per cluster,🟡 Media,"March 29, 2026",Not started,Prerequisito per tutti i cluster — sviluppare prima
+S4 — Cluster + Deeptech,,Cluster Climate tech / Energy tech / Cleantech,🟡 Media,"March 29, 2026",Not started,Dipende da 4.1.1
+S4 — Cluster + Deeptech,,Cluster Agritech / Foodtech,🟡 Media,"March 29, 2026",Not started,Dipende da 4.1.1
+S4 — Cluster + Deeptech,,Cluster Medtech / Healthtech,🟡 Media,"March 29, 2026",Not started,Dipende da 4.1.1
+S4 — Cluster + Deeptech,,Cluster B2B SaaS enterprise,🟡 Media,"March 29, 2026",Not started,Dipende da 4.1.1
+S4 — Cluster + Deeptech,4.2 Deeptech,R&D support module con TRL (Technology Readiness Level) tracking,🟡 Media,"July 31, 2027",Not started,—
+S4 — Cluster + Deeptech,,"Tech transfer framework: valorizzazione IP, dalla ricerca universitaria alla spin-off",🟡 Media,"July 31, 2027",Not started,—
+S4 — Cluster + Deeptech,,Scientific validation layer: integrazione database accademici e patent databases,🟡 Media,"July 31, 2027",Not started,—
+S5 — Growth Stage,5.1 Moduli growth,"Scaling workflow: PMF → crescita sistematica (canali, unit economics, hiring, fundraising Serie A)",🟡 Media,"November 28, 2027",Not started,Validare con mercato prima di sviluppare
+S5 — Growth Stage,,"Investor relations module: reporting ricorrente, data room aggiornata in automatico",🟡 Media,"November 28, 2027",Not started,—
+S5 — Growth Stage,,Team & OKR management: obiettivi e task integrati con la knowledge base OS,🟡 Media,"November 28, 2027",Not started,—
+S5 — Growth Stage,,Partnership development: workflow per identificare e gestire partnership strategiche,🟡 Media,"November 28, 2027",Not started,—

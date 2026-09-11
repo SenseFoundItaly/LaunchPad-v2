@@ -1,0 +1,576 @@
+export interface Project {
+  project_id: string;
+  name: string;
+  description: string;
+  status: string;
+  /** @deprecated Legacy 5-stage pointer (idea/mvp/pmf/growth/scale → 1-5), NOT
+   *  the canonical 7-stage journey. Do NOT read for stage display: it is not
+   *  advanced when journey checks pass and drifts from the spine. Use
+   *  getActiveStage()/activeStageFor() from '@/lib/journey'. */
+  current_step: number;
+  created_at: string;
+  updated_at: string;
+  llm_provider: string;
+  /** The language the project was created in, then frozen. Drives the agent's
+   *  responses and the UI chrome while inside this project. Short code: en/it/… */
+  locale: string;
+  error: string | null;
+  /** 'owner' = the current user's org owns this project; 'member' = shared
+   *  with them. Server-set by /api/projects/{id}. Undefined on older
+   *  payloads that pre-date the share flag — treat as 'owner' for safety. */
+  access_kind?: 'owner' | 'member';
+  /** Owner's email — used for "shared by X" labels when viewing as member. */
+  owner_email?: string | null;
+}
+
+export interface IdeaCanvas {
+  problem: string;
+  solution: string;
+  target_market: string;
+  business_model: string;
+  competitive_advantage: string;
+  value_proposition: string;
+  key_metrics: string[];
+  revenue_streams: string[];
+  cost_structure: string[];
+  unfair_advantage: string;
+}
+
+export interface ScoreDimension {
+  name: string;
+  score: number;
+  rationale: string;
+  strengths: string[];
+  risks: string[];
+}
+
+export interface ScoreResult {
+  overall_score: number;
+  dimensions: ScoreDimension[];
+  benchmark_comparison: string;
+  top_recommendation: string;
+}
+
+export interface Competitor {
+  name: string;
+  description: string;
+  strengths: string[];
+  weaknesses: string[];
+  funding: string;
+  market_share: string;
+}
+
+export interface ResearchResult {
+  market_size: { tam: string; sam: string; som: string };
+  competitors: Competitor[];
+  trends: { title: string; description: string; relevance: string; direction: string }[];
+  case_studies: { name: string; outcome: string; lessons_learned: string }[];
+  key_insights: string[];
+}
+
+export interface SimulatedPersona {
+  id: string;
+  name: string;
+  role: string;
+  demographics: string;
+  profession: string;
+  feedback: string;
+  sentiment: 'positive' | 'neutral' | 'negative';
+  willingness_to_pay: string | null;
+  concerns: string[];
+  suggestions: string[];
+}
+
+export interface RiskScenario {
+  title: string;
+  probability: 'low' | 'medium' | 'high';
+  impact: 'low' | 'medium' | 'high';
+  description: string;
+  mitigation: string;
+}
+
+export interface SimulationResult {
+  personas: SimulatedPersona[];
+  risk_scenarios: RiskScenario[];
+  market_reception_summary: string;
+  investor_sentiment: string;
+}
+
+export interface WorkflowResult {
+  gtm_strategy: {
+    target_segments: string[];
+    channels: { name: string; strategy: string; budget: string; priority: string }[];
+    pricing: string;
+    launch_plan: string;
+    key_partnerships: string[];
+  };
+  pitch_deck: { slide: string; content: string }[];
+  financial_model: {
+    assumptions: string[];
+    projections: { period: string; revenue: string; costs: string; profit: string }[];
+    funding_needed: string;
+  };
+  roadmap: {
+    milestone: string;
+    timeline: string;
+    deliverables: string[];
+    status: string;
+  }[];
+  action_items: { task: string; priority: string; timeline: string; owner: string }[];
+}
+
+export interface ToolActivity {
+  id: string;
+  name: string;
+  args?: Record<string, unknown>;
+  status: 'running' | 'done' | 'error';
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  tools?: ToolActivity[];
+}
+
+export interface Task {
+  task_id: string;
+  task_type: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  progress: number;
+  message: string;
+  result: Record<string, unknown> | null;
+  error: string | null;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  error?: string;
+}
+
+// === Command Center ===
+export interface MetricDefinition {
+  metric_id: string;
+  name: string;
+  type: 'currency' | 'count' | 'percentage' | 'duration';
+  target_growth_rate: number;
+  entries: MetricEntry[];
+}
+export interface MetricEntry {
+  date: string;
+  value: number;
+  notes: string;
+}
+export interface BurnRate {
+  monthly_burn: number;
+  cash_on_hand: number;
+  last_updated: string;
+}
+export interface Alert {
+  alert_id: string;
+  type: string;
+  severity: 'info' | 'warning' | 'critical';
+  message: string;
+  created_at: string;
+  dismissed: boolean;
+}
+export interface DashboardData {
+  metrics: MetricDefinition[];
+  burn_rate: BurnRate | null;
+  alerts: Alert[];
+}
+export interface HealthAnalysis {
+  health_score: number;
+  trajectory: string;
+  top_concern: string;
+  top_opportunity: string;
+  weekly_advice: string;
+}
+
+// === Growth Intelligence ===
+export interface GrowthLoop {
+  loop_id: string;
+  metric_name: string;
+  optimization_target: string;
+  status: 'active' | 'paused' | 'completed';
+  baseline_value: number;
+  current_best_value: number;
+  iterations: GrowthIteration[];
+  accumulated_learnings: string;
+}
+export interface GrowthIteration {
+  iteration_id: string;
+  created_at: string;
+  hypothesis: string;
+  proposed_changes: { element: string; current: string; proposed: string }[];
+  status: 'proposed' | 'testing' | 'tested' | 'adopted' | 'rejected';
+  result_value: number | null;
+  improvement_pct: number | null;
+  learnings: string;
+  adopted: boolean;
+}
+
+// === Fundraising OS ===
+export interface FundraisingRound {
+  round_type: string;
+  target_amount: number;
+  valuation_cap: number;
+  instrument: string;
+  status: string;
+  target_close: string;
+}
+export interface Investor {
+  investor_id: string;
+  name: string;
+  type: string;
+  contact_name: string;
+  contact_email: string;
+  stage: string;
+  check_size: number;
+  notes: string;
+  interactions: InvestorInteraction[];
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+}
+export interface InvestorInteraction {
+  date: string;
+  type: string;
+  summary: string;
+  next_step: string;
+  next_step_date: string;
+}
+export interface PitchVersion {
+  version_id: string;
+  version_number: number;
+  created_at: string;
+  slides: { slide: string; content: string; speaker_notes: string }[];
+  feedback_summary: string;
+  changelog: string[];
+}
+export interface TermSheet {
+  term_sheet_id: string;
+  investor_id: string;
+  received_at: string;
+  valuation: number;
+  amount: number;
+  instrument: string;
+  key_terms: string;
+  status: string;
+  notes: string;
+}
+export interface FundraisingData {
+  round: FundraisingRound | null;
+  investors: Investor[];
+  pitch_versions: PitchVersion[];
+  term_sheets: TermSheet[];
+}
+
+// === Startup Journey ===
+export interface Milestone {
+  milestone_id: string;
+  week: number;
+  phase: string;
+  title: string;
+  description: string;
+  status: 'upcoming' | 'in_progress' | 'completed' | 'skipped';
+  completed_at: string | null;
+  linked_feature: string | null;
+}
+export interface StartupUpdate {
+  update_id: string;
+  period: string;
+  date: string;
+  metrics_snapshot: Record<string, number>;
+  highlights: string[];
+  challenges: string[];
+  asks: string[];
+  morale: number;
+  generated_summary: string;
+}
+export interface ScalingPlan {
+  months: {
+    month: number;
+    focus: string;
+    goals: string[];
+    risks: string[];
+    status: string;
+  }[];
+}
+
+// === Ecosystem Intelligence (Layer 1 autonomous feed) ===
+export type EcosystemAlertType =
+  | 'competitor_activity'
+  | 'ip_filing'
+  | 'trend_signal'
+  | 'partnership_opportunity'
+  | 'regulatory_change'
+  | 'funding_event'
+  | 'hiring_signal'
+  | 'customer_sentiment'
+  | 'social_signal'
+  | 'ad_activity'
+  | 'pricing_change'
+  | 'product_launch'
+  | 'supplier_move'
+  | 'gtm_signal';
+
+export type EcosystemAlertState =
+  | 'pending'
+  | 'acknowledged'
+  | 'dismissed'
+  | 'promoted_to_action';
+
+export interface EcosystemAlert {
+  id: string;
+  project_id: string;
+  monitor_id: string | null;
+  monitor_run_id: string | null;
+  alert_type: EcosystemAlertType;
+  source: string | null;
+  source_url: string | null;
+  headline: string;
+  body: string | null;
+  /**
+   * Subject company/product the alert is about (artifact `entity` field,
+   * falling back to entityNameFromHeadline at insert). NULL on pre-017 rows —
+   * consumers fall back to the headline heuristic.
+   */
+  entity: string | null;
+  relevance_score: number;
+  confidence: number;
+  graph_node_id: string | null;
+  reviewed_state: EcosystemAlertState;
+  reviewed_at: string | null;
+  founder_action_taken: string | null;
+  dedupe_hash: string | null;
+  created_at: string;
+}
+
+// === Pending Actions (approval inbox) ===
+export type PendingActionType =
+  | 'draft_email'
+  | 'draft_linkedin_post'
+  | 'draft_linkedin_dm'
+  | 'proposed_hypothesis'
+  | 'proposed_interview_question'
+  | 'proposed_landing_copy'
+  | 'proposed_investor_followup'
+  | 'proposed_graph_update'
+  | 'workflow_step'                 // chat-proposed workflow step, one row per step
+  | 'configure_monitor'             // chat-proposed ecosystem monitor awaiting founder review
+  | 'edit_monitor'                  // chat-proposed edit to an EXISTING watcher (cadence/objective/status) — founder confirms
+  | 'delete_monitor'                // chat-proposed pause/delete of an EXISTING watcher — founder confirms
+  | 'configure_budget'              // chat-proposed monthly LLM budget cap change awaiting founder review
+  | 'configure_watch_source'        // chat-proposed watch source awaiting founder review
+  | 'run_skill'                     // chat-proposed skill kickoff — founder approves (cost shown), then it runs real-time via runSkill
+  | 'skill_rerun_result'            // heartbeat-executor refreshed a stale analytical skill — surfaces new score in inbox
+  | 'validation_proposal'           // chat/upload-proposed batch of validation evidence (canvas/competitors/market) — founder approves which items commit to the spine
+  | 'task'                          // chat-proposed founder task (TODO) — Mark done / Snooze / Dismiss
+  // Unified-inbox surface (materialized from ecosystem_alerts, intelligence_briefs, assumptions on read).
+  // The underlying row stays in its own table; the synthetic pending_action mirrors it so accept/reject
+  // share the same UX. Apply/reject handlers in action-executors propagate state to the source table.
+  | 'signal_alert'                  // mirror of ecosystem_alerts.reviewed_state='pending'
+  | 'intelligence_brief'            // mirror of intelligence_briefs.status='active'
+  | 'assumption_review'             // mirror of assumptions.status='open'
+  | 'propose_assumption_revision';  // watcher-derived proposal to revise a financial assumption (e.g. ARPU) — founder edits/approves, then the model recomputes
+  // NOTE: `raw_change` was added in the first cut of the consolidation and then
+  // removed — significant source_changes already become signal_alert via the
+  // watch-source-processor → ecosystem_alerts route, so surfacing the raw diff
+  // separately was duplication and not founder-relevant.
+
+export type PendingActionStatus =
+  | 'pending'
+  | 'applied'
+  | 'edited'
+  | 'rejected'
+  | 'sent'
+  | 'failed';
+
+export interface PendingAction {
+  id: string;
+  project_id: string;
+  monitor_run_id: string | null;
+  ecosystem_alert_id: string | null;
+  action_type: PendingActionType;
+  title: string;
+  rationale: string | null;
+  payload: Record<string, unknown>;
+  estimated_impact: 'low' | 'medium' | 'high' | null;
+  status: PendingActionStatus;
+  edited_payload: Record<string, unknown> | null;
+  execution_target: string | null;
+  executed_at: string | null;
+  execution_result: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// === Watch Sources & Source Changes (URL-based change detection) ===
+export type WatchSourceCategory =
+  | 'competitor_pricing'
+  | 'competitor_product'
+  | 'patent_database'
+  | 'regulatory'
+  | 'news'
+  | 'custom'
+  | 'careers_page'
+  | 'social_feed'
+  | 'review_site'
+  | 'ad_tracker'
+  | 'marketing';
+
+export const VALID_CATEGORIES = new Set<WatchSourceCategory>([
+  'competitor_pricing', 'competitor_product', 'patent_database',
+  'regulatory', 'news', 'custom', 'careers_page', 'social_feed', 'review_site',
+  'ad_tracker', 'marketing',
+]);
+
+export type WatchSourceStatus = 'active' | 'paused' | 'error';
+export type WatchSourceSchedule = 'hourly' | 'daily' | 'weekly' | 'manual';
+
+export interface WatchSource {
+  id: string;
+  project_id: string;
+  url: string;
+  label: string;
+  category: WatchSourceCategory;
+  scrape_config: Record<string, unknown>;
+  schedule: WatchSourceSchedule;
+  last_snapshot: string | null;
+  last_content_hash: string | null;
+  last_scraped_at: string | null;
+  next_scrape_at: string | null;
+  status: WatchSourceStatus;
+  error_message: string | null;
+  error_count: number;
+  change_tracking_tag: string | null;
+  monitor_id: string | null;
+  created_at: string;
+  updated_at: string;
+  // Computed fields from JOIN queries
+  last_change_at?: string | null;
+  total_changes?: number;
+}
+
+export type ChangeStatus = 'new' | 'same' | 'changed' | 'removed';
+export type SignalSignificance = 'high' | 'medium' | 'low' | 'noise';
+
+export interface SourceChange {
+  id: string;
+  watch_source_id: string;
+  project_id: string;
+  change_status: ChangeStatus;
+  diff_summary: string | null;
+  raw_diff: string | null;
+  previous_content_hash: string | null;
+  current_content_hash: string | null;
+  significance: SignalSignificance;
+  significance_rationale: string | null;
+  alert_id: string | null;
+  detected_at: string;
+}
+
+// Re-export lane taxonomy defined in src/lib/action-lanes.ts so UI code
+// can `import type { ActionLane } from '@/types'` without reaching into lib.
+// Phase 1 of the 4-bucket reorganization (Tasks / Approvals / Notifications).
+// Source moved out of pending-actions.ts so client bundles don't pull in
+// server-only DB code (Turbopack: "Module not found").
+export type { ActionLane } from '@/lib/action-lanes';
+
+// === Partner Configs (Add-on 1/3 onboarding) ===
+export interface PartnerConfig {
+  slug: string;
+  display_name: string;
+  locale: string;
+  knowledge_seed: Record<string, unknown> | null;
+  preferred_skills: string[] | null;
+  brief_template: string;
+  brand: Record<string, unknown> | null;
+  created_at: string;
+}
+
+// === Project Budgets (cost governance) ===
+export interface ProjectBudget {
+  id: string;
+  project_id: string;
+  period_month: string;
+  cap_llm_usd: number;
+  cap_external_actions: number;
+  warn_llm_usd: number;
+  warn_external_actions: number;
+  current_llm_usd: number;
+  current_external_actions: number;
+  cap_credits: number;
+  status: 'active' | 'warned' | 'capped';
+  created_at: string;
+  updated_at: string;
+}
+
+// === Intelligence Briefs (cross-signal correlation synthesis) ===
+export type IntelligenceBriefType = 'correlation';
+export type IntelligenceBriefStatus = 'active' | 'expired' | 'superseded';
+
+export interface RecommendedAction {
+  action: string;
+  urgency: 'immediate' | 'this_week' | 'this_month' | 'watch';
+  rationale: string;
+}
+
+export interface IntelligenceBrief {
+  id: string;
+  project_id: string;
+  brief_type: IntelligenceBriefType;
+  entity_name: string | null;
+  title: string;
+  narrative: string;
+  temporal_prediction: string | null;
+  confidence: number;
+  signal_ids: string[];
+  signal_count: number;
+  recommended_actions: RecommendedAction[];
+  valid_until: string | null;
+  status: IntelligenceBriefStatus;
+  created_at: string;
+}
+
+// === Competitor Profiles (per-competitor intelligence dossiers) ===
+export type TrendDirection = 'expanding' | 'stable' | 'contracting' | 'pivoting';
+
+export interface CompetitorProfile {
+  id: string;
+  project_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  signal_counts: Record<string, number>;
+  total_signals: number;
+  latest_brief_id: string | null;
+  trend_direction: TrendDirection;
+  last_activity_at: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+// === Monday Brief (aggregated digest delivered by cron) ===
+export interface MondayBriefSection {
+  kind: 'movements' | 'actions_taken' | 'decisions_needed' | 'metrics' | 'fundraising' | 'strategic_intel';
+  heading: string;
+  narrative: string;
+  artifacts?: Array<Record<string, unknown>>;
+}
+
+export interface MondayBrief {
+  project_id: string;
+  period_week_start: string;
+  personality_intro: string;
+  sections: MondayBriefSection[];
+  ecosystem_alerts: EcosystemAlert[];
+  pending_actions: PendingAction[];
+  operational_alerts: Alert[];
+  intelligence_briefs: IntelligenceBrief[];
+  generated_at: string;
+}

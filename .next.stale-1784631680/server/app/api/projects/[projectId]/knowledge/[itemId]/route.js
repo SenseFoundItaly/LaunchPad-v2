@@ -1,0 +1,10 @@
+var R=require("../../../../../../chunks/[turbopack]_runtime.js")("server/app/api/projects/[projectId]/knowledge/[itemId]/route.js")
+R.c("server/chunks/[root-of-the-server]__0.hmg2s._.js")
+R.c("server/chunks/0mjv_next_07jphsx._.js")
+R.c("server/chunks/[root-of-the-server]__0u8uxfm._.js")
+R.c("server/chunks/tech-bricks_LaunchPad-v2_0ungsfv._.js")
+R.c("server/chunks/tech-bricks_LaunchPad-v2_src_lib_0mgx._s._.js")
+R.c("server/chunks/[root-of-the-server]__0xbhf.g._.js")
+R.c("server/chunks/02nj_server_app_api_projects_[projectId]_knowledge_[itemId]_route_actions_0nynb96.js")
+R.m(921340)
+module.exports=R.m(921340).exports

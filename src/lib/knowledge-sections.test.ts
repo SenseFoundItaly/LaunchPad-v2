@@ -54,9 +54,14 @@ describe('it lives on Knowledge, not in the graph and not behind a flag', () => 
   });
 
   it('Build is still flag-gated, which is why it was not put there', () => {
+    // The gate is what matters, not its shape: #484 changed Build from
+    // filtered-out to rendered "coming soon" and inert, so an assertion on the
+    // old filter expression went stale the moment both landed on main. Assert
+    // the invariant instead — Build is off in prod, so a section there would be
+    // unreachable for the founder who asked for it.
     const chrome = read('src/components/design/chrome.tsx');
-    expect(chrome).toMatch(/NEXT_PUBLIC_BUILD_ENABLED/);
-    expect(chrome).toMatch(/it\.id !== 'build' \|\| BUILD_NAV_ENABLED/);
+    expect(chrome).toMatch(/NEXT_PUBLIC_BUILD_ENABLED === '1'/);
+    expect(chrome).toMatch(/it\.id === 'build' && !BUILD_NAV_ENABLED/);
   });
 
   it('renders nothing until the project actually has 1B output', () => {

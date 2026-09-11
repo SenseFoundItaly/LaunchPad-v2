@@ -1,0 +1,3 @@
+{
+  "/api/journey/[projectId]/milestones/[msId]/route": "app/api/journey/[projectId]/milestones/[msId]/route.js"
+}

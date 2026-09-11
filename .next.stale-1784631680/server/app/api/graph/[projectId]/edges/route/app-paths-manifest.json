@@ -1,0 +1,3 @@
+{
+  "/api/graph/[projectId]/edges/route": "app/api/graph/[projectId]/edges/route.js"
+}

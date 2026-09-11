@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in to SenseFound</title>
+</head>
+<body style="margin:0;padding:0;background-color:#FAF5EE;font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+
+  <!-- Outer wrapper table for full-width cream background -->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#FAF5EE;">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+
+        <!-- Card -->
+        <table role="presentation" width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;width:100%;background-color:#FFFFFF;border:1px solid #E5DFCF;border-radius:8px;overflow:hidden;">
+
+          <!-- Gradient bar -->
+          <tr>
+            <td style="height:4px;background:linear-gradient(to right,#D4896A,#FAF5EE,#6B9B80);font-size:0;line-height:0;">&nbsp;</td>
+          </tr>
+
+          <!-- Bracket motif + wordmark -->
+          <tr>
+            <td align="center" style="padding:32px 40px 0 40px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="font-size:28px;font-weight:300;color:#6B9B80;padding-right:6px;vertical-align:middle;font-family:'Georgia',serif;">&#91;</td>
+                  <td style="font-size:16px;font-weight:600;letter-spacing:3px;color:#16140F;vertical-align:middle;font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">SENSEFOUND</td>
+                  <td style="font-size:28px;font-weight:300;color:#6B9B80;padding-left:6px;vertical-align:middle;font-family:'Georgia',serif;">&#93;</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Heading -->
+          <tr>
+            <td style="padding:28px 40px 0 40px;">
+              <h1 style="margin:0;font-size:22px;font-weight:600;color:#16140F;text-align:center;">Sign in to your account</h1>
+            </td>
+          </tr>
+
+          <!-- Body copy -->
+          <tr>
+            <td style="padding:16px 40px 0 40px;">
+              <p style="margin:0;font-size:15px;line-height:1.6;color:#2A2620;text-align:center;">
+                We received a sign-in request for <strong>{{ .Email }}</strong>. Click the button below to securely access your workspace. This link expires in 24 hours.
+              </p>
+            </td>
+          </tr>
+
+          <!-- CTA button -->
+          <tr>
+            <td align="center" style="padding:28px 40px 0 40px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" style="background-color:#6B9B80;border-radius:6px;">
+                    <a href="{{ .ConfirmationURL }}"
+                       target="_blank"
+                       style="display:inline-block;padding:12px 28px;font-size:15px;font-weight:600;color:#FFFFFF;text-decoration:none;font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+                      Sign in securely &#8599;
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Fallback URL -->
+          <tr>
+            <td style="padding:20px 40px 0 40px;">
+              <p style="margin:0;font-size:12px;line-height:1.5;color:#8F897A;text-align:center;">
+                Or copy and paste this URL into your browser:
+              </p>
+              <p style="margin:6px 0 0 0;font-size:12px;line-height:1.5;color:#6B9B80;word-break:break-all;text-align:center;">
+                {{ .ConfirmationURL }}
+              </p>
+            </td>
+          </tr>
+
+          <!-- Divider -->
+          <tr>
+            <td style="padding:28px 40px 0 40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="border-top:1px solid #E5DFCF;font-size:0;line-height:0;">&nbsp;</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Safety note -->
+          <tr>
+            <td style="padding:16px 40px 0 40px;">
+              <p style="margin:0;font-size:13px;line-height:1.5;color:#6B6558;text-align:center;">
+                If you didn't request this, you can safely ignore this email. Your account remains secure.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer tagline -->
+          <tr>
+            <td style="padding:24px 40px 32px 40px;">
+              <p style="margin:0;font-size:12px;line-height:1.5;color:#B4AE9F;text-align:center;">
+                Courage through clarity &middot; AI-powered, human-protected
+              </p>
+            </td>
+          </tr>
+
+        </table>
+        <!-- /Card -->
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

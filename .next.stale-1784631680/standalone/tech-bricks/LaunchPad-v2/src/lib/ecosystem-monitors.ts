@@ -1,0 +1,653 @@
+/**
+ * Ecosystem Intelligence Monitors — the Layer 1 autonomous scan engine.
+ *
+ * These four templates are seeded per-project and run on the weekly cron.
+ * Each produces ecosystem_alerts (and often pending_actions) that feed the
+ * Monday Brief.
+ *
+ * Kept independent of the LLM runtime (Pi Agent SDK vs. OpenClaw CLI) —
+ * the cron route is responsible for invoking the agent with these prompts.
+ */
+
+import { createHash } from 'crypto';
+import { query, run } from '@/lib/db';
+import { coerceJson } from '@/lib/jsonb';
+import { getCompetitorNames } from './competitors';
+import { generateId } from '@/lib/api-helpers';
+import { calculateNextRun } from '@/lib/monitor-schedule';
+
+export type EcosystemMonitorType =
+  | 'ecosystem.competitors'
+  | 'ecosystem.ip'
+  | 'ecosystem.trends'
+  | 'ecosystem.partnerships'
+  | 'ecosystem.hiring'
+  | 'ecosystem.customer_sentiment'
+  | 'ecosystem.social'
+  | 'ecosystem.ads';
+
+export interface EcosystemMonitorTemplate {
+  type: EcosystemMonitorType;
+  name: string;
+  nameIt: string;
+  schedule: 'daily' | 'weekly' | 'monthly' | 'manual';
+  defaultConfig: Record<string, unknown>;
+  buildPrompt: (ctx: MonitorPromptContext) => string;
+}
+
+export interface MonitorPromptContext {
+  projectId: string;
+  projectName: string;
+  projectDescription: string | null;
+  locale: 'en' | 'it';
+  idea: {
+    problem?: string;
+    solution?: string;
+    target_market?: string;
+    value_proposition?: string;
+    channels?: string;
+  } | null;
+  research: {
+    competitors?: Array<{ name: string; description?: string }>;
+    trends?: Array<{ title: string }>;
+  } | null;
+  knownCompetitors: string[];
+  keywords: string[];
+}
+
+// =============================================================================
+// Prompt templates (EN + IT)
+// The prompt asks the agent to emit a :::artifact{"type":"ecosystem_alert"}
+// block per finding. The header MUST be valid JSON (not key=value) because
+// src/lib/artifact-parser.ts uses JSON.parse on it. The cron route parses
+// the body JSON into ecosystem_alerts rows; the free-text section feeds the
+// Brief narrative.
+// =============================================================================
+
+/**
+ * Rules 7-8 (emission discipline) exist as standalone constants so the run
+ * paths can retro-fit them onto LEGACY monitors whose prompt was stored in
+ * the DB before these rules existed (monitors.prompt is frozen at create
+ * time). See withEmissionDiscipline() below.
+ *
+ * Rule 7 fixes the observed "scan found a real signal but the run ended with
+ * 0 alerts" failure: the agent burns its tool budget investigating and never
+ * reaches a deferred emit step. Rule 8 fixes the second observed failure:
+ * the model writing :::artifact{"type":"product_launch"} (alert_type in the
+ * header), which the parser skips.
+ */
+const EMISSION_DISCIPLINE_EN = `
+7. EMIT AS YOU GO — emit each ecosystem_alert artifact IMMEDIATELY when a material finding is confirmed, BEFORE starting the next search or page fetch. Do NOT defer emission to a final summary: the tool budget or time limit can end the scan first, and an un-emitted finding is lost. If the scan is ending and you have confirmed a material finding you have not yet emitted, emit its artifact block NOW, before stopping.
+8. The artifact header is ALWAYS exactly {"type":"ecosystem_alert"} — never put the alert_type value in the header. The alert_type belongs ONLY in the body JSON.
+`.trim();
+
+const EMISSION_DISCIPLINE_IT = `
+7. EMETTI SUBITO — emetti ogni artifact ecosystem_alert IMMEDIATAMENTE quando un finding materiale è confermato, PRIMA di iniziare la ricerca o il fetch successivo. NON rimandare l'emissione a un riassunto finale: il budget di tool o il limite di tempo possono terminare lo scan prima, e un finding non emesso è perso. Se lo scan sta finendo e hai confermato un finding materiale non ancora emesso, emetti SUBITO il suo blocco artifact, prima di fermarti.
+8. L'header dell'artifact è SEMPRE esattamente {"type":"ecosystem_alert"} — non mettere mai il valore di alert_type nell'header. L'alert_type va SOLO nel JSON del body.
+`.trim();
+
+const OUTPUT_INSTRUCTIONS_EN = `
+OUTPUT CONTRACT — do not deviate:
+1. Start with a 2-3 sentence narrative summary of what moved this week.
+2. Then emit one artifact block per distinct finding, EXACTLY in this format:
+   :::artifact{"type":"ecosystem_alert"}
+   {
+     "alert_type": "...",
+     "entity": "...",
+     "headline": "...",
+     "body": "...",
+     "source_url": "...",
+     "relevance_score": 0.0,
+     "confidence": 0.0,
+     "suggested_action": null
+   }
+   :::
+3. Field rules:
+   - alert_type: one of "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal" | "ad_activity" | "pricing_change" | "product_launch" | "supplier_move" | "gtm_signal"
+     ("supplier_move" = a supplier/vendor in the founder's chain changes terms, capacity, pricing or ownership; "gtm_signal" = a go-to-market motion — channel launch, distribution deal, campaign or positioning shift)
+   - entity: the single company/product name the alert is about (1-4 words, e.g. "HelloFresh") — the NAME only, never the event sentence
+   - headline: 1 line, <=120 chars
+   - body: 2-4 sentences, factual
+   - source_url: direct URL (not a search page)
+   - relevance_score: float 0.0-1.0 — how relevant to THIS founder's problem/solution/ICP
+   - confidence: float 0.0-1.0 — how confident you are in the finding
+   - suggested_action: one of "draft_email" | "draft_linkedin_post" | "proposed_hypothesis" | "proposed_graph_update" or null
+4. Both header {"type":"ecosystem_alert"} and body must be VALID JSON — double quotes, no trailing commas.
+5. If nothing materially moved, say so explicitly and emit zero artifacts. Do not pad.
+6. Never fabricate URLs. If you cannot verify, omit the finding.
+${EMISSION_DISCIPLINE_EN}
+`.trim();
+
+const OUTPUT_INSTRUCTIONS_IT = `
+CONTRATTO DI OUTPUT — non deviare:
+1. Inizia con un riassunto narrativo di 2-3 frasi su cosa si è mosso questa settimana.
+2. Poi emetti un blocco artifact per ogni finding distinto, ESATTAMENTE in questo formato:
+   :::artifact{"type":"ecosystem_alert"}
+   {
+     "alert_type": "...",
+     "entity": "...",
+     "headline": "...",
+     "body": "...",
+     "source_url": "...",
+     "relevance_score": 0.0,
+     "confidence": 0.0,
+     "suggested_action": null
+   }
+   :::
+3. Regole dei campi:
+   - alert_type: uno tra "competitor_activity" | "ip_filing" | "trend_signal" | "partnership_opportunity" | "regulatory_change" | "funding_event" | "hiring_signal" | "customer_sentiment" | "social_signal" | "ad_activity" | "pricing_change" | "product_launch" | "supplier_move" | "gtm_signal"
+     ("supplier_move" = un fornitore/vendor nella filiera del founder cambia condizioni, capacità, prezzi o proprietà; "gtm_signal" = una mossa go-to-market — lancio di canale, accordo di distribuzione, cambio di campagna o posizionamento)
+   - entity: il nome della singola azienda/prodotto a cui si riferisce l'alert (1-4 parole, es. "HelloFresh") — SOLO il nome, mai la frase dell'evento
+   - headline: 1 riga, <=120 caratteri
+   - body: 2-4 frasi, fattuale
+   - source_url: URL diretto (non una pagina di ricerca)
+   - relevance_score: float 0.0-1.0 — quanto rilevante per problema/soluzione/ICP di QUESTO founder
+   - confidence: float 0.0-1.0 — quanto sei confidente nel finding
+   - suggested_action: uno tra "draft_email" | "draft_linkedin_post" | "proposed_hypothesis" | "proposed_graph_update" o null
+4. Sia l'header {"type":"ecosystem_alert"} sia il body devono essere JSON VALIDO — virgolette doppie, niente virgole finali.
+5. Se nulla si è mosso in modo rilevante, dillo esplicitamente ed emetti zero artifact. Non riempire.
+6. Non inventare mai URL. Se non puoi verificare, ometti il finding.
+${EMISSION_DISCIPLINE_IT}
+`.trim();
+
+/**
+ * Retro-fit the emission-discipline rules (7-8) onto a monitor prompt that
+ * was stored in the DB before those rules existed. Idempotent: prompts that
+ * already carry the rules (any locale) pass through unchanged, so freshly
+ * seeded/configured monitors are never double-instructed.
+ *
+ * Called by BOTH run paths (manual run route + cron) right before the agent
+ * call — monitors.prompt is frozen at create time, so a prompt-template fix
+ * alone would never reach the ~200 monitors already in the DB.
+ */
+export function withEmissionDiscipline(prompt: string, locale: 'en' | 'it'): string {
+  if (prompt.includes('EMIT AS YOU GO') || prompt.includes('EMETTI SUBITO')) return prompt;
+  return `${prompt}\n\n${locale === 'it' ? EMISSION_DISCIPLINE_IT : EMISSION_DISCIPLINE_EN}`;
+}
+
+/**
+ * Append an explicit language directive to a brief/correlation prompt whose
+ * scaffolding is English. The emitted founder-facing fields (title, narrative,
+ * recommended actions) must be in the project's language — the 2026-06 weekly
+ * sync flagged Intel briefs staying English under an Italian project. Keep this
+ * separate from withEmissionDiscipline: that governs the artifact contract,
+ * this governs the prose language. No-op for English projects.
+ */
+export function withBriefLanguage(prompt: string, locale: 'en' | 'it'): string {
+  if (locale !== 'it') return prompt;
+  return `${prompt}\n\n[LINGUA] Scrivi ogni campo destinato al founder — title, narrative, recommended actions/azioni — in ITALIANO. Mantieni in inglese solo gli identificatori tecnici (signal_ids, nomi di entità/competitor). Non rispondere in inglese.`;
+}
+
+/**
+ * The exact `:::artifact{"type":"ecosystem_alert"}` output contract that the
+ * cron/run parser (src/lib/ecosystem-alert-parser.ts) extracts into
+ * ecosystem_alerts rows. EXPORTED so the chat-monitor path
+ * (configureMonitor in action-executors.ts) can reuse the identical block —
+ * a chat-proposed monitor must emit alerts that parse the same way a seeded
+ * template monitor does.
+ */
+export function outputInstructions(locale: 'en' | 'it'): string {
+  return locale === 'it' ? OUTPUT_INSTRUCTIONS_IT : OUTPUT_INSTRUCTIONS_EN;
+}
+
+/**
+ * Render the project context block (name/description/idea) shared by every
+ * template prompt. EXPORTED so the chat-monitor path can build a prompt with
+ * the same shape as the seeded templates.
+ */
+export function projectContext(ctx: MonitorPromptContext): string {
+  const lines: string[] = [];
+  lines.push(`Project: ${ctx.projectName}`);
+  if (ctx.projectDescription) lines.push(`Description: ${ctx.projectDescription}`);
+  if (ctx.idea?.problem) lines.push(`Problem: ${ctx.idea.problem}`);
+  if (ctx.idea?.solution) lines.push(`Solution: ${ctx.idea.solution}`);
+  if (ctx.idea?.target_market) lines.push(`Target market: ${ctx.idea.target_market}`);
+  if (ctx.idea?.value_proposition) lines.push(`Value proposition: ${ctx.idea.value_proposition}`);
+  if (ctx.idea?.channels) lines.push(`Acquisition channels: ${ctx.idea.channels}`);
+  return lines.join('\n');
+}
+
+// =============================================================================
+// Template 1 — Competitors
+// =============================================================================
+
+export const COMPETITORS_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.competitors',
+  name: 'Ecosystem — Competitors',
+  nameIt: 'Ecosistema — Competitor',
+  schedule: 'weekly',
+  defaultConfig: { competitors: [], keywords: [], threshold: 'all' },
+  buildPrompt: (ctx) => {
+    const competitors = ctx.knownCompetitors.length > 0
+      ? ctx.knownCompetitors.join(', ')
+      : '(none tracked yet — use project context to infer the competitive set)';
+    const header = ctx.locale === 'it'
+      ? 'SCAN SETTIMANALE — COMPETITOR ECOSISTEMA'
+      : 'WEEKLY SCAN — COMPETITOR ECOSYSTEM';
+    const body = ctx.locale === 'it'
+      ? `Monitora questi competitor per cambiamenti materiali nell'ultima settimana: lanci prodotto,
+cambi di pricing, rebranding, nuovi investimenti, assunzioni strategiche, chiusura di funzionalità.
+Competitor tracciati: ${competitors}
+
+Per ogni cambiamento significativo, emetti un ecosystem_alert con alert_type="competitor_activity".`
+      : `Monitor these competitors for material changes this past week: product launches, pricing
+shifts, rebrands, new funding, strategic hires, feature deprecations.
+Tracked competitors: ${competitors}
+
+For each significant change, emit one ecosystem_alert with alert_type="competitor_activity".`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
+// =============================================================================
+// Template 2 — IP / Patents
+// =============================================================================
+
+export const IP_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.ip',
+  name: 'Ecosystem — IP & Patents',
+  nameIt: 'Ecosistema — IP & Brevetti',
+  schedule: 'weekly',
+  defaultConfig: { keywords: [], ipc_classes: [], threshold: 'warning' },
+  buildPrompt: (ctx) => {
+    const keywords = ctx.keywords.length > 0 ? ctx.keywords.join(', ') : ctx.idea?.solution || ctx.projectName;
+    const header = ctx.locale === 'it'
+      ? 'SCAN SETTIMANALE — BREVETTI & IP'
+      : 'WEEKLY SCAN — PATENTS & IP';
+    const body = ctx.locale === 'it'
+      ? `Cerca nuovi depositi di brevetti, marchi o diritti d'autore nell'ultima settimana
+relativi a: ${keywords}
+
+Database suggeriti: EPO Espacenet, USPTO, WIPO PatentScope. Per ogni deposito rilevante per questo
+founder (soluzione simile, mercato target simile, potenziale blocco), emetti un ecosystem_alert con
+alert_type="ip_filing". Prioritizza filing che potrebbero bloccare l'approccio del founder.`
+      : `Search for new patent, trademark, or copyright filings in the past week related to: ${keywords}
+
+Suggested databases: EPO Espacenet, USPTO, WIPO PatentScope. For each filing relevant to this
+founder (similar solution, similar target market, potential blocker), emit one ecosystem_alert with
+alert_type="ip_filing". Prioritize filings that could block the founder's approach.`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
+// =============================================================================
+// Template 3 — Trends
+// =============================================================================
+
+export const TRENDS_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.trends',
+  name: 'Ecosystem — Market Trends',
+  nameIt: 'Ecosistema — Trend di Mercato',
+  schedule: 'weekly',
+  defaultConfig: { keywords: [], sources: ['industry_reports', 'news', 'analyst'], threshold: 'all' },
+  buildPrompt: (ctx) => {
+    const keywords = ctx.keywords.length > 0 ? ctx.keywords.join(', ') : ctx.idea?.target_market || ctx.projectName;
+    const header = ctx.locale === 'it'
+      ? 'SCAN SETTIMANALE — TREND DI MERCATO'
+      : 'WEEKLY SCAN — MARKET TRENDS';
+    const body = ctx.locale === 'it'
+      ? `Identifica trend di mercato emergenti della settimana rilevanti per: ${keywords}
+
+Cerca in: report industriali, news analyst, Gartner/Forrester, Crunchbase, HackerNews, ProductHunt.
+Filtra segnali vs. rumore — un singolo articolo non è un trend. Per ogni trend con più segnali
+indipendenti, emetti un ecosystem_alert con alert_type="trend_signal". Includi nel body il numero
+di fonti indipendenti che confermano il trend.`
+      : `Identify emerging market trends from this week relevant to: ${keywords}
+
+Search: industry reports, analyst news, Gartner/Forrester, Crunchbase, HackerNews, ProductHunt.
+Filter signal from noise — a single article is not a trend. For each trend with multiple
+independent signals, emit one ecosystem_alert with alert_type="trend_signal". Include in the body
+the number of independent sources confirming the trend.`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
+// =============================================================================
+// Template 4 — Partnerships
+// =============================================================================
+
+export const PARTNERSHIPS_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.partnerships',
+  name: 'Ecosystem — Partnership Opportunities',
+  nameIt: 'Ecosistema — Opportunità di Partnership',
+  schedule: 'weekly',
+  defaultConfig: { keywords: [], categories: [], threshold: 'all' },
+  buildPrompt: (ctx) => {
+    const keywords = ctx.keywords.length > 0 ? ctx.keywords.join(', ') : ctx.idea?.solution || ctx.projectName;
+    const header = ctx.locale === 'it'
+      ? 'SCAN SETTIMANALE — PARTNERSHIP'
+      : 'WEEKLY SCAN — PARTNERSHIPS';
+    const body = ctx.locale === 'it'
+      ? `Trova potenziali opportunità di partnership, integrazione o distribuzione emerse questa
+settimana, rilevanti per: ${keywords}
+
+Cerca: nuove API pubbliche, annunci di integrazioni, programmi di partnership, marketplace
+adiacenti, canali di distribuzione non presidiati. Per ogni opportunità concreta, emetti un
+ecosystem_alert con alert_type="partnership_opportunity". Suggerisci una suggested_action solo
+quando c'è un punto di contatto realistico (form aperto, BD email pubblica).`
+      : `Find potential partnership, integration, or distribution opportunities emerged this week
+relevant to: ${keywords}
+
+Search: new public APIs, integration announcements, partnership programs, adjacent marketplaces,
+unserved distribution channels. For each concrete opportunity, emit one ecosystem_alert with
+alert_type="partnership_opportunity". Only suggest a suggested_action when there is a realistic
+contact point (open form, public BD email).`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
+// =============================================================================
+// Template 5 — Hiring Signals
+// =============================================================================
+
+export const HIRING_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.hiring',
+  name: 'Ecosystem — Hiring Signals',
+  nameIt: 'Ecosistema — Segnali Assunzioni',
+  schedule: 'monthly',
+  defaultConfig: { competitors: [], roles: [], threshold: 'all' },
+  buildPrompt: (ctx) => {
+    const competitors = ctx.knownCompetitors.length > 0
+      ? ctx.knownCompetitors.join(', ')
+      : '(none tracked yet — use project context to infer the competitive set)';
+    const header = ctx.locale === 'it'
+      ? 'SCAN MENSILE — SEGNALI ASSUNZIONI'
+      : 'MONTHLY SCAN — HIRING SIGNALS';
+    const body = ctx.locale === 'it'
+      ? `Monitora le assunzioni strategiche dei competitor e aziende adiacenti: ${competitors}
+
+Cerca su LinkedIn Jobs, pagine carriere dei competitor, board Greenhouse/Lever, cambiamenti team su Crunchbase.
+Focus su: AE enterprise, security engineer, leadership, espansione in nuove aree.
+Per ogni assunzione strategica rilevante, emetti un ecosystem_alert con alert_type="hiring_signal".
+Ignora assunzioni di routine — solo quelle che segnalano un cambio di direzione strategica.
+Nel campo body, prefissa con un tag di sotto-categoria: [leadership], [engineering_expansion], [new_market_expansion] o [sales_expansion].`
+      : `Monitor strategic hires at competitors and adjacent companies: ${competitors}
+
+Search LinkedIn Jobs, competitor careers pages, Greenhouse/Lever boards, Crunchbase team changes.
+Focus on: enterprise AEs, security engineers, leadership hires, team expansion into new areas.
+For each strategically relevant hire, emit one ecosystem_alert with alert_type="hiring_signal".
+Ignore routine hiring — only flag hires that signal a strategic direction change.
+In the body field, prefix with a sub-category tag: [leadership], [engineering_expansion], [new_market_expansion], or [sales_expansion].`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
+// =============================================================================
+// Template 6 — Customer Sentiment
+// =============================================================================
+
+export const CUSTOMER_SENTIMENT_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.customer_sentiment',
+  name: 'Ecosystem — Customer Sentiment',
+  nameIt: 'Ecosistema — Sentiment Clienti',
+  schedule: 'monthly',
+  defaultConfig: { competitors: [], platforms: [], threshold: 'all' },
+  buildPrompt: (ctx) => {
+    const competitors = ctx.knownCompetitors.length > 0
+      ? ctx.knownCompetitors.join(', ')
+      : '(none tracked yet — use project context to infer the competitive set)';
+    const keywords = ctx.keywords.length > 0 ? ctx.keywords.join(', ') : ctx.idea?.solution || ctx.projectName;
+    const header = ctx.locale === 'it'
+      ? 'SCAN MENSILE — SENTIMENT CLIENTI'
+      : 'MONTHLY SCAN — CUSTOMER SENTIMENT';
+    const body = ctx.locale === 'it'
+      ? `Analizza il sentiment dei clienti per i competitor nel settore: ${keywords}
+Competitor tracciati: ${competitors}
+
+Cerca su G2, Capterra, Trustpilot, recensioni app store, Reddit, forum di supporto.
+Focus su: pattern di lamentele ricorrenti, shift nei rating, temi di feedback ripetuti, gap competitivi sfruttabili.
+Per ogni pattern significativo, emetti un ecosystem_alert con alert_type="customer_sentiment".
+Non riportare singole recensioni — solo pattern con multiple fonti.`
+      : `Analyze customer sentiment for competitors in this space: ${keywords}
+Tracked competitors: ${competitors}
+
+Search G2, Capterra, Trustpilot, app store reviews, Reddit, support forums.
+Focus on: recurring complaint patterns, rating shifts, repeated feedback themes, exploitable competitive gaps.
+For each significant pattern, emit one ecosystem_alert with alert_type="customer_sentiment".
+Do not report single reviews — only patterns with multiple sources.`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
+// =============================================================================
+// Template 7 — Social Media
+// =============================================================================
+
+export const SOCIAL_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.social',
+  name: 'Ecosystem — Social Signals',
+  nameIt: 'Ecosistema — Segnali Social',
+  schedule: 'monthly',
+  defaultConfig: { competitors: [], platforms: [], threshold: 'all' },
+  buildPrompt: (ctx) => {
+    const competitors = ctx.knownCompetitors.length > 0
+      ? ctx.knownCompetitors.join(', ')
+      : '(none tracked yet — use project context to infer the competitive set)';
+    const keywords = ctx.keywords.length > 0 ? ctx.keywords.join(', ') : ctx.idea?.solution || ctx.projectName;
+    const header = ctx.locale === 'it'
+      ? 'SCAN MENSILE — SEGNALI SOCIAL'
+      : 'MONTHLY SCAN — SOCIAL SIGNALS';
+    const body = ctx.locale === 'it'
+      ? `Monitora l'attività social dei competitor e le conversazioni nel settore: ${keywords}
+Competitor tracciati: ${competitors}
+
+Cerca su Twitter/X, LinkedIn posts, HackerNews, ProductHunt, blog dei competitor.
+Focus su: annunci di feature, cambi di messaging, campagne PR, contenuti virali, shift di posizionamento.
+Per ogni segnale social significativo, emetti un ecosystem_alert con alert_type="social_signal".
+Non riportare post di routine — solo segnali che indicano un cambio strategico o una nuova narrativa.`
+      : `Monitor competitor social activity and industry conversations for: ${keywords}
+Tracked competitors: ${competitors}
+
+Search Twitter/X, LinkedIn posts, HackerNews, ProductHunt, competitor blogs.
+Focus on: feature announcements, messaging changes, PR campaigns, viral content, positioning shifts.
+For each significant social signal, emit one ecosystem_alert with alert_type="social_signal".
+Do not report routine posts — only signals indicating a strategic shift or new narrative.`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
+// =============================================================================
+// Template 8 — Ads & Paid Marketing
+// =============================================================================
+
+export const ADS_TEMPLATE: EcosystemMonitorTemplate = {
+  type: 'ecosystem.ads',
+  name: 'Ecosystem — Ad Activity',
+  nameIt: 'Ecosistema — Attivita Pubblicitaria',
+  schedule: 'weekly',
+  defaultConfig: { competitors: [], platforms: ['meta', 'google'], threshold: 'all' },
+  buildPrompt: (ctx) => {
+    const competitors = ctx.knownCompetitors.length > 0
+      ? ctx.knownCompetitors.join(', ')
+      : '(none tracked yet — use project context to infer the competitive set)';
+    const keywords = ctx.keywords.length > 0 ? ctx.keywords.join(', ') : ctx.idea?.solution || ctx.projectName;
+    const header = ctx.locale === 'it'
+      ? 'SCAN SETTIMANALE — ATTIVITA PUBBLICITARIA'
+      : 'WEEKLY SCAN — AD ACTIVITY';
+    const body = ctx.locale === 'it'
+      ? `Monitora l'attivita pubblicitaria dei competitor e del settore: ${keywords}
+Competitor tracciati: ${competitors}
+
+Cerca su Meta Ads Library, Google Ads Transparency Center, landing page dei competitor.
+Focus su: nuove campagne, cambi di messaging, nuovi canali paid, budget shifts evidenti,
+creativita nuove, landing page aggiornate, promozioni aggressive.
+Per ogni attivita significativa, emetti un ecosystem_alert con alert_type="ad_activity".
+Non riportare refresh minori di creativita — solo cambiamenti strategici di paid marketing.`
+      : `Monitor competitor and industry ad activity for: ${keywords}
+Tracked competitors: ${competitors}
+
+Search Meta Ads Library, Google Ads Transparency Center, competitor landing pages.
+Focus on: new campaigns, messaging changes, new paid channels, evident budget shifts,
+new creatives, updated landing pages, aggressive promotions.
+For each significant ad activity, emit one ecosystem_alert with alert_type="ad_activity".
+Do not report minor creative refreshes — only strategic paid marketing changes.`;
+    return `${header}\n\n${projectContext(ctx)}\n\n${body}\n\n${outputInstructions(ctx.locale)}`;
+  },
+};
+
+// =============================================================================
+// Registry
+// =============================================================================
+
+export const ECOSYSTEM_MONITOR_TEMPLATES: EcosystemMonitorTemplate[] = [
+  COMPETITORS_TEMPLATE,
+  IP_TEMPLATE,
+  TRENDS_TEMPLATE,
+  PARTNERSHIPS_TEMPLATE,
+  HIRING_TEMPLATE,
+  CUSTOMER_SENTIMENT_TEMPLATE,
+  SOCIAL_TEMPLATE,
+  ADS_TEMPLATE,
+];
+
+export function getEcosystemTemplate(type: EcosystemMonitorType): EcosystemMonitorTemplate | undefined {
+  return ECOSYSTEM_MONITOR_TEMPLATES.find(t => t.type === type);
+}
+
+/** Curated default watchers seeded (INACTIVE) at project creation — a small,
+ *  high-signal set the founder switches on, rather than all 8 (overwhelming). */
+export const DEFAULT_SEED_MONITOR_TYPES: EcosystemMonitorType[] = [
+  COMPETITORS_TEMPLATE.type,
+  TRENDS_TEMPLATE.type,
+  CUSTOMER_SENTIMENT_TEMPLATE.type,
+];
+
+// =============================================================================
+// Context loader — pulls project data into the prompt context
+// =============================================================================
+
+export async function loadMonitorContext(projectId: string): Promise<MonitorPromptContext> {
+  const projectRows = await query<{ id: string; name: string; description: string | null; locale: string | null }>(
+    'SELECT id, name, description, locale FROM projects WHERE id = ?',
+    projectId,
+  );
+  const project = projectRows[0];
+  if (!project) throw new Error(`Project not found: ${projectId}`);
+
+  const ideaRows = await query<Record<string, string | null>>(
+    'SELECT problem, solution, target_market, value_proposition, channels FROM idea_canvas WHERE project_id = ?',
+    projectId,
+  );
+  const idea = ideaRows[0] || null;
+
+  const researchRows = await query<{ competitors: string | null; trends: string | null }>(
+    'SELECT competitors, trends FROM research WHERE project_id = ?',
+    projectId,
+  );
+  const researchRow = researchRows[0];
+
+  let research: MonitorPromptContext['research'] = null;
+  // Names across ALL competitor stores (research.competitors + applied graph_nodes +
+  // competitor_profiles) so watchers target competitors the founder mapped in chat too —
+  // not just research.competitors, which a non-competitor-themed table never reaches.
+  const knownCompetitors = await getCompetitorNames(projectId);
+  if (researchRow) {
+    research = {};
+    if (researchRow.competitors) {
+      try {
+        // coerceJson tolerates BOTH the new raw array and legacy double-encoded
+        // string rows (the write is now single-encoded — see jb() / PR2).
+        const parsed = coerceJson<Array<{ name: string; description?: string }>>(researchRow.competitors) ?? [];
+        research.competitors = parsed;
+      } catch { /* ignore malformed JSON */ }
+    }
+    if (researchRow.trends) {
+      try {
+        research.trends = coerceJson<Array<{ title: string }>>(researchRow.trends) ?? [];
+      } catch { /* ignore */ }
+    }
+  }
+
+  const graphKeywords = (await query<{ name: string }>(
+    `SELECT name FROM graph_nodes WHERE project_id = ?
+     AND node_type IN ('market_segment', 'technology', 'trend') LIMIT 10`,
+    projectId,
+  )).map(r => r.name);
+
+  const locale: 'en' | 'it' = project.locale === 'it' ? 'it' : 'en';
+
+  return {
+    projectId,
+    projectName: project.name,
+    projectDescription: project.description,
+    locale,
+    idea: idea as MonitorPromptContext['idea'],
+    research,
+    knownCompetitors,
+    keywords: graphKeywords,
+  };
+}
+
+// =============================================================================
+// Seeder — called on project-create (or via /api/projects/{id}/ecosystem/seed)
+// =============================================================================
+
+export interface SeedResult {
+  created: Array<{ monitor_id: string; type: EcosystemMonitorType; name: string }>;
+  skipped: Array<{ type: EcosystemMonitorType; reason: string }>;
+}
+
+export async function seedEcosystemMonitorsForProject(
+  projectId: string,
+  types: EcosystemMonitorType[] = DEFAULT_SEED_MONITOR_TYPES,
+): Promise<SeedResult> {
+  const result: SeedResult = { created: [], skipped: [] };
+  const seedSet = new Set<EcosystemMonitorType>(types);
+
+  const existing = await query<{ type: string }>(
+    `SELECT type FROM monitors WHERE project_id = ? AND type LIKE 'ecosystem.%'`,
+    projectId,
+  );
+  const existingTypes = new Set(existing.map(r => r.type));
+
+  const ctx = await loadMonitorContext(projectId);
+
+  for (const template of ECOSYSTEM_MONITOR_TEMPLATES) {
+    if (!seedSet.has(template.type)) continue; // only the curated subset
+    if (existingTypes.has(template.type)) {
+      result.skipped.push({ type: template.type, reason: 'already exists' });
+      continue;
+    }
+
+    const id = generateId('mon');
+    const now = new Date().toISOString();
+    const nextRun = calculateNextRun(template.schedule);
+    const name = ctx.locale === 'it' ? template.nameIt : template.name;
+    const prompt = template.buildPrompt(ctx);
+
+    await run(
+      `INSERT INTO monitors (id, project_id, type, name, schedule, config, prompt, status, next_run, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?)`,
+      id,
+      projectId,
+      template.type,
+      name,
+      template.schedule,
+      template.defaultConfig, // raw object — config is JSONB (stringify would double-encode → SQL config->>'query' returns null)
+      prompt,
+      nextRun,
+      now,
+    );
+
+    result.created.push({ monitor_id: id, type: template.type, name });
+  }
+
+  return result;
+}
+
+// =============================================================================
+// Dedupe hash — prevents the same finding from being re-inserted across runs
+// =============================================================================
+
+export function computeDedupeHash(
+  alertType: string,
+  sourceUrl: string | null | undefined,
+  headline: string,
+): string {
+  const normalized = [
+    alertType.toLowerCase().trim(),
+    (sourceUrl || '').toLowerCase().trim().replace(/[?#].*$/, ''),
+    headline.toLowerCase().trim().replace(/\s+/g, ' ').slice(0, 200),
+  ].join('|');
+  return createHash('sha256').update(normalized).digest('hex').slice(0, 32);
+}

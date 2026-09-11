@@ -1,0 +1,3 @@
+{
+  "/api/projects/[projectId]/idea-canvas/route": "app/api/projects/[projectId]/idea-canvas/route.js"
+}

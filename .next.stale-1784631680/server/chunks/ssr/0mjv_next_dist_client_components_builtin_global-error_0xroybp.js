@@ -1,0 +1,3 @@
+module.exports=[465261,(a,b,c)=>{let{createClientModuleProxy:d}=a.r(948665);a.n(d("[project]/tech-bricks/LaunchPad-v2/node_modules/next/dist/client/components/builtin/global-error.js <module evaluation>"))},626605,(a,b,c)=>{let{createClientModuleProxy:d}=a.r(948665);a.n(d("[project]/tech-bricks/LaunchPad-v2/node_modules/next/dist/client/components/builtin/global-error.js"))},662367,a=>{"use strict";a.i(465261);var b=a.i(626605);a.n(b)},631556,a=>{a.n(a.i(662367))}];
+
+//# sourceMappingURL=0mjv_next_dist_client_components_builtin_global-error_0xroybp.js.map

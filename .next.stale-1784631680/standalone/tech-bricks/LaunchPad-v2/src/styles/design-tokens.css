@@ -1,0 +1,287 @@
+/* SenseFound — Courage Through Clarity
+   Design tokens. Paperclip-adjacent: warm paper light + ink-dark dark.
+   Single saturated accent (tangerine). Moss for ok, clay for warn/err.
+*/
+
+:root {
+  /* base — SenseFound V1.1: Space cream #FDFAF6, Authority charcoal #2C2C2C.
+     ink ramp darkened at the muted end so small secondary text passes AA on
+     cream (was too light — the "testi piccoli non si leggono" feedback). */
+  --paper: #FDFAF6;                    /* brand SPACE */
+  --paper-2: #F3EEE4;
+  --paper-3: #E7E0D2;
+  --ink: #2C2C2C;                      /* brand AUTHORITY */
+  --ink-2: #3A3833;
+  --ink-3: #514C43;
+  --ink-4: #5F5A4F;                    /* was #6B6558 — darker */
+  --ink-5: #6E6A5C;                    /* was #8F897A — darker, now AA for small text */
+  --ink-6: #908A7B;                    /* was #B4AE9F — darker */
+  --line: rgba(44, 44, 44, 0.10);
+  --line-2: rgba(44, 44, 44, 0.17);
+  --surface: #FFFFFF;
+  --surface-sunk: #EFE9DD;
+
+  /* accents — brand palette. CLARITY teal #BFD3C3 (kept as the light/wash;
+     a deeper sage drives text/indicators so it reads). PROTECTION terracotta
+     darkened for text legibility (the "rosso non si legge" fix). */
+  --moss: oklch(0.55 0.06 158);       /* readable sage for ok/running text + dots */
+  --moss-wash: #DDE8DF;               /* brand CLARITY-adjacent light */
+  --clay: oklch(0.50 0.13 35);        /* warn/err — deeper terracotta, AA on cream */
+  --sky: oklch(0.60 0.09 235);        /* info */
+  --sky-wash: oklch(0.94 0.02 235);
+  --plum: oklch(0.52 0.11 325);       /* graph node */
+
+  /* type — uses next/font variables from src/app/layout.tsx */
+  --f-sans: var(--font-inter), -apple-system, system-ui, sans-serif;
+  --f-display: var(--font-inter), -apple-system, system-ui, sans-serif; /* all-sans */
+  --f-mono: var(--font-jetbrains-mono), 'SF Mono', ui-monospace, monospace;
+  --accent-h: 35; /* hue knob */
+  --accent: #FDA46E;                                  /* brand FOUNDATION peach (CTA fill) */
+  --accent-ink: oklch(0.40 0.13 var(--accent-h));     /* dark peach — for accent TEXT/links on light bg */
+  --accent-wash: oklch(0.95 0.045 var(--accent-h));
+
+  /* categorical palette — brand-safe alternatives to raw Tailwind colors */
+  --cat-teal: oklch(0.58 0.08 185);
+  --cat-gold: oklch(0.65 0.10 80);
+  --cat-rose: oklch(0.58 0.10 5);
+  --cat-teal-wash: oklch(0.94 0.02 185);
+  --cat-gold-wash: oklch(0.94 0.03 80);
+  --cat-rose-wash: oklch(0.94 0.02 5);
+  --clay-wash: oklch(0.94 0.04 28);
+  --plum-wash: oklch(0.94 0.03 325);
+  /* graph macro-category satellites (12-wedge hub-and-spoke) */
+  --cat-copper: oklch(0.55 0.11 55);
+  --cat-olive: oklch(0.55 0.09 125);
+  --cat-slate: oklch(0.55 0.05 255);
+  --cat-indigo: oklch(0.55 0.10 280);
+  --cat-violet: oklch(0.52 0.11 300);
+  /* Text/icon color that sits ON the peach accent. Charcoal (not white) —
+     white-on-peach was ~2:1 and unreadable; charcoal-on-peach is ~7:1.
+     This is the primary button-contrast fix (founder feedback). */
+  --on-accent: #2C2C2C;
+
+  /* ── Type scale (SenseFound V1.1, web-mapped) ──────────────────────────
+     Brand HIERARCHY + weights/line-heights/tracking, anchored to a dense-
+     dashboard base (Body 15px). The brand's print scale (H1 96pt) is scaled
+     for on-screen legibility; proportions + role weights are preserved.
+     Use the semantic .lp-h1…/.lp-label/.lp-body classes (below) so the scale
+     stays in ONE place — they replace ad-hoc inline `fontSize`. Raw `--fs-*`
+     tokens are exposed for the rare component that needs the value directly. */
+  --fs-h1: 34px;     --lh-h1: 1.05; --ls-h1: -0.03em;  --fw-h1: 700;
+  --fs-h2: 28px;     --lh-h2: 1.1;  --ls-h2: -0.02em;  --fw-h2: 700;
+  --fs-h3: 22px;     --lh-h3: 1.15; --ls-h3: -0.015em; --fw-h3: 700;
+  --fs-h4: 18px;     --lh-h4: 1.25; --ls-h4: -0.01em;  --fw-h4: 600;
+  --fs-h5: 16px;     --lh-h5: 1.3;  --ls-h5: 0;        --fw-h5: 500;
+  --fs-body-lg: 17px; --lh-body-lg: 1.55;
+  --fs-body: 15px;    --lh-body: 1.5;
+  --fs-body-sm: 13px; --lh-body-sm: 1.5;
+  --fs-label: 13px;   --lh-label: 1.2; --ls-label: 0.04em; --fw-label: 500;
+
+  /* brief section accents */
+  --brief-blue: oklch(0.65 0.18 240);
+  --brief-violet: oklch(0.65 0.18 300);
+  --brief-gold: oklch(0.75 0.15 60);
+  --brief-sage: oklch(0.70 0.15 155);
+  --brief-coral: oklch(0.65 0.18 20);
+  /* brand spec: Light Sage */
+  --sage-light: oklch(0.82 0.04 155);
+
+  /* geometry */
+  --r-s: 4px;
+  --r-m: 6px;
+  --r-l: 10px;
+  --shadow-card: 0 1px 2px rgba(22,20,15,.04), 0 8px 24px rgba(22,20,15,.06);
+  --shadow-lift: 0 2px 8px rgba(22,20,15,.08), 0 20px 48px rgba(22,20,15,.10);
+}
+
+/* Dark theme (inverted paper) */
+.theme-ink {
+  --paper: #16140F;
+  --paper-2: #1C1B16;
+  --paper-3: #25231C;
+  --ink: #F2EEE4;
+  --ink-2: #DCD6C6;
+  --ink-3: #B4AE9F;
+  --ink-4: #8F897A;
+  --ink-5: #6B6558;
+  --ink-6: #4A453C;
+  --line: rgba(242, 238, 228, 0.08);
+  --line-2: rgba(242, 238, 228, 0.16);
+  --surface: #1A1813;
+  --surface-sunk: #0F0E0A;
+  /* Dark-theme accent TEXT/link color. MUST be overridden here: --accent-wash
+     below is a DARK surface in dark mode, so the light-theme dark-peach ink
+     (L .40) rendered dark-on-dark ("red on red" — the Idea Canvas fact pill,
+     .lp-md / .lp-prose links). A light peach restores contrast on both the
+     dark paper and the dark accent-wash. */
+  --accent-ink: oklch(0.82 0.09 55);
+  --accent-wash: oklch(0.28 0.06 60);
+  --moss-wash: oklch(0.25 0.03 155);
+  --sky-wash: oklch(0.25 0.03 235);
+  --shadow-card: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.4);
+  --shadow-lift: 0 2px 8px rgba(0,0,0,.5), 0 20px 48px rgba(0,0,0,.6);
+  --cat-teal-wash: oklch(0.25 0.03 185);
+  --cat-gold-wash: oklch(0.28 0.04 80);
+  --cat-rose-wash: oklch(0.25 0.03 5);
+  --clay-wash: oklch(0.25 0.04 28);
+  --plum-wash: oklch(0.25 0.03 325);
+  /* graph satellites — lifted for legibility on dark paper */
+  --cat-copper: oklch(0.70 0.10 55);
+  --cat-olive: oklch(0.70 0.08 125);
+  --cat-slate: oklch(0.70 0.05 255);
+  --cat-indigo: oklch(0.70 0.09 280);
+  --cat-violet: oklch(0.70 0.10 300);
+  --on-accent: #FAF5EE;
+}
+
+/* element primitives */
+.lp-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: var(--shadow-card); }
+/* Card actions (e.g. delete) reveal on hover; always faintly visible on touch. */
+.lp-card .lp-card-action { opacity: 0; transition: opacity .12s; }
+.lp-card:hover .lp-card-action, .lp-card .lp-card-action:focus-visible { opacity: 1; }
+.lp-card .lp-card-action:hover { color: var(--clay, var(--ink-2)); }
+@media (hover: none) { .lp-card .lp-card-action { opacity: .6; } }
+/* Home dashboard grid — wide primary (Journey) + narrower secondary column.
+   minmax(0,…) lets both columns shrink so long content never overflows.
+   Collapses to a single column on narrow viewports. */
+.lp-home-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.lp-home-grid > * { min-width: 0; }
+@media (max-width: 900px) { .lp-home-grid { grid-template-columns: 1fr; } }
+.lp-mono { font-family: var(--f-mono); font-feature-settings: 'ss01','cv01','cv02'; }
+.lp-serif { font-family: var(--f-display); letter-spacing: -0.02em; font-weight: 600; }
+.lp-kbd { font-family: var(--f-mono); font-size: 12px; padding: 2px 5px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; color: var(--ink-3); background: var(--paper-2); }
+.lp-chip { display:inline-flex; align-items:center; gap:6px; padding: 4px 9px; border-radius: 999px; font-size: 12px; font-family: var(--f-mono); letter-spacing: .02em; }
+.lp-dot { width: 6px; height: 6px; border-radius: 50%; display:inline-block; }
+.lp-pulse { animation: lp-pulse 1.8s ease-in-out infinite; }
+@keyframes lp-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+.lp-scan { position: relative; overflow: hidden; }
+.lp-scan::after { content:''; position:absolute; inset:0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent); transform: translateX(-100%); animation: lp-scan 2.4s ease-in-out infinite; }
+@keyframes lp-scan { 0% { transform: translateX(-100%);} 60%,100% { transform: translateX(200%);} }
+
+/* custom scrollbar that doesn't distract */
+.lp-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.lp-scroll::-webkit-scrollbar-track { background: transparent; }
+.lp-scroll::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }
+
+/* Message hover-reveal action row (Copy, Retry). Parent gets .lp-msg-row,
+ * child pill row gets .lp-msg-actions. Focus-within kept so keyboard users
+ * can tab in and see the actions without a hover. */
+.lp-msg-row:hover .lp-msg-actions,
+.lp-msg-row:focus-within .lp-msg-actions { opacity: 1 !important; }
+.lp-msg-action-btn:hover { background: var(--paper-2) !important; color: var(--ink-2) !important; }
+
+/* Turn-linked canvas: flash highlight when back-link scrolls to source message */
+@keyframes lp-flash-bg {
+  0%   { background-color: var(--accent-wash); }
+  100% { background-color: transparent; }
+}
+.lp-flash { animation: lp-flash-bg 1.2s ease-out; border-radius: var(--r-m); }
+
+/* Canvas enrichment — a field that just got populated/updated rises in with a
+   brief accent wash, so the founder SEES the canvas being enriched. */
+.lp-enrich { animation: lp-flash-bg 1.4s ease-out, lp-rise .45s ease-out; border-radius: var(--r-m); }
+
+/* Credit deduction feedback: when a turn charges the balance, the chip pops
+   (zoom in → land → zoom out, driven imperatively via WAAPI in CreditsBadge)
+   and a small "−N" delta floats up and fades, so the spend is legible. */
+@keyframes lp-credit-delta {
+  0%   { opacity: 0; transform: translateY(3px) scale(.9); }
+  25%  { opacity: 1; transform: translateY(-1px) scale(1); }
+  100% { opacity: 0; transform: translateY(-13px) scale(1); }
+}
+.lp-credit-delta { animation: lp-credit-delta .95s ease-out forwards; }
+
+/* Entrance — messages + artifact cards fade/rise in as they mount. Runs once
+   on mount (React keeps the element across re-renders, so streaming updates
+   don't re-trigger it). */
+@keyframes lp-rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.lp-rise { animation: lp-rise .2s ease-out both; }
+
+/* Streaming caret — blinks at the end of the assistant bubble while tokens
+   arrive, removed when the turn ends. */
+@keyframes lp-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.lp-caret { display: inline-block; width: .5ch; margin-left: 1px; color: var(--ink-4); animation: lp-blink 1s step-end infinite; }
+
+/* Accessibility — honour reduced-motion: drop non-essential motion (entrance,
+   caret blink, ambient pulses, deltas). Functional state transitions stay. */
+@media (prefers-reduced-motion: reduce) {
+  .lp-rise, .lp-caret, .lp-credit-delta, .lp-flash, .lp-pulse, .lp-enrich { animation: none !important; }
+  .lp-scan::after { animation: none !important; }
+}
+
+/* Markdown prose inside assistant bubbles */
+.lp-md p { margin: 0 0 6px; }
+.lp-md p:last-child { margin-bottom: 0; }
+.lp-md strong { font-weight: 600; color: var(--ink); }
+.lp-md em { font-style: italic; }
+.lp-md ul, .lp-md ol { margin: 4px 0 8px; padding-left: 18px; }
+.lp-md li { margin: 2px 0; }
+/* In-bubble markdown headings follow the lower end of the type scale (h4/h5)
+   so chat prose stays hierarchical without dwarfing the bubble. */
+.lp-md h1 { font-size: var(--fs-h4); line-height: var(--lh-h4); letter-spacing: var(--ls-h4); font-weight: var(--fw-h4); color: var(--ink); margin: 12px 0 4px; }
+.lp-md h2 { font-size: var(--fs-h5); line-height: var(--lh-h5); font-weight: 600; color: var(--ink); margin: 10px 0 3px; }
+.lp-md h3 { font-size: var(--fs-body); line-height: var(--lh-body); font-weight: 600; color: var(--ink); margin: 10px 0 3px; }
+.lp-md hr { border: none; border-top: 1px solid var(--line-2); margin: 10px 0; }
+.lp-md code { font-family: var(--f-mono); font-size: 0.85em; background: var(--paper-2); padding: 1px 4px; border-radius: 3px; }
+.lp-md pre { background: var(--paper-2); padding: 10px; border-radius: var(--r-m); overflow: auto; }
+.lp-md pre code { background: none; padding: 0; }
+.lp-md table { border-collapse: collapse; margin: 6px 0 10px; width: 100%; font-size: 13px; }
+.lp-md th, .lp-md td { border: 1px solid var(--line-2); padding: 4px 8px; text-align: left; vertical-align: top; }
+.lp-md th { background: var(--paper-2); font-weight: 600; color: var(--ink); white-space: nowrap; }
+.lp-md a { color: var(--accent-ink); text-decoration: underline; }
+
+/* icons — bumped for legibility (founder feedback: icone più grandi) */
+.lp-ic { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.lp-ic-lg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+
+/* keep artboard contents from feeling cramped inside DCArtboard */
+.lp-frame { width: 100%; height: 100%; background: var(--paper); color: var(--ink); font-family: var(--f-sans); font-size: var(--fs-body); line-height: var(--lh-body); display: flex; flex-direction: column; overflow: hidden; }
+.lp-frame * { box-sizing: border-box; }
+
+/* ── Type-scale roles (SenseFound V1.1, web-mapped) ──────────────────────
+   Semantic classes that bind size + weight + line-height + tracking together
+   per role, so headings/labels/body stay on-brand from one place. Adopt these
+   in place of inline `fontSize` as components are touched. Colors are NOT set
+   on body roles (inherit --ink), but headings default to --ink and labels to
+   the muted ramp since that's their near-universal usage. */
+.lp-h1 { font-family: var(--f-display); font-size: var(--fs-h1); line-height: var(--lh-h1); letter-spacing: var(--ls-h1); font-weight: var(--fw-h1); color: var(--ink); }
+.lp-h2 { font-family: var(--f-display); font-size: var(--fs-h2); line-height: var(--lh-h2); letter-spacing: var(--ls-h2); font-weight: var(--fw-h2); color: var(--ink); }
+.lp-h3 { font-family: var(--f-display); font-size: var(--fs-h3); line-height: var(--lh-h3); letter-spacing: var(--ls-h3); font-weight: var(--fw-h3); color: var(--ink); }
+.lp-h4 { font-size: var(--fs-h4); line-height: var(--lh-h4); letter-spacing: var(--ls-h4); font-weight: var(--fw-h4); color: var(--ink); }
+.lp-h5 { font-size: var(--fs-h5); line-height: var(--lh-h5); letter-spacing: var(--ls-h5); font-weight: var(--fw-h5); color: var(--ink); }
+.lp-label { font-size: var(--fs-label); line-height: var(--lh-label); letter-spacing: var(--ls-label); font-weight: var(--fw-label); text-transform: uppercase; color: var(--ink-4); }
+.lp-body-lg { font-size: var(--fs-body-lg); line-height: var(--lh-body-lg); }
+.lp-body { font-size: var(--fs-body); line-height: var(--lh-body); }
+.lp-body-sm { font-size: var(--fs-body-sm); line-height: var(--lh-body-sm); }
+.lp-rail-item:hover { background: var(--surface); color: var(--ink); }
+.lp-inline-option:hover { border-color: var(--ink-4) !important; background: var(--paper-2) !important; }
+
+/* bracket motif — from SenseFound logomark */
+.lp-brackets { position: relative; }
+.lp-brackets::before,
+.lp-brackets::after {
+  content: '';
+  position: absolute;
+  width: var(--bracket-size, 12px);
+  height: var(--bracket-size, 12px);
+  border-color: var(--bracket-color, var(--moss));
+  border-style: solid;
+  border-width: 0;
+  pointer-events: none;
+}
+.lp-brackets::before { top: 0; left: 0; border-top-width: 2px; border-left-width: 2px; }
+.lp-brackets::after { bottom: 0; right: 0; border-bottom-width: 2px; border-right-width: 2px; }
+
+/* Prose — lightweight markdown formatting for signal / heartbeat expanded bodies */
+.lp-prose { font-size: 13px; line-height: 1.6; color: var(--ink-3); }
+.lp-prose p { margin: 0 0 8px; }
+.lp-prose p:last-child { margin-bottom: 0; }
+.lp-prose strong, .lp-prose b { color: var(--ink-2); font-weight: 600; }
+.lp-prose a { color: var(--accent-ink); text-decoration: none; }
+.lp-prose a:hover { text-decoration: underline; }
+.lp-prose ul, .lp-prose ol { margin: 4px 0 8px; padding-left: 18px; }
+.lp-prose li { margin-bottom: 2px; }
+.lp-prose h1, .lp-prose h2, .lp-prose h3, .lp-prose h4 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 10px 0 4px; }
+.lp-prose code { font-family: var(--f-mono); font-size: 12px; background: var(--paper-3); padding: 1px 4px; border-radius: 3px; }
+.lp-prose pre { font-family: var(--f-mono); font-size: 12px; background: var(--paper-3); padding: 8px 10px; border-radius: var(--r-m); overflow-x: auto; margin: 6px 0; }
+.lp-prose blockquote { border-left: 2px solid var(--line-2); margin: 6px 0; padding-left: 10px; color: var(--ink-4); }

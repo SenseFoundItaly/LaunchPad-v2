@@ -1,0 +1,3 @@
+{
+  "/api/fundraising/[projectId]/investors/[investorId]/interaction/route": "app/api/fundraising/[projectId]/investors/[investorId]/interaction/route.js"
+}
