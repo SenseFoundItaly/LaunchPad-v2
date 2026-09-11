@@ -858,6 +858,18 @@ export const en = {
   'canvas.validation-pipeline-hint': 'Your 7-stage path from idea to traction.',
   'canvas.no-steps-yet': 'No steps yet.',
   'canvas.no-substeps': 'No substeps.',
+  // MVP Architecture section — changelog 05/09 item 13 (+ 7e's market sizing).
+  // Holds stage-1B output on the Knowledge page: "sempre integrate alla
+  // knowledge", and the graph is a stakeholder map now.
+  'mvp.title': 'MVP architecture',
+  'mvp.subtitle': 'Everything Stage 1B established about building this — approved evidence only. It updates as you validate.',
+  'mvp.market-sizing': 'Market size',
+  'mvp.section-feasibility': 'Build approach',
+  'mvp.section-risk': 'Technical risk',
+  'mvp.section-dependencies': 'Key dependencies',
+  'mvp.section-regulatory': 'Regulatory',
+  'mvp.section-ip': 'Intellectual property',
+  'mvp.section-data': 'Data availability',
   // The stage roadmap (changelog 05/09 item 1). Ghosted, inert rows: what the
   // stage will ask for once the write paths exist.
   'canvas.planned-label': 'On the roadmap',
