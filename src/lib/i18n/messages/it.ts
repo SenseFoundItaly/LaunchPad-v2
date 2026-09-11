@@ -841,6 +841,16 @@ export const it: Partial<Record<MessageKey, string>> = {
   'canvas.validation-pipeline-hint': "Il tuo percorso in 7 fasi dall'idea alla trazione.",
   'canvas.no-steps-yet': 'Ancora nessuno step.',
   'canvas.no-substeps': 'Nessun sotto-step.',
+  // Sezione MVP architecture — changelog 05/09 item 13 (+ dimensionamento 7e).
+  'mvp.title': 'MVP architecture',
+  'mvp.subtitle': 'Tutto ciò che lo Stage 1B ha stabilito su come costruirlo — solo prove approvate. Si aggiorna mentre validi.',
+  'mvp.market-sizing': 'Dimensione del mercato',
+  'mvp.section-feasibility': 'Approccio di build',
+  'mvp.section-risk': 'Rischio tecnico',
+  'mvp.section-dependencies': 'Dipendenze chiave',
+  'mvp.section-regulatory': 'Normative',
+  'mvp.section-ip': 'Proprietà intellettuale',
+  'mvp.section-data': 'Disponibilità dei dati',
   // Roadmap dello stage (changelog 05/09 item 1).
   'canvas.planned-label': 'In arrivo',
   'canvas.planned-tip': 'In arrivo in questo stage. Non ancora lavorabili — nulla registra queste risposte, quindi non contano mai contro i tuoi progressi.',

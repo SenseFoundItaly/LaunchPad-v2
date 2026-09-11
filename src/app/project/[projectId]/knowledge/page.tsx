@@ -23,6 +23,7 @@ import AllKnowledgePanel from '@/components/knowledge/AllKnowledgePanel';
 import RecentMovesFeed from '@/components/knowledge/RecentMovesFeed';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import { CompetitorMatryoshka } from '@/components/knowledge/CompetitorMatryoshka';
+import { MvpArchitecturePanel } from '@/components/knowledge/MvpArchitecturePanel';
 import type { GraphNode, GraphEdge, MacroCategory } from '@/types/graph';
 import { MACRO_CATEGORY_ORDER } from '@/types/graph';
 
@@ -252,6 +253,10 @@ export default function KnowledgePage({
     <div className="lp-rise" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
       {/* Textual competitor matryoshka (item 14): startup → competitor → category
           → detail. Renders nothing when there are no competitors. */}
+      {/* Stage-1B output (item 13) + the approved TAM/SAM/SOM (item 7e), above
+          the competitor breakdown: what you are building, then who is around
+          it. Both render nothing until the project has the evidence. */}
+      <MvpArchitecturePanel projectId={projectId} />
       <CompetitorMatryoshka projectId={projectId} />
       <div data-tour="knowledge-graph" style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
         {/* Graph ↔ List toggle (top-right; the graph's own search/expand sit top-left). */}
