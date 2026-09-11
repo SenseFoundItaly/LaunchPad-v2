@@ -13,6 +13,7 @@
 export const en = {
   // ── Nav rail ────────────────────────────────────────────────────────────
   'nav.home': 'Home',
+  'nav.coming-soon': 'coming soon',
   'nav.home-aria': 'LaunchPad — home',
   'nav.home.tooltip': 'Dashboard — project stage, todos, and signal log',
   // 'Intel' and 'Knowledge' are FROZEN BRAND TERMS — same word in every locale

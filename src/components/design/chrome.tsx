@@ -149,6 +149,9 @@ interface NavItem {
   fuzzy?: boolean;
   /** i18n key for the longer hover tooltip. Falls back to label when omitted. */
   tooltipKey?: MessageKey;
+  /** Shipped but not finished: the entry is VISIBLE and inert, tagged "coming
+   *  soon". See the note on BUILD_NAV_ENABLED for why visible beats absent. */
+  comingSoon?: boolean;
 }
 
 // Primary nav — the project landing surface (project stage + todos + signal log).
@@ -159,13 +162,18 @@ const PRIMARY_ITEMS: NavItem[] = [
     tooltipKey: 'nav.build.tooltip' },
 ];
 
-// Feature flag: the Build & Launch Hub ships behind NEXT_PUBLIC_BUILD_ENABLED so
-// it can be live on staging (=1) while staying hidden in prod until GA. Inlined at
-// build time. This only hides the NAV entry — the /build route stays reachable by
-// URL for QA.
+// Feature flag: the Build & Launch Hub is live on staging (=1) and not yet GA in
+// prod. Inlined at build time. The /build route stays reachable by URL for QA.
+//
+// 2026-09-11: it is no longer REMOVED from the nav in prod, it is shown inert
+// and tagged "coming soon". Same reasoning as the stage roadmap (changelog
+// 05/09 item 1): a founder who cannot see what is coming reads the product as
+// smaller than it is, and the 28/08 roadmap rows were added for exactly that.
+// Inert is the load-bearing half — a visible entry that navigated into an
+// unfinished hub would be the dead end this codebase keeps having to fix.
 const BUILD_NAV_ENABLED = process.env.NEXT_PUBLIC_BUILD_ENABLED === '1';
-const VISIBLE_PRIMARY_ITEMS = PRIMARY_ITEMS.filter(
-  (it) => it.id !== 'build' || BUILD_NAV_ENABLED,
+const VISIBLE_PRIMARY_ITEMS: NavItem[] = PRIMARY_ITEMS.map(
+  (it) => (it.id === 'build' && !BUILD_NAV_ENABLED ? { ...it, comingSoon: true } : it),
 );
 
 // Channels — cross-cutting activity surfaces shown below the divider.
@@ -252,6 +260,7 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
           tooltip={it.tooltipKey ? t(it.tooltipKey) : undefined}
           projectId={projectId}
           active={isActive(it)}
+          comingSoonLabel={t('nav.coming-soon')}
         />
       ))}
       {/* Divider — separates departments (where you work) from channels
@@ -316,12 +325,19 @@ export function NavRail({ projectId, current, inboxBadge, chatStreaming }: NavRa
   );
 }
 
-function NavRailItem({ item, label, tooltip, projectId, active, badge, badgeTone = 'alert', streaming }: { item: NavItem; label: string; tooltip?: string; projectId: string; active: boolean; badge?: number; badgeTone?: 'alert' | 'count'; streaming?: boolean }) {
+function NavRailItem({ item, label, tooltip, projectId, active, badge, badgeTone = 'alert', streaming, comingSoonLabel }: { item: NavItem; comingSoonLabel?: string; label: string; tooltip?: string; projectId: string; active: boolean; badge?: number; badgeTone?: 'alert' | 'count'; streaming?: boolean }) {
   const isCount = badgeTone === 'count';
   const { hover, bind } = useRailHover();
+  // A coming-soon entry is NOT a link. Rendering it as one that happens to be
+  // styled faint would still navigate — the founder would land in an
+  // unfinished surface, which is worse than not knowing it exists.
+  const Wrapper: React.ElementType = item.comingSoon ? 'span' : Link;
+  const wrapperProps = item.comingSoon
+    ? { 'aria-disabled': true as const, role: 'link' as const }
+    : { href: `/project/${projectId}/${item.route}` };
   return (
-    <Link
-      href={`/project/${projectId}/${item.route}`}
+    <Wrapper
+      {...wrapperProps}
       aria-label={tooltip ?? label}
       data-tour={`nav-${item.id}`}
       {...bind}
@@ -329,7 +345,8 @@ function NavRailItem({ item, label, tooltip, projectId, active, badge, badgeTone
         width: 42,
         height: 38,
         borderRadius: 'var(--r-m)',
-        cursor: 'pointer',
+        cursor: item.comingSoon ? 'default' : 'pointer',
+        opacity: item.comingSoon ? 0.45 : 1,
         background: active ? 'var(--surface)' : 'transparent',
         boxShadow: active ? 'inset 0 0 0 1px var(--line)' : 'none',
         color: active ? 'var(--ink)' : 'var(--ink-4)',
@@ -381,9 +398,11 @@ function NavRailItem({ item, label, tooltip, projectId, active, badge, badgeTone
           }}
         />
       )}
-      {/* Section name shown on hover — the label span is gone (icon-only rail). */}
-      <RailTooltip label={label} show={hover} />
-    </Link>
+      {/* Section name shown on hover — the label span is gone (icon-only rail).
+          A coming-soon entry says so in the tooltip: the icon alone reads as
+          "broken" rather than "not yet". */}
+      <RailTooltip label={item.comingSoon ? `${label} · ${comingSoonLabel}` : label} show={hover} />
+    </Wrapper>
   );
 }
 
