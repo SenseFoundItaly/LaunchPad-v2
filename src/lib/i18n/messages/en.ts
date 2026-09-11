@@ -1777,6 +1777,10 @@ export const en = {
   'vp.competitor-name-placeholder': 'Competitor name',
   'vp.done': 'Done',
   'vp.edit': 'edit',
+  // Reading the whole finding must not require entering edit mode — this is
+  // an approval card (changelog 05/09 items 7g + 12).
+  'vp.show-full': 'show full',
+  'vp.show-less': 'show less',
   'vp.edit-title': 'Edit this item',
   'vp.remove-title': 'Remove this item',
   'vp.applying': 'Applying…',

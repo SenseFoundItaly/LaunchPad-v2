@@ -1425,6 +1425,12 @@ export default function CopilotChatPage({
       if (action === 'navigate') {
         const DESTINATIONS: Record<string, string> = {
           knowledge: `/project/${projectId}/knowledge`,
+          // Same page, but says what to look at. The competitor panel remembers
+          // being collapsed (changelog item 10, because it covered the graph),
+          // so a founder who collapsed it once and then clicked "review the
+          // competitors" landed on a page with the list hidden — two of my own
+          // changes meeting badly. Still a fixed destination, not a free URL.
+          'knowledge-competitors': `/project/${projectId}/knowledge?focus=competitors`,
           // The canvas is the right pane of the chat page; /canvas does not
           // exist (dead-end audit 2026-09-10 — a link-target scan caught this
           // in my own #477 before any card sent it).

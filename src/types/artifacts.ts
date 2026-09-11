@@ -161,7 +161,7 @@ export interface OptionSet extends ArtifactBase {
     // the agent (changelog 05/09 item 7f). A fixed set, never a free URL:
     // artifact text is model output, and an option that can navigate anywhere
     // is an open redirect wearing a button.
-    navigate_to?: 'knowledge' | 'canvas' | 'actions' | 'today';
+    navigate_to?: 'knowledge' | 'knowledge-competitors' | 'canvas' | 'actions' | 'today';
     commit?: {
       // Any of the 11 Lean Canvas blocks — the 7 core/text fields plus the soft
       // fields (unfair_advantage; key_metrics / revenue_streams / cost_structure

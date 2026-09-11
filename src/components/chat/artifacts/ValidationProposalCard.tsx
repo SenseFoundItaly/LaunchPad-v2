@@ -21,6 +21,10 @@
  */
 
 import { useEffect, useState } from 'react';
+
+/** How much of an item's value the card shows before it needs opening. Long
+ *  enough for a normal finding, short enough that ten items stay scannable. */
+const VALUE_PREVIEW_CHARS = 220;
 import type { ValidationProposalArtifact, ValidationProposalItem } from '@/types/artifacts';
 import ArtifactCardShell from './ArtifactCardShell';
 import { useT } from '@/components/providers/LocaleProvider';
@@ -45,6 +49,12 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [edits, setEdits] = useState<Record<string, ItemEdit>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Which long values the founder has opened. Changelog 05/09 items 7g + 12:
+  // "la richiesta di applicare tutti questi output (che non avevo ancora
+  // potuto vedere)". The value was cut at 220 characters with no way to read
+  // the rest — the only route to the full text was clicking *edit* and
+  // scrolling a textarea, on a card whose whole job is asking for approval.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // Reload guard: if this proposal was already resolved on a prior turn, mount
   // in the resolved state instead of a clickable "Apply" the founder already
@@ -207,11 +217,28 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
                       </div>
                     </div>
                   ) : (
-                    <div className="text-[11px] text-ink-3 mt-0.5 leading-snug">
+                    <div className="text-[11px] text-ink-3 mt-0.5 leading-snug whitespace-pre-wrap break-words">
                       {curName && it.kind === 'competitor' && (
                         <span className="text-ink-2 font-medium">{curName}: </span>
                       )}
-                      {curValue.length > 220 ? `${curValue.slice(0, 220)}…` : curValue}
+                      {curValue.length > VALUE_PREVIEW_CHARS && !expanded.has(it.id)
+                        ? `${curValue.slice(0, VALUE_PREVIEW_CHARS)}…`
+                        : curValue}
+                      {curValue.length > VALUE_PREVIEW_CHARS && (
+                        <button
+                          type="button"
+                          onClick={() => setExpanded((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(it.id)) next.delete(it.id);
+                            else next.add(it.id);
+                            return next;
+                          })}
+                          aria-expanded={expanded.has(it.id)}
+                          className="ml-1 text-[10px] text-accent hover:underline"
+                        >
+                          {t(expanded.has(it.id) ? 'vp.show-less' : 'vp.show-full')}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
