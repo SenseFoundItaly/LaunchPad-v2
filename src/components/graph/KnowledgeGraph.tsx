@@ -655,8 +655,13 @@ export default function KnowledgeGraph({ nodes, edges, projectId, onNodeClick, o
       </div>
 
       {nodes.length === 0 ? (
-        <div className="absolute inset-0 flex items-center justify-center text-ink-5 text-sm">
-          {t('knowledge.graph-will-populate')}
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-8 text-center">
+          <span className="text-ink-5 text-sm">{t('knowledge.graph-will-populate')}</span>
+          {/* Says what this surface is FOR. The graph is a stakeholder map —
+              a who, not a what (founder decision 2026-09-10). Without this the
+              founder applies an analysis, looks here, and finds nothing:
+              changelog 05/09 item 7c. */}
+          <span className="text-ink-6 text-xs max-w-sm leading-relaxed">{t('knowledge.graph-scope')}</span>
         </div>
       ) : (
         <>

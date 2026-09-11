@@ -378,7 +378,11 @@ export const en = {
   'knowledge.graph-search': 'Search nodes…',
   'knowledge.graph-expand': 'Expand',
   'knowledge.graph-exit': 'Exit',
-  'knowledge.graph-will-populate': 'Knowledge graph will populate as you chat',
+  'knowledge.graph-will-populate': 'Your stakeholder map will populate as you chat',
+  // The graph is a stakeholder map — a who, not a what (founder decision
+  // 2026-09-10). Analyses stay in the list beside it, which is where the
+  // founder was already finding them (changelog 05/09 item 7c).
+  'knowledge.graph-scope': 'Who is around your startup — competitors, customers, partners, suppliers, investors, collaborators. Analyses and findings live in the Knowledge list.',
   'knowledge.graph-pending-hint': 'Pending — click to review',
   // Per-satellite empty-state CTAs — each tells the founder the concrete
   // action that populates THAT category (generic hint retired, WS5.6).
