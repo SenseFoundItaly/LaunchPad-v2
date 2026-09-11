@@ -8,6 +8,7 @@ import type { MessageKey } from './en';
 
 export const it: Partial<Record<MessageKey, string>> = {
   'nav.home': 'Home',
+  'nav.coming-soon': 'in arrivo',
   'nav.home-aria': 'LaunchPad — home',
   'nav.home.tooltip': 'Dashboard — fase del progetto, attività e log dei segnali',
   // 'Knowledge' → 'Conoscenza' OVUNQUE (decisione founder 2026-07-21, feedback
