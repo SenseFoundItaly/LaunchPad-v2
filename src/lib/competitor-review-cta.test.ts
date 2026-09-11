@@ -68,7 +68,9 @@ describe('the CTA appears exactly when competitors are waiting', () => {
     mockDb();
     await maybeProposeCompetitorReview('p1');
     const body = JSON.parse(card().split('\n')[1]);
-    expect(body.options[1].navigate_to).toBe('knowledge');
+    // Deep-links to the panel, not just the page: the competitor list can be
+    // collapsed (item 10), and an approval CTA must not land on a hidden list.
+    expect(body.options[1].navigate_to).toBe('knowledge-competitors');
     // The other option is a prompt: widening the search IS a conversation.
     expect(body.options[0].navigate_to).toBeUndefined();
   });

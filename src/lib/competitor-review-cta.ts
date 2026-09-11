@@ -90,7 +90,10 @@ export async function maybeProposeCompetitorReview(projectId: string): Promise<b
         // Navigation, not a message: the founder's next move is on another
         // page, and sending "I choose: go to knowledge" to the agent would have
         // it narrate a journey it cannot make on their behalf.
-        navigate_to: 'knowledge' as const,
+        // Deep-links to the competitor panel specifically — it can be
+        // collapsed (item 10), and an approval CTA must not land on a hidden
+        // list.
+        navigate_to: 'knowledge-competitors' as const,
       },
     ];
     const body = { prompt: translate(locale, 'competitor-cta.prompt', { count: pending }), options };

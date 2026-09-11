@@ -64,6 +64,17 @@ export function CompetitorMatryoshka({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(true);
   const listId = useId();
   useEffect(() => {
+    // Arriving from the "review the competitors" CTA (?focus=competitors) beats
+    // the remembered state: the founder just asked to see this list, so landing
+    // on a collapsed panel would be the dead end the CTA exists to close. The
+    // persist effect below then records it as their new preference, which is
+    // the honest reading of a deliberate click.
+    try {
+      if (new URLSearchParams(window.location.search).get('focus') === 'competitors') {
+        setOpen(true);
+        return;
+      }
+    } catch { /* no window / malformed search — fall through to the saved state */ }
     try {
       const saved = localStorage.getItem(storageKey);
       if (saved !== null) setOpen(saved === '1');

@@ -1735,6 +1735,8 @@ export const it: Partial<Record<MessageKey, string>> = {
   'vp.competitor-name-placeholder': 'Nome del concorrente',
   'vp.done': 'Fatto',
   'vp.edit': 'modifica',
+  'vp.show-full': 'mostra tutto',
+  'vp.show-less': 'mostra meno',
   'vp.edit-title': 'Modifica questo elemento',
   'vp.remove-title': 'Rimuovi questo elemento',
   'vp.applying': 'Applicazione…',
