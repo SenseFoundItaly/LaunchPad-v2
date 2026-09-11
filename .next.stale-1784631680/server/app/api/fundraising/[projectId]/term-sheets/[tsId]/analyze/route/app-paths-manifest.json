@@ -1,3 +1,0 @@
-{
-  "/api/fundraising/[projectId]/term-sheets/[tsId]/analyze/route": "app/api/fundraising/[projectId]/term-sheets/[tsId]/analyze/route.js"
-}

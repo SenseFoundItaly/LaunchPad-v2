@@ -1,3 +1,0 @@
-{
-  "/api/dashboard/[projectId]/metrics/[metricId]/entry/route": "app/api/dashboard/[projectId]/metrics/[metricId]/entry/route.js"
-}

@@ -1,5 +1,9 @@
 node_modules/
 .next/
+# Stale build output the deploy script parks aside (.next.stale-<epoch>/).
+# Untracked and unignored, it was swept into a commit by `git add -A` on
+# 2026-09-11 — 2756 build files onto main.
+.next.stale-*/
 data/
 *.db
 *.db-journal

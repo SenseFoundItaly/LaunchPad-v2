@@ -1,3 +1,0 @@
-module.exports=[354477,a=>{"use strict";var b=a.i(546320);a.s(["default",0,function(){return(0,b.jsx)("div",{className:"flex min-h-screen items-center justify-center bg-surface-sunk px-6",children:(0,b.jsxs)("div",{className:"max-w-md text-center",children:[(0,b.jsx)("h2",{className:"text-lg font-semibold text-ink mb-2",children:"Page not found"}),(0,b.jsx)("p",{className:"text-sm text-ink-4 mb-6",children:"The page you're looking for doesn't exist or has been moved."}),(0,b.jsx)("a",{href:"/",className:"px-4 py-2 text-sm font-medium rounded-md bg-paper-2 text-ink hover:bg-paper-3 transition-colors",children:"Go home"})]})})}])},589886,a=>{a.n(a.i(354477))}];
-
-//# sourceMappingURL=tech-bricks_LaunchPad-v2_src_app_not-found_tsx_02rihr.._.js.map
