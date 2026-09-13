@@ -100,10 +100,10 @@ fi
 
 if [ "$PREVIEW" = true ]; then
   echo "▸ Deploying to preview URL…"
-  npx netlify-cli deploy
+  npx netlify-cli deploy --no-build
 else
   echo "▸ Deploying to production…"
-  npx netlify-cli deploy --prod
+  npx netlify-cli deploy --prod --no-build
 fi
 
 echo ""
