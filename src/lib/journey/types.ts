@@ -226,8 +226,8 @@ export interface ProjectSnapshot {
 
   /** Score-history points recorded after the first interview: a startup score
    *  re-run once real customer evidence existed, which is what 1C's scoring
-   *  review asks for. score_history drops no-change appends, so a count > 0
-   *  means the number actually moved. */
+   *  review asks for. Official runs count even when the score is unchanged:
+   *  the founder completed the review either way. */
   score_revisions_after_evidence: number;
 
   /** The newest full Startup Scoring run (score_history, source

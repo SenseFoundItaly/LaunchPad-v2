@@ -162,10 +162,9 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
     !revenues &&
     Object.keys(pending).length === 0;
 
-  // Pending-changes diff — a READ-ONLY summary of the unapproved proposal
-  // payload, rendered ABOVE the fields. Deliberately additive: the per-field
-  // inline pending display, its anchors and its editing affordances are
-  // untouched, this only answers "what is waiting on me?" in one glance.
+  // Keep pending status visible, with the read-only comparison behind a
+  // disclosure. Full proposed values already appear in the fields and in the
+  // chat approval card; repeating the table pushes working artifacts away.
   //
   // Each staged field yields the applied value as a `removed` row (what the
   // proposal would replace) and the staged value as an `added` row (what it
@@ -328,13 +327,13 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
       ) : (
         <>
         {pendingRows.length > 0 && (
-          <div style={{ marginBottom: 10 }}>
+          <details style={{ marginBottom: 10 }}>
+            <summary style={{ cursor: 'pointer', padding: '6px 0', fontSize: 12, color: 'var(--ink-2)' }}>
+              {pendingCount === 1
+                ? t('ui.canvas-pending.title-one')
+                : t('ui.canvas-pending.title-many', { count: pendingCount })}
+            </summary>
             <DiffTable
-              title={
-                pendingCount === 1
-                  ? t('ui.canvas-pending.title-one')
-                  : t('ui.canvas-pending.title-many', { count: pendingCount })
-              }
               columns={[
                 { key: 'field', label: t('ui.canvas-pending.col-field'), kind: 'strong', width: '26%' },
                 { key: 'state', label: t('ui.canvas-pending.col-state'), kind: 'chip', width: '26%' },
@@ -345,7 +344,7 @@ export function IdeaCanvasHeader({ projectId, factCount = 0, onRelaunchIdeaShapi
             <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--ink-4)', fontStyle: 'italic' }}>
               {t('ui.canvas-pending.hint')}
             </div>
-          </div>
+          </details>
         )}
         <div
           style={{

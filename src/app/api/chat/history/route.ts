@@ -12,6 +12,21 @@ export async function GET(request: NextRequest) {
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
 
+  if (searchParams.get('followups') === '1') {
+    const after = searchParams.get('after');
+    const afterId = searchParams.get('after_id') ?? '';
+    if (after && (!Number.isFinite(Date.parse(after)) || after.length > 50 || afterId.length > 200)) return error('Invalid follow-up cursor');
+    const rows = await query(
+      `SELECT id, role, content, "timestamp"::text AS timestamp FROM chat_messages
+       WHERE project_id = ? AND step = ? AND role = 'assistant'
+         AND meta->>'chat_followup' = 'true'
+         ${after ? 'AND ("timestamp", id) > (?::text::timestamp, ?)' : ''}
+       ORDER BY "timestamp", id LIMIT 200`,
+      projectId, step, ...(after ? [after, afterId] : []),
+    );
+    return json(rows);
+  }
+
   // ORDER BY "timestamp" alone is a PARTIAL order: a turn's user + assistant
   // rows are persisted with the SAME timestamp (see /api/chat persist block), so
   // ties resolve in arbitrary heap order and the pair flips across refreshes.

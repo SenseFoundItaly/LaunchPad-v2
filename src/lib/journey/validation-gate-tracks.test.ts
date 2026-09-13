@@ -738,6 +738,34 @@ describe('the mandatory Startup Score that closes 1B', () => {
     expect(row(snap).passed).toBe(false);
   });
 
+  it.each([
+    { source_type: 'file', kind: 'observation', content: 'GDPR and API requirements in an uploaded document' },
+    { source_type: 'chat', kind: 'file_upload', content: 'Technical risk in an uploaded document' },
+    { source_type: 'monitor', kind: 'observation', content: 'New API technical risk detected by a watcher' },
+    { source_type: 'approval_inbox', kind: 'observation', content: 'Rejected GDPR proposal' },
+    { source_type: 'workflow', kind: 'observation', content: 'Technical risk workflow proposed' },
+    { source_type: 'chat', kind: 'observation', content: 'Agent proposed workflow "GDPR risk review"' },
+    { source_type: 'chat', kind: 'gtm_fact', content: 'GTM opportunity: reach developers through API partnerships' },
+  ])('does not relock 1C for unrelated newer knowledge: $source_type / $kind', (fact) => {
+    const snapshot = snapshotWithABDone();
+    snapshot.memory_facts.push({ ...fact, id: 'new-unrelated', created_at: '2026-09-03T00:00:00.000Z' });
+    expect(row(snapshot).passed).toBe(true);
+    expect(validationTracksAB_done(snapshot)).toBe(true);
+    expect(gateResults(snapshot).find((x) => x.check.id === 'interviews_logged')!.result.locked).toBeUndefined();
+  });
+
+  it.each([
+    { kind: 'observation', content: 'Key dependency: a second API vendor is now required' },
+    { kind: 'tech_dependency_fact', content: 'A second vendor is now required' },
+  ])('requires a fresh score when qualifying technical evidence changes: $kind', (fact) => {
+    const snapshot = snapshotWithABDone();
+    snapshot.memory_facts.push({ ...fact, source_type: 'chat', id: 'new-tech', created_at: '2026-09-03T00:00:00.000Z' });
+    expect(row(snapshot).passed).toBe(false);
+    expect(row(snapshot).gap).toMatch(/predates/);
+    snapshot.last_full_scoring = scoredAt('2026-09-04T00:00:00.000Z');
+    expect(row(snapshot).passed).toBe(true);
+  });
+
   it('the scoring the founder needs is unlocked by the technical work, not by itself', () => {
     // The circle this breaks: the auto-scorer picks Clarity vs full Startup
     // Scoring from the gate state. Keyed on all of 1A+1B, the full scoring would
@@ -748,5 +776,23 @@ describe('the mandatory Startup Score that closes 1B', () => {
     expect(validationTechnicalWorkDone(noScoreYet)).toBe(true);
     // And it is not simply "always true": open technical work still reads open.
     expect(validationTechnicalWorkDone(mkSnapshot())).toBe(false);
+  });
+});
+
+describe('founder decisions before validation evidence is complete', () => {
+  it.each(['STOP', 'PIVOT'])('keeps an early %s visible without passing the gate', (verdict) => {
+    const snapshot = mkSnapshot({ research: { gate_verdict: { verdict, scope: '1B' } } });
+    const result = gateResults(snapshot).find((x) => x.check.id === 'gate_verdict')!.result;
+    expect(result.passed).toBe(false);
+    expect(result.locked).toBeUndefined();
+    expect(result.gap).toContain(verdict);
+    expect(gateResults(snapshot).find((x) => x.check.id === 'interviews_logged')!.result.locked).toBe(true);
+  });
+
+  it('still locks an existing GO when prerequisite evidence is missing', () => {
+    const snapshot = mkSnapshot({ research: { gate_verdict: { verdict: 'GO' } } });
+    const result = gateResults(snapshot).find((x) => x.check.id === 'gate_verdict')!.result;
+    expect(result.passed).toBe(false);
+    expect(result.locked).toBe(true);
   });
 });

@@ -5,9 +5,11 @@ vi.mock('@/lib/db', () => ({ run: runMock, query: queryMock, get: getMock }));
 vi.mock('@/lib/api-helpers', () => ({ generateId: (p: string) => `${p}_x` }));
 
 import { recordScoreHistory, getScoreHistory } from '@/lib/score-history';
+import { buildProjectSnapshot } from '@/lib/journey/snapshot';
+import { VALIDATION_TRACK_1B } from '@/lib/journey/stage-2-market-validation';
 
 describe('recordScoreHistory', () => {
-  beforeEach(() => { runMock.mockReset(); getMock.mockReset(); getMock.mockResolvedValue(undefined); });
+  beforeEach(() => { runMock.mockReset(); queryMock.mockReset(); getMock.mockReset(); getMock.mockResolvedValue(undefined); });
 
   it('skips a no-change point (same value AND same source, 2dp) — sparkline noise guard', async () => {
     getMock.mockResolvedValueOnce({ overall_score: 7.10, source: 'gauge-chart' });
@@ -29,6 +31,40 @@ describe('recordScoreHistory', () => {
     getMock.mockResolvedValueOnce({ overall_score: 7.1 });
     await recordScoreHistory('p1', 7.4, 'gauge-chart');
     expect(runMock).toHaveBeenCalledOnce();
+  });
+
+  it('records a completed full rescore even when its result is unchanged', async () => {
+    getMock.mockResolvedValueOnce({ overall_score: 70, source: 'startup-scoring' });
+    await recordScoreHistory('p1', 70, 'startup-scoring', 'Reviewed the new technical evidence');
+    expect(runMock).toHaveBeenCalledOnce();
+    expect(runMock.mock.calls[0][3]).toBe(70);
+    expect(runMock.mock.calls[0][5]).toBe('startup-scoring');
+  });
+
+  it('a same-score rerun closes the stale 1B gate through the persisted snapshot', async () => {
+    const history = [{ overall_score: 70, source: 'startup-scoring', created_at: '2026-09-01T00:00:00Z' }];
+    getMock.mockImplementation(async () => history.at(-1));
+    runMock.mockImplementation(async (sql, _id, _projectId, overall_score, _recommendation, source) => {
+      if (sql.includes('INSERT INTO score_history')) {
+        history.push({ overall_score, source, created_at: '2026-09-03T00:00:00Z' });
+      }
+    });
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM memory_facts')) return [{
+        id: 'technical-evidence', content: 'A new vendor is required', kind: 'tech_dependency_fact',
+        source_type: 'chat', created_at: '2026-09-02T00:00:00Z',
+      }];
+      if (sql.includes('FROM score_history') && sql.includes('ORDER BY created_at DESC')) return [history.at(-1)];
+      return [];
+    });
+    const gate = VALIDATION_TRACK_1B.find((check) => check.id === 'startup_score_1b')!;
+    expect(gate.evaluate(await buildProjectSnapshot('p1')).passed).toBe(false);
+
+    await recordScoreHistory('p1', 70, 'startup-scoring');
+
+    const rescoredSnapshot = await buildProjectSnapshot('p1');
+    expect(rescoredSnapshot.last_full_scoring?.overall_score).toBe(70);
+    expect(gate.evaluate(rescoredSnapshot).passed).toBe(true);
   });
 
   it('appends a real (>0) scoring', async () => {

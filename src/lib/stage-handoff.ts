@@ -92,9 +92,9 @@ export async function maybeProposeStageHandoff(projectId: string): Promise<boole
     const content = `:::artifact{"type":"option-set","id":"${cardTag(fromStage)}_${projectId.slice(-8)}"}\n${JSON.stringify(body)}\n:::`;
 
     await run(
-      `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
-       VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
-      generateId('msg'), projectId, content, new Date().toISOString(), ownerUserId,
+      `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, meta)
+       VALUES (?, ?, 'chat', 'assistant', ?, ?, ?, ?)`,
+      generateId('msg'), projectId, content, new Date().toISOString(), ownerUserId, { chat_followup: true },
     );
     await recordEvent({
       userId: ownerUserId, projectId, eventType: STAGE_HANDOFF_EVENT,

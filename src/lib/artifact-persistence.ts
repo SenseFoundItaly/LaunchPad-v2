@@ -1026,7 +1026,12 @@ async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): 
   // Widened: competitor analysis is one valid theme, but rankings, gap analyses,
   // and benchmark comparisons are equally common Stage-1..6 outputs and were
   // being silently dropped before.
-  const isCompetitive = /competitor|vs\.?|compare|platform|alternatives/.test(titleText);
+  // "Spreadsheet vs app" and "10 vs 25 shops" describe options/scenarios,
+  // not discovered competitors. Require explicit competitor intent before
+  // writing research or minting per-row competitor proposals. Generic tables
+  // still persist as comparisons, so conservative classification loses no card.
+  const headerText = `${titleText} ${a.columns.join(' ').toLowerCase()}`;
+  const isCompetitive = /\b(?:competitors?|concorrent[ei]|concorrenza|rivals?|incumbents?)\b|\bcompetitive\s+(?:landscape|analysis|comparison)\b/.test(headerText);
   const isRankingOrGap = /ranking|gap|benchmark|analysis|matrix|tier|channel/.test(titleText);
 
   const rowData = a.rows.map((r) => ({
@@ -1089,11 +1094,7 @@ async function persistComparisonTable(ctx: PersistContext, a: ComparisonTable): 
   // the gate, not provenance); wrapped so a malformed table can never break the
   // rest of the flush.
   let extracted = 0;
-  const headerText = `${titleText} ${a.columns.join(' ').toLowerCase()}`;
-  const isCompetitorTable =
-    /competitor|alternative|rival|incumbent|player|landscape/.test(headerText) ||
-    /\bvs\b/.test(titleText);
-  if (isCompetitorTable) {
+  if (isCompetitive) {
     try {
       extracted = await extractCompetitorRows(ctx, a, srcJson);
     } catch (err) {

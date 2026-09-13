@@ -11,6 +11,7 @@
 import { evaluateAllStages, activeStage } from './index';
 import type { ProjectSnapshot } from './types';
 import { CHAT_PROPOSABLE_KINDS, validationTargetsFor } from './validation-targets';
+import { coerceJson } from '@/lib/jsonb';
 
 /**
  * The RULES half of the journey block — every imperative, byte-identical on
@@ -37,6 +38,15 @@ import { CHAT_PROPOSABLE_KINDS, validationTargetsFor } from './validation-target
 export const JOURNEY_RULES = [
   '[JOURNEY RULES — how to work the founder\'s spine. The live state arrives separately.]',
   '',
+  'FOUNDER DECISIONS TAKE PRIORITY over gap-closing and stage progression:',
+  '- When the recorded founder decision is STOP, respect it. Answer their current question',
+  '  without pushing missing checks, paid analyses, or restarting the idea. Help them reflect',
+  '  or wrap up if asked. Resume progression only after they explicitly choose to reopen.',
+  '- When the recorded founder decision is PIVOT, focus on their stated reason and track.',
+  '  Help rework that evidence; do not push unrelated gaps or pretend they called GO.',
+  '- These decisions remain valid even with incomplete evidence. Never require finishing',
+  '  the gate before acknowledging a STOP or helping with a PIVOT.',
+  '',
   'Closing a gap needs a WRITE, not an answer:',
   '- Analysis you only narrate leaves the check RED. The founder did the work and the',
   '  product forgot it — that is the single worst thing this system can do.',
@@ -51,10 +61,12 @@ export const JOURNEY_RULES = [
   '  different question.',
   '',
   'Guidance:',
-  '- Open with progress framing ("you\'re N/M on <stage>", using the live numbers below)',
-  '  rather than a generic greeting.',
-  '- When the founder asks open-ended questions, anchor your answer to the missing checks.',
-  '- Proactively surface 1-2 gaps when natural — but don\'t lecture or list all of them.',
+  '- Answer the founder\'s immediate question first. Briefly mention progress only when it',
+  '  helps explain what changed or what comes next, using the live numbers below.',
+  '- If a previous reply proposed something the current gate does not allow, correct it',
+  '  plainly. Never repeat an old task as justification or scold the founder for asking again.',
+  '- When a next step is useful, suggest ONE relevant missing check. A clarification or',
+  '  acknowledgement can end with its answer; do not force a task or an option-set onto it.',
   '- When writing to facet tables (idea_canvas, pricing_state, memory_facts, etc.),',
   '  prefer fields that close an active gap over fields the founder is already complete on.',
   '',
@@ -63,6 +75,12 @@ export const JOURNEY_RULES = [
   '  offer 2-3 concrete example problems in their domain, or invite them to write it freely.',
   '  Never open with competitor research, market sizing or interviews: that is Stage 2, and it',
   '  is gated on this stage anyway.',
+  '- This holds on EVERY Stage-1 turn, including requests for one concrete next step. Keep',
+  '  the next move INSIDE THIS CONVERSATION: ask the founder for one observation they already',
+  '  have, then help phrase it as a problem hypothesis. Do not assign talking to 3-5 customers,',
+  '  shop visits, observation trips, informal conversations, or a Mom Test as a workaround.',
+  '  Example next-step reply: "Describe the last time you saw a shop run out of an item:',
+  '  what happened, and who had to deal with it? We can use that incident to draft the problem."',
   '- NEVER propose starting from the solution, or re-ordering the phases. If the founder insists,',
   '  comply — it is their project — but say plainly why the order matters and steer back to the',
   '  problem as soon as they let you.',
@@ -145,6 +163,28 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot, targetChe
 
   const done = results.filter((r) => r.result.passed);
   const gaps = results.filter((r) => !r.result.passed);
+  const decision = coerceJson<{ verdict?: unknown; scope?: unknown; motivation?: unknown }>(snapshot.research?.gate_verdict);
+  const decisionLines = decision?.verdict === 'STOP' || decision?.verdict === 'PIVOT'
+    ? [
+        `RECORDED FOUNDER DECISION: ${decision.verdict}`,
+        ...(typeof decision.scope === 'string' ? [`Decision track: ${decision.scope}`] : []),
+        ...(typeof decision.motivation === 'string' ? [`Founder reason: ${JSON.stringify(decision.motivation)}`] : []),
+        '',
+      ]
+    : [];
+
+  // STOP is independent of stage completeness. Sending the usual missing-work
+  // agenda here contradicts the founder's exit, especially on an early STOP.
+  // Keep response policy in the static rules above to preserve cache stability.
+  if (decision?.verdict === 'STOP') {
+    return [
+      '[JOURNEY STATE — the live spine. The rules for working it are in the system prefix.]',
+      ...decisionLines,
+      `Stage at pause: ${stage.number} — ${stage.label}.`,
+      `Progress at pause: ${passed} of ${total} checks passed.`,
+      '',
+    ].join('\n');
+  }
 
   // If everything is done, the founder has cleared all 7 stages — give the
   // agent a different framing (compound, optimize, scale).
@@ -168,7 +208,7 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot, targetChe
 
   const doneLines = byTrack(done).map((r) => `  ✓ ${tag(r.check.track)}${r.check.label}${r.result.evidence ? ` — ${r.result.evidence}` : ''}`);
   const gapLines = byTrack(gaps).map((r) => {
-    if (r.result.locked) return `  ○ ${tag(r.check.track)}${r.check.label} — LOCKED until every 1A + 1B check passes`;
+    if (r.result.locked) return `  ○ ${tag(r.check.track)}${r.check.label} — LOCKED: ${r.result.gap ?? 'prerequisite evidence is missing'}`;
     // Name the exact kind that closes this check. A walkthrough measured why
     // this is needed: the co-pilot produced real GTM / IP / regulatory analysis
     // and staged none of it, so 18 of 21 gate checks stayed red on turns where
@@ -216,6 +256,7 @@ export function formatStageContextForPrompt(snapshot: ProjectSnapshot, targetChe
     `Tagline: ${stage.tagline}`,
     `Progress: ${passed} of ${total} checks passed.`,
     '',
+    ...decisionLines,
     `DONE:`,
     ...(doneLines.length > 0 ? doneLines : ['  (none yet)']),
     '',

@@ -29,6 +29,8 @@ import { useProject } from '@/hooks/useProject';
 import { useDraft } from '@/hooks/useDraft';
 import { splitOptionLabel } from '@/components/chat/option-label';
 import { IdeaShapingQuickReplies } from '@/components/chat/IdeaShapingQuickReplies';
+import { needsApprovalReview } from '@/lib/chat/option-action';
+import { createMessageCache } from '@/lib/chat/message-cache';
 import { parseMessageContent, normalizeCanvasJsonFences } from '@/lib/artifact-parser';
 import { KNOWLEDGE_APPLY_CREDITS } from '@/lib/credit-costs';
 import { pickCanvasCommitFields, droppedCanvasCommitFields } from '@/lib/canvas-commit';
@@ -174,13 +176,13 @@ function useGatedSkills(projectId: string): Set<string> {
  * Artifact classification is a full regex + JSON scan of a message's content,
  * and the canvas/inline memo below re-runs it across EVERY assistant message on
  * every streaming paint. Completed messages never change, so their result is
- * cached by content — the streaming message is then the only one re-parsed,
+ * cached by message identity — only streaming revisions need re-parsing,
  * turning per-frame cost from O(conversation) into O(last message).
  *
- * Keyed on the content string itself: identical content ⇒ identical parse.
- * Bounded so a long session can't grow it without limit.
+ * Weak entries follow message lifetime; stream fragments cannot evict completed
+ * messages, even after hundreds of turns.
  */
-const ARTIFACT_CACHE_MAX = 300;
+
 interface ClassifiedArtifacts {
   inline: Artifact[];
   canvas: Artifact[];
@@ -195,27 +197,16 @@ interface ClassifiedArtifacts {
    *  2026-08-09 audit. */
   errors: Array<{ reason: string; artifact_type?: string }>;
 }
-const artifactCache = new Map<string, ClassifiedArtifacts>();
-function classifyArtifactsCached(content: string): ClassifiedArtifacts {
-  const hit = artifactCache.get(content);
-  if (hit) return hit;
-  const base = classifyArtifacts(content);
-  // Gate present → drop the proactive suggestion cards from this turn so the
-  // Apply/Skip decision stands alone (the gate card itself stays).
-  const result: ClassifiedArtifacts = {
-    ...base,
-    inlineForDisplay: base.inline.some((a) => GATE_ARTIFACT_TYPES.has(a.type))
-      ? base.inline.filter((a) => !SUGGESTION_ARTIFACT_TYPES.has(a.type))
-      : base.inline,
-  };
-  // Evict oldest-first (Map preserves insertion order) rather than clearing,
-  // so a burst never throws away the whole warm cache at once.
-  if (artifactCache.size >= ARTIFACT_CACHE_MAX) {
-    const oldest = artifactCache.keys().next().value;
-    if (oldest !== undefined) artifactCache.delete(oldest);
-  }
-  artifactCache.set(content, result);
-  return result;
+const messageArtifactCache = createMessageCache<ClassifiedArtifacts>();
+function classifyArtifactsCached(message: { content: string }): ClassifiedArtifacts {
+  return messageArtifactCache(message, content => {
+    const base = classifyArtifacts(content);
+    return {
+      ...base,
+      inlineForDisplay: base.inline.some(a => GATE_ARTIFACT_TYPES.has(a.type))
+        ? base.inline.filter(a => !SUGGESTION_ARTIFACT_TYPES.has(a.type)) : base.inline,
+    };
+  });
 }
 
 function classifyArtifacts(content: string): {
@@ -521,7 +512,7 @@ export default function CopilotChatPage({
   // One project = one chat. The chat_messages.step column is fixed to 'chat'
   // (multi-thread routing was removed — see commit history).
   const step = 'chat';
-  const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages } = useChat(projectId, step);
+  const { messages, isStreaming, sendMessage: sendMessageRaw, setMessages, appendFollowups } = useChat(projectId, step);
   // Draft-persisted composer: typed-but-unsent text survives refresh/close
   // (per-project localStorage; cleared on send).
   const [input, setInput, clearDraft] = useDraft(`lp_chat_draft_${projectId}`);
@@ -599,7 +590,7 @@ export default function CopilotChatPage({
   // Render only the trailing VISIBLE_MESSAGE_TAIL messages by default; the
   // expander at the top of the thread mounts the rest. Client-side only — no
   // API change (history is already fully loaded into `messages`).
-  const [showAllMessages, setShowAllMessages] = useState(false);
+  const [visibleMessageCount, setVisibleMessageCount] = useState(VISIBLE_MESSAGE_TAIL);
   // Scroll anchor captured at expand-click so prepended content doesn't jump
   // the reader's position (compensated before paint in the layout effect).
   const expandAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
@@ -608,7 +599,7 @@ export default function CopilotChatPage({
   // work when expanded) — only the rendered list is windowed. Memoized so the
   // window-slide layout effect re-runs on real thread changes, not on
   // unrelated renders (e.g. composer keystrokes).
-  const hiddenCount = showAllMessages ? 0 : Math.max(0, messages.length - VISIBLE_MESSAGE_TAIL);
+  const hiddenCount = Math.max(0, messages.length - visibleMessageCount);
   const visibleMessages = useMemo(
     () => (hiddenCount > 0 ? messages.slice(hiddenCount) : messages),
     [messages, hiddenCount],
@@ -711,7 +702,7 @@ export default function CopilotChatPage({
         // suppress the initial scroll of the new one. (Refs are set BEFORE
         // setMessages so the [messages] effect sees them in this render pass.)
         forceScrollRef.current = true;
-        setShowAllMessages(false);
+        setVisibleMessageCount(VISIBLE_MESSAGE_TAIL);
         setShowJumpPill(false);
         setMessages(restored);
         // Mark hydrated ONLY on a SUCCESSFUL load (or when a stream already
@@ -788,7 +779,7 @@ export default function CopilotChatPage({
     if (el) {
       expandAnchorRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop };
     }
-    setShowAllMessages(true);
+    setVisibleMessageCount(count => count + VISIBLE_MESSAGE_TAIL);
   }, []);
 
   // Window-slide anchor compensation.
@@ -853,10 +844,10 @@ export default function CopilotChatPage({
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const anchor = expandAnchorRef.current;
-    if (!showAllMessages || !el || !anchor) return;
+    if (!el || !anchor) return;
     expandAnchorRef.current = null;
     el.scrollTop = anchor.scrollTop + (el.scrollHeight - anchor.scrollHeight);
-  }, [showAllMessages]);
+  }, [visibleMessageCount]);
 
   // Split parsed artifacts: option-set / action-suggestion render INLINE in
   // the chat bubble; everything else goes to the right Canvas.
@@ -878,7 +869,7 @@ export default function CopilotChatPage({
     let turnIndex = 0;
     for (const m of messages) {
       if (m.role !== 'assistant' || !m.content) continue;
-      const split = classifyArtifactsCached(m.content);
+      const split = classifyArtifactsCached(m);
       if (split.errors.length > 0) errorMap.set(m.id, split.errors);
       // Gate filtering already applied inside the cache, so this array keeps a
       // stable reference for unchanged messages (see ClassifiedArtifacts).
@@ -1103,6 +1094,7 @@ export default function CopilotChatPage({
         const isApply = action === 'monitor:apply' || action === 'budget:apply' || action === 'validation:apply';
         const transition = isApply ? 'apply' : 'reject';
         const body: Record<string, unknown> = { transition };
+        if (typeof payload.artifact_id === 'string') body.artifact_id = payload.artifact_id;
         if (isApply && payload.overrides) {
           body.edited_payload = payload.overrides;
         }
@@ -1460,6 +1452,8 @@ export default function CopilotChatPage({
           const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
           throw new Error(err.error || `Recording the market scope failed with status ${res.status}`);
         }
+        const result = await res.json();
+        if (result.data?.followup) appendFollowups([result.data.followup]);
         // The sizing skill was gated on this answer — tell the skill list so a
         // run the founder can now do stops rendering as locked.
         if (typeof window !== 'undefined') {
@@ -1609,7 +1603,7 @@ export default function CopilotChatPage({
         sendMessage(t('chat.trigger-action-plan', { title: `${payload.title}${desc ? ': ' + desc : ''}` }));
       }
     },
-    [projectId, sendMessage, setMessages, t, nav],
+    [projectId, sendMessage, setMessages, appendFollowups, t, nav],
   );
 
   function handleKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -2249,14 +2243,14 @@ function MsgImpl({
           <ToolChips
             rows={tools.map((tool) => ({
               id: tool.id,
-              label: tool.name,
+              label: toolIconFor(tool.name) === 'write' ? t('chat.tool-updating') : t('chat.tool-checking'),
               status: tool.status,
               icon: toolIconFor(tool.name),
               chip: toolArgSummary(tool.args),
               detail: toolArgDetail(tool.args),
               detailMono: true,
             }))}
-            defaultOpen={tools.length === 1}
+            defaultOpen={false}
           />
         </div>
       )}
@@ -2336,10 +2330,6 @@ function MsgImpl({
           <Icon d={I.flag} size={11} stroke={1.5} style={{ color: 'var(--clay)', flexShrink: 0, marginTop: 2 }} />
           <span>{t('chat.uncited-claim')}</span>
         </div>
-      )}
-      {/* Fallback quick-reply chips when the model omitted an option-set */}
-      {!streaming && who === 'ai' && (!inlineArtifacts || inlineArtifacts.length === 0) && (
-        <QuickReplies rawContent={rawContent} onReply={onQuickReply} />
       )}
       {!streaming && <MsgActions content={rawContent} align="left" />}
     </div>
@@ -2530,84 +2520,6 @@ function MdProse({ text }: { text: string }) {
   return <>{nodes}</>;
 }
 
-function QuickReplies({
-  rawContent,
-  onReply,
-}: {
-  rawContent: string;
-  onReply?: (text: string) => void;
-}) {
-  const t = useT();
-  const [dismissed, setDismissed] = useState(false);
-  if (dismissed || !onReply) return null;
-
-  const prose = rawContent.replace(/:::artifact[\s\S]*?(?::::|$)/g, '').trim();
-
-  // Extract the last question sentence to generate context-aware chips.
-  const lastQuestion = prose.split(/(?<=[.!?])\s+/).filter(s => s.trim().endsWith('?')).pop()?.trim() ?? '';
-  const hasQuestion = lastQuestion.length > 0;
-
-  const chips = hasQuestion
-    ? [
-      t('chat.quick-reply-examples'),
-      t('chat.quick-reply-step-by-step'),
-      t('chat.quick-reply-move-on'),
-    ]
-    : [
-      t('chat.quick-reply-prioritize'),
-      t('chat.quick-reply-risks'),
-      t('chat.quick-reply-next-step'),
-    ];
-
-  return (
-    <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-      {chips.map((chip) => (
-        <button
-          key={chip}
-          type="button"
-          onClick={() => {
-            setDismissed(true);
-            onReply(chip);
-          }}
-          style={{
-            padding: '5px 10px',
-            fontSize: 12,
-            color: 'var(--ink-3)',
-            background: 'var(--surface)',
-            border: '1px solid var(--line-2)',
-            borderRadius: 'var(--r-m)',
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            transition: 'border-color .1s, color .1s',
-          }}
-          className="lp-rail-item"
-        >
-          {chip}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/**
- * Inline artifact renderer for option-set / action-suggestion.
- *
- * These render INSIDE the assistant bubble (not in Canvas) so the user can
- * click a CTA without crossing the pane boundary. Click handlers route
- * through the page-level handleArtifactAction, which currently posts a
- * follow-up user turn back through the chat pipeline.
- */
-/**
- * One inline option-set button. Two behaviours, one rendering:
- *   - skill option (`skill_id` set): clicking RUNS the skill in real time via
- *     the existing `skill:run` streaming path. The button manages its own
- *     running/done/error state. This folds the skill proposal INTO the
- *     suggestion option-set — no separate skill-suggestion "Run" card layered
- *     with a redundant duplicate option.
- *   - normal option: clicking sends "I choose: <label> — <description>" back to
- *     the agent (select-option). Forwards the DESCRIPTION (the option's stated
- *     intent) so the agent executes it rather than re-reasoning a bare label.
- */
 function InlineOption({
   option,
   index,
@@ -2633,6 +2545,7 @@ function InlineOption({
   onAction?: (action: string, payload: Record<string, unknown>) => Promise<void> | void;
 }) {
   const t = useT();
+  const reviewOnly = needsApprovalReview(option);
   const isSkill = typeof option.skill_id === 'string' && option.skill_id.length > 0;
   // Locked = a skill option whose prerequisites aren't met (idea canvas missing
   // solution/value_prop). Covers freshly-proposed, stale-history, AND
@@ -2648,7 +2561,7 @@ function InlineOption({
   // the title attribute. The PAYLOAD carries the FULL original label
   // (split.full), never the clamped head — a truncated "Yes" can't
   // disambiguate between similar options. Clamping is render-only.
-  const split = splitOptionLabel(option.label || t('chat.option-fallback', { n: index + 1 }), option.description);
+  const split = splitOptionLabel(reviewOnly ? t('chat.review-proposal') : option.label || t('chat.option-fallback', { n: index + 1 }), reviewOnly ? t('chat.review-proposal-description') : option.description);
 
   // Expand-in-place: the clamp made long options unreadable without selecting
   // (alpha feedback 2026-07-15). Toggle shown only when text was actually cut;
@@ -2656,7 +2569,7 @@ function InlineOption({
   // (split.description carries the label overflow and would duplicate it).
   const [expanded, setExpanded] = useState(false);
   const isClamped = split.full !== split.label || (split.description?.length ?? 0) > 120;
-  const expandedDescription = String(option.description ?? '').trim();
+  const expandedDescription = reviewOnly ? t('chat.review-proposal-description') : String(option.description ?? '').trim();
 
   const baseLabel = (expanded ? split.full : split.label) || t('chat.option-fallback', { n: index + 1 });
   const labelText =
@@ -2678,6 +2591,7 @@ function InlineOption({
     // Set already resolved (a choice was made, or a response is in flight): the
     // options are saved-but-frozen, so a stray click is a no-op.
     if (setLocked) return;
+    if (reviewOnly) { await onAction?.('navigate', { to: 'actions' }); return; }
     // Navigation (changelog 05/09 item 7f) — BOTH renderers must handle it, or
     // the option degrades to a narrated trip the agent cannot make.
     if (option.navigate_to) {

@@ -7,6 +7,7 @@
  */
 
 import type { Artifact } from '@/types/artifacts';
+import { comparisonColumns } from '@/lib/chat/comparison-columns';
 
 export interface ArtifactExport {
   filename: string;
@@ -50,7 +51,8 @@ export function buildArtifactExport(artifact: Artifact): ArtifactExport | null {
 
   switch (artifact.type) {
     case 'comparison-table': {
-      const rows: unknown[][] = [['', ...artifact.columns]];
+      const aligned = comparisonColumns(artifact);
+      const rows: unknown[][] = [[aligned.identityLabel ?? '', ...aligned.columns]];
       for (const r of artifact.rows) rows.push([r.label, ...r.values]);
       return { filename: `${base}.csv`, mime: 'text/csv', text: toCsv(rows) };
     }
@@ -151,8 +153,9 @@ export function buildArtifactMarkdown(artifact: Artifact): ArtifactExport | null
 
   switch (artifact.type) {
     case 'comparison-table': {
-      lines.push(`| | ${artifact.columns.map(mdEscapePipes).join(' | ')} |`);
-      lines.push(`|---${'|---'.repeat(artifact.columns.length)}|`);
+      const aligned = comparisonColumns(artifact);
+      lines.push(`| ${aligned.identityLabel ? mdEscapePipes(aligned.identityLabel) + ' ' : ''}| ${aligned.columns.map(mdEscapePipes).join(' | ')} |`);
+      lines.push(`|---${'|---'.repeat(aligned.columns.length)}|`);
       for (const r of artifact.rows) lines.push(`| ${mdEscapePipes(r.label)} | ${r.values.map(mdEscapePipes).join(' | ')} |`);
       lines.push('');
       break;

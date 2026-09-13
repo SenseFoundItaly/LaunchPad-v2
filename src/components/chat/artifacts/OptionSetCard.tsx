@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { needsApprovalReview } from '@/lib/chat/option-action';
 import type { OptionSet } from '@/types/artifacts';
 import { splitOptionLabel } from '@/components/chat/option-label';
 import { isSilentReset } from '@/components/chat/action-errors';
@@ -54,6 +55,7 @@ function OptionButton({
   onAction: (action: string, payload: Record<string, unknown>) => void | Promise<void>;
 }) {
   const t = useT();
+  const reviewOnly = needsApprovalReview(option);
   const isSkill = typeof option.skill_id === 'string' && option.skill_id.length > 0;
   const commit = option.commit;
   const hasCommit = !!commit && (
@@ -69,7 +71,7 @@ function OptionButton({
   // original label (split.full): the page handler sends "I choose: <label>"
   // back to the agent, and a clamped head like "Yes" can't disambiguate similar
   // options. Only the rendering is clamped — never the send.
-  const split = splitOptionLabel(option.label, option.description);
+  const split = splitOptionLabel(reviewOnly ? t('chat.review-proposal') : option.label, reviewOnly ? t('chat.review-proposal-description') : option.description);
   // split.full !== split.label is exact (splitOptionLabel only diverges when it
   // split); the 120-char description threshold approximates two clamped lines
   // at text-xs in a half-width card.
@@ -77,7 +79,7 @@ function OptionButton({
   // When expanded we show split.full as the label, so the description must be
   // the ORIGINAL one — split.description has the label overflow prepended and
   // would duplicate it.
-  const expandedDescription = String(option.description ?? '').trim();
+  const expandedDescription = reviewOnly ? t('chat.review-proposal-description') : String(option.description ?? '').trim();
 
   const labelSuffix =
     state === 'running' ? ` · ${t('chat.running')}` :
@@ -85,6 +87,7 @@ function OptionButton({
     '';
 
   const handleClick = async () => {
+    if (reviewOnly) { await onAction('navigate', { to: 'actions' }); return; }
     // Navigation option (changelog 05/09 item 7f): the founder's next move is
     // on another page. Sending "I choose: go to knowledge" to the agent would
     // have it narrate a trip it cannot make for them. Destinations are a fixed

@@ -95,4 +95,5 @@ export const EVENT_TO_TOPICS: Record<string, string[]> = {
   // the inbox row. A no-op event is worse than none: it reads like coverage.
 
   'lp-credits-changed': ['credits'],
+  'lp-skills-changed': ['skills'],
 };
