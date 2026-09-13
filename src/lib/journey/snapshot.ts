@@ -335,21 +335,29 @@ export function countGateEvidence(
   // drifts from the thing it points at) this whole change exists to remove.
   factKinds: readonly GateFactKind[],
 ): GateEvidenceCount {
-  const re = keywordMatcher(keywords);
-  const owned = new Set(factKinds);
+  const matches = createGateEvidenceMatcher(keywords, factKinds);
   let count = 0;
   let approved = false;
   for (const f of snapshot.memory_facts) {
-    if (!isCountableFact(f)) continue;
-    if (isGateFactKind(f.kind)) {
-      if (!owned.has(f.kind)) continue; // belongs to another family
-      count++;
-      approved = true;
-    } else if (re.test(f.content)) {
-      count++;
-    }
+    if (!matches(f)) continue;
+    count++;
+    if (isGateFactKind(f.kind)) approved = true;
   }
   return { count, approved };
+}
+
+/** Shared eligibility for gate completion and evidence freshness. A newer
+ * monitor observation, upload, or fact approved for another family cannot
+ * invalidate a score when it would not count as evidence for that check. */
+export function createGateEvidenceMatcher(
+  keywords: readonly string[],
+  factKinds: readonly GateFactKind[],
+): (fact: ProjectSnapshot['memory_facts'][number]) => boolean {
+  const re = keywordMatcher([...keywords]);
+  const owned = new Set(factKinds);
+  return (fact) => isCountableFact(fact) && (
+    isGateFactKind(fact.kind) ? owned.has(fact.kind) : re.test(fact.content)
+  );
 }
 
 /**

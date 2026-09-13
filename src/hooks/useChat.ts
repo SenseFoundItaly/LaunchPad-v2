@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { ChatMessage, ToolActivity } from '@/types';
 import { requestRecharge, RECHARGED_EVENT } from '@/components/credits/recharge-events';
 import { broadcastPersistedArtifacts } from '@/hooks/usePersistedArtifact';
+import { mergeChatFollowups } from '@/lib/chat/followups';
 
 // ---------------------------------------------------------------------------
 // Module-level chat store, keyed by `${projectId}::${step}`.
@@ -32,6 +33,7 @@ interface ChatStore {
   // in-flight / returned stream) while still loading it on first mount and
   // after a full refresh.
   hydrated: boolean;
+  followupCursor?: { timestamp: string; id: string };
   abort: AbortController | null;
   listeners: Set<() => void>;
 }
@@ -106,12 +108,65 @@ export function useChat(projectId: string, step: string = 'chat') {
     [store],
   );
 
+  const appendFollowups = useCallback((incoming: ChatMessage[]) => {
+    const messages = mergeChatFollowups(store.state.messages, incoming);
+    if (messages !== store.state.messages) patch(store, { messages });
+  }, [store]);
+
+  // Deferred stage/scope/competitor messages are separate database rows. Read
+  // only those rows so optimistic user/model messages cannot be duplicated.
+  // Polling also catches after() work that finishes after the composer unlocks.
+  useEffect(() => {
+    if (step !== 'chat') return;
+    const controller = new AbortController();
+    let loading = false;
+    const refresh = async () => {
+      if (loading || document.visibilityState === 'hidden' || !store.hydrated) return;
+      loading = true;
+      try {
+        const cursor = store.followupCursor;
+        const after = cursor ? `&after=${encodeURIComponent(cursor.timestamp)}&after_id=${encodeURIComponent(cursor.id)}` : '';
+        const res = await fetch(`/api/chat/history?project_id=${encodeURIComponent(projectId)}&step=chat&followups=1${after}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!controller.signal.aborted && body.success && Array.isArray(body.data)) {
+          appendFollowups(body.data);
+          const last = body.data.at(-1);
+          if (last?.id && last.timestamp) store.followupCursor = { timestamp: last.timestamp, id: last.id };
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) console.warn('[chat] follow-up refresh failed:', err);
+      } finally { loading = false; }
+    };
+    const onChange = (event: Event) => {
+      const changedProject = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
+      if (!changedProject || changedProject === projectId) void refresh();
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 10_000);
+    window.addEventListener('lp-actions-changed', onChange);
+    window.addEventListener('lp-skills-changed', onChange);
+    window.addEventListener('focus', onChange);
+    document.addEventListener('visibilitychange', onChange);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+      window.removeEventListener('lp-actions-changed', onChange);
+      window.removeEventListener('lp-skills-changed', onChange);
+      window.removeEventListener('focus', onChange);
+      document.removeEventListener('visibilitychange', onChange);
+    };
+  }, [projectId, step, store, appendFollowups]);
+
   const sendMessage = useCallback(
     // `targetCheck` is the spine substep the founder pressed, when the turn
     // started from a click. Without it the server sees a generic question and a
     // flat list of open gaps, and the model closes whichever it happens to
     // batch — five gate checks measured green only SOMETIMES.
     async (content: string, targetCheck?: string | null, extra?: { chipCommit?: { canvas_fields: string[]; item_kinds: string[] } }) => {
+      if (store.state.isStreaming) return;
       // A fresh manual send supersedes any message stashed for auto-resend.
       pendingResends.delete(keyFor(projectId, step));
       // Read the live store (not a stale closure) so concurrent mounts agree.
@@ -133,12 +188,14 @@ export function useChat(projectId: string, step: string = 'chat') {
       };
       patch(store, { messages: [...updatedMessages, assistantMsg], isStreaming: true });
 
-      // Mutate the trailing (assistant) message in the live store.
+      // Follow-ups can arrive while this reply streams. Update this reply's
+      // stable local ID, never whichever message happens to be last now.
       const setLast = (mut: (m: ChatMessage) => ChatMessage) => {
         const msgs = store.state.messages;
-        if (msgs.length === 0) return;
+        const index = msgs.findIndex((m) => m.id === assistantMsg.id);
+        if (index < 0) return;
         const updated = [...msgs];
-        updated[updated.length - 1] = mut(updated[updated.length - 1]);
+        updated[index] = mut(updated[index]);
         patch(store, { messages: updated });
       };
 
@@ -173,15 +230,17 @@ export function useChat(projectId: string, step: string = 'chat') {
         if (fullContent) paint(); // nothing streamed ⇒ leave the placeholder alone
       };
 
+      const requestController = new AbortController();
       try {
-        store.abort = new AbortController();
+        store.abort = requestController;
+        store.hydrated = true;
         const response = await fetch(`/api/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             project_id: projectId,
             step,
-            messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
+            messages: updatedMessages.slice(-3).map((m) => ({ role: m.role, content: m.content })),
             ...(targetCheck ? { target_check: targetCheck } : {}),
             // chip_commit: sent ONLY from the OptionSetCard commit:apply path —
             // the server's deterministic fast path keys off this structured
@@ -189,7 +248,7 @@ export function useChat(projectId: string, step: string = 'chat') {
             // look identical but need a real model turn).
             ...(extra?.chipCommit ? { chip_commit: extra.chipCommit } : {}),
           }),
-          signal: store.abort.signal,
+          signal: requestController.signal,
         });
 
         if (!response.ok) {
@@ -290,7 +349,7 @@ export function useChat(projectId: string, step: string = 'chat') {
             // frame — backstop cards arrive between the two.
             if (parsed.done && parsed.final) {
               flushNow();
-              patch(store, { isStreaming: false });
+              if (store.abort === requestController) patch(store, { isStreaming: false });
             }
 
             if (parsed.error) {
@@ -331,8 +390,13 @@ export function useChat(projectId: string, step: string = 'chat') {
         // (stream finished mid-frame, tab backgrounded, or the turn aborted),
         // and the last tokens must not be stranded in `fullContent`.
         flushNow();
-        patch(store, { isStreaming: false });
-        store.abort = null;
+        if (store.abort === requestController) {
+          patch(store, { isStreaming: false });
+          store.abort = null;
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('lp-actions-changed', { detail: { projectId } }));
+        }
       }
     },
     [store, projectId, step],
@@ -372,5 +436,6 @@ export function useChat(projectId: string, step: string = 'chat') {
     stopStreaming,
     clearMessages,
     setMessages,
+    appendFollowups,
   };
 }

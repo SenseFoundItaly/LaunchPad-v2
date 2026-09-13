@@ -318,6 +318,7 @@ function appendToSession(sessionId: string, message: AgentMessage) {
  */
 function resolveHistory(options: RunAgentOptions): AgentMessage[] {
   const cap = options.maxHistoryMessages ?? 12;
+  if (options.preferSeedHistory && options.seedHistory) return cap > 0 ? options.seedHistory.slice(-cap) : options.seedHistory;
   const fromFile = options.sessionId ? loadSession(options.sessionId, cap) : [];
   const seed = options.seedHistory ?? [];
   const windowedSeed = cap > 0 && seed.length > cap ? seed.slice(seed.length - cap) : seed;
@@ -398,6 +399,8 @@ export interface RunAgentOptions {
    * these with buildSeedHistory(), which enforces the shape.
    */
   seedHistory?: AgentMessage[];
+  /** Durable chat is authoritative even when a local session has more tool rows. */
+  preferSeedHistory?: boolean;
   /**
    * Streaming mirror — fired with each assistant text delta as it arrives.
    * runAgent stays BUFFERED (same {text,usage} return + identical persistence

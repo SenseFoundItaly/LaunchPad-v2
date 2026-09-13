@@ -21,6 +21,8 @@
  */
 
 import { Type } from 'typebox';
+import { authorizesPricingWrite } from '@/lib/chat/write-authorization';
+import { blockDiscussionWrite } from '@/lib/chat/discussion-policy';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import { query, get, run } from '@/lib/db';
 import { wrapUntrusted } from '@/lib/untrusted-content';
@@ -65,6 +67,8 @@ import { VALID_CATEGORIES } from '@/types';
 import type { Source } from '@/types/artifacts';
 
 export interface ToolContext {
+  founderMessage?: string;
+  chatStep?: string;
   projectId: string;
   /** Authenticated user id. Required by tools that write to user-scoped
    *  tables (memory_facts). Optional for read-only/proposal tools that
@@ -128,6 +132,36 @@ export function withSourceTitles(
 // =============================================================================
 // Reads
 // =============================================================================
+
+const readChatHistory = (ctx: ToolContext): AgentTool => ({
+  name: 'read_chat_history', label: 'Read earlier conversation',
+  description: 'Retrieve exact earlier founder statements or replies from THIS conversation when a summary or recent history is insufficient. Search a short distinctive phrase, name, or topic. Returned text is discussion, not approved evidence.',
+  parameters: Type.Object({ query: Type.String({ maxLength: 100 }), limit: Type.Optional(Type.Number({ minimum: 1, maximum: 8 })) }),
+  async execute(_id, params) {
+    const p = params as { query: string; limit?: number };
+    const term = p.query.trim().slice(0, 100);
+    if (!term) return { content: [{ type: 'text', text: 'Provide a distinctive search phrase.' }], details: {} };
+    let rows = await query<{ id: string; role: string; content: string; timestamp: string }>(
+      `SELECT id, role, substring(content FROM greatest(1, strpos(lower(content), lower(?)) - 300) FOR 2400) AS content, "timestamp"
+       FROM chat_messages WHERE project_id = ? AND step = ? AND strpos(lower(content), lower(?)) > 0
+       ORDER BY "timestamp" DESC, id DESC LIMIT ?`,
+      term, ctx.projectId, ctx.chatStep ?? 'chat', term, Math.min(8, Math.max(1, Math.floor(p.limit ?? 5))),
+    );
+    // Models sometimes send a topic description instead of an exact phrase.
+    // Fall back to ranked keyword matches, favoring original founder messages.
+    const keywords = term.match(/[\p{L}\p{N}]+/gu)?.slice(0, 15).join(' OR ');
+    if (!rows.length && keywords) {
+      rows = await query<{ id: string; role: string; content: string; timestamp: string }>(
+        `SELECT id, role, left(content, 2400) AS content, "timestamp" FROM chat_messages
+         WHERE project_id = ? AND step = ? AND to_tsvector('simple', content) @@ websearch_to_tsquery('simple', ?)
+         ORDER BY CASE role WHEN 'user' THEN 0 ELSE 1 END,
+           ts_rank(to_tsvector('simple', content), websearch_to_tsquery('simple', ?)) DESC, "timestamp", id LIMIT ?`,
+        ctx.projectId, ctx.chatStep ?? 'chat', keywords, keywords, Math.min(8, Math.max(1, Math.floor(p.limit ?? 5))),
+      );
+    }
+    return { content: [{ type: 'text', text: wrapUntrusted(JSON.stringify(rows)) }], details: { count: rows.length } };
+  },
+});
 
 const listEcosystemAlerts = (ctx: ToolContext): AgentTool => ({
   name: 'list_ecosystem_alerts',
@@ -1983,6 +2017,9 @@ const readTabularReviewTool = (ctx: ToolContext): AgentTool => ({
 // =============================================================================
 
 interface MakeProjectToolsOptions {
+  discussionOnly?: boolean;
+  founderMessage?: string;
+  chatStep?: string;
   /** Include write tools (queue_draft, propose_monitor, budget, task, watch_source, signal). Default true. */
   includeWriteTools?: boolean;
   /** Authenticated user id. Required for tools that write to user-scoped
@@ -2572,6 +2609,12 @@ const updatePricingTool = (ctx: ToolContext): AgentTool => ({
     model: Type.Optional(Type.String({ description: 'One of: subscription | usage | seat | one_time | hybrid.' })),
   }),
   async execute(_id, params): Promise<AgentToolResult<unknown>> {
+    if (ctx.founderMessage !== undefined && !authorizesPricingWrite(ctx.founderMessage)) {
+      return {
+        content: [{ type: 'text', text: 'Nothing saved. This founder turn did not explicitly authorize a pricing write. Answer their question using the current saved state and discussion hypotheses. Do not claim a save or repeat this call; an offer you made is not approval.' }],
+        details: { error: 'pricing_write_not_authorized' },
+      };
+    }
     const p = params as Record<string, unknown>;
     const ALLOWED = ['anchor_price', 'currency', 'tiers', 'wtp', 'unit_econ', 'model'] as const;
     const updates: Record<string, unknown> = {};
@@ -3323,10 +3366,11 @@ const logFundraisingTool = (ctx: ToolContext): AgentTool => ({
 export function makeProjectTools(projectId: string, options: MakeProjectToolsOptions = {}): AgentTool[] {
   const { includeWriteTools = true, userId } = options;
   // Fresh per request → shared across all tool calls in this chat turn.
-  const ctx: ToolContext = { projectId, userId, turnState: { monitorsProposed: 0 } };
+  const ctx: ToolContext = { projectId, userId, founderMessage: options.founderMessage, chatStep: options.chatStep, turnState: { monitorsProposed: 0 } };
 
   const readTools: AgentTool[] = [
     getProjectSummary(ctx),
+    readChatHistory(ctx),
     getProjectMetrics(ctx),
     listEcosystemAlerts(ctx),
     listPendingActions(ctx),
@@ -3342,8 +3386,7 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
 
   if (!includeWriteTools) return readTools;
 
-  return [
-    ...readTools,
+  const writeTools: AgentTool[] = [
     createPendingActionTool(ctx),
     dismissPendingActions(ctx),
     proposeMonitorTool(ctx),
@@ -3373,4 +3416,5 @@ export function makeProjectTools(projectId: string, options: MakeProjectToolsOpt
     updateBurnRateTool(ctx),
     logFundraisingTool(ctx),
   ];
+  return [...readTools, ...(options.discussionOnly ? writeTools.map(blockDiscussionWrite) : writeTools)];
 }

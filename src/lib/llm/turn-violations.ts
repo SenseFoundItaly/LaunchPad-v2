@@ -177,7 +177,7 @@ export function renderNudgeForNextTurn(prior: TurnViolations): string {
     parts.push(
       '[NUDGE — previous turn TIER 0.5 violation]\n' +
       'Previous turn claimed skill outcomes in prose without the skill having run. ' +
-      'Skills are queued for approval; describe ONLY "queued — X credits" not findings. ' +
+      'Analyses are proposed as clickable options and have not run. Say "Ready for your approval", never quote a per-action credit cost. ' +
       'Never describe results of a skill that has not executed yet.',
     );
   }
@@ -195,7 +195,7 @@ export function renderNudgeForNextTurn(prior: TurnViolations): string {
       'Previous turn stated an external fact (a %, a currency amount in millions/billions, or a ' +
       'law/statute) in prose with NO [N] citation marker. Every such claim MUST carry an inline ' +
       '[N] that resolves to a web source you actually retrieved this conversation. If you did not ' +
-      'retrieve it, say so plainly ("roughly, from memory") rather than presenting it as sourced.',
+      'retrieve it, say that the claim is unverified and look it up before using it as evidence.',
     );
   }
   return parts.join('\n\n');

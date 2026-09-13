@@ -111,3 +111,42 @@ describe('the dynamic block carries STATE only', () => {
     expect(out).toContain('THE FOUNDER PRESSED THIS STEP');
   });
 });
+
+describe('founder decisions override the normal work agenda', () => {
+  it('preserves an early STOP and omits missing-step steering', () => {
+    const out = formatStageContextForPrompt({
+      ...pastPhase0,
+      research: { gate_verdict: { verdict: 'STOP', motivation: 'The interviews changed my mind' } },
+    }, 'market_size');
+    expect(out).toContain('RECORDED FOUNDER DECISION: STOP');
+    expect(out).toContain('The interviews changed my mind');
+    expect(out).not.toContain('MISSING');
+    expect(out).not.toContain('THE FOUNDER PRESSED THIS STEP');
+    expect(JOURNEY_RULES).toContain('Resume progression only after they explicitly choose to reopen');
+  });
+
+  it('keeps a pivot reason and scope visible before the remaining work', () => {
+    const out = formatStageContextForPrompt({
+      ...pastPhase0,
+      research: { gate_verdict: { verdict: 'PIVOT', scope: '1B', motivation: 'The integration is too expensive' } },
+    });
+    expect(out).toContain('RECORDED FOUNDER DECISION: PIVOT');
+    expect(out).toContain('Decision track: 1B');
+    expect(out).toContain('The integration is too expensive');
+    expect(out.indexOf('RECORDED FOUNDER DECISION')).toBeLessThan(out.indexOf('MISSING'));
+    expect(JOURNEY_RULES).toContain('focus on their stated reason and track');
+  });
+
+  it('restores the normal agenda once the founder reopens the decision', () => {
+    const out = formatStageContextForPrompt({ ...pastPhase0, research: { gate_verdict: null } }, 'market_size');
+    expect(out).not.toContain('RECORDED FOUNDER DECISION');
+    expect(out).toContain('MISSING');
+    expect(out).toContain('THE FOUNDER PRESSED THIS STEP');
+  });
+
+  it('preserves the score lock reason instead of inventing a circular prerequisite', () => {
+    const out = formatStageContextForPrompt(pastPhase0);
+    expect(out).toMatch(/Startup Score taken after the technical work — LOCKED: Locked — complete the technical checks above first/);
+    expect(out).not.toMatch(/Startup Score taken after the technical work — LOCKED until every 1A \+ 1B/);
+  });
+});

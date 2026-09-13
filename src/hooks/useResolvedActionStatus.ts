@@ -31,7 +31,7 @@ function projectIdFromParams(params: ReturnType<typeof useParams>): string {
   return typeof p === 'string' ? p : Array.isArray(p) ? p[0] ?? '' : '';
 }
 
-export function useResolvedActionStatus(pendingActionId: string | undefined): ResolvedStatus | undefined {
+export function useResolvedActionStatus(pendingActionId: string | undefined, artifactId?: string): ResolvedStatus | undefined {
   const projectId = projectIdFromParams(useParams());
   const qc = useQueryClient();
 
@@ -49,6 +49,21 @@ export function useResolvedActionStatus(pendingActionId: string | undefined): Re
     },
   });
 
+  // Orphan cards retain their original placeholder ID in the transcript. Resolve
+  // their server-stored artifact identity without creating rows on a read.
+  const { data: recoveredStatus } = useQuery<ResolvedStatus | null>({
+    queryKey: ['resolved-actions', projectId, pendingActionId, artifactId],
+    enabled: !!projectId && !!pendingActionId && !!artifactId && !data?.[pendingActionId],
+    staleTime: 30_000,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/actions/${encodeURIComponent(pendingActionId!)}?artifact_id=${encodeURIComponent(artifactId!)}`);
+      if (!res.ok) return null;
+      const body = await res.json();
+      const status = body?.data?.status;
+      return ['applied', 'sent', 'rejected', 'failed'].includes(status) ? status : null;
+    },
+  });
+
   // Reconcile when any action changes (approve on another surface, this card's
   // own apply). Bound once per mount; cheap no-op when nothing is listening.
   useEffect(() => {
@@ -58,5 +73,5 @@ export function useResolvedActionStatus(pendingActionId: string | undefined): Re
     return () => window.removeEventListener('lp-actions-changed', handler);
   }, [projectId, qc]);
 
-  return pendingActionId ? data?.[pendingActionId] : undefined;
+  return pendingActionId ? data?.[pendingActionId] ?? recoveredStatus ?? undefined : undefined;
 }

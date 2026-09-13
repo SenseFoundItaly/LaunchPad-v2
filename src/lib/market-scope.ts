@@ -180,10 +180,10 @@ export async function maybeProposeMarketScope(projectId: string): Promise<boolea
 
     const locale = await resolveLocale(ownerUserId, projectId);
     await run(
-      `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
-       VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
+      `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, meta)
+       VALUES (?, ?, 'chat', 'assistant', ?, ?, ?, ?)`,
       generateId('msg'), projectId, buildMarketScopeCard(projectId, locale),
-      new Date().toISOString(), ownerUserId,
+      new Date().toISOString(), ownerUserId, { chat_followup: true },
     );
     await recordEvent({ userId: ownerUserId, projectId, eventType: MARKET_SCOPE_EVENT, payload: { locale } });
     return true;

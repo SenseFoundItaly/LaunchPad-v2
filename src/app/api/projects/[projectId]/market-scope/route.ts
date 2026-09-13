@@ -42,6 +42,7 @@ export async function POST(
   // Non-fatal: the scope is already recorded, which is the part that matters.
   // A failure to stage the follow-up must not read as a failure to answer.
   let staged = false;
+  let followup: { id: string; role: 'assistant'; content: string; timestamp: string } | null = null;
   if (ownerUserId) {
     try {
       const locale = await resolveLocale(ownerUserId, projectId);
@@ -56,21 +57,23 @@ export async function POST(
             }],
           })
         + '\n:::';
+      const message = { id: generateId('msg'), role: 'assistant' as const, content, timestamp: new Date().toISOString() };
       await run(
-        `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id)
-         VALUES (?, ?, 'chat', 'assistant', ?, ?, ?)`,
-        generateId('msg'), projectId, content, new Date().toISOString(), ownerUserId,
+        `INSERT INTO chat_messages (id, project_id, step, role, content, "timestamp", user_id, meta)
+         VALUES (?, ?, 'chat', 'assistant', ?, ?, ?, ?)`,
+        message.id, projectId, content, message.timestamp, ownerUserId, { chat_followup: true },
       );
+      followup = message;
+      staged = true;
       await recordEvent({
         userId: ownerUserId, projectId, eventType: 'market_scope_recorded', payload: { scope },
       });
-      staged = true;
     } catch (err) {
       console.warn('[market-scope] follow-up staging failed (non-fatal):', (err as Error).message);
     }
   }
 
-  return json({ market_scope: record, followup_staged: staged });
+  return json({ market_scope: record, followup_staged: staged, followup });
 }
 
 /** GET — the recorded scope, or null when the founder has not answered yet. */

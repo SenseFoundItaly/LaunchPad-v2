@@ -1,49 +1,25 @@
-import { createPendingAction } from './pending-actions';
+import { createHash } from 'node:crypto';
+import { query, run } from './db';
+import { getPendingAction } from './pending-actions';
+import { parseMessageContent } from './artifact-parser';
+import type { PendingAction } from '@/types';
 
-/** The row shape createPendingAction resolves to — inferred, not re-declared. */
-type StagedAction = Awaited<ReturnType<typeof createPendingAction>>;
-
-/**
- * Recover an Apply whose pending_actions row never existed.
- *
- * The Co-pilot is supposed to reach the "Valida le prove" card through the
- * propose_validation tool, which writes the row FIRST and embeds its real id.
- * It sometimes hand-writes the `:::artifact{"type":"validation-proposal"}`
- * block instead and fills the id field with a placeholder — measured on prod
- * 2026-09-08 20:58, where the value was the literal string `"pending"`. The row
- * never existed, so Apply answered 404 "Action not found".
- *
- * That 404 is not cosmetic: the task check keys off a successful apply, so the
- * founder's whole validation funnel stopped at a button that could never work,
- * with no way forward and nothing explaining why.
- *
- * The card still carries the items the founder just read and approved, and the
- * request is already scoped to their own project by tryProjectAccess. So the
- * honest move is to stage what they approved for real and let the normal apply
- * path run — recover, rather than 404 and block them.
- *
- * Deliberately narrow: apply only, validation items only, and every item must
- * carry a non-empty value. Anything else still 404s, because a silent recovery
- * of an unrecognised shape would hide a different bug.
- */
-
-/** Cap: a genuine card is a handful of items; more means something is wrong. */
 const MAX_ITEMS = 20;
 
 export interface OrphanRecoveryInput {
   projectId: string;
-  /** The unresolvable id the card sent — logged so the rate is measurable. */
   requestedId: string;
+  artifactId?: unknown;
   transition: string;
-  editedPayload: unknown;
+  editedPayload?: unknown;
 }
 
 interface ValidationItem {
+  id?: unknown;
   value?: unknown;
   [key: string]: unknown;
 }
 
-/** The items a validation card sends back, if this payload is really one. */
 export function extractValidationItems(editedPayload: unknown): ValidationItem[] | null {
   if (!editedPayload || typeof editedPayload !== 'object') return null;
   const items = (editedPayload as { items?: unknown }).items;
@@ -51,35 +27,82 @@ export function extractValidationItems(editedPayload: unknown): ValidationItem[]
   const usable = items.filter(
     (it): it is ValidationItem =>
       !!it && typeof it === 'object'
-      && typeof (it as ValidationItem).value === 'string'
-      && ((it as ValidationItem).value as string).trim().length > 0,
+      && typeof it.value === 'string' && it.value.trim().length > 0,
   );
-  // Partial garbage means we do not understand the payload — do not guess.
   return usable.length === items.length ? usable : null;
 }
 
-export async function recoverOrphanValidation(
-  input: OrphanRecoveryInput,
-): Promise<StagedAction | null> {
-  if (input.transition !== 'apply') return null;
-  const items = extractValidationItems(input.editedPayload);
-  if (!items) return null;
+/** Only editable text and removal come from the browser; provenance and item
+ * kinds come from the artifact the server actually stored. */
+export function recoveredValidationEdits(original: unknown, edited: unknown): Record<string, unknown> | null {
+  const source = extractValidationItems(original);
+  const wanted = extractValidationItems(edited);
+  if (!source || !wanted) return null;
+  const byId = new Map(source.map((it) => [it.id, it]));
+  if (byId.size !== source.length || source.some((it) => typeof it.id !== 'string' || !it.id)) return null;
+  const seen = new Set();
+  const items: ValidationItem[] = [];
+  for (const it of wanted) {
+    const saved = byId.get(it.id);
+    if (!saved || seen.has(it.id) || it.kind !== saved.kind || it.field !== saved.field) return null;
+    seen.add(it.id);
+    items.push({ ...saved, value: it.value, ...(typeof it.name === 'string' ? { name: it.name } : {}) });
+  }
+  return { items };
+}
 
-  console.warn(
-    `[actions] recovering orphan validation apply — the card carried an id with no row `
-      + `(requested_id=${JSON.stringify(input.requestedId)}, project=${input.projectId}, `
-      + `items=${items.length}). The Co-pilot emitted the card itself instead of calling `
-      + `propose_validation; staging it for real so the founder is not blocked.`,
+/** Locate a real persisted card, never trust a placeholder ID or edited text
+ * as identity. Ambiguous reused artifact IDs are refused rather than applying
+ * a different card. Both lookup and recovery use this same source identity. */
+async function storedValidation(input: Pick<OrphanRecoveryInput, 'projectId' | 'requestedId' | 'artifactId'>) {
+  if (typeof input.artifactId !== 'string' || !input.artifactId || input.artifactId.length > 250) return null;
+  const rows = await query<{ id: string; content: string }>(
+    `SELECT id, content FROM chat_messages
+     WHERE project_id = ? AND role = 'assistant'
+       AND content LIKE '%validation-proposal%' AND strpos(content, ?) > 0`,
+    input.projectId, input.artifactId,
   );
+  const matches: Array<{ messageId: string; index: number; artifact: Record<string, unknown> }> = [];
+  for (const row of rows) {
+    parseMessageContent(row.content).forEach((segment, index) => {
+      if (segment.type !== 'artifact' || segment.artifact.type !== 'validation-proposal') return;
+      const artifact = segment.artifact;
+      if (artifact.id === input.artifactId && artifact.pending_action_id === input.requestedId) {
+        matches.push({ messageId: row.id, index, artifact: artifact as unknown as Record<string, unknown> });
+      }
+    });
+  }
+  if (matches.length !== 1) return null;
+  const match = matches[0];
+  const digest = createHash('sha256').update(JSON.stringify([input.projectId, match.messageId, match.index, input.artifactId])).digest('hex');
+  return { ...match, id: `pa_recovered_${digest.slice(0, 32)}` };
+}
 
-  return createPendingAction({
-    project_id: input.projectId,
-    action_type: 'validation_proposal',
-    title: 'Validation evidence (recovered)',
-    rationale:
-      `Recovered from a card whose pending_action_id (${String(input.requestedId).slice(0, 40)}) `
-      + 'had no row. The founder approved these items on screen.',
-    payload: { origin: 'recovered', items },
-    estimated_impact: 'medium',
-  });
+/** Read-only reload guard: GET must never stage an action. */
+export async function findRecoveredValidation(input: Pick<OrphanRecoveryInput, 'projectId' | 'requestedId' | 'artifactId'>): Promise<PendingAction | null> {
+  const source = await storedValidation(input);
+  return source ? getPendingAction(source.id) : null;
+}
+
+export async function recoverOrphanValidation(input: OrphanRecoveryInput): Promise<PendingAction | null> {
+  if (input.transition !== 'apply' && input.transition !== 'reject') return null;
+  const source = await storedValidation(input);
+  if (!source) return null;
+  // Reject needs only an authentic card; even malformed evidence must have an
+  // exit. Apply must match a valid subset of its original items.
+  if (input.transition === 'apply' && !recoveredValidationEdits(source.artifact, input.editedPayload)) return null;
+  const now = new Date().toISOString();
+  // The primary key is the concurrency guard: simultaneous clicks resolve to
+  // one row, and the ordinary atomic pending-action transition claims it once.
+  await run(
+    `INSERT INTO pending_actions
+       (id, project_id, action_type, title, rationale, payload, estimated_impact, status, created_at, updated_at)
+     VALUES (?, ?, 'validation_proposal', ?, ?, ?, 'medium', 'pending', ?, ?)
+     ON CONFLICT (id) DO NOTHING`,
+    source.id, input.projectId, 'Validation evidence (recovered)',
+    'Recovered from the original chat card; founder review is required.',
+    { origin: 'recovered', items: source.artifact.items, recovery: { message_id: source.messageId, artifact_id: input.artifactId, requested_id: input.requestedId } },
+    now, now,
+  );
+  return getPendingAction(source.id);
 }

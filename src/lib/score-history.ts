@@ -16,10 +16,9 @@ export async function recordScoreHistory(
   // Only real scorings (>0); the dimensions-only writes pass 0 and aren't events.
   if (!Number.isFinite(overallScore) || overallScore <= 0) return;
   try {
-    // Skip a no-change point: re-persisting the same gauge-chart across turns
-    // would otherwise append consecutive identical values (7.1, 7.1) — sparkline
-    // noise. A point is an EVENT only when the score actually moved. Rounded to
-    // 2dp so float jitter doesn't count as a change.
+    // Repeated chart artifacts are display noise, but an official scoring run
+    // is evidence even when its number is unchanged. Both the 1B freshness
+    // check and the post-interview review need the time of that real rerun.
     const last = await get<{ overall_score: number; source: string | null }>(
       `SELECT overall_score, source FROM score_history WHERE project_id = ? ORDER BY created_at DESC LIMIT 1`,
       projectId,
@@ -28,7 +27,7 @@ export async function recordScoreHistory(
     // landing on the same integer as the old clarity run is a kind change —
     // without a row, GET /score keeps labeling fresh Startup dimensions
     // "Clarity Score" (48h audit).
-    if (last && Math.round(last.overall_score * 100) === Math.round(overallScore * 100) && last.source === source) return;
+    if (source !== 'startup-scoring' && last && Math.round(last.overall_score * 100) === Math.round(overallScore * 100) && last.source === source) return;
     await run(
       `INSERT INTO score_history (id, project_id, overall_score, recommendation, source)
        VALUES (?, ?, ?, ?, ?)`,

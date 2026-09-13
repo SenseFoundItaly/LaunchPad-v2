@@ -117,6 +117,8 @@ export function ToolChips({
 
       {/* tool call rows */}
       <div
+        aria-hidden={!open}
+        inert={!open}
         className="grid transition-[grid-template-rows,opacity] duration-300"
         style={{ gridTemplateRows: open ? '1fr' : '0fr', opacity: open ? 1 : 0 }}
       >
@@ -178,6 +180,8 @@ export function ToolChips({
                   {/* expanded detail */}
                   {hasDetail && (
                     <div
+                      aria-hidden={!rowOpen}
+                      inert={!rowOpen}
                       className="grid transition-[grid-template-rows,opacity] duration-300"
                       style={{
                         gridTemplateRows: rowOpen ? '1fr' : '0fr',

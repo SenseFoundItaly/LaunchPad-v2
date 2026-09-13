@@ -61,7 +61,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
   // acted on (a re-click would silently no-op and drop any inline edits). Only
   // seeds from the untouched initial 'active' state — an in-session apply/skip
   // owns the state from there. 'failed' stays active on purpose (retry).
-  const resolved = useResolvedActionStatus(artifact.pending_action_id);
+  const resolved = useResolvedActionStatus(artifact.pending_action_id, artifact.id);
   useEffect(() => {
     if (resolved === 'applied' || resolved === 'sent') {
       setState((s) => (s === 'active' ? 'applied' : s));
@@ -92,6 +92,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
     try {
       await onAction('validation:apply', {
         pending_action_id: artifact.pending_action_id,
+        artifact_id: artifact.id,
         overrides: { items: kept },
       });
       setState('applied');
@@ -105,7 +106,7 @@ export default function ValidationProposalCard({ artifact, onAction }: Validatio
     setState('dismissing');
     setServerError(null);
     try {
-      await onAction('validation:dismiss', { pending_action_id: artifact.pending_action_id });
+      await onAction('validation:dismiss', { pending_action_id: artifact.pending_action_id, artifact_id: artifact.id });
       setState('dismissed');
     } catch (err) {
       setServerError((err as Error).message);

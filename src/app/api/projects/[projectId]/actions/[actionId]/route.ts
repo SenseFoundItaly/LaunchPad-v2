@@ -11,19 +11,21 @@ import {
 } from '@/lib/pending-actions';
 import { executeAppliedAction } from '@/lib/action-executors';
 import { rejectActionWithSideEffects } from '@/lib/reject-action';
-import { recoverOrphanValidation } from '@/lib/recover-orphan-validation';
+import { recoverOrphanValidation, findRecoveredValidation, recoveredValidationEdits } from '@/lib/recover-orphan-validation';
 
 /**
  * GET /api/projects/{projectId}/actions/{actionId}
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ projectId: string; actionId: string }> },
 ) {
   const { projectId, actionId } = await params;
   const auth = await tryProjectAccess(projectId);
   if (!auth.ok) return auth.response;
-  const action = await getPendingAction(actionId);
+  const action = await getPendingAction(actionId) ?? await findRecoveredValidation({
+    projectId, requestedId: actionId, artifactId: request.nextUrl.searchParams.get('artifact_id'),
+  });
   if (!action) return error('Action not found', 404);
   if (action.project_id !== projectId) return error('Action does not belong to this project', 403);
   return json(action);
@@ -61,6 +63,7 @@ export async function POST(
       requestedId: actionId,
       transition,
       editedPayload: body?.edited_payload,
+      artifactId: body?.artifact_id,
     });
   }
   if (!existing) return error('Action not found', 404);
@@ -77,27 +80,24 @@ export async function POST(
     let updated;
     switch (transition) {
       case 'apply': {
-        // Idempotent guard: an inline card re-rendered after a refresh starts
-        // in its 'active' (clickable) state with no knowledge that the proposal
-        // already ran. Re-firing Apply on a resolved proposal would hit
-        // editPendingAction/applyPendingAction, and the state machine has no
-        // path out of sent/rejected (or applied→edited) — so it threw
-        // "Invalid transition: sent -> edited" at the founder. Treat an
-        // already-resolved proposal as a no-op success instead.
-        if (existing.status === 'sent' || existing.status === 'applied' || existing.status === 'rejected') {
+        if (existing.status === 'rejected') return error('This proposal was skipped.', 409);
+        if (existing.status === 'applied' && existing.action_type === 'validation_proposal') {
+          return error('This approval is already being processed. Please wait before retrying.', 409);
+        }
+        if (existing.status === 'sent' || existing.status === 'applied') {
           return json({ ...existing, deliverable: null, already_resolved: true });
         }
 
-        // If the founder edited fields on the inline review card before
-        // hitting Apply (monitor schedule, budget cap, etc.), persist the
-        // edits FIRST so effectivePayload() in the executor sees them.
-        // Skipping this would silently drop "Save & apply" overrides.
-        if (body.edited_payload && typeof body.edited_payload === 'object') {
-          await editPendingAction(rowId, body.edited_payload);
+        let edits = body.edited_payload && typeof body.edited_payload === 'object'
+          ? body.edited_payload as Record<string, unknown> : undefined;
+        if (existing.payload.origin === 'recovered') {
+          const checked = recoveredValidationEdits(existing.payload, edits ?? existing.edited_payload ?? existing.payload);
+          if (!checked) return error('Edited items do not match the original validation card.', 400);
+          edits = checked;
         }
-
-        // 1. Transition pending/edited → applied
-        updated = await applyPendingAction(rowId);
+        // Store edits and claim execution atomically. Separate edit/apply calls
+        // allowed concurrent approvals to overwrite the winning request's text.
+        updated = await applyPendingAction(rowId, edits);
 
         // 2. Dispatch to the type-specific handler. Structured handlers
         //    ("direct") write a row to a domain table and we chain straight
@@ -137,6 +137,7 @@ export async function POST(
         updated = await editPendingAction(rowId, body.edited_payload);
         break;
       case 'reject': {
+        if (existing.status === 'rejected') return json({ ...existing, already_resolved: true });
         // All rejection side-effects (source-row propagation, the Loop-1
         // founder-first release, preference learning) live in ONE shared
         // helper so this route and the chat agent's dismiss_pending_actions

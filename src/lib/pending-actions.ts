@@ -90,7 +90,7 @@ const TRANSITIONS: Record<PendingActionStatus, PendingActionStatus[]> = {
   applied: ['sent', 'failed'],
   rejected: [],
   sent: [],
-  failed: ['applied'],
+  failed: ['applied', 'rejected'],
 };
 
 export function canTransition(from: PendingActionStatus, to: PendingActionStatus): boolean {
@@ -490,6 +490,14 @@ export class InvalidTransitionError extends Error {
   }
 }
 
+export class PendingActionChangedError extends InvalidTransitionError {
+  constructor(from: PendingActionStatus, to: PendingActionStatus) {
+    super(from, to);
+    this.name = 'PendingActionChangedError';
+    this.message = 'This proposal changed while you were reviewing it. Reload it to review the latest version, or skip it.';
+  }
+}
+
 async function applyTransition(
   id: string,
   to: PendingActionStatus,
@@ -508,10 +516,15 @@ async function applyTransition(
   // the executor → DOUBLE DEBIT. Pin the UPDATE to the from-status we validated;
   // if 0 rows match, another request already moved it → abort instead of
   // re-executing. (The credit debit lives downstream of a successful transition.)
-  const params: unknown[] = [to, now, ...extraUpdates.map(u => u.value), id, action.status];
-  const res = await run(`UPDATE pending_actions SET ${sets.join(', ')} WHERE id = ? AND status = ?`, ...params);
+  // Status alone misses pending → pending refreshes and edited → edited saves.
+  // Compare the content we read too, so execution cannot claim an unseen edit.
+  // JSONB equality avoids timestamp precision/timezone and key-order problems.
+  const params: unknown[] = [to, now, ...extraUpdates.map(u => u.value), id, action.status, action.payload, action.edited_payload];
+  const res = await run(`UPDATE pending_actions SET ${sets.join(', ')} WHERE id = ? AND status = ?
+    AND payload IS NOT DISTINCT FROM ?::jsonb AND edited_payload IS NOT DISTINCT FROM ?::jsonb`, ...params);
   if ((res.count ?? 0) === 0) {
     const current = await getPendingAction(id);
+    if (current?.status === action.status) throw new PendingActionChangedError(action.status, to);
     throw new InvalidTransitionError(current?.status ?? action.status, to);
   }
   const result = await getPendingAction(id);
@@ -519,8 +532,10 @@ async function applyTransition(
   return result;
 }
 
-export async function applyPendingAction(id: string): Promise<PendingAction> {
-  return applyTransition(id, 'applied');
+export async function applyPendingAction(id: string, editedPayload?: Record<string, unknown>): Promise<PendingAction> {
+  // Persist the founder's edits in the same compare-and-set that claims execution.
+  // Two apply requests must never replace each other's approved payload.
+  return applyTransition(id, 'applied', editedPayload ? [{ key: 'edited_payload', value: editedPayload }] : []);
 }
 
 export async function editPendingAction(id: string, editedPayload: Record<string, unknown>): Promise<PendingAction> {

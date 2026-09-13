@@ -5,6 +5,7 @@ import { useT } from '@/components/providers/LocaleProvider';
 import { RecordsTable, type RecordCell, type RecordColumn, type RecordRow } from '@/components/ui/RecordsTable';
 import ArtifactCardShell from './ArtifactCardShell';
 import KnowledgeApplyControls from './SavedHint';
+import { comparisonColumns } from '@/lib/chat/comparison-columns';
 
 interface ComparisonTableProps {
   artifact: ComparisonTableType;
@@ -80,19 +81,20 @@ function formatCell(value: string | number, colType: ColumnType | undefined): Re
 /**
  * Comparison table — title + table + collapsed sources + Apply/Dismiss footer.
  * Founder directive (2026-06-11): the comparison persists as a PROPOSAL
- * (graph_nodes, reviewed_state='pending'); applying it (0.5 credits) folds it
+ * (graph_nodes, reviewed_state='pending'); applying it (free) folds it
  * into project intelligence.
  */
 export default function ComparisonTable({ artifact, onAction, defaultCollapsed }: ComparisonTableProps) {
   const t = useT();
-  const colTypes = artifact.column_types;
+  const aligned = comparisonColumns(artifact);
+  const colTypes = aligned.columnTypes;
   const rejected = artifact.reviewed_state === 'rejected';
 
   // Column keys are positional, not the header text: two columns can legitimately
   // carry the same label ("2024" / "2024") and RecordsTable keys cells by column key.
   const columns: RecordColumn[] = [
-    { key: '__label', label: t('ui.comparison.identity-column'), width: '160px' },
-    ...artifact.columns.map((col, idx) => ({
+    { key: '__label', label: aligned.identityLabel ?? t('ui.comparison.identity-column'), width: '160px' },
+    ...aligned.columns.map((col, idx) => ({
       key: `c${idx}`,
       label: col,
       sortable: true,

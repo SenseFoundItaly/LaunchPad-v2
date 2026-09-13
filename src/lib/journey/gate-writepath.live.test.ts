@@ -36,6 +36,7 @@ import { query, run } from '@/lib/db';
 import { generateId } from '@/lib/api-helpers';
 import { executeAppliedAction } from '@/lib/action-executors';
 import { buildProjectSnapshot, evaluateAllStages } from '@/lib/journey';
+import { recordScoreHistory } from '@/lib/score-history';
 import { TRACK_1C_UNLOCKED } from './stage-2-market-validation';
 import type { PendingAction } from '@/types';
 
@@ -167,21 +168,21 @@ it.skipIf(process.env.PROBE_WRITEPATH !== '1' || !process.env.DATABASE_URL)(
 /**
  * ── Layer A, part 2: can the WHOLE gate be closed? ──────────────────────────
  *
- * The audit above proves each fact-driven check flips on its own. It leaves 11
- * of the gate's 23 checks untested, because they close on rows and diffs rather
+ * The audit above proves each fact-driven check flips on its own. It leaves
+ * the remaining gate checks untested, because they close on rows and diffs rather
  * than on approved facts — competitors, watchers, the interview pipeline, the
  * two canvas-revision checks, the re-score, and the founder's own verdict.
  *
  * "Every check is individually closeable" is a weaker claim than "a founder can
  * finish this gate", and only the second one is worth telling anyone. So this
- * seeds ONE project all the way to 23/23, asserting after each step that the
+ * seeds ONE project through every gate check, asserting after each step that the
  * intended check flipped — including that 1C stays LOCKED until 1A and 1B are
  * complete, which is the behaviour, not a bug.
  *
  * Still zero LLM calls.
  */
 it.skipIf(process.env.PROBE_WRITEPATH !== '1' || !process.env.DATABASE_URL)(
-  'the whole gate can be driven to 23/23 with no LLM',
+  'the whole gate can be completed with no LLM',
   { timeout: 300_000 },
   async () => {
     const userId = `wpfull-${Math.random().toString(36).slice(2, 8)}`;
@@ -256,6 +257,20 @@ it.skipIf(process.env.PROBE_WRITEPATH !== '1' || !process.env.DATABASE_URL)(
         generateId('mon'), projectId, 'Competitor watch',
       );
 
+      // Technical evidence alone no longer closes 1B: an official full score
+      // must be recorded AFTER it. Assert the lock before supplying that run,
+      // then use the real scoring-history writer to exercise the new gate.
+      const beforeScore = await gate();
+      expect(
+        beforeScore.results.filter((r) => r.check.track !== '1C' && !r.result.passed).map((r) => r.check.id),
+        'only the mandatory full score remains after the technical work',
+      ).toEqual(['startup_score_1b']);
+      expect(
+        beforeScore.results.filter((r) => r.check.track === '1C' && !r.result.locked).map((r) => r.check.id),
+        '1C must stay locked until the closing full score is recorded',
+      ).toEqual([]);
+      await recordScoreHistory(projectId, 71, 'startup-scoring');
+
       const mid = await gate();
       const openAB = mid.results.filter((r) => r.check.track !== '1C' && !r.result.passed);
       expect(openAB.map((r) => r.check.id), '1A+1B should be complete').toEqual([]);
@@ -301,10 +316,10 @@ it.skipIf(process.env.PROBE_WRITEPATH !== '1' || !process.env.DATABASE_URL)(
         'Sharpened after the interviews: hours back every week, not more reporting.',
         projectId,
       );
-      await run(
-        `INSERT INTO score_history (id, project_id, overall_score, source) VALUES (?, ?, 71, 'startup-scoring')`,
-        generateId('sh'), projectId,
-      );
+      // A real post-interview rerun still counts if the score stays at 71.
+      // This must append an execution event rather than be deduplicated as a
+      // repeated chart artifact, or scoring_review remains red below.
+      await recordScoreHistory(projectId, 71, 'startup-scoring');
       await run(
         `INSERT INTO research (project_id, gate_verdict) VALUES (?, ?)
          ON CONFLICT (project_id) DO UPDATE SET gate_verdict = EXCLUDED.gate_verdict`,

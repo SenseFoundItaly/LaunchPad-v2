@@ -22,7 +22,7 @@
 import type { Stage, StageCheck, CheckResult, ProjectSnapshot } from './types';
 import { diffCanvas, type CanvasPayload, type VersionedCanvasField } from '@/lib/canvas-versions';
 import { CANONICAL_BY_ID } from './canonical';
-import { countMemoryFactsMatching, countGateEvidence, keywordMatcher } from './snapshot';
+import { countMemoryFactsMatching, countGateEvidence, createGateEvidenceMatcher } from './snapshot';
 import type { GateFactKind } from '@/lib/gate-fact-kinds';
 import { coerceJson } from '@/lib/jsonb';
 import { hasBeenContacted } from '@/lib/interview-status';
@@ -379,13 +379,12 @@ function latest1BEvidenceAt(s: ProjectSnapshot): number | null {
     [IP_KEYWORDS, ['ip_fact']],
     [DATA_AVAILABILITY_KEYWORDS, ['data_fact']],
   ];
-  const matchers = families.map(([kw, kinds]) => ({ re: keywordMatcher([...kw]), kinds: new Set(kinds) }));
+  const matchers = families.map(([kw, kinds]) => createGateEvidenceMatcher(kw, kinds));
 
   let newest: number | null = null;
   for (const f of s.memory_facts) {
     if (!f.created_at) continue;
-    const counts = matchers.some(({ re, kinds }) =>
-      (f.kind && kinds.has(f.kind as GateFactKind)) || re.test(f.content));
+    const counts = matchers.some((matches) => matches(f));
     if (!counts) continue;
     const t = new Date(f.created_at).getTime();
     if (Number.isNaN(t)) continue;
@@ -834,9 +833,8 @@ export const TRACK_1C_UNLOCKED: StageCheck[] = [
     // Stage-1 check; this is the RE-score, the one that reflects real customer
     // evidence rather than the founder's own framing of their idea.
     //
-    // score_history drops no-change appends, so a point recorded after the
-    // first interview is a score that genuinely moved — not a re-run of the
-    // same canvas returning the same number.
+    // Official scoring runs are recorded even when the number is unchanged:
+    // reviewing real evidence is the work, not making the score move.
     id: 'scoring_review',
     label: 'Startup Scoring reviewed against the evidence',
     source: 'score_history (after the first interview)',
@@ -904,7 +902,7 @@ const GATE_VERDICT_CHECK: StageCheck = {
   source: 'research.gate_verdict',
   track: '1C',
   evaluate: (s) => {
-    const gv = s.research?.gate_verdict as { verdict?: unknown; scope?: unknown } | undefined;
+    const gv = coerceJson<{ verdict?: unknown; scope?: unknown }>(s.research?.gate_verdict);
     const verdict = gv && typeof gv === 'object' ? gv.verdict : undefined;
     if (verdict === 'GO') {
       return { passed: true, evidence: 'You reviewed the evidence and called GO on this gate.' };
@@ -931,6 +929,13 @@ function lockVerdict(check: StageCheck): StageCheck {
   return {
     ...check,
     evaluate: (s) => {
+      // STOP and PIVOT are founder decisions, available before all evidence is
+      // complete. Keep them visible to the spine and chat; they never pass the
+      // gate. GO still requires every evidence check below.
+      const decision = coerceJson<{ verdict?: unknown }>(s.research?.gate_verdict);
+      if (decision?.verdict === 'STOP' || decision?.verdict === 'PIVOT') {
+        return check.evaluate(s);
+      }
       const evidenceOpen =
         !validationTracksAB_done(s) || TRACK_1C_UNLOCKED.some((c) => !c.evaluate(s).passed);
       if (evidenceOpen) {
