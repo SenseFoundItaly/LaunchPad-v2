@@ -98,12 +98,14 @@ if [ "$DRY_RUN" = true ]; then
   exit 0
 fi
 
+# The CLI now builds by default. Upload the adapter's already-built public
+# output; .next also contains server files and is not the static publish tree.
 if [ "$PREVIEW" = true ]; then
   echo "▸ Deploying to preview URL…"
-  npx netlify-cli deploy
+  npx netlify-cli deploy --no-build --dir .netlify/static
 else
   echo "▸ Deploying to production…"
-  npx netlify-cli deploy --prod
+  npx netlify-cli deploy --prod --no-build --dir .netlify/static
 fi
 
 echo ""
