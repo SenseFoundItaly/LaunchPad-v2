@@ -104,7 +104,10 @@ describe.skipIf(!ENABLED)('EVAL — chat artifact contract', () => {
           }
           history.push({ role: 'user', content: prompt }, { role: 'assistant', content: text });
 
-          const score = scoreTurn(text, { beginner: sc.beginner });
+          // founderMessage lets the scorer apply the per-turn format rules #485
+          // added (N sentences / bullets / one table / discussion only), which
+          // suspend the every-turn artifact mandate for that one reply.
+          const score = scoreTurn(text, { beginner: sc.beginner, founderMessage: prompt });
           turnsScored++;
           for (const r of score.results) {
             if (!r.applicable) continue;

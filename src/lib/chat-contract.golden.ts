@@ -82,4 +82,23 @@ export const CONTRACT_SCENARIOS: ContractScenario[] = [
     stresses: 'post-tool synthesis: a turn that fires tools must still close with prose + option-set',
     turns: ['How big is the EU market for electric cargo bikes? Give me sourced numbers.'],
   },
+  // Post-#485 per-turn format rules (lib/chat/response-contract.ts). Each one
+  // SUSPENDS part of the every-turn mandate above, which is exactly why the
+  // scorer must see them: without these, a correct terse reply reads as a
+  // Haiku-style collapse.
+  {
+    name: 'explicit sentence count',
+    stresses: 'format request: exactly N sentences, NO artifact and NO option-set (the mandate is suspended)',
+    turns: ['In two sentences: is a subscription better than one-off pricing for my idea?'],
+  },
+  {
+    name: 'one table only',
+    stresses: 'format request: exactly one table artifact, no prose, no trailing option-set',
+    turns: ['Give me one table only comparing my three pricing options.'],
+  },
+  {
+    name: 'discussion only, no saving',
+    stresses: 'no commit option may be offered; internal field names must not leak into prose',
+    turns: ['Just thinking out loud, no saving: what if I targeted restaurants instead of cafes?'],
+  },
 ];

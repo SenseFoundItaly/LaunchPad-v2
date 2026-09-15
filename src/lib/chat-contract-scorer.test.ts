@@ -9,6 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { scoreTurn } from './chat-contract-scorer';
+import { responseContract } from './chat/response-contract';
 
 const SOURCES = '"sources":[{"type":"inference","title":"Synthesized from project context","based_on":[{"type":"internal","title":"Idea Canvas","ref":"research","ref_id":"idea_canvas:solution"}],"reasoning":"follows from the canvas"}]';
 
@@ -96,5 +97,89 @@ describe('chat contract scorer — detects each documented failure mode', () => 
       `Here is a good next step.\n\n:::artifact{"type":"option-set","id":"os4"}\n{"prompt":"Next?","options":[{"id":"a","label":"Run market research","description":"Size the market","skill_id":"market-research"}]}\n:::`,
     );
     expect(s.violations.map((v) => v.rule)).not.toContain('no-skill-word');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Post-#485 per-turn format rules (#235 revived 2026-09-15).
+//
+// #485 added responseContract: when a founder asks for "two sentences", "three
+// bullets" or "one table only", the prompt SUSPENDS the every-turn artifact +
+// option-set mandate. The August scorer did not know that, so it would score a
+// correct terse reply as a failure. These pin the exemptions, the new rules,
+// and — most importantly — that the scorer keys on the exact directive wording
+// responseContract emits, so a wording change breaks a test instead of silently
+// switching the exemptions off.
+// ---------------------------------------------------------------------------
+
+
+const violationsOf = (raw: string, founderMessage?: string) =>
+  scoreTurn(raw, { founderMessage }).violations.map((v) => v.rule);
+
+describe('chat contract scorer — the directive wording it keys on still exists', () => {
+  it('each exemption trigger matches what responseContract actually emits', () => {
+    expect(responseContract('In two sentences, tell me.')).toMatch(/sentences TOTAL/);
+    expect(responseContract('Give me three bullets.')).toMatch(/bullets TOTAL/);
+    expect(responseContract('One table only please.')).toMatch(/ONE table artifact only/);
+    expect(responseContract('Just talk, no saving.')).toMatch(/Discussion only:/);
+    expect(responseContract('Answer in under 40 words.')).toMatch(/under 40 words/);
+  });
+});
+
+describe('chat contract scorer — honours format requests', () => {
+  const plain = 'Subscriptions fit repeat use. One-off pricing fits a single purchase.';
+
+  it('a plain two-sentence reply is CORRECT when the founder asked for two sentences', () => {
+    const v = violationsOf(plain, 'In two sentences: subscription or one-off?');
+    expect(v).not.toContain('artifact-emitted');
+    expect(v).not.toContain('trailing-option-set');
+    expect(v).not.toContain('format-request-honoured');
+  });
+
+  it('the same reply with no format request is still the Haiku collapse', () => {
+    // The exemption is driven by the founder's message, not granted to every
+    // short reply — otherwise the collapse this harness exists for would pass.
+    const v = violationsOf(plain);
+    expect(v).toContain('artifact-emitted');
+    expect(v).toContain('trailing-option-set');
+  });
+
+  it('adding cards after the founder asked for plain sentences is a violation', () => {
+    const v = violationsOf(`${plain}\n\n${optionSet()}`, 'In two sentences: subscription or one-off?');
+    expect(v).toContain('format-request-honoured');
+  });
+
+  it('one table only: a lone table with no prose passes; prose or an option-set fails', () => {
+    const table = `:::artifact{"type":"metric-grid","id":"t1"}\n{"title":"Pricing","metrics":[{"label":"Monthly","value":"€19"}],${SOURCES}}\n:::`;
+    expect(violationsOf(table, 'One table only comparing my options.')).toEqual([]);
+    expect(violationsOf(`Here it is.\n\n${table}`, 'One table only comparing my options.')).toContain('format-request-honoured');
+    expect(violationsOf(`${table}\n\n${optionSet()}`, 'One table only comparing my options.')).toContain('format-request-honoured');
+  });
+
+  it('a word limit is enforced when the founder sets one', () => {
+    const long = Array.from({ length: 60 }, () => 'word').join(' ');
+    expect(violationsOf(`${long}\n\n${optionSet()}`, 'Answer in under 40 words.')).toContain('format-request-honoured');
+  });
+});
+
+describe('chat contract scorer — the post-#485 hard rules', () => {
+  it('flags internal field names and proposal ids in founder-facing prose', () => {
+    const v = violationsOf(`I updated value_proposition and staged pa_x1y2z3 for you.\n\n${optionSet()}`);
+    expect(v).toContain('no-internal-keys');
+  });
+
+  it('flags a quoted context-block title', () => {
+    expect(violationsOf(`Per your CURRENT IDEA CANVAS, the problem is clear.\n\n${optionSet()}`)).toContain('no-internal-keys');
+  });
+
+  it('does not flag skill_id — it is a machine field, not founder-facing text', () => {
+    expect(violationsOf(`Here is one next step.\n\n${optionSet(',"skill_id":"market-research"')}`)).not.toContain('no-internal-keys');
+  });
+
+  it('a commit option on a discussion-only turn is a save the founder said not to make', () => {
+    const commit = optionSet(',"commit":{"canvas":{"problem":"Cafes waste food"}}');
+    expect(violationsOf(`Worth exploring.\n\n${commit}`, 'Just thinking out loud, no saving.')).toContain('no-save-in-discussion');
+    // The same commit option is fine on a normal turn.
+    expect(violationsOf(`Worth exploring.\n\n${commit}`)).not.toContain('no-save-in-discussion');
   });
 });
