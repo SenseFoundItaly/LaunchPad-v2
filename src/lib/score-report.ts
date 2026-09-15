@@ -38,6 +38,10 @@ export interface ScoreReportLine {
   name?: string;
   number?: number;
   status?: string;
+  /** A stage's checks passed / total — structured, so "has this stage moved"
+   *  is read from numbers rather than parsed out of `note`. */
+  passed?: number;
+  total?: number;
   verdict?: string | null;
 }
 
@@ -87,6 +91,8 @@ export function buildScoreReport(input: ScoreReportInput): ScoreReport {
       name: s.label,
       number: s.number,
       status: s.status,
+      passed: s.passed,
+      total: s.total,
     });
   }
 
@@ -131,6 +137,30 @@ export function buildScoreReport(input: ScoreReportInput): ScoreReport {
     stagesDone: input.stages.filter((s) => s.status === 'done').length,
     stagesTotal: input.stages.length,
   };
+}
+
+/**
+ * Whether the report has anything a founder could forward.
+ *
+ * Deliberately NOT the history table's "two scorings" rule. That rule is about
+ * a trajectory; the report is also stages and loops, which a project has long
+ * before its second scoring. One scoring is enough: the document lists it and
+ * says plainly there is no trend yet — the like-with-like headline is null, so
+ * nothing is compared with anything it shouldn't be.
+ *
+ * Nor is it "has stage rows": /stages returns every stage of the pipeline,
+ * pending ones included, so that would hold for a project created a minute ago
+ * and hand the founder a page of "not started". Progress is a real scoring, a
+ * passed check, a finished stage, or an opened loop.
+ *
+ * A score of 0 is not a scoring: legacy score-card rows wrote a literal 0
+ * baseline, and the Home score panel already reads 0 as "not scored".
+ */
+export function hasSomethingToReport(report: ScoreReport): boolean {
+  return report.lines.some((l) =>
+    (l.kind === 'score' && (l.value ?? 0) > 0)
+    || l.kind === 'loop'
+    || (l.kind === 'stage' && ((l.passed ?? 0) > 0 || l.status === 'done')));
 }
 
 /**
