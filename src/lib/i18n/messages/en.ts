@@ -875,6 +875,14 @@ export const en = {
   'mvp.section-regulatory': 'Regulatory',
   'mvp.section-ip': 'Intellectual property',
   'mvp.section-data': 'Data availability',
+  // Knowledge topics — the rest of the 05/09 proposta's ad-hoc sections, one
+  // tabbed panel. Branding is absent on purpose: no data source exists yet.
+  'topics.title': 'Go-to-market, trends & ideas',
+  'topics.subtitle': 'How you will sell, the trends around you and your own loose notes — approved evidence only. It updates as you validate.',
+  'topics.section-gtm': 'Go-to-market',
+  'topics.section-market-trends': 'Market trends',
+  'topics.section-tech-trends': 'Tech trends',
+  'topics.section-brainstorming': 'Brainstorming',
   // The stage roadmap (changelog 05/09 item 1). Ghosted, inert rows: what the
   // stage will ask for once the write paths exist.
   'canvas.planned-label': 'On the roadmap',

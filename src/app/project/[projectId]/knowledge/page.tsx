@@ -24,6 +24,7 @@ import RecentMovesFeed from '@/components/knowledge/RecentMovesFeed';
 import AddDocumentsDialog from '@/components/knowledge/AddDocumentsDialog';
 import { CompetitorMatryoshka } from '@/components/knowledge/CompetitorMatryoshka';
 import { MvpArchitecturePanel } from '@/components/knowledge/MvpArchitecturePanel';
+import { KnowledgeTopicsPanel } from '@/components/knowledge/KnowledgeTopicsPanel';
 import type { GraphNode, GraphEdge, MacroCategory } from '@/types/graph';
 import { MACRO_CATEGORY_ORDER } from '@/types/graph';
 
@@ -257,6 +258,10 @@ export default function KnowledgePage({
           the competitor breakdown: what you are building, then who is around
           it. Both render nothing until the project has the evidence. */}
       <MvpArchitecturePanel projectId={projectId} />
+      {/* Go to market, market trends, tech trends, brainstorming — the rest of
+          the 05/09 proposta's ad-hoc sections, as ONE tabbed panel so they add
+          one row of chrome, not four. Renders nothing without evidence. */}
+      <KnowledgeTopicsPanel projectId={projectId} />
       <CompetitorMatryoshka projectId={projectId} />
       <div data-tour="knowledge-graph" style={{ flex: 1, minHeight: 0, position: 'relative', background: 'var(--paper-2)' }}>
         {/* Graph ↔ List toggle (top-right; the graph's own search/expand sit top-left). */}
