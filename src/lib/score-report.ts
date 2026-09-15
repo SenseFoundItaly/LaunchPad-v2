@@ -11,8 +11,11 @@
  * instrument anyway: the numbers are the content, and a deterministic summary
  * cannot drift from them or invent a trend that isn't in the data.
  *
- * Returns plain rows. The caller renders or downloads them; nothing here knows
- * about React or markdown.
+ * Returns plain rows, plus a markdown rendering of them for the download. The
+ * markdown lives here, not in the panel, so the "no model involved" guarantee
+ * (pinned by knowledge-sections.test.ts reading this file) covers the document
+ * the founder actually sends, not only the numbers behind it. Nothing here
+ * knows about React or the i18n runtime — words arrive as `labels`.
  */
 
 import { buildScoreHistoryRows, type ScoreHistoryPoint, type ScoreKind } from '@/lib/score-history-export';
@@ -27,6 +30,15 @@ export interface ScoreReportLine {
   /** Movement against the previous line of the same kind, when comparable. */
   delta: number | null;
   note?: string;
+  /** The parts `label` was assembled from, so a renderer can localize the line
+   *  instead of shipping the builder's English label to an Italian founder. */
+  scoreKind?: ScoreKind;
+  ordinal?: number;
+  /** The stage's own name, without the "Stage N —" prefix `label` adds. */
+  name?: string;
+  number?: number;
+  status?: string;
+  verdict?: string | null;
 }
 
 export interface ScoreReportInput {
@@ -60,6 +72,8 @@ export function buildScoreReport(input: ScoreReportInput): ScoreReport {
     label: `${r.kind} ${r.ordinal}`,
     value: r.score,
     delta: r.delta,
+    scoreKind: r.kind,
+    ordinal: r.ordinal,
   }));
 
   for (const s of input.stages) {
@@ -70,6 +84,9 @@ export function buildScoreReport(input: ScoreReportInput): ScoreReport {
       value: null,
       delta: null,
       note: `${s.passed}/${s.total} · ${s.status}`,
+      name: s.label,
+      number: s.number,
+      status: s.status,
     });
   }
 
@@ -81,6 +98,9 @@ export function buildScoreReport(input: ScoreReportInput): ScoreReport {
       value: null,
       delta: null,
       note: l.verdict ? `${l.status} · ${l.verdict}` : l.status,
+      number: l.loop_number,
+      status: l.status,
+      verdict: l.verdict,
     });
   }
 
@@ -111,4 +131,88 @@ export function buildScoreReport(input: ScoreReportInput): ScoreReport {
     stagesDone: input.stages.filter((s) => s.status === 'done').length,
     stagesTotal: input.stages.length,
   };
+}
+
+/**
+ * Every word the document needs, passed in. Keeps this file free of the i18n
+ * runtime (testable without it) and lets the founder's locale reach the
+ * download, not just the screen.
+ */
+export interface ScoreReportLabels {
+  title: string;
+  asOf: string;
+  scoreKind: (kind: ScoreKind, ordinal: number) => string;
+  headline: (kind: ScoreKind, from: number, to: number, delta: number) => string;
+  noHeadline: string;
+  scoresHeading: string;
+  columns: [date: string, scoring: string, score: string, delta: string];
+  stagesHeading: (done: number, total: number) => string;
+  stage: (number: number, label: string) => string;
+  stageStatus: (status: string) => string;
+  loopsHeading: string;
+  loop: (number: number) => string;
+  loopStatus: (status: string) => string;
+  noLoops: string;
+}
+
+export interface ScoreReportDocument { filename: string; mime: string; text: string }
+
+/** Pipes would split a table cell; stage and loop names are free text. */
+const cell = (s: string) => s.replace(/\|/g, '\\|');
+
+const signed = (n: number) => `${n > 0 ? '+' : ''}${n}`;
+
+/**
+ * The report as markdown — the form a founder can forward to a VC or paste into
+ * a data-room note, and still read in any text editor.
+ *
+ * `today` is a parameter, not `new Date()`, so the same inputs always give the
+ * same document; the file is dated so successive downloads don't overwrite each
+ * other, which is the "base del versioning futuro" the changelog asks for.
+ */
+export function buildScoreReportMarkdown(
+  report: ScoreReport,
+  labels: ScoreReportLabels,
+  today: string,
+): ScoreReportDocument {
+  const out: string[] = [`# ${labels.title}`, '', labels.asOf, ''];
+
+  out.push(report.headline
+    ? `**${labels.headline(report.headline.kind, report.headline.from, report.headline.to, report.headline.delta)}**`
+    : `_${labels.noHeadline}_`, '');
+
+  const scores = report.lines.filter((l) => l.kind === 'score');
+  if (scores.length > 0) {
+    out.push(`## ${labels.scoresHeading}`, '');
+    out.push(`| ${labels.columns.map(cell).join(' | ')} |`, '|---|---|---|---|');
+    // Oldest-first, like the CSV: a report is read as a story, start to now.
+    for (const l of [...scores].reverse()) {
+      const name = l.scoreKind && l.ordinal ? labels.scoreKind(l.scoreKind, l.ordinal) : l.label;
+      out.push(`| ${l.date} | ${cell(name)} | ${l.value === null ? '' : Math.round(l.value)} | ${l.delta === null ? '' : signed(l.delta)} |`);
+    }
+    out.push('');
+  }
+
+  const stages = report.lines.filter((l) => l.kind === 'stage');
+  if (stages.length > 0) {
+    out.push(`## ${labels.stagesHeading(report.stagesDone, report.stagesTotal)}`, '');
+    for (const l of stages) {
+      const name = l.number !== undefined ? labels.stage(l.number, l.name ?? l.label) : l.label;
+      const progress = l.note?.split(' · ')[0] ?? '';
+      out.push(`- ${name}: ${progress}${l.status ? ` · ${labels.stageStatus(l.status)}` : ''}`);
+    }
+    out.push('');
+  }
+
+  out.push(`## ${labels.loopsHeading}`, '');
+  const loops = report.lines.filter((l) => l.kind === 'loop');
+  if (loops.length === 0) out.push(labels.noLoops);
+  for (const l of loops) {
+    const name = l.number !== undefined ? labels.loop(l.number) : l.label;
+    const state = l.status ? labels.loopStatus(l.status) : (l.note ?? '');
+    out.push(`- ${l.date} · ${name}: ${state}${l.verdict ? ` · ${l.verdict}` : ''}`);
+  }
+  out.push('');
+
+  return { filename: `score-report-${today}.md`, mime: 'text/markdown', text: out.join('\n') };
 }
