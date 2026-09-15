@@ -1860,6 +1860,9 @@ export const en = {
   'kac.apply': 'Apply',
   'kac.dismiss': 'Dismiss',
   'kac.saving-proposal': 'Saving proposal…',
+  'kac.not-saved-discussion': 'Not saved — you asked for discussion only',
+  'kac.nothing-to-apply': 'Nothing to apply from this card.',
+  'kac.review-in-knowledge': 'Review proposals in Knowledge',
   // Monitor proposal card (MonitorProposalCard.tsx)
   'mprop.type-label': 'Monitor proposal',
   'mprop.url-placeholder': 'https://example.com/pricing',

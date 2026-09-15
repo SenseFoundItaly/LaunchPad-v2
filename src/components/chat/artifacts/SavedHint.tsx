@@ -19,8 +19,12 @@
  *
  * The server-assigned persisted_id arrives via usePersistedArtifact (the
  * lp-persisted-artifacts done-event), merging with whatever the artifact
- * already carries. Without a persisted_id there's nothing to PATCH, so the
- * controls render disabled with a quiet note.
+ * already carries. Without a persisted_id there's nothing to PATCH — and a
+ * missing id is NOT always a save in flight (it used to read as one, forever;
+ * copilot UI assessment 2026-09-13, P1). artifactSaveStatus says which:
+ *   saving          → controls disabled + "Saving proposal…" (its turn streams)
+ *   discussion-only → no controls; "Not saved — you asked for discussion only"
+ *   unlinked        → no controls; nothing to apply here, link to Knowledge
  *
  * Apply → onAction('knowledge:apply', { item_id, type, state: 'applied' }).
  * Dismiss → same verb with state: 'rejected'. The page-level handler PATCHes
@@ -29,8 +33,12 @@
  */
 
 import { useState } from 'react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import type { ReviewedState } from '@/types/artifacts';
 import { usePersistedArtifact } from '@/hooks/usePersistedArtifact';
+import { useChatThreadValue } from '@/hooks/useChat';
+import { artifactSaveStatus } from '@/lib/chat/artifact-save-status';
 import { useT } from '@/components/providers/LocaleProvider';
 
 type KnowledgeType = 'fact' | 'graph_node' | 'tabular_review';
@@ -59,6 +67,13 @@ export default function KnowledgeApplyControls({
     reviewed_state: state,
   });
   const itemId = persisted?.persisted_id || persistedId || '';
+  // The chat thread is the only place an id can still be coming from, so the
+  // card asks it where its turn stands (see artifact-save-status.ts).
+  const params = useParams<{ projectId?: string }>();
+  const projectId = typeof params?.projectId === 'string' ? params.projectId : undefined;
+  const saveStatus = useChatThreadValue(projectId, (thread) =>
+    artifactSaveStatus({ artifactId, persistedId: itemId || undefined, messages: thread.messages, isStreaming: thread.isStreaming }),
+  );
 
   // Local optimistic state so the footer flips immediately on click without a
   // refetch round-trip. Seeds from the resolved review state.
@@ -90,6 +105,29 @@ export default function KnowledgeApplyControls({
   }
   if (effective === 'rejected') {
     return <div className="mt-2 text-[10px] text-ink-5">{t('kac.dismissed')}</div>;
+  }
+
+  // No record will ever exist: the founder scoped this turn to discussion, and
+  // the server skipped persistence for it. Buttons that can never work would
+  // be a promise the product cannot keep.
+  if (saveStatus === 'discussion-only') {
+    return <div className="mt-2 text-[10px] text-ink-5">{t('kac.not-saved-discussion')}</div>;
+  }
+  // The turn is over and no id reached this view (reload, or nothing was
+  // persisted). Whether a proposal exists is unknown here, so claim neither —
+  // say what is true (nothing to apply from this card) and where proposals
+  // are reviewed, rather than leave a dead end.
+  if (saveStatus === 'unlinked') {
+    return (
+      <div className="mt-2 text-[10px] text-ink-5" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <span>{t('kac.nothing-to-apply')}</span>
+        {projectId && (
+          <Link href={`/project/${projectId}/knowledge`} style={{ color: 'var(--ink-3)', textDecoration: 'underline' }}>
+            {t('kac.review-in-knowledge')}
+          </Link>
+        )}
+      </div>
+    );
   }
 
   // pending / undefined → action pair.
@@ -134,7 +172,7 @@ export default function KnowledgeApplyControls({
       >
         {t('kac.dismiss')}
       </button>
-      {!itemId && (
+      {saveStatus === 'saving' && (
         <span style={{ fontSize: 10, color: 'var(--ink-5)' }}>{t('kac.saving-proposal')}</span>
       )}
       {err && <span style={{ fontSize: 10, color: 'var(--clay)' }}>{err}</span>}
