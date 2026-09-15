@@ -34,7 +34,9 @@ import { band } from '@/lib/score-display';
 import {
   buildScoreHistoryRows, buildScoreHistoryCsv, type ScoreHistoryPoint, type ScoreKind,
 } from '@/lib/score-history-export';
-import { buildScoreReport, buildScoreReportMarkdown, type ScoreReportLabels } from '@/lib/score-report';
+import {
+  buildScoreReport, buildScoreReportMarkdown, hasSomethingToReport, type ScoreReportLabels,
+} from '@/lib/score-report';
 
 const STAGE_STATUS_KEY: Record<string, MessageKey> = {
   done: 'score-history.report-stage-done',
@@ -82,8 +84,9 @@ export default function ScoreHistoryPanel({ projectId }: { projectId: string }) 
   const { data: loops } = useLoops(projectId);
 
   const rows = buildScoreHistoryRows(data?.points ?? []);
-  // One point is a number, not a history — the panel above already shows it.
-  if (rows.length < 2) return null;
+  // The history TABLE (and its CSV) needs two points: one point is a number,
+  // not a trajectory — the panel above already shows it.
+  const hasHistory = rows.length >= 2;
 
   const labelFor = (kind: ScoreKind, ordinal: number) =>
     `${t(KIND_KEY[kind])} ${ordinal}`;
@@ -99,6 +102,11 @@ export default function ScoreHistoryPanel({ projectId }: { projectId: string }) 
     })),
     loops: loops ?? [],
   });
+  // The REPORT does not need a trajectory — it is also stages and loops, which a
+  // young project has long before its second scoring. Gating it on the table's
+  // rule hid it from exactly the founders earliest in the journey. The panel
+  // goes away only when neither has anything to show.
+  if (!hasHistory && !hasSomethingToReport(report)) return null;
   // Rounded for reading; the builder keeps one decimal for the maths.
   const headlineText = (kind: ScoreKind, from: number, to: number, delta: number) =>
     t('score-history.report-headline', {
@@ -153,7 +161,10 @@ export default function ScoreHistoryPanel({ projectId }: { projectId: string }) 
           }}
         >
           <span aria-hidden style={{ display: 'inline-block', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>›</span>
-          {t('score-history.title', { count: rows.length })}
+          {/* Named for what is inside: before there is a history, the window
+              holds only the report, and "Score history (1)" would promise a
+              table that isn't there. */}
+          {hasHistory ? t('score-history.title', { count: rows.length }) : t('score-history.report-title')}
         </button>
         {open && (
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
@@ -165,14 +176,16 @@ export default function ScoreHistoryPanel({ projectId }: { projectId: string }) 
             >
               {t('score-history.download-report')}
             </button>
-            <button
-              type="button"
-              onClick={download}
-              className="lp-mono"
-              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 9.5, color: 'var(--accent)' }}
-            >
-              {t('score-history.download')}
-            </button>
+            {hasHistory && (
+              <button
+                type="button"
+                onClick={download}
+                className="lp-mono"
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 9.5, color: 'var(--accent)' }}
+              >
+                {t('score-history.download')}
+              </button>
+            )}
           </span>
         )}
       </div>
@@ -193,7 +206,7 @@ export default function ScoreHistoryPanel({ projectId }: { projectId: string }) 
             loops: report.lines.filter((l) => l.kind === 'loop').length,
           })}
         </p>
-        {rows.map((r, i) => (
+        {hasHistory && rows.map((r, i) => (
           <div key={`${r.point.created_at}-${i}`} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
             <span className="lp-mono" style={{ fontSize: 10, color: 'var(--ink-5)', width: 66, flexShrink: 0 }}>
               {r.point.created_at?.slice(0, 10)}

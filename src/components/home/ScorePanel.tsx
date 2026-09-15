@@ -225,12 +225,14 @@ export function ScorePanel({ projectId }: { projectId: string }) {
               {recommendationText && (
                 <p style={{ margin: '8px 0 0', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.45 }}>{recommendationText}</p>
               )}
-              {/* The trajectory the sparkline could only hint at: every past
-                  scoring, named, with its movement (changelog 05/09 item 4).
-                  Renders nothing until there are two points. */}
-              <ScoreHistoryPanel projectId={projectId} />
             </>
           )}
+          {/* The trajectory the sparkline could only hint at (every past
+              scoring, named, with its movement) and the progress report
+              (changelog 05/09 item 4). Mounted OUTSIDE the scored branch: the
+              report also covers stages and loops, which an unscored project
+              already has. The panel decides for itself when it has nothing. */}
+          <ScoreHistoryPanel projectId={projectId} />
         </div>
 
         {/* IRL */}

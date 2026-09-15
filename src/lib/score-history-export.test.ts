@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { buildScoreHistoryRows, buildScoreHistoryCsv, scoreKindOf } from './score-history-export';
+import { buildScoreReport, hasSomethingToReport } from './score-report';
 
 /**
  * Changelog 05/09 item 4 — "evidenza anche degli scoring passati (es: clarity
@@ -109,12 +110,65 @@ describe('the panel', () => {
     expect(panel).toMatch(/hidden=\{!open\}/);
   });
 
-  it('renders nothing when there is no history to read', () => {
+  it('shows the history table only once there is a trajectory', () => {
     // One point is a number, not a trajectory — and the panel above shows it.
-    expect(panel).toMatch(/rows\.length < 2\) return null/);
+    // That rule governs the TABLE and its CSV, nothing else.
+    expect(panel).toMatch(/const hasHistory = rows\.length >= 2;/);
+    expect(panel).toMatch(/\{hasHistory && rows\.map\(/);
+    expect(panel).toMatch(/\{hasHistory && \(\s*<button[^>]*?onClick=\{download\}/);
   });
 
-  it('is mounted on the Home score panel', () => {
-    expect(read('src/components/home/ScorePanel.tsx')).toMatch(/<ScoreHistoryPanel projectId=\{projectId\} \/>/);
+  it('does not let the two-scorings rule hide the report', () => {
+    // PR #487 put the progress report inside this panel, behind the table's
+    // `rows.length < 2` early return — so a young project, which already has
+    // stages and loops worth reporting, could not reach the report at all.
+    // The panel now disappears only when BOTH the table and the report are empty.
+    expect(panel).not.toMatch(/rows\.length < 2\) return null/);
+    expect(panel).toMatch(/if \(!hasHistory && !hasSomethingToReport\(report\)\) return null;/);
+  });
+
+  it('is mounted on the Home score panel, whether or not the project is scored yet', () => {
+    const scorePanel = read('src/components/home/ScorePanel.tsx');
+    expect(scorePanel).toMatch(/<ScoreHistoryPanel projectId=\{projectId\} \/>/);
+    // After the scored branch's fragment closes, not inside it: mounted only
+    // for a scored project, an unscored one with stage progress would never
+    // reach the report however the panel gates itself.
+    expect(scorePanel.indexOf('<ScoreHistoryPanel')).toBeGreaterThan(scorePanel.indexOf('</>'));
+  });
+});
+
+describe('when the report is worth offering', () => {
+  const stage = (number: number, passed: number, status: string) =>
+    ({ number, label: `S${number}`, passed, total: 9, status });
+
+  it('a single-scoring project can reach the report — with no headline', () => {
+    const report = buildScoreReport({ points: [p('startup-scoring', 64, '1-01')], stages: [], loops: [] });
+    expect(buildScoreHistoryRows([p('startup-scoring', 64, '1-01')])).toHaveLength(1); // no table
+    expect(hasSomethingToReport(report)).toBe(true); // but a report
+    // Like-with-like still holds: one scoring has nothing to be compared with,
+    // so there is no trend to state rather than an invented one.
+    expect(report.headline).toBeNull();
+  });
+
+  it('an unscored project with real stage or loop progress can reach it too', () => {
+    expect(hasSomethingToReport(buildScoreReport({
+      points: [], stages: [stage(1, 3, 'active'), stage(2, 0, 'pending')], loops: [],
+    }))).toBe(true);
+    expect(hasSomethingToReport(buildScoreReport({
+      points: [], stages: [],
+      loops: [{ loop_number: 1, status: 'open', verdict: null, created_at: '2026-08-01' }],
+    }))).toBe(true);
+  });
+
+  it('a project with nothing yet gets no report, not a page of "not started"', () => {
+    // /stages returns every stage of the pipeline, so "has stage rows" is true
+    // for a project created a minute ago. Progress is a passed check.
+    expect(hasSomethingToReport(buildScoreReport({
+      points: [], stages: [stage(1, 0, 'active'), stage(2, 0, 'pending')], loops: [],
+    }))).toBe(false);
+    // A legacy literal-0 row is "not scored" on Home; it is not progress here either.
+    expect(hasSomethingToReport(buildScoreReport({
+      points: [p('score-card', 0, '1-01')], stages: [], loops: [],
+    }))).toBe(false);
   });
 });
