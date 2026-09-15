@@ -16,6 +16,7 @@
  */
 
 import { use, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, memo, createContext, useContext } from 'react';
+import { flushSync } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/api';
 import { useT, useLocale } from '@/components/providers/LocaleProvider';
@@ -578,6 +579,16 @@ export default function CopilotChatPage({
   const scrollRef = useRef<HTMLDivElement>(null);
   // Focus target for the Canvas "use this prompt" handoff (see onPickPrompt).
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  // Which pane a narrow screen shows (see .lp-chat-shell in design-tokens.css).
+  // Only a CSS media query reads it, so desktop ignores it and never flashes a
+  // different layout on hydration — no matchMedia, no setState in an effect.
+  const [mobilePane, setMobilePane] = useState<'chat' | 'workspace'>('chat');
+  // Canvas actions that put something into the chat must bring the chat into
+  // view first. flushSync because focus() on a display:none textarea silently
+  // does nothing — the prompt would land in a composer the founder cannot see.
+  const showChatPane = useCallback(() => {
+    flushSync(() => setMobilePane('chat'));
+  }, []);
   // Turn-linked canvas: which chat message is hovered (null = none).
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   // "Audit document → knowledge" popup, opened from the composer "+" menu. Runs
@@ -1660,12 +1671,47 @@ export default function CopilotChatPage({
   return (
     <GatedSkillsContext.Provider value={gatedSkills}>
      <OptionSelectionContext.Provider value={optionSelection}>
+      <div
+        className="lp-chat-shell"
+        data-pane={mobilePane}
+        style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}
+      >
+      {/* Narrow screens only (CSS hides it on desktop). Both panes stay mounted;
+          this only picks which one is visible. */}
+      <div
+        className="lp-chat-pane-switch"
+        role="group"
+        aria-label={t('chat.pane-switch-label')}
+        style={{ gap: 4, padding: 6, borderBottom: '1px solid var(--line)', background: 'var(--paper)' }}
+      >
+        {(['chat', 'workspace'] as const).map((pane) => (
+          <button
+            key={pane}
+            type="button"
+            aria-pressed={mobilePane === pane}
+            onClick={() => setMobilePane(pane)}
+            style={{
+              flex: 1,
+              padding: '7px 10px',
+              fontSize: 12.5,
+              fontWeight: 500,
+              fontFamily: 'inherit',
+              borderRadius: 'var(--r-m)',
+              border: '1px solid ' + (mobilePane === pane ? 'var(--ink)' : 'var(--line)'),
+              background: mobilePane === pane ? 'var(--ink)' : 'transparent',
+              color: mobilePane === pane ? 'var(--paper)' : 'var(--ink-3)',
+              cursor: 'pointer',
+            }}
+          >
+            {pane === 'chat' ? t('chat.pane-chat') : t('chat.pane-workspace')}
+          </button>
+        ))}
+      </div>
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* Chat column */}
+        {/* Chat column — width lives in .lp-chat-col so narrow screens can make it fluid. */}
         <div
+          className="lp-chat-col"
           style={{
-            width: 440,
-            flexShrink: 0,
             borderRight: '1px solid var(--line)',
             display: 'flex',
             flexDirection: 'column',
@@ -1827,6 +1873,7 @@ export default function CopilotChatPage({
         {/* Canvas */}
         <div
           data-tour="chat-canvas"
+          className="lp-chat-canvas"
           style={{
             flex: 1,
             display: 'flex',
@@ -1848,7 +1895,11 @@ export default function CopilotChatPage({
               // agent runs the skill the founder just clicked. See route.ts
               // TIER 3 PRIORITY RULES: "When the founder explicitly asks to run
               // a skill: route through 'I choose: <kickoff>' click path."
-              if (!isStreaming) sendMessage(t('chat.i-choose', { choice: label }));
+              if (isStreaming) return;
+              // The reply streams into the chat — on a narrow screen that pane
+              // is hidden while the founder is in the canvas, so show it.
+              showChatPane();
+              sendMessage(t('chat.i-choose', { choice: label }));
             }}
             onPickPrompt={(prompt, checkId) => {
               setTargetCheck(checkId ?? null);
@@ -1856,6 +1907,9 @@ export default function CopilotChatPage({
               // prompt into the (left-pane) composer and focus it so the founder
               // sees it ready to send. No auto-send: they review/edit + send.
               setInput(prompt);
+              // On a narrow screen the composer is hidden while the canvas is
+              // shown; switch before focusing or the prompt lands out of sight.
+              showChatPane();
               // Was: scan every <textarea> and match /co-pilot/i against its
               // placeholder. That silently fell back to tas[0] the moment the
               // placeholder copy changed — an invisible coupling between a
@@ -1866,6 +1920,7 @@ export default function CopilotChatPage({
             }}
           />
         </div>
+      </div>
       </div>
 
       {showAddDocs && (

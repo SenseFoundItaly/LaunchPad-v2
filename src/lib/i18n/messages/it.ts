@@ -632,6 +632,10 @@ export const it: Partial<Record<MessageKey, string>> = {
   'chat.show-earlier': 'Mostra conversazione precedente ({count} in più)',
   'chat.jump-to-latest-title': "Vai all'ultimo messaggio",
   'chat.jump-to-latest': "Vai all'ultimo",
+  // Selettore per schermi stretti tra la colonna chat e il canvas.
+  'chat.pane-switch-label': 'Mostra chat o spazio di lavoro',
+  'chat.pane-chat': 'Chat',
+  'chat.pane-workspace': 'Spazio di lavoro',
   // Rimandato come messaggio del founder quando clicca un'opzione.
   'chat.i-choose': 'Scelgo: {choice}',
   // Fast-path chip (commit-fast-path.ts). NB: evitare deliberatamente gli

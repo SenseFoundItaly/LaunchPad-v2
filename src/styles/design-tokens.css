@@ -153,6 +153,22 @@
 .lp-home-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .lp-home-grid > * { min-width: 0; }
 @media (max-width: 900px) { .lp-home-grid { grid-template-columns: 1fr; } }
+/* Chat page panes (project/[projectId]/chat/page.tsx). Desktop: a fixed 440px
+   chat column beside a fluid canvas. The width used to be an inline style, which
+   no media query can override — on a 390px phone the column refused to shrink
+   beside the 54px nav rail, pushing Send off screen and the canvas entirely out
+   of reach. Narrow: one pane at a time, picked by the Chat / Workspace switch.
+   The hidden pane gets display:none, NOT unmounted, so the half-typed draft,
+   the thread's scroll position and an in-flight stream all survive a switch.
+   !important because both panes set display:flex inline. */
+.lp-chat-col { width: 440px; flex-shrink: 0; }
+.lp-chat-pane-switch { display: none; }
+@media (max-width: 760px) {
+  .lp-chat-pane-switch { display: flex; }
+  .lp-chat-col { width: auto; flex: 1 1 0; min-width: 0; }
+  .lp-chat-shell[data-pane='workspace'] .lp-chat-col,
+  .lp-chat-shell[data-pane='chat'] .lp-chat-canvas { display: none !important; }
+}
 .lp-mono { font-family: var(--f-mono); font-feature-settings: 'ss01','cv01','cv02'; }
 .lp-serif { font-family: var(--f-display); letter-spacing: -0.02em; font-weight: 600; }
 .lp-kbd { font-family: var(--f-mono); font-size: 12px; padding: 2px 5px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; color: var(--ink-3); background: var(--paper-2); }
