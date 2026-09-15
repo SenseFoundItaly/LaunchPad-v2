@@ -26,6 +26,11 @@ import { broadcastPersistedArtifacts } from '@/hooks/usePersistedArtifact';
 import { useStages } from '@/hooks/useStages';
 import { useRouter } from 'next/navigation';
 import { requestRecharge } from '@/components/credits/recharge-events';
+import {
+  TOUR_HIGHLIGHT_EVENT,
+  chatPaneForTourTarget,
+  type TourHighlightDetail,
+} from '@/components/onboarding/tour-state';
 import { useProject } from '@/hooks/useProject';
 import { useDraft } from '@/hooks/useDraft';
 import { splitOptionLabel } from '@/components/chat/option-label';
@@ -588,6 +593,19 @@ export default function CopilotChatPage({
   // does nothing — the prompt would land in a composer the founder cannot see.
   const showChatPane = useCallback(() => {
     flushSync(() => setMobilePane('chat'));
+  }, []);
+  // The onboarding tour spotlights the canvas, which a phone hides while the
+  // Chat pane is showing — driver.js would measure a zero rect and anchor the
+  // step to the screen corner. Show the pane the step points at. flushSync so
+  // the pane is visible before driver.js measures (the event fires just before).
+  // Desktop is unaffected: only the narrow-screen media query reads mobilePane.
+  useEffect(() => {
+    const onTourHighlight = (e: Event) => {
+      const pane = chatPaneForTourTarget((e as CustomEvent<TourHighlightDetail>).detail?.target);
+      flushSync(() => setMobilePane(pane));
+    };
+    window.addEventListener(TOUR_HIGHLIGHT_EVENT, onTourHighlight);
+    return () => window.removeEventListener(TOUR_HIGHLIGHT_EVENT, onTourHighlight);
   }, []);
   // Turn-linked canvas: which chat message is hovered (null = none).
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);

@@ -62,7 +62,9 @@ import {
   type TourStep,
 } from './tour-steps';
 import {
+  TOUR_HIGHLIGHT_EVENT,
   TOUR_START_EVENT,
+  type TourHighlightDetail,
   clearTourState,
   deferTourForSession,
   hasSeenDemoTour,
@@ -247,6 +249,15 @@ export default function TourController() {
         doneBtnText: tr('tour.done-btn'),
         popoverClass: 'lp-tour',
         steps,
+        // Runs before driver.js measures the step's element (drive, Next and
+        // Prev alike), so a listener that un-hides the target synchronously is
+        // measured correctly. See TOUR_HIGHLIGHT_EVENT for the phone bug.
+        onHighlightStarted: (_el, step) => {
+          const target = typeof step.element === 'string' ? step.element : undefined;
+          window.dispatchEvent(
+            new CustomEvent<TourHighlightDetail>(TOUR_HIGHLIGHT_EVENT, { detail: { target } }),
+          );
+        },
         // Config-level overrides disable driver's auto-advance for ALL steps —
         // every path below must move/destroy explicitly.
         onNextClick: () => {
