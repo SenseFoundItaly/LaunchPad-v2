@@ -1813,6 +1813,9 @@ export const it: Partial<Record<MessageKey, string>> = {
   'kac.apply': 'Applica',
   'kac.dismiss': 'Ignora',
   'kac.saving-proposal': 'Salvataggio della proposta…',
+  'kac.not-saved-discussion': 'Non salvato — hai chiesto solo una discussione',
+  'kac.nothing-to-apply': 'Niente da applicare da questa scheda.',
+  'kac.review-in-knowledge': 'Rivedi le proposte in Conoscenza',
   // Card proposta di osservatore (MonitorProposalCard.tsx)
   'mprop.type-label': 'Proposta di osservatore',
   'mprop.url-placeholder': 'https://example.com/prezzi',

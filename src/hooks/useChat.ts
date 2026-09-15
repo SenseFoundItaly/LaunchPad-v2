@@ -85,6 +85,34 @@ export function markChatHydrated(projectId: string, step: string = 'chat') {
   getStore(projectId, step).hydrated = true;
 }
 
+/**
+ * Read one derived value from a project's chat thread. For components that
+ * render INSIDE the thread (artifact cards) and need to know where their turn
+ * stands, but must not mount useChat itself — that would start follow-up
+ * polling and a recharge listener per card.
+ *
+ * Select a primitive: useSyncExternalStore compares snapshots with Object.is,
+ * so a card re-renders only when its derived value changes, not on every
+ * streamed delta. Without a projectId (a card rendered outside a project
+ * route) it reads an empty, idle thread.
+ */
+export function useChatThreadValue<T extends string | number | boolean>(
+  projectId: string | undefined,
+  select: (thread: { messages: ChatMessage[]; isStreaming: boolean }) => T,
+  step: string = 'chat',
+): T {
+  const store = projectId ? getStore(projectId, step) : null;
+  const subscribe = useCallback(
+    (cb: () => void) => {
+      if (!store) return () => {};
+      store.listeners.add(cb);
+      return () => { store.listeners.delete(cb); };
+    },
+    [store],
+  );
+  return useSyncExternalStore(subscribe, () => select(store?.state ?? EMPTY_STATE), () => select(EMPTY_STATE));
+}
+
 export function useChat(projectId: string, step: string = 'chat') {
   const store = getStore(projectId, step);
 

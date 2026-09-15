@@ -9,7 +9,7 @@ Reusable synthetic projects for reviewing the actual copilot UI. No copied produ
 | `revision` | Earlier saved target plus pending correction; saved value must stay visible |
 | `approved` | Resolved card after reload; no active approval controls |
 | `rejected` | Compact skipped card; no pending canvas values |
-| `discussion` | Unsaved comparison; source inspector and export; known misleading “Saving proposal…” state |
+| `discussion` | Unsaved comparison; source inspector and export; footer reads “Not saved — you asked for discussion only”, with no Apply/Dismiss |
 | `long-it` | 122 messages, four tables, long project title, Italian interface, final scope correction |
 
 ## Run
@@ -40,7 +40,7 @@ Check desktop 1280×720 and phone 390×844. Also review long Italian labels, key
 - Pending status stays visible with the diff collapsed. Opening it reveals the comparison without applying anything.
 - Revised fields distinguish saved values from proposed replacements.
 - Approved/rejected cards stay resolved across reloads.
-- An unsaved artifact must not promise a save that will never finish. This currently reproduces a known issue.
+- An unsaved artifact must not promise a save that will never finish. `discussion` shows the never-saved footer; a settled card without a record id shows “Nothing to apply from this card”, never “Saving proposal…” (pinned by `src/lib/chat/artifact-save-status.test.ts`).
 - The long transcript exposes older-message loading; reading history should not unexpectedly jump to the latest message.
 - The phone composer, Send control and workspace should all be reachable. The existing layout currently clips them.
 - Cross-section links stay in the same fixture project.
