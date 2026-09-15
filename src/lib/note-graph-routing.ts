@@ -27,6 +27,16 @@ import { query, run, get } from '@/lib/db';
 import { appendNodeTimeline, timelineEntryNow, historyLocale } from '@/lib/knowledge/node-timeline';
 import { translate } from '@/lib/i18n/messages';
 
+/**
+ * The longest founder note the product accepts — shared by the notes route
+ * (which 400s anything longer) and the graph copy written below. They used to
+ * be two literals, 4000 at the door and 1000 here, so a 4000-char note was
+ * accepted in full and then silently cut to its first 1000 chars on the node
+ * the founder reads it back from (the Brainstorming tab). One constant means
+ * the door and the graph copy cannot drift apart again.
+ */
+export const NOTE_MAX_CHARS = 4000;
+
 /** Max nodes one note attaches to — a note that name-drops half the graph is
  *  a brain-dump, not a targeted annotation; the fact row already holds it all. */
 const MAX_ATTACH = 3;
@@ -77,7 +87,24 @@ export async function routeNoteToGraph(
     const headline = translate(locale, 'node-history.note-attached', {
       note: noteText.length > 140 ? `${noteText.slice(0, 140)}…` : noteText,
     });
-    const noteEntry = { text: noteText.slice(0, 1000), at: new Date().toISOString(), source: 'note' };
+    // The graph copy is the note the founder reads back, so it keeps the full
+    // text the route accepted. The bound only bites if a future caller skips
+    // the route's length check — and then it says so (`truncated` + the
+    // original length + a warn) instead of silently dropping the tail, which
+    // is exactly how a 4000-char note used to lose 3000 chars here. The
+    // untruncated text always survives in the note's memory_fact row.
+    const overLimit = noteText.length > NOTE_MAX_CHARS;
+    if (overLimit) {
+      console.warn(
+        `[note-graph-routing] note over NOTE_MAX_CHARS (${noteText.length} > ${NOTE_MAX_CHARS}) — graph copy marked truncated`,
+      );
+    }
+    const noteEntry = {
+      text: overLimit ? noteText.slice(0, NOTE_MAX_CHARS) : noteText,
+      at: new Date().toISOString(),
+      source: 'note',
+      ...(overLimit ? { truncated: true, original_length: noteText.length } : {}),
+    };
 
     const attachTo = async (nodeId: string) => {
       // Append-only: notes array preserved, everything else in attributes
