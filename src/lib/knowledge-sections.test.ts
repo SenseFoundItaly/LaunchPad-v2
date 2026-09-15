@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { buildScoreReport } from './score-report';
+import { buildScoreReport, buildScoreReportMarkdown, type ScoreReportLabels } from './score-report';
 import { en } from './i18n/messages/en';
 import { it as itMessages } from './i18n/messages/it';
 
@@ -129,5 +129,115 @@ describe('item 4 — the report is computed, never generated', () => {
     expect(r.stagesTotal).toBe(2);
     expect(r.lines.filter((l) => l.kind === 'loop')).toHaveLength(1);
     expect(r.lines.find((l) => l.kind === 'loop')?.note).toBe('closed · GO');
+  });
+});
+
+describe('item 4 — the report reaches the founder as a document', () => {
+  const point = (source: string, overall_score: number, day: string) =>
+    ({ source, overall_score, created_at: `2026-0${day}T00:00:00.000Z` });
+  // Recognizable stand-ins, so an assertion can tell a localized word from the
+  // builder's English fallback.
+  const labels: ScoreReportLabels = {
+    title: 'REPORT',
+    asOf: 'AS-OF',
+    scoreKind: (kind, n) => `K:${kind}#${n}`,
+    headline: (kind, from, to, delta) => `H:${kind} ${from}>${to} ${delta}`,
+    noHeadline: 'NO-TREND',
+    scoresHeading: 'SCORES',
+    columns: ['d', 's', 'v', 'Δ'],
+    stagesHeading: (done, total) => `STAGES ${done}/${total}`,
+    stage: (n, label) => `S${n}:${label}`,
+    stageStatus: (s) => `st:${s}`,
+    loopsHeading: 'LOOPS',
+    loop: (n) => `L${n}`,
+    loopStatus: (s) => `ls:${s}`,
+    noLoops: 'NO-LOOPS',
+  };
+
+  it('keeps the like-with-like rule in the file the founder sends, not only on screen', () => {
+    const r = buildScoreReport({
+      points: [point('clarity-scoring', 78, '1-01'), point('startup-scoring', 61, '2-01')],
+      stages: [], loops: [],
+    });
+    const doc = buildScoreReportMarkdown(r, labels, '2026-09-15');
+    expect(doc.text).toContain('NO-TREND');
+    expect(doc.text).not.toMatch(/-17/);
+  });
+
+  it('reads as a story — oldest scoring first — in the founder\'s own words', () => {
+    const r = buildScoreReport({
+      points: [point('startup-scoring', 61, '2-01'), point('startup-scoring', 68, '3-01')],
+      stages: [{ number: 2, label: 'Validazione | mercato', passed: 5, total: 24, status: 'active' }],
+      loops: [{ loop_number: 1, status: 'closed', verdict: 'GO', created_at: '2026-08-01T10:00:00Z' }],
+    });
+    const { text } = buildScoreReportMarkdown(r, labels, '2026-09-15');
+    expect(text.indexOf('K:startup#1')).toBeLessThan(text.indexOf('K:startup#2'));
+    expect(text).toContain('**H:startup 61>68 7**');
+    expect(text).toContain('| 2026-03-01 | K:startup#2 | 68 | +7 |');
+    // Stages are a list, not a table, so the name is kept verbatim — pipe and
+    // all — and it is the localized label, not the builder's "Stage N —" one.
+    expect(text).toContain('- S2:Validazione | mercato: 5/24 · st:active');
+    expect(text).toContain('- 2026-08-01 · L1: ls:closed · GO');
+    expect(text).not.toMatch(/^Stage \d/m);
+  });
+
+  it('is dated in its file name, so each download is a version, not an overwrite', () => {
+    const doc = buildScoreReportMarkdown(
+      buildScoreReport({ points: [], stages: [], loops: [] }), labels, '2026-09-15',
+    );
+    expect(doc.filename).toBe('score-report-2026-09-15.md');
+    expect(doc.mime).toBe('text/markdown');
+    expect(doc.text).toContain('NO-LOOPS');
+  });
+});
+
+/**
+ * Why this block exists: buildScoreReport shipped fully written and tested, and
+ * nothing imported it — so from the founder's side the feature did not exist,
+ * while every test above was green. Unit tests prove a builder works; only a
+ * wiring assertion proves anyone can reach it.
+ */
+describe('item 4 — the report is wired, not merely built', () => {
+  const panel = read('src/components/home/ScoreHistoryPanel.tsx');
+
+  const productionSources = (dir: string, acc: string[] = []): string[] => {
+    for (const e of readdirSync(join(process.cwd(), dir), { withFileTypes: true })) {
+      const rel = `${dir}/${e.name}`;
+      if (e.isDirectory()) productionSources(rel, acc);
+      else if (/\.tsx?$/.test(e.name) && !/\.(test|spec)\.tsx?$/.test(e.name)) acc.push(rel);
+    }
+    return acc;
+  };
+
+  it('every report builder has a production caller outside its own module', () => {
+    const callers = productionSources('src/components').concat(productionSources('src/app'))
+      .map((f) => read(f));
+    for (const fn of ['buildScoreReport', 'buildScoreReportMarkdown']) {
+      expect(callers.some((src) => new RegExp(`\\b${fn}\\(`).test(src)), `${fn} has no caller`).toBe(true);
+    }
+  });
+
+  it('is offered on the Home score panel, beside the CSV', () => {
+    expect(panel).toMatch(/buildScoreReport\(\{/);
+    expect(panel).toMatch(/onClick=\{downloadReport\}/);
+    expect(panel).toMatch(/save\(buildScoreReportMarkdown\(/);
+    expect(read('src/components/home/ScorePanel.tsx')).toMatch(/<ScoreHistoryPanel projectId=\{projectId\} \/>/);
+  });
+
+  it('assembles client-side from Home\'s own queries, so nothing is stored', () => {
+    // The stages GET records stage transitions; a report route over it would
+    // write on every download. And ['stages'] has exactly one owner.
+    expect(panel).toMatch(/useStages\(projectId\)/);
+    expect(panel).toMatch(/useLoops\(projectId\)/);
+    expect(panel).not.toMatch(/fetch\(`[^`]*\/(stages|loops)`/);
+  });
+
+  it('speaks both languages', () => {
+    for (const key of ['score-history.download-report', 'score-history.report-title',
+      'score-history.report-no-headline', 'score-history.report-summary'] as const) {
+      expect(en[key]).toBeTruthy();
+      expect(itMessages[key]).toBeTruthy();
+      expect(itMessages[key]).not.toBe(en[key]);
+    }
   });
 });
