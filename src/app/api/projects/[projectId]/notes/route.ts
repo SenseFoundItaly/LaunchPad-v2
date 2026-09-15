@@ -4,7 +4,7 @@ import { tryProjectAccess } from '@/lib/auth/require-project-access';
 import { run, get } from '@/lib/db';
 import { recordFact } from '@/lib/memory/facts';
 import { extractEntitiesFromNote } from '@/lib/note-entity-extract';
-import { routeNoteToGraph } from '@/lib/note-graph-routing';
+import { routeNoteToGraph, NOTE_MAX_CHARS } from '@/lib/note-graph-routing';
 import { stageValidationProposal } from '@/lib/project-tools';
 
 /**
@@ -33,7 +33,9 @@ export async function POST(
 
   const text = typeof body.note === 'string' ? body.note.trim() : '';
   if (!text) return error('note is required', 400);
-  if (text.length > 4000) return error('note too long (max 4000 chars)', 400);
+  // Same constant the graph routing bounds its copy with — two literals here
+  // and there once let a note pass this check and get cut on the graph.
+  if (text.length > NOTE_MAX_CHARS) return error(`note too long (max ${NOTE_MAX_CHARS} chars)`, 400);
 
   const id = await recordFact({
     userId: auth.session.userId,
