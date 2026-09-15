@@ -58,6 +58,34 @@ export function isTourDeferred(): boolean {
 /** Fired by relaunchTour() so an already-mounted controller re-evaluates. */
 export const TOUR_START_EVENT = 'lp-tour-start';
 
+/**
+ * Fired by TourController as each step starts highlighting, BEFORE driver.js
+ * measures the target. detail: { target } (the step's selector, or undefined
+ * for a centered step).
+ *
+ * Why it exists: on a phone the Co-pilot page shows one pane at a time and
+ * hides the other with display:none (.lp-chat-shell in design-tokens.css). A
+ * hidden element still matches querySelector, so the optional chat-canvas step
+ * was NOT skipped — driver.js measured an all-zero rect and parked the
+ * spotlight and popover in the top-left corner over the chat. The page that
+ * owns the pane state listens and reveals the pane the step points at.
+ */
+export const TOUR_HIGHLIGHT_EVENT = 'lp-tour-highlight';
+
+export interface TourHighlightDetail {
+  target?: string;
+}
+
+/**
+ * Which Co-pilot pane must be visible for a tour target. Only the canvas lives
+ * in the Workspace pane; every other step on that page (the rail entry, the
+ * composer) is in or beside the Chat pane — so Prev from the canvas step, or
+ * any later step, puts the founder back where the page started.
+ */
+export function chatPaneForTourTarget(target: string | undefined): 'chat' | 'workspace' {
+  return target === '[data-tour="chat-canvas"]' ? 'workspace' : 'chat';
+}
+
 export function hasSeenDemoTour(): boolean {
   if (typeof window === 'undefined') return false;
   try {
