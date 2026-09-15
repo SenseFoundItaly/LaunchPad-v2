@@ -10,6 +10,8 @@
 import { describe, it, expect } from 'vitest';
 import { scoreTurn } from './chat-contract-scorer';
 import { responseContract } from './chat/response-contract';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 const SOURCES = '"sources":[{"type":"inference","title":"Synthesized from project context","based_on":[{"type":"internal","title":"Idea Canvas","ref":"research","ref_id":"idea_canvas:solution"}],"reasoning":"follows from the canvas"}]';
 
@@ -181,5 +183,28 @@ describe('chat contract scorer — the post-#485 hard rules', () => {
     expect(violationsOf(`Worth exploring.\n\n${commit}`, 'Just thinking out loud, no saving.')).toContain('no-save-in-discussion');
     // The same commit option is fine on a normal turn.
     expect(violationsOf(`Worth exploring.\n\n${commit}`)).not.toContain('no-save-in-discussion');
+  });
+});
+
+describe('the live eval cleans up after itself', () => {
+  // The eval cannot run in CI (real model calls), so its cleanup is pinned by
+  // source: dev and prod share one database, and a run that leaves one project
+  // per scenario behind writes permanent junk into production.
+  const evalSrc = readFileSync(join(process.cwd(), 'src/lib/chat-contract.eval.test.ts'), 'utf-8');
+
+  it('records every project it creates', () => {
+    expect(evalSrc).toMatch(/createdProjects\.push\(pid\)/);
+  });
+
+  it('deletes them in afterAll, so a failing run still cleans up', () => {
+    expect(evalSrc).toMatch(/afterAll\(deleteCreatedProjects/);
+    expect(evalSrc).toMatch(/method: 'DELETE'/);
+  });
+
+  it('sends the headers the DELETE route requires', () => {
+    // x-e2e-user: only the owner may delete. Content-Type: CSRF middleware 415s without it.
+    const del = evalSrc.slice(evalSrc.indexOf("method: 'DELETE'"), evalSrc.indexOf("method: 'DELETE'") + 160);
+    expect(del).toMatch(/'x-e2e-user': USER/);
+    expect(del).toMatch(/'Content-Type': 'application\/json'/);
   });
 });

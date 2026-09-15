@@ -18,7 +18,7 @@
 // CI) — that is what proves the harness detects real failure.
 // ============================================================================
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { scoreTurn, type ContractRule } from './chat-contract-scorer';
 import { CONTRACT_SCENARIOS } from './chat-contract.golden';
 
@@ -71,7 +71,40 @@ async function chatTurn(projectId: string, history: Array<{ role: string; conten
   return text;
 }
 
+// Every project this run creates, so afterAll can remove it.
+//
+// Dev and prod share ONE Supabase project (CLAUDE.md), so the dev server this
+// eval drives writes to production. Until 2026-09-15 each run left one project
+// per scenario — with its chat turns — behind for good. DELETE
+// /api/projects/{id} is owner-only and cascades to every child table, and this
+// eval's throwaway e2e user IS the owner, so it can clean up after itself.
+const createdProjects: string[] = [];
+
+/** Delete what the run created. Never throws: a cleanup failure must not mask
+ *  the eval's own result, but it must be loud, with ids, so the rows can be
+ *  removed by hand. Content-Type is required — the CSRF middleware 415s a
+ *  mutating /api call without it. */
+async function deleteCreatedProjects(): Promise<void> {
+  const failed: string[] = [];
+  for (const id of createdProjects) {
+    const res = await fetch(`${BASE}/api/projects/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'x-e2e-user': USER },
+    }).catch(() => null);
+    if (!res?.ok) failed.push(`${id} (${res?.status ?? 'network error'})`);
+  }
+  if (failed.length) {
+    console.warn(`\n⚠ contract eval: ${failed.length}/${createdProjects.length} project(s) NOT deleted — remove by hand: ${failed.join(', ')}`);
+  } else if (createdProjects.length) {
+    console.log(`\ncontract eval: cleaned up ${createdProjects.length} project(s)`);
+  }
+}
+
 describe.skipIf(!ENABLED)('EVAL — chat artifact contract', () => {
+  // afterAll, not the end of the test body: it still runs when an assertion
+  // fails or a turn throws mid-run — exactly when leftovers would otherwise pile up.
+  afterAll(deleteCreatedProjects, 120_000);
+
   it(
     'holds the Tier-0 contract across the golden scenarios',
     async () => {
@@ -92,6 +125,7 @@ describe.skipIf(!ENABLED)('EVAL — chat artifact contract', () => {
         }).then((r) => r.json());
         const pid = pr?.data?.project_id;
         if (!pid) { misses.push(`[${sc.name}] could not create project`); continue; }
+        createdProjects.push(pid);
 
         const history: Array<{ role: string; content: string }> = [];
         for (const prompt of sc.turns) {
