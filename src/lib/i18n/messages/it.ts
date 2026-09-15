@@ -881,6 +881,13 @@ export const it: Partial<Record<MessageKey, string>> = {
   'mvp.section-regulatory': 'Normative',
   'mvp.section-ip': 'Proprietà intellettuale',
   'mvp.section-data': 'Disponibilità dei dati',
+  // Topic della knowledge — le altre sezioni ad hoc della proposta 05/09.
+  'topics.title': 'Go-to-market, trend e idee',
+  'topics.subtitle': 'Come venderai, i trend intorno a te e i tuoi appunti sparsi — solo prove approvate. Si aggiorna mentre validi.',
+  'topics.section-gtm': 'Go-to-market',
+  'topics.section-market-trends': 'Trend di mercato',
+  'topics.section-tech-trends': 'Trend tech',
+  'topics.section-brainstorming': 'Brainstorming',
   // Roadmap dello stage (changelog 05/09 item 1).
   'canvas.planned-label': 'In arrivo',
   'canvas.planned-tip': 'In arrivo in questo stage. Non ancora lavorabili — nulla registra queste risposte, quindi non contano mai contro i tuoi progressi.',
