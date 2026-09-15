@@ -669,6 +669,10 @@ export const en = {
   'chat.show-earlier': 'Show earlier conversation ({count} more)',
   'chat.jump-to-latest-title': 'Scroll to the latest message',
   'chat.jump-to-latest': 'Jump to latest',
+  // Narrow-screen switch between the chat column and the canvas.
+  'chat.pane-switch-label': 'Show chat or workspace',
+  'chat.pane-chat': 'Chat',
+  'chat.pane-workspace': 'Workspace',
   // Echoed as the founder's own message when they click an option.
   'chat.i-choose': 'I choose: {choice}',
   // Chip fast-path canned confirmation (commit-fast-path.ts). Wording is
